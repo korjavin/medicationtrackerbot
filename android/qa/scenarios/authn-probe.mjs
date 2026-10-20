@@ -1,10 +1,11 @@
 // The decision for harness part 3 (bd med-nt9p.25): does a CDP virtual authenticator reach the
-// Android WebView's passkey path? PASS = the signup's create() finishes (the Emergency Kit page shows).
+// Android WebView's passkey path? PASS = the signup's create() finishes (the Emergency Kit offer
+// shows; the invite is opened with &kit=1 so the ceremony has a page to stop on).
 // The verdict is a finding, not a failure: it lands in results.authnProbe either way.
 export default async function authnProbe(ctx) {
   const verdict = { verdict: 'FAIL', error: 'the signup wizard never showed' };
   ctx.results.authnProbe = verdict;
-  const page = await ctx.step('invite opens the signup wizard', () => ctx.openClaim());
+  const page = await ctx.step('invite opens the signup wizard', () => ctx.openClaim({ kit: true }));
   verdict.error = '';
   try {
     const cdp = await page.context().newCDPSession(page);
@@ -17,7 +18,7 @@ export default async function authnProbe(ctx) {
     });
     ctx.log('virtual authenticator', authenticatorId);
     await page.click('#create-passkey');
-    const done = page.locator('#kit-saved');
+    const done = page.locator('#kit-done');
     const end = Date.now() + 60_000;
     while (Date.now() < end && !(await done.isVisible().catch(() => false))) await ctx.sleep(1000);
     await ctx.shot('after-create');

@@ -1,5 +1,6 @@
 // Emergency Kit save state, ceremony page → vault (bd med-ckm5.2). The kit page
-// (signup, /recover, the /devices regenerate flow) runs on signup.html, where
+// (the signup offer, /recover, the /devices regenerate flow — and a signup with
+// no offer, which files `none`, bd med-ta2n.8) runs on signup.html, where
 // no vault records port exists, so it leaves {savedAt, how} in this origin's
 // localStorage and cloud-boot files it into the synced `emergencykit` record
 // (web/domain/settings.js) on the next unlocked open. Storage blocked, or a

@@ -1,7 +1,9 @@
 // Claim/registration wizard: the passkey signup ceremony described in
 // docs/cloud-crypto.md "Signup (first device)". Drives the account shell
-// (signup.html's #app) through create-passkey -> Emergency Kit (with the
-// loss-protection ack) -> optional Telegram link -> optional AI trial, then enters the app itself. Each
+// (signup.html's #app) through sign in (W5, the passkey create; the copy never
+// says passkey) -> the Emergency Kit offer, only when the claim URL carries
+// &kit=1 (entered from Settings, bd med-ta2n.8) -> optional Telegram link ->
+// optional AI trial -> install, then enters the app itself. Each
 // screen is rendered fresh from the outcome of the previous step rather than a
 // stored step counter, per docs/cloud-mode.md Onboarding ("the wizard is
 // stateless").
@@ -17,19 +19,30 @@ import {
   toBase64,
 } from './crypto.js';
 import { establishLdkCache } from './unlock.js';
-import { createCredential, passkeyCeremony, prfProbe } from './passkey-get.js';
+import { createCredential, inAndroidShell, passkeyCeremony, prfProbe } from './passkey-get.js';
 import { diagHttp } from './passkey-diag.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 import { downloadDoc, printDoc } from './print-doc.js';
 import { stashKitSaved } from './kit-state.js';
 
-const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
+const EXPIRED_LINK_MESSAGE = "Couldn't start signing in — the invite link may be expired.";
+
+// W5 sign-in names the platform's own unlock, never "passkey" (design W5 · sign in).
+// ponytail: UA + shell probe; no fingerprint icon in the kit, so only Face ID gets one.
+function signInMethod() {
+  if (isIOS()) return { title: 'Sign in with Face ID', button: 'Continue with Face ID', with: 'Face ID', device: 'this phone', icon: 'faceid' };
+  if (inAndroidShell() || isMobile()) return { title: 'Sign in with your fingerprint', button: 'Continue with fingerprint', with: 'your fingerprint', device: 'this phone' };
+  return { title: 'Sign in with this device', button: 'Continue', with: 'this device', device: 'this device' };
+}
+
 // Android shell's steady busy step (passkey-get.js passkeyCeremony).
-const CREATE_CEREMONY_COPY = {
-  busy: 'Setting up your passkey…',
-  hint: 'Google will then ask you to confirm the passkey you just created — choose it to finish.',
-  failed: "Couldn't set up your passkey. Tap Create your passkey to try again.",
-};
+function createCeremonyCopy(method) {
+  return {
+    busy: 'Signing you in…',
+    hint: 'Google will then ask you to confirm the sign-in you just created — choose it to finish.',
+    failed: `Couldn't finish signing in. Tap ${method.button} to try again.`,
+  };
+}
 
 // Android/desktop fire `beforeinstallprompt` when the origin becomes
 // installable — which can happen well before the wizard reaches its install
@@ -45,10 +58,15 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 }
 
 // Probe register/begin before rendering: a claimed link must never show
-// "Create your passkey". The probe's challenge cookie is harmlessly overwritten
+// the sign-in button. The probe's challenge cookie is harmlessly overwritten
 // when the user clicks through and startRegistration calls begin again.
-export async function runSignupWizard(claimToken) {
+// opts.kit: the claim fragment's &kit=1 (app.js) — the ceremony was entered
+// from Settings, so it ends on the Emergency Kit offer. Without it (P3, an old
+// shell's paste screen, a plain invite link) there is no kit page; the
+// Settings Kit chip reminds instead.
+export async function runSignupWizard(claimToken, opts = {}) {
   const app = document.getElementById('app');
+  const kit = opts.kit === true;
   // The probe is a network round-trip; without this #app would be blank until
   // it resolves (and forever on a hung connection).
   renderChecking(app);
@@ -56,7 +74,7 @@ export async function runSignupWizard(claimToken) {
   try {
     res = await beginRegistration(claimToken);
   } catch (err) {
-    renderWelcome(app, claimToken, err.message || String(err));
+    renderWelcome(app, claimToken, kit, err.message || String(err));
     return;
   }
   if (res.status === 409) {
@@ -66,7 +84,7 @@ export async function runSignupWizard(claimToken) {
       return;
     }
   }
-  renderWelcome(app, claimToken, res.ok ? undefined : EXPIRED_LINK_MESSAGE);
+  renderWelcome(app, claimToken, kit, res.ok ? undefined : EXPIRED_LINK_MESSAGE);
 }
 
 function beginRegistration(claimToken) {
@@ -107,35 +125,40 @@ function renderAlreadyClaimed(app) {
   });
 }
 
-function renderWelcome(app, claimToken, errorText) {
+// W5 · sign in (screens-onboarding-v3.html). The extras' egress list lives in
+// Settings → Account & privacy; this page keeps one privacy sentence.
+// #create-passkey stays the button id: the Android QA scenarios drive it.
+function renderWelcome(app, claimToken, kit, errorText) {
+  const method = signInMethod();
   app.innerHTML = `
-    <section class="wizard-step">
-      <h1>Welcome to Med Tracker Cloud</h1>
-      <p>Your vault is encrypted on this device. This server only stores an
-         encrypted bundle it cannot read, and rings your reminders.</p>
-      <p>Some optional extras send data outside the vault and are not
-         end-to-end encrypted. Telegram, trial AI, trial voice, and the hosted
-         Claude connector stay off until you switch them on. Food search and
-         drug lookups have no switch — they go through an operator proxy
-         whenever you use them. Settings lists exactly what each one shares.</p>
-      <button id="create-passkey" class="wg-btn wg-btn--primary">Create your passkey</button>
+    <section class="kit-page">
+      <div class="wg-content wg-shell--center kit-page__signin">
+        <span class="wg-mark wg-mark--lg"><i class="wg-ico" data-icon="pill"></i></span>
+        <h1 class="wg-shell__title wg-shell__title--md">${method.title}</h1>
+        <p class="wg-shell__lede">That's your login from now on. There's no password to remember.</p>
+      </div>
+      <footer class="wg-pagefoot">
+        <button id="create-passkey" class="wg-btn wg-btn--primary wg-btn--lg">${method.icon ? `<i class="wg-ico" data-icon="${method.icon}"></i>` : ''}${method.button}</button>
+        <p class="wg-hint">The server stores your log but can't read it.</p>
+      </footer>
     </section>`;
+  globalThis.WGIcons?.hydrate?.(app);
   // Error text may carry a browser exception message; render via textContent,
   // never interpolated into innerHTML (this page holds the DEK — XSS here reads it).
   if (errorText) {
     const p = document.createElement('p');
     p.className = 'wizard-error';
     p.textContent = errorText;
-    app.querySelector('section').appendChild(p);
+    app.querySelector('.kit-page__signin').appendChild(p);
   }
   app.querySelector('#create-passkey').addEventListener('click', () => {
-    passkeyCeremony(app, CREATE_CEREMONY_COPY, () => startRegistration(app, claimToken)).catch((err) => {
-      renderWelcome(app, claimToken, err.message || String(err));
+    passkeyCeremony(app, createCeremonyCopy(method), () => startRegistration(app, claimToken, kit)).catch((err) => {
+      renderWelcome(app, claimToken, kit, err.message || String(err));
     });
   });
 }
 
-async function startRegistration(app, claimToken) {
+async function startRegistration(app, claimToken, kit) {
   const beginRes = diagHttp('register/begin', await beginRegistration(claimToken));
   // The probe said "pending", but another tab/device may have claimed the invite
   // between then and this click. 409 is register/begin's only conflict status and
@@ -202,13 +225,21 @@ async function startRegistration(app, claimToken) {
     renderAlreadyClaimed(app);
     return;
   }
-  if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
+  if (!finishRes.ok) throw new Error("Couldn't finish signing in. Please try again.");
 
-  await showSignupKit(app, { accountId, dek });
+  const ctx = { accountId, dek };
+  if (kit) {
+    await showSignupKit(app, { ...ctx, offer: true });
+    return;
+  }
+  // No kit yet: file an explicit "not saved" so the Settings Kit chip reminds
+  // (regenerate = /devices?flow=emergency-kit) rather than relying on a missing record.
+  stashKitSaved({ savedAt: Date.now(), how: 'none' });
+  await renderTelegramStep(app, ctx);
 }
 
 // The account exists from here on, so a failed kit upload must not fall back
-// to "Create your passkey" (the claim is spent): retry the kit in place.
+// to the sign-in step (the claim is spent): retry the kit in place.
 function showSignupKit(app, ctx) {
   return renderEmergencyKit(app, ctx).catch((err) => {
     app.innerHTML = `
@@ -242,30 +273,28 @@ export function renderUnsupportedAuthenticator(app) {
     </section>`;
 }
 
-// Signup's tail after the kit page: the server-side loss acknowledgement
-// (POST /api/loss-ack — the kit page's "I saved it" is that acknowledgement
-// now, bd med-ckm5.2), then the optional Telegram step.
+// Signup's tail after the kit offer: the server-side loss acknowledgement
+// (POST /api/loss-ack — the offer's "Nobody can reset it for you" fact, then
+// Done, is that acknowledgement now, bd med-ta2n.8), then the optional Telegram step.
 async function finishSignupKit(app, ctx) {
   const res = await fetch('/api/loss-ack', { method: 'POST' });
   if (!res.ok) throw new Error('Could not save your acknowledgment. Try again.');
   return renderTelegramStep(app, ctx);
 }
 
-// The one Emergency Kit page (bd med-ckm5.2, design O1 in
-// screens-onboarding.html): loss protection and the kit together, three
-// disclosures, an "I saved it" choice, Continue docked in .wg-pagefoot.
-//
-// Exported so recover.js re-renders the identical Emergency Kit screen for
-// the forced code rotation after a successful recovery redemption, and so
-// devices.js can offer "Regenerate Emergency Kit" (med-d5t.12), rather than a
-// second copy of this ceremony. ctx.onKitSaved, if given, replaces the default
-// loss-ack-then-telegram tail (recover.js redirects to the already-unlocked
-// vault itself) and drops signup's step indicator; ctx.continueLabel renames
-// its button.
+// The Emergency Kit, in two shapes over the same minted kit:
+// - ctx.offer (signup with &kit=1, bd med-ta2n.8, design W5 · kit): renderKitOffer —
+//   two facts, Save/Print, Done always enabled, no acknowledgement choice.
+// - otherwise the O1 page (bd med-ckm5.2, design O1 in screens-onboarding.html):
+//   loss protection and the kit together, three disclosures, an "I saved it"
+//   choice, Continue docked in .wg-pagefoot. Used by recover.js (the forced
+//   code rotation after a recovery redemption) and devices.js ("Regenerate
+//   Emergency Kit", med-d5t.12); both pass ctx.onKitSaved, which replaces the
+//   loss-ack-then-telegram fallback tail; ctx.continueLabel renames its button.
 //
 // Every caller is a rotation of the same shape: mint a code, re-wrap the DEK,
-// upload envelope + verifier atomically, then ask the user to save it (a
-// download or print, or "I saved it" at their own risk). The
+// upload envelope + verifier atomically, then offer to save it (a download or
+// print; on O1 also "I saved it" at the user's own risk). The
 // upload happens BEFORE the kit renders, so any failure leaves the previous
 // recovery material untouched and the old code still working.
 export async function renderEmergencyKit(app, ctx) {
@@ -307,8 +336,11 @@ export async function renderEmergencyKit(app, ctx) {
 
   const qrSvg = qr.createSvgTag(4);
   const kitDoc = buildKitDocument({ kitUrl, accountId: ctx.accountId, formatted, qrSvg });
+  if (ctx.offer) {
+    renderKitOffer(app, ctx, kitDoc);
+    return;
+  }
 
-  const signup = !ctx.onKitSaved;
   const disc = (icon, title, desc, body, extra = '', leadId = '') => `
         <details class="wg-disc">
           <summary><span class="wg-row__lead${icon === 'alert' ? ' wg-row__lead--sun' : ''}"${leadId}><i class="wg-ico" data-icon="${icon}"></i></span><span class="wg-setting__body"><span class="wg-setting__title">${title}</span><span class="wg-setting__desc"${extra ? ' id="kit-save-desc"' : ''}>${desc}</span></span>${extra}<i class="wg-ico wg-disc__chev" data-icon="chev-d"></i></summary>
@@ -318,7 +350,6 @@ export async function renderEmergencyKit(app, ctx) {
     <section class="kit-page">
       <div class="wg-content">
         <div class="wg-vstack">
-          ${signup ? '<span class="wg-hstack"><span class="wg-steps"><i class="is-done"></i><i class="is-done"></i><i class="is-now"></i><i></i><i></i></span><span class="wg-meta">Step 3 of 5</span></span>' : ''}
           <h1 class="wg-shell__title">Save your Emergency Kit</h1>
           <p class="wg-shell__lede">It's the only way back in if you lose every passkey.</p>
         </div>
@@ -412,6 +443,68 @@ export async function renderEmergencyKit(app, ctx) {
         error.hidden = false;
         button.disabled = false;
       });
+  });
+}
+
+// W5 · kit (screens-onboarding-v3.html): the kit as an offer right after sync
+// turns on. Two facts, Save/Print side by side, Done always enabled — an offer,
+// not a gate. Done without a save files how: 'none', so the Settings Kit chip
+// keeps reminding; a save files download|print as the O1 page does.
+function renderKitOffer(app, ctx, kitDoc) {
+  const method = signInMethod();
+  app.innerHTML = `
+    <section class="kit-page">
+      <div class="wg-content">
+        <div class="wg-vstack">
+          <span class="wg-chip wg-chip--ok"><i class="wg-ico" data-icon="check"></i>Sync is on</span>
+          <h1 class="wg-shell__title">One more thing: a way back in</h1>
+          <p class="wg-shell__lede">You sign in with ${method.with}. If you ever lose every device, this one-page Emergency Kit gets you back in.</p>
+        </div>
+        <ul class="wg-facts wg-facts--sm">
+          <li><i class="wg-ico" data-icon="print"></i><span><b>Print it or save it</b>Keep it somewhere other than ${method.device}.</span></li>
+          <li class="is-warn"><i class="wg-ico" data-icon="user"></i><span><b>Nobody can reset it for you</b>Not even the people who run the server.</span></li>
+        </ul>
+        <div class="wg-hstack">
+          <button type="button" id="kit-download" class="wg-btn wg-spacer"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Save kit</button>
+          <button type="button" id="kit-print" class="wg-btn wg-spacer"><i class="wg-ico wg-ico--sm" data-icon="print"></i>Print</button>
+        </div>
+        <p class="wizard-error" id="kit-error" hidden></p>
+      </div>
+      <footer class="wg-pagefoot">
+        <button type="button" id="kit-done" class="wg-btn wg-btn--primary wg-btn--lg">Done</button>
+        <p class="wg-hint" id="kit-hint">Skip for now and Settings will remind you.</p>
+      </footer>
+    </section>`;
+  globalThis.WGIcons?.hydrate?.(app);
+  const q = (sel) => app.querySelector(sel);
+
+  let produced = null; // { how: 'download' | 'print', at }
+  const markProduced = (how) => {
+    produced = { how, at: Date.now() };
+    q('#kit-hint').textContent = how === 'download' ? 'Kit saved. Keep it somewhere safe.' : 'Kit sent to the printer. Keep the page somewhere safe.';
+  };
+  q('#kit-download').addEventListener('click', () => {
+    // Same fallback as the O1 page: a refused Blob download opens the printable view.
+    if (downloadKit(kitDoc, ctx.accountId)) markProduced('download');
+    else { printKit(kitDoc); markProduced('print'); }
+  });
+  q('#kit-print').addEventListener('click', () => {
+    printKit(kitDoc);
+    markProduced('print');
+  });
+
+  const done = q('#kit-done');
+  done.addEventListener('click', () => {
+    if (done.disabled) return;
+    done.disabled = true;
+    const error = q('#kit-error');
+    error.hidden = true;
+    stashKitSaved(produced ? { savedAt: produced.at, how: produced.how } : { savedAt: Date.now(), how: 'none' });
+    finishSignupKit(app, ctx).catch((err) => {
+      error.textContent = err.message || String(err);
+      error.hidden = false;
+      done.disabled = false;
+    });
   });
 }
 

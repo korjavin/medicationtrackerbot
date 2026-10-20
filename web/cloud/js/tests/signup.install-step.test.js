@@ -87,14 +87,12 @@ afterEach(() => {
   delete globalThis.location;
 });
 
-// Drives the wizard tail (Emergency Kit → Telegram(auto) → install step). The
-// Emergency Kit gate itself is covered in signup.emergency-kit.test.js; print
-// rather than download to avoid jsdom's "navigation not implemented" on <a download>.
+// Drives the wizard tail (Emergency Kit offer → Telegram(auto) → install step).
+// The offer itself is covered in signup.emergency-kit.test.js.
 async function reachInstallStep(ctx = CTX) {
   const app = dom.window.document.getElementById('app');
-  await renderEmergencyKit(app, ctx);
-  app.querySelector('#kit-print').click(); // also ticks "I saved it"
-  app.querySelector('#kit-continue').click();
+  await renderEmergencyKit(app, { ...ctx, offer: true });
+  app.querySelector('#kit-done').click();
   return app;
 }
 
