@@ -13,8 +13,8 @@ const STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/state.js'
 // The step tracker persists the current first-run screen to
 // sessionStorage so a mid-flow process kill resumes at the last visible
 // step on the next bootstrap. A full device power-cycle wipes
-// sessionStorage; the flow restarts from "welcome" — intentional per
-// the plan's resume-semantics analysis.
+// sessionStorage; the flow restarts from "features" (the W1 picker,
+// bd med-ta2n.1) — intentional per the plan's resume-semantics analysis.
 
 const SHELL_HTML = `<!doctype html><html><body></body></html>`;
 
@@ -31,70 +31,57 @@ function loadState() {
 }
 
 describe('WGFirstRun.state — step tracker', () => {
-    it('defaults to "welcome" when sessionStorage is empty', () => {
+    it('defaults to "features" when sessionStorage is empty', () => {
         const { window, cleanup } = loadState();
         try {
-            expect(window.WGFirstRun.state.getStep()).toBe('welcome');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
         } finally { cleanup(); }
     });
 
     it('setStep persists a valid step to sessionStorage under wg-firstrun-step', () => {
         const { window, cleanup } = loadState();
         try {
-            window.WGFirstRun.state.setStep('features');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('features');
-            expect(window.WGFirstRun.state.getStep()).toBe('features');
+            window.WGFirstRun.state.setStep('integrations');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
         } finally { cleanup(); }
     });
 
     it('setStep ignores unknown step names (defensive against caller typos)', () => {
         const { window, cleanup } = loadState();
         try {
-            window.WGFirstRun.state.setStep('welcome');
+            window.WGFirstRun.state.setStep('integrations');
             window.WGFirstRun.state.setStep('not-a-real-step');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('welcome');
-            expect(window.WGFirstRun.state.getStep()).toBe('welcome');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
         } finally { cleanup(); }
     });
 
-    it('getStep falls back to default when sessionStorage holds an invalid value', () => {
+    // A session that was mid-flow on the pre-v3 overlay holds one of the
+    // removed steps: it lands on the picker, not on an empty panel.
+    it('getStep falls back to default for an invalid or removed step name', () => {
         const { window, cleanup } = loadState();
         try {
-            // Direct write bypasses setStep's validation — simulates a stale
-            // entry from an older app version with different step names.
-            window.sessionStorage.setItem('wg-firstrun-step', 'corrupted');
-            expect(window.WGFirstRun.state.getStep()).toBe('welcome');
+            for (const stale of ['corrupted', 'welcome', 'done']) {
+                window.sessionStorage.setItem('wg-firstrun-step', stale);
+                expect(window.WGFirstRun.state.getStep()).toBe('features');
+            }
         } finally { cleanup(); }
     });
 
     it('clear() removes the key so the next getStep returns the default', () => {
         const { window, cleanup } = loadState();
         try {
-            window.WGFirstRun.state.setStep('done');
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
-
+            window.WGFirstRun.state.setStep('integrations');
             window.WGFirstRun.state.clear();
             expect(window.sessionStorage.getItem('wg-firstrun-step')).toBeNull();
-            expect(window.WGFirstRun.state.getStep()).toBe('welcome');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
         } finally { cleanup(); }
     });
 
     it('exposes the canonical step list under VALID_STEPS', () => {
         const { window, cleanup } = loadState();
         try {
-            expect(Array.from(window.WGFirstRun.state.VALID_STEPS)).toEqual([
-                'welcome', 'features', 'integrations', 'done',
-            ]);
-        } finally { cleanup(); }
-    });
-
-    it('round-trips every valid step', () => {
-        const { window, cleanup } = loadState();
-        try {
-            for (const step of window.WGFirstRun.state.VALID_STEPS) {
-                window.WGFirstRun.state.setStep(step);
-                expect(window.WGFirstRun.state.getStep()).toBe(step);
-            }
+            expect(Array.from(window.WGFirstRun.state.VALID_STEPS)).toEqual(['features', 'integrations']);
         } finally { cleanup(); }
     });
 });

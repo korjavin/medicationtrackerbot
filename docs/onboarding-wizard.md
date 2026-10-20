@@ -124,10 +124,21 @@ point — `med-4pz.4`'s Emergency Kit nudge is the one screen we want people to 
 
 The claim wizard used to end at `renderDone`, a terminal screen ("the full app arrives with the next update")
 with no button and no redirect. It is gone. The sequence is now
-`welcome → (unsupported-authenticator) → Emergency Kit (with the loss-ack) → (telegram) → (trial) → (install) → enterApp`.
-The Emergency Kit page (bd `med-ckm5.2`, design O1) is one page: "I saved my Emergency Kit" alone unlocks
-Continue, which POSTs `/api/loss-ack`; the save state (`download | print | ack`, or `none` while a fresh code is unconfirmed) goes to the synced
-`emergencykit` vault record via `web/cloud/js/kit-state.js` on the next unlocked open.
+`sign in → (unsupported-authenticator) → [kit offer, only with &kit=1] → (telegram) → (trial) → (install) → enterApp`.
+
+Since bd `med-ta2n.8` (onboarding v3, design W5): the first screen is **W5 · sign in** ("Sign in with Face ID" /
+"your fingerprint" / "this device" from the UA and shell, one privacy sentence, never the words passkey / vault /
+encrypt). The Emergency Kit is an **offer**, not a gate, and only when the claim fragment carries `&kit=1`
+(`#claim=<token>&kit=1`, appended by the web when sync was turned on from Settings; shells pass the fragment
+through untouched; `app.js` reads it next to `claim`). The offer (W5 · kit) mints the code exactly like the O1
+page, shows two facts, Save kit / Print and Done; Done POSTs `/api/loss-ack` and files `download | print` after a
+save, else `none`. Without the flag — the P3 "Turn on sync?" path, a plain invite link, **and an invite pasted
+into an older native first-run screen** — there is no kit page and no recovery code is minted at signup; the
+wizard files `emergencykit` `how: 'none'` and the Settings Kit chip (bd `med-ckm5.6`) reminds (regenerate =
+`/devices?flow=emergency-kit`). That older-shell case is accepted (bd `med-ta2n.8` breakage review). The `&kit=1`
+producer is the web's "Turn on sync" path (bd `med-ta2n.7`). The O1 page
+(`renderEmergencyKit` without `offer`: "I saved it" unlocks Continue, `ack` at the user's own risk) stays for
+`/recover`'s forced rotation and the `/devices` regenerate flow. Kit record values are unchanged.
 
 `enterApp(ctx)` (`web/cloud/js/signup.js`) establishes the LDK warm cache with the ceremony's `{dek, accountId}`
 and then navigates `location.href = '/'`, exactly as `renderDeviceList`'s `onExit` already does
@@ -136,7 +147,8 @@ top of the real app.
 
 The cache is established **at the tail, not right after `register/finish`** (which is what `claim.js:167-173`
 does, because enrollment is its last step). Caching early would let a user who abandons at the Emergency Kit
-reload straight into the app having never saved a recovery code.
+offer reload straight into the app having never saved a recovery code. (Without `&kit=1` there is no code to
+save at signup at all; the Settings Kit chip carries that.)
 
 `establishLdkCache` failure is swallowed and we navigate anyway: a storage-blocked browser lands on `/`,
 `cloud-boot`'s `warmUnlock` fails, and it is routed to `/unlock` to sign in with the passkey it just created.
@@ -146,7 +158,7 @@ Degraded, not dead-ended.
 warm cache was already established by `enrollWithToken`.
 
 Onboarding therefore starts **after** the Emergency Kit, **inside** the real app — as the bead requires — and
-the claim wizard keeps exactly one job: get a passkey and a recovery code. No duplicated step machinery: the
+the claim wizard keeps exactly one job: get a passkey (and, entered from Settings, offer the recovery code). No duplicated step machinery: the
 claim wizard uses `wizard-step` (defined in `web/cloud/css/cloud.css:15`, **shell-only**, not loaded by
 `web/static`), and onboarding uses `.wg-firstrun-overlay` (end of `web/static/css/components.css`). Two different
 documents, two different primitives, no sharing needed. That is the correct boundary, not an accident.

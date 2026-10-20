@@ -60,9 +60,11 @@ const TRIALCONSENT_SCOPES = ['ai', 'voice', 'tg', 'anon'];
 // Whether the CURRENT Emergency Kit was saved (bd med-ckm5.2, epic med-ckm5
 // decision 4): {savedAt, how: download|print|ack|none}, written by the kit
 // page and read by Settings (S6 chip, S9 row). Synced so the wording is true
-// across devices. `none` = a new code was issued (the old kit is dead) and
-// nobody confirmed saving it yet — the page stashes it before Continue, so an
-// abandoned rotation reads as unsaved. setEmergencyKit keeps the newer
+// across devices. `none` = no saved kit for the current code: either a new
+// code was issued (the old kit is dead) and nobody confirmed saving it yet —
+// the page stashes it before Continue, so an abandoned rotation reads as
+// unsaved — or signup ran without the kit offer and no code exists yet
+// (bd med-ta2n.8). Either way: remind, and regenerate makes a fresh kit. setEmergencyKit keeps the newer
 // savedAt, so a stash filed late (cloud-boot drains it on the next unlocked
 // open) never replaces a newer kit state from another device.
 // Not in VAULT_MANAGED_TYPES: a backup restored into another account must not
@@ -176,13 +178,18 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return !!(rec && rec.first_run_complete);
   }
 
-  async function setFirstRunComplete(done) {
-    await records.put(FIRSTRUN_RECORD_TYPE, {
+  // picked (bd med-ta2n.1): the W1 module picks, in picker order ('diary' has
+  // no feature flag), read by the W3 Today hints. A deliberate user write, so
+  // now() + put — not a derived row.
+  async function setFirstRunComplete(done, picked) {
+    const rec = {
       recordId: FIRSTRUN_RECORD_ID,
       clientTs: now(),
       deleted: false,
       first_run_complete: !!done,
-    });
+    };
+    if (Array.isArray(picked)) rec.picked = picked.filter((k) => typeof k === 'string');
+    await records.put(FIRSTRUN_RECORD_TYPE, rec);
     return !!done;
   }
 

@@ -625,7 +625,7 @@ export function createApiRouter(ctx, {
     }
 
     if (path === '/api/firstrun/complete' && method === 'POST') {
-      await settings.setFirstRunComplete(true);
+      await settings.setFirstRunComplete(true, body && body.picked);
       return { success: true };
     }
 

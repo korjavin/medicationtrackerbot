@@ -65,6 +65,9 @@ struct RootView: View {
         .onChange(of: launchDone, initial: true) { _, done in
             if done { withAnimation(.easeOut(duration: 0.18)) { launchMark = false } }
         }
+        // Invite links (bd med-ta2n.11): the landing universal link and the
+        // medtracker:// scheme both arrive here, cold or warm.
+        .onOpenURL { shell.capture($0) }
         .alert("Diagnostics copied", isPresented: $shell.diagCopied) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -222,6 +225,13 @@ struct FirstRunView: View {
             resumable = !moving && LocalOrigin.offersResume(host: shell.host, local: shell.local, dataDirs: LocalOrigin.dataDirs().count)
             // "There is no account at …": the address stays in the field, to fix in place.
             if text.isEmpty, shell.firstRunMessage != nil, let gone = shell.firstRunInput { text = gone }
+        }
+        // A captured invite link (bd med-ta2n.11) waits in the field: the user taps Continue to open it.
+        .onChange(of: shell.pendingInvite, initial: true) { _, url in
+            if let url {
+                text = url
+                error = nil
+            }
         }
         .sheet(isPresented: $scanning) {
             VStack(spacing: 0) {

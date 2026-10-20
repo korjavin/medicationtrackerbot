@@ -563,13 +563,29 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
     gap: var(--space-lg);
 }
 
+/* Kit .wg-shell__title does the type; this only drops the h2 margin. */
 .wg-firstrun-overlay__title {
     margin: 0;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xl);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-    letter-spacing: 0.01em;
+}
+
+/* The kit's display:flex rules (.wg-shell__brand, .wg-steps) beat the UA
+   [hidden] rule; the orchestrator toggles brand vs step bars with it. */
+.wg-firstrun-overlay [hidden] {
+    display: none;
+}
+
+/* W1 footer (bd med-ta2n.1): the kit .wg-shell__foot docked to the bottom of
+   the scrolling overlay — primary on top, Skip / "Have an invite?" below. */
+.wg-firstrun-foot {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--wg-line);
+    background: var(--wg-bg-stage);
 }
 
 .wg-firstrun-overlay__body {
@@ -599,46 +615,6 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 
 /* Buttons are the kit's .wg-btn variants (components.css); the step
    indicator above the title is the kit's .wg-steps. */
-
-/* Capability blurbs on the final screen (med-1mn) — MCP and the voice agent,
-   the two things onboarding otherwise never mentions. All values resolve via
-   design tokens. */
-.wg-firstrun-capabilities {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-}
-
-.wg-firstrun-capability {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    padding: var(--space-md);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--wg-border-strong);
-    background: var(--wg-bg-card);
-}
-
-.wg-firstrun-capability__label {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-}
-
-.wg-firstrun-capability__copy {
-    margin: 0;
-    color: var(--wg-fg-2);
-    font-size: var(--font-size-sm);
-    line-height: 1.4;
-}
-
-.wg-firstrun-capability__link {
-    align-self: flex-start;
-    color: var(--wg-fg-1);
-    font-size: var(--font-size-sm);
-    text-decoration: underline;
-}
 
 /* Integrations form (Task 6) — labelled inputs stacked vertically with
    a generous tap target. The inline error slot renders empty by default
@@ -694,58 +670,4 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 
 .wg-firstrun-form__error:empty {
     display: none;
-}
-
-/* Feature picker rows (med-4pz.2) — label + one-line copy on the left, a
-   checkbox on the right. All visual values resolve via design tokens
-   (CLAUDE.md rule #3). */
-.wg-firstrun-features {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-firstrun-feature {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-    padding: var(--space-md);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--wg-border-strong);
-    background: var(--wg-bg-card);
-}
-
-.wg-firstrun-feature__text {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.wg-firstrun-feature__label {
-    display: block;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-}
-
-.wg-firstrun-feature__copy {
-    margin: 0;
-    color: var(--wg-fg-2);
-    font-size: var(--font-size-sm);
-    line-height: 1.4;
-}
-
-/* Sized up from the 13px UA default so the row is a comfortable tap target
-   on a phone, which is where the overlay is most often seen. */
-.wg-firstrun-feature__toggle {
-    flex: 0 0 auto;
-    width: var(--space-lg);
-    height: var(--space-lg);
-    accent-color: var(--wg-teal);
-    cursor: pointer;
-}
-
-.wg-firstrun-feature__toggle:disabled {
-    cursor: progress;
-    opacity: 0.6;
 }

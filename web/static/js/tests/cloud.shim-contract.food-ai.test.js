@@ -648,7 +648,7 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             enableTrialAI(env);
             const dir = new URL('../features/firstrun/', import.meta.url);
             window.sessionStorage.setItem('wg-firstrun-step', 'integrations');
-            for (const f of ['state.js', 'screens/integrations.js', 'screens/done.js', 'index.js']) {
+            for (const f of ['state.js', 'screens/integrations.js', 'index.js']) {
                 window.eval(readFileSync(new URL(f, dir), 'utf8'));
             }
             window.WGFirstRun.mount({ needs_first_run: true });
@@ -658,7 +658,8 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             const modal = document.querySelector('.wg-trial-consent-modal[data-trial-consent-scope="ai"]');
             expect(modal).not.toBeNull();
             modal.querySelector('[data-trial-consent-choice="allow"]').click();
-            await vi.waitFor(() => expect(window.WGFirstRun.state.getStep()).toBe('done'));
+            // No done screen (bd med-ta2n.1): moving on completes the flow.
+            await vi.waitFor(() => expect(window.WGFirstRun.isActive()).toBe(false));
             const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
             expect(consent.ai).toBe(true);
             expect(consent.tg).not.toBe(true);

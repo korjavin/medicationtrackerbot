@@ -49,6 +49,10 @@ targets:
       properties:
         com.apple.developer.associated-domains:
           - "webcredentials:*.$(WG_BASE_DOMAIN)"
+          # Invite landing https://<base>/i/<sub>#<token> opens the app (bd
+          # med-ta2n.11; the AASA applinks component /i/* is server-side). The
+          # base only: account subdomains never become universal links.
+          - "applinks:$(WG_BASE_DOMAIN)"
         # Apple Health, read-only (bd med-w6gx.6, ios/App/Health.swift).
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
@@ -83,6 +87,11 @@ targets:
           - UIApplicationShortcutItemType: copy-diagnostics
             UIApplicationShortcutItemTitle: Copy diagnostics
             UIApplicationShortcutItemIconSymbolName: doc.on.clipboard
+        # medtracker://i/<sub>#<token> (bd med-ta2n.11): the landing page's
+        # "Open in the app" — Safari will not open a universal link to the host it is on.
+        CFBundleURLTypes:
+          - CFBundleURLName: invite
+            CFBundleURLSchemes: [medtracker]
         # First-run accepts only accounts at <sub>.<this> (Shell.swift, AccountURL.swift).
         WGBaseDomain: $(WG_BASE_DOMAIN)
         # The app's screens are dark (--wg-bg-screen) in both system appearances.

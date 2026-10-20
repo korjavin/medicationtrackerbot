@@ -168,6 +168,12 @@
             // the Simulator, no trial keys in the cloud tier): open it directly.
             // The promise stays pending; the shot is taken with the sheet up.
             window.TrialConsent.request(step.consent);
+        } else if (step.firstrun) {
+            // The W1 picker over the seeded vault (bd med-ta2n.1): the seed
+            // completed first run, so open the overlay the way Settings →
+            // "Re-run onboarding" does. Nothing is written until a tap.
+            window.WGFirstRun.state.clear();
+            window.WGFirstRun.mount({ needs_first_run: true });
         } else if (step.trial) {
             // The AI-trial card (kit A1) has no natural state on CI either (no
             // App Attest, and the seed vault has its own OpenAI key): stub what
