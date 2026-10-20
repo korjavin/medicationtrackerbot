@@ -1207,29 +1207,26 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 beforeAll(() => { healthOn = false; });
                 afterAll(() => { healthOn = true; });
 
-                it('"Your invite is here" holds W1 until Use without sync; the slot is kept and W1 has no invite footer', async () => {
+                // The boot promise is what auth-bootstrap.js waits on before
+                // WGFirstRun.mount (features.auth-bootstrap.test.js); the W1
+                // footer's own slot check hides "Have an invite?" (med-ta2n.1).
+                it('"Your invite is here" holds the W1 gate until Use without sync; the slot is kept', async () => {
                     const { window, document } = env;
                     window.LocalNotifications.copy = { os: 'Android', device: 'phone' };
                     slotted({ url: CLAIM, receivedAt: Date.now() });
-                    let mounted = false;
-                    window.InviteSheet.boot().then(() => {
-                        mounted = true;
-                        window.WGFirstRun.mount({ needs_first_run: true });
-                    });
+                    let released = false;
+                    window.InviteSheet.boot().then(() => { released = true; });
                     const screen = await ready(document);
                     expect(screen.textContent).toMatch(/Your invite is here/);
                     expect(screen.textContent).toMatch(/Sign in with your fingerprint/);
                     expect(screen.querySelector('[data-invite-action="sign-in"]').textContent).toBe('Sign in with fingerprint');
                     await new Promise((r) => { setTimeout(r, 20); });
-                    expect(mounted).toBe(false);
+                    expect(released).toBe(false);
                     tap(screen, 'without-sync');
-                    await vi.waitFor(() => expect(window.WGFirstRun.isActive()).toBe(true));
+                    await vi.waitFor(() => expect(released).toBe(true));
                     expect(document.getElementById('invite-ready')).toBeNull();
                     expect(bridge).not.toHaveBeenCalledWith('invite.clear');
-                    await new Promise((r) => { setTimeout(r, 20); });
-                    expect(document.querySelector('[data-firstrun-action="invite"]')).toBeNull();
                     expect(leaveOps()).toEqual([]);
-                    window.WGFirstRun.dismiss();
                 });
 
                 it('Sign in → move.stash then local.leave {url}', async () => {
