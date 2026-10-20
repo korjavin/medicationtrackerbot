@@ -26,7 +26,9 @@ const SHELL_HTML = `<!doctype html><html><body></body></html>`;
 
 const TRACKING_KEYS = ['medication', 'bp', 'weight', 'food', 'workout', 'health'];
 
-function loadFlow({ features = null, fetchMock = null, toggleMock = null, initialStep = 'features' } = {}) {
+const NOTIFY_JS = path.join(REPO_ROOT, 'web/static/js/features/notify-permission.js');
+
+function loadFlow({ features = null, fetchMock = null, toggleMock = null, initialStep = 'features', notifyPermission = null } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
         runScripts: 'outside-only',
@@ -39,7 +41,12 @@ function loadFlow({ features = null, fetchMock = null, toggleMock = null, initia
     if (toggleMock) window.toggleFeatureSetting = toggleMock;
     if (initialStep) window.sessionStorage.setItem('wg-firstrun-step', initialStep);
 
-    for (const file of [STATE_JS, FEATURES_JS, INDEX_JS]) {
+    const files = [STATE_JS, FEATURES_JS, INDEX_JS];
+    if (notifyPermission) {
+        window.Notification = { permission: notifyPermission };
+        files.unshift(NOTIFY_JS);
+    }
+    for (const file of files) {
         const src = fs.readFileSync(file, 'utf8');
         window.eval(`${src}\n//# sourceURL=file://${file}`);
     }
@@ -59,6 +66,48 @@ function rowToggle(document, key) {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('firstrun feature picker screen', () => {
+    // med-ckm5.4 (kit O3): with notifications blocked, turning Medications on
+    // says right under it that reminders won't fire.
+    it('Medications on + notifications denied shows the "Reminders won\'t fire" note', async () => {
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), notifyPermission: 'denied' });
+        try {
+            window.WGFirstRun.mount();
+            const slot = document.querySelector('[data-firstrun-notify-note]');
+            await flush();
+            expect(slot.querySelector('[data-notify-denied]')).toBeNull(); // Medications starts off
+
+            const toggle = rowToggle(document, 'medication');
+            toggle.checked = true;
+            toggle.dispatchEvent(new window.Event('change'));
+            await flush();
+            const note = slot.querySelector('.wg-note.wg-note--warn[data-notify-denied]');
+            expect(note).not.toBeNull();
+            expect(note.textContent).toContain('Reminders won’t fire.');
+            expect(note.textContent).toContain('browser settings');
+
+            toggle.checked = false;
+            toggle.dispatchEvent(new window.Event('change'));
+            await flush();
+            expect(slot.children).toHaveLength(0);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('Medications on + notifications granted shows no note', async () => {
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), notifyPermission: 'granted' });
+        try {
+            window.WGFirstRun.mount();
+            const toggle = rowToggle(document, 'medication');
+            toggle.checked = true;
+            toggle.dispatchEvent(new window.Event('change'));
+            await flush();
+            expect(document.querySelector('[data-notify-denied]')).toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
     it('is a valid step and renders one row per tracking feature', () => {
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch() });
         try {
@@ -314,7 +363,8 @@ describe('firstrun feature picker screen', () => {
             return { ok: result !== null && result !== undefined, status: 200, json: async () => result };
         });
 
-        const { window, document, cleanup } = loadFlow({ fetchMock });
+        // notifyPermission: the production load, with the Medications row's note slot.
+        const { window, document, cleanup } = loadFlow({ fetchMock, notifyPermission: 'default' });
         try {
             window.WGFirstRun.mount();
             document.querySelector('[data-firstrun-action="continue"]').click();
