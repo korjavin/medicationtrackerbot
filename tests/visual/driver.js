@@ -165,6 +165,15 @@
             el.setAttribute('aria-label', step.id);
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
+        } else if (step.file) {
+            // A picked file for a (hidden) <input type="file">: the OS picker
+            // can't be driven. step.text is its content (default "{}").
+            const input = document.querySelector(step.file);
+            if (!input) throw new Error(`file ${step.file}: no such input`);
+            const dt = new DataTransfer();
+            dt.items.add(new File([step.text || '{}'], step.name || 'backup.json', { type: 'application/json' }));
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }

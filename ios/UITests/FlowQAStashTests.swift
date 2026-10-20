@@ -36,7 +36,7 @@ final class FlowQAStashTests: XCTestCase {
         moveRow.tap()
         XCTAssertTrue(webText(app, "Move to a cloud account?").waitForExistence(timeout: 10), "no move confirm")
         shot(flow, "move-confirm")
-        app.webViews.buttons["Continue"].tap()
+        app.webViews.buttons["Move"].tap()
 
         XCTAssertTrue(app.staticTexts[hint].waitForExistence(timeout: 60), "the first run shows no move hint")
         XCTAssertFalse(app.buttons["Continue on this iPhone"].exists, "the first run offers Continue on this iPhone during a move")

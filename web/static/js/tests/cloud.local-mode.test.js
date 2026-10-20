@@ -2004,17 +2004,18 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
     });
 
     // bd med-o7zq.38: records here → Merge / Replace / Cancel.
-    it('stash + records here: the choice; Replace, confirmed once, replaces them', async () => {
+    it('stash + records here: the choice; Replace, confirmed with typed REPLACE, replaces them', async () => {
         await seedWeight();
         const { window } = await boot({ take: { vault: VAULT } });
         expect(window.safeChoose).toHaveBeenCalledTimes(1);
-        // The leave copy (bd med-o7zq.37/.38), not the backup-file one.
-        expect(window.safeChoose.mock.calls[0][0]).toBe('This iPhone has records from using it without an account. Merge adds your account\'s records to them. Replace erases them first. Your account is not changed either way. Records kept on both sides may appear twice after a merge.');
-        expect(window.safeChoose.mock.calls[0][2].title).toBe('Records already on this iPhone');
+        // The leave copy (bd med-o7zq.37/.38, D1 med-ckm5.5), not the backup-file one.
+        expect(window.safeChoose.mock.calls[0][0]).toBe('This iPhone already has records from using it without an account. Your account is not changed either way.');
+        expect(window.safeChoose.mock.calls[0][2]).toMatchObject({ title: 'Records already on this iPhone', confirmLabel: 'Continue', selected: 'merge' });
         expect(window.safeConfirm).toHaveBeenCalledTimes(1);
-        expect(window.safeConfirm.mock.calls[0][0]).toBe('Erase the records on this iPhone and replace them with your account\'s? This cannot be undone.');
-        expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, confirmLabel: 'Replace' });
-        expect(window.safeConfirm.mock.calls[0][2].typedConfirm).toBeUndefined();
+        expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({
+            title: 'Replace the records on this iPhone?', destructive: true, confirmLabel: 'Replace', typedConfirm: 'REPLACE',
+        });
+        expect(window.safeConfirm.mock.calls[0][2].facts[0]).toEqual({ text: 'The records on this iPhone now', gone: true });
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });

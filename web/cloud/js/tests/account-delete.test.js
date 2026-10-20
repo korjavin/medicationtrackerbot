@@ -287,6 +287,6 @@ describe('clearLocalVault', () => {
 
 describe('DELETE_CONFIRM_PHRASE', () => {
   it('is a fixed intent phrase', () => {
-    expect(DELETE_CONFIRM_PHRASE).toBe('delete my account');
+    expect(DELETE_CONFIRM_PHRASE).toBe('DELETE');
   });
 });

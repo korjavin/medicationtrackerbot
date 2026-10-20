@@ -16,6 +16,8 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 export const retry = false;
 
 const here = dirname(fileURLToPath(import.meta.url));
+// The restore's typed-confirm word, read from its source so the two never drift.
+const REPLACE_PHRASE = /REPLACE_PHRASE = '([^']+)'/.exec(readFileSync(join(here, '../../../web/static/js/features/settings/importexport.js'), 'utf8'))[1];
 // The lists a move must carry over (records the user made): the target holds at least as many as
 // the local store. Not equal: a view lazily materializes derived slots (run 39272557051: the
 // account's Today minted today's planned workout session-<group>-<date>, workouts.sessions 1 → 2).
@@ -47,7 +49,7 @@ export async function confirmDialog(page, timeout = 10_000) {
   const btn = page.locator('.mt-confirm-modal__confirm');
   await btn.waitFor({ state: 'visible', timeout });
   const typed = page.locator('.mt-confirm-modal__input');
-  if (await typed.count()) await typed.fill('replace my data');
+  if (await typed.count()) await typed.fill(REPLACE_PHRASE);
   await btn.click();
 }
 

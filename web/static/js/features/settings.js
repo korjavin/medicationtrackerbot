@@ -629,15 +629,22 @@ function bindDeleteAccount() {
         // tap must never erase a vault. Past the server delete there is
         // nothing left to confirm — only the local wipe to retry.
         if (!serverDeleted) {
+            // D1 (med-ckm5.5): what goes, what stays, typed DELETE.
             const ok = await window.safeConfirm(
-                'This permanently erases your account and every reading, note, and setting from this server. It cannot be undone, and because your data is encrypted, no one — including the operator — can recover it afterwards.',
+                'if you might want your records later. Your data is encrypted, so no one, the operator included, can recover it afterwards.',
                 null,
                 {
                     title: 'Delete your account?',
                     icon: 'trash',
                     destructive: true,
                     typedConfirm: mod.DELETE_CONFIRM_PHRASE,
-                    confirmLabel: 'Verify passkey & delete',
+                    confirmLabel: 'Delete account',
+                    link: { label: 'Export a backup first', onClick: () => exportBtn?.click() },
+                    facts: [
+                        { text: `Your vault on ${window.location.hostname}, for every device`, gone: true },
+                        { text: 'Connectors and the Telegram link', gone: true },
+                        { text: nativeLeaveAccount() ? `This ${nativeCopy().device} returns to the start screen` : 'This browser goes back to the start page' },
+                    ],
                 },
             );
             if (!ok) return;
@@ -738,13 +745,20 @@ function showLeaveAccount(leave) {
             // bd med-o7zq.36: a shell with leave.stash carries a copy of the
             // vault into local mode; an older one starts it empty.
             const stash = await nativeHas('leave.stash');
-            const carry = stash
-                ? 'A copy of your records comes along.'
-                : 'Device-only mode starts empty; restore a backup file to bring your records.';
+            // D1 (med-ckm5.5): warn tone, what stays and what stops.
             const ok = await safeConfirm(
-                `Med Tracker will close this account on this ${device} and switch to Only on this device, which keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address. ${carry}`,
+                '',
                 null,
-                { title: `Use this ${device} without an account?`, confirmLabel: 'Continue' },
+                {
+                    title: `Use this ${device} without an account?`, icon: 'device', tone: 'warn', destructive: true, confirmLabel: 'Leave',
+                    facts: [
+                        stash
+                            ? { text: `A copy of your records stays on this ${device}` }
+                            : { text: `This ${device} starts empty: restore a backup file to bring your records`, gone: true },
+                        { text: `Your account stays on ${window.location.hostname}` },
+                        { text: `This ${device} stops syncing with your other devices`, gone: true },
+                    ],
+                },
             );
             if (!ok) return;
             if (stash) {
@@ -756,7 +770,7 @@ function showLeaveAccount(leave) {
                     const go = await safeConfirm(
                         `Your records could not be carried over (${e?.message || e}). Continue without them? Your account keeps them; a backup file can bring them here later.`,
                         null,
-                        { title: 'Records not carried over', confirmLabel: 'Continue' },
+                        { title: 'Records not carried over', icon: 'alert', tone: 'warn', confirmLabel: 'Continue' },
                     );
                     if (!go) return;
                 }
@@ -933,10 +947,17 @@ function bindLocalErase() {
     if (!btn || !errorEl || _localEraseBound) return;
     _localEraseBound = true;
     btn.addEventListener('click', async () => {
+        const device = nativeCopy().device;
         const ok = await safeConfirm(
-            `This deletes every record, setting and reminder stored in the app on this ${nativeCopy().device}. It cannot be undone. Download a backup first if you want to keep anything.`,
+            '',
             null,
-            { title: 'Erase data on this device?', confirmLabel: 'Erase', destructive: true, typedConfirm: 'erase' },
+            {
+                title: `Erase data on this ${device}?`, icon: 'trash', confirmLabel: 'Erase', destructive: true, typedConfirm: 'ERASE',
+                facts: [
+                    { text: `All records, settings and keys on this ${device}`, gone: true },
+                    { text: 'Backup files you exported stay where you saved them' },
+                ],
+            },
         );
         if (!ok) return;
         btn.disabled = true;
@@ -997,10 +1018,18 @@ async function moveToCloudAccount(btn) {
     if (btn.disabled) return;
     btn.disabled = true;
     try {
+        const device = nativeCopy().device;
         const ok = await safeConfirm(
-            'Your records move with you. Paste or scan your invite on the next screen; the new account picks them up on its own.\n\nNothing is erased here: Only on this device brings you back.',
+            '',
             null,
-            { title: 'Move to a cloud account?', confirmLabel: 'Continue' },
+            {
+                title: 'Move to a cloud account?', icon: 'route', tone: 'warn', destructive: true, confirmLabel: 'Move',
+                facts: [
+                    { text: `Your records are packed and kept on this ${device}` },
+                    { text: 'They move in after you sign in to the new account' },
+                    { text: 'Cancel any time from the start screen' },
+                ],
+            },
         );
         if (!ok) return;
         await window.CloudVault.moveToCloud({ win: window });

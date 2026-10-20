@@ -52,7 +52,9 @@ final class VisualQATests: XCTestCase {
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
         let list = try XCTUnwrap((json as? [[String: Any]]) ?? ((json as? [String: Any])?["scenes"] as? [[String: Any]]),
                                  "scenes.json: expected an array of scenes or {\"scenes\": [...]}")
-        return try list.map { raw in
+        return try list.compactMap { raw in
+            // Web scenes run in local mode here; a cloud-only one (an account control) has nothing to show.
+            if raw["cloudOnly"] as? Bool == true { return nil }
             let name = try XCTUnwrap(raw["name"] as? String, "scenes.json: a scene without a name")
             return Scene(name: name,
                          nativeOnly: raw["nativeOnly"] as? Bool ?? name.hasPrefix("native-"),
