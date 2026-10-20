@@ -240,6 +240,31 @@ export const PRIVACY_MANIFEST = [
       detail: 'When you share a workout plan or a gym by link, it is encrypted in your browser under a key that rides only in the link fragment; the operator stores the ciphertext for 30 days and can see that you created a share, never what is in it. Opening a link inside the app reaches the operator from your own account address, so the operator can also tell which account opened which share, and when.',
     },
   },
+  {
+    // med-ta2n.10 (owner accepted the carve-out, med-ta2n epic notes): the
+    // invite landing's "Get the app for Android" opens Google Play with the
+    // whole invite URL — claim token included — as the install referrer, so
+    // the freshly installed app can sign in on first launch. The App Store
+    // link carries no invite. Before the account exists, so no vault data.
+    id: 'invite-play-referrer',
+    feature: 'Invite link → "Get the app" on Android (Play install referrer)',
+    boundary: 'carve-out',
+    data: 'The invite link itself, including its one-time claim token (no health data — the account is still empty)',
+    destination: 'Google Play, browser-direct, which hands it to the Med Tracker app on its first launch',
+    operatorVisibility: 'none',
+    retention: 'Per Google Play\'s own policy; the token stops working once the invite is claimed or after 14 days',
+    activation: 'user-initiated',
+    activationNote: 'only when you tap "Get the app for Android" on an invite page; iPhone and "Continue in the browser" send nothing to a store',
+    byo: 'n/a — tap "Continue in the browser", or install the app first and paste the invite in it',
+    evidence: ['web/cloud/js/invite-landing.js:87', 'web/cloud/js/invite-landing.js:77', 'web/cloud/js/invite-landing.js:180'],
+    code: { go: [], hosts: ['play.google.com', 'apps.apple.com'] },
+    docSignal: null,
+    userCopy: {
+      category: 'leaves',
+      title: 'Invite links opened on Android',
+      detail: 'When you open an invite on an Android phone and tap "Get the app for Android", the invite link — with its one-time sign-in token — goes to Google Play, so the app can pick up your invite the first time it opens. It carries no health data, and the token stops working once the invite is used or after 14 days. "Continue in the browser" and the iPhone App Store link send nothing to a store.',
+    },
+  },
 
   // ==========================================================================
   // Operator-trial provider keys — plaintext through the operator, by design.

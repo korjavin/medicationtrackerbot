@@ -104,8 +104,9 @@ async function nativeSteps(page, steps) {
 // local dev loop of docs/cloud-mode.md). No external services: no food DB, no
 // Telegram, no trial keys.
 const PORT = process.env.CLOUD_PORT || '18080';
+// Placeholder store ids so the invite landing renders its "Get the app" buttons.
 const cloudEnv = { ...process.env, CLOUD_BASE_DOMAIN: 'localhost', PORT, CLOUD_DB_PATH: join(tmpdir(), `visual-cloud-${process.pid}.db`),
-  SESSION_SECRET: randomBytes(32).toString('base64') };
+  SESSION_SECRET: randomBytes(32).toString('base64'), IOS_APP_STORE_ID: '1234567890', ANDROID_PACKAGE: 'com.example.medtracker' };
 async function startCloud() {
   const bin = process.env.CLOUD_BIN;
   if (!bin) throw new Error('CLOUD_BIN is required in cloud mode');
@@ -124,7 +125,51 @@ function mintInvite() {
   const text = execFileSync(process.env.CLOUD_BIN, ['admin', 'invite'], { env: cloudEnv, encoding: 'utf8' });
   const m = /https:\/\/([a-z0-9-]+)\.localhost\/#claim=([a-f0-9]+)/.exec(text);
   if (!m) throw new Error(`no claim URL in: ${text.slice(0, 200)}`);
-  return { origin: `http://${m[1]}.localhost:${PORT}`, token: m[2] };
+  return { sub: m[1], origin: `http://${m[1]}.localhost:${PORT}`, token: m[2] };
+}
+
+// The base-domain invite landing (bd med-ta2n.10): L1 on iPhone 390 (WebKit)
+// and Pixel 7, L3 (the per-tab flag "Get the app" sets — the tap itself would
+// leave for the App Store), L2 on desktop, and the expired state. Shots land in
+// <out>/invite/; nothing is tapped that leaves the page.
+async function inviteLandingShots() {
+  const { sub, token } = mintInvite();
+  const landing = `http://localhost:${PORT}/i/${sub}#${token}`;
+  await mkdir(join(out, 'invite'), { recursive: true });
+  const targets = {
+    'iphone-390': [webkit, { ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, deviceScaleFactor: 3 }],
+    'pixel-7': [chromium, devices['Pixel 7']],
+    'desktop-1280': [chromium, DESKTOP],
+  };
+  for (const [device, [engine, desc]] of Object.entries(targets)) {
+    const browser = await engine.launch();
+    const context = await browser.newContext({ ...desc, colorScheme: 'dark', locale: 'en-US', timezoneId: 'Europe/Berlin' });
+    const page = await context.newPage();
+    const shot = async (scene, url, ready, before) => {
+      const row = { device, scene, status: 'ok' };
+      try {
+        if (before) await before();
+        // Same URL again is a fragment-only navigation (no reload): reload.
+        if (url) await page.goto(url);
+        else await page.reload();
+        await page.locator(ready).waitFor({ timeout: 30000 });
+        await page.waitForTimeout(300);
+      } catch (e) {
+        row.status = 'error';
+        row.note = String(e.message || e).split('\n')[0];
+      }
+      try { await page.screenshot({ path: join(out, 'invite', `${device}-${scene}.png`) }); shots++; } catch { /* page gone */ }
+      rows.push(row);
+      console.log(`${device} ${scene}: ${row.status} ${row.note || ''}`);
+    };
+    await shot('invite-l1', landing, '#invite-browser');
+    if (device === 'iphone-390') {
+      await shot('invite-l3', null, '#invite-open',() => page.evaluate((s) => sessionStorage.setItem(`mt-invite-l3:${s}`, '1'), sub));
+    }
+    await shot('invite-expired', `http://localhost:${PORT}/i/no-such-invite#00`, '#invite-ask');
+    await context.close();
+    await browser.close();
+  }
 }
 
 // The signup wizard as a person runs it (e2e/vault-roundtrip.mjs's flow): claim
@@ -181,6 +226,7 @@ else {
 const browsers = new Map();
 const rows = [];
 let shots = 0;
+if (mode === 'cloud') await inviteLandingShots();
 for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
   if (!browsers.has(engine)) browsers.set(engine, await engine.launch());
   const browser = browsers.get(engine);
