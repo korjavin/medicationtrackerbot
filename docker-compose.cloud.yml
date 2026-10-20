@@ -37,6 +37,7 @@ services:
       - REQUEST_INVITE_EMAIL=${REQUEST_INVITE_EMAIL:-}
       - IOS_TEAM_ID=${IOS_TEAM_ID:-}
       - IOS_BUNDLE_ID=${IOS_BUNDLE_ID:-}
+      - IOS_APP_STORE_ID=${IOS_APP_STORE_ID:-}
       - ANDROID_PACKAGE=${ANDROID_PACKAGE:-}
       - ANDROID_CERT_SHA256S=${ANDROID_CERT_SHA256S:-}
       # age X25519 recipient pubkey for the cloud feedback channel (bd med-dni).

@@ -119,16 +119,47 @@ struct WgButtonStyle: ButtonStyle {
     }
 }
 
-/// fg-2 text, no fill.
+/// fg-2 text, no fill. `small` = .wg-btn--sm: 13 pt, 36 high (Copy diagnostics).
 struct WgGhostButtonStyle: ButtonStyle {
+    var small = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(Wg.ui(14, .semibold))
+            .font(Wg.ui(small ? 13 : 14, .semibold))
             .foregroundStyle(configuration.isPressed ? Wg.fg1 : Wg.fg2)
             .multilineTextAlignment(.center)
-            .padding(.horizontal, 10)
-            .frame(minHeight: Wg.hit)
+            .padding(.horizontal, small ? 12 : 10)
+            .frame(minHeight: small ? 36 : Wg.hit)
     }
+}
+
+/// .wg-shell__foot: the screen's actions docked at the bottom, over a 1 px line.
+struct WgShellFoot<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(spacing: 8) { content }
+            .padding(.horizontal, Wg.gutter)
+            .padding(.vertical, 12)
+            .background(alignment: .top) {
+                Wg.screen.ignoresSafeArea().overlay(alignment: .top) { Rectangle().fill(Wg.line).frame(height: 1) }
+            }
+    }
+}
+
+/// The 96 pt mark (.wg-mark--lg) as the launch screen draws it (LaunchMark
+/// asset, project.yml UILaunchScreen): the launch, the lock screen and the
+/// app-switcher cover put it at the same spot, the screen's centre (N3, N6).
+struct WgLaunchMark: View {
+    var body: some View {
+        Image("LaunchMark").accessibilityHidden(true)
+    }
+}
+
+extension VerticalAlignment {
+    private enum MarkCenter: AlignmentID {
+        static func defaultValue(in d: ViewDimensions) -> CGFloat { d[VerticalAlignment.center] }
+    }
+    /// Lines the lock screen's mark up with the launch screen's.
+    static let markCenter = VerticalAlignment(MarkCenter.self)
 }
 
 /// The app mark (.wg-mark): the pill on ink, sun-coloured.

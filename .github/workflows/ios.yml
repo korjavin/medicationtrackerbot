@@ -415,7 +415,8 @@ jobs:
         working-directory: ios
         run: |
           IFS='=' read -r dev udid < "$RUNNER_TEMP/devices"
-          xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
+          # The invite fake-server.sh minted, for FlowQACeremonyExitTests (TEST_RUNNER_ → the runner's env).
+          TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             -only-testing:MedTrackerUITests -skip-testing:MedTrackerUITests/VisualQATests -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
             | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'

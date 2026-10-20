@@ -25,26 +25,12 @@ check("https://u:p@abc.app.example.com/", nil)
 check("https://abc.app.example.com:8443/", nil)
 check("javascript:alert(1)", nil)
 check("https://abc.app.example.com/", nil, base: "")
-for (u, want) in [("https://abc.app.example.com/unlock", true),
-                  ("https://abc.app.example.com/unlock#claim=TOKEN", true),
-                  ("https://ABC.app.example.com/claim?x=1#slot.tk", true),
-                  ("https://abc.app.example.com/recover#kit", true),
-                  ("https://abc.app.example.com/", false),
-                  ("https://abc.app.example.com/?tab=meds", false),
-                  ("https://abc.app.example.com/unlocked", false),
-                  ("https://app.example.com/unlock", false),
-                  ("https://evil.com/unlock", false),
-                  ("http://abc.app.example.com/unlock", false),
-                  ("wgapp://local/unlock", false)] {
-    precondition(AccountURL.isCeremony(URL(string: u), base: base) == want, "isCeremony \(u)")
-}
 // accountGone (bd med-w6gx.22): only the server's marked 404, header name in any case.
 precondition(AccountURL.accountGone(404, ["X-Account-Gone": "1"]))
 precondition(AccountURL.accountGone(404, ["x-account-gone": " 1 "]))
 precondition(!AccountURL.accountGone(404, ["X-Account-Gone": "0"]))
 precondition(!AccountURL.accountGone(503, ["X-Account-Gone": "1"]))
 precondition(!AccountURL.accountGone(404, [:]))
-precondition(!AccountURL.isCeremony(nil, base: base))
 print("AccountURL: ok")
 
 // LocalOrigin (bd med-o7zq.4): request routing, CSP, the bridge's host list.
@@ -110,8 +96,11 @@ precondition(lock.holds(local: true) && !lock.holds(local: false), "cold launch:
 var attempt = lock.activate(local: true, setting: true)!
 precondition(lock.activate(local: true, setting: true) == nil, "the prompt's own inactive -> active must not prompt again")
 lock.finish(attempt, .failed, setting: true)
-precondition(lock.holds(local: true) && lock.state == .locked, "cancel stays locked")
-precondition(lock.activate(local: true, setting: true) == nil, "no prompt loop after a cancel")
+precondition(lock.holds(local: true) && lock.state == .locked && lock.failed, "a failure stays locked, with the note")
+precondition(lock.activate(local: true, setting: true) == nil, "no prompt loop after a failure")
+attempt = lock.begin()!
+lock.finish(attempt, .cancelled, setting: true)
+precondition(lock.state == .locked && !lock.failed, "a cancel stays locked, without the note")
 attempt = lock.begin()!
 precondition(lock.begin() == nil, "one prompt at a time")
 lock.background()

@@ -53,6 +53,12 @@ jobs:
       # local-visual's artifact (bd med-y5xx.9): android-visual, suffixed by each non-default input.
       VISUAL_ARTIFACT: android-visual${{ inputs.api_level != '34' && format('-api{0}', inputs.api_level) || '' }}${{ inputs.font_scale != '1.0' && format('-font{0}', inputs.font_scale) || '' }}${{ inputs.dark && '-dark' || '' }}${{ inputs.landscape && '-landscape' || '' }}
     steps:
+      # Private-repo runners have ~14GB free: the AVD userdata partition (7.4GB default) would not fit.
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android/sdk/ndk /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h /
+
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
@@ -137,8 +143,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          cores: 4
-          ram-size: 4096M
+          cores: 2
+          ram-size: 3072M
+          disk-size: 4096M # data partition; default 7.4GB no longer fits
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back ${{ inputs.scenario == 'local-spike' && 'emulated' || 'none' }}
           script: bash android/qa/run.sh android/app/build/outputs/apk/debug/app-debug.apk ${{ inputs.scenario || 'all' }} qa-out
