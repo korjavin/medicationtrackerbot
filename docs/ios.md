@@ -132,8 +132,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
   (read from the source tree via `#filePath`) → the boot imports it, toasts,
   clears the file → seeded again over records: Merge / Replace → Cancel →
-  "Records not copied", file cleared. The `qa` job runs every class in the
-  bundle but `VisualQATests`.
+  "Records not copied", file cleared.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
