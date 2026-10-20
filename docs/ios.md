@@ -134,7 +134,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   the lock with Unlock enabled and no re-prompt; home → back locks; Settings →
   App lock off → relaunch opens unlocked. Leaves the lock off.
 - **Backup flows** ([`FlowQABackupTests.swift`](../ios/UITests/FlowQABackupTests.swift),
-  bd med-w6gx.23.4): `testBackupExport` — Download backup, plain then with a
+  bd med-w6gx.23.4): `testBackupExport` — Export backup → the passphrase
+  sheet → *Backup ready* → Save to device, plain then with a
   passphrase (`.age`): each file sits in `tmp/wg-downloads` while the share
   sheet shows and is gone once it closes. `testRestoreFromFile` — restore via
   the Settings import input (driver seed) into an erased store, records survive
@@ -143,10 +144,10 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
 - **Stash flows** ([`FlowQAStashTests.swift`](../ios/UITests/FlowQAStashTests.swift),
   bd med-w6gx.23.3): the shell's stashes from the local
   side, as files in the container's `Application Support/{move,leave}/vault.json`:
-  `testMoveLocalSide` — Settings → Move to a cloud account → the stash
-  (fixture format, sections, counts) and the first-run hint → Back keeps it,
-  Start deletes it → Backup & import → I have an invite shows no stale hint →
-  a relaunch is first run, records kept. `testLeaveStashPickup` — wipes
+  `testMoveLocalSide` — Settings → Move to a cloud account → Backup &
+  import's Move button → the stash (fixture format, sections, counts) and the
+  first-run hint → Back keeps it, Start deletes it → a relaunch stays local
+  with no stale hint, records kept. `testLeaveStashPickup` — wipes
   `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
   clears the file → seeded again over records: Merge / Replace → Cancel →
@@ -1008,12 +1009,13 @@ mode, gated on the bridge platform being `ios` or `android`
   as the cloud (`recordsToVault`, pinned against `tests/fixtures/vault-v1.json`
   in `cloud.local-mode.test.js`) and restores one, replace-only, into the
   on-device store; a restore resets the Apple Health anchors so the next run
-  re-reads the whole history. *Move to a cloud account* is that file, not a
-  hand-off between origins: *I have an invite* sends `local.leave` (the shell's
-  *Switch account*), the user claims the invite and restores the file in the
-  new account's Settings. The local records stay until the user erases them;
-  nothing prompts to. A shell that lists `move.stash` also gets Settings home →
-  *Move to a cloud account*, which carries the records without the file (the
+  re-reads the whole history. Without `move.stash`, moving to a cloud account
+  is that file: the shell's *Switch account*, claim the invite, restore the
+  file in the new account's Settings (the page's *I have an invite* is gone
+  since bd med-ckm5.7). The local records stay until the user erases them;
+  nothing prompts to. A shell that lists `move.stash` gets Settings home →
+  *Move to a cloud account* (opens Backup & import's Move section, whose
+  button is the one Move control), which carries the records without the file (the
   move stash below; shared contract in
   [android.md → Moving to a cloud account](android.md#moving-to-a-cloud-account-bd-med-nt9p3210)). A cloud restore not yet on the server says why before
   the reload (`importAll` → `{ upload }`, sync.js `forceSnapshot`: retrying

@@ -1081,44 +1081,26 @@ function bindLocalErase() {
     });
 }
 
-// Local-only mode's move to a cloud account (bd med-o7zq.6): the shell opens
-// its invite screen (local-policy.js openCloudAccount). This origin's data is
-// not touched, so the confirm only makes sure the backup came first.
-let _localMoveBound = false; // module-state: bind the button once across repeated loadSettings() calls
-function bindLocalMoveToCloud() {
-    const btn = document.getElementById('importexport-local-move-btn');
-    const errorEl = document.getElementById('importexport-local-move-error');
-    if (!btn || !errorEl || _localMoveBound) return;
-    _localMoveBound = true;
-    btn.addEventListener('click', async () => {
-        const ok = await safeConfirm(
-            `Download a backup first: the new account is filled from that file. Your records stay on this ${nativeCopy().device}.`,
-            null,
-            { title: 'Open an invite?', confirmLabel: 'Continue' },
-        );
-        if (!ok) return;
-        errorEl.hidden = true;
-        try {
-            await window.CloudVault.openCloudAccount();
-        } catch (e) {
-            errorEl.textContent = e.message || 'The invite screen could not be opened.';
-            errorEl.hidden = false;
-        }
-    });
-}
-
-// Settings home → Move to a cloud account (bd med-nt9p.32.16): the shell
-// stashes the vault and opens its invite screen; the new account restores it
-// by itself. Hidden unless the shell lists move.stash, so the web and older
-// shells keep only the Backup & import card (bindLocalMoveToCloud).
+// Move to a cloud account (bd med-nt9p.32.16): the shell stashes the vault
+// and opens its invite screen; the new account restores it by itself. One
+// control (kit S7, bd med-ckm5.7): the Backup & import Move section's button;
+// the Settings-home row only opens that section. Both stay hidden unless the
+// shell lists move.stash — without it a backup file is the way to move.
 let _localMoveRowBound = false; // module-state: bind the row once across repeated loadSettings() calls
 function bindLocalMoveRow() {
+    const row = document.getElementById('settings-local-move-row');
+    const group = document.getElementById('importexport-local-move-group');
     const btn = document.getElementById('settings-local-move-btn');
-    if (!btn || _localMoveRowBound) return;
+    if (!row || !group || !btn || _localMoveRowBound) return;
     _localMoveRowBound = true;
     nativeHas('move.stash').then((has) => {
         if (!has) return;
-        btn.classList.remove('wg-settings-hidden');
+        row.classList.remove('wg-settings-hidden');
+        group.classList.remove('wg-settings-hidden');
+        row.addEventListener('click', () => {
+            openSettingsPage('backup');
+            group.scrollIntoView?.({ block: 'center' });
+        });
         btn.addEventListener('click', () => moveToCloudAccount(btn));
     });
 }
@@ -1145,7 +1127,7 @@ async function moveToCloudAccount(btn) {
     } catch (e) {
         await safeAlert(
             `Your records could not be prepared for the move: ${e?.message || 'unknown error'}.\n\n`
-            + 'Move them with a file instead: Settings → Backup & import → Download a backup, open your invite and create the account, then in the new account use Backup & import → Restore with that file.',
+            + 'Move them with a file instead: Settings → Backup & import → Export backup, open your invite and create the account, then in the new account use Backup & import → Restore with that file.',
             { title: 'Move to a cloud account' },
         );
     } finally {
@@ -1187,7 +1169,6 @@ async function loadSettings() {
         bindLocalReminderText();
         bindLocalNotifications();
         bindLocalErase();
-        bindLocalMoveToCloud();
         bindLocalMoveRow();
     }
     const applyBundle = async (rawBundle) => {

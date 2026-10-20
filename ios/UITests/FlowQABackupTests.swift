@@ -14,9 +14,10 @@ final class FlowQABackupTests: XCTestCase {
         app.launch()
     }
 
-    /// Settings → Backup & import → Download backup, plain then encrypted:
-    /// each lands in the shell's Downloads temp dir, is offered through the
-    /// share sheet, and is deleted once the sheet closes.
+    /// Settings → Backup & import → Export backup → passphrase sheet → Backup
+    /// ready → Save to device, plain then encrypted: each lands in the shell's
+    /// Downloads temp dir, is offered through the share sheet, and is deleted
+    /// once the sheet closes (kit S7, bd med-ckm5.7).
     func testBackupExport() throws {
         continueAfterFailure = false
         let flow = "backup-export"
@@ -24,18 +25,26 @@ final class FlowQABackupTests: XCTestCase {
         launch(app, scene: "settings-backup")
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "Backup & import never published #wg-qa-ready")
         let downloads = try XCTUnwrap(QA.appContainer(), "no app container").appendingPathComponent("tmp/wg-downloads")
-        let exportBtn = app.webViews.buttons["Download backup"]
+        let exportBtn = app.webViews.buttons["Export backup"]
+        let save = app.webViews.buttons["Save to device"]
 
         // Plain: no passphrase → the page asks before writing API keys in clear.
-        XCTAssertTrue(exportBtn.waitForExistence(timeout: 10), "no Download backup button")
+        XCTAssertTrue(exportBtn.waitForExistence(timeout: 10), "no Export backup button")
         exportBtn.tap()
+        let plain = app.webViews.buttons["Export without encryption"]
+        XCTAssertTrue(plain.waitForExistence(timeout: 10), "the passphrase sheet never showed")
+        plain.tap()
         let confirm = app.webViews.buttons["Confirm"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10), "the plain-export confirm never showed")
         confirm.tap()
+        XCTAssertTrue(save.waitForExistence(timeout: 60), "Backup ready never showed")
+        shot(flow, "plain-ready")
+        save.tap()
         shareSheetRoundTrip(app, flow: flow, step: "plain", downloads: downloads, suffix: ".json.gz")
-        XCTAssertTrue(webText(app, containing: ".json.gz.").waitForExistence(timeout: 10), "the export status never said \"Backup ready\"")
+        XCTAssertTrue(webText(app, containing: ".json.gz.").waitForExistence(timeout: 10), "the export status never said \"Backup exported\"")
 
         // Encrypted: the passphrase makes it .age (proof the typing landed).
+        exportBtn.tap()
         let pass = QA.webElement(app, id: "importexport-export-passphrase", placeholder: "Encrypt the backup")
         XCTAssertTrue(pass.waitForExistence(timeout: 10), "no passphrase field")
         pass.tap()
@@ -44,9 +53,12 @@ final class FlowQABackupTests: XCTestCase {
         QA.dismissKeyboardTip(app)
         shot(flow, "passphrase")
         hideKeyboard(app)
-        exportBtn.tap()
-        shareSheetRoundTrip(app, flow: flow, step: "encrypted", downloads: downloads, suffix: ".json.gz.age", timeout: 120)
-        XCTAssertTrue(webText(app, containing: ".json.gz.age").waitForExistence(timeout: 10), "the encrypted export status never said \"Backup ready\"")
+        app.webViews.buttons["Encrypt and export"].tap()
+        XCTAssertTrue(save.waitForExistence(timeout: 120), "encrypted Backup ready never showed")
+        shot(flow, "encrypted-ready")
+        save.tap()
+        shareSheetRoundTrip(app, flow: flow, step: "encrypted", downloads: downloads, suffix: ".json.gz.age", timeout: 60)
+        XCTAssertTrue(webText(app, containing: ".json.gz.age").waitForExistence(timeout: 10), "the encrypted export status never said \"Backup exported\"")
         shot(flow, "after-dismiss")
         XCTAssertFalse(webText(app, containing: "Preparing").exists || webText(app, containing: "Encrypting").exists, "the export status still says it is running")
         app.terminate()
