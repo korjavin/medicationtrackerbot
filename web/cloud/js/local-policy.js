@@ -544,12 +544,20 @@ export const LOCAL_VAULT = {
   // carries the vault across origins (move.stash, docs/android.md "move
   // stash"); the new account picks it up with move.take. A rejected stash
   // ('invalid vault', 'too large', an old shell) throws before the leave.
-  async moveToCloud({ win = globalThis.window } = {}) {
+  // url (bd med-ta2n.6, contract med-ta2n.7 §7): the claim URL the shell opens
+  // directly (local.leave {url}); it rejects "invalid url" with nothing
+  // changed. Only a v3 shell (invite.pending listed) honours it — callers gate.
+  // With a url and no records here there is nothing to move: no stash, so an
+  // existing account is never offered an empty vault to replace its own.
+  async moveToCloud({ win = globalThis.window, url } = {}) {
     const native = shellNative(win);
     if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
-    const vault = await LOCAL_VAULT.exportAll({ includeSecrets: true, win });
-    await native.call('move.stash', { vault });
-    await native.call('local.leave');
+    if (url === undefined || await LOCAL_VAULT.hasUserContent()) {
+      const vault = await LOCAL_VAULT.exportAll({ includeSecrets: true, win });
+      await native.call('move.stash', { vault });
+    }
+    if (url === undefined) await native.call('local.leave');
+    else await native.call('local.leave', { url });
   },
   // Settings → AI & integrations → the free trial row (bd med-o7zq.16).
   trial: {

@@ -204,7 +204,9 @@ const ALLOWED_GLOBALS = new Set([
     'window.LocalNotifications',        // native/index.js — device-scheduled notifications (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-w6gx.4) drives UNUserNotificationCenter over the wgNative bridge
     'window.Health',                    // native/index.js — Apple Health read access (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-w6gx.4) reaches HealthKit over the wgNative bridge
     'window.Attest',                    // native/index.js — App Attest + DeviceCheck for local mode's anonymous trial AI (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-o7zq.16) reaches ios/App/Attest.swift over the wgNative bridge; callers: web/cloud/js/local-trial.js (enroll/assert) and web/cloud/js/local-policy.js attestStatus (isSupported/status)
-    'window.LiveHR',                   // features/live-hr.js — experimental live-HR card on the Vitals screen (med-byks.1 POC): refresh() re-evaluates flag + Bluetooth support; talks to window.Bluetooth only, persists nothing
+    'window.Clipboard',                 // native/index.js — clipboard text read from a tap (readText → string | null; bd med-ta2n.6): web/ios impl owns the only navigator.clipboard.readText call site (WebKit's Paste callout, no prompt), android impl uses the shell's clipboard.read op when listed; caller: features/invite.js (F1 Paste). Shadows the browser's unused Clipboard interface object
+    'window.InviteSheet',               // features/invite.js — F1 "Have an invite?" sheet (bd med-ta2n.6): open() (also on the wg:invite-open document event from the W1 footer / W5 page) and parse(raw, base?) → {claimUrl, sub} | null, the web twin of the shells' AccountURL.parseInvite; P3 (med-ta2n.7) reuses parse
+    'window.LiveHR',                // features/live-hr.js — experimental live-HR card on the Vitals screen (med-byks.1 POC): refresh() re-evaluates flag + Bluetooth support; talks to window.Bluetooth only, persists nothing
 ]);
 
 /**
