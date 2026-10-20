@@ -1,21 +1,28 @@
-// Passkey ceremony log, Android shell only (bd med-nt9p.22, docs/android.md).
+// Passkey ceremony log, app shells only (Android bd med-nt9p.22, docs/android.md;
+// iOS bd med-w6gx.24, docs/ios.md).
 //
 // Every create/get in the cloud shells and the server begin/finish statuses
 // are posted to the shell (`diag.append`, no reply), which redacts the hosts
-// and keeps the last ~200 entries for "Copy diagnostics". Outside the shell
-// (web, iOS) every function here returns before doing anything.
+// and keeps the last ~200 entries for "Copy diagnostics". Outside the shells
+// (the web) every function here returns before doing anything.
 //
 // Never logged: credential IDs (only a 3-byte SHA-256 tag), user handles,
 // PRF output (only its length), challenges, tokens, URL fragments or queries.
 
-import { inAndroidShell } from './passkey-get.js';
+import { inAndroidShell, iosShellBridge } from './passkey-get.js';
 
 let t0 = Date.now();
+
+const inShell = () => !!iosShellBridge() || inAndroidShell();
 
 function post(fields) {
   try {
     const entry = { ms: Date.now() - t0, path: globalThis.location?.pathname, ...fields };
-    window.wgNative.postMessage(JSON.stringify({ op: 'diag.append', args: { entry: JSON.stringify(entry) } }));
+    const msg = { op: 'diag.append', args: { entry: JSON.stringify(entry) } };
+    const ios = iosShellBridge();
+    // iOS: {op, args} like native/index.js; its reply promise is not awaited.
+    if (ios) Promise.resolve(ios.postMessage(msg)).catch(() => {});
+    else window.wgNative.postMessage(JSON.stringify(msg));
   } catch {
     // Diagnostics must never break a ceremony.
   }
@@ -24,7 +31,7 @@ function post(fields) {
 // A server ceremony step's HTTP status; returns res unchanged. A begin (or the
 // account-delete reauth) starts the ceremony clock.
 export function diagHttp(step, res) {
-  if (!inAndroidShell()) return res;
+  if (!inShell()) return res;
   if (/begin|reauth/.test(step)) t0 = Date.now();
   post({ op: 'http', step, status: res && res.status });
   return res;
@@ -33,7 +40,7 @@ export function diagHttp(step, res) {
 // Runs one navigator.credentials call and logs its options and outcome.
 // `publicKey` is the caller's request (before the shell's allowCredentials: []).
 export async function diagCeremony(op, publicKey, attempt, run) {
-  if (!inAndroidShell()) return run();
+  if (!inShell()) return run();
   const sel = publicKey.authenticatorSelection || {};
   const allow = publicKey.allowCredentials || [];
   const fields = {

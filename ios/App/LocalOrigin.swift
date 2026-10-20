@@ -26,7 +26,7 @@ enum LocalOrigin {
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
     static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash"]
     /// Every other op the shell answers, in both modes.
-    static let sharedOps = ["ping", "shell.ops", "health.authorize", "health.query",
+    static let sharedOps = ["ping", "shell.ops", "diag.append", "health.authorize", "health.query",
                             "notifications.permission", "notifications.requestPermission",
                             "notifications.schedule", "notifications.test"]
 

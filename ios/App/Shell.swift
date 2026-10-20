@@ -61,6 +61,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     @Published private(set) var lock = LocalLock(on: UserDefaults.standard.bool(forKey: LocalLock.onKey)) {
         didSet { UserDefaults.standard.set(lock.on, forKey: LocalLock.onKey) }
     }
+    /// "Copy diagnostics" ran (bd med-w6gx.24): RootView confirms it.
+    @Published var diagCopied = false
+    /// The live shell, for the Home Screen quick action (QuickAction below).
+    static weak var current: Shell?
+    /// The quick action launched the app before the shell existed.
+    static var copyOnLaunch = false
     /// What the lock held back: a load and a notification tap, run on unlock.
     private var deferredURL: URL?
     private var deferredReminder: (String, String?)?
@@ -115,6 +121,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // Launch state for a support sysdiagnose (bd med-o7zq.31); no host name, no data.
         Logger(subsystem: Bundle.main.bundleIdentifier ?? "MedTracker", category: "shell").notice(
             "launch mode=\(self.local ? "local" : self.host == nil ? "first-run" : "account", privacy: .public) host=\(self.host != nil, privacy: .public) localDataDirs=\(LocalOrigin.dataDirs().count, privacy: .public)")
+        Shell.current = self
+        if Shell.copyOnLaunch {
+            Shell.copyOnLaunch = false
+            copyDiagnostics()
+        }
         retry()
         Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
@@ -341,6 +352,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 return .cancel
             }
             loadError = HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            diag("shell load http \(http.statusCode)")
             return .cancel
         }
         return Downloads.policy(for: navigationResponse)
@@ -367,6 +379,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
         // A page of this account already showing stays usable.
         if !showingAccount { loadError = e.localizedDescription }
+        diag("shell load failed \(e.domain) \(e.code)")
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -425,6 +438,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             replyHandler("pong", nil)
         case "shell.ops":
             replyHandler(LocalOrigin.ops(local: local), nil)
+        case "diag.append":
+            // The passkey ceremony log (bd med-w6gx.24, web/cloud/js/passkey-diag.js); the page does not wait.
+            diag("page " + ((body["args"] as? [String: Any])?["entry"] as? String ?? ""))
+            replyHandler(nil, nil)
         case "setEgressHosts" where local:
             let (reply, error) = LocalOrigin.setEgressHosts(body["args"] as? [String: Any] ?? [:])
             replyHandler(reply, error)
@@ -515,6 +532,32 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         case let op:
             replyHandler(nil, "unsupported: \(op ?? "")")
         }
+    }
+
+    // MARK: diagnostics (bd med-w6gx.24, twin of Android med-nt9p.22)
+
+    /// Appends one redacted line to the capped ceremony log; kept across Switch account.
+    func diag(_ line: String) {
+        let defaults = UserDefaults.standard
+        let time = ISO8601DateFormatter().string(from: Date())
+        defaults.set(Diag.append(defaults.string(forKey: Diag.key) ?? "", line, base: base, time: time), forKey: Diag.key)
+    }
+
+    /// The error screen, the ceremony bar's dialog or the quick action: the
+    /// device header plus the log, as plain text on the pasteboard.
+    func copyDiagnostics() {
+        var machine = utsname()
+        uname(&machine)
+        let model = withUnsafeBytes(of: &machine.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        let info = Bundle.main.infoDictionary ?? [:]
+        let header = [
+            "Med Tracker diagnostics \(ISO8601DateFormatter().string(from: Date()))",
+            "app \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?"))",
+            "iOS \(UIDevice.current.systemVersion) \(model)",
+            "mode " + (local ? "local" : host.map { "account " + $0 } ?? "first-run"),
+        ].joined(separator: "\n")
+        UIPasteboard.general.string = Diag.redact(header, base: base) + "\n\n" + (UserDefaults.standard.string(forKey: Diag.key) ?? "")
+        diagCopied = true
     }
 
     /// "rgb(r, g, b)" / "rgba(r, g, b, a)" from getComputedStyle; nil when transparent or unparseable.

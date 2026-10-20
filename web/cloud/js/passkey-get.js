@@ -1,7 +1,8 @@
 // The one place the cloud shells call navigator.credentials.get (bd med-nt9p.19).
 //
 // Web and iOS: a single get with the caller's options, untouched — same
-// request, same thrown error as a direct call.
+// request, same thrown error as a direct call (the iOS shell only logs it,
+// passkey-diag.js).
 //
 // Android shell only (window.wgNative, docs/android.md): a passkey created
 // inside the app's WebView is filed by Google Password Manager as an app
@@ -27,20 +28,23 @@ let ceremonyInFlight = false;
 // Same detection rule as web/static/js/native/index.js (the passkey shell does
 // not load it): iOS's handler wins, and a named-property clobber of
 // window.wgNative (<iframe name=wgNative>, an element id) stays web.
+export function iosShellBridge() {
+  if (typeof window === 'undefined') return null;
+  return (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wgNative) || null;
+}
+
 export function inAndroidShell() {
   if (typeof window === 'undefined') return false;
-  const ios = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wgNative;
   const b = window.wgNative;
-  return !ios && !!b && typeof b.postMessage === 'function'
+  return !iosShellBridge() && !!b && typeof b.postMessage === 'function'
     && typeof b.addEventListener === 'function'
     && b.window !== b
     && !(typeof Node === 'function' && b instanceof Node);
 }
 
-// The one navigator.credentials.create: web/iOS call it directly; the shell
-// also logs it (passkey-diag.js).
+// The one navigator.credentials.create; the app shells also log it
+// (passkey-diag.js, a plain call on the web).
 export function createCredential(publicKey) {
-  if (!inAndroidShell()) return navigator.credentials.create({ publicKey });
   return diagCeremony('create', publicKey, 1, () => navigator.credentials.create({ publicKey }));
 }
 
@@ -72,9 +76,9 @@ export function passkeyCeremony(app, copy, run) {
     .finally(() => { ceremonyInFlight = false; });
 }
 
-// `op` only labels the Android ceremony log ('get' or 'probe').
+// `op` only labels the shells' ceremony log ('get' or 'probe').
 export async function getAssertion(publicKey, op = 'get') {
-  if (!inAndroidShell()) return navigator.credentials.get({ publicKey });
+  if (!inAndroidShell()) return diagCeremony(op, publicKey, 1, () => navigator.credentials.get({ publicKey }));
   const options = { publicKey: { ...publicKey, allowCredentials: [] } };
   const attempt = (n) => diagCeremony(op, publicKey, n, () => navigator.credentials.get(options));
   // NotAllowedError is also a user cancel: at most one reopen of the sheet.
