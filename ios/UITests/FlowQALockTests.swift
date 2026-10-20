@@ -139,8 +139,10 @@ final class FlowQALockTests: XCTestCase {
             Biometry.post("com.apple.BiometricKit_Sim.pearl.nomatch")
             Thread.sleep(forTimeInterval: 1.5)
             shot("lock-cancel", "face-id-nomatch")
-            for owner in [app, springboard] where owner.buttons["Cancel"].exists {
-                owner.buttons["Cancel"].tap()
+            // "Face Not Recognized" → Try Face ID Again / Cancel (the sheet
+            // exposes Cancel more than once).
+            for owner in [app, springboard] where owner.buttons["Cancel"].firstMatch.exists {
+                owner.buttons["Cancel"].firstMatch.tap()
                 break
             }
             Thread.sleep(forTimeInterval: 1.5)
