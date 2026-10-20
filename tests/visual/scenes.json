@@ -16,7 +16,7 @@
       "args": ["-wgLocalMode", "YES", "-wgLocalLockOn", "YES", "-wgLocalLock", "YES", "-wgQALock", "failed"] },
     { "name": "native-error-503", "platform": "ios", "args": ["-wgQALoadError", "503"] },
     { "name": "native-error-404", "platform": "ios", "args": ["-wgQALoadError", "404"] },
-    { "name": "native-error-local", "platform": "ios", "args": ["-wgLocalMode", "YES", "-wgQALoadError", "local"] },
+    { "name": "native-error-local", "platform": "ios", "args": ["-wgLocalMode", "YES", "-wgLocalLockOn", "NO", "-wgQALoadError", "local"] },
     { "name": "native-launch", "platform": "ios", "args": ["-wgQAHoldMark", "YES"] },
     { "name": "today", "steps": [{ "tab": "today" }],
       "ready": ["#today-view.active", "#today-content > *"] },

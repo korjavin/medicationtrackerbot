@@ -524,6 +524,7 @@ struct LockView: View {
                 if shell.lock.failed {
                     WgNote(tone: .warn, icon: "exclamationmark.triangle",
                            text: Text("Not recognised. Try again, or use your passcode."))
+                        .multilineTextAlignment(.leading)
                 }
             }
             .multilineTextAlignment(.center)
