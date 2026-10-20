@@ -5,7 +5,8 @@ name: iOS
 # bundles for local mode (bd med-o7zq.4), or by hand. See docs/ios.md.
 # deploy.yml ignores ios/** and this file, so iOS-only merges never redeploy.
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
-# PR label `ios-visual`, or a dispatch with visual=true.
+# PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
+# (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
 on:
   push:
     branches: [master]
@@ -17,7 +18,7 @@ on:
       - 'web/domain/**'
   pull_request:
     branches: [master]
-    # labeled: adding `ios-visual` starts the visual job (build skips that event).
+    # labeled: adding `ios-visual` / `ios-qa` starts the visual / qa job (build skips that event).
     types: [opened, synchronize, reopened, labeled]
     paths:
       - 'ios/**'
@@ -33,15 +34,19 @@ on:
         description: Simulator screenshots only (skips the build and TestFlight)
         type: boolean
         default: false
+      qa:
+        description: Simulator flow QA only (skips the build and TestFlight)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   build:
-    # Not on a visual-only run: a label event, or a visual dispatch (which
-    # must never reach the TestFlight steps).
-    if: github.event.action != 'labeled' && !inputs.visual
+    # Not on a visual- or qa-only run: a label event, or a visual / qa
+    # dispatch (which must never reach the TestFlight steps).
+    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa
     # Job-level, so a visual run never cancels a build or a TestFlight dispatch.
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
@@ -283,32 +288,8 @@ jobs:
             -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
 
-      - name: Create and boot the simulators
-        run: |
-          xcrun simctl list devicetypes runtimes
-          runtime="$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform == "iOS" and .isAvailable)] | last | .identifier')"
-          echo "runtime: $runtime"
-          pick() { for t in "$@"; do xcrun simctl list devicetypes | grep -qF "$t (" && { echo "$t"; return; }; done; }
-          # The software keyboard, not the Mac's (Simulator.app's setting).
-          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
-          : > "$RUNNER_TEMP/devices"
-          IFS=',' read -ra types <<< "${{ matrix.types }}"
-          for t in "$(pick "${types[@]}")"; do
-            [ -n "$t" ] || { echo "::error::no device type for ${{ matrix.width }}pt"; exit 1; }
-            # The image's own device if it has one (a fresh device's first boot
-            # migrates data for minutes), else a new one.
-            udid="$(xcrun simctl list devices available -j | jq -r --arg rt "$runtime" --arg n "$t" '.devices[$rt][]? | select(.name == $n) | .udid' | head -n 1)"
-            [ -n "$udid" ] || udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
-            echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
-          done
-          while IFS='=' read -r dev udid; do
-            start=$SECONDS
-            xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
-            echo "$dev booted in $((SECONDS - start))s"
-            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
-            xcrun simctl ui "$udid" appearance dark
-          done < "$RUNNER_TEMP/devices"
-          cat "$RUNNER_TEMP/devices"
+      - name: Create and boot the simulator
+        run: ios/qa/boot-sim.sh "${{ matrix.types }}" "${{ matrix.width }}pt"
 
       - name: Run the scenes per device
         working-directory: ios
@@ -316,7 +297,7 @@ jobs:
           while IFS='=' read -r dev udid; do
             echo "::group::$dev"
             xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
-              -only-testing:MedTrackerUITests -destination "platform=iOS Simulator,id=$udid" \
+              -only-testing:MedTrackerUITests/VisualQATests -destination "platform=iOS Simulator,id=$udid" \
               -derivedDataPath build/sim -resultBundlePath "build/$dev.xcresult" < /dev/null \
               | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
             [ "${PIPESTATUS[0]}" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the errors above)"
@@ -379,6 +360,88 @@ jobs:
           name: ios-visual-${{ matrix.width }}
           path: shots/
           retention-days: 1
+          if-no-files-found: warn
+
+  # Flow QA on the Simulator (bd med-w6gx.23, docs/ios.md "Flow QA
+  # (Simulator)"): ios/UITests/FlowQATests.swift, local mode, one 390pt
+  # device. Unlike visual this is a gate: a failed flow fails the job.
+  qa:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.qa) ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'ios-qa') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'ios-qa'))
+    concurrency:
+      group: ${{ github.workflow }}-qa-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bundle the web app with the QA driver
+        run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
+
+      - name: Generate Xcode project and build for testing
+        working-directory: ios
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          xcodebuild -version
+          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Create and boot the simulator
+        run: ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt
+
+      - name: Run the flows
+        working-directory: ios
+        run: |
+          IFS='=' read -r dev udid < "$RUNNER_TEMP/devices"
+          xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
+            -only-testing:MedTrackerUITests/FlowQATests -destination "platform=iOS Simulator,id=$udid" \
+            -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
+            | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
+          exit "${PIPESTATUS[0]}"
+
+      - name: Export screenshots and summary
+        if: always()
+        working-directory: ios
+        run: |
+          out="$GITHUB_WORKSPACE/shots"
+          raw="$RUNNER_TEMP/raw"
+          mkdir -p "$out"
+          [ -d build/qa.xcresult ] || { echo "## iOS flow QA: no result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          xcrun xcresulttool export attachments --path build/qa.xcresult --output-path "$raw" || true
+          # Same manifest mapping as the visual job: <flow>-<step>.png only.
+          if [ -f "$raw/manifest.json" ]; then
+            jq -r '.[].attachments[] | "\(.exportedFileName)\t\(.suggestedHumanReadableName)"' "$raw/manifest.json" |
+              while IFS=$'\t' read -r file name; do
+                name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
+                case "$name" in *.png) cp "$raw/$file" "$out/$name" ;; esac
+              done
+          fi
+          ls -l "$out"
+          {
+            echo "## iOS flow QA"
+            echo
+            echo "Artifact \`ios-qa\`: \`<flow>-<step>.png\`."
+            echo
+            echo "| test | result | message |"
+            echo "|---|---|---|"
+            xcrun xcresulttool get test-results tests --path build/qa.xcresult |
+              jq -r '.. | objects | select(.nodeType == "Test Case")
+                | "| \(.name) | \(.result) | \([.children[]? | select(.nodeType == "Failure Message") | .name] | join("; ") | gsub("\\|"; "/")) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-qa
+          path: shots/
+          retention-days: 14
           if-no-files-found: warn
 
   # Joins the device jobs' shots into the one `ios-visual` artifact

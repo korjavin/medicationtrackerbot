@@ -2,6 +2,8 @@
 
 Normative how-to. Design and rationale: [design/ios-visual-testing.md](design/ios-visual-testing.md). Everything here is **evidence, never a gate**: probe failures and diffs warn, they do not fail CI.
 
+Flow tests (first run, relaunch, and later lock, stash, backup), which are a gate, are a separate job: see [ios.md → Flow QA (Simulator)](ios.md#flow-qa-simulator-bd-med-w6gx23) (label `ios-qa`).
+
 ## Trigger
 
 - **On a PR:** add the label `ios-visual`. It starts both `ios.yml` → `visual` (Simulator, XCUITest) and `visual-web.yml` (Playwright). New pushes to the labeled PR re-run them.
