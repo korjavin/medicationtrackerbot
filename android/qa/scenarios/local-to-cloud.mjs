@@ -120,7 +120,7 @@ export default async function localToCloud(ctx) {
     await page.locator('.mt-confirm-modal__confirm').waitFor({ state: 'visible', timeout: 10_000 });
     await ctx.shot('move-confirm');
     await page.click('.mt-confirm-modal__confirm');
-    await ctx.waitFor({ text: 'Open' }, 20_000);
+    await ctx.waitFor({ text: 'Continue' }, 20_000);
   });
   await ctx.shot('first-run');
 

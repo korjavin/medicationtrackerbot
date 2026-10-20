@@ -163,6 +163,11 @@
             const el = firstVisible(step.tag);
             if (!el.id) el.id = step.id;
             el.setAttribute('aria-label', step.id);
+        } else if (step.consent) {
+            // The trial consent sheet has no tap path on CI (no App Attest on
+            // the Simulator, no trial keys in the cloud tier): open it directly.
+            // The promise stays pending; the shot is taken with the sheet up.
+            window.TrialConsent.request(step.consent);
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else if (step.file) {

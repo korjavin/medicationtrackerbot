@@ -116,6 +116,119 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(list.querySelectorAll('.time-row')).toHaveLength(1);
     });
 
+    // med-fhil (kit O3): WebKit draws an empty time input blank, so a new row
+    // says "Set time" (sun) until a value is picked, then is the normal row.
+    it('Add time renders a "Set time" row that becomes the time row once picked', () => {
+        const { document, window } = env;
+        window.showAddModal();
+        document.getElementById('add-time-btn').click();
+        const row = document.querySelector('#time-inputs .time-row:last-child');
+        const input = row.querySelector('input.med-time-input[type="time"]');
+
+        expect(row.classList.contains('is-unset')).toBe(true);
+        expect(row.querySelector('.wg-row__lead').classList.contains('wg-row__lead--sun')).toBe(true);
+        expect(row.querySelector('.wg-meds-editor__unset .wg-sun').textContent).toBe('Set time');
+        expect(row.querySelector('.wg-meds-editor__unset .wg-row__meta').textContent).toBe('Tap to choose · not saved yet');
+
+        // Tapping it opens the picker where the browser can.
+        input.showPicker = vi.fn();
+        input.click();
+        expect(input.showPicker).toHaveBeenCalledTimes(1);
+
+        input.value = '08:30';
+        input.dispatchEvent(new window.Event('input'));
+        expect(row.classList.contains('is-unset')).toBe(false);
+        expect(row.querySelector('.wg-row__lead').classList.contains('wg-row__lead--sun')).toBe(false);
+        input.click();
+        expect(input.showPicker).toHaveBeenCalledTimes(1);
+
+        // A saved time opens as a plain time row.
+        window.addTimeInput('20:00');
+        expect(document.querySelector('#time-inputs .time-row:last-child').classList.contains('is-unset')).toBe(false);
+    });
+
+    // med-ckm5.4: the warn note sits under the Times when notifications are off.
+    it('shows "Reminders won\'t fire" under the times when notifications are denied', async () => {
+        const { document, window } = env;
+        window.Notification = { permission: 'denied' };
+        window.showAddModal();
+        await flush();
+        const note = document.querySelector('#times-container #med-notify-note .wg-note--warn[data-notify-denied]');
+        expect(note).not.toBeNull();
+        expect(note.textContent).toContain('Reminders won’t fire. Notifications are off for Med Tracker.');
+
+        window.Notification = { permission: 'granted' };
+        window.showAddModal();
+        await flush();
+        expect(document.getElementById('med-notify-note').children).toHaveLength(0);
+    });
+
+    it('in the app shell the note offers Open iOS Settings when the shell has the op', async () => {
+        const { document, window } = env;
+        const call = vi.fn(async (op) => (op === 'shell.ops' ? ['notifications.openSettings'] : undefined));
+        window.LocalNotifications = {
+            isSupported: () => true,
+            permission: vi.fn(async () => 'denied'),
+            copy: { os: 'iOS', settingsPath: 'iOS Settings → Med Tracker → Notifications' },
+            __native: { call },
+        };
+        window.showAddModal();
+        await flush();
+        await flush();
+        const btn = document.querySelector('#med-notify-note [data-notify-open-settings]');
+        expect(btn).not.toBeNull();
+        expect(btn.textContent).toBe('Open iOS Settings');
+        btn.click();
+        expect(call).toHaveBeenCalledWith('notifications.openSettings');
+    });
+
+    // med-ckm5.4 / med-1ikf: the kit sheet before the one system prompt, asked
+    // once per device and only while the permission is undecided.
+    it('NotifyPermission.maybeAsk opens the sheet once per device while permission is default', async () => {
+        const { document, window } = env;
+        const requestPermission = vi.fn(async () => 'granted');
+        window.LocalNotifications = { isSupported: () => true, permission: vi.fn(async () => 'default'), requestPermission };
+
+        const first = window.NotifyPermission.maybeAsk();
+        await flush();
+        const sheet = document.getElementById('notify-permission-sheet');
+        expect(sheet).not.toBeNull();
+        expect(sheet.querySelector('.wg-eyebrow').textContent).toBe('Reminders');
+        expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('Let Med Tracker remind you');
+        expect(Array.from(sheet.querySelectorAll('.wg-facts b')).map((b) => b.textContent))
+            .toEqual(['Only what you schedule', 'Shown on your lock screen', 'Change it any time']);
+        // A second schedule while the sheet is up does not stack another.
+        expect(window.NotifyPermission.maybeAsk()).toBe(first);
+
+        sheet.querySelector('[data-notify-choice="allow"]').click();
+        expect(requestPermission).toHaveBeenCalledTimes(1);
+        await expect(first).resolves.toBe(true);
+        expect(document.getElementById('notify-permission-sheet')).toBeNull();
+
+        // Answered: never again on this device, even if still 'default'.
+        await expect(window.NotifyPermission.maybeAsk()).resolves.toBe(false);
+        expect(document.getElementById('notify-permission-sheet')).toBeNull();
+    });
+
+    it('NotifyPermission.maybeAsk: no sheet when already granted; Not now leaves the note', async () => {
+        const { document, window } = env;
+        const permission = vi.fn(async () => 'granted');
+        window.LocalNotifications = { isSupported: () => true, permission, requestPermission: vi.fn() };
+        await expect(window.NotifyPermission.maybeAsk()).resolves.toBe(false);
+        expect(document.getElementById('notify-permission-sheet')).toBeNull();
+
+        permission.mockResolvedValue('default');
+        const asking = window.NotifyPermission.maybeAsk();
+        await flush();
+        document.querySelector('#notify-permission-sheet [data-notify-choice="not-now"]').click();
+        await expect(asking).resolves.toBe(false);
+        expect(window.LocalNotifications.requestPermission).not.toHaveBeenCalled();
+
+        window.showAddModal();
+        await flush();
+        expect(document.querySelector('#med-notify-note [data-notify-denied]')).not.toBeNull();
+    });
+
     it('Track stock reveals the stepper; the stepper never steps below zero', () => {
         const { document, window } = env;
         window.showAddModal();

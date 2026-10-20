@@ -14,7 +14,6 @@ import android.content.IntentSender
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
-import android.graphics.Paint
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
 import android.net.Uri
@@ -28,6 +27,7 @@ import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.Window
@@ -44,6 +44,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -101,15 +102,29 @@ class MainActivity : Activity() {
     private lateinit var firstRun: View
     private lateinit var localIntro: View
     private lateinit var input: EditText
-    private lateinit var firstRunMessage: TextView
+    /** N1's pieces, put in order by [renderFirstRun]: a pending move puts the invite first. */
+    private lateinit var firstRunColumn: LinearLayout
+    private lateinit var firstRunHead: List<View>
+    private lateinit var firstRunFoot: List<View>
+    private lateinit var moveNote: View
+    private lateinit var localRow: View
+    private lateinit var localRowDesc: TextView
+    private lateinit var orDivider: View
+    private lateinit var inviteSection: View
+    private lateinit var inputError: TextView
+    private lateinit var inputHint: TextView
     private lateinit var errorView: View
     private lateinit var ceremonyBar: Button
     private lateinit var errorMessage: TextView
     private lateinit var lockView: View
     private lateinit var unlockButton: Button
     private lateinit var lockSwitch: Switch
-    private lateinit var lockHint: TextView
-    private lateinit var introMessage: TextView
+    private lateinit var lockRow: View
+    private lateinit var introScroll: ScrollView
+    private lateinit var introMove: View
+    private lateinit var introMessage: LinearLayout
+    private lateinit var startButton: Button
+    private lateinit var openInviteButton: Button
 
     private val files by lazy { Files(this) { if (concealed) null else vaultHost } }
     private val notifications by lazy { Notifications(this) { vaultHost } }
@@ -282,8 +297,12 @@ class MainActivity : Activity() {
         val url = AccountUrl.parse(raw, base)
         val h = url?.let { Uri.parse(it).host }
         if (url == null || h == null) {
-            firstRunMessage.text = if (base.isEmpty()) "This build has no service configured."
-            else "That isn't an account link. Use your invite link or your account address (yourname.$base)."
+            val second = "Use your invite link or your account address (yourname.$base)."
+            when {
+                base.isEmpty() -> fieldError("This build has no service configured.")
+                raw.isBlank() -> fieldError("Paste or scan your invite first.", second)
+                else -> fieldError("That isn't an account link.", second)
+            }
             return
         }
         if (h != host) Notifications.clear(this)
@@ -291,7 +310,7 @@ class MainActivity : Activity() {
         prefs.edit().putString(HOST_KEY, h).apply()
         host = h
         input.setText("")
-        firstRunMessage.text = ""
+        fieldError(null)
         // Found by the emulator harness (bd med-nt9p.23): the keyboard stayed up over the
         // page or the error screen, so the first Back only closed it. A show still animating
         // cancels this hide (bd med-nt9p.34): the insets listener repeats it when the IME lands.
@@ -346,8 +365,9 @@ class MainActivity : Activity() {
         if (url == null) {
             web.loadUrl("about:blank")
             firstRun.visibility = View.VISIBLE
-            // Callers that explain why (an account gone) set their message after this.
-            firstRunMessage.text = if (move.exists) "Your records are ready to move: paste or scan your invite." else ""
+            // Callers that explain why (an account gone) set their field error after this.
+            fieldError(null)
+            renderFirstRun()
         } else {
             firstRun.visibility = View.GONE
             load(url)
@@ -421,7 +441,7 @@ class MainActivity : Activity() {
             WebSettingsCompat.setWebAuthenticationSupport(w.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
         }
         diag("shell webview webauthn=${webAuthnMode(w)}")
-        w.setBackgroundColor(Color.TRANSPARENT)
+        w.setBackgroundColor(SCREEN) // the token mirror: wg_screen until the page paints (N6)
         w.webViewClient = Client()
         // The account subdomains and the asset origin; onBridge and Files answer only the open vault's.
         val rules = (if (base.isEmpty()) emptySet() else setOf("https://*.$base")) + "https://${LocalOrigin.HOST}"
@@ -500,10 +520,12 @@ class MainActivity : Activity() {
             // The server says the stored account is gone (deleted here or elsewhere, or a typo): forget
             // it and say why on the first run (bd med-nt9p.32.14). A 404 without the server's marker
             // (a proxy's during a redeploy, an older server) keeps the error screen and Try again.
-            // Set after forget()'s reopen(), which resets the first-run message; the next open or reopen clears it.
+            // Set after forget()'s reopen(), which resets the field error; the next open or reopen clears it.
+            // The address stays in the field (N1 · error), so it can be fixed in place.
             if (h != null && h == host && AccountUrl.accountGone(response.statusCode, response.responseHeaders)) {
                 forget()
-                firstRunMessage.text = "There is no account at $h."
+                input.setText(h)
+                fieldError("There is no account at $h.", "Check the address, or ask whoever invited you for a new link.")
                 return
             }
             loadFailed = true
@@ -601,7 +623,7 @@ class MainActivity : Activity() {
             }
             // The page erased its own storage (local-policy.js); the shell's share is the host mirror and reminders.
             "local.reset" -> {
-                prefs.edit().remove(LocalOrigin.HOSTS_KEY).apply()
+                prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
                 move.clear()
                 leave.clear()
                 Notifications.clear(this)
@@ -663,7 +685,7 @@ class MainActivity : Activity() {
         bottomBand = View(this)
         root.addView(topBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.TOP))
         root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
-        ceremonyBar = button("Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE; maxLines = 1; minHeight = 0; minimumHeight = 0; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f) }
+        ceremonyBar = wgButton(R.style.Widget_Wg_Button, "Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE; maxLines = 1; minHeight = 0; minimumHeight = 0; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f) }
         root.addView(ceremonyBar, FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM))
         firstRun = buildFirstRun()
         localIntro = buildLocalIntro()
@@ -698,7 +720,13 @@ class MainActivity : Activity() {
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
-        for (v in listOf(firstRun, localIntro, errorView, lockView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
+        // The keyboard's extra height is a margin, not padding: the ScrollView really shrinks and
+        // its onSizeChanged scrolls the focused invite field above the keyboard (N1 at 2x).
+        val imeLift = bottom - sys.bottom
+        for (v in listOf(firstRun, localIntro, errorView, lockView)) {
+            v.setPadding(sys.left, sys.top, sys.right, sys.bottom)
+            v.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = imeLift }
+        }
     }
 
     private fun setCeremony(on: Boolean) {
@@ -719,13 +747,12 @@ class MainActivity : Activity() {
             .show()
     }
 
-    /** Bands and bar icons follow the page, or the theme while a native screen is up. */
+    /** Bands and bar icons follow the page, or wg_screen while a native screen is up. */
     private fun updateChrome() {
         val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE ||
             localIntro.visibility == View.VISIBLE || lockView.visibility == View.VISIBLE
-        val themeBg = TypedValue().also { theme.resolveAttribute(android.R.attr.colorBackground, it, true) }.data
-        val top = if (native) themeBg else topColor
-        val bottom = if (native) themeBg else bottomColor
+        val top = if (native) SCREEN else topColor
+        val bottom = if (native) SCREEN else bottomColor
         root.setBackgroundColor(top)
         topBand.setBackgroundColor(top)
         bottomBand.setBackgroundColor(bottom)
@@ -752,111 +779,195 @@ class MainActivity : Activity() {
         backRegistered = want
     }
 
-    // MARK: native screens
+    // MARK: native screens (kit token mirror, bd med-ckm5.14; Wg.kt + res/values/styles.xml)
 
+    /**
+     * N1 first run (screens-native.html): one scrolling column that fades at the bottom while more
+     * is below. Owner decision 2026-10-19: local first — the boxed "Only on this device" row
+     * pushes N2, then "or" and the invite field with Scan in its row and Continue, the only sun.
+     * A pending move ([renderFirstRun]) leads with an info note and puts the invite first.
+     */
     private fun buildFirstRun(): View {
-        input = EditText(this).apply {
-            hint = if (base.isEmpty()) "Invite link" else "Invite link or yourname.$base"
+        input = EditText(this, null, 0, R.style.Widget_Wg_EditText).apply {
+            // N1 · 2x: the long placeholder would clip at large font scales.
+            hint = if (resources.configuration.fontScale >= 1.5f) "Invite link" else "Paste invite link or address"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             imeOptions = EditorInfo.IME_ACTION_GO
+            isSingleLine = true
             setOnEditorActionListener { _, action, _ ->
                 (action == EditorInfo.IME_ACTION_GO).also { if (it) open(text.toString()) }
             }
         }
-        firstRunMessage = TextView(this)
-        // Owner decision 2026-10-19: local mode is the primary choice in the Play build, the invite second.
-        return screen(
-            "Med Tracker",
-            TextView(this).apply { text = "Use Med Tracker without an account: your records stay on this phone." },
-            button("Only on this device") { showIntro(true) },
-            Space(this).apply { minimumHeight = 16.dp },
-            TextView(this).apply {
-                text = "Have an invite? Paste your invite link or your account address, " +
-                    "or scan the QR code from your invite or your Emergency Kit."
-            },
-            input,
-            button("Open") { open(input.text.toString()) },
-            button("Scan QR code") { scan() },
-            firstRunMessage,
-            *inviteLink(),
-            Space(this).apply { minimumHeight = 16.dp },
-            // Store-review footnote (bd med-nt9p.31): word for word as ios/App/App.swift.
-            TextView(this).apply {
-                setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
-                text = "Med Tracker is a personal log, not a medical device, and does not give medical advice. " +
-                    "Talk to your doctor before changing a treatment."
-            },
-            link("Privacy policy", PermissionsRationaleActivity.PRIVACY_POLICY),
+        val scan = ImageButton(this, null, 0, R.style.Widget_Wg_IconButton).apply {
+            setImageResource(R.drawable.ic_wg_qr)
+            contentDescription = "Scan QR code"
+            setOnClickListener { scan() }
+        }
+        val inputRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(input, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { gravity = Gravity.CENTER_VERTICAL })
+            addView(scan, LinearLayout.LayoutParams(48.dp, 48.dp).apply { marginStart = 8.dp; gravity = Gravity.TOP })
+        }
+        inputError = wgText(R.style.Widget_Wg_Text_Error).apply {
+            setCompoundDrawablesRelative(getDrawable(R.drawable.ic_wg_alert)!!.apply { setBounds(0, 0, 14.dp, 14.dp) }, null, null, null)
+            visibility = View.GONE
+        }
+        inputHint = wgText(R.style.Widget_Wg_Text_Hint, INVITE_HINT)
+        inviteSection = wgStack(
+            8,
+            wgStack(6, wgText(R.style.Widget_Wg_Text_Label, "Have an invite?"), inputRow, inputError, inputHint),
+            wgButton(R.style.Widget_Wg_Button_Primary, "Continue") { open(input.text.toString()) },
         )
+        localRowDesc = wgText(R.style.Widget_Wg_Text_RowDesc)
+        localRow = wgRow(
+            wgLeadTile(R.drawable.wg_lead_ok, R.drawable.ic_wg_device, R.color.wg_ok_fg),
+            wgText(R.style.Widget_Wg_Text_RowTitle, "Only on this device"),
+            localRowDesc,
+            wgIcon(R.drawable.ic_wg_chev_r, R.color.wg_fg_4),
+        ).apply { setOnClickListener { showIntro(true) } }
+        orDivider = wgOr()
+        moveNote = wgNote(
+            Wg.Tone.INFO, R.drawable.ic_wg_route,
+            wgLead("Your records are ready to move.", " Paste or scan the invite for your new account. They move in after you sign in."),
+        )
+        firstRunHead = listOf(
+            wgBrand(),
+            wgStack(
+                8,
+                wgText(R.style.Widget_Wg_Text_Title, "Your health log, on your terms"),
+                wgText(R.style.Widget_Wg_Text_Lede, "Keep it on this phone with no account, or open the account you were invited to."),
+            ),
+        )
+        val links = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(link("Privacy policy", PermissionsRationaleActivity.PRIVACY_POLICY))
+            addView(Space(this@MainActivity), LinearLayout.LayoutParams(0, 0, 1f))
+            // The service's landing page says how to get an invite; the address is the build's, never committed.
+            if (base.isNotEmpty()) addView(link("How to get an invite", "https://$base/"))
+        }
+        firstRunFoot = listOf(
+            // Store-review footnote (bd med-nt9p.31): word for word as ios/App/App.swift.
+            wgText(
+                R.style.Widget_Wg_Text_Fine,
+                "Med Tracker is a personal log, not a medical device, and does not give medical advice. " +
+                    "Talk to your doctor before changing a treatment.",
+            ),
+            links,
+        )
+        firstRunColumn = wgStack(20).apply { setPadding(24.dp, 8.dp, 24.dp, 24.dp) }
+        renderFirstRun()
+        return wgScroll(firstRunColumn, fade = true)
+    }
+
+    /** N1's order: local first; with a move pending (shot 21) the note, the invite, then the local row. */
+    private fun renderFirstRun() {
+        val pending = move.exists
+        localRowDesc.text = if (pending) "Stay without an account and cancel the move" else "No account. Records stay on this phone."
+        val middle = if (pending) listOf(moveNote, inviteSection, orDivider, localRow) else listOf(localRow, orDivider, inviteSection)
+        firstRunColumn.removeAllViews()
+        for (v in firstRunHead + middle + firstRunFoot) {
+            (v.parent as? ViewGroup)?.removeView(v)
+            firstRunColumn.addView(v, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        }
+    }
+
+    /** The invite field's error (wg-field--error): danger line, the message with its icon, and what to do. */
+    private fun fieldError(message: String?, hint: String = INVITE_HINT) {
+        inputError.text = message ?: ""
+        inputError.visibility = if (message == null) View.GONE else View.VISIBLE
+        inputHint.text = hint
+        input.setBackgroundResource(if (message == null) R.drawable.wg_field else R.drawable.wg_field_error)
     }
 
     /**
-     * Local mode's intro (bd med-nt9p.32.4), twin of ios/App/App.swift LocalIntroView: what
-     * "only on this device" means for the data, and the optional lock (.9), before the choice is stored.
+     * N2 local intro (bd med-nt9p.32.4), twin of ios/App/App.swift LocalIntroView: Back in the top
+     * bar, four facts, the optional lock (.9), Start docked. While a move is pending, a warn note
+     * above the dock, Start names the consequence and a ghost button goes back to the invite.
      */
-    private fun buildLocalIntro(): View = screen(
-        "Only on this device",
-        TextView(this).apply {
-            text = "No account and no sign-in. Your records are stored only on this phone, and nothing is sent to our servers."
-        },
-        TextView(this).apply {
-            // Scoped Auto Backup, bd med-nt9p.32.5 (data_extraction_rules.xml; privacy-manifest local-records).
-            text = "Your phone's Google backup and a transfer to a new phone can include them, but Google's backup " +
-                "skips apps over 25 MB. Med Tracker keeps no other copy and cannot recover them for you."
-        },
-        TextView(this).apply {
-            text = "Without a backup, deleting the app, or losing or resetting the phone, deletes them for good. " +
-                "Export a backup file regularly in Settings → Backup & import."
-        },
-        TextView(this).apply {
-            text = "AI and food search work only with providers you add with your own key. " +
-                "Voice, Telegram and the shared food database need an account."
-        },
-        TextView(this).apply {
-            // The seamless move (bd med-nt9p.32.16-.19); Backup & import keeps the file steps as the fallback.
-            text = "To move to an account later: Settings → Move to a cloud account. Accounts are invite-only."
-        },
-        // Optional lock (bd med-nt9p.32.9); also Settings → App lock in the app.
-        Switch(this).apply { text = "Lock with fingerprint, face or screen lock" }.also { lockSwitch = it },
-        TextView(this).apply {
-            setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
-            text = "Asks for your fingerprint, face or screen lock each time you open Med Tracker. It hides the app; " +
-                "it does not encrypt your records, and reminders on the lock screen still show."
-        }.also { lockHint = it },
-        TextView(this).also { introMessage = it },
-        *inviteLink(),
-        button("Start") { setLock(lockSwitch.isChecked) { e -> if (e == null) openLocal() else introMessage.text = e } },
-        button("Back") { showIntro(false) },
-    ).apply { visibility = View.GONE }
+    private fun buildLocalIntro(): View {
+        val lockLead = wgLeadTile(R.drawable.wg_lead, R.drawable.ic_wg_lock, R.color.wg_fg_2)
+        lockSwitch = Switch(this, null, 0, R.style.Widget_Wg_Switch).apply {
+            contentDescription = "Lock with fingerprint or face"
+            setOnCheckedChangeListener { _, on ->
+                lockLead.setBackgroundResource(if (on) R.drawable.wg_lead_sun else R.drawable.wg_lead)
+                lockLead.imageTintList = getColorStateList(if (on) R.color.wg_sun else R.color.wg_fg_2)
+            }
+        }
+        // Optional lock (bd med-nt9p.32.9); also Settings → App lock in the app. The full
+        // "fingerprint, face or screen lock" wording is the system prompt's.
+        lockRow = wgRow(
+            lockLead,
+            wgText(R.style.Widget_Wg_Text_RowTitle, "Lock with fingerprint or face"),
+            wgText(R.style.Widget_Wg_Text_RowDesc, "Hides the app. It doesn't encrypt, and reminders still show on the lock screen."),
+            lockSwitch,
+        ).apply { setOnClickListener { lockSwitch.toggle() } }
+        introMove = wgNote(
+            Wg.Tone.WARN, R.drawable.ic_wg_alert,
+            wgLead("A move to a cloud account is waiting.", " Start here cancels it. Your records stay on this phone."),
+        )
+        introMessage = wgNote(Wg.Tone.DANGER, R.drawable.ic_wg_alert, "").apply { visibility = View.GONE }
+        val body = wgStack(
+            20,
+            wgStack(
+                8,
+                wgText(R.style.Widget_Wg_Text_Title, "Only on this device"),
+                wgText(R.style.Widget_Wg_Text_Lede, "Use Med Tracker without an account. Your records live on this phone."),
+            ),
+            wgStack(
+                14,
+                wgFact(R.drawable.ic_wg_device, "Stored here, nowhere else", "Nothing is sent to a server."),
+                // Scoped Auto Backup, bd med-nt9p.32.5 (data_extraction_rules.xml; privacy-manifest local-records).
+                wgFact(R.drawable.ic_wg_download, "You make the backups", "Google backup keeps up to 25 MB. Export a file for the rest."),
+                wgFact(R.drawable.ic_wg_alert, "Lose the phone, lose the records", "Unless you have a backup file.", warn = true),
+                // The seamless move (bd med-nt9p.32.16-.19); Backup & import keeps the file steps as the fallback.
+                wgFact(R.drawable.ic_wg_route, "Move to an account later", "Settings → Move to a cloud account."),
+            ),
+            lockRow,
+            introMove,
+            introMessage,
+        ).apply { setPadding(24.dp, 8.dp, 24.dp, 24.dp) }
+        startButton = wgButton(R.style.Widget_Wg_Button_Primary, "Start") {
+            setLock(lockSwitch.isChecked) { e ->
+                if (e == null) openLocal() else introMessage.apply { noteText(e); visibility = View.VISIBLE }
+            }
+        }
+        openInviteButton = wgButton(R.style.Widget_Wg_Button_Ghost, "Open the new account instead") { showIntro(false) }
+        val dock = wgStack(8, startButton, openInviteButton).apply { setPadding(24.dp, 12.dp, 24.dp, 16.dp) }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.color.wg_screen)
+            addView(LinearLayout(this@MainActivity).apply {
+                setPadding(10.dp, 2.dp, 10.dp, 2.dp)
+                addView(wgButton(R.style.Widget_Wg_Button_Back, "Back") { showIntro(false) })
+            })
+            addView(wgRule())
+            addView(wgScroll(body).also { introScroll = it }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(wgRule())
+            addView(dock)
+            visibility = View.GONE
+        }
+    }
 
     private fun showIntro(on: Boolean) {
         localIntro.visibility = if (on) View.VISIBLE else View.GONE
         if (on) {
             lockSwitch.isChecked = lock.on // still on from an earlier stay in local mode
-            val offer = if (deviceSecure() || lock.on) View.VISIBLE else View.GONE
-            lockSwitch.visibility = offer
-            lockHint.visibility = offer
+            lockRow.visibility = if (deviceSecure() || lock.on) View.VISIBLE else View.GONE
             // A pending move (bd med-nt9p.32.19): Start enters local mode, which drops the stash
             // (setLocal). Kept reachable, unlike iOS's one-tap Continue on this iPhone: it is the
             // only way back here, and the records stay in local mode either way.
-            introMessage.text = if (move.exists) "Start cancels the move to a cloud account. " +
-                "Your records stay on this phone, and you can move them again from Settings." else ""
-            localIntro.scrollTo(0, 0)
+            val pending = move.exists
+            introMove.visibility = if (pending) View.VISIBLE else View.GONE
+            openInviteButton.visibility = if (pending) View.VISIBLE else View.GONE
+            startButton.text = if (pending) "Start and cancel the move" else "Start"
+            introMessage.visibility = View.GONE
+            introScroll.scrollTo(0, 0)
             window.insetsController?.hide(WindowInsets.Type.ime()) // the invite field's keyboard
         }
         updateChrome()
     }
 
-    /** The service's landing page says how to get an invite; the address is the build's, never committed. */
-    private fun inviteLink(): Array<View> =
-        if (base.isEmpty()) emptyArray() else arrayOf(link("How to get an invite", "https://$base/"))
-
-    private fun link(label: String, url: String) = TextView(this).apply {
-        setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
-        text = label
-        paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
-        gravity = Gravity.CENTER_VERTICAL
-        minHeight = 48.dp
+    private fun link(label: String, url: String) = wgText(R.style.Widget_Wg_Text_Link, label).apply {
         setOnClickListener { openOutside(Uri.parse(url)) }
     }
 
@@ -869,12 +980,13 @@ class MainActivity : Activity() {
     }
 
     private fun buildError(): View {
-        errorMessage = TextView(this)
+        // On the token mirror; N4's hierarchy and copy are med-ckm5.16.
+        errorMessage = wgText(R.style.Widget_Wg_Text_Lede).apply { gravity = Gravity.CENTER }
         return screen(
             "Can't open your account",
             errorMessage,
-            button("Try again") { retry() },
-            button("Switch account") { forget() },
+            wgButton(R.style.Widget_Wg_Button_Primary, "Try again") { retry() },
+            wgButton(R.style.Widget_Wg_Button, "Switch account") { forget() },
         ).apply { visibility = View.GONE }
     }
 
@@ -882,16 +994,15 @@ class MainActivity : Activity() {
 
     /** Local mode's lock screen. A cancelled prompt lands here and stays: only the button asks again. */
     private fun buildLock(): View {
-        unlockButton = button("Unlock") { lock.begin()?.let { authenticate(it) } }
-        // Same screen() as first run and the intro (colours, type, button); the launcher icon is the brand mark.
+        unlockButton = wgButton(R.style.Widget_Wg_Button_Primary, "Unlock") { lock.begin()?.let { authenticate(it) } }
+        // On the token mirror; N3's mark tile and failed note are med-ckm5.16. The launcher icon is the brand mark.
         return screen(
             "Med Tracker is locked",
-            TextView(this).apply {
-                text = "Unlock with your fingerprint, face or screen lock to see your records."
+            wgText(R.style.Widget_Wg_Text_Lede, "Unlock with your fingerprint, face or screen lock to see your records.").apply {
                 gravity = Gravity.CENTER
             },
             unlockButton,
-            centered = true,
+            mark = true,
         ).apply { visibility = View.GONE }
     }
 
@@ -985,40 +1096,24 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun screen(title: String, vararg views: View, centered: Boolean = false): View {
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (24 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad, pad, pad)
-            if (centered) {
-                gravity = Gravity.CENTER
-                addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, 96.dp, 96.dp)
-            }
-            addView(TextView(this@MainActivity).apply {
-                text = title
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
-                if (centered) gravity = Gravity.CENTER
-            })
-            for (v in views) addView(v, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = pad / 2 })
+    /** The load-error and lock screens: a centred column on the token mirror (N3/N4 finish them, med-ckm5.16); [mark] adds the brand icon. */
+    private fun screen(title: String, vararg views: View, mark: Boolean = false): View {
+        val column = wgStack(16).apply {
+            setPadding(24.dp, 24.dp, 24.dp, 24.dp)
+            gravity = Gravity.CENTER
+            if (mark) addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, 96.dp, 96.dp)
+            addView(wgText(R.style.Widget_Wg_Text_Title_Md, title).apply { gravity = Gravity.CENTER }, MATCH_PARENT, WRAP_CONTENT)
+            for (v in views) addView(v, MATCH_PARENT, WRAP_CONTENT)
         }
-        val bg = TypedValue().also { theme.resolveAttribute(android.R.attr.colorBackground, it, true) }.data
-        return ScrollView(this).apply {
-            setBackgroundColor(bg)
-            isFillViewport = true
-            clipToPadding = false
-            addView(column)
-        }
+        return wgScroll(column)
     }
 
-    private fun button(label: String, action: () -> Unit) =
-        Button(this).apply { text = label; isAllCaps = false; setOnClickListener { action() } }
-
-    /** Play services' scanner: no camera permission here; any failure falls back to paste. */
+    /** Play services' scanner: no camera permission here; any failure falls back to paste. A match fills the field and runs Continue. */
     private fun scan() {
         val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
         GmsBarcodeScanning.getClient(this, options).startScan()
-            .addOnSuccessListener { code -> open(code.rawValue ?: "") }
-            .addOnFailureListener { firstRunMessage.text = "Scanning isn't available on this phone. Paste the link instead." }
+            .addOnSuccessListener { code -> (code.rawValue ?: "").let { input.setText(it); open(it) } }
+            .addOnFailureListener { fieldError("Scanning isn't available on this phone.", "Paste the link instead.") }
     }
 
     // MARK: diagnostics (bd med-nt9p.22)
@@ -1068,6 +1163,8 @@ class MainActivity : Activity() {
         const val ACTION_DIAG = "com.example.medtracker.COPY_DIAGNOSTICS"
         const val DIAG_KEY = "log"
         /** --wg-bg-screen: the bands' colour until the page reports its own. */
-        val SCREEN = Color.rgb(0x13, 0x2D, 0x29)
+        val SCREEN = Wg.SCREEN
+        /** N1's second line under the invite field when nothing is wrong. */
+        const val INVITE_HINT = "From your invite, or scan the QR on your Emergency Kit."
     }
 }

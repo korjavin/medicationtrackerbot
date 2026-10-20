@@ -104,7 +104,7 @@ const ctx = {
   async launch({ softAuthn = false } = {}) {
     await shell(`am force-stop ${pkg}`);
     await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity${softAuthn ? ' --ez qaSoftAuthn true' : ''}`);
-    await ctx.waitFor({ text: 'Open' });
+    await ctx.waitFor({ text: 'Continue' });
   },
   /**
    * Cold start in local mode (bd med-nt9p.32.6) with the debug-only extras of bd med-nt9p.32.4:
@@ -170,18 +170,18 @@ const ctx = {
       }
     }
   },
-  /** First run → type a link → Open. */
+  /** First run → type a link → Continue (N1). */
   async openLink(url, { shotTyped = false } = {}) {
     await device.fill({ clazz: 'android.widget.EditText' }, url);
     if (shotTyped) await ctx.shot('typed');
-    // At a large font scale the keyboard covers Open (local mode's button sits above the form,
+    // At a large font scale the keyboard covers Continue (local mode's row sits above the form,
     // bd med-nt9p.32.4) and the tap lands on it: Back closes the keyboard first (never the app,
     // the system gives Back to a shown IME).
     if (/mInputShown=true|mIsInputViewShown=true|isInputViewShown=true/.test(await shell('dumpsys input_method'))) {
       await shell('input keyevent KEYCODE_BACK');
       await ctx.sleep(700);
     }
-    await device.tap({ text: 'Open' });
+    await device.tap({ text: 'Continue' });
   },
   /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the "Can't open your account" screen. */
   async openAccount(url = 'https://down.qa.test/', opts = {}) {

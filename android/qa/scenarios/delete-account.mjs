@@ -107,7 +107,7 @@ export default async function deleteAccount(ctx) {
   });
   await ctx.step('deleted → the native first run (A)', async () => {
     await ctx.waitFor({ text: 'Only on this device' }, 60_000);
-    await ctx.waitFor({ text: 'Open' }, 5_000);
+    await ctx.waitFor({ text: 'Continue' }, 5_000);
     r.urlAfterDelete = await page.evaluate(() => location.href).catch(async () => (await ctx.attachPage())?.url());
     if (r.urlAfterDelete !== 'about:blank') throw new Error(`WebView on ${r.urlAfterDelete}, want about:blank`);
     const h = await storedHost(ctx);
@@ -121,7 +121,7 @@ export default async function deleteAccount(ctx) {
     await sleep(2000);
     await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
     await ctx.waitFor({ text: 'Only on this device' }, 30_000);
-    await ctx.waitFor({ text: 'Open' }, 5_000);
+    await ctx.waitFor({ text: 'Continue' }, 5_000);
     for (const text of [/There is no account.*/, /.*open your account.*/, 'Try again']) {
       if (await device.wait({ text }, { timeout: 1_500 }).then(() => true, () => false)) throw new Error(`showing ${text}`);
     }

@@ -15,7 +15,7 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 export const retry = false;
 
 // Waited for up to 60 s: the fresh emulator's launcher ANR dialog hid it from UiAutomator for 20 s (first run).
-const HINT = /^Your records are ready to move: paste or scan your invite\.$/;
+const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\..*/;
 
 /** The page's own bridge call (native/index.js): {ok, result} or {ok: false, error}. */
 const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotifications.__native.call(o, a)
@@ -64,8 +64,10 @@ export default async function moveOps(ctx) {
 
   const start = async () => {
     await device.tap({ text: 'Only on this device' });
-    await ctx.waitFor({ text: 'Start' });
-    await device.tap({ text: 'Start' });
+    // N2 names the consequence while a stash is pending (bd med-ckm5.14).
+    const START = /^Start( and cancel the move)?$/;
+    await ctx.waitFor({ text: START });
+    await device.tap({ text: START });
     page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page');
     await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
@@ -79,7 +81,7 @@ export default async function moveOps(ctx) {
   });
   await ctx.step('local.leave without a stash → first run without the hint', async () => {
     await call(page, 'local.leave').catch(() => {});
-    await ctx.waitFor({ text: 'Open' }, 20_000);
+    await ctx.waitFor({ text: 'Continue' }, 20_000);
     await sleep(1500);
     const stale = await device.wait({ text: HINT }, { timeout: 1_000 }).then(() => true, () => false);
     expect(!stale, 'the hint outlived the stash');
@@ -147,6 +149,7 @@ export default async function moveOps(ctx) {
     expect((await stashFiles()) === '', 'leave.stash touched the move dir');
   });
   await ctx.step('account.leave {then: local}: the leave stash is kept, local takes and clears it', async () => {
+    const accountHost = new URL(page.url()).host;
     await call(page, 'account.leave', { then: 'local' }).catch(() => {});
     await sleep(2000);
     page = await ctx.attachPage();
@@ -165,16 +168,32 @@ export default async function moveOps(ctx) {
     const took = await call(page, 'leave.take');
     expect(took.ok && took.result && took.result.vault === vault, `leave.take: ${took.ok} ${took.error || took.result?.vault?.length}`);
     expect((await leaveFiles()) === 'vault.json', 'leave.take deleted the stash');
-    const cleared = await call(page, 'leave.clear');
-    expect(cleared.ok && cleared.result === true, `leave.clear: ${JSON.stringify(cleared)}`);
-    expect((await leaveFiles()) === '', `leave.clear left: ${await leaveFiles()}`);
-    const none = await call(page, 'leave.take');
-    expect(none.ok && none.result === null, `leave.take after clear: ${JSON.stringify(none)}`);
-    // Cancel → no dialog (bd med-o7zq.42); leave.clear {back: true} stays local here, as the plain
-    // leave.clear above already dropped the remembered account.
+    // Cancel → leave.clear {back: true} (bd med-o7zq.42): the SAME account reopens, no dialog, stash gone.
     await page.click('.mt-confirm-modal__cancel');
+    await sleep(5000);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page');
+    await page.waitForURL((u) => !u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 60_000 });
+    expect(new URL(page.url()).host === accountHost, `cancel reopened ${page.url()}, not ${accountHost}`);
+    await sleep(3000);
+    await ctx.shot('leave-cancel-back-in-account');
+    const dlg = await page.locator('.mt-confirm-modal__title').count();
+    expect(dlg === 0, 'a dialog shows after Cancel');
+    expect((await leaveFiles()) === '', `cancel left the leave stash: ${await leaveFiles()}`);
+    await sleep(1500); // apply() writes the xml off-thread
+    expect(!/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'cancel kept leaveHost');
+    r.cancelBack = true;
+  });
+  await ctx.step('back in local: the records are intact (nothing merged or replaced)', async () => {
+    await call(page, 'account.leave', { then: 'local' }).catch(() => {}); // no stash: no dialog
+    await sleep(2000);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page');
+    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
     await ctx.waitLocalReady(page);
-    expect(page.url().startsWith(`${LOCAL_ORIGIN}/`), `cancel left local mode: ${page.url()}`);
+    const now = await page.evaluate(() => window.CloudVault.exportAll({ includeSecrets: false }));
+    expect(now.length > 0 && Math.abs(now.length - vault.length) < vault.length * 0.1, `local records changed: ${now.length} vs ${vault.length}`);
+    expect(/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'leaving did not remember the account');
   });
   await ctx.step('local.reset deletes the leave stash', async () => {
     await seedLeave();
@@ -182,11 +201,13 @@ export default async function moveOps(ctx) {
     const res = await call(page, 'local.reset');
     expect(res.ok && res.result === true, `local.reset: ${JSON.stringify(res)}`);
     expect((await leaveFiles()) === '', `local.reset left: ${await leaveFiles()}`);
+    for (let i = 0; i < 20 && /leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)); i++) await sleep(1000); // apply() writes off-thread
+    expect(!/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'local.reset kept leaveHost');
   });
   await ctx.step('local.leave keeps it; opening an account deletes it', async () => {
     await seedLeave();
     await call(page, 'local.leave').catch(() => {});
-    await ctx.waitFor({ text: 'Open' }, 60_000);
+    await ctx.waitFor({ text: 'Continue' }, 60_000);
     expect((await leaveFiles()) === 'vault.json', 'leaving local mode deleted the leave stash');
     await ctx.openLink(ctx.claimUrl); // open() runs before the page loads
     await sleep(2000);
