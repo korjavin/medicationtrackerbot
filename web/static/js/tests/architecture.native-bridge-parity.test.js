@@ -16,10 +16,8 @@ const ANDROID_DIR = path.join(ROOT, 'android/app/src/main/java');
 const ANDROID = path.join(ANDROID_DIR, fs.readdirSync(ANDROID_DIR, { recursive: true }).find((f) => path.basename(f) === 'LocalOrigin.kt'));
 
 const PLATFORM_ONLY = {
-    'lock.status': 'Android app lock; iOS twin is med-o7zq.39',
-    'lock.set': 'Android app lock; iOS twin is med-o7zq.39',
     chrome: 'Android system bars',
-    'diag.append': 'Android-only passkey debug aid',
+    'diag.append': 'Android passkey debug aid; iOS twin is med-w6gx.24',
 };
 
 // { op: group } from `<name> = [ ... ]` (Swift) or `<name> = setOf( ... )` (Kotlin).
