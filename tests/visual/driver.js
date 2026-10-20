@@ -174,6 +174,11 @@
             // "Re-run onboarding" does. Nothing is written until a tap.
             window.WGFirstRun.state.clear();
             window.WGFirstRun.mount({ needs_first_run: true });
+        } else if (step.invite) {
+            // The F1 "Have an invite?" sheet (bd med-ta2n.6). Its W1 footer
+            // button shows only in a v3 shell's local mode, which the cloud and
+            // Playwright passes are not: open it the way that button does.
+            document.dispatchEvent(new CustomEvent('wg:invite-open'));
         } else if (step.trial) {
             // The AI-trial card (kit A1) has no natural state on CI either (no
             // App Attest, and the seed vault has its own OpenAI key): stub what

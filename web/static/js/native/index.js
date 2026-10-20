@@ -1,7 +1,7 @@
 // Device-capability abstraction layer.
 //
 // Exposes window globals — MediaCapture, Barcode, Bluetooth, LocalNotifications,
-// Health and Attest — as the seam between feature code (web/static/js/features/*) and
+// Health, Attest and Clipboard — as the seam between feature code (web/static/js/features/*) and
 // device APIs. Each global
 // is initially populated with stubs that throw NotImplementedError so a caller
 // that loads before the impls is loud rather than silently no-op; the impl
@@ -180,6 +180,9 @@
     window.LocalNotifications = makeStub('LocalNotifications', ['isSupported']);
     window.Health = makeStub('Health', ['isSupported']);
     window.Attest = makeStub('Attest', ['isSupported']);
+    // Replaces the browser's Clipboard interface object on window (nothing
+    // here constructs or instanceof-checks it); navigator.clipboard is untouched.
+    window.Clipboard = makeStub('Clipboard', ['readText']);
 
     // Stash the foundation helpers under a namespaced property on each global
     // so tests and impls can reach registerImpl without another window global.
@@ -189,4 +192,5 @@
     window.LocalNotifications.__native = foundation;
     window.Health.__native = foundation;
     window.Attest.__native = foundation;
+    window.Clipboard.__native = foundation;
 })();

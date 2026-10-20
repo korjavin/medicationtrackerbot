@@ -68,6 +68,10 @@ const ALLOWLIST = [
         reason: 'notification permission ask sheet + denied note (bd med-ckm5.4); reads only the device/browser permission, no API data',
     },
     {
+        file: 'invite.js',
+        reason: 'F1 "Have an invite?" sheet (bd med-ta2n.6); parses a pasted/scanned link and hands it to the shell — no API reads',
+    },
+    {
         file: 'food-photo-summary.js',
         reason: 'transient in-app summary card rendered after a photo upload — no API reads, pure DOM construction from a passed-in payload',
     },

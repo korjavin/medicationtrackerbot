@@ -576,6 +576,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
     // The boot's shell.ops answer: nativeHas memoises it for the page, and the
     // boot already asks (pickupLeaveStash), so a test can't change it later.
     let bootShellOps = true;
+    // The Apple Health boot import (one BP reading); off where a test needs a
+    // vault with no records.
+    let healthOn = true;
     const HEALTH_UUID = '11111111-2222-4333-8444-555555555555';
 
     const offDevice = () => fetched.filter((u) => u.startsWith('/api/') || /^[a-z][a-z0-9+.-]*:/i.test(u));
@@ -613,7 +616,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 permission = 'granted';
                 return permission;
             }),
-            __native: { platform: 'ios', call: bridge },
+            // has(op): native/index.js foundation.has, answered from the boot's shell.ops.
+            __native: { platform: 'ios', call: bridge, has: vi.fn(async (op) => Array.isArray(bootShellOps) && bootShellOps.includes(op)) },
         };
         env.window.LocalNotifications = notifications;
         vi.stubGlobal('LocalNotifications', notifications);
@@ -630,7 +634,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 return { samples, anchor: 'a1', returned: samples.length, more: false };
             }),
         };
-        env.window.localStorage.setItem('wg.health.enabled', 'true');
+        if (healthOn) env.window.localStorage.setItem('wg.health.enabled', 'true');
         env.window.localStorage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout']));
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
@@ -914,6 +918,136 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             alert.querySelector('.mt-confirm-modal__cancel').click();
             await vi.waitFor(() => expect(row.disabled).toBe(false));
         });
+    });
+
+    // bd med-ta2n.6 — F1 "Have an invite?" (features/invite.js), opened by the
+    // W1 footer's wg:invite-open. Paste reads window.Clipboard, Scan decodes
+    // window.Barcode frames (both stubbed); a valid invite becomes the claim URL
+    // and goes to CloudVault.moveToCloud({url}): move.stash when there are
+    // records, then local.leave {url} (contract med-ta2n.7 §7-8, A7 gates).
+    describe('F1 invite sheet in a v3 shell', () => {
+        const CLAIM = 'https://abc.app.example.com/#claim=0a1b2c';
+        const NOT_INVITE = /That isn't an invite link/;
+        beforeAll(() => { bootShellOps = ['ping', 'shell.ops', 'move.stash', 'local.leave', 'invite.pending']; });
+        afterAll(() => { bootShellOps = true; });
+
+        const leaveOps = () => bridge.mock.calls
+            .filter(([op]) => op === 'move.stash' || op === 'local.leave')
+            .map(([op, args]) => (op === 'local.leave' ? [op, args] : [op]));
+        const sheet = (document) => document.getElementById('invite-sheet');
+        const act = (document, name) => sheet(document).querySelector(`[data-invite-action="${name}"]`);
+        function openSheet(window, { clipboard = null } = {}) {
+            // The shell's deployment base (native/attest.js ios impl, attest.status).
+            window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ supported: false, base: 'app.example.com', attested: false })) };
+            window.Clipboard = { readText: vi.fn(async () => clipboard) };
+            window.document.dispatchEvent(new window.CustomEvent('wg:invite-open'));
+            expect(sheet(window.document)).not.toBeNull();
+        }
+
+        describe('with no records on this device', () => {
+            beforeAll(() => { healthOn = false; });
+            afterAll(() => { healthOn = true; });
+
+            it('Paste of each accepted form leaves for the claim URL, nothing stashed', async () => {
+                const { window, document } = env;
+                for (const form of [
+                    'https://app.example.com/i/abc#0a1b2c', // landing (what L1 copies)
+                    'medtracker://i/abc#0a1b2c', // scheme
+                    CLAIM, // claim
+                    'https://abc.app.example.com/#claim=0a1b2c\nabc\nRECOVERY-CODE', // a QR-ish multi-line paste: first line only
+                ]) {
+                    bridge.mockClear();
+                    openSheet(window, { clipboard: form });
+                    expect(sheet(document).textContent).toMatch(/Paste the link you were sent, or scan its QR code/);
+                    act(document, 'paste').click();
+                    await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: CLAIM }]]));
+                    expect(window.Clipboard.readText).toHaveBeenCalledTimes(1);
+                    act(document, 'not-now').click();
+                    expect(sheet(document)).toBeNull();
+                }
+                expect(offDevice()).toEqual([]);
+            });
+
+            it('Scan goes through the same parser; garbage keeps the sheet with the field error', async () => {
+                const { window, document } = env;
+                const stop = vi.fn();
+                window.MediaCapture = { openCameraStream: vi.fn(async () => ({ getTracks: () => [{ stop }] })) };
+                window.HTMLMediaElement.prototype.play = vi.fn(async () => {});
+                const decoded = ['https://evil.example/i/abc#0a1b2c', 'medtracker://i/abc#0a1b2c'];
+                window.Barcode = { supportsLiveScan: () => true, scan: vi.fn(async () => ({ format: 'qr_code', rawValue: decoded.shift() })) };
+                openSheet(window);
+                act(document, 'scan').click();
+                await vi.waitFor(() => expect(sheet(document).querySelector('.wg-error').textContent).toMatch(NOT_INVITE));
+                expect(stop).toHaveBeenCalled(); // the camera is released on a decode
+                expect(leaveOps()).toEqual([]);
+                act(document, 'scan').click();
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: CLAIM }]]));
+                expect(window.Barcode.scan).toHaveBeenCalledWith(expect.objectContaining({ formats: ['qr_code'] }));
+            });
+        });
+
+        it('with records: move.stash first, then local.leave {url}', async () => {
+            const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            openSheet(window, { clipboard: 'https://app.example.com/i/abc#0a1b2c' });
+            act(document, 'paste').click();
+            await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+        });
+
+        it('garbage → inline error, the sheet stays and the field is shown; nothing leaves', async () => {
+            const { window, document } = env;
+            openSheet(window, { clipboard: 'hello there' });
+            act(document, 'paste').click();
+            const error = sheet(document).querySelector('.wg-error');
+            await vi.waitFor(() => expect(error.hidden).toBe(false));
+            expect(error.textContent).toMatch(NOT_INVITE);
+            expect(sheet(document).querySelector('[data-invite-field]').closest('.wg-field').hidden).toBe(false);
+            expect(leaveOps()).toEqual([]);
+        });
+
+        it('denied clipboard → "or paste it here" field; Continue parses what was typed', async () => {
+            const { window, document } = env;
+            openSheet(window, { clipboard: null });
+            act(document, 'paste').click();
+            const input = sheet(document).querySelector('[data-invite-field]');
+            await vi.waitFor(() => expect(input.closest('.wg-field').hidden).toBe(false));
+            expect(sheet(document).textContent).toMatch(/or paste it here/);
+            expect(sheet(document).querySelector('.wg-error').hidden).toBe(true);
+            expect(leaveOps()).toEqual([]);
+            input.value = '  MedTracker://I/ABC#0a1b2c ';
+            act(document, 'submit').click();
+            await vi.waitFor(() => expect(leaveOps().at(-1)).toEqual(['local.leave', { url: CLAIM }]));
+        });
+
+        it('offline → in-page error, no stash, no op', async () => {
+            const { window, document } = env;
+            Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            await vi.waitFor(() => expect(sheet(document).querySelector('.wg-error').textContent).toMatch(/You're offline/));
+            expect(leaveOps()).toEqual([]);
+        });
+
+        it('the shell rejecting the URL ("invalid url") shows the field error', async () => {
+            const { window, document } = env;
+            bridge.mockImplementation(async (op) => {
+                if (op === 'shell.ops') return bootShellOps;
+                if (op === 'local.leave') throw new Error('invalid url');
+                return op === 'setEgressHosts' ? { changed: false } : true;
+            });
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            await vi.waitFor(() => expect(sheet(document).querySelector('.wg-error').textContent).toMatch(NOT_INVITE));
+        });
+    });
+
+    it('F1 in a pre-v3 shell (no invite.pending): a valid paste never stashes or leaves', async () => {
+        const { window, document } = env;
+        window.Clipboard = { readText: async () => 'https://abc.app.example.com/#claim=0a1b2c' };
+        document.dispatchEvent(new window.CustomEvent('wg:invite-open'));
+        document.querySelector('#invite-sheet [data-invite-action="paste"]').click();
+        await vi.waitFor(() => expect(document.querySelector('#invite-sheet .wg-error').textContent).toMatch(/Update Med Tracker/));
+        expect(bridge.mock.calls.map(([op]) => op).filter((op) => op === 'move.stash' || op === 'local.leave')).toEqual([]);
     });
 
     it('erase waits out an Apple Health import in flight, and none starts after it', async () => {

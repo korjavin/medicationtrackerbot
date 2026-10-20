@@ -106,6 +106,8 @@ const BRIEF_JS = path.join(REPO_ROOT, 'web/static/js/features/brief.js');
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const NATIVE_WEB_MEDIA_CAPTURE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
 const NATIVE_WEB_BARCODE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/barcode.js');
+const NATIVE_CLIPBOARD_JS = path.join(REPO_ROOT, 'web/static/js/native/clipboard.js');
+const INVITE_JS = path.join(REPO_ROOT, 'web/static/js/features/invite.js');
 
 const _sourceCache = new Map();
 function readCached(filePath) {
@@ -261,6 +263,9 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, NATIVE_INDEX_JS);
   evalFileCached(window, NATIVE_WEB_MEDIA_CAPTURE_JS);
   evalFileCached(window, NATIVE_WEB_BARCODE_JS);
+  evalFileCached(window, NATIVE_CLIPBOARD_JS);
+  // features/invite.js — the F1 sheet (window.InviteSheet, wg:invite-open).
+  evalFileCached(window, INVITE_JS);
 
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);

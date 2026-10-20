@@ -574,6 +574,17 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
     display: none;
 }
 
+/* F1 "Have an invite?" sheet (bd med-ta2n.6, features/invite.js): on the
+   confirm layer with its tap-catching backdrop, so it opens over the W1
+   overlay; the kit's display rules (.wg-field, .wg-error) beat UA [hidden]. */
+.wg-modal.wg-invite-sheet {
+    z-index: var(--z-confirm);
+}
+
+.wg-invite-sheet [hidden] {
+    display: none;
+}
+
 /* W1 footer (bd med-ta2n.1): the kit .wg-shell__foot docked to the bottom of
    the scrolling overlay — primary on top, Skip / "Have an invite?" below. */
 .wg-firstrun-foot {
