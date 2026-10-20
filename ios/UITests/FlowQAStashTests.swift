@@ -16,6 +16,8 @@ final class FlowQAStashTests: XCTestCase {
     /// relaunch is first run, and the records are still there.
     func testMoveLocalSide() throws {
         continueAfterFailure = false
+        // A failed step must not leave a stash for the next flow's boot to pick up.
+        addTeardownBlock { @MainActor in Self.clearStashes() }
         let flow = "move-local"
         let fixture = try Self.fixture()
         let app = XCUIApplication()
@@ -28,8 +30,9 @@ final class FlowQAStashTests: XCTestCase {
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the settings-home scene never published #wg-qa-ready")
 
         let moveRow = webButton(app, prefix: "Move to a cloud account")
-        XCTAssertTrue(moveRow.waitForExistence(timeout: 15), "Settings shows no Move to a cloud account row (shell.ops lacks move.stash?)")
+        let shown = moveRow.waitForExistence(timeout: 15)
         shot(flow, "settings-move-row")
+        XCTAssertTrue(shown, "Settings shows no Move to a cloud account row (shell.ops lacks move.stash?)")
         moveRow.tap()
         XCTAssertTrue(webText(app, "Move to a cloud account?").waitForExistence(timeout: 10), "no move confirm")
         shot(flow, "move-confirm")
@@ -94,11 +97,15 @@ final class FlowQAStashTests: XCTestCase {
     /// Replace, and Cancel says "Records not copied" and clears it too.
     func testLeaveStashPickup() throws {
         continueAfterFailure = false
+        // A failed step must not leave a stash for the next flow's boot to pick up.
+        addTeardownBlock { @MainActor in Self.clearStashes() }
         let flow = "leave-pickup"
         var fixture = try Self.fixture()
         // As tests/visual/driver.js seed(): the fixture's Berlin zone would raise the timezone confirm.
         if var data = fixture["data"] as? [String: Any], var settings = data["settings"] as? [String: Any] {
-            settings["timezone"] = TimeZone.current.identifier
+            // ponytail: Foundation names the CI runner's zone GMT where WebKit's Intl says UTC; map just that.
+            let tz = TimeZone.current.identifier
+            settings["timezone"] = tz == "GMT" ? "UTC" : tz
             data["settings"] = settings
             fixture["data"] = data
         }
@@ -114,8 +121,9 @@ final class FlowQAStashTests: XCTestCase {
 
         app.launch()
         let toast = webText(app, contains: "Your records from your account are on this")
-        XCTAssertTrue(toast.waitForExistence(timeout: 60), "no pickup toast on an empty store")
+        let toasted = toast.waitForExistence(timeout: 60)
         shot(flow, "toast")
+        XCTAssertTrue(toasted, "no pickup toast on an empty store")
         // The web first-run overlay is not vault-managed: the wiped store shows it.
         let skip = app.webViews.buttons["Skip all"]
         if skip.waitForExistence(timeout: 10) { skip.tap() }
@@ -187,6 +195,12 @@ final class FlowQAStashTests: XCTestCase {
 
     private static func stashURL(_ dir: String) -> URL? {
         QA.appContainer()?.appendingPathComponent("Library/Application Support/\(dir)/vault.json")
+    }
+
+    private static func clearStashes() {
+        for dir in ["move", "leave"] {
+            if let url = stashURL(dir) { try? FileManager.default.removeItem(at: url) }
+        }
     }
 
     private static func stashData(_ dir: String) -> Data? {
