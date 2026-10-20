@@ -398,6 +398,19 @@ describe('firstrun W1 → trial offer', () => {
             } finally { cleanup(); }
         }
     });
+
+    it('a claim-wizard "Use my own keys" choice still lands on the key form after W1', async () => {
+        const fetchMock = okFetch();
+        const { window, document, cleanup } = loadFlow({ fetchMock, wizardChoice: 'own-keys' });
+        try {
+            window.WGFirstRun.mount();
+            action(document, 'skip-all').click();
+            await flush();
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
+            expect(writes(fetchMock).complete).toBeNull();
+        } finally { cleanup(); }
+    });
 });
 
 // F1 entry (W1 footer, opposite Skip): only in a v3 shell (it lists

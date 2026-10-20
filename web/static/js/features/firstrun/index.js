@@ -208,10 +208,13 @@
 
     // W1 is done (its flags are written): remember the picks for completion,
     // then the free AI trial offer if there is one (bd med-js3k — a user who
-    // skips must still learn the trial exists), else finish now.
+    // skips must still learn the trial exists), else finish now. A claim-wizard
+    // "Use my own keys" choice still lands on the key form (integrations).
     function _finishPicker(picked) {
         try { window.sessionStorage.setItem(PICKED_KEY, JSON.stringify(picked)); } catch (_) { /* storage blocked */ }
-        return _trialOnOffer().then(function (offer) {
+        let choice = null;
+        try { choice = window.localStorage.getItem(TRIAL_CHOICE_KEY); } catch (_) { /* storage blocked */ }
+        return (choice === 'own-keys' ? Promise.resolve(true) : _trialOnOffer()).then(function (offer) {
             if (!offer) return _complete();
             _buildHelpers().advance('integrations');
         });
