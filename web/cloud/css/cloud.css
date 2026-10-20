@@ -89,6 +89,29 @@
     --wg-sun-hi: #FFD14A;
     --wg-sunfill: linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, var(--wg-sun-hi) 0%, var(--wg-sun-deep) 100%);
     --wg-warn-bg: rgba(251, 189, 13, 0.14);
+    /* The Emergency Kit page and the ceremony exit bar (bd med-ckm5.2): the
+       kit rules they wear from components.css (.wg-exitbar, .wg-pagefoot,
+       .wg-disc, .wg-kv, .wg-qr, .wg-note, .wg-chip, .wg-steps, .wg-shell__*). */
+    --wg-bg-screen: #132D29;
+    --wg-dur: 220ms;
+    --wg-fs-eyebrow: 10.5px;
+    --wg-fs-metric: 28px;
+    --wg-fs-title: 22px;
+    --wg-ink: #0F5042;
+    --wg-line: rgba(255, 255, 255, 0.07);
+    --wg-ok-bg: rgba(86, 172, 138, 0.18);
+    --wg-ok-line: rgba(86, 172, 138, 0.38);
+    --wg-pending-line: rgba(63, 163, 229, 0.36);
+    --wg-r-lg: 16px;
+    --wg-r-pill: 999px;
+    --wg-sage: #56AC8A;
+    --wg-sh-card: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 -1px 0 rgba(0, 0, 0, 0.2), 0 1px 0 rgba(0, 0, 0, 0.3);
+    --wg-stale-bg: rgba(244, 251, 247, 0.05);
+    --wg-stale-fg: rgba(244, 251, 247, 0.66);
+    --wg-stale-line: rgba(244, 251, 247, 0.24);
+    --wg-track-eyebrow: 0.14em;
+    --wg-warn-fg: #FFD870;
+    --wg-warn-line: rgba(251, 189, 13, 0.34);
 }
 
 body {
@@ -175,43 +198,38 @@ a.wg-btn {
   color: var(--wg-clay-soft);
 }
 
-.kit dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.5rem 1rem;
+/* The Emergency Kit page (bd med-ckm5.2, design O1): kit classes from
+   components.css; these rules only fit them into this plain document. The
+   footer is sticky, so Continue stays docked at the viewport bottom and is
+   never covered — the page scrolls above it. */
+.kit-page {
+  max-width: 32rem;
+  margin: 0 auto;
 }
 
-.kit dt {
-  font-weight: bold;
-  color: var(--wg-fg-3);
+.kit-page h1,
+.kit-page p {
+  margin: 0;
 }
 
-.recovery-code {
-  font-family: var(--wg-font-mono);
-  font-size: 1.1rem;
-  letter-spacing: 0.05em;
+.kit-page > .wg-content {
+  padding-top: 16px;
+}
+
+.kit-page > .wg-pagefoot {
+  position: sticky;
+  bottom: 0;
 }
 
 /* Pure white, not --wg-paper: this is the QR code's quiet zone, and its
    contrast against the black modules is a scanner requirement, not a design
    choice. */
-.kit-qr svg {
+.wg-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--wg-r-md);
   background: #fff;
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-}
-
-.kit-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.kit-hint {
-  color: var(--wg-fg-3);
-  font-size: 0.9rem;
-  margin: 0 0 1rem;
 }
 
 /* Offscreen rather than display:none — a hidden iframe does not lay out, and

@@ -93,10 +93,7 @@ afterEach(() => {
 async function reachInstallStep(ctx = CTX) {
   const app = dom.window.document.getElementById('app');
   await renderEmergencyKit(app, ctx);
-  app.querySelector('#kit-print').click();
-  const checkbox = app.querySelector('#kit-saved-checkbox');
-  checkbox.checked = true;
-  checkbox.dispatchEvent(new dom.window.Event('change'));
+  app.querySelector('#kit-print').click(); // also ticks "I saved it"
   app.querySelector('#kit-continue').click();
   return app;
 }
@@ -250,7 +247,8 @@ describe('trial step (after Telegram)', () => {
     const app = await reachInstallStep();
     await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
     expect(app.querySelector('#trial-try')).toBeNull();
-    expect(stored.size).toBe(0);
+    // Only the kit page's own save state (kit-state.js) — no trial choice.
+    expect(stored.has('wg-onboarding-trial-choice')).toBe(false);
   });
 
   const norm = (t) => t.replace(/\s+/g, ' ').trim();
@@ -310,7 +308,7 @@ describe('trial step (after Telegram)', () => {
     const app = await reachInstallStep();
     await vi.waitFor(() => expect(app.querySelector('#install-skip')).not.toBeNull());
     expect(app.querySelector('#trial-try')).toBeNull();
-    expect(stored.size).toBe(0);
+    expect(stored.has('wg-onboarding-trial-choice')).toBe(false);
   });
 
   it('is not asked where storage is blocked — the answer could not reach the app', async () => {
