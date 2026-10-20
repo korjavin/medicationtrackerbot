@@ -88,3 +88,17 @@ a{color:var(--wg-sun)}a:hover{color:var(--wg-sun-hi)}
 .kit-camera{flex:1;margin:0 16px 30px;border-radius:18px;background:#050807;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:rgba(255,255,255,.8);font:500 14px var(--wg-font-ui);text-align:center;padding:24px}
 .kit-camera__frame{width:200px;height:200px;border-radius:20px;border:3px solid rgba(255,255,255,.85);-webkit-mask:linear-gradient(#000 0 0) top left/40px 40px no-repeat,linear-gradient(#000 0 0) top right/40px 40px no-repeat,linear-gradient(#000 0 0) bottom left/40px 40px no-repeat,linear-gradient(#000 0 0) bottom right/40px 40px no-repeat}
 .kit-handoff{position:absolute;inset:0;z-index:120;display:grid;place-items:center;background:var(--wg-bg-screen)}
+/* onboarding v3 presentation: browsers, desktop, system paste */
+.kit-frame--wide{width:auto}
+.kit-desk{position:relative;width:1024px;height:640px;border-radius:12px;overflow:hidden;background:var(--wg-bg-screen);box-shadow:0 0 0 1px #263431,0 40px 80px -24px rgba(0,0,0,.75);display:flex;flex-direction:column}
+.kit-desk__chrome{flex-shrink:0;display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;background:#1C1F24;border-bottom:1px solid rgba(255,255,255,.06)}
+.kit-desk__dot{width:11px;height:11px;border-radius:50%;background:#3A3E44}
+.kit-url{flex:1;max-width:420px;margin:0 auto;height:26px;border-radius:7px;background:#2B2F35;display:flex;align-items:center;justify-content:center;gap:6px;font:400 12.5px -apple-system,system-ui,sans-serif;color:rgba(255,255,255,.7)}
+.kit-url .wg-ico{width:12px;height:12px}
+.kit-safari{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:8px 16px 34px;background:#1C1F24;border-top:1px solid rgba(255,255,255,.06)}
+.kit-safari .kit-url{height:38px;border-radius:12px;font-size:14px;max-width:none}
+.kit-chrome{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:6px 12px 8px;background:#1C1F24;border-bottom:1px solid rgba(255,255,255,.06)}
+.kit-chrome .kit-url{height:36px;border-radius:18px;justify-content:flex-start;padding:0 14px;font:400 14px Roboto,system-ui,sans-serif;max-width:none}
+.kit-paste{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 18px;border-radius:22px;background:#0A84FF;color:#fff;font:600 15px -apple-system,system-ui,sans-serif}
+.kit-paste .wg-ico{width:16px;height:16px}
+.kit-desk>.wg-app{flex:1;height:auto;min-height:0}

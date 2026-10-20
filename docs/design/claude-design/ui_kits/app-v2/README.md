@@ -7,7 +7,7 @@ This kit is option B from `briefs/UX-AUDIT.md`. It's mobile-first, 390×844, and
 - `components.css`: every `wg-*` component, using classes only. **Ship this.**
 - `icons.js`: a sprite of original line icons. `<i class="wg-ico" data-icon="pill"></i>` hydrates to inline SVG. **Ship this, or port the paths.**
 - `kit.css` and `kit.js`: presentation only (phone frames, fake keyboard, demo toggles). **Don't ship these.**
-- Pages: `foundations`, `components`, `screens-today`, `screens-food`, `screens-meds`, `screens-workouts`, `screens-settings`, `screens-trackers`, `screens-native`, `screens-onboarding`, `navigation`.
+- Pages: `foundations`, `components`, `screens-today`, `screens-food`, `screens-meds`, `screens-workouts`, `screens-settings`, `screens-trackers`, `screens-native`, `screens-onboarding`, `screens-onboarding-v3`, `navigation`.
 
 ## v2.1 (2026-10-20)
 This release adds native shells (N1–N6), onboarding vault safety (O1–O3), local mode and account lifecycle (S6–S9), the dialog family (D1) and the AI trial (A1). The new components are `wg-mark`, `wg-shell`, `wg-pagefoot`, `wg-exitbar`, `wg-or`, `wg-inputrow`, `wg-note`, `wg-facts`, `wg-olist`, `wg-disc`, `wg-kv`, `wg-qr`, `wg-fname` and `wg-notif`. It also adds `.wg-dialog__facts`, `__confirm` and `__icon--info` to `.wg-dialog`, and the `.wg-pagebar--long` modifier. The native shells mirror the eight tokens in the table at the bottom of `screens-native.html`.
@@ -29,3 +29,6 @@ This release adds native shells (N1–N6), onboarding vault safety (O1–O3), lo
 - **Pickers:** `.days-select` → `wg-picks`. The `action-row.js` ✏️/🗑 buttons → swipe plus overflow.
 - **Nested editors:** stacked modals → pushed pages (`wg-pagebar`).
 - **Navigation:** 8-slot nav → 5-tab `wg-tabbar` (see `navigation.html`). The legacy variant `wg-tabbar--legacy` is kept for comparison.
+
+## Onboarding v3 (2026-10-20)
+`screens-onboarding-v3.html` (W1–W5, L1–L3, P3, F1) **supersedes N1, N2 and the signup placement of O1**. It adds no shipped components. The additions are presentation-only, in `kit.css`: `kit-frame--wide`, `kit-desk` (desktop browser), `kit-safari` / `kit-chrome` / `kit-url` (mobile browser bars) and `kit-paste` (the iOS system paste control). Slot ① on Settings home becomes the **Sync & backup** card. The local-mode "Move to a cloud account" row is folded into turning on sync.

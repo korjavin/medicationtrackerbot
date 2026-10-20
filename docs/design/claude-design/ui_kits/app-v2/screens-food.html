@@ -7,7 +7,7 @@
 <script src="icons.js"></script><script src="kit.js"></script>
 </head>
 <body>
-<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html" aria-current="page">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="screens-trackers.html">Trackers</a><a href="screens-native.html">Native shells</a><a href="screens-onboarding.html">Onboarding</a><a href="navigation.html">Navigation</a></nav>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html" aria-current="page">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="screens-trackers.html">Trackers</a><a href="screens-native.html">Native shells</a><a href="screens-onboarding.html">Onboarding</a><a href="screens-onboarding-v3.html">Onboarding v3</a><a href="navigation.html">Navigation</a></nav>
 <main class="kit-page">
 <h1 class="kit-h1">Food</h1>
 <p class="kit-lede">The log has one primary (Add) and a day navigator that can't break. "Tracking incomplete" is now a real toggle row, and progress is shown once. Add opens a single sheet that leads with the fast paths (search, scan, photo, describe), with manual entry as the fallback. The add flow keeps its primary in a footer docked to the top of the keyboard.</p>
@@ -80,9 +80,10 @@
 <div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Lunch</div><div class="wg-sheethead__title">Log food</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="clock"></i>Now 14:49</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
 <div class="wg-sheet__body">
 <div class="wg-affix"><i class="wg-ico wg-affix__lead" data-icon="search"></i><input class="wg-input wg-input--text" placeholder="Search your foods and the database"></div>
-<div class="wg-actions wg-actions--3">
+<div class="wg-actions wg-actions--4">
 <button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="barcode"></i></span><span class="wg-action__label">Scan</span></button>
 <button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-action__label">Photo</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="image"></i></span><span class="wg-action__label">Library</span></button>
 <button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-action__label">Describe</span></button>
 </div>
 <section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Recent</span><span class="wg-meta">tap + to add as before</span></div>
@@ -93,7 +94,7 @@
 </div></section>
 <button class="wg-link"><i class="wg-ico wg-ico--sm" data-icon="edit"></i>Enter manually</button>
 </div></div></div>
-</div></div><figcaption class="kit-cap"><b>F4</b><span>Add sheet, at rest</span><em>Fast paths come first. Recent items re-log in one tap. "Parse from description" stops being a mystery checkbox and becomes the Describe tile. The time chip replaces the datetime field at the bottom.</em></figcaption></figure>
+</div></div><figcaption class="kit-cap"><b>F4</b><span>Add sheet, at rest</span><em>Fast paths come first. Recent items re-log in one tap. "Parse from description" stops being a mystery checkbox and becomes the Describe tile. The time chip replaces the datetime field at the bottom. Photo (camera) and Library (picker) sit side by side, as in the shipped code. The code calls the second tile "Gallery"; "Library" matches T3b's "From library".</em></figcaption></figure>
 
 <figure class="kit-frame" data-screen-label="F5 Add search + keyboard"><div class="kit-phone"><div class="wg-app">
 <div class="kit-status"></div><div class="wg-content"></div>
