@@ -8,7 +8,8 @@
 //
 //   const page = WGPage.push({
 //       title, crumb?, back? = 'Back',      // back = the parent page's name
-//       longTitle?,                         // icon-only back (aria-label = back) so a long title fits
+//       longTitle?,                         // icon-only back (aria-label = back) so a long title fits;
+//                                           // 44px side columns, so no `primary` (the kit never pairs them)
 //       body,                               // Node placed in the scrolling .wg-content
 //       primary?: { label: 'Save'|'Done', onClick },
 //       onBack?,   // Back chevron / Esc / popstate; return false (or a promise
