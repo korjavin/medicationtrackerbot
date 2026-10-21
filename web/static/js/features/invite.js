@@ -10,7 +10,9 @@
 //   base()            → the shell's deployment domain, or '' (W5's "How to get
 //                     an invite" link).
 //   request()         the "Request an invite" sheet (bd med-ta2n.14, W5): email
-//                     + note → POST https://<base>/api/invite-requests.
+//                     + note → /api/invite-requests, POSTed by the shell
+//                     (bridge op base.post).
+//   canRequest()      → whether the shell has base.post (W5's button gate).
 //   parse(raw, base?) → {claimUrl, sub} | null. Accepts the landing link
 //                     https://<base>/i/<sub>#<token>, the scheme link
 //                     medtracker://i/<sub>#<token>, the claim link
@@ -612,19 +614,40 @@
     }
 
     // ---- Request an invite (bd med-ta2n.14) --------------------------------
-    // The W5 page's "Request an invite": email + optional note, POSTed to
-    // https://<base>/api/invite-requests (the shell's deployment; local mode's
-    // CSP lists it, local-policy.js). The admin approves in Telegram and the
-    // server emails the invite — nothing comes back here but "sent". A 404
-    // means the operator has not turned the form on: say so and point at the
-    // landing page, whose contact line is the fallback. opts.base / opts.post
-    // replace the shell base and window.fetch (the visual QA driver).
+    // The W5 page's "Request an invite": email + optional note to
+    // /api/invite-requests on the shell's deployment. The shell sends it
+    // (bridge op base.post through CloudVault.shellPost, local-policy.js) — the
+    // page's CSP never lists our server for it. The admin approves in Telegram
+    // and the server emails the invite — nothing comes back here but "sent". A
+    // 404 (or a shell without the op) means requests aren't open: say so and
+    // point at the landing page, whose contact line is the fallback. opts.base
+    // / opts.post replace the shell base and the shell POST (the visual QA
+    // driver).
     var REQUEST_SENT = "Request sent — if it's approved, your invite arrives by email.";
     var REQUEST_BUSY = 'Too many requests right now — try again in an hour.';
     var REQUEST_OFF = "Requests aren't open in the app right now.";
     var REQUEST_FAILED = "Couldn't send the request. Check your connection and try again.";
     var REQUEST_BAD_EMAIL = 'Enter an email address like name@example.com.';
     var NOTE_MAX = 500;
+
+    // The shell's bridge (native/index.js) when it can POST to its base.
+    function shellNativeBridge() {
+        var native = window.LocalNotifications && window.LocalNotifications.__native;
+        return native && typeof native.has === 'function' && typeof native.call === 'function' ? native : null;
+    }
+
+    // Whether the shell has base.post (the Settings button's gate).
+    function canRequest() {
+        var native = shellNativeBridge();
+        if (!native) return Promise.resolve(false);
+        return Promise.resolve(native.has('base.post')).then(function (has) { return has === true; }, function () { return false; });
+    }
+
+    function shellPostFn() {
+        var native = shellNativeBridge();
+        var vault = window.CloudVault;
+        return native && vault && typeof vault.shellPost === 'function' ? vault.shellPost(native) : null;
+    }
 
     function note(tone, iconName, lead, text) {
         var box = el('div', 'wg-note wg-note--' + tone);
@@ -725,6 +748,19 @@
             if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(modal);
         }
 
+        function showOff(base) {
+            var off = note('info', 'info', null, REQUEST_OFF);
+            off.el.setAttribute('data-invite-request', 'off');
+            if (base) {
+                var how = el('a', 'wg-link', 'How to get an invite');
+                how.href = 'https://' + base + '/';
+                how.target = '_blank';
+                how.rel = 'noopener';
+                off.body.appendChild(how);
+            }
+            showStatus(off.el);
+        }
+
         async function submit() {
             if (busy) return;
             var address = email.value.trim();
@@ -736,9 +772,9 @@
             send.disabled = true;
             try {
                 var base = opts.base || (await shellBase());
-                if (!base) throw new Error('no base');
-                var post = opts.post || window.fetch.bind(window);
-                var res = await post('https://' + base + '/api/invite-requests', {
+                var post = opts.post || shellPostFn();
+                if (!post) { showOff(base); return; } // no base.post: an old shell
+                var res = await post('/api/invite-requests', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email: address, note: noteInput.value.trim() }),
@@ -750,17 +786,7 @@
                     var reply = await res.json().catch(function () { return {}; });
                     if (reply.error === 'invalid_email') { showEmailError(REQUEST_BAD_EMAIL); return; }
                 }
-                if (res.status === 404) {
-                    var off = note('info', 'info', null, REQUEST_OFF);
-                    off.el.setAttribute('data-invite-request', 'off');
-                    var how = el('a', 'wg-link', 'How to get an invite');
-                    how.href = 'https://' + base + '/';
-                    how.target = '_blank';
-                    how.rel = 'noopener';
-                    off.body.appendChild(how);
-                    showStatus(off.el);
-                    return;
-                }
+                if (res.status === 404) { showOff(base); return; }
                 showStatus(note('warn', 'alert', null, REQUEST_FAILED).el);
             } catch (_) {
                 if (modal.isConnected) showStatus(note('warn', 'alert', null, REQUEST_FAILED).el);
@@ -784,5 +810,5 @@
         return { email: email, note: noteInput, send: send };
     }
 
-    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending, base: shellBase, request: request };
+    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending, base: shellBase, request: request, canRequest: canRequest };
 })();

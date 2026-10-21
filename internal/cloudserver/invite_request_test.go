@@ -396,21 +396,20 @@ func TestInviteRequest_DisabledAndRouting(t *testing.T) {
 		t.Fatalf("account host POST → %d, want 404 (base host only)", rec.Code)
 	}
 
-	r := httptest.NewRequest(http.MethodOptions, inviteRequestsPath, nil)
-	r.Host = "localhost"
-	r.Header.Set("Origin", localAppOrigin)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, r)
-	if rec.Code != http.StatusNoContent || rec.Header().Get("Access-Control-Allow-Origin") != localAppOrigin {
-		t.Fatalf("preflight → %d ACAO=%q", rec.Code, rec.Header().Get("Access-Control-Allow-Origin"))
-	}
-	r = httptest.NewRequest(http.MethodOptions, inviteRequestsPath, nil)
-	r.Host = "localhost"
-	r.Header.Set("Origin", "https://evil.example")
-	rec = httptest.NewRecorder()
-	f.router.ServeHTTP(rec, r)
-	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Fatal("foreign origin got CORS")
+	// No CORS for any origin: only the shells call it, natively (base.post).
+	for _, origin := range []string{localAppOrigin, androidLocalOrigin, "https://evil.example"} {
+		for _, method := range []string{http.MethodOptions, http.MethodPost} {
+			r := httptest.NewRequest(method, inviteRequestsPath, strings.NewReader(`{"email":"cors@example.com"}`))
+			r.Host = "localhost"
+			r.Header.Set("Origin", origin)
+			r.Header.Set("X-Forwarded-For", "198.51.100.200")
+			rec := httptest.NewRecorder()
+			f.router.ServeHTTP(rec, r)
+			f.api.inviteWork.Wait()
+			if acao := rec.Header().Get("Access-Control-Allow-Origin"); acao != "" {
+				t.Fatalf("%s from %s got CORS %q", method, origin, acao)
+			}
+		}
 	}
 }
 

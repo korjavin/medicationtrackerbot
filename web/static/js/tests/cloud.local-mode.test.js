@@ -19,7 +19,7 @@ import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
 import { createApiRouter, installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
-import { LOCAL_EFFECTS, localEgressHosts } from '../../../cloud/js/local-policy.js';
+import { LOCAL_EFFECTS, shellPost, BASE_POST_PATHS } from '../../../cloud/js/local-policy.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
@@ -1080,22 +1080,29 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: `${CLAIM}&kit=1` }]]));
         });
 
-        // W5 "Request an invite" (bd med-ta2n.14): email + note POSTed to the
-        // shell's base; the admin approves in Telegram, the invite comes by email.
+        // W5 "Request an invite" (bd med-ta2n.14): the shell POSTs email + note
+        // to its own base (bridge op base.post, med-ta2n.24 §A) — the page's CSP
+        // never lists our server for it. The admin approves in Telegram, the
+        // invite arrives by email.
         describe('W5 Request an invite', () => {
             const BASE = 'app.example.com';
-            let posts;
+            let shellOps;
             let answer;
+            beforeAll(() => { shellOps = bootShellOps; bootShellOps = [...bootShellOps, 'base.post']; });
+            afterAll(() => { bootShellOps = shellOps; });
+
+            const posts = () => bridge.mock.calls.filter(([op]) => op === 'base.post').map(([, args]) => args);
             const requestSheet = (document) => document.getElementById('invite-request-sheet');
             const requestAct = (document, a) => requestSheet(document).querySelector(`[data-invite-action="${a}"]`);
             async function openRequest({ window, document }) {
-                posts = [];
-                window.fetch = vi.fn(async (url, init) => {
-                    posts.push({ url: String(url), init });
+                const prior = bridge.getMockImplementation();
+                // base.post → {status, headers, body}; an op error rejects with its string.
+                bridge.mockImplementation(async (op, args) => {
+                    if (op !== 'base.post') return prior(op, args);
                     if (answer instanceof Error) throw answer;
-                    return createMockResponse(answer);
+                    return answer;
                 });
-                window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ base: BASE })) };
+                window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ supported: false, base: BASE, attested: false })) };
                 await window.paintSyncSection();
                 const button = document.getElementById('settings-sync-request');
                 expect(button.hidden).toBe(false);
@@ -1108,20 +1115,23 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 requestAct(document, 'send-request').click();
             };
 
-            it('hidden where the shell names no base', async () => {
+            it('hidden where the shell has no base.post, even with a base', async () => {
                 const { window, document } = env;
-                window.Attest = undefined;
+                window.LocalNotifications.__native.has = vi.fn(async (op) => op !== 'base.post');
+                window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ supported: false, base: BASE, attested: false })) };
                 await window.paintSyncSection();
                 expect(document.getElementById('settings-sync-request').hidden).toBe(true);
+                expect(document.getElementById('settings-sync-how').hidden).toBe(false); // the landing link stays
             });
 
-            it('sends email + note to the base, 202 → "Request sent", Done closes', async () => {
-                answer = { status: 202, json: { status: 'sent' } };
+            it('the shell sends email + note, 202 → "Request sent", Done closes; the page fetches nothing', async () => {
+                answer = { status: 202, headers: {}, body: '' };
                 const sheet = await openRequest(env);
                 const { document } = env;
                 expect(sheet.textContent).toMatch(/Request an invite/);
                 expect(sheet.textContent).toMatch(/Your email and your note. Nothing from your records./);
                 expect(document.getElementById('invite-request-note').maxLength).toBe(500);
+                const before = fetched.length;
                 fill(document, '  Someone@Example.org ', 'friend of the admin');
                 const done = await vi.waitFor(() => {
                     const n = sheet.querySelector('[data-invite-request="sent"]');
@@ -1129,35 +1139,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                     return n;
                 });
                 expect(done.textContent).toBe("Request sent — if it's approved, your invite arrives by email.");
-                expect(posts).toHaveLength(1);
-                expect(posts[0].url).toBe(`https://${BASE}/api/invite-requests`);
-                expect(posts[0].init.method).toBe('POST');
-                expect(JSON.parse(posts[0].init.body)).toEqual({ email: 'Someone@Example.org', note: 'friend of the admin' });
+                expect(posts()).toHaveLength(1);
+                expect(posts()[0].path).toBe('/api/invite-requests');
+                expect(posts()[0].headers).toEqual({});
+                expect(JSON.parse(posts()[0].body)).toEqual({ email: 'Someone@Example.org', note: 'friend of the admin' });
+                expect(fetched.slice(before)).toEqual([]);
                 requestAct(document, 'done').click();
                 expect(requestSheet(document)).toBeNull();
             });
 
             it('a bad email stays local with the field error; the server\'s invalid_email shows the same', async () => {
-                answer = { status: 400, json: { error: 'invalid_email' } };
+                answer = { status: 400, headers: {}, body: '{"error":"invalid_email"}' };
                 const sheet = await openRequest(env);
                 const { document } = env;
                 fill(document, 'not an email');
                 expect(sheet.querySelector('.wg-field--error').textContent).toMatch(/Enter an email address like name@example.com/);
-                expect(posts).toEqual([]);
+                expect(posts()).toEqual([]);
                 fill(document, 'a@b.co');
-                await vi.waitFor(() => expect(posts).toHaveLength(1));
+                await vi.waitFor(() => expect(posts()).toHaveLength(1));
                 await vi.waitFor(() => expect(sheet.querySelector('.wg-field--error')).not.toBeNull());
                 expect(sheet.querySelector('[data-invite-request="sent"]')).toBeNull();
             });
 
-            it('429 → try again in an hour; 404 → not open here, with the landing link; a network error → retry copy', async () => {
+            it('429 → try again in an hour; 404 → not open here, with the landing link; the op\'s "network" → retry copy', async () => {
                 const { document } = env;
-                answer = { status: 429, json: { error: 'rate_limited' } };
+                answer = { status: 429, headers: { 'Retry-After': '3600' }, body: '{"error":"rate_limited"}' };
                 const sheet = await openRequest(env);
                 fill(document, 'a@b.co');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Too many requests right now — try again in an hour./));
 
-                answer = { status: 404, json: { error: 'not_enabled' } };
+                answer = { status: 404, headers: {}, body: '{"error":"not_enabled"}' };
                 fill(document, 'a@b.co');
                 const off = await vi.waitFor(() => {
                     const n = sheet.querySelector('[data-invite-request="off"]');
@@ -1167,7 +1178,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(off.textContent).toMatch(/Requests aren't open in the app right now./);
                 expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
 
-                answer = new TypeError('Load failed');
+                answer = new Error('network');
                 fill(document, 'a@b.co');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Couldn't send the request. Check your connection and try again./));
                 expect(sheet.querySelector('[data-invite-request="off"]')).toBeNull();
@@ -1630,90 +1641,41 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
     });
 });
 
-// bd med-ta2n.14 — the shell's host list: both shells refuse the whole list on
-// one bad host or more than 8, and reload whenever the ordered array changes.
-describe('localEgressHosts (the shell host list)', () => {
-    const EL = 'api.elevenlabs.io';
-    it('fixed order: BYOK, then the base, then elevenlabs only with the trial', () => {
-        expect(localEgressHosts(['a.test', 'b.test'], 'base.test', false)).toEqual(['a.test', 'b.test', 'base.test']);
-        expect(localEgressHosts(['a.test', 'b.test'], 'base.test', true)).toEqual(['a.test', 'b.test', 'base.test', EL]);
-        expect(localEgressHosts([], null, false)).toEqual([]);
-        expect(localEgressHosts(['a.test'], null, false)).toEqual(['a.test']);
+// bd med-ta2n.24 §B1 — shellPost: the fetch-shaped adapter over the shell's
+// base.post op. The W5 suite drives it end to end; this pins what that flow
+// cannot reach (the attest headers and empty-body statuses #1261 relies on).
+describe('shellPost over base.post', () => {
+    it('sends the path, the body verbatim and only the X-Attest-* headers; answers a Response', async () => {
+        const call = vi.fn(async () => ({ status: 401, headers: { 'X-Attest-Challenge': 'c2' }, body: '{"error":"install_unknown"}' }));
+        const body = '{"b": "é\\n"}';
+        const res = await shellPost({ call })('https://ignored.example/api/attest/feedback?x=1#y', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain', 'X-Attest-Key-Id': 'k', 'X-Attest-Assertion': 'a', Cookie: 'no' },
+            body,
+        });
+        expect(call).toHaveBeenCalledWith('base.post', {
+            path: '/api/attest/feedback', body, headers: { 'X-Attest-Key-Id': 'k', 'X-Attest-Assertion': 'a' },
+        });
+        expect(res.status).toBe(401);
+        expect(res.ok).toBe(false);
+        expect(res.headers.get('X-Attest-Challenge')).toBe('c2');
+        expect(await res.json()).toEqual({ error: 'install_unknown' });
     });
-    it('normalizes the base, and skips one that is not a bare DNS name', () => {
-        expect(localEgressHosts([], ' Base.TEST ', false)).toEqual(['base.test']);
-        for (const bad of ['base.test:8443', 'https://base.test', 'base.test/x', '.base.test', 'base-', 'a..b', '', 42]) {
-            expect(localEgressHosts(['a.test'], bad, false)).toEqual(['a.test']);
-        }
+    it('204 has a null body; an op error rejects with a TypeError, as fetch does', async () => {
+        const ok = await shellPost({ call: async () => ({ status: 204, headers: {}, body: '' }) })('/api/attest/feedback', { body: '{}' });
+        expect(ok.status).toBe(204);
+        expect(await ok.text()).toBe('');
+        await expect(shellPost({ call: async () => { throw new Error('network'); } })('/api/invite-requests', { body: '{}' }))
+            .rejects.toThrow(TypeError);
     });
-    it('dedupes the base and elevenlabs against BYOK and BYOK against itself', () => {
-        expect(localEgressHosts(['base.test', 'a.test', 'a.test', EL], 'base.test', true)).toEqual(['a.test', 'base.test', EL]);
-        expect(localEgressHosts([EL], 'base.test', false)).toEqual([EL, 'base.test']);
-    });
-    it('caps at 8: trial on keeps base + elevenlabs and cuts BYOK, trial off keeps BYOK and skips the base', () => {
-        const byok = Array.from({ length: 8 }, (_, i) => `h${i}.test`);
-        expect(localEgressHosts(byok, 'base.test', true)).toEqual([...byok.slice(0, 6), 'base.test', EL]);
-        expect(localEgressHosts(byok, 'base.test', false)).toEqual(byok);
-        expect(localEgressHosts(byok.slice(0, 7), 'base.test', false)).toEqual([...byok.slice(0, 7), 'base.test']);
-    });
-
-    // A fresh install goes [] → [base]: the shell answers changed, the page
-    // reloads, and boot never hands the app a page that is going away (the
-    // QA ready node and W1 only appear on the reloaded one).
-    async function bootLocal({ changed, supported }) {
-        allowConsoleNoise(); // location.reload is a jsdom "not implemented" error
-        await deleteDb();
-        vi.stubGlobal('fetch', vi.fn(async () => createMockResponse({ status: 503, json: {} })));
-        const env = loadFrontendEnv();
-        const bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed } : null));
-        const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
-        env.window.LocalNotifications = notifications;
-        vi.stubGlobal('LocalNotifications', notifications);
-        env.window.Attest = {
-            isSupported: () => true,
-            status: vi.fn(async () => ({ supported, base: 'boot-base.example.test', attested: supported })),
-            enroll: vi.fn(),
-            assert: vi.fn(),
-        };
-        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
-        run(env.window, (spec) => MODULES[spec]());
-        return { env, bridge };
-    }
-
-    it('boot holds MedTrackerCloudReady while a first-boot host change reloads the page', async () => {
-        const { env, bridge } = await bootLocal({ changed: true, supported: true });
-        try {
-            await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: ['boot-base.example.test'] }));
-            const state = await Promise.race([
-                env.window.MedTrackerCloudReady.then(() => 'ready'),
-                new Promise((resolve) => { setTimeout(() => resolve('pending'), 300); }),
-            ]);
-            expect(state).toBe('pending');
-        } finally {
-            env.cleanup();
-            vi.unstubAllGlobals();
-        }
-    });
-
-    // The Simulator / no Play Integrity: no trial, but the shell still names
-    // its base, which the "Request an invite" form posts to.
-    it('lists the base where App Attest is unsupported, and boot resolves when nothing changed', async () => {
-        const { env, bridge } = await bootLocal({ changed: false, supported: false });
-        try {
-            await env.window.MedTrackerCloudReady;
-            expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: ['boot-base.example.test'] });
-            expect(await env.window.CloudVault.trial.status()).toBeNull();
-        } finally {
-            env.cleanup();
-            vi.unstubAllGlobals();
-        }
+    it('the page allowlist is the shells\' four paths', () => {
+        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
     });
 });
 
 // bd med-o7zq.16 — the anonymous trial is one opt-in switch (the `anon` trial
-// consent). Off, the base domain stays in the shell's CSP host list (the
-// "Request an invite" form posts there) but no trial call goes to it; on,
-// aiclient gets the attest transport.
+// consent). Off, our server's base domain is not in the shell's CSP host list
+// and nothing calls it; on, it is, and aiclient gets the attest transport.
 describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
     const TRIAL_BASE = 'trial-base.example.test';
     let env;
@@ -1747,8 +1709,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        // The base domain is listed whenever the shell names it (med-ta2n.14).
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -1760,11 +1721,11 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
 
     const toBase = () => fetched.filter((u) => /^https?:/.test(u) && new URL(u).hostname === TRIAL_BASE);
 
-    it('off by default: the base domain is listed (med-ta2n.14) but never called, the voice host is absent', async () => {
+    it('off by default: the base domain is absent from the host list and never called', async () => {
         const { window } = env;
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
         for (const [op, args] of bridge.mock.calls) {
-            if (op === 'setEgressHosts') expect(args.hosts).toEqual([TRIAL_BASE]);
+            if (op === 'setEgressHosts') expect(args.hosts).not.toContain(TRIAL_BASE);
         }
         // Without a key or the trial, meal parsing asks for a key, sends nothing.
         await expect(window.CloudFoodAI.parseMealFromDescription('two eggs')).rejects.toMatchObject({ code: 'no_api_key' });
@@ -1819,7 +1780,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
 
         await window.SettingsIntegrations._setLocalTrial(false);
         expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(false);
-        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
         expect(toBase()).toEqual([]);
     });
@@ -1900,8 +1861,7 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        // The base domain is listed whenever the shell names it (med-ta2n.14).
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -2101,8 +2061,7 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        // The base domain is listed whenever the shell names it (med-ta2n.14).
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
         conv = { endSession: vi.fn(async () => {}), setMicMuted: vi.fn() };
         startSession = vi.fn(async (opts) => { opts.onConnect(); return conv; });
         env.window.__fakeSDK = { Conversation: { startSession } };
@@ -2148,7 +2107,7 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         return sock;
     }
 
-    it('off: no call trigger, the hint says how to turn it on, the voice host is not admitted, nothing is called', async () => {
+    it('off: no call trigger, the hint says how to turn it on, and neither host is admitted or called', async () => {
         const bar = mountBar();
         expect(env.document.documentElement.classList.contains('wg-local-trial')).toBe(false);
         expect(shown(bar.querySelector('.wg-callbar__call'))).toBe(false);
@@ -2156,8 +2115,10 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         expect(hint.textContent).toBe('Turn on the free trial in Settings → AI & integrations to call the agent.');
         expect(shown(hint)).toBe(true);
         for (const [op, args] of bridge.mock.calls) {
-            // The base is listed whenever the shell names it (med-ta2n.14).
-            if (op === 'setEgressHosts') expect(args.hosts).not.toContain('api.elevenlabs.io');
+            if (op === 'setEgressHosts') {
+                expect(args.hosts).not.toContain(TRIAL_BASE);
+                expect(args.hosts).not.toContain('api.elevenlabs.io');
+            }
         }
         expect(env.window.CloudVoiceLLM.localTrial).toBeUndefined();
         expect(toOffDevice()).toEqual([]);
@@ -2282,8 +2243,7 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        // The base domain is listed whenever the shell names it (med-ta2n.14).
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -2469,8 +2429,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        // The base domain is listed whenever the shell names it (med-ta2n.14).
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -2534,7 +2493,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         expect(window.Attest.enroll).toHaveBeenCalledTimes(1);
 
         await window.SettingsIntegrations._setLocalTrial(false);
-        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
     });
 

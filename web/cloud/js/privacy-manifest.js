@@ -765,9 +765,9 @@ export const PRIVACY_MANIFEST = [
     activationNote: 'only when you send the form or answer "yes" to the bot, and only if the operator has turned requests on',
     byo: 'n/a — or skip it: an invite link someone sends you needs no request',
     evidence: [
-      'internal/cloudserver/invite_request.go:98',
-      'internal/cloudserver/invite_request.go:233',
-      'internal/cloudserver/invite_request.go:379',
+      'internal/cloudserver/invite_request.go:97',
+      'internal/cloudserver/invite_request.go:216',
+      'internal/cloudserver/invite_request.go:362',
       'internal/cloudserver/mailer.go:79',
     ],
     code: { go: ['internal/cloudserver/invite_request.go', 'internal/cloudserver/mailer.go'], hosts: [] },
@@ -812,8 +812,8 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'On-device mode (iPhone and Android apps) — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above); only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); and an invite request you send from Settings → Sync & backup (the invite-request row)',
-    destination: 'Only those providers, plus our server for the free trial while it is on (and, for trial voice calls, the operator\'s ElevenLabs account) and for an invite request you send. The app\'s CSP lists our server whenever the app knows it, but nothing calls it otherwise, and admits no other host; every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); and, through the app shell rather than the page, an invite request or feedback you send (the invite-request row)',
+    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
@@ -825,7 +825,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request. Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request (the app itself sends it, not the page). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
     },
   },
   {

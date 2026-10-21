@@ -42,27 +42,15 @@ window.MedTrackerCloudReady = (async function boot() {
         // after a Settings save alike (the app shell has no reload control of
         // its own). The next load's list matches, so it reloads once. null
         // skips apishim's "reload to apply" toast.
-        let reloading = false;
         const registerEgress = async ({ settings }) => {
             await domReady;
             const res = await policy.registerLocalEgress({ settings, win: window });
             if (!res) return null;
             if (res.changed) {
-                reloading = true;
                 window.location.reload();
                 return null;
             }
             return res.hosts;
-        };
-        // installApiShim fires the first registration synchronously; boot
-        // waits for it (time-boxed, a mute shell must not hang the app) so a
-        // first-boot CSP reload lands before app.js mounts anything (bd
-        // med-ta2n.14: a fresh install goes [] → [base] once).
-        let firstEgress = null;
-        const registerOnce = (args) => {
-            const p = registerEgress(args);
-            if (!firstEgress) firstEgress = p.catch(() => null);
-            return p;
         };
         const shimCall = installApiShim(LOCAL_CTX, {
             recordsPort: localRecordsPort,
@@ -70,7 +58,7 @@ window.MedTrackerCloudReady = (async function boot() {
             rxnorm: null,
             operatorFoodDb: policy.LOCAL_FOOD_DB,
             protection: policy.LOCAL_PROTECTION,
-            registerEgress: registerOnce,
+            registerEgress,
             win: window,
         });
         window.CloudVault = policy.LOCAL_VAULT;
@@ -81,11 +69,6 @@ window.MedTrackerCloudReady = (async function boot() {
         // imports can resolve before the parser reaches core/api.js, whose own
         // `window.apiCallDirect = ...` would then overwrite this wrapper.
         await domReady;
-        if (firstEgress) {
-            await Promise.race([firstEgress, new Promise((resolve) => { setTimeout(resolve, 5000); })]);
-        }
-        // The page is going away: never resolve, so nothing mounts on it.
-        if (reloading) await new Promise(() => {});
         // The account → local move (bd med-o7zq.36.4): after domReady, as
         // restoreVault is importexport.js's; before the reminders and the
         // Health import, which a replace would only redo after its reload.
