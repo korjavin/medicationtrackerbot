@@ -163,7 +163,7 @@ const ctx = {
         return await device.wait(selector, { timeout: 10_000 });
       } catch (e) {
         if (Date.now() > end) throw e;
-        if (await device.wait({ text: /.*isn't responding.*/ }, { timeout: 500 }).then(() => true, () => false)) {
+        if (await device.wait({ text: /.*isn['’]t responding.*/ } /* API 34 titles it with ’ (U+2019) */, { timeout: 500 }).then(() => true, () => false)) {
           log('dismissing an ANR dialog');
           await device.tap({ text: 'Wait' }).catch(() => {});
         }

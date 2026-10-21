@@ -1294,10 +1294,33 @@ format v1, no server change.
    An empty account asks nothing; one with data asks the typed *Replace all
    your data?* (cancel keeps the stash and asks again on the next open). The
    import waits for the snapshot upload; one that did not land says why
-   (*Not uploaded yet*) before the reload. After the reload a toast says *Your
-   records from this phone are in your account.* once.
+   (*Not uploaded yet*) before the reload. After the reload a toast says *Sync
+   is on · N records are on your account* once (N = the user records the
+   stash carried). A stash with no user records is never offered as a
+   Replace: an account with records drops it (`move.clear`) without a
+   dialog; an empty one imports it silently (settings, keys); when the
+   account's state is unknown (offline, failed pull) the stash is kept for
+   the next open.
 4. The local records stay: *Switch account* → *Only on this device* →
    *Start* opens them again. Nothing prompts to erase them.
+
+**With an invite (P3, bd med-ta2n.7).** On a v3 shell (`shell.ops` lists
+`invite.pending`) an invite that reaches the app lands in the pending slot and
+the page routes it at boot (one `invite.pending` read per page, before W1):
+local mode with records → the *Turn on sync?* sheet (*Your N records move to
+your account*); local with none → *Your invite is here* (the Play-referrer
+first launch: *Sign in with fingerprint* / *Use without sync*, ahead of W1);
+account mode → the *Switch account?* dialog (*Switch* = `account.leave {url}`,
+*Keep this account* = `invite.clear`). *Turn on sync* / *Sign in* is
+`CloudVault.moveToCloud({url})`: `move.stash {vault}` **always** (records or
+not — `local.leave {url}` keeps the move stash, so skipping it could leave an
+abandoned older stash for the new account), then `local.leave {url}`. Every
+such tap is gated on `navigator.onLine !== false` (offline → an in-page error,
+nothing stashed, no op). The shell clears the slot after the leave. A slot
+older than 14 days (`receivedAt`) is cleared and ignored. **Older shells**:
+no `invite.pending` in `shell.ops` → the page never reads a slot and never
+sends `{url}` (a pre-v3 shell would ignore it and land on its native first
+run after the stash was written); the Move row and file steps stay.
 
 **The stash** is one app-private file, `noBackupFilesDir/move/vault.json`
 (`Move.kt`): the vault v1 JSON in plain text, in the same app sandbox as the

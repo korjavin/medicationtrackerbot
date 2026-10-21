@@ -238,8 +238,10 @@ High-stakes dialogs use the D1 family on the same builder (med-ckm5.5):
 icon tile), `opts.facts` (`[{ text, gone }]` → `.wg-dialog__facts`, what goes
 and what stays), `typedConfirm` as one upper-case word ("Type ERASE to
 confirm", case-insensitive), `opts.link` (`{ label, onClick }`, a body link that
-cancels then acts), and `safeChoose` with `opts.confirmLabel` + `opts.selected`
-(tap selects, Continue settles — Merge/Replace).
+cancels then acts), `opts.dangerOutline` (the safe Cancel raised, the risky
+confirm a danger outline — "Switch account?", bd med-ta2n.7), and `safeChoose`
+with `opts.confirmLabel` + `opts.selected` (tap selects, Continue settles —
+Merge/Replace).
 `mt-modal.mt-confirm-modal` stays the JS hook for Back/Esc. Placement rules live
 in `web/static/css/dialog.css`, linked after `components.css` by both
 `index.html` and the passkey shell `web/cloud/signup.html` (which also loads

@@ -87,9 +87,11 @@ const REMINDER_ACTION_ROUTES = {
 // - Inert on the web and on any shell whose shell.ops does not list move.take
 //   (older iOS/Android builds reject the probe → no pickup). Every bridge call
 //   is time-boxed so a shell that never answers cannot hold the boot.
-// - move.clear runs only after restoreVault replaced the vault (its
-//   beforeReload hook); a cancel or a failed import keeps the stash and the
-//   next open asks again.
+// - move.clear runs after restoreVault replaced the vault (its beforeReload
+//   hook), or at once for a stash with no user content when this account is
+//   known to have records (bd med-ta2n.7); a cancel, a failed import or an
+//   unknown account state (offline, failed pull) keeps the stash and the next
+//   open tries again.
 const MOVE_NOTICE_KEY = 'wg-move-picked-up';
 const MOVE_PROBE_MS = 5000;
 function withinMs(promise, ms) {
@@ -102,13 +104,19 @@ async function pickUpMovedVault(win) {
     if (doc && doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
     const native = win.LocalNotifications && win.LocalNotifications.__native;
     if (!native || (native.platform !== 'ios' && native.platform !== 'android')) return;
-    // The reload after a pickup lands here once more: say where the records went.
-    let moved = false;
+    // The reload after a pickup lands here once more: say where the records
+    // went (P3 · done, bd med-ta2n.7). The key holds the moved record count.
+    let moved = null;
     try {
-        moved = win.sessionStorage.getItem(MOVE_NOTICE_KEY) === '1';
-        if (moved) win.sessionStorage.removeItem(MOVE_NOTICE_KEY);
+        moved = win.sessionStorage.getItem(MOVE_NOTICE_KEY);
+        if (moved !== null) win.sessionStorage.removeItem(MOVE_NOTICE_KEY);
     } catch { /* storage blocked */ }
-    if (moved) win.safeToast(`Your records from this ${(win.LocalNotifications.copy && win.LocalNotifications.copy.device) || 'phone'} are in your account.`, 'success');
+    if (moved !== null) {
+        const n = Number(moved);
+        win.safeToast(moved !== '' && Number.isInteger(n) && n > 0
+            ? `Sync is on · ${n} ${n === 1 ? 'record is' : 'records are'} on your account`
+            : 'Sync is on', 'success');
+    }
     // nativeHas: features/settings.js, the one shell.ops probe per page.
     if (typeof win.nativeHas !== 'function') return;
     if ((await withinMs(win.nativeHas('move.take').catch(() => false), MOVE_PROBE_MS)) !== true) return;
@@ -116,13 +124,30 @@ async function pickUpMovedVault(win) {
     const vault = stash && stash.vault;
     const restore = win.SettingsImportExport && win.SettingsImportExport.restoreVault;
     if (typeof vault !== 'string' || !vault || typeof restore !== 'function') return;
+    // A stash with no user content (an invite taken on a device with nothing
+    // logged: moveToCloud {url} always stashes, bd med-ta2n.7) is never offered
+    // as a Merge/Replace to an account with records: dropped there. An empty
+    // account still takes it silently (settings, keys); unknown → kept for the
+    // next open. Unreadable → restoreVault reports it.
+    let count = null;
+    try {
+        const { vaultToRecords, userContentCount } = await import('/domain/vault.js');
+        count = userContentCount(vaultToRecords(JSON.parse(vault), { now: Date.now() }));
+    } catch { /* restoreVault below says why */ }
+    if (count === 0) {
+        // Only a definite answer acts: offline, a failed pull or a throw keeps
+        // the stash for the next open (its settings and keys are not dropped).
+        const has = await withinMs(Promise.resolve(win.CloudVault?.hasUserContent?.()).catch(() => null), MOVE_PROBE_MS);
+        if (has === true) await withinMs(native.call('move.clear').catch(() => null), MOVE_PROBE_MS);
+        if (has !== false) return;
+    }
     // restoreVault reloads the page itself once the vault is replaced, and runs
     // beforeReload only then. A failed clear only means the next open offers
     // the same move again (behind the typed confirm: the account has content).
     await restore(vault, {
         source: 'move',
         beforeReload: async () => {
-            try { win.sessionStorage.setItem(MOVE_NOTICE_KEY, '1'); } catch { /* storage blocked */ }
+            try { win.sessionStorage.setItem(MOVE_NOTICE_KEY, String(count ?? '')); } catch { /* storage blocked */ }
             await withinMs(native.call('move.clear'), MOVE_PROBE_MS);
         },
     });

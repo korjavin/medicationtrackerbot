@@ -100,7 +100,7 @@ export default async function moveOps(ctx) {
   });
   // The post-unlock pickup (bd med-nt9p.32.18) imports and clears the stash, reloads, and the reloaded
   // boot shows the toast then probes move.take once more (≤ 5 s). The user path is local-to-cloud-seamless.
-  const picked = page.getByText('Your records from this phone are in your account.')
+  const picked = page.getByText(/^Sync is on · \d+ records? (is|are) on your account$/)
     .waitFor({ state: 'visible', timeout: 240_000 }).then(() => true, () => false);
   await claimAccount(ctx, page);
 

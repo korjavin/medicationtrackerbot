@@ -1,12 +1,13 @@
-// Seamless local → cloud move (bd med-nt9p.32.19, docs/android.md → Moving to a cloud account): the
-// user path of bd med-nt9p.32.16-.18 end to end on the shell. Local mode seeded with the golden vault
-// → Settings home → Move to a cloud account → Continue → the shell's stash (no_backup/move/vault.json,
-// plain vault v1 JSON, checked against tests/fixtures/vault-v1.json) → the native first run with the
-// hint → Only on this device shows the intro's pending-move note → Back keeps the stash → the
-// runner's invite, claimed with the soft authenticator → the account picks the stash up by itself
-// (no Backup & import): the toast, the seeded records, the stash gone → Switch account → Only on
-// this device → Start → the local records are all still there. results.localToCloudSeamless has
-// the counts. Claims the run's one invite: not in `all` (smoke claims it there), no retry.
+// Seamless local → cloud move (bd med-nt9p.32.19, P3 bd med-ta2n.7; docs/android.md → Moving to a
+// cloud account): the invite user path end to end on the shell. Local mode seeded with the golden
+// vault → the runner's invite arrives as medtracker://i/<sub>#<tok> on the open page → the shell
+// reloads home?invite=1 → the web's "Turn on sync?" sheet with the live record count → Turn on sync
+// → the shell's stash (no_backup/move/vault.json, plain vault v1 JSON, checked against
+// tests/fixtures/vault-v1.json) + local.leave {url} → the claim page, claimed with the soft
+// authenticator → the account picks the stash up by itself (no Backup & import): "Sync is on · N
+// records are on your account", the seeded records, the stash gone → Switch account → Only on this
+// device → Start → the local records are all still there. results.localToCloudSeamless has the
+// counts. Claims the run's one invite: not in `all` (smoke claims it there), no retry.
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,8 +18,7 @@ export const retry = false;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\..*/;
-const NOTE = /^A move to a cloud account is waiting\. Start here cancels it\..*/;
-const TOAST = 'Your records from this phone are in your account.';
+const TOAST = /^Sync is on · \d+ records? (is|are) on your account$/;
 const WAIT = 240_000; // claim + import + snapshot upload + reload on the software-GPU emulator
 
 const lost = (from, to) => GATED.filter((k) => !(to[k] >= from[k]));
@@ -35,25 +35,39 @@ export default async function localToCloudSeamless(ctx) {
   r.local = await vaultCounts(page);
   await ctx.stableShot('local-today');
 
-  // 1. Settings home → Move to a cloud account (shown only when the shell lists move.stash) opens
-  //    Backup & import's Move section; its button starts the move (bd med-ckm5.7).
-  await ctx.step('Settings → Move to a cloud account → Move section → Continue → first run with the hint', async () => {
-    await page.locator('[data-nav-to="settings"]:visible').first().click();
-    const row = page.locator('#settings-local-move-row');
-    await row.waitFor({ state: 'visible', timeout: 15_000 });
-    await row.scrollIntoViewIfNeeded();
-    await ctx.stableShot('settings-move-row');
-    await row.click();
-    const btn = page.locator('#settings-local-move-btn');
-    await btn.waitFor({ state: 'visible', timeout: 10_000 });
-    await ctx.stableShot('move-section');
-    await btn.click();
-    await page.locator('.mt-confirm-modal__confirm').waitFor({ state: 'visible', timeout: 10_000 });
-    await ctx.shot('move-confirm');
-    await page.click('.mt-confirm-modal__confirm');
-    await ctx.waitFor({ text: HINT }, 60_000);
+  // 1. The invite reaches the open local page (warm delivery, contract med-ta2n.7 §6): the shell
+  //    stores the slot and reloads home?invite=1; the web's boot read routes it to P3.
+  const claim = new URL(ctx.claimUrl);
+  const sub = claim.host.split('.')[0];
+  const tok = /claim=([0-9a-f]+)/.exec(claim.hash)[1];
+  await ctx.step('medtracker:// invite → home?invite=1 → "Turn on sync?" with the record count', async () => {
+    await shell(`am start -W -a android.intent.action.VIEW -d 'medtracker://i/${sub}#${tok}'`);
+    await sleep(2000);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page');
+    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
+    await ctx.waitLocalReady(page);
+    const sheet = page.locator('#invite-sync-sheet');
+    await sheet.waitFor({ state: 'visible', timeout: 30_000 });
+    r.p3Text = await sheet.textContent();
+    if (!/Your \d+ records? moves? to your account/.test(r.p3Text)) throw new Error(`P3 copy: ${r.p3Text}`);
+    if (!/Sign in with your fingerprint/.test(r.p3Text)) throw new Error(`P3 platform words: ${r.p3Text}`);
+    await ctx.stableShot('p3-turn-on-sync');
   });
-  await ctx.shot('first-run-hint');
+
+  // 2. Turn on sync: move.stash + local.leave {url}; the shell opens the claim page (the stash is
+  //    kept for the account, A1).
+  page = await ctx.step('Turn on sync → the claim page (signup wizard)', async () => {
+    await page.click('#invite-sync-sheet [data-invite-action="turn-on-sync"]');
+    await sleep(2000);
+    const p = await ctx.attachPage();
+    if (!p) throw new Error('no WebView page (see the run log)');
+    await p.waitForURL(/\/unlock/, { timeout: 60_000 });
+    await p.locator('#create-passkey').waitFor({ timeout: 30_000 });
+    await sleep(3000);
+    return p;
+  });
+  await ctx.shot('wizard');
 
   await ctx.step('the stash is plain vault v1 JSON (fixture shape, counts = store)', async () => {
     if ((await stashFiles()) !== 'vault.json') throw new Error(`stash files: ${await stashFiles()}`);
@@ -67,27 +81,7 @@ export default async function localToCloudSeamless(ctx) {
     if (off.length) throw new Error(`stash differs from the store: ${off.map((k) => `${k} ${r.stashCounts[k]}≠${r.local[k]}`).join(', ')}`);
   });
 
-  // 2. Parity with iOS hiding Continue on this iPhone: the intro warns that Start drops the move; Back keeps it.
-  await ctx.step('Only on this device: the intro notes the pending move; Back keeps the stash', async () => {
-    await device.tap({ text: 'Only on this device' });
-    await ctx.waitFor({ text: NOTE }, 20_000);
-    await ctx.shot('intro-pending-move');
-    await device.tap({ text: 'Back' });
-    await ctx.waitFor({ text: HINT }, 20_000);
-    if ((await stashFiles()) !== 'vault.json') throw new Error('Back dropped the stash');
-  });
-
-  // 3. The runner's invite, claimed on the account origin; the post-unlock boot picks the stash up.
-  page = await ctx.step('open the invite → signup wizard', async () => {
-    await ctx.openLink(ctx.claimUrl);
-    const p = await ctx.attachPage();
-    if (!p) throw new Error('no WebView page (see the run log)');
-    await p.waitForURL(/\/unlock/, { timeout: 30_000 });
-    await p.locator('#create-passkey').waitFor({ timeout: 30_000 });
-    await sleep(3000);
-    return p;
-  });
-  await ctx.shot('wizard');
+  // 3. Claimed on the account origin; the post-unlock boot picks the stash up.
   // Watched from before the claim: the pickup may finish while claimAccount still runs. A locator
   // wait survives the pickup's reload. Losers resolve null, never reject (no unhandled rejection).
   const title = page.locator('.mt-confirm-modal__title');
