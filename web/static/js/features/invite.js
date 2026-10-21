@@ -434,7 +434,8 @@
         if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(modal);
 
         var leave = leaver(url, error);
-        // Not now keeps the slot: Settings → Sync & backup shows it waiting.
+        // Not now keeps the slot: P3 offers it again on the next open, until
+        // it is 14 days old (STALE_MS).
         function close() {
             if (leave.moving || !modal.isConnected) return false;
             document.removeEventListener('keydown', onKeydown, true);

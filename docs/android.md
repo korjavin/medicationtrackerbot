@@ -1298,7 +1298,9 @@ format v1, no server change.
    is on · N records are on your account* once (N = the user records the
    stash carried). A stash with no user records is never offered as a
    Replace: an account with records drops it (`move.clear`) without a
-   dialog; an empty one imports it silently (settings, keys).
+   dialog; an empty one imports it silently (settings, keys); when the
+   account's state is unknown (offline, failed pull) the stash is kept for
+   the next open.
 4. The local records stay: *Switch account* → *Only on this device* →
    *Start* opens them again. Nothing prompts to erase them.
 

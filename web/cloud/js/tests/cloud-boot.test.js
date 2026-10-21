@@ -919,7 +919,11 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     // CloudVault is cloud-boot's own; swap the two calls restoreVault makes.
     if (window.CloudVault) {
       // `live` set: the real probe over those account records instead.
-      if (!live) window.CloudVault.hasUserContent = vi.fn(async () => { log.push('probe'); return content; });
+      if (!live) window.CloudVault.hasUserContent = vi.fn(async () => {
+        log.push('probe');
+        if (content instanceof Error) throw content;
+        return content;
+      });
       window.CloudVault.importAll = vi.fn(async (json) => {
         log.push('importAll');
         return importAll ? importAll(json) : { upload: 'synced' };
@@ -968,6 +972,22 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     await vi.waitFor(() => expect(log).toContain('move.clear'));
     await settle();
     expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'move.clear']);
+    expect(window.safeChoose).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+  });
+
+  // #1248 breakage review: an unknown account (offline / failed pull →
+  // undefined, or a throw) must not drop the stash's settings and keys.
+  it.each([
+    // null: boot()'s default would turn undefined into false; the pickup
+    // treats both the same (only true / false act).
+    ['an unknown answer (offline)', null],
+    ['a throwing probe', new Error('pull failed')],
+  ])('a stash with no user content + %s: the stash is kept, nothing imported', async (_, content) => {
+    const { window, log } = await boot({ stash: { vault: EMPTY_VAULT }, content });
+    await vi.waitFor(() => expect(log).toContain('probe'));
+    await settle();
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe']);
     expect(window.safeChoose).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
   });

@@ -88,9 +88,10 @@ const REMINDER_ACTION_ROUTES = {
 //   (older iOS/Android builds reject the probe → no pickup). Every bridge call
 //   is time-boxed so a shell that never answers cannot hold the boot.
 // - move.clear runs after restoreVault replaced the vault (its beforeReload
-//   hook), or at once for a stash with no user content when this account has
-//   records (bd med-ta2n.7); a cancel or a failed import keeps the stash and
-//   the next open asks again.
+//   hook), or at once for a stash with no user content when this account is
+//   known to have records (bd med-ta2n.7); a cancel, a failed import or an
+//   unknown account state (offline, failed pull) keeps the stash and the next
+//   open tries again.
 const MOVE_NOTICE_KEY = 'wg-move-picked-up';
 const MOVE_PROBE_MS = 5000;
 function withinMs(promise, ms) {
@@ -126,16 +127,19 @@ async function pickUpMovedVault(win) {
     // A stash with no user content (an invite taken on a device with nothing
     // logged: moveToCloud {url} always stashes, bd med-ta2n.7) is never offered
     // as a Merge/Replace to an account with records: dropped there. An empty
-    // account still takes it silently (settings, keys). Unreadable →
-    // restoreVault reports it.
+    // account still takes it silently (settings, keys); unknown → kept for the
+    // next open. Unreadable → restoreVault reports it.
     let count = null;
     try {
         const { vaultToRecords, userContentCount } = await import('/domain/vault.js');
         count = userContentCount(vaultToRecords(JSON.parse(vault), { now: Date.now() }));
     } catch { /* restoreVault below says why */ }
-    if (count === 0 && (await Promise.resolve(win.CloudVault?.hasUserContent?.()).catch(() => true)) !== false) {
-        await withinMs(native.call('move.clear').catch(() => null), MOVE_PROBE_MS);
-        return;
+    if (count === 0) {
+        // Only a definite answer acts: offline, a failed pull or a throw keeps
+        // the stash for the next open (its settings and keys are not dropped).
+        const has = await withinMs(Promise.resolve(win.CloudVault?.hasUserContent?.()).catch(() => null), MOVE_PROBE_MS);
+        if (has === true) await withinMs(native.call('move.clear').catch(() => null), MOVE_PROBE_MS);
+        if (has !== false) return;
     }
     // restoreVault reloads the page itself once the vault is replaced, and runs
     // beforeReload only then. A failed clear only means the next open offers
