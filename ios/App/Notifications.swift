@@ -21,8 +21,8 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     }
     private var pending: (String, String?)?
 
-    /// The vault the shell has open: "local" or the account host, nil on
-    /// first-run (Shell sets it; bd med-o7zq.9). Every reminder carries it.
+    /// The vault the shell has open: "local" or the account host, nil before
+    /// the shell sets it (bd med-o7zq.9). Every reminder carries it.
     /// A change drops the pending schedule — the newly opened page sends its
     /// own — so only the active vault's reminders fire, and a schedule call
     /// still in flight from the previous page adds nothing.

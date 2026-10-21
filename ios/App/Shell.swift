@@ -30,7 +30,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     @Published private(set) var local = UserDefaults.standard.bool(forKey: LocalOrigin.modeKey) {
         didSet {
             Notifications.shared.vault = vault
-            // Entering local mode again (Start, Continue on this iPhone,
+            // Entering local mode again (forget(), the Settings toggle,
             // account.leave {then: "local"}) abandons a pending move; the next
             // move stashes afresh (bd med-o7zq.35).
             if local { move.clear() }
@@ -51,10 +51,6 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
     /// The first page reported ready (N6): RootView fades the launch mark out.
     @Published private(set) var painted = false
-    /// Why the first run shows (an account the server says is gone); cleared by the next open or reopen.
-    @Published private(set) var firstRunMessage: String?
-    /// The gone account's address, put back in the first run's field with that message.
-    private(set) var firstRunInput: String?
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
     @Published private(set) var bottom = Color(uiColor: Shell.screen)
@@ -113,7 +109,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         #endif
 
         let defaults = UserDefaults.standard
-        // Spike builds (med-w6gx.2) kept the last URL: adopt its account so testers skip first-run.
+        // Spike builds (med-w6gx.2) kept the last URL: adopt its account.
         if defaults.string(forKey: Shell.hostKey) == nil,
            let host = defaults.string(forKey: "wgSpikeLastURL").flatMap({ AccountURL.parse($0, base: base) })?.host {
             defaults.set(host, forKey: Shell.hostKey)
@@ -121,18 +117,22 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         defaults.removeObject(forKey: "wgSpikeLastURL")
         defaults.removeObject(forKey: "wgSpikeLog")
         host = defaults.string(forKey: Shell.hostKey).flatMap { AccountURL.isAccountHost($0, base: base) ? $0 : nil }
+        let qa = qaLoadError() // before the line below: its network screens set a host
+        // No native first run (bd med-ta2n.17): without an account the app
+        // opens in local mode; applySettings persists it.
+        if host == nil, !local { local = true }
         Notifications.shared.vault = vault // observers don't run in init; a switch in applySettings must see the old vault
         applySettings()
         if local { LocalOrigin.includeInBackup() } // a dir an earlier launch created
         // Launch state for a support sysdiagnose (bd med-o7zq.31); no host name, no data.
         Logger(subsystem: Bundle.main.bundleIdentifier ?? "MedTracker", category: "shell").notice(
-            "launch mode=\(self.local ? "local" : self.host == nil ? "first-run" : "account", privacy: .public) host=\(self.host != nil, privacy: .public) localDataDirs=\(LocalOrigin.dataDirs().count, privacy: .public)")
+            "launch mode=\(self.local ? "local" : "account", privacy: .public) host=\(self.host != nil, privacy: .public) localDataDirs=\(LocalOrigin.dataDirs().count, privacy: .public)")
         Shell.current = self
         if Shell.copyOnLaunch {
             Shell.copyOnLaunch = false
             copyDiagnostics()
         }
-        if !qaLoadError() { retry() }
+        if !qa { retry() }
         Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
 
@@ -171,19 +171,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     private static let localHome = LocalOrigin.home
     #endif
 
-    /// First-run submit. Returns the message to show, or nil once the account is opening.
-    func open(_ raw: String) -> String? {
-        guard let url = AccountURL.parse(raw, base: base), let host = url.host else {
-            return base.isEmpty
-                ? "This build has no service configured."
-                : "That isn't an account link. Use your invite link or your account address (yourname.\(base))."
-        }
-        enter(url, host: host)
-        return nil
-    }
-
-    /// Opens an account URL (validated by AccountURL.parse) from any mode: the
-    /// first-run submit and local.leave/account.leave {url} (bd med-ta2n.11).
+    /// Opens an account URL (validated by AccountURL.parse) from either mode:
+    /// local.leave/account.leave {url} (bd med-ta2n.11).
     /// The move stash is the caller's call (account.leave {url} drops it).
     private func enter(_ url: URL, host: String) {
         let defaults = UserDefaults.standard
@@ -197,53 +186,52 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         reopen(to: url) // the claim link keeps its #fragment for the page; only the host is stored
     }
 
-    /// The pending slot's claim URL, for FirstRunView's invite field (phase 1).
-    @Published private(set) var pendingInvite = InviteSlot.pending()?["url"] as? String
-
     private func setInvite(_ url: URL?) {
         if let url { InviteSlot.store(url) } else { InviteSlot.clear() }
-        pendingInvite = url?.absoluteString
+    }
+
+    /// HOME with ?invite=1 (contract med-ta2n.7 §6-7): the booting page reads
+    /// the slot, or with none opens the "Have an invite?" sheet (F1).
+    private var inviteHome: URL? {
+        guard let home, var parts = URLComponents(url: home, resolvingAgainstBaseURL: false) else { return nil }
+        parts.queryItems = (parts.queryItems ?? []) + [URLQueryItem(name: "invite", value: "1")]
+        return parts.url
     }
 
     /// An invite link opened the app (bd med-ta2n.11, contract med-ta2n.7 §6):
     /// the landing universal link or the medtracker:// scheme. It goes into the
     /// pending slot (newest wins) and never opens by itself — any page can fire
-    /// the scheme. The native first run prefills its field from the slot; a
-    /// loaded page reloads home with ?invite=1 so the web reads the slot; on a
-    /// cold start the booting page reads it anyway.
+    /// the scheme. A loaded page reloads home with ?invite=1 so the web reads
+    /// the slot; on a cold start the booting page reads it anyway.
     func capture(_ link: URL) {
         guard let claim = AccountURL.parseInvite(link.absoluteString, base: base) else { return }
         setInvite(claim)
-        if committedHost != nil, let home, var parts = URLComponents(url: home, resolvingAgainstBaseURL: false) {
-            parts.queryItems = (parts.queryItems ?? []) + [URLQueryItem(name: "invite", value: "1")]
-            if let url = parts.url { load(url) } // deferred under the lock like any load
-        }
-    }
-
-    /// First-run "Only on this device" (bd med-o7zq.5), after the local intro:
-    /// the same persisted choice as the Settings toggle.
-    func openLocal() {
-        UserDefaults.standard.set(true, forKey: LocalOrigin.modeKey)
-        local = true
-        reopen()
+        if committedHost != nil, let url = inviteHome { load(url) } // deferred under the lock like any load
     }
 
     func retry() {
         if let url = lastURL ?? home { load(url) }
     }
 
-    /// Back to first-run, leaving local mode too — or, with `thenLocal`,
-    /// straight into local mode (bd med-o7zq.34). Website data is kept: it is
-    /// per origin, so returning to this account (or to local mode) later still
-    /// finds its data.
+    /// Leaves the account (Settings.bundle Switch account, X-Account-Gone,
+    /// the error screen, account.leave) into local mode — the app has no
+    /// native first run (bd med-ta2n.17). Plain: on home?invite=1, where the
+    /// web offers "Have an invite?", with no way back. `thenLocal`
+    /// (account.leave {then: "local"}, bd med-o7zq.34): on local home,
+    /// remembering the account for leave.clear {back}. Website data is kept:
+    /// it is per origin, so returning to this account later still finds its
+    /// data. The move stash is dropped: from local mode (Settings.bundle) a
+    /// stale snapshot would bring deleted rows back into the next account.
     func forget(thenLocal: Bool = false) {
-        if thenLocal, let host { UserDefaults.standard.set(host, forKey: Shell.leaveHostKey) }
-        else { UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey) }
-        UserDefaults.standard.removeObject(forKey: Shell.hostKey)
-        UserDefaults.standard.set(thenLocal, forKey: LocalOrigin.modeKey)
+        let defaults = UserDefaults.standard
+        if thenLocal, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
+        else { defaults.removeObject(forKey: Shell.leaveHostKey) }
+        defaults.removeObject(forKey: Shell.hostKey)
+        defaults.set(true, forKey: LocalOrigin.modeKey)
         host = nil
-        local = thenLocal
-        reopen()
+        local = true
+        move.clear() // local.didSet does too; this one is load-bearing
+        reopen(to: thenLocal ? nil : inviteHome)
     }
 
     /// Runs at launch and whenever the app becomes active.
@@ -253,7 +241,14 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             defaults.set(false, forKey: Shell.forgetKey)
             forget()
         }
-        let wantLocal = defaults.bool(forKey: LocalOrigin.modeKey)
+        // No account means local mode (bd med-ta2n.17), whatever the Settings
+        // toggle says. Persisting it the first time drops a move stash a
+        // phase-1 native first run kept: a stale snapshot by now.
+        if host == nil, !defaults.bool(forKey: LocalOrigin.modeKey) {
+            defaults.set(true, forKey: LocalOrigin.modeKey)
+            move.clear()
+        }
+        let wantLocal = host == nil || defaults.bool(forKey: LocalOrigin.modeKey)
         if wantLocal != local {
             local = wantLocal
             reopen()
@@ -321,7 +316,6 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         lastURL = nil
         committedHost = nil
         loadError = nil
-        firstRunMessage = nil
         deferredURL = nil
         deferredReminder = nil
         if concealed { webView.loadHTMLString("", baseURL: nil) } // the old page must not run behind the lock
@@ -385,13 +379,13 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         if navigationResponse.isForMainFrame, let http = navigationResponse.response as? HTTPURLResponse,
            http.statusCode >= 400, !showingAccount {
             // The server says the stored account is gone (deleted, expired or a
-            // typo; bd med-w6gx.22): forget it and say why on the first run. A
-            // 404 without the marker (a proxy's during a redeploy, an older
-            // server) keeps the error screen with Try again.
+            // typo; bd med-w6gx.22): forget it — local mode on home?invite=1,
+            // no way back (contract med-ta2n.7 §7). A 404 without the marker
+            // (a proxy's during a redeploy, an older server) keeps the error
+            // screen with Try again.
             if let h = http.url?.host?.lowercased(), h == host, AccountURL.accountGone(http.statusCode, http.allHeaderFields) {
+                diag("shell account gone")
                 forget()
-                firstRunInput = h
-                firstRunMessage = "There is no account at \(h)." // after forget()'s reopen(), which clears it
                 return .cancel
             }
             let status = "\(http.statusCode) · \(HTTPURLResponse.localizedString(forStatusCode: http.statusCode))"
@@ -537,18 +531,21 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 // an account, a stale one must not land in the next account.
                 if !local { move.clear() }
                 enter(url, host: h)
-            } else {
-                // Without a url, local.leave is Settings → Backup → Move to a
-                // cloud account (bd med-o7zq.6): the invite screen, as Switch
-                // account; the origin's data stays. account.leave leaves the
-                // account (it and this origin's data stay): {then: "local"} is
-                // Settings → Account "Use this iPhone without an account",
-                // straight into local mode (bd med-o7zq.34); no args (after
-                // account deletion) is the native first-run.
-                // ponytail: both become local + home?invite=1 when FirstRunView
-                // goes (med-ta2n.11 phase 2, after the web's F1 sheet ships).
+            } else if local {
+                // Without a url (bd med-ta2n.17): Settings → Backup → Move to a
+                // cloud account, after its move.stash. Stays local, nothing
+                // else changes (the stash waits for the invite); home?invite=1
+                // opens "Have an invite?".
                 replyHandler(true, nil)
-                forget(thenLocal: !local && args["then"] as? String == "local")
+                if let url = inviteHome { reopen(to: url) }
+            } else {
+                // account.leave leaves the account (it and this origin's data
+                // stay): {then: "local"} is Settings → Account "Use this iPhone
+                // without an account", onto local home with the way back (bd
+                // med-o7zq.34); no args (account deletion, the ceremony's "Not
+                // your account?") onto local home?invite=1, no way back.
+                replyHandler(true, nil)
+                forget(thenLocal: args["then"] as? String == "local")
             }
         // The local → cloud move (bd med-o7zq.35, twin of Android med-nt9p.32.17):
         // the local page stashes its vault v1 JSON before local.leave; the new
@@ -650,7 +647,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             "Med Tracker diagnostics \(ISO8601DateFormatter().string(from: Date()))",
             "app \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?"))",
             "iOS \(UIDevice.current.systemVersion) \(model)",
-            "mode " + (local ? "local" : host.map { "account " + $0 } ?? "first-run"),
+            "mode " + (local ? "local" : "account " + (host ?? "?")),
         ].joined(separator: "\n")
         UIPasteboard.general.string = Diag.redact(header, base: base) + "\n\n" + (UserDefaults.standard.string(forKey: Diag.key) ?? "")
         diagCopied = true

@@ -8,16 +8,10 @@ import XCTest
 /// app's container (QA.appContainer).
 @MainActor
 final class FlowQAStashTests: XCTestCase {
-    /// The first run's move note (App.swift, v2.1 since med-ckm5.13): one
-    /// label, its bold lead plus the rest, so matched by the lead.
-    private func moveHint(_ app: XCUIApplication) -> XCUIElement {
-        app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Your records are ready to move.'")).firstMatch
-    }
-
     /// Settings → Move to a cloud account → Backup & import's Move button →
-    /// stash + first run with the hint → Only on this device → Back keeps it →
-    /// Start abandons it (file gone) → relaunch stays local, and the records
-    /// are still there.
+    /// stash + local.leave with no url: still local, on "Have an invite?" (bd
+    /// med-ta2n.17) → relaunch stays local with the records and the
+    /// stash → iOS Settings' Switch account drops the stash.
     func testMoveLocalSide() throws {
         continueAfterFailure = false
         // A failed step must not leave a stash for the next flow's boot to pick up.
@@ -25,12 +19,10 @@ final class FlowQAStashTests: XCTestCase {
         let flow = "move-local"
         let fixture = try Self.fixture()
         let app = XCUIApplication()
-        // Into local mode through the first run, not -wgLocalMode YES: the
-        // argument domain would win over local.leave's persisted false on the
-        // next applySettings and clear the stash (Shell.swift local.didSet).
-        app.launchArguments = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-home"]
+        // No account: local mode (bd med-ta2n.17). No -wgLocalMode: a NO
+        // there would make every activation's applySettings drop the stash.
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-home"]
         app.launch()
-        startLocal(app)
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the settings-home scene never published #wg-qa-ready")
 
         let moveRow = webButton(app, prefix: "Move to a cloud account")
@@ -47,9 +39,10 @@ final class FlowQAStashTests: XCTestCase {
         shot(flow, "move-confirm")
         app.webViews.buttons["Move"].tap()
 
-        XCTAssertTrue(moveHint(app).waitForExistence(timeout: 60), "the first run shows no move hint")
-        XCTAssertFalse(app.buttons["Continue on this iPhone"].exists, "the first run offers Continue on this iPhone during a move")
-        shot(flow, "first-run-hint")
+        // local.leave with no url (bd med-ta2n.17): stays local, home?invite=1.
+        XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60), "the move did not land on \"Have an invite?\"")
+        XCTAssertFalse(app.buttons["Only on this device"].exists, "the move showed a native first run")
+        shot(flow, "invite-sheet")
         let stash = try XCTUnwrap(Self.stashData("move"), "no move/vault.json after move.stash")
         let vault = try XCTUnwrap(JSONSerialization.jsonObject(with: stash) as? [String: Any], "the move stash is not a JSON object")
         XCTAssertEqual(vault["format"] as? String, fixture["format"] as? String)
@@ -61,29 +54,25 @@ final class FlowQAStashTests: XCTestCase {
             XCTAssertEqual(Self.count(got, section, list), Self.count(want, section, list), "\(section).\(list) count")
         }
 
-        app.buttons["Only on this device"].tap()
-        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
-        XCTAssertTrue(start.waitForExistence(timeout: 10), "no local intro")
-        XCTAssertTrue(app.buttons["Start and cancel the move"].exists, "the intro does not say Start cancels the move")
-        shot(flow, "intro")
-        app.buttons["Back"].tap()
-        XCTAssertTrue(moveHint(app).waitForExistence(timeout: 10), "Back lost the move hint")
-        XCTAssertNotNil(Self.stashData("move"), "Back deleted the move stash")
-
-        startLocal(app)
-        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "local mode never came back after Start")
-        XCTAssertNil(Self.stashData("move"), "Start kept the abandoned move stash")
-
-        // No mode argument: Start persisted local mode, and nothing was erased.
-        // (Backup & import's "I have an invite" leave is gone, bd med-ckm5.7.)
+        // Still local, nothing erased, and the stash still waits for the invite.
         app.terminate()
         app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO"]
         app.launch()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
-        XCTAssertFalse(moveHint(app).exists, "the hint outlived the stash")
         webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
-        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move round-trip")
+        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move")
         shot(flow, "records-kept")
+        XCTAssertNotNil(Self.stashData("move"), "a relaunch in local mode dropped the move stash")
+
+        // iOS Settings → Med Tracker → Switch account (forgetKey) from local
+        // mode drops the stash: a stale snapshot would bring deleted rows back
+        // into the next account. It lands on "Have an invite?" too.
+        app.terminate()
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgForgetAccount", "YES"]
+        app.launch()
+        XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60), "Switch account from local mode did not land on \"Have an invite?\"")
+        shot(flow, "switch-account")
+        XCTAssertNil(Self.stashData("move"), "Switch account from local mode kept the move stash")
         app.terminate()
     }
 
@@ -153,16 +142,6 @@ final class FlowQAStashTests: XCTestCase {
     }
 
     // MARK: helpers
-
-    /// First run → Only on this device → Start (lock off by argument).
-    private func startLocal(_ app: XCUIApplication) {
-        let onlyHere = app.buttons["Only on this device"]
-        XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
-        onlyHere.tap()
-        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
-        XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
-        start.tap()
-    }
 
     private func webButton(_ app: XCUIApplication, prefix: String) -> XCUIElement {
         app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch

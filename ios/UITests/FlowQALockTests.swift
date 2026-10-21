@@ -19,32 +19,23 @@ final class FlowQALockTests: XCTestCase {
 
         XCTContext.runActivity(named: "opt-in") { _ in
             let flow = "lock-opt-in"
-            app.launchArguments = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgQAScene", "today"]
+            // No account: local mode (bd med-ta2n.17, no native intro with its
+            // lock toggle); the lock goes on from Settings → App lock.
+            app.launchArguments = ["-wgAccountHost", "", "-wgQAScene", "settings-home"]
             app.launch()
-            let onlyHere = app.buttons["Only on this device"]
-            require(flow, onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
-            onlyHere.tap()
-            let start = app.buttons["Start"]
-            require(flow, start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
-            let toggle = app.switches.matching(NSPredicate(format: "label BEGINSWITH 'Lock with'")).firstMatch
-            require(flow, toggle.waitForExistence(timeout: 5), "no lock toggle on the intro: Face ID enrollment did not reach the app")
-            if "\(toggle.value ?? "")" != "1" {
-                // The switch at the row's trailing edge (tapping the label row does not toggle).
-                toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+            require(flow, QA.readyNode(app).waitForExistence(timeout: 90), "settings-home never published #wg-qa-ready")
+            let row = app.webViews.switches["App lock"]
+            require(flow, row.waitForExistence(timeout: 15), "Settings shows no \"App lock\" row: Face ID enrollment did not reach the app")
+            if "\(row.value ?? "")" != "1" {
+                row.tap()
+                Thread.sleep(forTimeInterval: 1.5)
+                shot(flow, "face-id-sheet")
+                require(flow, matchUntil(app, timeout: 30) { row.isEnabled && "\(row.value ?? "")" == "1" },
+                        "the App lock row did not turn on: the Face ID match did not turn the lock on")
             }
-            XCTAssertEqual("\(toggle.value ?? "")", "1", "the intro's lock toggle did not turn on")
-            shot(flow, "intro-lock-on")
-            start.tap()
-            Thread.sleep(forTimeInterval: 1.5)
-            shot(flow, "face-id-sheet")
-            require(flow, matchUntil(app, timeout: 30) { !start.exists }, "Start stayed: the Face ID match did not turn the lock on")
-            // The sheet's dismissal re-activates the app, and applySettings
-            // then reads `-wgLocalMode NO` from the argument domain over the
-            // persisted choice, so this launch falls back to first run (test
-            // harness only: a user has no argument domain). The local app
-            // shows on the relaunch, after the lock's own prompt.
+            shot(flow, "row-on")
             // (Not asserted from the prefs plist: cfprefsd may not have
-            // flushed it yet; the lock screen and the local app below prove both.)
+            // flushed it yet; the lock screen and the local app below prove it.)
             app.terminate()
             app.launchArguments = ["-wgQAScene", "today"]
             app.launch()
