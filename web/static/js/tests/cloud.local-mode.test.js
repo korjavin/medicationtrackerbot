@@ -899,106 +899,48 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(offDevice()).toEqual([]);
     });
 
-    // bd med-nt9p.32.16: Backup & import's Move button stashes the vault with
-    // the shell (move.stash) before leaving, and the Settings-home row only
-    // opens that section; a shell that does not list the op (every shell
-    // before it) shows neither.
-    const openDialog = (document) => vi.waitFor(() => {
-        const d = document.querySelector('mt-modal.mt-confirm-modal');
-        if (!d) throw new Error('no dialog open');
-        return d;
-    });
-    const withMoveOps = (stash) => bridge.mockImplementation(async (op, args) => {
-        if (op === 'shell.ops') return ['ping', 'shell.ops', 'move.stash', 'local.leave'];
-        if (op === 'move.stash') return stash(args);
-        return op === 'setEgressHosts' ? { changed: false } : true;
-    });
-    const moveOps = () => bridge.mock.calls.map(([op]) => op).filter((op) => op === 'move.stash' || op === 'local.leave');
-
-    // Kit S7 (bd med-ckm5.7): one Move control, the Backup & import section's
-    // button; the manual "I have an invite" path is gone.
-    const moveGroup = (document) => document.getElementById('importexport-local-move-group');
-
-    it('Move row and section stay hidden when the shell does not list move.stash', async () => {
+    // W5 (bd med-ta2n.5): the Settings Move row and the Backup page's Move
+    // section are gone — the move runs from P3. Slot ① is the "Sync & backup"
+    // card, its chip off GET /api/protection/status.
+    it('Sync & backup card: Unprotected, then "Saved" after a Save to device, then "Backed up"; no Move row anywhere', async () => {
         const { window, document } = env;
-        bridge.mockImplementation(async (op) => {
-            if (op === 'shell.ops') throw new Error('unsupported: shell.ops');
-            return op === 'setEgressHosts' ? { changed: false } : true;
-        });
-        window.bindLocalMoveRow();
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('shell.ops'));
-        await new Promise((r) => { setTimeout(r, 0); });
-        expect(document.getElementById('settings-local-move-row').classList.contains('wg-settings-hidden')).toBe(true);
-        expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(true);
-        document.getElementById('settings-local-move-btn').click();
-        await new Promise((r) => { setTimeout(r, 0); });
-        expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
-        expect(moveOps()).toEqual([]);
-        expect(document.getElementById('importexport-local-move-btn')).toBeNull();
-        expect(document.body.textContent).not.toMatch(/I have an invite/);
+        expect(document.getElementById('settings-local-move-row')).toBeNull();
+        expect(document.getElementById('settings-local-move-btn')).toBeNull();
+        expect(document.getElementById('importexport-local-move-group')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/Move to a cloud account/);
+        const card = document.getElementById('settings-sync-card');
+        expect(card.closest('[data-settings-slot]').dataset.settingsSlot).toBe('mode-card');
+        await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+        const chip = document.getElementById('settings-sync-chip');
+        window.paintSyncCard();
+        // The static markup already says Unprotected: wait for the painted (shown) chip.
+        await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(false));
+        expect(chip.textContent).toBe('Unprotected');
+        expect(chip.classList.contains('wg-chip--warn')).toBe(true);
+        const n = await window.CloudVault.userContentCount();
+        expect(document.getElementById('settings-sync-meta').textContent)
+            .toBe(`${n === 1 ? '1 record' : `${n} records`} · only on this iPhone`);
+        // Save to device never reports a cancelled picker: not a backup, but not "Unprotected" forever.
+        window.localStorage.setItem('wg.backup.last', String(Date.now()));
+        window.paintSyncCard();
+        await vi.waitFor(() => expect(chip.textContent).toBe('Saved · today'));
+        expect(chip.classList.contains('wg-chip--warn')).toBe(false);
+        // A confirmed Share (CloudVault.markBackup) is the backup.
+        await window.CloudVault.markBackup();
+        window.paintSyncCard();
+        await vi.waitFor(() => expect(chip.textContent).toBe('Backed up · today'));
+        expect(chip.classList.contains('wg-chip--ok')).toBe(true);
+        expect(offDevice()).toEqual([]);
     });
 
-    describe('with a shell that lists move.stash', () => {
-        beforeAll(() => { bootShellOps = ['ping', 'shell.ops', 'move.stash', 'local.leave']; });
-        afterAll(() => { bootShellOps = true; });
-
-        it('the Settings-home row only opens the Backup & import Move section', async () => {
-            const { window, document } = env;
-            withMoveOps(() => true);
-            window.bindLocalMoveRow();
-            const row = document.getElementById('settings-local-move-row');
-            await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
-            expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(false);
-            row.click();
-            await vi.waitFor(() => expect(moveGroup(document).closest('.wg-page')).not.toBeNull());
-            expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
-            expect(moveOps()).toEqual([]);
-        });
-
-        it('Move button: export → move.stash → local.leave, records kept', async () => {
-            const { window, document } = env;
-            await window.apiCall('/api/weight', 'POST', { weight: 80 });
-            await window.apiCall('/api/protection/dismiss', 'POST'); // a W4 record exists
-            cancelReminderRecompute({ accountId: 'local' });
-            let stashed = null;
-            withMoveOps(({ vault }) => { stashed = vault; return true; });
-            window.bindLocalMoveRow();
-            const row = document.getElementById('settings-local-move-btn');
-            await vi.waitFor(() => expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(false));
-            row.click();
-            const dialog = await openDialog(document);
-            expect(dialog.textContent).toMatch(/Move to a cloud account\?/);
-            dialog.querySelector('.mt-confirm-modal__confirm').click();
-            await vi.waitFor(() => expect(moveOps()).toEqual(['move.stash', 'local.leave']));
-            // The W4 nudge is local-only (bd med-ta2n.4): even with a record
-            // here, the account gets no data.protection.
-            expect(JSON.parse(stashed).data).not.toHaveProperty('protection');
-            const expected = JSON.parse(await window.CloudVault.exportAll({ win: window }));
-            delete expected.data.protection;
-            expect(JSON.parse(stashed).data).toEqual(expected.data);
-            expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
-            expect(offDevice()).toEqual([]);
-        });
-
-        it('Move button: a rejected stash shows the file steps and never leaves', async () => {
-            const { window, document } = env;
-            allowConsoleNoise();
-            withMoveOps(() => { throw new Error('too large'); });
-            window.bindLocalMoveRow();
-            const row = document.getElementById('settings-local-move-btn');
-            await vi.waitFor(() => expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(false));
-            row.click();
-            (await openDialog(document)).querySelector('.mt-confirm-modal__confirm').click();
-            const alert = await vi.waitFor(() => {
-                const d = [...document.querySelectorAll('mt-modal.mt-confirm-modal')].find((m) => /too large/.test(m.textContent));
-                if (!d) throw new Error('no alert yet');
-                return d;
-            });
-            expect(alert.textContent).toMatch(/Export backup/);
-            expect(moveOps()).toEqual(['move.stash']);
-            alert.querySelector('.mt-confirm-modal__cancel').click();
-            await vi.waitFor(() => expect(row.disabled).toBe(false));
-        });
+    it('W5 Sync in a pre-v3 shell (no invite.pending): the no-invite state, no slot read', async () => {
+        const { window, document } = env;
+        await window.paintSyncSection();
+        expect(document.getElementById('settings-sync-none').hidden).toBe(false);
+        expect(document.getElementById('settings-sync-waiting').hidden).toBe(true);
+        expect(document.getElementById('settings-sync-how').hidden).toBe(true); // no shell base
+        expect(document.getElementById('importexport-sync-group').textContent).toMatch(/Sync needs an invite for now/);
+        expect(bridge).not.toHaveBeenCalledWith('invite.pending');
     });
 
     // bd med-ta2n.6 — F1 "Have an invite?" (features/invite.js), opened by the
@@ -1117,6 +1059,76 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             act(document, 'paste').click();
             tap(await sync(document), 'turn-on-sync');
             await vi.waitFor(() => expect(leaveOps().at(-1)).toEqual(['local.leave', { url: `${CLAIM}&kit=1` }]));
+        });
+
+        // W5 page Sync section (bd med-ta2n.5): no invite → its own Paste runs
+        // F1's paste inside the tap; the base landing is "How to get an invite".
+        it('W5 Sync, no invite: Paste reads the clipboard in the tap → P3 → the claim gains &kit=1', async () => {
+            const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ base: 'app.example.com' })) };
+            window.Clipboard = { readText: vi.fn(async () => CLAIM) };
+            await window.paintSyncSection();
+            expect(document.getElementById('settings-sync-none').hidden).toBe(false);
+            expect(document.getElementById('settings-sync-waiting').hidden).toBe(true);
+            const how = document.getElementById('settings-sync-how');
+            expect(how.hidden).toBe(false);
+            expect(how.getAttribute('href')).toBe('https://app.example.com/');
+            document.getElementById('settings-sync-paste').click();
+            expect(window.Clipboard.readText).toHaveBeenCalledTimes(1); // same tap: WebKit's Paste callout
+            tap(await sync(document), 'turn-on-sync');
+            await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: `${CLAIM}&kit=1` }]]));
+        });
+
+        // An invite in the shell slot → "An invite is waiting" + Turn on sync →
+        // P3 (its A7 offline gate) → the move; the stash leaves the W4 record here.
+        it('W5 Sync, an invite waiting: Turn on sync → P3 → move.stash (no protection) then local.leave {url&kit=1}', async () => {
+            const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            await window.apiCall('/api/protection/dismiss', 'POST'); // a W4 record exists
+            let stashed = null;
+            bridge.mockImplementation(async (op, args) => {
+                if (op === 'shell.ops') return bootShellOps;
+                if (op === 'invite.pending') return { url: CLAIM, receivedAt: Date.now() };
+                if (op === 'move.stash') { stashed = args.vault; return true; }
+                return op === 'setEgressHosts' ? { changed: false } : true;
+            });
+            await window.paintSyncSection();
+            expect(document.getElementById('settings-sync-none').hidden).toBe(true);
+            const waiting = document.getElementById('settings-sync-waiting');
+            expect(waiting.hidden).toBe(false);
+            expect(waiting.textContent).toMatch(/An invite is waiting/);
+            // Offline at P3's button: nothing stashed, no op (A7).
+            Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
+            document.getElementById('settings-sync-turn-on').click();
+            const p3 = await sync(document);
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(p3.querySelector('.wg-error').hidden).toBe(false));
+            expect(leaveOps()).toEqual([]);
+            Object.defineProperty(window.navigator, 'onLine', { value: true, configurable: true });
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: `${CLAIM}&kit=1` }]]));
+            expect(JSON.parse(stashed).data).not.toHaveProperty('protection');
+            expect(bridge).not.toHaveBeenCalledWith('invite.clear');
+        });
+
+        // A stash the shell refuses must never be followed by the leave: the
+        // account would open with none of these records.
+        it('a rejected move.stash stops before local.leave; the P3 sheet says why', async () => {
+            const { window, document } = env;
+            allowConsoleNoise();
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            bridge.mockImplementation(async (op) => {
+                if (op === 'shell.ops') return bootShellOps;
+                if (op === 'move.stash') throw new Error('too large');
+                return op === 'setEgressHosts' ? { changed: false } : true;
+            });
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            const p3 = await sync(document);
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(p3.querySelector('.wg-error').textContent).toMatch(/too large/));
+            expect(leaveOps()).toEqual([['move.stash']]);
         });
 
         it('Not now closes "Turn on sync?" with nothing stashed', async () => {
@@ -1440,7 +1452,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(group).not.toBeNull();
         // Kit S6 slot ② (bd med-ckm5.6), right after the mode-card slot.
         expect(group.parentElement.dataset.settingsSlot).toBe('mode-actions');
-        expect(group.parentElement.previousElementSibling.querySelector('#settings-local-mode')).not.toBeNull();
+        expect(group.parentElement.previousElementSibling.querySelector('#settings-sync-card')).not.toBeNull();
         expect(group.querySelector('.wg-setting__desc').textContent).toContain(`Asks for your ${check} each time`);
         const input = document.getElementById('settings-local-lock-toggle');
         expect(input.checked).toBe(false);

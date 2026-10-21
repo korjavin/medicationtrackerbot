@@ -164,8 +164,13 @@
         if (!meta) return;
         let at = 0;
         try { at = Number(window.localStorage.getItem(LAST_BACKUP_KEY)) || 0; } catch (_) { /* hidden */ }
-        meta.hidden = !at;
-        if (!at) return;
+        if (!at) {
+            // Local mode (the W5 page, bd med-ta2n.5) says so; an account is synced anyway.
+            meta.textContent = 'none yet';
+            meta.hidden = !document.documentElement.classList.contains('wg-local-vault');
+            return;
+        }
+        meta.hidden = false;
         const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86400000);
         meta.textContent = days <= 0 ? 'last today' : days === 1 ? 'last yesterday' : `last ${days} days ago`;
     }

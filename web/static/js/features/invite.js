@@ -2,10 +2,13 @@
 // screens-onboarding-v3.html F1; contract med-ta2n.7 design §1, §5, §7-8).
 //
 // window.InviteSheet:
-//   open()            the sheet: Paste (window.Clipboard, read inside the tap),
-//                     Scan QR (window.MediaCapture + window.Barcode), Not now.
+//   open({kit, action}?) the sheet: Paste (window.Clipboard, read inside the
+//                     tap), Scan QR (window.MediaCapture + window.Barcode), Not
+//                     now; action 'paste' | 'scan' runs that one straight away.
 //                     Also opened by the document event `wg:invite-open` (the W1
 //                     footer, med-ta2n.1; the W5 page, med-ta2n.5).
+//   base()            → the shell's deployment domain, or '' (W5's "How to get
+//                     an invite" link).
 //   parse(raw, base?) → {claimUrl, sub} | null. Accepts the landing link
 //                     https://<base>/i/<sub>#<token>, the scheme link
 //                     medtracker://i/<sub>#<token>, the claim link
@@ -327,6 +330,10 @@
         document.body.append(backdrop, modal);
         window.ModalManager.register(modal.id, close);
         window.ModalManager.open(modal.id);
+        // The W5 page's own Paste / Scan (opts.action): run the sheet's action
+        // in the same tap, so the clipboard read keeps its user gesture.
+        if (opts && opts.action === 'paste') paste.click();
+        else if (opts && opts.action === 'scan') scan.click();
     }
 
     document.addEventListener('wg:invite-open', function (e) { open(e && e.detail); });
@@ -595,5 +602,5 @@
         return booted;
     }
 
-    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending };
+    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending, base: shellBase };
 })();

@@ -148,7 +148,7 @@ async function exportBackup(ctx, page, r) {
     await page.click('#importexport-ready-save');
   };
   await ctx.step('export: open Backup & import', async () => {
-    await page.locator('[data-settings-open="backup"]').click();
+    await page.locator('[data-settings-open="backup"]:visible').click(); // the local card carries it too
     await page.locator('#importexport-export-btn').waitFor({ state: 'visible', timeout: 10_000 });
   }).catch(() => {});
   // The same pipeline as the button, timed per phase, without a download.
