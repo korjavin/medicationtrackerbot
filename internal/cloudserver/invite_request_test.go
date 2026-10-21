@@ -225,6 +225,28 @@ func TestInviteRequest_EmailApproveWithoutSMTP(t *testing.T) {
 	}
 }
 
+// A ping that never reached the admin drops its row (codex review), so the
+// same address can ask again instead of waiting out the 7-day dedupe.
+func TestInviteRequest_FailedPingFreesTheDedupe(t *testing.T) {
+	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
+	f.tg.mu.Lock()
+	f.tg.mu.sendFails = true
+	f.tg.mu.Unlock()
+	if rec := f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("POST = %d", rec.Code)
+	}
+	if _, err := f.store.InviteRequestByID(t.Context(), 1); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("unpinged row kept: err=%v", err)
+	}
+	f.tg.mu.Lock()
+	f.tg.mu.sendFails = false
+	f.tg.mu.Unlock()
+	f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`)
+	if req := f.request(t, 2); req.Status != "pending" || req.AdminMessageID == 0 {
+		t.Fatalf("retry row = %+v, want pending and pinged", req)
+	}
+}
+
 func TestInviteRequest_SendFailureShowsLink(t *testing.T) {
 	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
 	f.mail.err = errors.New("dial tcp: connection refused")

@@ -149,6 +149,15 @@ func (r *Repo) SetInviteRequestAdminMessage(ctx context.Context, id, messageID i
 	return err
 }
 
+// DeleteUnpingedInviteRequest drops a pending row whose admin ping never
+// landed, so it neither holds the dedupe nor sits buttonless for 90 days: the
+// requester can simply ask again.
+func (r *Repo) DeleteUnpingedInviteRequest(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM invite_requests WHERE id = ? AND status = ? AND admin_message_id = 0`, id, InviteRequestPending)
+	return err
+}
+
 // MoveInviteRequest changes a row's status from `from` to `to`, and reports
 // whether it did: the conditional UPDATE is the one-decision-per-request guard,
 // so of two concurrent taps exactly one sees true. pending → approved|declined

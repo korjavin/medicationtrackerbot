@@ -443,5 +443,9 @@ func main() {
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			slog.Warn("httpServer.Shutdown returned error", "error", err)
 		}
+		// An Approve already recorded must finish its mint + email/DM.
+		if tgAPI != nil && !tgAPI.WaitInviteWork(shutdownCtx) {
+			slog.Warn("invite requests: shutdown before approval work finished")
+		}
 	}
 }

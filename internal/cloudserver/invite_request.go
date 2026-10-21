@@ -180,6 +180,20 @@ func normalizeRequestEmail(raw string) (string, bool) {
 // inviteRequestsEnabled: the Telegram channel needs only the admin chat.
 func (t *TelegramAPI) inviteRequestsEnabled() bool { return t.feedbackAdminChatID != 0 }
 
+// WaitInviteWork waits for in-flight admin pings and approval work (mint +
+// email/DM), or until ctx ends; false means some was cut off. For shutdown:
+// the webhook has already recorded the decision and returned.
+func (t *TelegramAPI) WaitInviteWork(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() { t.inviteWork.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // SetSMTP gives the Approve path its SMTP transport.
 func (t *TelegramAPI) SetSMTP(cfg SMTPConfig) { t.mailer = newSMTPMailer(cfg) }
 
@@ -192,12 +206,16 @@ func inviteButtons(id int64) []tgclient.InlineKeyboardButton {
 }
 
 // pingInviteRequest posts the request with its two buttons to the admin chat
-// and records the message id. Best-effort: a failure leaves the row pending
-// (swept at 90 days) and is logged.
+// and records the message id. A failed ping deletes the row (no buttons ever
+// reached the admin), so the requester's next attempt files a fresh one
+// instead of hitting the dedupe.
 func (t *TelegramAPI) pingInviteRequest(ctx context.Context, id int64, text string) bool {
 	msgID, err := t.managerClient().SendMessageWithButtonsReturningID(ctx, t.feedbackAdminChatID, text, inviteButtons(id))
 	if err != nil {
 		slog.Warn("invite request: admin ping failed", "error", err, "request", id)
+		if err := t.store.DeleteUnpingedInviteRequest(context.WithoutCancel(ctx), id); err != nil {
+			slog.Warn("invite request: drop unpinged row", "error", err, "request", id)
+		}
 		return false
 	}
 	if err := t.store.SetInviteRequestAdminMessage(ctx, id, msgID); err != nil {
@@ -230,7 +248,10 @@ func (t *TelegramAPI) requestTGInvite(ctx context.Context, msg *tgclient.Message
 		who += " @" + msg.From.Username
 	}
 	text := fmt.Sprintf("📨 Invite request (Telegram) from %s (%d)", strings.TrimSpace(who), msg.From.ID)
-	t.pingInviteRequest(ctx, id, text)
+	if !t.pingInviteRequest(ctx, id, text) {
+		t.reply(ctx, msg.Chat.ID, inviteTGFailMessage)
+		return
+	}
 	t.reply(ctx, msg.Chat.ID, inviteTGAskedMessage)
 }
 

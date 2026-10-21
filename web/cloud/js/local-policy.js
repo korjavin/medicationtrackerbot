@@ -244,14 +244,20 @@ export async function mountLocalLockRow({ win }) {
 // The shell's App Attest support (window.Attest, ios/App/Attest.swift):
 // { supported, base, attested }, or null where there is none (the web, the
 // Simulator, a stub, a locked shell).
-async function attestStatus(win) {
+// The shell's Attest.status() as is (its base even where App Attest itself is
+// unsupported — what invite.js's shellBase() reads), or null.
+async function shellStatus(win) {
   try {
     if (win.Attest?.isSupported?.() !== true) return null;
-    const status = await win.Attest.status();
-    return status && status.supported === true && status.base ? status : null;
+    return (await win.Attest.status()) || null;
   } catch {
     return null;
   }
+}
+
+async function attestStatus(win) {
+  const status = await shellStatus(win);
+  return status && status.supported === true && status.base ? status : null;
 }
 
 // The anonymous trial (bd med-o7zq.16: AI; med-o7zq.20: food) this document's
@@ -402,9 +408,10 @@ async function registerLocalEgressNow({ settings, win }) {
   if (!native) return null;
   lastEgress = { settings, win };
   const byok = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
-  const attest = await attestStatus(win);
+  const status = await shellStatus(win);
+  const attest = status && status.supported === true && status.base ? status : null;
   const trialOn = !!attest && (await settings.getTrialConsent())?.anon === true;
-  const hosts = localEgressHosts(byok, attest && attest.base, trialOn);
+  const hosts = localEgressHosts(byok, status && status.base, trialOn);
   const reply = await native.call('setEgressHosts', { hosts });
   const changed = !!(reply && reply.changed);
   if (!changed) {

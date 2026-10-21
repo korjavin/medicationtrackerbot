@@ -1631,30 +1631,49 @@ describe('localEgressHosts (the shell host list)', () => {
     // A fresh install goes [] → [base]: the shell answers changed, the page
     // reloads, and boot never hands the app a page that is going away (the
     // QA ready node and W1 only appear on the reloaded one).
-    it('boot holds MedTrackerCloudReady while a first-boot host change reloads the page', async () => {
+    async function bootLocal({ changed, supported }) {
         allowConsoleNoise(); // location.reload is a jsdom "not implemented" error
         await deleteDb();
         vi.stubGlobal('fetch', vi.fn(async () => createMockResponse({ status: 503, json: {} })));
         const env = loadFrontendEnv();
+        const bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed } : null));
+        const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        env.window.Attest = {
+            isSupported: () => true,
+            status: vi.fn(async () => ({ supported, base: 'boot-base.example.test', attested: supported })),
+            enroll: vi.fn(),
+            assert: vi.fn(),
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        return { env, bridge };
+    }
+
+    it('boot holds MedTrackerCloudReady while a first-boot host change reloads the page', async () => {
+        const { env, bridge } = await bootLocal({ changed: true, supported: true });
         try {
-            const bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: true } : null));
-            const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
-            env.window.LocalNotifications = notifications;
-            vi.stubGlobal('LocalNotifications', notifications);
-            env.window.Attest = {
-                isSupported: () => true,
-                status: vi.fn(async () => ({ supported: true, base: 'boot-base.example.test', attested: true })),
-                enroll: vi.fn(),
-                assert: vi.fn(),
-            };
-            const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
-            run(env.window, (spec) => MODULES[spec]());
             await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: ['boot-base.example.test'] }));
             const state = await Promise.race([
                 env.window.MedTrackerCloudReady.then(() => 'ready'),
                 new Promise((resolve) => { setTimeout(() => resolve('pending'), 300); }),
             ]);
             expect(state).toBe('pending');
+        } finally {
+            env.cleanup();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    // The Simulator / no Play Integrity: no trial, but the shell still names
+    // its base, which the "Request an invite" form posts to.
+    it('lists the base where App Attest is unsupported, and boot resolves when nothing changed', async () => {
+        const { env, bridge } = await bootLocal({ changed: false, supported: false });
+        try {
+            await env.window.MedTrackerCloudReady;
+            expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: ['boot-base.example.test'] });
+            expect(await env.window.CloudVault.trial.status()).toBeNull();
         } finally {
             env.cleanup();
             vi.unstubAllGlobals();
