@@ -480,7 +480,7 @@ export async function mountLocalFeedback({ win }) {
   const submit = await import('./feedback-submit.js');
   submit.setFeedbackTransport(localFeedbackTransport(win));
   const { mountFeedbackLauncher } = await import('./feedback-ui.js');
-  await mountFeedbackLauncher();
+  await mountFeedbackLauncher(null, win);
   submit.startFeedbackAutoDrain();
   submit.drainFeedbackOutbox().catch(() => {});
   return true;

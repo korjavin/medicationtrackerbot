@@ -18,20 +18,25 @@ import { enqueueFeedback } from './feedback-submit.js';
 
 const LAUNCHER_ID = 'feedback-launcher';
 
+// The page: the window mountFeedbackLauncher was handed (local-policy.js
+// passes its own), else the global one (cloud-boot.js).
+let pageWin = null;
+const w = () => pageWin || globalThis.window;
+
 function canRecordAudio() {
-    return !!(window.MediaCapture && typeof window.MediaCapture.recordAudio === 'function');
+    return !!(w().MediaCapture && typeof w().MediaCapture.recordAudio === 'function');
 }
 
 function toast(message) {
-    if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
-        window.SyncManager.showToast(message, 'success');
+    if (w().SyncManager && typeof w().SyncManager.showToast === 'function') {
+        w().SyncManager.showToast(message, 'success');
     }
 }
 
 // Build + show the compose modal. A fresh modal per open (like trial-consent);
 // removed on every exit path, releasing the mic if a recording is in flight.
 function openFeedbackModal() {
-    const doc = document;
+    const doc = w().document;
 
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop wg-sheet-backdrop';
@@ -44,7 +49,7 @@ function openFeedbackModal() {
 
     const grab = doc.createElement('div');
     grab.className = 'wg-sheet__grab';
-    const { el: header, buttons: [cancelBtn] } = window.WGSheet.header({
+    const { el: header, buttons: [cancelBtn] } = w().WGSheet.header({
         eyebrow: 'Feedback',
         title: 'Send feedback',
         actions: [{ label: 'Close', icon: 'x', attrs: { 'data-feedback-choice': 'cancel' } }],
@@ -134,9 +139,9 @@ function openFeedbackModal() {
     textarea.addEventListener('input', refreshSend);
 
     imageBtn.addEventListener('click', async () => {
-        if (!(window.MediaCapture && typeof window.MediaCapture.pickPhoto === 'function')) return;
+        if (!(w().MediaCapture && typeof w().MediaCapture.pickPhoto === 'function')) return;
         try {
-            const blob = await window.MediaCapture.pickPhoto({ capture: false });
+            const blob = await w().MediaCapture.pickPhoto({ capture: false });
             if (blob) { imageBlob = blob; chips(); refreshSend(); }
         } catch (_) { /* user cancelled or unavailable — leave state as-is */ }
     });
@@ -166,7 +171,7 @@ function openFeedbackModal() {
             starting = true;
             recordBtn.disabled = true;
             try {
-                const handle = await window.MediaCapture.recordAudio();
+                const handle = await w().MediaCapture.recordAudio();
                 // The modal may have been dismissed (cancel/escape/send) while
                 // getUserMedia was still resolving. settle() couldn't cancel a
                 // handle that didn't exist yet, so release the mic here — else
@@ -197,8 +202,8 @@ function openFeedbackModal() {
             try { audioHandle.cancel(); } catch (_) { /* ignore */ }
             audioHandle = null;
         }
-        window.ModalManager.close(modal.id);
-        window.ModalManager.register(modal.id, null);
+        w().ModalManager.close(modal.id);
+        w().ModalManager.register(modal.id, null);
         if (modal.parentNode) modal.parentNode.removeChild(modal);
         if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
         if (action === 'send') toast('Thanks — feedback sent');
@@ -265,8 +270,8 @@ function openFeedbackModal() {
     doc.body.appendChild(backdrop);
     doc.body.appendChild(modal);
     // On the ModalManager stack so Back / Esc dismiss it like any sheet.
-    window.ModalManager.register(modal.id, () => settle('cancel'));
-    window.ModalManager.open(modal.id);
+    w().ModalManager.register(modal.id, () => settle('cancel'));
+    w().ModalManager.open(modal.id);
     try { textarea.focus(); } catch (_) { /* ignore */ }
 
     return modal;
@@ -276,7 +281,9 @@ function openFeedbackModal() {
 // (med-xso6.23, kit S1). Dedupe by id; wait for <body> if the document is still
 // parsing (the #settings-view container is static in index.html, so it exists
 // once the body is ready).
-export async function mountFeedbackLauncher(ctx) {
+export async function mountFeedbackLauncher(ctx, win) {
+    if (win) pageWin = win;
+    const document = w().document;
     if (!document.body) {
         await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
     }
@@ -321,6 +328,6 @@ export async function mountFeedbackLauncher(ctx) {
     // Kit S6 slot ⑥ (bd med-ckm5.6).
     (settingsView.querySelector('[data-settings-slot="feedback"]')
         || settingsView.querySelector('.wg-settings-home') || settingsView).appendChild(group);
-    if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(group);
+    if (w().WGIcons && typeof w().WGIcons.hydrate === 'function') w().WGIcons.hydrate(group);
     return btn;
 }
