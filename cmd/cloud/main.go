@@ -285,6 +285,9 @@ func main() {
 	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	feedbackAPI := cloudserver.NewFeedbackAPI(store, cfg.sessionSecret, cfg.feedbackAgeRecipient)
 	feedbackAPI.RegisterRoutes(apiMux)
+	// Local-mode feedback (med-ta2n.19): attested twin of the session route,
+	// same recipient and admin ping.
+	attestAPI.SetFeedback(feedbackAPI)
 
 	// Telegram is fully disabled unless a manager bot token is configured; the
 	// wizard step simply doesn't render and no webhook routes are wired.

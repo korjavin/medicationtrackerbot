@@ -49,10 +49,49 @@ type FeedbackItem struct {
 // submission from a retry that changed nothing (the admin relay pings only on the
 // former — bd med-orj). It is false whenever err is non-nil.
 func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, appVersion string, ciphertext []byte, now time.Time) (queued bool, err error) {
+	return appendFeedback(ctx, r.db.DB, accountID, clientID, kind, appVersion, ciphertext, now)
+}
+
+// AttestFeedbackAccount is the feedback_queue account_id of a local-mode
+// install's feedback (bd med-ta2n.19): it has no accounts row, so the install's
+// trial BUCKET id stands in. The per-account cap and client_id dedupe then
+// apply per bucket, like every other attest budget, so a pass-rejoin or a
+// re-enrolled key cannot mint a fresh 100-item allowance.
+func AttestFeedbackAccount(bucketID string) string { return "attest:" + bucketID }
+
+// AppendAttestFeedback, in ONE transaction: the assertion-counter
+// compare-and-set every attested route runs first (ErrAttestCounter; the
+// advance commits even when the cap then refuses, so the assertion stays
+// spent), then AppendFeedback's dedupe + cap + insert under
+// AttestFeedbackAccount(the key's bucket id).
+func (r *Repo) AppendAttestFeedback(ctx context.Context, keyID string, newCounter uint32, clientID, kind, appVersion string, ciphertext []byte, now time.Time) (queued bool, err error) {
+	full := false
+	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
+		bucket, txErr := advanceAttestCounter(ctx, tx, keyID, newCounter, now)
+		if txErr != nil {
+			return txErr
+		}
+		queued, txErr = appendFeedback(ctx, tx, AttestFeedbackAccount(bucket), clientID, kind, appVersion, ciphertext, now)
+		if errors.Is(txErr, ErrFeedbackQueueFull) {
+			full = true
+			return nil
+		}
+		return txErr
+	})
+	if err != nil {
+		return false, err
+	}
+	if full {
+		return false, ErrFeedbackQueueFull
+	}
+	return queued, nil
+}
+
+func appendFeedback(ctx context.Context, db storedb.TX, accountID, clientID, kind, appVersion string, ciphertext []byte, now time.Time) (queued bool, err error) {
 	// A retry of an already-queued client_id must always succeed (idempotent),
 	// even once the account is at the cap — so check for the existing row first.
 	var one int
-	switch err := r.db.QueryRowContext(ctx,
+	switch err := db.QueryRowContext(ctx,
 		`SELECT 1 FROM feedback_queue WHERE account_id = ? AND client_id = ?`,
 		accountID, clientID).Scan(&one); {
 	case err == nil:
@@ -64,14 +103,14 @@ func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, ap
 	// ponytail: the count+insert isn't atomic, so two concurrent new client_ids
 	// can each pass the check and push one over the cap — fine for a safety limit.
 	var count int
-	if err := r.db.QueryRowContext(ctx,
+	if err := db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM feedback_queue WHERE account_id = ?`, accountID).Scan(&count); err != nil {
 		return false, err
 	}
 	if count >= feedbackPerAccountCap {
 		return false, ErrFeedbackQueueFull
 	}
-	res, err := r.db.ExecContext(ctx,
+	res, err := db.ExecContext(ctx,
 		`INSERT INTO feedback_queue (account_id, client_id, kind, app_version, ciphertext, created_at_unix)
 		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(account_id, client_id) DO NOTHING`,
