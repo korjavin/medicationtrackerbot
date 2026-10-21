@@ -1586,6 +1586,7 @@
     // Below Next up so a due dose never moves down; the button is raised
     // because Take keeps the sun. The card is never a banner.
     const PROTECT_SHEET_ID = 'today-protect-sheet';
+    const PROTECT_KEY = 'protection_status';
     let protectStatus = null; // last answer, so a re-render does not flash the card in or out
 
     function isLocalVault() {
@@ -1602,17 +1603,50 @@
         return n === 1 ? '1 record' : `${n} records`;
     }
 
-    function dismissProtect() {
-        protectStatus = null;
+    function setProtectStatus(s) {
+        protectStatus = (s && typeof s === 'object') ? s : null;
         const card = doc().querySelector('[data-section="protect"]');
-        if (card) card.remove();
+        if (card) paintProtectCard(card, protectStatus);
+    }
+
+    // × / Later: optimistic nudge:false on the cached status, then the write;
+    // a failed dismiss (apiCall resolves null and has told the user) rolls the
+    // cache back and the card returns.
+    async function dismissProtect() {
         const api = trackersApi();
-        if (api) Promise.resolve().then(() => api('/api/protection/dismiss', 'POST')).catch(() => {});
+        const prev = protectStatus;
+        const hide = (s) => (s && typeof s === 'object' ? { ...s, nudge: false } : s);
+        setProtectStatus(hide(prev));
+        const ds = typeof window !== 'undefined' ? window.DataStore : null;
+        let handle = null;
+        try {
+            if (ds && typeof ds.applyOptimistic === 'function') handle = await ds.applyOptimistic(PROTECT_KEY, hide, []);
+        } catch (_) { handle = null; }
+        let res = null;
+        try { res = api ? await api('/api/protection/dismiss', 'POST') : null; } catch (_) { res = null; }
+        const ok = !!(res && res.success);
+        try {
+            if (handle) await (ok ? handle.commit(null) : handle.rollback());
+        } catch (_) { /* best-effort */ }
+        if (!ok) setProtectStatus(prev);
     }
 
     function paintProtectCard(card, status) {
         card.classList.toggle('hidden', !(status && status.nudge));
         if (status) card.querySelector('[data-protect-meta]').textContent = `${recordsLabel(status.records)} · only on this ${deviceWord()}`;
+    }
+
+    // Through the DataStore cache when there is one, so a status GET racing a
+    // pending dismiss is held back (fetchFresh) instead of flashing the card.
+    function loadProtectStatus(api) {
+        const ds = typeof window !== 'undefined' ? window.DataStore : null;
+        const fetcher = () => api('/api/protection/status');
+        if (ds && typeof ds.loadSWR === 'function') {
+            ds.loadSWR({ key: PROTECT_KEY, tags: ['protection'], fetcher, onCached: setProtectStatus, onFresh: setProtectStatus, onError: () => {} })
+                .catch(() => {});
+            return;
+        }
+        Promise.resolve().then(fetcher).catch(() => null).then(setProtectStatus);
     }
 
     function renderProtectCard() {
@@ -1634,10 +1668,7 @@
         go.classList.add('wg-btn--block');
         card.append(head, el('p', 'wg-hint', `If this ${deviceWord()} is lost or reset, they go with it. A backup takes a few seconds.`), go);
         paintProtectCard(card, protectStatus);
-        Promise.resolve().then(() => api('/api/protection/status')).catch(() => null).then((s) => {
-            protectStatus = (s && typeof s === 'object') ? s : null;
-            paintProtectCard(card, protectStatus);
-        });
+        loadProtectStatus(api);
         return card;
     }
 

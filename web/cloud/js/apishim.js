@@ -687,13 +687,14 @@ export function createApiRouter(ctx, {
     if (path === '/api/protection/status' && method === 'GET') {
       if (!protection) {
         return {
-          records: 0, firstRunAt: null, lastBackupAt: null, dismissedCount: 0, lastDismissedAt: null, synced: true, nudge: false,
+          records: 0, firstRunAt: null, lastBackupAt: null, lastSavedAt: null, dismissedCount: 0, lastDismissedAt: null, synced: true, nudge: false,
         };
       }
       const lists = await Promise.all([...USER_CONTENT_TYPES].map((t) => records.list(t)));
       return settings.getProtectionStatus({
         records: userContentCount(lists.flat()),
         legacyDismissedAt: protection.legacyDismissedAt(targetWindow),
+        savedAt: typeof protection.savedAt === 'function' ? protection.savedAt(targetWindow) : null,
       });
     }
     if (path === '/api/protection/dismiss' && method === 'POST' && protection) {

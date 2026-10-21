@@ -997,7 +997,8 @@ origin). Never widen the rules to
 
 Limits the copy states: Google's cloud backup needs the phone's backup
 encryption (screen lock) and **silently skips an app over 25 MB**; a
-device-to-device transfer has no cap. The weekly export nudge stays.
+device-to-device transfer has no cap. The backup file stays the real safety net:
+the Today protect-your-data card (W4, bd med-ta2n.4) replaced the weekly export toast.
 
 **Emulator proof** — QA scenario `local-backup` (not in `all`, it ends with
 `pm clear`), run once per rule section (local transport with

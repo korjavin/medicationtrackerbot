@@ -1709,13 +1709,67 @@ describe('W4 protect-your-data card', () => {
         expect(api).not.toHaveBeenCalledWith('/api/protection/status');
     });
 
-    it('× removes it and records the dismissal', async () => {
+    it('× hides it and records the dismissal', async () => {
         setup();
         await flush();
         act(card(), 'protect-dismiss').click();
-        expect(card()).toBeNull();
+        expect(shown()).toBe(false);
         await flush();
         expect(api).toHaveBeenCalledWith('/api/protection/dismiss', 'POST');
+        env.paint(); // a re-render keeps it gone
+        expect(shown()).toBe(false);
+    });
+
+    it('a failed dismiss brings the card back', async () => {
+        setup();
+        await flush();
+        api.mockImplementation(async (endpoint) => (endpoint === '/api/protection/status' ? status : null));
+        act(card(), 'protect-dismiss').click();
+        expect(shown()).toBe(false);
+        await flush();
+        await flush();
+        expect(shown()).toBe(true);
+    });
+
+    it('through the real DataStore: × commits nudge:false to the cache; a failed × rolls it back', async () => {
+        allowConsoleNoise();
+        env = loadDataStoreEnv({});
+        const w = env.window;
+        for (const f of [EMPTY_STATE_JS, WG_ICONS_JS, WG_CHIP_JS, WG_OFFER_CARD_JS, WG_SPARKLINE_JS, TODAY_JS]) {
+            w.eval(fs.readFileSync(f, 'utf8'));
+        }
+        w.document.documentElement.classList.add('wg-local-vault');
+        const root = w.document.createElement('div');
+        w.document.body.appendChild(root);
+        status = { records: 43, firstRunAt: 1, lastBackupAt: null, dismissedCount: 0, lastDismissedAt: null, synced: false, nudge: true };
+        let dismissOk = false;
+        api = vi.fn(async (endpoint) => (endpoint === '/api/protection/status' ? status : (dismissOk ? { success: true } : null)));
+        w.apiCall = api;
+        const mine = env;
+        const repaint = () => { if (env === mine) w.TodayDashboard.renderToday(baseState(), root, { now: NOW }); };
+        w.requestTabRefresh = repaint;
+        repaint();
+        const protect = () => root.querySelector('[data-section="protect"]');
+        const visible = () => !!protect() && !protect().classList.contains('hidden');
+        const settle = async () => { for (let i = 0; i < 5; i++) await flush(); };
+        await settle();
+        expect(visible()).toBe(true);
+        expect(env.cacheMap.get('protection_status').nudge).toBe(true);
+
+        // The write fails: the cache returns to nudge:true and so does the card.
+        act(protect(), 'protect-dismiss').click();
+        expect(visible()).toBe(false);
+        await settle();
+        expect(env.cacheMap.get('protection_status').nudge).toBe(true);
+        expect(visible()).toBe(true);
+
+        // It lands: nudge:false stays in the cache across re-renders.
+        dismissOk = true;
+        act(protect(), 'protect-dismiss').click();
+        status = { ...status, nudge: false, dismissedCount: 1 };
+        await settle();
+        expect(env.cacheMap.get('protection_status').nudge).toBe(false);
+        expect(visible()).toBe(false);
     });
 
     it('the sheet: backup preselected, the primary follows the choice, Save backup opens the Backup export', async () => {
@@ -1774,7 +1828,7 @@ describe('W4 protect-your-data card', () => {
         expect(sheet().querySelector('.wg-sheet__body .wg-hint').textContent).toBe("Pick Later and we'll remind you again in 2 weeks.");
         act(sheet(), 'protect-later').click();
         expect(sheetOpen()).toBe(false);
-        expect(card()).toBeNull();
+        expect(shown()).toBe(false);
         await flush();
         expect(api).toHaveBeenCalledWith('/api/protection/dismiss', 'POST');
         env.cleanup();

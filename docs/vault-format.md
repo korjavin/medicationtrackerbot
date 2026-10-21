@@ -494,9 +494,12 @@ API tokens and carries the array as a passthrough record.
 
 The W4 protect-your-data nudge state (bd med-ta2n.4): the `protection` singleton
 (`{lastBackupAt, nudgeDismissedAt}`, ms) written when a local-mode backup file is
-saved or shared and by the Today card's ×. A local export stamps its own
-`last_backup_at` (`recordsToVault` `backupAt`), so a restored backup remembers
-being one.
+shared with a confirmed result (Web Share resolved) and by the Today card's ×.
+Save to device never reports a cancelled picker, so it writes no `lastBackupAt`;
+its per-device `wg.backup.last` stamp only snoozes the nudge 14 days. A local
+export stamps its own `last_backup_at` (`recordsToVault` `backupAt`), so a
+restored backup remembers being one. The local → cloud move stash carries no
+`protection` block: the nudge is local-only.
 A file without the key (every older backup) leaves the destination's record alone:
 `managedTypesForImport` drops `protection` from the replace, like the secret blocks.
 An unparseable timestamp is dropped on import, never fatal. Older clients ignore
@@ -555,8 +558,9 @@ With secrets included, the export emits the blocks **even when the account has n
 (`"integrations": {}`, `"api_tokens": []`). Only an *absent* block means "leave the
 destination alone", so a restore over an old install can clear stale keys and tokens.
 
-Import semantics for those two blocks are deliberately **not** replace-only, the single
-exception to the wipe-then-insert rule:
+Import semantics for those two blocks are deliberately **not** replace-only, an
+exception to the wipe-then-insert rule (the only other one is `protection`, above:
+an absent block keeps the destination's record):
 
 | Block in file | Import effect |
 |---|---|

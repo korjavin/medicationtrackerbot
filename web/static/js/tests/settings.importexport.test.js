@@ -537,8 +537,40 @@ describe('Settings → Import/Export section', () => {
         expect(window.downloadBlobAsFile).toHaveBeenCalledWith(expect.anything(), `${stem.textContent}.json.gz.age`);
         expect(last.hidden).toBe(false);
         expect(last.textContent).toBe('last today');
-        // The file left the device: local mode's W4 nudge retires (bd med-ta2n.4).
+        // Save hands the file to a download / native picker that never reports
+        // a cancel: no confirmed backup, the W4 nudge only snoozes on
+        // wg.backup.last (bd med-ta2n.4).
+        await new Promise((r) => setTimeout(r, 0));
+        expect(window.CloudVault.markBackup).not.toHaveBeenCalled();
+    });
+
+    it('a completed Share retires the W4 nudge; a cancelled Share does not', async () => {
+        const { window, document } = env;
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn(), markBackup: vi.fn(async () => {}) };
+        window.downloadBlobAsFile = vi.fn();
+        window.localStorage.removeItem('wg.backup.last');
+        let outcome = 'abort';
+        const share = vi.fn(async () => {
+            if (outcome === 'abort') { const e = new Error('cancelled'); e.name = 'AbortError'; throw e; }
+        });
+        Object.defineProperty(window.navigator, 'share', { value: share, configurable: true });
+        Object.defineProperty(window.navigator, 'canShare', { value: () => true, configurable: true });
+        window.SettingsImportExport.load();
+        document.getElementById('importexport-include-secrets').checked = false;
+
+        await window.SettingsImportExport.export();
+        const shareBtn = document.getElementById('importexport-ready-share');
+        expect(shareBtn.hidden).toBe(false);
+        shareBtn.click();
+        await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(window.CloudVault.markBackup).not.toHaveBeenCalled();
+        expect(document.getElementById('importexport-last-backup').hidden).toBe(true);
+
+        outcome = 'done';
+        shareBtn.click();
         await vi.waitFor(() => expect(window.CloudVault.markBackup).toHaveBeenCalledTimes(1));
+        expect(window.downloadBlobAsFile).not.toHaveBeenCalled();
     });
 
     it('export failure stays on screen as an error and frees the button', async () => {

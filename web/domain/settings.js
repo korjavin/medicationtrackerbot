@@ -74,7 +74,7 @@ const EMERGENCYKIT_RECORD_ID = 'emergencykit';
 const EMERGENCYKIT_HOW = new Set(['download', 'print', 'ack', 'none']);
 // The W4 protect-your-data nudge (bd med-ta2n.4): {lastBackupAt: ms|null,
 // nudgeDismissedAt: [ms…]}. Written ONLY by deliberate actions — a backup
-// file saved or shared (markBackup) and the card's × / Later (dismissNudge) — with now() +
+// file shared with a confirmed result (markBackup) and the card's × / Later (dismissNudge) — with now() +
 // put. Never lazily materialized: an absent record reads as "never backed up,
 // never dismissed", so CLAUDE.md rule 12's floor does not apply. Carried in
 // the vault (data.protection) so a restored backup remembers its last backup.
@@ -434,24 +434,31 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // records: the live user-record count (vault.js userContentCount), computed
   // by the caller. legacyDismissedAt: the old weekly toast's last stamp
   // (localStorage, owner-accepted 14-day grace) — a snooze baseline that
-  // never counts as one of the two dismissals. firstRunAt: the firstrun
-  // record's clientTs (0, a restored vault's floor, means unknown).
-  async function getProtectionStatus({ records: count = 0, legacyDismissedAt = null } = {}) {
+  // never counts as one of the two dismissals. savedAt: the last Save to
+  // device (wg.backup.last) — the download / native picker never reports a
+  // cancel, so it is not a confirmed backup (lastBackupAt stays null) but
+  // snoozes like a free dismissal. firstRunAt: the firstrun record's clientTs
+  // (0, a restored vault's floor, means unknown).
+  async function getProtectionStatus({ records: count = 0, legacyDismissedAt = null, savedAt = null } = {}) {
     const p = await getProtection();
     const fr = findSingleton(await records.list(FIRSTRUN_RECORD_TYPE), FIRSTRUN_RECORD_ID);
     const firstRunAt = (fr && fr.clientTs > 0) ? fr.clientTs : null;
+    const valid = (ms) => Number.isFinite(ms) && ms > 0;
     const stamps = [...p.nudgeDismissedAt];
-    if (Number.isFinite(legacyDismissedAt) && legacyDismissedAt > 0) stamps.push(legacyDismissedAt);
+    if (valid(legacyDismissedAt)) stamps.push(legacyDismissedAt);
     const lastDismissedAt = stamps.length ? Math.max(...stamps) : null;
+    const lastSavedAt = valid(savedAt) ? savedAt : null;
+    const snoozeFrom = Math.max(lastDismissedAt || 0, lastSavedAt || 0);
     const t = now();
     const nudge = p.lastBackupAt == null
       && p.nudgeDismissedAt.length < PROTECT_MAX_DISMISSALS
-      && (lastDismissedAt == null || t - lastDismissedAt >= PROTECT_SNOOZE_MS)
+      && (!snoozeFrom || t - snoozeFrom >= PROTECT_SNOOZE_MS)
       && (count >= PROTECT_MIN_RECORDS || (firstRunAt != null && t - firstRunAt >= PROTECT_AFTER_MS));
     return {
       records: count,
       firstRunAt,
       lastBackupAt: p.lastBackupAt,
+      lastSavedAt,
       dismissedCount: p.nudgeDismissedAt.length,
       lastDismissedAt,
       synced: false,

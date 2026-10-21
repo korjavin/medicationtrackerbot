@@ -223,9 +223,23 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
             expect(JSON.parse(json).data.protection).toEqual({ last_backup_at: '2026-10-02T09:00:00Z', nudge_dismissed_at: [] });
             expect(await status()).toMatchObject({ nudge: true, lastBackupAt: null });
             expect(await localRecordsPort().list('protection')).toEqual([]);
-            // Save / Share (importexport.js stampLastBackup).
+            // A completed Share (importexport.js stampLastBackup, confirmed).
             await env.window.CloudVault.markBackup({ win: env.window });
             expect(await status()).toMatchObject({ nudge: false, lastBackupAt: T0 + DAY });
+        });
+
+        it('a Save to device (wg.backup.last, maybe a cancelled picker) is a free 14-day snooze, never a backup', async () => {
+            await addRecords(20);
+            env.window.localStorage.setItem('wg.backup.last', String(T0));
+            at(T0 + 14 * DAY - 1);
+            expect(await status()).toMatchObject({
+                nudge: false, lastBackupAt: null, lastSavedAt: T0, dismissedCount: 0, lastDismissedAt: null,
+            });
+            at(T0 + 14 * DAY);
+            expect((await status()).nudge).toBe(true);
+            await env.window.apiCall('/api/protection/dismiss', 'POST');
+            // Read only: the Backup page's "last N days ago" keeps its stamp.
+            expect(env.window.localStorage.getItem('wg.backup.last')).toBe(String(T0));
         });
 
         it('an existing user: the old toast stamp is a free 14-day snooze, removed once the record is written', async () => {
@@ -944,6 +958,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         it('Move button: export → move.stash → local.leave, records kept', async () => {
             const { window, document } = env;
             await window.apiCall('/api/weight', 'POST', { weight: 80 });
+            await window.apiCall('/api/protection/dismiss', 'POST'); // a W4 record exists
             cancelReminderRecompute({ accountId: 'local' });
             let stashed = null;
             withMoveOps(({ vault }) => { stashed = vault; return true; });
@@ -955,7 +970,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(dialog.textContent).toMatch(/Move to a cloud account\?/);
             dialog.querySelector('.mt-confirm-modal__confirm').click();
             await vi.waitFor(() => expect(moveOps()).toEqual(['move.stash', 'local.leave']));
-            // A move is not a backup (bd med-ta2n.4): only exportAll marks one.
+            // The W4 nudge is local-only (bd med-ta2n.4): even with a record
+            // here, the account gets no data.protection.
             expect(JSON.parse(stashed).data).not.toHaveProperty('protection');
             const expected = JSON.parse(await window.CloudVault.exportAll({ win: window }));
             delete expected.data.protection;
