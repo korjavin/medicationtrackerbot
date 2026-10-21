@@ -2,8 +2,8 @@
 // med-o7zq): what local-boot.js injects into installApiShim in place of the
 // cloud's server-backed effects. In local mode nothing leaves the device except
 // calls to the providers the user configured with their own key (BYOK AI,
-// their own food DB) and, only if the user turns it on, the free trial (AI and
-// food database). The iOS shell enforces that with its CSP (connect-src
+// their own food DB), the free trial (AI and food database) only if the user
+// turns it on, and feedback the user sends. The iOS shell enforces that with its CSP (connect-src
 // 'self' + the hosts registered here, ios/App/LocalOrigin.swift); this module
 // makes the app stop asking for anything else:
 //
@@ -15,10 +15,15 @@
 //   egress      BYOK hosts go to the shell (bridge op setEgressHosts), never
 //               to a server.
 //   trial AI    off unless the user turns on the anonymous trial (bd
-//               med-o7zq.16): then, and only then, our server's base domain
-//               joins the shell's host list and local-trial.js signs each
-//               request with App Attest. The account trial's meta flag stays
-//               out of the bundle (ios/bundle-web.sh).
+//               med-o7zq.16): then local-trial.js signs each request with
+//               App Attest. Our server's base domain is in the shell's host
+//               list wherever the shell has App Attest (bd med-ta2n.20), but
+//               the code calls it only for the trial or a feedback send. The
+//               account trial's meta flag stays out of the bundle
+//               (ios/bundle-web.sh).
+//   feedback    the cloud's Send feedback row, sealed to the developer's age
+//               key and POSTed to the attested /api/attest/feedback, only
+//               when the user taps Send (mountLocalFeedback below).
 //   food DB     no food-DB meta in the bundle. The operator's DB rides the
 //               same trial switch (bd med-o7zq.20): LOCAL_FOOD_DB below sends
 //               fooddb.js's lookups through local-trial.js to the attest
@@ -43,7 +48,7 @@ import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, 
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
 import { setTrialTransport } from './aiclient.js';
-import { createLocalTrial } from './local-trial.js';
+import { createLocalTrial, createAttestClient, trialKeyGranted } from './local-trial.js';
 import { createVoiceLLMResponder } from './voice-llm-responder.js';
 
 // Settings → Notifications fires this on the document once iOS permission is
@@ -247,10 +252,20 @@ async function attestStatus(win) {
   try {
     if (win.Attest?.isSupported?.() !== true) return null;
     const status = await win.Attest.status();
-    return status && status.supported === true && status.base ? status : null;
+    const base = bareHost(status?.base);
+    return status && status.supported === true && base ? { ...status, base } : null;
   } catch {
     return null;
   }
+}
+
+// The shells take the host list whole or not at all: at most SHELL_MAX_HOSTS
+// bare lowercase hostnames (no scheme, port or path). A base that is not one
+// is no base.
+const SHELL_MAX_HOSTS = 8;
+function bareHost(raw) {
+  const host = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host) ? host : '';
 }
 
 // The anonymous trial (bd med-o7zq.16: AI; med-o7zq.20: food) this document's
@@ -277,6 +292,31 @@ const NO_AI = {
   usesTrial: () => true,
 };
 
+// One attest client per document and base for every attest-gated route (the
+// trial, local feedback): one challenge cache and one single-flight
+// enrollment, so the two never mint two keys (the second would meet
+// trial_already_used). Responses go to the trial's memo and the feedback one.
+let attestClient = null; // { base, win, attest, client }
+function sharedAttestClient(base, win) {
+  if (!attestClient || attestClient.base !== base || attestClient.win !== win || attestClient.attest !== win.Attest) {
+    attestClient = {
+      base,
+      win,
+      attest: win.Attest,
+      client: createAttestClient({
+        attest: win.Attest,
+        base,
+        fetchImpl: win.fetch.bind(win),
+        async onResponse(res, pathAndQuery) {
+          if (pathAndQuery === '/api/attest/enroll') noteFeedbackKey(win, res.ok);
+          await localTrial?.onResponse(res, pathAndQuery);
+        },
+      }),
+    };
+  }
+  return attestClient.client;
+}
+
 function useLocalTrial(base, attest, win) {
   if (!win.CloudVoiceLLM?.localTrial) defaultVoice = win.CloudVoiceLLM;
   // styles.css shows the call trigger under :root.wg-local-trial.
@@ -294,7 +334,7 @@ function useLocalTrial(base, attest, win) {
   if (localTrial && localTrial.base === base) return;
   foodParked = null;
   const trial = createLocalTrial({
-    attest, base, fetchImpl: win.fetch.bind(win), storage: win.localStorage,
+    attest, base, fetchImpl: win.fetch.bind(win), storage: win.localStorage, client: sharedAttestClient(base, win),
   });
   localTrial = trial;
   setTrialTransport(trial);
@@ -346,6 +386,97 @@ export const LOCAL_FOOD_DB = {
   },
 };
 
+// Feedback in local mode (bd med-ta2n.20; server: attest.go submitFeedback).
+// The cloud's launcher and outbox, with feedback-submit.js's transport swapped:
+// the age recipient comes from the attest challenge JSON and the drain POSTs
+// /api/attest/feedback signed with this install's key. Only a Send asks our
+// server anything: the recipient is learned on each document's first one and
+// kept for a Send while offline.
+// An install the server never granted a key (trial_already_used,
+// trial_unavailable at enroll) cannot sign it: the sheet says so and nothing
+// is queued.
+const FEEDBACK_KEY = 'wg:local-feedback';
+export const FEEDBACK_OFFLINE_COPY = 'Could not reach the server to send feedback. Check your connection and try again.';
+export const FEEDBACK_UNAVAILABLE_COPY = 'Feedback is not available from device-only mode right now. Your message was not sent.';
+const feedbackNoKeyCopy = () => `Feedback can't be sent from this ${deviceName()} in device-only mode: our server did not accept this app install. Your message was not sent.`;
+
+function readFeedbackMemo(win) {
+  try {
+    return JSON.parse(win.localStorage.getItem(FEEDBACK_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function writeFeedbackMemo(win, patch) {
+  try {
+    win.localStorage.setItem(FEEDBACK_KEY, JSON.stringify({ ...readFeedbackMemo(win), ...patch }));
+  } catch { /* storage blocked: the next Send asks again */ }
+}
+
+// Every enroll answer, the trial's included: granted or not.
+function noteFeedbackKey(win, granted) {
+  writeFeedbackMemo(win, { key: granted ? 'granted' : 'refused' });
+}
+
+const feedbackError = (userMessage) => Object.assign(new Error(userMessage), { userMessage });
+
+function localFeedbackTransport(win) {
+  async function client() {
+    const attest = await attestStatus(win);
+    if (!attest) throw feedbackError(FEEDBACK_UNAVAILABLE_COPY);
+    return sharedAttestClient(attest.base, win);
+  }
+  return {
+    async recipient() {
+      const c = await client();
+      let recipient;
+      try {
+        recipient = await c.feedbackRecipient();
+      } catch {
+        recipient = undefined; // offline
+      }
+      const memo = readFeedbackMemo(win);
+      if (typeof recipient === 'string') writeFeedbackMemo(win, { recipient });
+      else if (typeof memo.recipient === 'string') recipient = memo.recipient;
+      if (recipient === undefined) throw feedbackError(FEEDBACK_OFFLINE_COPY);
+      if (!recipient) throw feedbackError(FEEDBACK_UNAVAILABLE_COPY);
+      // A key the server granted signs it; else enroll one now. Enrolling
+      // sends nothing about the user (it is not the trial consent). The
+      // shell's `attested` is no proof: it turns true before the server
+      // answers.
+      if (memo.key !== 'granted' && !trialKeyGranted(win.localStorage)) {
+        let res;
+        try {
+          res = await c.enroll();
+        } catch {
+          throw feedbackError(FEEDBACK_OFFLINE_COPY);
+        }
+        if (!res.ok) throw feedbackError(feedbackNoKeyCopy());
+      }
+      return recipient;
+    },
+    async send(body, signal) {
+      return (await client()).post('/api/attest/feedback', body, signal);
+    },
+  };
+}
+
+// local-boot.js: the Settings "Send feedback" row and the outbox drain, where
+// the shell has App Attest; nothing at all elsewhere (the web, the
+// Simulator, an old shell). Mounting asks no server: whether the operator has
+// feedback on is learned on the first Send, which says so when it is off.
+export async function mountLocalFeedback({ win }) {
+  if (!(await attestStatus(win))) return false;
+  const submit = await import('./feedback-submit.js');
+  submit.setFeedbackTransport(localFeedbackTransport(win));
+  const { mountFeedbackLauncher } = await import('./feedback-ui.js');
+  await mountFeedbackLauncher();
+  submit.startFeedbackAutoDrain();
+  submit.drainFeedbackOutbox().catch(() => {});
+  return true;
+}
+
 // registerLocalEgress is installApiShim's registerEgress in local mode: the
 // same BYOK hostnames the cloud PUTs to /api/egress-hosts, handed to the app
 // shell (iOS or Android) instead. The shell's reply says whether the stored
@@ -353,11 +484,13 @@ export const LOCAL_FOOD_DB = {
 // reloads). Resolves to { hosts, changed },
 // or null where there is no shell to tell (the web, tests).
 //
-// The trial AI's host — our server's base domain — joins the list only while
-// the user has it on (the `anon` trial consent: one switch in Settings → AI &
-// integrations for the AI and the food database, bd med-o7zq.20) and
-// the shell supports App Attest. Off, the CSP admits no server of ours and
-// nothing here talks to one. The transport is installed
+// Our server's base domain is on the list wherever the shell supports App
+// Attest (the trial and local feedback, bd med-ta2n.20); ElevenLabs only
+// while the user has the trial on (the `anon` trial consent: one switch in
+// Settings → AI & integrations for the AI and the food database, bd
+// med-o7zq.20). With the trial off, nothing here talks to our server; only a
+// feedback Send does. The order is fixed (BYOK, base, ElevenLabs): a
+// reordered list would reload on every boot. The transport is installed
 // only once this document's CSP carries the host (no change pending a
 // reload), and a first enrollment runs then, so Settings can show the count.
 // Settled by the first registerLocalEgress, whatever its outcome: until then
@@ -381,8 +514,11 @@ async function registerLocalEgressNow({ settings, win }) {
   const hosts = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
   const attest = await attestStatus(win);
   const trialOn = !!attest && (await settings.getTrialConsent())?.anon === true;
-  if (trialOn) {
-    for (const host of [attest.base, ELEVENLABS_HOST]) if (!hosts.includes(host)) hosts.push(host);
+  // The base domain is admitted wherever the shell has App Attest (bd
+  // med-ta2n.14, med-ta2n.20): the code calls it only for the trial or a
+  // feedback send. ElevenLabs only while the trial is on.
+  for (const host of [attest?.base, trialOn && ELEVENLABS_HOST]) {
+    if (host && !hosts.includes(host) && hosts.length < SHELL_MAX_HOSTS) hosts.push(host);
   }
   const reply = await native.call('setEgressHosts', { hosts });
   const changed = !!(reply && reply.changed);

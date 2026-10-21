@@ -86,6 +86,20 @@ function openFeedbackModal() {
     chip.setAttribute('data-feedback-chip', '');
     body.appendChild(chip);
 
+    // Local mode (bd med-ta2n.20): where it goes. .wg-local-only hides it in cloud.
+    const localNote = doc.createElement('p');
+    localNote.className = 'wg-feedback-modal__chip wg-local-only';
+    localNote.textContent = 'Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.';
+    body.appendChild(localNote);
+
+    // Why a send could not go out (local mode: no server key for this install,
+    // feedback off on the server, offline before the recipient was known).
+    const error = doc.createElement('p');
+    error.className = 'wg-feedback-modal__error';
+    error.setAttribute('data-feedback-error', '');
+    error.setAttribute('role', 'alert');
+    body.appendChild(error);
+
     const foot = doc.createElement('div');
     foot.className = 'wg-sheet__foot';
     const sendBtn = doc.createElement('button');
@@ -225,7 +239,17 @@ function openFeedbackModal() {
         const bundle = { text: textarea.value.trim(), attachments };
         try {
             await enqueueFeedback(bundle);
-        } catch (_) { /* med-dni.3 owns delivery reliability; UI is optimistic */ }
+        } catch (e) {
+            // A refusal the user can read (local mode): keep the sheet and
+            // what they wrote, say why. Anything else stays optimistic
+            // (med-dni.3 owns delivery reliability).
+            if (e && e.userMessage && !settled) {
+                error.textContent = e.userMessage;
+                sending = false;
+                refreshSend();
+                return;
+            }
+        }
         settle('send');
     }
 

@@ -1538,7 +1538,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
     });
 
     afterEach(async () => {
@@ -1550,11 +1550,13 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
 
     const toBase = () => fetched.filter((u) => /^https?:/.test(u) && new URL(u).hostname === TRIAL_BASE);
 
-    it('off by default: the base domain is absent from the host list and never called', async () => {
+    // bd med-ta2n.14 / med-ta2n.20: the CSP admits the base domain wherever the
+    // shell has App Attest (feedback, invites); the code still never calls it.
+    it('off by default: the base domain is admitted but never called', async () => {
         const { window } = env;
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
         for (const [op, args] of bridge.mock.calls) {
-            if (op === 'setEgressHosts') expect(args.hosts).not.toContain(TRIAL_BASE);
+            if (op === 'setEgressHosts') expect(args.hosts).toEqual([TRIAL_BASE]);
         }
         // Without a key or the trial, meal parsing asks for a key, sends nothing.
         await expect(window.CloudFoodAI.parseMealFromDescription('two eggs')).rejects.toMatchObject({ code: 'no_api_key' });
@@ -1609,7 +1611,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
 
         await window.SettingsIntegrations._setLocalTrial(false);
         expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(false);
-        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
         expect(toBase()).toEqual([]);
     });
@@ -1690,7 +1692,7 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
     });
 
     afterEach(async () => {
@@ -1890,7 +1892,7 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
         conv = { endSession: vi.fn(async () => {}), setMicMuted: vi.fn() };
         startSession = vi.fn(async (opts) => { opts.onConnect(); return conv; });
         env.window.__fakeSDK = { Conversation: { startSession } };
@@ -1945,7 +1947,8 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         expect(shown(hint)).toBe(true);
         for (const [op, args] of bridge.mock.calls) {
             if (op === 'setEgressHosts') {
-                expect(args.hosts).not.toContain(TRIAL_BASE);
+                // The base domain is admitted (bd med-ta2n.20); ElevenLabs only with the trial.
+                expect(args.hosts).toEqual([TRIAL_BASE]);
                 expect(args.hosts).not.toContain('api.elevenlabs.io');
             }
         }
@@ -2072,7 +2075,7 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
     });
 
     afterEach(async () => {
@@ -2258,7 +2261,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
     });
 
     afterEach(async () => {
@@ -2322,7 +2325,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         expect(window.Attest.enroll).toHaveBeenCalledTimes(1);
 
         await window.SettingsIntegrations._setLocalTrial(false);
-        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
     });
 
@@ -2659,3 +2662,173 @@ describe('Kit nudge status (cloud router, real store, fake clock)', () => {
         expect(await localRecordsPort().list('protection')).toEqual([]);
     });
 });
+
+// bd med-ta2n.20 — feedback in local mode: the cloud's launcher and outbox,
+// sealed to the recipient from the attest challenge JSON and drained to the
+// attested POST /api/attest/feedback (server: med-ta2n.19). Only a Send asks
+// our server anything; an install the server never granted a key gets an
+// in-page explanation and nothing is queued.
+describe('local-only mode feedback (med-ta2n.20)', () => {
+    const TRIAL_BASE = 'trial-base.example.test';
+    const AGE_VENDOR = fileURLToPath(new URL('../../vendor/age.min.js', import.meta.url));
+    let typage;
+    let identity;
+    let recipientKey;
+    let env;
+    let fetched;
+    let bridge;
+    let reply;
+
+    beforeAll(async () => {
+        const { pathToFileURL } = await import('node:url');
+        const { setLoader } = await import('../../../cloud/js/feedback-submit.js');
+        setLoader(() => import(pathToFileURL(AGE_VENDOR).href));
+        typage = await import(pathToFileURL(AGE_VENDOR).href);
+        identity = await typage.generateIdentity();
+        recipientKey = await typage.identityToRecipient(identity);
+    });
+
+    async function boot(attest) {
+        await deleteDb();
+        fetched = [];
+        reply = {
+            challenge: () => new Response(JSON.stringify({ challenge: 'c1', expires_in: 300, feedback_recipient: recipientKey }), { status: 200 }),
+            enroll: () => new Response(JSON.stringify({ daily: 50 }), { status: 200, headers: { 'X-Attest-Challenge': 'c2' } }),
+            feedback: () => new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c3' } }),
+        };
+        const recorder = vi.fn(async (url, init = {}) => {
+            const u = String(url);
+            fetched.push({ url: u, method: init.method || 'GET', headers: init.headers || {}, body: init.body });
+            if (u === `https://${TRIAL_BASE}/api/attest/challenge`) return reply.challenge();
+            if (u === `https://${TRIAL_BASE}/api/attest/enroll`) return reply.enroll();
+            if (u === `https://${TRIAL_BASE}/api/attest/feedback`) return reply.feedback();
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        // feedback-ui.js reads the page through the globals, as in the app.
+        vi.stubGlobal('document', env.document);
+        vi.stubGlobal('window', env.window);
+        bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : null));
+        const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        if (attest) env.window.Attest = attest;
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+    }
+
+    const freshInstall = () => ({
+        isSupported: () => true,
+        status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: false })),
+        enroll: vi.fn(async () => ({ keyId: 'key-1', attestation: 'QQ==', deviceToken: 'RA==' })),
+        assert: vi.fn(async (challenge, digest) => ({ keyId: 'key-1', assertion: `sig:${challenge}:${digest}` })),
+        setPass: vi.fn(async () => null),
+    });
+
+    afterEach(async () => {
+        const { __resetDrainForTest } = await import('../../../cloud/js/feedback-submit.js');
+        __resetDrainForTest();
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    const toBase = () => fetched.filter(({ url }) => /^https?:/.test(url) && new URL(url).hostname === TRIAL_BASE);
+
+    async function compose(text) {
+        const row = await vi.waitFor(() => {
+            const el = env.document.getElementById('feedback-launcher');
+            expect(el).not.toBeNull();
+            return el;
+        });
+        expect(row.closest('[data-settings-slot="feedback"]')).not.toBeNull();
+        row.click();
+        const modal = env.document.getElementById('feedback-modal');
+        const textarea = modal.querySelector('textarea');
+        textarea.value = text;
+        textarea.dispatchEvent(new env.window.Event('input'));
+        return modal;
+    }
+    const send = (modal) => modal.querySelector('[data-feedback-choice="send"]').click();
+
+    it('mounts the row with no request; Send enrolls, seals to the challenge recipient and POSTs signed', async () => {
+        const { createHash } = await import('node:crypto');
+        await boot(freshInstall());
+        await vi.waitFor(() => expect(env.document.getElementById('feedback-launcher')).not.toBeNull());
+        expect(toBase()).toEqual([]);
+
+        const modal = await compose('the scale page froze');
+        expect(modal.querySelector('.wg-local-only').textContent).toBe('Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.');
+        expect(toBase()).toEqual([]);
+        send(modal);
+
+        const post = await vi.waitFor(() => {
+            const p = fetched.find(({ url }) => url === `https://${TRIAL_BASE}/api/attest/feedback`);
+            expect(p).toBeTruthy();
+            return p;
+        });
+        expect(env.document.getElementById('feedback-modal')).toBeNull();
+        expect(toBase().map(({ url }) => new URL(url).pathname))
+            .toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback']);
+        expect(env.window.Attest.enroll).toHaveBeenCalledTimes(1);
+        // Signed over the exact body, with the challenge the enroll handed on.
+        const digest = createHash('sha256').update(`/api/attest/feedback\n${post.body}`).digest('base64');
+        expect(post.headers).toMatchObject({
+            'X-Attest-Key-Id': 'key-1', 'X-Attest-Challenge': 'c2', 'X-Attest-Assertion': `sig:c2:${digest}`,
+        });
+        const body = JSON.parse(post.body);
+        expect(Object.keys(body).sort()).toEqual(['app_version', 'ciphertext', 'client_id', 'kind']);
+        const d = new typage.Decrypter();
+        d.addIdentity(identity);
+        const plain = JSON.parse(new TextDecoder().decode(await d.decrypt(fromB64(body.ciphertext))));
+        expect(plain).toMatchObject({ v: 1, text: 'the scale page froze', attachments: [] });
+        // Never the cloud route; the outbox drains empty.
+        expect(fetched.some(({ url }) => url === '/api/feedback')).toBe(false);
+        const { getAllFeedbackItems } = await import('../../../cloud/js/feedback-submit.js');
+        await vi.waitFor(async () => expect(await getAllFeedbackItems()).toEqual([]));
+    });
+
+    it('an install the server refused (trial_already_used) is told so in the sheet; nothing is queued or sent', async () => {
+        await boot(freshInstall());
+        reply.enroll = () => new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 });
+        const modal = await compose('hello');
+        send(modal);
+        await vi.waitFor(() => expect(modal.querySelector('[data-feedback-error]').textContent)
+            .toBe('Feedback can\'t be sent from this iPhone in device-only mode: our server did not accept this app install. Your message was not sent.'));
+        expect(env.document.getElementById('feedback-modal')).toBe(modal);
+        expect(modal.querySelector('textarea').value).toBe('hello');
+        expect(modal.querySelector('[data-feedback-choice="send"]').disabled).toBe(false);
+        expect(fetched.some(({ url }) => url.endsWith('/api/attest/feedback'))).toBe(false);
+        const { getAllFeedbackItems } = await import('../../../cloud/js/feedback-submit.js');
+        expect(await getAllFeedbackItems()).toEqual([]);
+    });
+
+    it('a server with feedback off says so and enrolls nothing', async () => {
+        await boot(freshInstall());
+        reply.challenge = () => new Response(JSON.stringify({ challenge: 'c1', expires_in: 300, feedback_recipient: '' }), { status: 200 });
+        const modal = await compose('hello');
+        send(modal);
+        await vi.waitFor(() => expect(modal.querySelector('[data-feedback-error]').textContent)
+            .toBe('Feedback is not available from device-only mode right now. Your message was not sent.'));
+        expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+        expect(toBase().map(({ url }) => new URL(url).pathname)).toEqual(['/api/attest/challenge']);
+    });
+
+    for (const [where, attest] of [
+        ['no window.Attest (the web, an old shell)', () => null],
+        ['App Attest unsupported (the Simulator)', () => ({ ...freshInstall(), status: vi.fn(async () => ({ supported: false, base: TRIAL_BASE, attested: false })) })],
+    ]) {
+        it(`${where}: nothing mounts and nothing is asked`, async () => {
+            await boot(attest());
+            await new Promise((r) => setTimeout(r, 20));
+            expect(env.document.getElementById('feedback-launcher')).toBeNull();
+            expect(toBase()).toEqual([]);
+        });
+    }
+});
+
+function fromB64(s) {
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}

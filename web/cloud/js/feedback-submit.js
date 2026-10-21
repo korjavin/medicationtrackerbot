@@ -96,6 +96,16 @@ export function deleteFeedbackItem(clientId) {
   return outboxTx('readwrite', (store) => store.delete(clientId));
 }
 
+// Local mode (bd med-ta2n.20, local-policy.js) swaps the transport for
+// { recipient(), send(body, signal) }: the recipient from the attest challenge
+// and a signed POST /api/attest/feedback. recipient() throws an Error with a
+// userMessage the sheet shows when nothing can be sent. Unset = cloud: the
+// <meta> recipient and the same-origin POST /api/feedback.
+let transport = null;
+export function setFeedbackTransport(t) {
+  transport = t;
+}
+
 function appVersion() {
   if (typeof document === 'undefined') return 'dev';
   return document.querySelector('meta[name="medtracker-build-id"]')?.content || 'dev';
@@ -106,7 +116,7 @@ function appVersion() {
 // is optimistic — actual delivery is the drain loop's job (Task 3). Throws if
 // feedback is misconfigured (no recipient) so the UI can gate before calling.
 export async function enqueueFeedback(bundle) {
-  const recipient = getFeedbackRecipient();
+  const recipient = transport ? await transport.recipient() : getFeedbackRecipient();
   if (!recipient) throw new Error('enqueueFeedback: feedback recipient not configured');
   const meta = {
     client_id: crypto.randomUUID(),
@@ -141,21 +151,25 @@ export const MAX_ATTEMPTS = 20; // then park the item for the next online/sessio
 // like sync's snapshotAt: a network throw is status 0 (retryable); a relative
 // same-origin fetch carries the session cookie automatically.
 async function postFeedback(item) {
+  const body = JSON.stringify({
+    client_id: item.client_id,
+    kind: item.kind,
+    app_version: item.app_version,
+    ciphertext: item.ciphertext,
+  });
+  // Bound the request like apiCallDirect (api.js, 60s default): a hung
+  // connection must never wedge the single-slot drainChain forever.
+  const signal = AbortSignal.timeout(60_000);
   let res;
   try {
-    res = await fetch('/api/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: item.client_id,
-        kind: item.kind,
-        app_version: item.app_version,
-        ciphertext: item.ciphertext,
-      }),
-      // Bound the request like apiCallDirect (api.js, 60s default): a hung
-      // connection must never wedge the single-slot drainChain forever.
-      signal: AbortSignal.timeout(60_000),
-    });
+    res = transport
+      ? await transport.send(body, signal)
+      : await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal,
+      });
   } catch {
     return { ok: false, status: 0 }; // network error / timeout abort — retryable
   }
@@ -277,4 +291,5 @@ export function __resetDrainForTest() {
   drainChain = Promise.resolve();
   autoDrainInstalled = false;
   feedbackDrainInFlight = null;
+  transport = null;
 }

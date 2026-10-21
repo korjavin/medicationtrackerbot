@@ -2629,6 +2629,17 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     color: var(--wg-fg-2);
 }
 
+.wg-feedback-modal__error {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-danger-fg);
+}
+
+.wg-feedback-modal__error:empty {
+    display: none;
+}
+
 .wg-field--row {
     display: flex;
     flex-direction: row;

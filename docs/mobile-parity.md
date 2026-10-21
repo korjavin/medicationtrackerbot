@@ -17,6 +17,7 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 | Local → cloud move / account → local leave | ✓ | ✓ | parity |
 | Page downloads (blob:/data:) | Files export picker (med-o7zq.43) | `ACTION_CREATE_DOCUMENT` picker, no shell dialog (med-nt9p.48) | parity: both go straight to the system picker; Share lives in the web sheet (hidden in the Android WebView) |
 | Anonymous trial attestation | App Attest | Play Integrity (device-recall flag OFF) | divergent: platform API |
+| Send feedback (local mode, attested) | ✓ | ✓ | parity (med-ta2n.20: web only, over the existing `attest.*` ops and the egress host list) |
 | Health data | HealthKit | Health Connect | divergent: platform API |
 | Notifications (bridge ops) | ✓ | ✓ | parity |
 | Account gone (`X-Account-Gone`) | → local mode, home `?invite=1` (med-ta2n.17) | → native first run until med-ta2n.12 phase 2 | gap: Android twin med-ta2n.12 (phase 2); was parity (med-w6gx.22) |
