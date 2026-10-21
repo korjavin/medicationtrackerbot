@@ -137,7 +137,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   bd med-w6gx.23.4): `testBackupExport` — Export backup → the passphrase
   sheet → *Backup ready* → Save to device, plain then with a
   passphrase (`.age`): each file sits in `tmp/wg-downloads` while the Files
-  export picker shows and is gone once it is cancelled (med-o7zq.43). `testRestoreFromFile` — restore via
+  export picker shows and is gone once it is swiped away (med-o7zq.43). `testRestoreFromFile` — restore via
   the Settings import input (driver seed) into an erased store, records survive
   a relaunch. `testErase` — typed "erase" → Erase: both shell stashes cleared,
   Meds empty after relaunch, local mode kept.
@@ -456,7 +456,7 @@ WKWebView ignores `<a download>` and `window.print()` on its own. The
 download (blob:/data: links, `Content-Disposition: attachment`) to a temp file,
 opens the Files export picker (`UIDocumentPickerViewController(forExporting:asCopy:)`,
 bd med-o7zq.43: the page's own sheet offers Share, so Save goes straight to
-Files), and deletes the file when the picker saves or is cancelled (a file left
+Files), and deletes the file when the picker saves, is cancelled or is swiped away (a file left
 by a killed app is swept at the next launch). A page script sends `window.print()`, and the offscreen-iframe print in
 `web/cloud/js/print-doc.js`, to the iOS print sheet. No web code changes.
 

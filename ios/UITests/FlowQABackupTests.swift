@@ -159,14 +159,13 @@ final class FlowQABackupTests: XCTestCase {
     }
 
     /// Waits for the Files export picker (bd med-o7zq.43), checks the file sits
-    /// in the Downloads dir while it shows, cancels it, and checks the dir is
+    /// in the Downloads dir while it shows, swipes it away, and checks the dir is
     /// empty after. The picker is a remote view whose controls show in the app
     /// tree; they count only beyond the web view's own matches, so page
     /// buttons never pass.
     private func exportPickerRoundTrip(_ app: XCUIApplication, flow: String, step: String, downloads: URL,
                                        suffix: String, timeout: TimeInterval = 60) {
         let marks = NSPredicate(format: "label IN {'Cancel', 'Save', 'Move', 'Browse', 'Recents', 'On My iPhone'}")
-        let cancel = NSPredicate(format: "label IN {'Cancel', 'Close', 'Dismiss'} OR identifier IN {'xmark', 'Cancel', 'Close'}")
         let shown = {
             app.descendants(matching: .any).matching(marks).count > app.webViews.descendants(matching: .any).matching(marks).count
         }
@@ -178,13 +177,11 @@ final class FlowQABackupTests: XCTestCase {
         let files = filesIn(downloads)
         XCTAssertTrue(files.count == 1 && files[0].hasSuffix(suffix), "\(step): Downloads holds \(files), want one *\(suffix)")
 
-        // The picker's X sits in its header, top left (iOS 26: a glass xmark
-        // button); the web Backup ready sheet's own close sits low, under the
-        // picker. No labelled match → tap where the X is drawn.
-        let buttons = app.buttons.matching(cancel)
-        let x = (0..<buttons.count).map { buttons.element(boundBy: $0) }
-            .first { $0.exists && (40..<150).contains($0.frame.minY) }
-        if let x { x.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.096, dy: 0.112)).tap() }
+        // Swipe the sheet down by its header: the picker opens at its last
+        // location (Browse with an X, or a folder with Back + Save), so no
+        // single button is always there.
+        let header = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.112))
+        header.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
         let closed = waitUntil(15) { !shown() }
         XCTAssertTrue(closed, "\(step): the export picker did not close — tree tail: \(tree(app, tail: true))")
         XCTAssertTrue(waitUntil(10) { filesIn(downloads).isEmpty }, "\(step): the export file outlived the picker: \(filesIn(downloads))")

@@ -720,7 +720,8 @@ struct QRScanner: UIViewControllerRepresentable {
 /// web/cloud/js/print-doc.js, goes to UIPrintInteractionController.
 /// The web view's navigation delegate forwards the policy and didBecome calls here.
 @MainActor
-final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKNavigationDelegate, UIDocumentPickerDelegate {
+final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKNavigationDelegate,
+    UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
     static let shared = Downloads()
     private var destinations: [WKDownload: URL] = [:]
     private var exports: [UIDocumentPickerViewController: URL] = [:] // picker → its temp dir
@@ -778,6 +779,7 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
         }
         let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
         picker.delegate = self
+        picker.presentationController?.delegate = self // a swipe-down dismissal cleans up too
         exports[picker] = url.deletingLastPathComponent()
         top.present(picker, animated: true)
     }
@@ -792,6 +794,10 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
         close(controller)
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        if let picker = presentationController.presentedViewController as? UIDocumentPickerViewController { close(picker) }
     }
 
     private func close(_ picker: UIDocumentPickerViewController) {
