@@ -208,6 +208,15 @@
             const status = step.trial;
             if (window.CloudVault && window.CloudVault.trial) window.CloudVault.trial.status = async () => status;
             window.SettingsIntegrations.trialOffer = async () => status.on !== true;
+        } else if (step.kitNudge) {
+            // The Emergency Kit nudge (bd med-ta2n.15) waits 2 days after
+            // sign-in, and the cloud pass signs in fresh: answer the card's
+            // status read with step.kitNudge. The stub stays for the run.
+            const status = step.kitNudge;
+            const call = window.apiCall;
+            window.apiCall = (endpoint, method, ...rest) => (endpoint === '/api/protection/kit-nudge' && !method
+                ? Promise.resolve(status)
+                : call(endpoint, method, ...rest));
         } else if (step.startHere) {
             // W3 "Start here" (bd med-ta2n.3): the seed has a record in every
             // module, so replace it once with the fixture minus step.startHere.drop
