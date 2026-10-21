@@ -76,15 +76,9 @@ export default async function moveOps(ctx) {
     await ctx.shot(`f1-${label}`);
   };
 
+  // A native exit from local mode abandoning the stash (bd med-nt9p.49) is the cold step at the end:
+  // a warm `am start` stacks a second MainActivity, and the attach finds the old one's WebView.
   await stashAndLeave('first');
-  // A native exit from local mode (Switch account, a forget()) abandons the pending move (bd med-nt9p.49); only the page's local.leave keeps it.
-  await ctx.step('Switch account from local mode: the abandoned stash is deleted', async () => {
-    await f1Page(() => shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`));
-    expect((await stashFiles()) === '', `native forget kept the move stash: ${await stashFiles()}`);
-    r.forgetDrops = true;
-  });
-
-  await stashAndLeave('second');
   page = await ctx.step('local.leave {url} → signup wizard, the stash kept for it', async () => {
     await call(page, 'local.leave', { url: ctx.claimUrl }).catch(() => {});
     await sleep(2000);
