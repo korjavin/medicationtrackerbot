@@ -634,8 +634,15 @@ export function createApiRouter(ctx, {
 
     // W3 Today "Start here" (bd med-ta2n.3): read on every Today render.
     if (path === '/api/today/start-here' && method === 'GET') {
+      // userContentCount > 0, short-circuited: type by type (medication, bp, …
+      // before the big sample histories), stop at the first live record.
       return settings.getStartHere({
-        hasContent: async () => userContentCount((await Promise.all([...USER_CONTENT_TYPES].map((t) => records.list(t)))).flat()) > 0,
+        hasContent: async () => {
+          for (const t of USER_CONTENT_TYPES) {
+            if (t !== 'gamification' && userContentCount(await records.list(t)) > 0) return true;
+          }
+          return false;
+        },
       });
     }
 
