@@ -171,8 +171,13 @@
     }
 
     // The file left the device (Save or Share): only now is there a backup.
+    // Local mode also retires the Today W4 nudge here (CloudVault.markBackup,
+    // bd med-ta2n.4); the cloud vault has none.
     function stampLastBackup(name) {
         try { window.localStorage.setItem(LAST_BACKUP_KEY, String(Date.now())); } catch (_) { /* not remembered */ }
+        if (window.CloudVault && typeof window.CloudVault.markBackup === 'function') {
+            Promise.resolve().then(() => window.CloudVault.markBackup()).catch((e) => console.warn('[backup] could not record the backup', e));
+        }
         paintLastBackup();
         setExportStatus(`Backup exported: ${name}. Keep it somewhere safe.`);
     }

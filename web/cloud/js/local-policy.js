@@ -37,7 +37,7 @@ import {
 } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords, localRecordsPort } from './sync.js';
-import { withMaterializationStopped, clearLegacyBackupNudge } from './apishim.js';
+import { withMaterializationStopped } from './apishim.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, userContentCount, mergeRecords } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
@@ -461,16 +461,34 @@ export async function pickupLeaveStash({ win }) {
   );
 }
 
+// backupAt: the file is a backup and says so (vault.js data.protection), so a
+// restore remembers it. Nothing is written here: the record is marked when the
+// file leaves the device (LOCAL_VAULT.markBackup).
+async function exportJSON(includeSecrets, backupAt) {
+  const records = await readAllLocalRecords();
+  return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets, backupAt }), null, 2);
+}
+
+// The W4 nudge's local half (bd med-ta2n.4), injected into the router as
+// `protection` (apishim GET /api/protection/status): only local mode nudges.
+// The weekly toast's stamp (bd med-o7zq.5, retired) is read as a free 14-day
+// snooze for existing users (owner decision), never written, and removed
+// once the protection record is.
+const LEGACY_BACKUP_NUDGE_KEY = 'wg:local-backup-nudge-at';
+export const LOCAL_PROTECTION = {
+  legacyDismissedAt(win) {
+    try { return Number(win.localStorage.getItem(LEGACY_BACKUP_NUDGE_KEY)) || null; } catch { return null; }
+  },
+  recordWritten(win) {
+    try { win.localStorage.removeItem(LEGACY_BACKUP_NUDGE_KEY); } catch { /* storage blocked */ }
+  },
+};
+
 // Settings → Backup (importexport.js reads window.CloudVault): the same
 // recordsToVault / vaultToRecords conversion as cloud-boot.js, over the
 // on-device store. Moving to a cloud account is moveToCloud: this export,
 // handed to the shell, which the new account picks up. This origin keeps
 // its data.
-async function exportJSON(includeSecrets) {
-  const records = await readAllLocalRecords();
-  return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
-}
-
 export const LOCAL_VAULT = {
   async hasUserContent() {
     return hasUserContent(await readAllLocalRecords());
@@ -479,12 +497,15 @@ export const LOCAL_VAULT = {
   async userContentCount() {
     return userContentCount(await readAllLocalRecords());
   },
-  // A backup export retires the W4 nudge (bd med-ta2n.4): the protection
-  // record is written first, so the file itself carries its lastBackupAt.
-  async exportAll({ includeSecrets = true, win = globalThis.window } = {}) {
+  async exportAll({ includeSecrets = true } = {}) {
+    return exportJSON(includeSecrets, Date.now());
+  },
+  // The backup file left the device (Backup ready's Save or Share,
+  // importexport.js): the W4 nudge retires (bd med-ta2n.4). A dismissed
+  // Backup ready or a failed export never gets here.
+  async markBackup({ win = globalThis.window } = {}) {
     await createSettingsDomain({ records: localRecordsPort(), now: Date.now, timeZone: 'UTC' }).markBackup();
-    clearLegacyBackupNudge(win);
-    return exportJSON(includeSecrets);
+    LOCAL_PROTECTION.recordWritten(win);
   },
   // Replace-only, like the cloud's importAll: everything the file manages is
   // replaced, records it does not (the secrets of a secrets-free file) stay.
@@ -530,7 +551,7 @@ export const LOCAL_VAULT = {
   async moveToCloud({ win = globalThis.window, url } = {}) {
     const native = shellNative(win);
     if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
-    // Not a backup: a failed leave must not read as "protected".
+    // Not a backup file: the stash carries no backup stamp.
     const vault = await exportJSON(true);
     await native.call('move.stash', { vault });
     if (url === undefined) await native.call('local.leave');

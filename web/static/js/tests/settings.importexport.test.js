@@ -486,7 +486,7 @@ describe('Settings → Import/Export section', () => {
 
     it('dismissing Backup ready saves nothing and says nothing was saved', async () => {
         const { window, document } = env;
-        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn(), markBackup: vi.fn() };
         window.downloadBlobAsFile = vi.fn();
         window.localStorage.removeItem('wg.backup.last');
         window.SettingsImportExport.load();
@@ -501,6 +501,8 @@ describe('Settings → Import/Export section', () => {
         expect(window.downloadBlobAsFile).not.toHaveBeenCalled();
         expect(document.getElementById('importexport-export-status').hidden).toBe(true);
         expect(document.getElementById('importexport-last-backup').hidden).toBe(true);
+        // Nor does the Today W4 nudge retire (bd med-ta2n.4).
+        expect(window.CloudVault.markBackup).not.toHaveBeenCalled();
     });
 
     // Shot 44: the ready filename wrapped mid-extension. .wg-fname splits it
@@ -508,7 +510,7 @@ describe('Settings → Import/Export section', () => {
     // no layout: pin the split and the kit rule).
     it('Backup ready keeps the extension whole and remembers the save', async () => {
         const { window, document } = env;
-        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn(), markBackup: vi.fn(async () => {}) };
         window.BackupCrypto.encryptBackup = vi.fn(async () => new Uint8Array([1, 2, 3]));
         window.downloadBlobAsFile = vi.fn();
         window.localStorage.removeItem('wg.backup.last');
@@ -535,6 +537,8 @@ describe('Settings → Import/Export section', () => {
         expect(window.downloadBlobAsFile).toHaveBeenCalledWith(expect.anything(), `${stem.textContent}.json.gz.age`);
         expect(last.hidden).toBe(false);
         expect(last.textContent).toBe('last today');
+        // The file left the device: local mode's W4 nudge retires (bd med-ta2n.4).
+        await vi.waitFor(() => expect(window.CloudVault.markBackup).toHaveBeenCalledTimes(1));
     });
 
     it('export failure stays on screen as an error and frees the button', async () => {

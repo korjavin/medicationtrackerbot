@@ -214,13 +214,18 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
             expect(rec).toMatchObject({ recordId: 'protection', nudgeDismissedAt: [first, first + 14 * DAY] });
         });
 
-        it('a backup export ends the nudge and the file carries lastBackupAt', async () => {
+        it('a backup ends the nudge once the file leaves the device; the file says it is a backup', async () => {
             await addRecords(20);
             expect((await status()).nudge).toBe(true);
             at(T0 + DAY);
+            // Built but not saved (Backup ready dismissed): nothing changes.
             const json = await env.window.CloudVault.exportAll({ includeSecrets: false, win: env.window });
-            expect(await status()).toMatchObject({ nudge: false, lastBackupAt: T0 + DAY });
             expect(JSON.parse(json).data.protection).toEqual({ last_backup_at: '2026-10-02T09:00:00Z', nudge_dismissed_at: [] });
+            expect(await status()).toMatchObject({ nudge: true, lastBackupAt: null });
+            expect(await localRecordsPort().list('protection')).toEqual([]);
+            // Save / Share (importexport.js stampLastBackup).
+            await env.window.CloudVault.markBackup({ win: env.window });
+            expect(await status()).toMatchObject({ nudge: false, lastBackupAt: T0 + DAY });
         });
 
         it('an existing user: the old toast stamp is a free 14-day snooze, removed once the record is written', async () => {

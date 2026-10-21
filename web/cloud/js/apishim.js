@@ -49,20 +49,6 @@ let materializeTimerHandle;
 // tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
 export { materializationSettled, withMaterializationStopped };
 
-// The weekly backup toast's stamp (bd med-o7zq.5, retired by med-ta2n.4): read
-// as the W4 nudge's snooze baseline so an existing user gets 14 days of grace
-// (owner decision), never written, removed once the protection record is.
-const LEGACY_BACKUP_NUDGE_KEY = 'wg:local-backup-nudge-at';
-export function readLegacyBackupNudge(win) {
-  try { return Number(win.localStorage.getItem(LEGACY_BACKUP_NUDGE_KEY)) || null; } catch { return null; }
-}
-export function clearLegacyBackupNudge(win) {
-  try { win.localStorage.removeItem(LEGACY_BACKUP_NUDGE_KEY); } catch { /* storage blocked */ }
-}
-function isLocalVault(win) {
-  return !!(win && win.document && win.document.documentElement.classList.contains('wg-local-vault'));
-}
-
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
 // every other domain error surfaces via its .message through apiCallDirect's
@@ -184,9 +170,11 @@ function debugOnce(key, ...args) {
 //   opts.operatorFoodDb  fooddb.js's operator food-DB port; omitted keeps the
 //                 cloud's same-origin one (local mode: LOCAL_FOOD_DB, bd
 //                 med-o7zq.20).
+//   opts.protection  the W4 nudge's local half (local-policy.js
+//                 LOCAL_PROTECTION, bd med-ta2n.4); omitted = never nudge.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
-  rxnorm = createRxnormPort(), operatorFoodDb,
+  rxnorm = createRxnormPort(), operatorFoodDb, protection,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -693,16 +681,11 @@ export function createApiRouter(ctx, {
       if (method === 'PUT') return settings.setEmergencyKit(body);
     }
 
-    // Reminder delivery pref (bd med-o7zq.3): the /api seam local-only mode's
-    // lock-screen text choice uses (Settings → Reminders & notifications).
-    // Cloud Settings binds the same record through reminders.js directly. A
-    // change reschedules at once: the schedule is a replace-all of bodies
-    // computed up front.
-    // W4 protect-your-data nudge (bd med-ta2n.4): the Today card and the
-    // Settings "Unprotected" chip read this. Local mode only — an account is
-    // synced by definition, so it never nudges.
+    // W4 protect-your-data nudge (bd med-ta2n.4): the Today card reads this
+    // (and the Settings chip, med-ta2n.5). Only local mode injects
+    // `protection`; an account is synced by definition and never nudges.
     if (path === '/api/protection/status' && method === 'GET') {
-      if (!isLocalVault(targetWindow)) {
+      if (!protection) {
         return {
           records: 0, firstRunAt: null, lastBackupAt: null, dismissedCount: 0, lastDismissedAt: null, synced: true, nudge: false,
         };
@@ -710,15 +693,20 @@ export function createApiRouter(ctx, {
       const lists = await Promise.all([...USER_CONTENT_TYPES].map((t) => records.list(t)));
       return settings.getProtectionStatus({
         records: userContentCount(lists.flat()),
-        legacyDismissedAt: readLegacyBackupNudge(targetWindow),
+        legacyDismissedAt: protection.legacyDismissedAt(targetWindow),
       });
     }
-    if (path === '/api/protection/dismiss' && method === 'POST') {
+    if (path === '/api/protection/dismiss' && method === 'POST' && protection) {
       await settings.dismissNudge();
-      clearLegacyBackupNudge(targetWindow);
+      protection.recordWritten(targetWindow);
       return { success: true };
     }
 
+    // Reminder delivery pref (bd med-o7zq.3): the /api seam local-only mode's
+    // lock-screen text choice uses (Settings → Reminders & notifications).
+    // Cloud Settings binds the same record through reminders.js directly. A
+    // change reschedules at once: the schedule is a replace-all of bodies
+    // computed up front.
     if (path === '/api/settings/reminder-delivery') {
       if (method === 'GET') return reminders.getDeliveryPref();
       if (method === 'PUT') {
@@ -1556,7 +1544,7 @@ export function createApiRouter(ctx, {
 // egress allowlist upload (local mode tells the iOS shell instead, which
 // serves its own CSP).
 export function installApiShim(ctx, {
-  records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, registerEgress = registerEgressHosts,
+  records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
   win, now: nowOverride, timeZone: timeZoneOverride,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
@@ -1575,7 +1563,7 @@ export function installApiShim(ctx, {
   // both, which keeps the harness a drop-in swap.
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
-    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, now: nowOverride, timeZone: timeZoneOverride, win,
+    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });

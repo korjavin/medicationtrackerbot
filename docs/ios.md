@@ -1001,9 +1001,10 @@ mode, gated on the bridge platform being `ios` or `android`
   in CI by `ios/Tests/main.swift`.
 - **Protect-your-data card** (W4, bd med-ta2n.4; replaced the weekly toast of
   bd med-o7zq.5): a card on Today, below Next up, once there are 20 records
-  or 7 days have passed since first run, until a backup is exported. × (or
-  the sheet's *Later*) snoozes it 14 days; after the second it stops and
-  only the Settings chip remains. State: the vault `protection` singleton
+  or 7 days have passed since first run, until a backup file is saved or
+  shared. × (or the sheet's *Later*) snoozes it 14 days; after the second it
+  stops (the Settings "Unprotected" chip, med-ta2n.5, reads the same status
+  once it ships). State: the vault `protection` singleton
   (`web/domain/settings.js`), read through `GET /api/protection/status`;
   the old toast's `wg:local-backup-nudge-at` stamp counts as a free snooze
   for existing users and is removed once the record is written. Same on

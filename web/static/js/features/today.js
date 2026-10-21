@@ -1672,7 +1672,10 @@
         const choices = el('div', 'wg-choices');
         choices.append(backup.b, sync.b);
         const body = el('div', 'wg-sheet__body');
-        body.append(choices, el('p', 'wg-hint', "We'll remind you every week while there's no backup. Change this in Settings → Sync & backup."));
+        // The kit's "every week … Settings → Sync & backup" line promised a
+        // cadence and a page that do not exist (snooze is 14 days; W5 is
+        // med-ta2n.5): say what Later really does.
+        body.append(choices, el('p', 'wg-hint', "Pick Later and we'll remind you again in 2 weeks."));
         let picked = 'backup';
         let invite = null;
         const primary = btn('Save backup', {

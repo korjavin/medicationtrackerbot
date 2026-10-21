@@ -74,7 +74,7 @@ const EMERGENCYKIT_RECORD_ID = 'emergencykit';
 const EMERGENCYKIT_HOW = new Set(['download', 'print', 'ack', 'none']);
 // The W4 protect-your-data nudge (bd med-ta2n.4): {lastBackupAt: ms|null,
 // nudgeDismissedAt: [ms…]}. Written ONLY by deliberate actions — a backup
-// export (markBackup) and the card's × / Later (dismissNudge) — with now() +
+// file saved or shared (markBackup) and the card's × / Later (dismissNudge) — with now() +
 // put. Never lazily materialized: an absent record reads as "never backed up,
 // never dismissed", so CLAUDE.md rule 12's floor does not apply. Carried in
 // the vault (data.protection) so a restored backup remembers its last backup.

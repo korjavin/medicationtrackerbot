@@ -319,7 +319,7 @@ function sortBy(arr, keyFn) {
 // Export: records -> vault
 // ---------------------------------------------------------------------------
 
-export function recordsToVault(records, { now, includeSecrets = true } = {}) {
+export function recordsToVault(records, { now, includeSecrets = true, backupAt } = {}) {
   const byType = new Map();
   const tombstones = [];
   for (const rec of records) {
@@ -560,13 +560,15 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   // Same rule as `integrations`: emit `[]` (not absent) so a restore can clear
   // stale tokens on the destination.
   if (includeSecrets) data.api_tokens = (tokensRec && tokensRec.tokens) || [];
-  // W4 nudge state (bd med-ta2n.4), local mode's only writer. Omitted when the
-  // record is absent, so a store that never had it exports as before.
+  // W4 nudge state (bd med-ta2n.4). backupAt: this file IS a backup (local
+  // mode's export), so it says so — restored, it remembers being one. Omitted
+  // when there is neither, so a store that never had it exports as before.
   const protectionRec = singleton('protection', 'protection');
-  if (protectionRec) {
+  if (protectionRec || Number.isFinite(backupAt)) {
+    const last = Number.isFinite(backupAt) ? backupAt : protectionRec.lastBackupAt;
     data.protection = {
-      last_backup_at: Number.isFinite(protectionRec.lastBackupAt) ? toRFC3339(protectionRec.lastBackupAt) : null,
-      nudge_dismissed_at: (Array.isArray(protectionRec.nudgeDismissedAt) ? protectionRec.nudgeDismissedAt : [])
+      last_backup_at: Number.isFinite(last) ? toRFC3339(last) : null,
+      nudge_dismissed_at: ((protectionRec && Array.isArray(protectionRec.nudgeDismissedAt)) ? protectionRec.nudgeDismissedAt : [])
         .filter(Number.isFinite).map(toRFC3339),
     };
   }

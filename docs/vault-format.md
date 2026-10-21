@@ -493,8 +493,10 @@ API tokens and carries the array as a passthrough record.
 ```
 
 The W4 protect-your-data nudge state (bd med-ta2n.4): the `protection` singleton
-(`{lastBackupAt, nudgeDismissedAt}`, ms) written by a local-mode backup export and
-by the Today card's ×. Carried so a restored backup remembers when it was taken.
+(`{lastBackupAt, nudgeDismissedAt}`, ms) written when a local-mode backup file is
+saved or shared and by the Today card's ×. A local export stamps its own
+`last_backup_at` (`recordsToVault` `backupAt`), so a restored backup remembers
+being one.
 A file without the key (every older backup) leaves the destination's record alone:
 `managedTypesForImport` drops `protection` from the replace, like the secret blocks.
 An unparseable timestamp is dropped on import, never fatal. Older clients ignore

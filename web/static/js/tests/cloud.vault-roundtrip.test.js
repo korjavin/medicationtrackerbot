@@ -70,6 +70,10 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     ], { now: NOW });
     expect(backedUp.data.protection).toEqual({ last_backup_at: '2026-07-01T10:00:00Z', nudge_dismissed_at: [] });
     expect(vaultToRecords(backedUp, { now: NOW }).find((r) => r.recordType === 'protection').lastBackupAt).toBe(Date.parse('2026-07-01T10:00:00Z'));
+    // A local export is a backup and stamps itself, keeping the dismissals.
+    expect(recordsToVault([], { now: NOW, backupAt: NOW }).data.protection).toEqual({ last_backup_at: '2026-07-08T12:00:00Z', nudge_dismissed_at: [] });
+    expect(recordsToVault(records, { now: NOW, backupAt: NOW }).data.protection)
+      .toEqual({ last_backup_at: '2026-07-08T12:00:00Z', nudge_dismissed_at: ['2026-06-01T09:00:00Z'] });
 
     const legacy = JSON.parse(JSON.stringify(fixture));
     delete legacy.data.protection;
