@@ -358,6 +358,11 @@ func (t *TelegramAPI) handleInviteCallback(ctx context.Context, cq *tgclient.Cal
 	header := ""
 	if cq.Message != nil {
 		header = cq.Message.Text
+		if req.AdminMessageID == 0 {
+			// The ping landed but its id was never saved: the tapped message is
+			// the one to rewrite (and to carry a fallback link).
+			req.AdminMessageID = cq.Message.MessageID
+		}
 	}
 	t.inviteWork.Add(1)
 	go func() {
@@ -374,7 +379,7 @@ func (t *TelegramAPI) handleInviteCallback(ctx context.Context, cq *tgclient.Cal
 func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstore.InviteRequest, approve bool, header string, runAt time.Time) {
 	edit := func(outcome string, keepButtons bool) bool {
 		if req.AdminMessageID == 0 {
-			return true
+			return false // no message to carry the outcome (or a fallback link)
 		}
 		text := outcome
 		if header != "" {

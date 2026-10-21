@@ -767,7 +767,7 @@ export const PRIVACY_MANIFEST = [
     evidence: [
       'internal/cloudserver/invite_request.go:98',
       'internal/cloudserver/invite_request.go:233',
-      'internal/cloudserver/invite_request.go:374',
+      'internal/cloudserver/invite_request.go:379',
       'internal/cloudserver/mailer.go:79',
     ],
     code: { go: ['internal/cloudserver/invite_request.go', 'internal/cloudserver/mailer.go'], hosts: [] },
