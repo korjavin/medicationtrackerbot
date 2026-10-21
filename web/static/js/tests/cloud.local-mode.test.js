@@ -1286,6 +1286,21 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(sheet(document)).not.toBeNull());
             });
 
+            // iOS flow QA (bd med-w6gx.23.8): a bridge slowed past the 3 s probe
+            // on a cold start dropped the shell's ?invite=1, landing on W1 alone.
+            it('?invite=1 waits out a capability probe slower than 3 s: F1 still opens', async () => {
+                const { window, document } = env;
+                window.history.replaceState(null, '', '/?invite=1');
+                slotted(null);
+                let answer;
+                window.LocalNotifications.__native.has = vi.fn(() => new Promise((r) => { answer = r; }));
+                const gate = window.InviteSheet.boot();
+                await new Promise((r) => { setTimeout(r, 3200); });
+                answer(true);
+                await gate;
+                await vi.waitFor(() => expect(sheet(document)).not.toBeNull());
+            });
+
             describe('with no records on this device (the Play-referrer first launch)', () => {
                 beforeAll(() => { healthOn = false; });
                 afterAll(() => { healthOn = true; });

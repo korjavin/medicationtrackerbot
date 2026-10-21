@@ -7,10 +7,16 @@ import XCTest
 /// `<flow>-<step>.png`, assertions are UI or files the app already writes.
 @MainActor
 final class FlowQABackupTests: XCTestCase {
+    nonisolated override func setUp() {
+        super.setUp()
+        // bd med-w6gx.23.8: a clean slate, so one failed flow stays one red test.
+        MainActor.assumeIsolated { QA.reset() } // XCTest runs setUp on the main thread
+    }
+
     /// Local mode, lock off; `scene` makes the QA driver seed the golden vault
     /// into an empty store (through Settings → Backup & import) and open it.
     private func launch(_ app: XCUIApplication, scene: String? = nil) {
-        app.launchArguments = ["-wgLocalMode", "1", "-wgLocalLockOn", "0"] + (scene.map { ["-wgQAScene", $0] } ?? [])
+        app.launchArguments = ["-wgLocalMode", "1", "-wgLocalLockOn", "0", "-wgLocalLock", "0"] + (scene.map { ["-wgQAScene", $0] } ?? [])
         app.launch()
     }
 
@@ -33,9 +39,19 @@ final class FlowQABackupTests: XCTestCase {
         exportBtn.tap()
         let plain = app.webViews.buttons["Export without encryption"]
         XCTAssertTrue(plain.waitForExistence(timeout: 10), "the passphrase sheet never showed")
-        plain.tap()
+        // Run 39551908023: the tap never reached the page. The sheet focuses
+        // the passphrase field, so the run's first keyboard (and its
+        // slide-to-type tip) comes up, and the sheet may still be sliding in:
+        // clear the tip, and tap again while the button is still there.
+        QA.dismissKeyboardTip(app)
         let confirm = app.webViews.buttons["Confirm"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "the plain-export confirm never showed")
+        var confirmed = false
+        for _ in 0..<3 where !confirmed {
+            if plain.exists { plain.tap() }
+            confirmed = confirm.waitForExistence(timeout: 5)
+        }
+        if !confirmed { shot(flow, "plain-no-confirm") }
+        XCTAssertTrue(confirmed, "the plain-export confirm never showed")
         confirm.tap()
         XCTAssertTrue(save.waitForExistence(timeout: 60), "Backup ready never showed")
         shot(flow, "plain-ready")
@@ -102,13 +118,13 @@ final class FlowQABackupTests: XCTestCase {
         let app = XCUIApplication()
         // No account means local mode, persisted at launch (bd med-ta2n.17),
         // so the relaunch below can run with no arguments.
-        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-erase-confirm"]
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQAScene", "settings-erase-confirm"]
         app.launch()
         erase(app, flow: flow)
         XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "wgLocalMode is not persisted before the relaunch")
         app.terminate()
 
-        app.launchArguments = [] // the persisted choice only; a scene would re-seed the empty store
+        app.launchArguments = ["-wgLocalLock", "NO"] // the persisted choice only; a scene would re-seed the empty store
         app.launch()
         openMedsSchedule(app, flow: flow)
         XCTAssertTrue(webText(app, containing: "No medications yet").waitForExistence(timeout: 20), "Meds → Schedule is not empty after erase")

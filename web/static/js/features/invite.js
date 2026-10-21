@@ -340,9 +340,12 @@
 
     // ---- P3 (bd med-ta2n.7) ------------------------------------------------
 
-    function within(promise, fallback) {
+    // A shell answer, or `fallback` after PROBE_MS; `wait`: no time box.
+    function within(promise, fallback, wait) {
+        var answer = Promise.resolve(promise).catch(function () { return fallback; });
+        if (wait) return answer;
         return Promise.race([
-            Promise.resolve(promise).catch(function () { return fallback; }),
+            answer,
             new Promise(function (r) { setTimeout(function () { r(fallback); }, PROBE_MS); }),
         ]);
     }
@@ -563,8 +566,11 @@
                 window.history.replaceState(window.history.state, '', here.pathname + here.search + here.hash);
             }
         } catch (_) { /* no URL: nothing forced */ }
-        if ((await within(n.has('invite.pending'), false)) !== true) return;
-        var slot = await within(n.call('invite.pending'), null);
+        // ?invite=1 comes only from a shell with the slot (contract §6-7): its
+        // answers are awaited, not raced — a bridge slowed past PROBE_MS on a
+        // cold start must not drop F1 (iOS flow QA, bd med-w6gx.23.8).
+        if ((await within(n.has('invite.pending'), false, forced)) !== true) return;
+        var slot = await within(n.call('invite.pending'), null, forced);
         var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
         if (invite && !(slot.receivedAt > Date.now() - STALE_MS)) {
             n.call('invite.clear').catch(function () { /* judged stale again next open */ });

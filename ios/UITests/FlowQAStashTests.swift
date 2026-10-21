@@ -8,20 +8,24 @@ import XCTest
 /// app's container (QA.appContainer).
 @MainActor
 final class FlowQAStashTests: XCTestCase {
+    nonisolated override func setUp() {
+        super.setUp()
+        // bd med-w6gx.23.8: a clean slate, so one failed flow stays one red test.
+        MainActor.assumeIsolated { QA.reset() } // XCTest runs setUp on the main thread
+    }
+
     /// The move stash on the local side (bd med-ta2n.17). The web's Settings
     /// Move row that wrote it is gone (bd med-ta2n.5; P3 writes it right
     /// before local.leave {url}), so it is seeded straight into the container:
     /// a relaunch in local mode keeps it → iOS Settings' Switch account drops it.
     func testMoveLocalSide() throws {
         continueAfterFailure = false
-        // A failed step must not leave a stash for the next flow's boot to pick up.
-        addTeardownBlock { @MainActor in Self.clearStashes() }
         let flow = "move-local"
         let fixture = try Self.fixture()
         let app = XCUIApplication()
         // No account: local mode (bd med-ta2n.17). No -wgLocalMode: a NO
         // there would make every activation's applySettings drop the stash.
-        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-home"]
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQAScene", "settings-home"]
         app.launch() // the container exists from here on, local mode persisted
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the settings-home scene never published #wg-qa-ready")
         XCTAssertFalse(webButton(app, prefix: "Move to a cloud account").exists, "Settings still shows the Move row")
@@ -30,7 +34,7 @@ final class FlowQAStashTests: XCTestCase {
         try Self.writeStash("move", try JSONSerialization.data(withJSONObject: fixture))
 
         // Still local, nothing erased, and the stash still waits for the invite.
-        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO"]
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
         app.launch()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
         webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
@@ -42,7 +46,7 @@ final class FlowQAStashTests: XCTestCase {
         // mode drops the stash: a stale snapshot would bring deleted rows back
         // into the next account. It lands on "Have an invite?" too.
         app.terminate()
-        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgForgetAccount", "YES"]
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgForgetAccount", "YES"]
         app.launch()
         XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60), "Switch account from local mode did not land on \"Have an invite?\"")
         shot(flow, "switch-account")
@@ -55,8 +59,6 @@ final class FlowQAStashTests: XCTestCase {
     /// Replace, and Cancel shows nothing more, keeps the records and clears it too.
     func testLeaveStashPickup() throws {
         continueAfterFailure = false
-        // A failed step must not leave a stash for the next flow's boot to pick up.
-        addTeardownBlock { @MainActor in Self.clearStashes() }
         let flow = "leave-pickup"
         var fixture = try Self.fixture()
         // As tests/visual/driver.js seed(): the fixture's Berlin zone would raise the timezone confirm.
@@ -69,12 +71,12 @@ final class FlowQAStashTests: XCTestCase {
         }
         let seed = try JSONSerialization.data(withJSONObject: fixture)
         let app = XCUIApplication()
-        app.launchArguments = ["-wgLocalMode", "YES", "-wgAccountHost", "", "-wgLocalLockOn", "NO"]
+        app.launchArguments = ["-wgLocalMode", "YES", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
         app.launch() // the container exists from here on
         app.terminate()
-        let container = try XCTUnwrap(QA.appContainer(), "the app's data container is not visible to the test runner")
-        // An empty store: earlier flows seeded the local origin's IndexedDB (Library/WebKit).
-        try? FileManager.default.removeItem(at: container.appendingPathComponent("Library/WebKit"))
+        // An empty store: setUp's QA.reset wiped Library/WebKit with the app
+        // stopped and settled (a wipe right after terminate raced the killed
+        // instance's WebKit: run 39549993399 found records here).
         try Self.writeStash("leave", seed)
 
         app.launch()
@@ -146,12 +148,6 @@ final class FlowQAStashTests: XCTestCase {
 
     private static func stashURL(_ dir: String) -> URL? {
         QA.appContainer()?.appendingPathComponent("Library/Application Support/\(dir)/vault.json")
-    }
-
-    private static func clearStashes() {
-        for dir in ["move", "leave"] {
-            if let url = stashURL(dir) { try? FileManager.default.removeItem(at: url) }
-        }
     }
 
     private static func stashData(_ dir: String) -> Data? {
