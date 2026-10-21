@@ -2895,7 +2895,14 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
+        toasts = [];
+        if (!env.window.SyncManager) env.window.SyncManager = {};
+        env.window.SyncManager.showToast = (message) => { toasts.push(message); };
     }
+    let toasts;
+    const SENT_TOAST = 'Thanks — feedback sent';
+    const QUEUED_TOAST = 'Feedback saved on this phone. It will be sent when our server can be reached.';
+    const outbox = async () => (await import('../../../cloud/js/feedback-submit.js')).getAllFeedbackItems();
 
     const freshInstall = () => ({
         isSupported: () => true,
@@ -2946,7 +2953,9 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             expect(p).toBeTruthy();
             return p;
         });
-        expect(env.document.getElementById('feedback-modal')).toBeNull();
+        // "sent" only once the server took it.
+        await vi.waitFor(() => expect(env.document.getElementById('feedback-modal')).toBeNull());
+        expect(toasts).toContain(SENT_TOAST);
         expect(toBase().map(({ url }) => new URL(url).pathname))
             .toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback']);
         expect(env.window.Attest.enroll).toHaveBeenCalledTimes(1);
@@ -2991,6 +3000,68 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             .toBe('Feedback is not available from device-only mode right now. Your message was not sent.'));
         expect(env.window.Attest.enroll).not.toHaveBeenCalled();
         expect(toBase().map(({ url }) => new URL(url).pathname)).toEqual(['/api/attest/challenge']);
+    });
+
+    it('a server it cannot reach for the POST: the sheet closes saying "saved", never "sent"; the item stays queued', async () => {
+        await boot(freshInstall());
+        reply.feedback = () => new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+        const modal = await compose('later please');
+        send(modal);
+        await vi.waitFor(() => expect(env.document.getElementById('feedback-modal')).toBeNull());
+        expect(toasts).toContain(QUEUED_TOAST);
+        expect(toasts).not.toContain(SENT_TOAST);
+        expect((await outbox()).length).toBe(1);
+    });
+
+    it('a POST the server refuses for good keeps the sheet and the text and says it was not sent', async () => {
+        await boot(freshInstall());
+        reply.feedback = () => new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 });
+        const modal = await compose('hello');
+        send(modal);
+        await vi.waitFor(() => expect(modal.querySelector('[data-feedback-error]').textContent)
+            .toBe('Our server did not accept this feedback. Your message was not sent.'));
+        expect(env.document.getElementById('feedback-modal')).toBe(modal);
+        expect(modal.querySelector('textarea').value).toBe('hello');
+        expect(toasts).not.toContain(SENT_TOAST);
+        expect(toasts).not.toContain(QUEUED_TOAST);
+        expect(await outbox()).toEqual([]);
+    });
+
+    it('a Close while the challenge is pending cancels the Send: nothing is sealed, queued or posted', async () => {
+        await boot(freshInstall());
+        let answer;
+        reply.challenge = () => new Promise((resolve) => {
+            answer = () => resolve(new Response(JSON.stringify({ challenge: 'c1', expires_in: 300, feedback_recipient: recipientKey }), { status: 200 }));
+        });
+        const modal = await compose('never mind');
+        send(modal);
+        await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+        modal.querySelector('[data-feedback-choice="cancel"]').click();
+        expect(env.document.getElementById('feedback-modal')).toBeNull();
+        answer();
+        await vi.waitFor(() => expect(fetched.some(({ url }) => url.endsWith('/api/attest/enroll'))).toBe(true));
+        await new Promise((r) => setTimeout(r, 50));
+        expect(fetched.some(({ url }) => url.endsWith('/api/attest/feedback'))).toBe(false);
+        expect(await outbox()).toEqual([]);
+        expect(toasts).not.toContain(SENT_TOAST);
+        expect(toasts).not.toContain(QUEUED_TOAST);
+    });
+
+    it('a queued item refused later is told once, on the next sheet', async () => {
+        await boot(freshInstall());
+        reply.feedback = () => new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+        send(await compose('first'));
+        await vi.waitFor(() => expect(toasts).toContain(QUEUED_TOAST));
+        // The key the server forgot is not re-granted: the drain drops the item.
+        reply.feedback = () => new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 });
+        const { drainFeedbackOutbox } = await import('../../../cloud/js/feedback-submit.js');
+        await drainFeedbackOutbox();
+        expect(await outbox()).toEqual([]);
+        const again = await compose('second');
+        expect(again.querySelector('[data-feedback-error]').textContent)
+            .toBe('Earlier feedback from this iPhone could not be delivered: our server did not accept it. Please send it again.');
+        again.querySelector('[data-feedback-choice="cancel"]').click();
+        expect((await compose('third')).querySelector('[data-feedback-error]').textContent).toBe('');
     });
 
     for (const [where, attest] of [

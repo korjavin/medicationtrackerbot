@@ -7,7 +7,7 @@ import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
 // feedback-ui's send path is not under test here (its own suite covers it).
-vi.mock('../../../cloud/js/feedback-submit.js', () => ({ enqueueFeedback: vi.fn() }));
+vi.mock('../../../cloud/js/feedback-submit.js', () => ({ enqueueFeedback: vi.fn(), takeFeedbackNotice: () => '' }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

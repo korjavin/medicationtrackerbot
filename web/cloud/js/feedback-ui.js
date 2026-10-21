@@ -1,6 +1,7 @@
-// feedback-ui.js — cloud-mode-only "Send feedback" capture UI (bd med-dni.2).
+// feedback-ui.js — the "Send feedback" capture UI (bd med-dni.2), in cloud
+// mode and, since bd med-ta2n.20, in local mode where the shell has App Attest.
 //
-// mountFeedbackLauncher(ctx) adds a "Send feedback" row as the last group of the
+// mountFeedbackLauncher(ctx, win) adds a "Send feedback" row as the last group of the
 // Settings home (post-unlock). Tapping it opens an <mt-modal> where anyone can compose
 // anonymous feedback: free text, an attached image (via the shared
 // MediaCapture.pickPhoto abstraction), and a recorded voice message (via the
@@ -9,12 +10,15 @@
 // feedback is anonymous) — and hands it to enqueueFeedback(); the encrypt +
 // durable retry + POST behind that seam is med-dni.3.
 //
-// Mounted only when a recipient meta is configured — the gate lives in
-// cloud-boot.js (getFeedbackRecipient() !== ''). No window.* global: cloud-boot
-// dynamically imports this module and calls the export directly (CLAUDE.md
-// rule 4 avoided). Device capture routes through window.MediaCapture
+// Who mounts it: cloud-boot.js when a recipient meta is configured
+// (getFeedbackRecipient() !== ''); local-policy.js mountLocalFeedback where
+// window.Attest reports support, passing its window and a transport that
+// learns the recipient on Send. In local mode the sheet says "sent" only once
+// the server took the item, and stays open with the reason when it can't go.
+// No window.* global: both dynamically import this module and call the
+// export directly (CLAUDE.md rule 4 avoided). Device capture routes through window.MediaCapture
 // (CLAUDE.md rule 10); visuals use wg-* classes + tokens only (rule 3).
-import { enqueueFeedback } from './feedback-submit.js';
+import { enqueueFeedback, takeFeedbackNotice } from './feedback-submit.js';
 
 const LAUNCHER_ID = 'feedback-launcher';
 
@@ -98,11 +102,13 @@ function openFeedbackModal() {
     body.appendChild(localNote);
 
     // Why a send could not go out (local mode: no server key for this install,
-    // feedback off on the server, offline before the recipient was known).
+    // feedback off on the server, offline before the recipient was known, the
+    // server refused it) — or, on open, that an earlier one was refused.
     const error = doc.createElement('p');
     error.className = 'wg-feedback-modal__error';
     error.setAttribute('data-feedback-error', '');
     error.setAttribute('role', 'alert');
+    error.textContent = takeFeedbackNotice();
     body.appendChild(error);
 
     const foot = doc.createElement('div');
@@ -207,6 +213,7 @@ function openFeedbackModal() {
         if (modal.parentNode) modal.parentNode.removeChild(modal);
         if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
         if (action === 'send') toast('Thanks — feedback sent');
+        if (action === 'queued') toast('Feedback saved on this phone. It will be sent when our server can be reached.');
     }
 
     async function send() {
@@ -242,8 +249,12 @@ function openFeedbackModal() {
         if (settled) return;
         // Anonymous: text + attachments only, no account id / PII (decided).
         const bundle = { text: textarea.value.trim(), attachments };
+        error.textContent = '';
+        let outcome;
         try {
-            await enqueueFeedback(bundle);
+            // Local mode awaits the server (a challenge, maybe an enroll):
+            // a Close in the meantime cancels the send.
+            outcome = await enqueueFeedback(bundle, { shouldAbort: () => settled });
         } catch (e) {
             // A refusal the user can read (local mode): keep the sheet and
             // what they wrote, say why. Anything else stays optimistic
@@ -255,7 +266,15 @@ function openFeedbackModal() {
                 return;
             }
         }
-        settle('send');
+        if (outcome === 'dropped' && !settled) {
+            error.textContent = 'Our server did not accept this feedback. Your message was not sent.';
+            sending = false;
+            refreshSend();
+            return;
+        }
+        // Cloud (undefined) stays optimistic; local says "sent" only once the
+        // server took it.
+        settle(outcome === 'queued' ? 'queued' : 'send');
     }
 
     function onKeydown(e) {

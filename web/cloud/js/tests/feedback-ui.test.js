@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Blob } from 'node:buffer';
 
 const { enqueueFeedback } = vi.hoisted(() => ({ enqueueFeedback: vi.fn() }));
-vi.mock('../feedback-submit.js', () => ({ enqueueFeedback }));
+vi.mock('../feedback-submit.js', () => ({ enqueueFeedback, takeFeedbackNotice: () => '' }));
 
 // The account app loads these classic scripts before feedback-ui: the modal is
 // a kit sheet (WGSheet header) on the ModalManager stack (med-xso6.7).

@@ -18,7 +18,7 @@
 //               med-o7zq.16): then local-trial.js signs each request with App
 //               Attest. Our base domain is in the shell's host list whenever
 //               the shell names it (localEgressHosts), called only by the
-//               trial and the "Request an invite" form. The account trial's meta flag stays
+//               trial, the "Request an invite" form and a feedback Send. The account trial's meta flag stays
 //               out of the bundle (ios/bundle-web.sh).
 //   food DB     no food-DB meta in the bundle. The operator's DB rides the
 //               same trial switch (bd med-o7zq.20): LOCAL_FOOD_DB below sends
@@ -34,8 +34,7 @@
 //   feedback    the cloud's Send feedback row, sealed to the developer's age
 //               key and POSTed to the attested /api/attest/feedback, only
 //               when the user taps Send (mountLocalFeedback below, bd
-//               med-ta2n.20). Needs the base domain in the shell's host list
-//               with the trial off: med-ta2n.14's localEgressHosts.
+//               med-ta2n.20), through the base domain localEgressHosts lists.
 //
 // Privacy disclosure: the local-* rows in privacy-manifest.js.
 import {
@@ -395,6 +394,7 @@ export const LOCAL_FOOD_DB = {
 const FEEDBACK_KEY = 'wg:local-feedback';
 export const FEEDBACK_OFFLINE_COPY = 'Could not reach the server to send feedback. Check your connection and try again.';
 export const FEEDBACK_UNAVAILABLE_COPY = 'Feedback is not available from device-only mode right now. Your message was not sent.';
+const feedbackDroppedCopy = () => `Earlier feedback from this ${deviceName()} could not be delivered: our server did not accept it. Please send it again.`;
 const feedbackNoKeyCopy = () => `Feedback can't be sent from this ${deviceName()} in device-only mode: our server did not accept this app install. Your message was not sent.`;
 
 function readFeedbackMemo(win) {
@@ -464,6 +464,17 @@ function localFeedbackTransport(win) {
     async send(body, signal) {
       // A throw (timeout included) is feedback-submit.js's retryable status 0.
       return bounded((await client()).post('/api/attest/feedback', body, signal));
+    },
+    // A queued item the server refused for good (a key it lost and would not
+    // re-grant: 403) after its sheet closed: the next sheet says so, once.
+    // Its text is sealed to the developer, so it cannot be shown back.
+    onDropped() {
+      writeFeedbackMemo(win, { dropped: (readFeedbackMemo(win).dropped || 0) + 1, key: 'refused' });
+    },
+    notice() {
+      if (!readFeedbackMemo(win).dropped) return '';
+      writeFeedbackMemo(win, { dropped: 0 });
+      return feedbackDroppedCopy();
     },
   };
 }

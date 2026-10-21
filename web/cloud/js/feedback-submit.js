@@ -97,26 +97,43 @@ export function deleteFeedbackItem(clientId) {
 }
 
 // Local mode (bd med-ta2n.20, local-policy.js) swaps the transport for
-// { recipient(), send(body, signal) }: the recipient from the attest challenge
-// and a signed POST /api/attest/feedback. recipient() throws an Error with a
-// userMessage the sheet shows when nothing can be sent. Unset = cloud: the
-// <meta> recipient and the same-origin POST /api/feedback.
+// { recipient(), send(body, signal), onDropped(item, status), notice() }: the
+// recipient from the attest challenge and a signed POST /api/attest/feedback.
+// recipient() throws an Error with a userMessage the sheet shows when nothing
+// can be sent; onDropped records an item the server refused for good after
+// the sheet closed, and notice() hands the sheet the line about it (once).
+// Unset = cloud: the <meta> recipient and the same-origin POST /api/feedback.
 let transport = null;
 export function setFeedbackTransport(t) {
   transport = t;
 }
+
+// The line the sheet shows on open ('' when nothing to say).
+export function takeFeedbackNotice() {
+  return (transport && transport.notice && transport.notice()) || '';
+}
+
+// client_id → outcome of a send the sheet is waiting on (local mode).
+const awaiting = new Map();
 
 function appVersion() {
   if (typeof document === 'undefined') return 'dev';
   return document.querySelector('meta[name="medtracker-build-id"]')?.content || 'dev';
 }
 
-// enqueueFeedback(bundle): age-encrypt the anonymous bundle to the operator
-// recipient and durably persist the ciphertext to the outbox. The UI's "sent"
-// is optimistic — actual delivery is the drain loop's job (Task 3). Throws if
-// feedback is misconfigured (no recipient) so the UI can gate before calling.
-export async function enqueueFeedback(bundle) {
+// enqueueFeedback(bundle, { shouldAbort }): age-encrypt the anonymous bundle
+// to the operator recipient and durably persist the ciphertext to the outbox.
+// Throws if feedback is misconfigured (no recipient) so the UI can gate before
+// calling. Resolves to:
+//   undefined   cloud: queued, and the UI's "sent" is optimistic — delivery is
+//               the drain loop's job (Task 3).
+//   'cancelled' shouldAbort() turned true while the recipient was awaited
+//               (local: a challenge and maybe an enroll); nothing was sealed.
+//   'sent' | 'queued' | 'dropped'  local: the first drain's outcome for it,
+//               so the sheet never says "sent" before the server took it.
+export async function enqueueFeedback(bundle, { shouldAbort } = {}) {
   const recipient = transport ? await transport.recipient() : getFeedbackRecipient();
+  if (shouldAbort && shouldAbort()) return 'cancelled';
   if (!recipient) throw new Error('enqueueFeedback: feedback recipient not configured');
   const meta = {
     client_id: crypto.randomUUID(),
@@ -133,9 +150,20 @@ export async function enqueueFeedback(bundle) {
     attempts: 0,
     created_at: meta.created_at,
   });
-  // Delivery is the queue's job — the UI's "sent" is optimistic. Kick a drain
-  // but don't await it: resolve as soon as the item is durably queued.
+  if (transport) {
+    // Local: wait for the first attempt (each step is bounded) and report it.
+    awaiting.set(meta.client_id, 'queued');
+    try {
+      await drainFeedbackOutbox();
+    } catch { /* stays queued; the backoff retries */ }
+    const outcome = awaiting.get(meta.client_id);
+    awaiting.delete(meta.client_id);
+    return outcome;
+  }
+  // Cloud: delivery is the queue's job — the UI's "sent" is optimistic. Kick a
+  // drain but don't await it: resolve as soon as the item is durably queued.
   drainFeedbackOutbox().catch(() => {});
+  return undefined;
 }
 
 // --- drain loop: POST, error policy, exponential backoff, reconnect ----------
@@ -147,9 +175,10 @@ const BACKOFF_BASE_MS = 2000;
 const BACKOFF_CAP_MS = 5 * 60 * 1000;
 export const MAX_ATTEMPTS = 20; // then park the item for the next online/session
 
-// POST one item's ciphertext to the feedback endpoint. Returns {ok,status}
-// like sync's snapshotAt: a network throw is status 0 (retryable); a relative
-// same-origin fetch carries the session cookie automatically.
+// POST one item's ciphertext to the feedback endpoint (cloud: same-origin, the
+// session cookie rides along; local: the transport's signed attest POST).
+// Returns {ok,status} like sync's snapshotAt: a network throw is status 0
+// (retryable).
 async function postFeedback(item) {
   const body = JSON.stringify({
     client_id: item.client_id,
@@ -191,25 +220,31 @@ async function drainOutboxUnlocked() {
     if (ok) {
       // 2xx (incl. 204, and a 2xx dedupe of a re-POSTed client_id) → done.
       await deleteFeedbackItem(item.client_id);
+      if (awaiting.has(item.client_id)) awaiting.set(item.client_id, 'sent');
       continue;
     }
-    if (status === 401) {
-      // Auth not ready (session not yet minted) — retry later, don't drop and
-      // don't burn the attempt cap on it.
+    if (status === 401 && !transport) {
+      // Cloud: auth not ready (session not yet minted) — retry later, don't
+      // drop and don't burn the attempt cap on it.
       retryable = true;
       continue;
     }
-    if (status >= 400 && status < 500 && status !== 429) {
+    if (status >= 400 && status < 500 && status !== 429 && status !== 401) {
       // Any other client-error 4xx is permanent — the origin server emits 400
       // (bad payload) / 413 (too large), and an intermediary (Traefik/WAF) can
       // emit 403/404. None succeed on retry, so give up rather than re-POST on
-      // every reconnect forever. (401 auth-pending is handled above; 429
+      // every reconnect forever. (Cloud 401 auth-pending is handled above; 429
       // queue-full is transient, so it falls through to the retry branch.)
       await deleteFeedbackItem(item.client_id);
+      // Local: the open sheet says so; else the next one does.
+      if (awaiting.has(item.client_id)) awaiting.set(item.client_id, 'dropped');
+      else if (transport && transport.onDropped) transport.onDropped(item, status);
       continue;
     }
-    // Network (status 0), 429 (queue full), 5xx, or 503 (feature temporarily
-    // disabled) → retry.
+    // Network (status 0), 429 (queue full), 5xx, 503 (feature temporarily
+    // disabled), or a local attest 401 (the attest client already re-signed
+    // and re-enrolled once; a key that still fails is capped like the rest)
+    // → retry.
     const attempts = (item.attempts || 0) + 1;
     await putFeedbackItem({ ...item, attempts });
     if (attempts < MAX_ATTEMPTS) retryable = true; // else park it
@@ -292,4 +327,5 @@ export function __resetDrainForTest() {
   autoDrainInstalled = false;
   feedbackDrainInFlight = null;
   transport = null;
+  awaiting.clear();
 }
