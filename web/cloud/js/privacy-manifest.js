@@ -765,9 +765,9 @@ export const PRIVACY_MANIFEST = [
     activationNote: 'only when you send the form or answer "yes" to the bot, and only if the operator has turned requests on',
     byo: 'n/a — or skip it: an invite link someone sends you needs no request',
     evidence: [
-      'internal/cloudserver/invite_request.go:95',
-      'internal/cloudserver/invite_request.go:230',
-      'internal/cloudserver/invite_request.go:369',
+      'internal/cloudserver/invite_request.go:98',
+      'internal/cloudserver/invite_request.go:233',
+      'internal/cloudserver/invite_request.go:374',
       'internal/cloudserver/mailer.go:79',
     ],
     code: { go: ['internal/cloudserver/invite_request.go', 'internal/cloudserver/mailer.go'], hosts: [] },

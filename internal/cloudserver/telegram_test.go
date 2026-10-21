@@ -299,6 +299,8 @@ type recordMu struct {
 	// deleteFails makes deleteMessage return Telegram's 400 (message can't be
 	// deleted — already gone or >48h old), standing in for the best-effort path.
 	deleteFails bool
+	// editFails makes editMessageText record the attempt and answer a 400.
+	editFails bool
 	// fileBody overrides what the /file download endpoint streams; nil serves
 	// fakePhotoBytes. The NXK document test points this at real .nxk bytes.
 	fileBody []byte
@@ -377,7 +379,12 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			b, _ := io.ReadAll(r.Body)
 			rec.mu.Lock()
 			rec.mu.edits = append(rec.mu.edits, string(b))
+			editFails := rec.mu.editFails
 			rec.mu.Unlock()
+			if editFails {
+				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: message can't be edited"}`)
+				return
+			}
 			io.WriteString(w, `{"ok":true,"result":{}}`)
 		case "deleteMessage":
 			b, _ := io.ReadAll(r.Body)

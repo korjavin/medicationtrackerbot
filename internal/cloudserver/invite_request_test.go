@@ -261,6 +261,22 @@ func TestInviteRequest_SendFailureShowsLink(t *testing.T) {
 	}
 }
 
+// The email failed AND the fallback edit carrying the link failed: nobody holds
+// the link, so the row must not be settled done — it stays 'approved' (buttons
+// untouched) for a stale re-run.
+func TestInviteRequest_LostLinkStaysRecoverable(t *testing.T) {
+	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
+	f.mail.err = errors.New("dial tcp: connection refused")
+	f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`)
+	f.tg.mu.Lock()
+	f.tg.mu.editFails = true
+	f.tg.mu.Unlock()
+	f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
+	if s := f.request(t, 1).Status; s != "approved" {
+		t.Fatalf("status = %s, want approved (re-runnable)", s)
+	}
+}
+
 func TestInviteRequest_Validation(t *testing.T) {
 	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
 	for i, body := range []string{
@@ -337,12 +353,17 @@ func TestInviteRequest_StaleApprovalReruns(t *testing.T) {
 		t.Fatalf("fresh approval re-ran: answers=%v", answered)
 	}
 
-	if moved, err := f.store.MoveInviteRequest(t.Context(), 1, "approved", "approved", time.Now().UTC().Add(-2*inviteRequestWorkBudget)); err != nil || !moved {
+	crashedRun := time.Now().UTC().Add(-inviteRequestStaleAfter - time.Second)
+	if moved, err := f.store.MoveInviteRequest(t.Context(), 1, "approved", "approved", crashedRun); err != nil || !moved {
 		t.Fatalf("backdate: %v %v", moved, err)
 	}
 	f.tap(t, 1, "a", inviteAdmin, msgID)
 	if n := mintedBy(t, f.store, "req:1"); n != 1 || len(f.mails()) != 1 || f.request(t, 1).Status != "done" {
 		t.Fatalf("stale approval: minted=%d mails=%d status=%s", n, len(f.mails()), f.request(t, 1).Status)
+	}
+	// The outlived run no longer owns the row: its late settle is a no-op.
+	if moved, err := f.store.SettleInviteRequest(t.Context(), 1, crashedRun, "pending", time.Now().UTC()); err != nil || moved {
+		t.Fatalf("stale run settled a reclaimed row: %v %v", moved, err)
 	}
 	// Settled: no further re-run.
 	f.tap(t, 1, "a", inviteAdmin, msgID)

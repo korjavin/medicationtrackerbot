@@ -176,12 +176,25 @@ func (r *Repo) ReclaimStaleInviteRequest(ctx context.Context, id int64, now, sta
 	return n == 1, err
 }
 
+// SettleInviteRequest moves an 'approved' row to `to` only while it still
+// belongs to the approval run stamped runAt (its decided_at): a run outlived
+// by a stale-approval reclaim no longer owns the row and settles nothing.
+func (r *Repo) SettleInviteRequest(ctx context.Context, id int64, runAt time.Time, to string, now time.Time) (bool, error) {
+	decided := sql.NullInt64{Int64: storedb.TimeToUnix(now), Valid: to != InviteRequestPending}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE invite_requests SET status = ?, decided_at_unix = ? WHERE id = ? AND status = ? AND decided_at_unix = ?`,
+		to, decided, id, InviteRequestApproved, storedb.TimeToUnix(runAt))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // MoveInviteRequest changes a row's status from `from` to `to`, and reports
 // whether it did: the conditional UPDATE is the one-decision-per-request guard,
 // so of two concurrent taps exactly one sees true. pending → approved|declined
-// decides; approved → done settles a finished run; approved → pending reopens
-// after a failed mint; approved → declined records the Telegram live-invite cap
-// found at approve time.
+// decides. An approval run leaves 'approved' through SettleInviteRequest.
 func (r *Repo) MoveInviteRequest(ctx context.Context, id int64, from, to string, now time.Time) (bool, error) {
 	decided := sql.NullInt64{Int64: storedb.TimeToUnix(now), Valid: to != InviteRequestPending}
 	res, err := r.db.ExecContext(ctx,

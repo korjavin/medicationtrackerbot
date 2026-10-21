@@ -38,6 +38,9 @@ const (
 	inviteRequestNoteMax    = 500
 	inviteRequestEmailMax   = 254
 	inviteRequestWorkBudget = 60 * time.Second // mint + SMTP + edit, off the webhook
+	// inviteRequestStaleAfter: an 'approved' row older than this has outlived
+	// its run (budget + the settle's own timeout + slack) and Approve re-runs it.
+	inviteRequestStaleAfter = 2 * inviteRequestWorkBudget
 	inviteCallbackPrefix    = "ir:"
 )
 
@@ -327,9 +330,10 @@ func (t *TelegramAPI) handleInviteCallback(ctx context.Context, cq *tgclient.Cal
 	moved, err := t.store.MoveInviteRequest(ctx, id, cloudstore.InviteRequestPending, to, now)
 	if err == nil && !moved && approve && req.Status == cloudstore.InviteRequestApproved {
 		// An approval whose run never finished (crash, shutdown past the grace,
-		// failed rollback): once its work budget has passed, Approve re-runs it.
-		// A re-run may mint a second invite; the unclaimed one just expires.
-		if moved, err = t.store.ReclaimStaleInviteRequest(ctx, id, now, now.Add(-inviteRequestWorkBudget)); moved {
+		// failed rollback): once well past its work budget, Approve re-runs it
+		// under a new stamp, so the old run can no longer settle the row. A
+		// re-run may mint a second invite; the unclaimed one just expires.
+		if moved, err = t.store.ReclaimStaleInviteRequest(ctx, id, now, now.Add(-inviteRequestStaleAfter)); moved {
 			slog.Warn("invite request: re-running a stale approval", "request", id)
 		}
 	}
@@ -340,7 +344,7 @@ func (t *TelegramAPI) handleInviteCallback(ctx context.Context, cq *tgclient.Cal
 	}
 	if !moved {
 		if req.Status == cloudstore.InviteRequestApproved {
-			answer("Already being sent — if nothing arrives, tap Approve again in a minute.")
+			answer("Already being sent — if nothing arrives, tap Approve again in a few minutes.")
 		} else {
 			answer("Already decided.")
 		}
@@ -360,16 +364,17 @@ func (t *TelegramAPI) handleInviteCallback(ctx context.Context, cq *tgclient.Cal
 		defer t.inviteWork.Done()
 		wctx, cancel := context.WithTimeout(context.Background(), inviteRequestWorkBudget)
 		defer cancel()
-		t.carryOutInviteDecision(wctx, req, approve, header)
+		t.carryOutInviteDecision(wctx, req, approve, header, now)
 	}()
 }
 
 // carryOutInviteDecision delivers an Approve (mint + email or DM) or a Decline
-// and rewrites the admin message to the outcome, dropping its buttons.
-func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstore.InviteRequest, approve bool, header string) {
-	edit := func(outcome string, keepButtons bool) {
+// and rewrites the admin message to the outcome, dropping its buttons. runAt
+// is the approval's stamp: only this run may settle the row.
+func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstore.InviteRequest, approve bool, header string, runAt time.Time) {
+	edit := func(outcome string, keepButtons bool) bool {
 		if req.AdminMessageID == 0 {
-			return
+			return true
 		}
 		text := outcome
 		if header != "" {
@@ -381,7 +386,9 @@ func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstor
 		}
 		if err := t.managerClient().EditMessageTextWithButtons(ctx, t.feedbackAdminChatID, req.AdminMessageID, text, buttons); err != nil {
 			slog.Warn("invite request: edit admin message", "error", err, "request", req.ID)
+			return false
 		}
+		return true
 	}
 	if !approve {
 		if req.Channel == cloudstore.InviteRequestTG {
@@ -392,26 +399,40 @@ func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstor
 		return
 	}
 
-	// settle moves the row out of 'approved'. The context may be spent by now,
-	// so it gets a fresh one. A failed settle leaves 'approved', which Approve
-	// re-runs once stale (handleInviteCallback) — never a dead end.
+	// settle moves the row out of 'approved' if this run still owns it. The
+	// context may be spent by now, so it gets a fresh one. An unsettled row
+	// stays 'approved', which Approve re-runs once stale — so wherever the
+	// requester has nothing yet, a failed settle keeps the buttons.
 	settle := func(to string) bool {
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		moved, err := t.store.MoveInviteRequest(sctx, req.ID, cloudstore.InviteRequestApproved, to, time.Now().UTC())
+		moved, err := t.store.SettleInviteRequest(sctx, req.ID, runAt, to, time.Now().UTC())
 		if err != nil || !moved {
 			slog.Error("invite request: settle", "error", err, "moved", moved, "to", to, "request", req.ID)
 			return false
 		}
 		return true
 	}
+	// handedOff: the link is in the admin message (to pass on by hand) or the
+	// requester has it; only then is the row done. If the fallback edit failed,
+	// nobody holds the link (only its hash is stored), so the row stays
+	// 'approved' with its buttons for a stale re-run.
+	handedOff := func(outcome string, delivered bool) {
+		if !delivered && !edit(outcome, false) {
+			return
+		}
+		settle(cloudstore.InviteRequestDone)
+		if delivered {
+			edit(outcome, false)
+		}
+	}
 
 	inv, refusal := t.mintForRequest(ctx, req)
 	if inv == nil {
 		if refusal == onboardingQuotaMessage {
-			settle(cloudstore.InviteRequestDeclined)
+			settled := settle(cloudstore.InviteRequestDeclined)
 			t.reply(ctx, req.TGChatID, onboardingQuotaMessage)
-			edit(fmt.Sprintf("✖️ Declined: at the %d live-invite cap", managerInviteQuota), false)
+			edit(fmt.Sprintf("✖️ Declined: at the %d live-invite cap", managerInviteQuota), !settled)
 			return
 		}
 		// Nothing was minted: reopen so the admin can tap Approve again (if the
@@ -422,29 +443,23 @@ func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstor
 	}
 	link := inv.ClaimURL(t.baseDomain)
 
-	// From here the outcome is final either way: delivered, or the link is in
-	// the admin message to pass on by hand.
 	if req.Channel == cloudstore.InviteRequestTG {
 		if err := t.managerClient().SendMessage(ctx, req.TGChatID, inviteReadyMessage(link)); err != nil {
 			slog.Warn("invite request: DM invite failed", "error", err, "request", req.ID)
-			settle(cloudstore.InviteRequestDone)
-			edit("⚠️ Approved, but the Telegram DM FAILED — link for them: "+link, false)
+			handedOff("⚠️ Approved, but the Telegram DM FAILED — link for them: "+link, false)
 			return
 		}
-		settle(cloudstore.InviteRequestDone)
-		edit("✅ Approved · link sent in Telegram", false)
+		handedOff("✅ Approved · link sent in Telegram", true)
 		return
 	}
 
-	err := t.mailer.send(ctx, req.EmailLC, "Your invite to "+t.baseDomain, t.inviteEmailBody(link))
-	settle(cloudstore.InviteRequestDone)
-	if err != nil {
+	if err := t.mailer.send(ctx, req.EmailLC, "Your invite to "+t.baseDomain, t.inviteEmailBody(link)); err != nil {
 		class := mailErrorClass(err)
 		slog.Warn("invite request: email failed", "class", class, "request", req.ID)
-		edit(fmt.Sprintf("⚠️ Approved, but the email FAILED (%s) — link for %s: %s", class, req.EmailLC, link), false)
+		handedOff(fmt.Sprintf("⚠️ Approved, but the email FAILED (%s) — link for %s: %s", class, req.EmailLC, link), false)
 		return
 	}
-	edit("✅ Approved · invite emailed to "+req.EmailLC, false)
+	handedOff("✅ Approved · invite emailed to "+req.EmailLC, true)
 }
 
 // mintForRequest provisions the invite. Telegram rows keep the manager bot's
