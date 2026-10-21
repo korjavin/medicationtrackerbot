@@ -263,10 +263,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         if local { LocalOrigin.includeInBackup() }
         lock.background()
         if concealed {
-            // A share or print sheet would stay over the lock screen (a vault
-            // export in it); closing it deletes the temp file.
+            // A share, export or print sheet would stay over the lock screen (a
+            // vault export in it); closing it deletes the temp file.
             let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
             scene?.windows.first?.rootViewController?.dismiss(animated: false)
+            Downloads.shared.dropExports()
             UIPrintInteractionController.shared.dismiss(animated: false)
         }
     }
