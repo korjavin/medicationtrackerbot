@@ -225,6 +225,8 @@ export default async function moveOps(ctx) {
     const res = await call(page, 'move.stash', { vault });
     expect(res.ok && res.result === true, `stash: ${JSON.stringify(res)}`);
     expect((await stashFiles()) === 'vault.json', `files: ${await stashFiles()}`);
+    await shell(`am force-stop ${pkg}`);
+    await sleep(2000);
     await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
     await ctx.waitFor({ text: 'Only on this device' }, 60_000);
     expect((await stashFiles()) === '', `native forget kept the move stash: ${await stashFiles()}`);
