@@ -299,7 +299,7 @@ in `PrivacyInfo.xcprivacy`.
   > medical advice. Talk to your doctor before changing a treatment.
 
 - **Account deletion** (guideline 5.1.1(v)): in the app, Settings → Account &
-  privacy → Delete my account (passkey re-check, then `DELETE /api/account`,
+  privacy → Delete account (passkey re-check, then `DELETE /api/account`,
   [`internal/cloudserver/account.go`](../internal/cloudserver/account.go)).
   It is immediate; no web form needed. Afterwards the app lands in local
   mode on "Have an invite?" via `account.leave` (bd med-o7zq.33,
@@ -413,7 +413,7 @@ Native features:
 - Camera: food barcode scanning and meal photos (Food), scanning an invite QR.
 - Downloads and printing (backups, Emergency Kit) via the Files save picker and the print sheet.
 
-Account deletion: Settings > Account & privacy > Delete my account.
+Account deletion: Settings > Account & privacy > Delete account.
 
 AI and voice features are optional and off until the user enables them; each
 asks for explicit consent before any data is sent to an AI provider.
