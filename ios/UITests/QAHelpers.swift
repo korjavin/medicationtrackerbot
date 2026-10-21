@@ -30,6 +30,28 @@ enum QA {
             && app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Meds'")).firstMatch.exists // "Meds 1": a due-dose badge
     }
 
+    /// The web's F1 "Have an invite?" sheet (web/static/js/features/invite.js):
+    /// where local home?invite=1 lands with no pending invite (bd med-ta2n.17).
+    /// Its "Scan QR" button is F1's own (W1's footer has a "Have an invite?" too).
+    static func inviteSheetShows(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS 'Scan QR'")).firstMatch
+            .waitForExistence(timeout: timeout)
+    }
+
+    /// The web W1 picker (WGFirstRun, features/firstrun/screens/features.js):
+    /// its "Skip", and — in a v3 shell, local mode, no pending invite — the
+    /// footer's "Have an invite?".
+    static func w1Shows(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        app.webViews.buttons.matching(NSPredicate(format: "label IN {'Skip', 'Skip all'}")).firstMatch
+            .waitForExistence(timeout: timeout)
+    }
+
+    /// Removes the local origin's website data (Library/WebKit) with the app
+    /// stopped: the next launch boots an empty store, as a fresh install does.
+    static func wipeWebData() {
+        if let dir = appContainer()?.appendingPathComponent("Library/WebKit") { try? FileManager.default.removeItem(at: dir) }
+    }
+
     /// A device's first keyboard opens under the slide-to-type tip (seen on
     /// both CI Simulators, on tap or mid-typing; ContinuousPath defaults did not suppress it).
     static func dismissKeyboardTip(_ app: XCUIApplication) {

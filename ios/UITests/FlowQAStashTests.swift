@@ -8,9 +8,47 @@ import XCTest
 /// app's container (QA.appContainer).
 @MainActor
 final class FlowQAStashTests: XCTestCase {
-    // The move's local side (Settings Move row → stash → first-run hint) is
-    // gone with the row (bd med-ta2n.5): the move now starts from the web P3
-    // sheet over an invite, local.leave {url} straight to the claim page.
+    /// The move stash on the local side (bd med-ta2n.17). The web's Settings
+    /// Move row that wrote it is gone (bd med-ta2n.5; P3 writes it right
+    /// before local.leave {url}), so it is seeded straight into the container:
+    /// a relaunch in local mode keeps it → iOS Settings' Switch account drops it.
+    func testMoveLocalSide() throws {
+        continueAfterFailure = false
+        // A failed step must not leave a stash for the next flow's boot to pick up.
+        addTeardownBlock { @MainActor in Self.clearStashes() }
+        let flow = "move-local"
+        let fixture = try Self.fixture()
+        let app = XCUIApplication()
+        // No account: local mode (bd med-ta2n.17). No -wgLocalMode: a NO
+        // there would make every activation's applySettings drop the stash.
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-home"]
+        app.launch() // the container exists from here on, local mode persisted
+        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the settings-home scene never published #wg-qa-ready")
+        XCTAssertFalse(webButton(app, prefix: "Move to a cloud account").exists, "Settings still shows the Move row")
+        shot(flow, "settings-home")
+        app.terminate()
+        try Self.writeStash("move", try JSONSerialization.data(withJSONObject: fixture))
+
+        // Still local, nothing erased, and the stash still waits for the invite.
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO"]
+        app.launch()
+        XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
+        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
+        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move")
+        shot(flow, "records-kept")
+        XCTAssertNotNil(Self.stashData("move"), "a relaunch in local mode dropped the move stash")
+
+        // iOS Settings → Med Tracker → Switch account (forgetKey) from local
+        // mode drops the stash: a stale snapshot would bring deleted rows back
+        // into the next account. It lands on "Have an invite?" too.
+        app.terminate()
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgForgetAccount", "YES"]
+        app.launch()
+        XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60), "Switch account from local mode did not land on \"Have an invite?\"")
+        shot(flow, "switch-account")
+        XCTAssertNil(Self.stashData("move"), "Switch account from local mode kept the move stash")
+        app.terminate()
+    }
 
     /// The local boot's leave pickup: on an empty store it imports without a
     /// question, toasts and clears the file; over records it asks Merge /
