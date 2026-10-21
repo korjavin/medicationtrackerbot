@@ -37,11 +37,13 @@ export function counts(vault) {
 
 export const vaultCounts = async (page) => counts(JSON.parse(await page.evaluate(() => window.CloudVault.exportAll({ includeSecrets: false }))));
 
-/** Settings → Backup & import (the page the user opens). */
+/** Settings → Backup & import (account) / the Sync & backup card (local, bd med-ta2n.5). */
 async function openBackup(page) {
   await page.locator('[data-nav-to="settings"]:visible').first().click();
-  await page.locator('[data-settings-open="backup"]').waitFor({ state: 'visible', timeout: 15_000 });
-  await page.locator('[data-settings-open="backup"]').click();
+  // Both modes' entries carry the attribute; only this mode's is visible.
+  const entry = page.locator('[data-settings-open="backup"]:visible');
+  await entry.waitFor({ state: 'visible', timeout: 15_000 });
+  await entry.click();
   await page.locator('#importexport-export-btn').waitFor({ state: 'visible', timeout: 10_000 });
 }
 

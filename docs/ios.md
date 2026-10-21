@@ -135,7 +135,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   the lock with Unlock enabled and no re-prompt; home → back locks; Settings →
   App lock off → relaunch opens unlocked. Leaves the lock off.
 - **Backup flows** ([`FlowQABackupTests.swift`](../ios/UITests/FlowQABackupTests.swift),
-  bd med-w6gx.23.4): `testBackupExport` — Export backup → the passphrase
+  bd med-w6gx.23.4): `testBackupExport` — Save a backup → the passphrase
   sheet → *Backup ready* → Save to device, plain then with a
   passphrase (`.age`): each file sits in `tmp/wg-downloads` while the Files
   export picker shows and is gone once it is swiped away (med-o7zq.43). `testRestoreFromFile` — restore via
@@ -145,11 +145,11 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
 - **Stash flows** ([`FlowQAStashTests.swift`](../ios/UITests/FlowQAStashTests.swift),
   bd med-w6gx.23.3): the shell's stashes from the local
   side, as files in the container's `Application Support/{move,leave}/vault.json`:
-  `testMoveLocalSide` — Settings → Move to a cloud account → Backup &
-  import's Move button → the stash (fixture format, sections, counts), still
-  local on "Have an invite?" (no-url `local.leave`) → a relaunch stays local
-  with the records and the stash → iOS Settings' Switch account (`forgetKey`)
-  drops the stash and lands on "Have an invite?". `testLeaveStashPickup` — wipes
+  `testMoveLocalSide` — Settings shows no Move row (med-ta2n.5: the web P3
+  sheet writes the move stash now, right before `local.leave {url}`) → a
+  stash seeded into the container survives a relaunch in local mode with the
+  records → iOS Settings' Switch account (`forgetKey`) drops the stash and
+  lands on "Have an invite?". `testLeaveStashPickup` — wipes
   `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
   clears the file → seeded again over records: Merge / Replace → Cancel →
@@ -763,7 +763,7 @@ search left the sheet entirely below the visible area. `noFocusZoom()` adds
 
 The shell does not set `ignoresViewportScaleLimits` (med-r6sh). With it on
 (PR #1115 to build 351) the app pinch-zoomed as in Safari, but the page was
-scalable again and a double-tap on a card (Settings → On this device only)
+scalable again and a double-tap on a card (Settings → Sync & backup)
 zoomed it, `touch-action: manipulation` on `html, body` (PR #1177)
 notwithstanding. Honouring the cap makes the scroll view's minimum and maximum
 zoom equal, and WebKit turns double-tap gestures off for a page it cannot scale.
@@ -788,7 +788,7 @@ viewport. The tests pin the viewport cap and the dock's arithmetic
    screen with its header fully visible.
 5. Repeat step 1 with a 15px field, for example a Settings
    number field. It must not zoom either.
-6. App: double-tap Settings → On this device only, and any other card. The
+6. App: double-tap Settings → Sync & backup, and any other card. The
    page must not zoom. Pinch does not zoom in the app either (Mobile Safari
    still pinch-zooms).
 
@@ -869,8 +869,8 @@ a Web Push subscription.
       confirm → local mode, "Have an invite?" → scan a valid invite QR → claims.
    b. Same with an expired or garbage `#claim=` token.
    c. Kill and relaunch while stuck on `/unlock` → the bar is still there.
-   d. Local mode: Settings → Backup → Move to a cloud account → "Have an
-      invite?" → bad invite → the bar → back in local mode, local data intact.
+   d. Local mode: Settings → Sync & backup → Paste a bad invite → the F1
+      sheet's error, nothing leaves → local data intact.
    e. A returning user at `/unlock` ignores the bar and unlocks as before.
 7. Claiming in the app goes from the Emergency Kit (and Telegram, when
    offered) straight into the app: no "Add to your Home Screen" step.
@@ -985,10 +985,10 @@ mode, gated on the bridge platform being `ios` or `android`
   data is kept either way. At launch the shell logs (`os_log`,
   category `shell`) the mode, whether a host is stored and the local data
   dir count — no host name.
-  Settings opens on an *On this device only* row in local mode.
+  Settings opens on the *Sync & backup* card in local mode (bd med-ta2n.5).
 - **Lock** (bd med-o7zq.8, [`LocalLock.swift`](../ios/App/LocalLock.swift)):
   optional, off by default; opted into from the in-app Settings → *App lock* row (bd
-  med-o7zq.39, under *On this device only*; bridge ops `lock.status` →
+  med-o7zq.39, under *Sync & backup*; bridge ops `lock.status` →
   `{on, available}` and `lock.set {on}` → the same check as *Start*, `true`
   once applied, `false` when cancelled or there is no passcode to turn it on
   with) or iPhone Settings → Med Tracker → *Lock*. The row and the iPhone
@@ -1038,9 +1038,9 @@ mode, gated on the bridge platform being `ios` or `android`
   is that file: the shell's *Switch account*, claim the invite, restore the
   file in the new account's Settings (the page's *I have an invite* is gone
   since bd med-ckm5.7). The local records stay until the user erases them;
-  nothing prompts to. A shell that lists `move.stash` gets Settings home →
-  *Move to a cloud account* (opens Backup & import's Move section, whose
-  button is the one Move control), which carries the records without the file (the
+  nothing prompts to. A v3 shell gets the P3 *Turn on sync* (from an invite
+  link, or Settings → *Sync & backup* → Paste / Scan; the Settings *Move to a
+  cloud account* row is gone since bd med-ta2n.5), which carries the records without the file (the
   move stash below; shared contract in
   [android.md → Moving to a cloud account](android.md#moving-to-a-cloud-account-bd-med-nt9p3210),
   which also has the P3 invite path, bd med-ta2n.7: *Turn on sync?* / *Your

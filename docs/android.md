@@ -1115,7 +1115,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   bridge all follow the open vault: the account host, or the asset host in
   local mode. **Every mode change clears the alarms**, so a reminder of the
   other vault never fires or opens the wrong origin. Leaving local mode (the
-  page's *Move to a cloud account*, or the launcher *Switch account*
+  page's *Turn on sync*, or the launcher *Switch account*
   shortcut) sets `wgLocalMode=false` and shows first run; each origin keeps
   its own WebView data, so *Only on this device* again (or the account
   address) finds it. The only thing carried across is the move stash
@@ -1253,17 +1253,17 @@ account has its passkey, and cloud mode never shows or checks it.
    local mode.
 4. Save a BYOK key in Settings → AI & integrations: the page reloads once
    and the provider host is in the document CSP (`chrome://inspect`).
-5. Settings → Backup → *Move to a cloud account* → first run; *Only on this
-   device* again finds the data.
+5. Settings → *Sync & backup*: the chip says *Unprotected*, the page shows
+   *Sync needs an invite for now* (the Move row is gone, bd med-ta2n.5).
 6. Erase → empty app, BYOK hosts gone from the CSP.
 7. Long-press → *Switch account* → a test account, then back to *Only on
    this device*: both data sets intact; no reminder of the other vault fires.
 8. *How to get an invite* opens the service landing page in the browser.
-9. Settings home → *Move to a cloud account* → *Continue* → the first run's
-   *ready to move* hint → claim a test invite → the account shows the records
-   with no Restore, and the toast once → *Switch account* → no hint → *Only
+9. Settings → *Sync & backup* → *Paste* a test invite → *Turn on sync?* →
+   *Turn on sync* → claim → the account shows the records
+   with no Restore, and the toast once → *Switch account* → *Only
    on this device* → *Start*: the local records are intact. Once more with
-   the file fallback: Backup & import → Export backup → *Save to device* → file picker →
+   the file fallback: *Sync & backup* → *Save a backup* → *Save to device* → file picker →
    *Switch account* → claim → Restore the file
    ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
 10. Lock (a phone with a screen lock): intro switch on → *Start* asks for the
@@ -1280,16 +1280,17 @@ med-o7zq.35; the web side is
 [cloud-mode.md → C2e implementation notes](cloud-mode.md#c2e-implementation-notes)). Vault
 format v1, no server change.
 
-1. Local mode: Settings home → **Move to a cloud account** (opens Backup &
-   import's Move section, kit S7) → its **Move to a cloud account** button →
-   *Continue*. Row and section show only when `shell.ops` lists `move.stash`
-   (the web and older shells keep only the file steps below). The page exports the vault
+1. Local mode: an invite reaches the app (link, or Paste / Scan on Settings →
+   **Sync & backup**, bd med-ta2n.5 — the old Settings *Move to a cloud
+   account* row is gone) → the web P3 **Turn on sync?** sheet → *Turn on sync*.
+   Only a shell whose `shell.ops` lists `invite.pending` gets it (older
+   shells keep only the file steps below). The page exports the vault
    (`exportAll`, API keys included) and sends `move.stash {vault}` then
-   `local.leave`; the shell writes the stash and shows first run with the
-   *Your records are ready to move.* note, the invite first. A rejected stash
-   (`too large`, `write failed`, an old shell) stops before the leave and
-   shows the file steps.
-2. Paste or scan the invite, create the passkey, finish the wizard.
+   `local.leave {url}`; the shell writes the stash and opens the invite's
+   claim page directly. A rejected stash (`too large`, `write failed`) stops
+   before the leave with the error on the P3 sheet (the file steps below
+   still work).
+2. Create the passkey, finish the wizard.
 3. The account picks the records up by itself, right after the unlock
    (`pickUpMovedVault`: `move.take` → `restoreVault` → `move.clear` → reload).
    An empty account asks nothing; one with data asks the typed *Replace all
@@ -1340,7 +1341,7 @@ way back to local mode, and *Back* on the intro keeps the stash. Op contract:
 [ios.md → Backup, restore, move to cloud](ios.md#local-mode-the-bundled-app-on-wgapplocal-bd-med-o7zq4)),
 for shells without `move.stash` and when the stash is refused:
 
-1. Settings → Backup & import → **Export backup** → the passphrase sheet (a
+1. Settings → *Sync & backup* → **Save a backup** → the passphrase sheet (a
    passphrase is optional; without one the API keys are in plain text and the
    page asks first) → *Backup ready* → **Save to device** → the shell's *Save
    to device* (Downloads) or *Share*.
@@ -1374,7 +1375,7 @@ this device* → *Start* → the local counts are unchanged.
 showed (`pickupConfirm`).
 
 **Emulator proof, file fallback** — QA scenario `local-to-cloud` (same
-invite rule): Backup & import → Export backup → *Backup ready* → Save to
+invite rule): Sync & backup → Save a backup → *Backup ready* → Save to
 device → the gzipped file under `cache/downloads/` checked against the
 fixture → *Save to device* through DocumentsUI → *Switch account* → claim →
 Restore via the system picker

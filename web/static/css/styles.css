@@ -45,7 +45,7 @@
 
 /* iOS resolves double-tap zoom from the root scroller too, so name html/body
    explicitly (med-r6sh); the modal scroll lock below still overrides body. The
-   Settings "On this device only" card is non-interactive text: no word
+   Settings local-mode cards are tap targets, not text: no word
    selection loupe on double-tap either. */
 html, body {
     touch-action: manipulation;
