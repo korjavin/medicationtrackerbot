@@ -250,7 +250,15 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect((await window.apiCall('/api/today/start-here', 'GET')).picked).toEqual(['bp']);
     });
 
-    it('GET /api/today/start-here falls back to the six feature flags (never Diary) without stored picks', async () => {
+    it('GET /api/today/start-here: a pre-v3 vault (no stored picks) already holding user content gets no block', async () => {
+        const { window } = env;
+        await window.apiCall('/api/firstrun/complete', 'POST');
+        await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 64, measured_at: new Date().toISOString() });
+
+        expect(await window.apiCall('/api/today/start-here', 'GET')).toEqual({ picked: [], missing: [] });
+    });
+
+    it('GET /api/today/start-here falls back to the six feature flags (never Diary) without stored picks or content', async () => {
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();
         await window.apiCall('/api/firstrun/complete', 'POST');

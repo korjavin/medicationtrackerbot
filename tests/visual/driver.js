@@ -195,6 +195,27 @@
             const status = step.trial;
             if (window.CloudVault && window.CloudVault.trial) window.CloudVault.trial.status = async () => status;
             window.SettingsIntegrations.trialOffer = async () => status.on !== true;
+        } else if (step.startHere) {
+            // W3 "Start here" (bd med-ta2n.3): the seed has a record in every
+            // module, so replace it once with the fixture minus step.startHere.drop
+            // (vault data sections) and store step.startHere.picked as the W1
+            // picks, then reload. Destructive for the store: the scene runs last.
+            // ponytail: once per tab session (sessionStorage); a runner that
+            // reused the tab for another partial scene would need a key per scene.
+            const KEY = 'wg-qa-start-here';
+            let done = false;
+            try { done = window.sessionStorage.getItem(KEY) === '1'; } catch (_) { /* no storage */ }
+            if (!done) {
+                const vault = shiftDates(await getJSON('/qa/vault-v1.json'), new Date());
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (tz && vault.data && vault.data.settings) vault.data.settings.timezone = tz;
+                for (const k of step.startHere.drop || []) delete vault.data[k];
+                await window.CloudVault.importAll(vault);
+                await window.apiCall('/api/firstrun/complete', 'POST', { picked: step.startHere.picked });
+                try { window.sessionStorage.setItem(KEY, '1'); } catch (_) { /* no storage */ }
+                window.location.reload();
+                await new Promise(() => {}); // the next load runs the scene
+            }
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else if (step.file) {

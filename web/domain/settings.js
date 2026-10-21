@@ -224,12 +224,16 @@ export function createSettingsDomain({ records, now, timeZone }) {
 
   // Read-only (no write, no derived row). picked: the firstrun record's W1
   // picks in W1 order, minus modules whose feature is off; a vault onboarded
-  // before the picks were stored falls back to the six flags (never Diary).
-  // missing: the picked modules with no live record yet.
-  async function getStartHere() {
+  // without stored picks falls back to the six flags (never Diary) only while
+  // it holds no user content: a pre-v3 vault already in use gets no block
+  // (hasContent: async () => bool, the caller's vault.js userContentCount > 0;
+  // asked only on that path). missing: the picked modules with no live record.
+  async function getStartHere({ hasContent = async () => false } = {}) {
     const fr = findSingleton(await records.list(FIRSTRUN_RECORD_TYPE), FIRSTRUN_RECORD_ID);
+    const stored = !!(fr && Array.isArray(fr.picked));
+    if (!stored && await hasContent()) return { picked: [], missing: [] };
     const flags = await getFeatures();
-    const has = fr && Array.isArray(fr.picked) ? (k) => fr.picked.includes(k) : (k) => k !== 'diary';
+    const has = stored ? (k) => fr.picked.includes(k) : (k) => k !== 'diary';
     const picked = START_HERE_MODULES.map(([k]) => k)
       .filter((k) => has(k) && flags[k === 'diary' ? 'health' : k] !== false);
     const missing = [];
