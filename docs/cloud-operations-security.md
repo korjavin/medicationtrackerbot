@@ -276,8 +276,13 @@ reaches the server as plaintext; closing the tab ends the horizon entirely.
 
 User feedback is end-to-end encrypted: the browser age-encrypts each submission
 to `FEEDBACK_AGE_RECIPIENT` (a public key) before `POST /api/feedback`, and the
-server stores only the ciphertext in `feedback_queue`. Plaintext is recovered
-**only** on the developer's machine, never on the server.
+server stores only the ciphertext in `feedback_queue`. Local-mode (device-only)
+installs post the same ciphertext to the attested `POST /api/attest/feedback`
+(bd med-ta2n.19); those rows carry `account_id = 'attest:<trial bucket id>'`
+(no account exists), are capped at 100 undrained items per bucket, and are
+drained by the same CLI. Account deletion never touches them; they leave the
+queue only when drained. Plaintext is recovered **only** on the developer's
+machine, never on the server.
 
 Setup (one-time):
 
