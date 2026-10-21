@@ -632,6 +632,9 @@ export function createApiRouter(ctx, {
       return { success: true };
     }
 
+    // W3 Today "Start here" (bd med-ta2n.3): read on every Today render.
+    if (path === '/api/today/start-here' && method === 'GET') return settings.getStartHere();
+
     if (path === '/api/settings/tab-order' && method === 'POST') {
       await settings.setTabOrder(body && body.order);
       return true;

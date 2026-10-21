@@ -761,8 +761,10 @@
         return row;
     }
 
-    // Returns { node, hasPrimary }.
-    function renderNextUp(state, h, nowMs) {
+    // Returns { node, hasPrimary }. startHere: the W3 block is showing, so the
+    // empty "Nothing scheduled" card (its Add medication / Create plan are rows
+    // there) steps aside — W3 has no Next up until something is scheduled.
+    function renderNextUp(state, h, nowMs, startHere) {
         const medsOn = on(state && state.nextMed);
         const workoutsOn = on(state && state.nextWorkout);
         if (!medsOn && !workoutsOn) return { node: null, hasPrimary: false };
@@ -782,6 +784,7 @@
             section.appendChild(card);
             return { node: section, hasPrimary: false };
         }
+        if (items.length === 0 && startHere) return { node: null, hasPrimary: false };
         if (items.length === 0) {
             const actions = [];
             // O2: "Add medication" is the empty Today's one sun (bd med-ckm5.3).
@@ -1576,6 +1579,51 @@
             card.classList.toggle('hidden', !aiTrialOffered);
         });
         return card;
+    }
+
+    // ---- Start here (W3, bd med-ta2n.3) ------------------------------------
+    //
+    // One inline hint per picked module that has no record yet, in W1 order,
+    // each with its module's existing add flow. GET /api/today/start-here
+    // (today-loader.js, every render) says which; a row goes once its module
+    // has a record, the block once none is missing. The first action is the
+    // sun only when Next up holds none.
+    const START_HERE_ROWS = {
+        medication: { title: 'Your medications', hint: 'Add one and Next up shows each dose when it’s due.', icon: 'pill', label: 'Add', run: (h) => h.onAddMedication() },
+        bp: { title: 'Blood pressure', hint: 'Log a reading to see where you are.', icon: 'activity', label: 'Log', run: (h) => h.onAddBp() },
+        weight: { title: 'Weight', hint: 'Your first weigh-in sets the start of the line.', icon: 'scale', label: 'Log', run: (h) => h.onAddWeight() },
+        workout: { title: 'Workouts', hint: 'Create a plan and Next up shows your next session.', icon: 'dumbbell', label: 'Create', run: (h) => h.onCreatePlan() },
+        health: { title: 'Sleep', hint: 'Connect your watch and last night shows up here.', icon: 'moon', label: 'Open', run: (h) => h.onDeeplink('health') },
+        food: { title: 'Food', hint: 'Say what you ate, or search for it.', icon: 'food', label: 'Log', run: (h) => h.onLogFood() },
+        diary: { title: 'Diary', hint: 'A line about how you feel is enough.', icon: 'note', label: 'Write', run: (h) => h.onAddNote() },
+    };
+
+    function startHereKeys(sh) {
+        const missing = sh && Array.isArray(sh.missing) ? sh.missing : [];
+        return Object.keys(START_HERE_ROWS).filter((k) => missing.includes(k));
+    }
+
+    function renderStartHere(sh, keys, sun, h) {
+        const section = el('section', 'wg-section');
+        section.setAttribute('data-section', 'start-here');
+        const head = el('div', 'wg-section__head');
+        const picked = Array.isArray(sh.picked) ? sh.picked.length : keys.length;
+        head.append(el('span', 'wg-eyebrow wg-eyebrow--dot', 'Start here'), el('span', 'wg-meta', `${picked} picked`));
+        section.appendChild(head);
+        keys.forEach((k, i) => {
+            const r = START_HERE_ROWS[k];
+            const card = el('div', 'wg-card wg-card--flush');
+            card.setAttribute('data-start', k);
+            const row = el('div', 'wg-empty wg-empty--inline');
+            const lead = el('span', 'wg-empty__icon');
+            lead.appendChild(ico(r.icon));
+            const text = el('span', 'wg-vstack wg-spacer');
+            text.append(el('span', 'wg-row__title', r.title), el('span', 'wg-hint', r.hint));
+            row.append(lead, text, btn(r.label, { sm: true, primary: sun && i === 0, action: `start-here-${k}`, onClick: () => r.run(h) }));
+            card.appendChild(row);
+            section.appendChild(card);
+        });
+        return section;
     }
 
     // ---- Protect-your-data card (W4, bd med-ta2n.4) -------------------------
@@ -3211,8 +3259,13 @@
             root.appendChild(callRow);
         }
 
-        const next = renderNextUp(state, h, nowMs);
+        const startKeys = startHereKeys(state && state.startHere);
+        const next = renderNextUp(state, h, nowMs, startKeys.length > 0);
         if (next.node) { root.appendChild(next.node); }
+
+        // W3: below Next up, above everything else (bd med-ta2n.3).
+        const startSun = startKeys.length > 0 && !next.hasPrimary;
+        if (startKeys.length) { root.appendChild(renderStartHere(state.startHere, startKeys, startSun, h)); }
 
         // W4: below Next up, above the tiles (bd med-ta2n.4).
         const protect = renderProtectCard();
@@ -3238,7 +3291,7 @@
         if (trackersCard) { root.appendChild(trackersCard); }
         syncTrackerSheet(state && state.trackers, nowMs);
 
-        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary, offline);
+        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary && !startSun, offline);
         if (goal.node) { root.appendChild(goal.node); }
 
         const macros = renderMacrosCard(state, h);

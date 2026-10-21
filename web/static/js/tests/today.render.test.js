@@ -1842,3 +1842,69 @@ describe('W4 protect-your-data card', () => {
         expect(sheet().querySelector('.wg-sheet__body .wg-hint').textContent).toBe("Pick Later and we won't ask again.");
     });
 });
+
+// bd med-ta2n.3 — W3 "Start here": one hint per picked module with no record
+// yet. Which ones comes from GET /api/today/start-here (today-loader.js puts
+// it on state; the domain rules run in cloud.shim-contract.settings).
+describe('W3 Start here', () => {
+    let env;
+    let root;
+    const block = () => root.querySelector('[data-section="start-here"]');
+    const rows = () => [...root.querySelectorAll('[data-section="start-here"] [data-start]')].map((n) => n.getAttribute('data-start'));
+    const sections = () => [...root.querySelectorAll('#today-content > [data-section]')].map((n) => n.getAttribute('data-section'));
+    const FOUR = ['medication', 'bp', 'weight', 'food'];
+    function paint(missing, s = baseState(), handlers = {}) {
+        s.startHere = { picked: FOUR, missing };
+        env.render(s, root, { now: NOW, ...handlers });
+    }
+    beforeEach(() => { env = loadRenderEnv(); root = env.document.getElementById('today-content'); });
+    afterEach(() => { env.cleanup(); });
+
+    it('4 picked, 0 records: 4 rows in W1 order, the first one the only sun, no empty Next up', () => {
+        const s = baseState();
+        s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
+        paint(['food', 'weight', 'bp', 'medication'], s);
+        expect(rows()).toEqual(FOUR);
+        expect(block().querySelector('.wg-eyebrow').textContent).toBe('Start here');
+        expect(block().querySelector('.wg-section__head .wg-meta').textContent).toBe('4 picked');
+        expect(block().querySelector('[data-start="medication"] .wg-row__title').textContent).toBe('Your medications');
+        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['start-here-medication']);
+        expect(root.querySelector('[data-action="set-goal"]').classList.contains('wg-btn--primary')).toBe(false);
+        // W3 has no "Nothing scheduled" card: its actions are rows here.
+        expect(sections()).not.toContain('next-up');
+        expect(sections().indexOf('start-here')).toBeLessThan(sections().indexOf('vitals'));
+        expect(block().querySelector('[style]')).toBeNull();
+    });
+
+    it('a module with a record loses its row; the next one takes the sun', () => {
+        paint(['bp', 'weight', 'food']);
+        expect(rows()).toEqual(['bp', 'weight', 'food']);
+        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['start-here-bp']);
+        paint(['weight', 'food']);
+        expect(rows()).toEqual(['weight', 'food']);
+    });
+
+    it('every picked module has a record: no block, and the empty Next up keeps its sun', () => {
+        paint([]);
+        expect(block()).toBeNull();
+        expect(sections()).toContain('next-up');
+        expect(primaries(root).length).toBe(1);
+    });
+
+    it('no answer (no shim route) renders no block', () => {
+        env.render(baseState(), root, { now: NOW });
+        expect(block()).toBeNull();
+    });
+
+    it('sits below a real Next up, which keeps the sun; actions open the existing add flows', () => {
+        const onAddBp = vi.fn();
+        const onAddMedication = vi.fn();
+        paint(['medication', 'bp'], busyState(), { onAddBp, onAddMedication });
+        expect(sections().indexOf('start-here')).toBe(sections().indexOf('next-up') + 1);
+        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['start-workout']);
+        root.querySelector('[data-action="start-here-bp"]').click();
+        root.querySelector('[data-action="start-here-medication"]').click();
+        expect(onAddBp).toHaveBeenCalledTimes(1);
+        expect(onAddMedication).toHaveBeenCalledTimes(1);
+    });
+});

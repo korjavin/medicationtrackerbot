@@ -31,6 +31,11 @@ const FEATURES_MED_ONLY = {
     medication: true, bp: false, weight: false, food: false, workout: false, health: false
 };
 
+// apiCall traffic other than the per-render W3 "Start here" read (a local
+// vault read, bd med-ta2n.3) — i.e. the refetches these tests pin.
+const START_HERE_URL = '/api/today/start-here';
+const refetchCalls = (window) => window.apiCall.mock.calls.filter((c) => c[0] !== START_HERE_URL);
+
 function makeDeferred() {
     let resolve;
     const promise = new Promise((res) => { resolve = res; });
@@ -130,7 +135,8 @@ describe('Today loader — features/today-loader.js', () => {
 
             // Offline short-circuits the refetch loop entirely.
             expect(window.DataStore.fetchFresh).not.toHaveBeenCalled();
-            expect(window.apiCall).not.toHaveBeenCalled();
+            expect(refetchCalls(window)).toEqual([]);
+            expect(window.apiCall).toHaveBeenCalledWith(START_HERE_URL, 'GET');
         });
 
         it('renders the offline first-run state (no Next up) when no cache exists at all', async () => {
@@ -410,7 +416,7 @@ describe('Today loader — features/today-loader.js', () => {
             expect(renderToday.mock.calls[0][2].now).toBeGreaterThan(realNow());
             // A tick repaints from cache only — revalidation stays event-driven.
             expect(window.DataStore.fetchFresh).not.toHaveBeenCalled();
-            expect(window.apiCall).not.toHaveBeenCalled();
+            expect(refetchCalls(window)).toEqual([]);
         });
 
         it('is inert while a voice call is connecting or live', async () => {

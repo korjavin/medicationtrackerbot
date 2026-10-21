@@ -481,6 +481,12 @@ async function _todayRender(foodKey, settled) {
         // with no data yet) still renders the layout with its empty states.
         state.__firstRun = true;
     }
+    // W3 "Start here" (bd med-ta2n.3): a local vault read on every render, so
+    // a module's row goes the moment its first record lands. No cache: any
+    // failure (no shim route) just means no block.
+    state.startHere = await Promise.resolve()
+        .then(() => apiCall('/api/today/start-here', 'GET'))
+        .catch(() => null);
     window.TodayDashboard.renderToday(state, root, { now: nowMs, cardOrder, offline: !online, settled: settled === true });
     return { rendered: true, bootstrap, swrCaches, online };
 }
