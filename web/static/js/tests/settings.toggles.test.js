@@ -552,16 +552,21 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
-            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
-            await window.loadSettings();
+            window.SettingsState.applyBootstrapFeatures({
+                medication: true, workout: true, food: true, bp: true, weight: true, health: true
+            });
+            window.AppStore.set('currentTab', 'today');
+            window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.rebuildCanonicalBottomNav = vi.fn();
+            window.switchTab = vi.fn();
             const row = document.getElementById('settings-reminders-meds');
 
-            window.featureSettings = { medication: false };
-            window.SettingsView.updateFeatureToggles();
+            // The live toggle path: off hides the row, on brings it back.
+            await window.toggleFeatureSetting('medication', false);
             expect(row.classList.contains('wg-settings-hidden')).toBe(true);
 
-            window.featureSettings = { medication: true };
-            window.SettingsView.updateFeatureToggles();
+            await window.toggleFeatureSetting('medication', true);
             expect(row.classList.contains('wg-settings-hidden')).toBe(false);
         } finally {
             cleanup();
