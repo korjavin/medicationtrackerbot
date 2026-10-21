@@ -107,6 +107,14 @@ export function hasUserContent(records) {
   return records.some((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType));
 }
 
+// How many LIVE user-content records (the "N records" of the P3 sheet and the
+// move pickup's "Sync is on" toast, bd med-ta2n.7). The `gamification`
+// singleton is a state container every vault round trip re-creates (its
+// content lives in the gamification* types), so it is not one of the N.
+export function userContentCount(records) {
+  return records.filter((r) => !r.deleted && r.recordType !== 'gamification' && USER_CONTENT_TYPES.has(r.recordType)).length;
+}
+
 // mergeRecords (bd med-o7zq.38): the record set a merge import lands — the
 // union by recordId, receiver (`existing`) wins, i.e. putIfAbsent semantics.
 // One exception: a live floored placeholder (clientTs 0, CLAUDE.md rule 12)

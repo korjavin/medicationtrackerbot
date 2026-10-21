@@ -226,6 +226,22 @@ describe('features/auth-bootstrap.js — first-run overlay wiring', () => {
         // can read it once it boots.
         expect(window.__MEDTRACKER_BOOTSTRAP__.needs_first_run).toBe(true);
     });
+
+    // bd med-ta2n.7: in an app shell the pending invite is routed first, so
+    // "Your invite is here" comes before W1 (InviteSheet.boot settles first).
+    it('waits for InviteSheet.boot before mounting W1', async () => {
+        const { window } = env;
+        const mount = vi.fn();
+        window.WGFirstRun = { mount };
+        let release;
+        window.InviteSheet = { ...window.InviteSheet, boot: vi.fn(() => new Promise((r) => { release = r; })) };
+
+        await window.applyBootstrapPayload({ cursor: 1, features: {}, settings: {}, needs_first_run: true });
+        expect(window.InviteSheet.boot).toHaveBeenCalledTimes(1);
+        expect(mount).not.toHaveBeenCalled();
+        release();
+        await vi.waitFor(() => expect(mount).toHaveBeenCalledWith({ needs_first_run: true }));
+    });
 });
 
 describe('features/auth-bootstrap.js — namespace + backwards-compat shims', () => {

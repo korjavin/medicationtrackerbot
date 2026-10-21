@@ -863,7 +863,11 @@ describe('cloud-boot share-plan fragment across unlock (med-uo64.3)', () => {
 // settings.js nativeHas probe and the real importexport.js restoreVault; only
 // the bridge, the dialogs and CloudVault's probe/import are stubbed.
 describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
-  const VAULT = JSON.stringify({ format: 'medtracker-vault', version: 1, data: {} });
+  // The golden vault (docs/vault-format.md): a stash that carries records.
+  const VAULT = readFileSync(fileURLToPath(new URL('../../../../tests/fixtures/vault-v1.json', import.meta.url)), 'utf8');
+  const MOVED = realVault.userContentCount(realVault.vaultToRecords(JSON.parse(VAULT), { now: Date.now() }));
+  // What moveToCloud {url} stashes from a device with nothing logged (bd med-ta2n.7).
+  const EMPTY_VAULT = JSON.stringify(realVault.recordsToVault([], { now: Date.now() }));
   const UNLOCKED = async () => ({ accountId: 'a', kData: {}, kMac: {} });
   let env;
 
@@ -915,7 +919,11 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     // CloudVault is cloud-boot's own; swap the two calls restoreVault makes.
     if (window.CloudVault) {
       // `live` set: the real probe over those account records instead.
-      if (!live) window.CloudVault.hasUserContent = vi.fn(async () => { log.push('probe'); return content; });
+      if (!live) window.CloudVault.hasUserContent = vi.fn(async () => {
+        log.push('probe');
+        if (content instanceof Error) throw content;
+        return content;
+      });
       window.CloudVault.importAll = vi.fn(async (json) => {
         log.push('importAll');
         return importAll ? importAll(json) : { upload: 'synced' };
@@ -932,18 +940,73 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'importAll', 'move.clear']);
     expect(window.CloudVault.importAll).toHaveBeenCalledWith(VAULT);
     expect(window.safeConfirm).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe('1');
+    expect(MOVED).toBeGreaterThan(1);
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe(String(MOVED));
   });
 
-  it('after the reload: the toast shows once and nothing is imported again', async () => {
+  // P3 · done (bd med-ta2n.7): the count the pickup moved.
+  it('after the reload: "Sync is on · N records" shows once and nothing is imported again', async () => {
+    env.window.sessionStorage.setItem('wg-move-picked-up', '43');
+    const { window, log } = await boot({ stash: null });
+    await vi.waitFor(() => expect(log).toContain('move.take'));
+    await settle();
+    expect(window.safeToast).toHaveBeenCalledWith('Sync is on · 43 records are on your account', 'success');
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+    expect(log).not.toContain('importAll');
+    expect(log).not.toContain('move.clear');
+  });
+
+  it('the toast says "record is" for one', async () => {
     env.window.sessionStorage.setItem('wg-move-picked-up', '1');
     const { window, log } = await boot({ stash: null });
     await vi.waitFor(() => expect(log).toContain('move.take'));
     await settle();
-    expect(window.safeToast).toHaveBeenCalledWith('Your records from this phone are in your account.', 'success');
+    expect(window.safeToast).toHaveBeenCalledWith('Sync is on · 1 record is on your account', 'success');
+  });
+
+  // #1244 breakage review: moveToCloud {url} always stashes, so a device with
+  // nothing logged stashes an empty vault. It moves nothing: dropped, never
+  // offered as a Merge/Replace to an account with records.
+  it('a stash with no user content + an account with records: move.clear, no dialog, no import', async () => {
+    const { window, log } = await boot({ stash: { vault: EMPTY_VAULT }, content: true });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    await settle();
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'move.clear']);
+    expect(window.safeChoose).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
-    expect(log).not.toContain('importAll');
-    expect(log).not.toContain('move.clear');
+  });
+
+  // #1248 breakage review: an unknown account (offline / failed pull →
+  // undefined, or a throw) must not drop the stash's settings and keys.
+  it.each([
+    // null: boot()'s default would turn undefined into false; the pickup
+    // treats both the same (only true / false act).
+    ['an unknown answer (offline)', null],
+    ['a throwing probe', new Error('pull failed')],
+  ])('a stash with no user content + %s: the stash is kept, nothing imported', async (_, content) => {
+    const { window, log } = await boot({ stash: { vault: EMPTY_VAULT }, content });
+    await vi.waitFor(() => expect(log).toContain('probe'));
+    await settle();
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe']);
+    expect(window.safeChoose).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+  });
+
+  // Settings, features and keys still move into an empty account, silently.
+  it('a stash with no user content + an empty account: imported with no dialog, then "Sync is on"', async () => {
+    const { window, log } = await boot({ stash: { vault: EMPTY_VAULT } });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'probe', 'importAll', 'move.clear']);
+    expect(window.safeChoose).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe('0');
+  });
+
+  it('after the reload of a records-free move: the toast says "Sync is on"', async () => {
+    env.window.sessionStorage.setItem('wg-move-picked-up', '0');
+    const { window, log } = await boot({ stash: null });
+    await vi.waitFor(() => expect(log).toContain('move.take'));
+    await settle();
+    expect(window.safeToast).toHaveBeenCalledWith('Sync is on', 'success');
   });
 
   // A fresh account holds only what signup and the first run wrote (bd

@@ -25,9 +25,25 @@
 //                     link has no base and is rejected) — the shell's
 //                     local.leave {url} re-validates against its base anyway.
 //
-// A valid invite hands its claim URL to CloudVault.moveToCloud({url})
-// (local.leave {url}) — until the P3 sheet (med-ta2n.7) sits in between —
-// gated per A7 on a v3 shell (invite.pending listed) and navigator.onLine.
+// A valid invite goes to offer() — the P3 route (bd med-ta2n.7) — in a v3
+// shell (invite.pending listed) only.
+//
+//   offer(url, {kit}?)  url = a claim URL. Local mode with records → the P3
+//                     "Turn on sync?" sheet; local with none → "Your invite is
+//                     here" (P3 · Android, any shell); account mode → the
+//                     "Switch account?" D1. kit: entered from Settings (W5/W4),
+//                     appends &kit=1 to the claim fragment (contract §8).
+//   boot()            ONE invite.pending read per page (contract §8), called by
+//                     auth-bootstrap.js before W1 mounts; null outside a shell,
+//                     else a promise that settles when W1 may mount (the "Your
+//                     invite is here" screen holds it until "Use without
+//                     sync"). No slot + ?invite=1 (the shell's warm delivery) →
+//                     F1. A slot older than 14 days is cleared and ignored.
+// Every leave is gated per A7 at the tap: navigator.onLine !== false, else an
+// in-page error with nothing stashed and no op called. Turn on sync / Sign in →
+// CloudVault.moveToCloud({url}) (move.stash + local.leave {url}); Switch →
+// account.leave {url}; Keep this account → invite.clear. The shell clears the
+// slot after a successful leave.
 (function () {
     'use strict';
 
@@ -35,6 +51,8 @@
     var OFFLINE = "You're offline — try again when connected.";
     var NO_CAMERA = 'The camera is unavailable. Paste the link instead.';
     var SCAN_MS = 200;
+    var PROBE_MS = 3000;
+    var STALE_MS = 14 * 24 * 60 * 60 * 1000;
 
     // scheme://authority path ?query #fragment, raw. `.` stops at a newline, so
     // a multi-line kit QR falls through to the first-line account parse.
@@ -125,8 +143,9 @@
 
     var current = null;
 
-    function open() {
+    function open(opts) {
         if (current || !window.WGSheet || !window.ModalManager) return;
+        var kit = !!(opts && opts.kit);
         var modal = el('mt-modal', 'wg-modal wg-sheet wg-invite-sheet');
         modal.id = 'invite-sheet';
         modal.setAttribute('role', 'dialog');
@@ -199,12 +218,8 @@
             video.hidden = true;
         }
 
-        // While the move runs it cannot be called back: the sheet stays up
-        // until local.leave was sent (the shell navigates) or the move failed.
-        var moving = false;
-
         function close() {
-            if (current !== close || moving) return false;
+            if (current !== close) return false;
             current = null;
             stopScan();
             document.removeEventListener('keydown', onKeydown, true);
@@ -230,20 +245,17 @@
                 if (!invite) { showError(NOT_INVITE); showField(); return; }
                 if (window.navigator.onLine === false) { showError(OFFLINE); return; }
                 var n = native();
-                if (!n || !(await n.has('invite.pending')) || !window.CloudVault || typeof window.CloudVault.moveToCloud !== 'function') {
+                if (!n || !(await n.has('invite.pending'))) {
                     showError('Update Med Tracker to use an invite here.');
                     return;
                 }
                 if (!live()) return;
-                moving = true;
-                await window.CloudVault.moveToCloud({ win: window, url: invite.claimUrl });
-                // The shell is navigating to the account; nothing left to do here.
+                close();
+                offer(invite.claimUrl, { kit: kit });
             } catch (e) {
-                var msg = (e && e.message) || '';
-                showError(/invalid url/.test(msg) ? NOT_INVITE : 'The invite could not be opened: ' + (msg || 'unknown error') + '.');
+                showError('The invite could not be opened: ' + ((e && e.message) || 'unknown error') + '.');
             } finally {
                 busy = false;
-                moving = false;
             }
         }
 
@@ -316,7 +328,260 @@
         window.ModalManager.open(modal.id);
     }
 
-    document.addEventListener('wg:invite-open', function () { open(); });
+    document.addEventListener('wg:invite-open', function (e) { open(e && e.detail); });
 
-    window.InviteSheet = { open: open, parse: parse };
+    // ---- P3 (bd med-ta2n.7) ------------------------------------------------
+
+    function within(promise, fallback) {
+        return Promise.race([
+            Promise.resolve(promise).catch(function () { return fallback; }),
+            new Promise(function (r) { setTimeout(function () { r(fallback); }, PROBE_MS); }),
+        ]);
+    }
+
+    function isLocal() {
+        return document.documentElement.classList.contains('wg-local-vault');
+    }
+
+    // Device words off the capability (LocalNotifications.copy), never the platform.
+    function words() {
+        var c = (window.LocalNotifications && window.LocalNotifications.copy) || {};
+        var android = c.os === 'Android';
+        return {
+            device: c.device || 'iPhone',
+            bio: android ? 'your fingerprint' : 'Face ID',
+            bioShort: android ? 'fingerprint' : 'Face ID',
+            bioIcon: android ? 'finger' : 'faceid',
+        };
+    }
+
+    function withKit(url) {
+        var hash = url.indexOf('#');
+        if (hash === -1 || url.slice(hash + 1).indexOf('claim=') !== 0) return url;
+        return /[#&]kit=1(&|$)/.test(url) ? url : url + '&kit=1';
+    }
+
+    function facts(items, small) {
+        var ul = el('ul', small ? 'wg-facts wg-facts--sm' : 'wg-facts');
+        items.forEach(function (f) {
+            var li = el('li');
+            var i = el('i', 'wg-ico');
+            i.dataset.icon = f[0];
+            var span = el('span');
+            span.append(el('b', null, f[1]), f[2]);
+            li.append(i, span);
+            ul.appendChild(li);
+        });
+        return ul;
+    }
+
+    // The leave behind "Turn on sync" / "Sign in": A7 offline gate, then the
+    // move (stash + local.leave {url}). While it runs it cannot be called back.
+    function leaver(url, error) {
+        var state = { moving: false };
+        state.go = async function () {
+            if (state.moving) return;
+            error.hidden = true;
+            if (window.navigator.onLine === false) { error.textContent = OFFLINE; error.hidden = false; return; }
+            state.moving = true;
+            try {
+                await window.CloudVault.moveToCloud({ win: window, url: url });
+                // The shell is navigating to the account; nothing left to do here.
+            } catch (e) {
+                var msg = (e && e.message) || '';
+                error.textContent = /invalid url/.test(msg) ? NOT_INVITE : 'The invite could not be opened: ' + (msg || 'unknown error') + '.';
+                error.hidden = false;
+            } finally {
+                state.moving = false;
+            }
+        };
+        return state;
+    }
+
+    function errorLine() {
+        var error = el('p', 'wg-error');
+        error.hidden = true;
+        error.setAttribute('role', 'alert');
+        return error;
+    }
+
+    // P3 "Turn on sync?" over Today: local mode with records.
+    function turnOnSync(url, count) {
+        if (document.getElementById('invite-sync-sheet') || !window.WGSheet || !window.ModalManager) return;
+        var w = words();
+        var modal = el('mt-modal', 'wg-modal wg-sheet wg-invite-sheet');
+        modal.id = 'invite-sync-sheet';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        var backdrop = el('div', 'mt-confirm-backdrop wg-sheet-backdrop');
+        var head = window.WGSheet.header({
+            eyebrow: 'Invite',
+            title: 'Turn on sync?',
+            actions: [{ label: 'Close', icon: 'x', attrs: { 'data-invite-action': 'close' } }],
+        });
+        var body = el('div', 'wg-sheet__body');
+        var error = errorLine();
+        body.append(facts([
+            ['cloud-up', 'Your ' + count + (count === 1 ? ' record moves' : ' records move') + ' to your account', 'This ' + w.device + ' keeps working offline.'],
+            [w.bioIcon, 'Sign in with ' + w.bio, 'No password, no email.'],
+            ['device', 'Use it on other devices too', 'Add a tablet or a browser later.'],
+        ], true), error);
+        var foot = el('div', 'wg-sheet__foot');
+        var notNow = button('wg-btn', 'Not now', null, 'not-now');
+        var go = button('wg-btn wg-btn--primary', 'Turn on sync', null, 'turn-on-sync');
+        foot.append(notNow, go);
+        modal.append(el('div', 'wg-sheet__grab'), head.el, body, foot);
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(modal);
+
+        var leave = leaver(url, error);
+        // Not now keeps the slot: P3 offers it again on the next open, until
+        // it is 14 days old (STALE_MS).
+        function close() {
+            if (leave.moving || !modal.isConnected) return false;
+            document.removeEventListener('keydown', onKeydown, true);
+            window.ModalManager.close(modal.id);
+            window.ModalManager.register(modal.id, null);
+            modal.remove();
+            backdrop.remove();
+            return true;
+        }
+        function onKeydown(e) {
+            if (e.key === 'Escape') { e.preventDefault(); close(); }
+        }
+        go.addEventListener('click', leave.go);
+        head.buttons[0].addEventListener('click', close);
+        notNow.addEventListener('click', close);
+        backdrop.addEventListener('click', close);
+        document.addEventListener('keydown', onKeydown, true);
+        document.body.append(backdrop, modal);
+        window.ModalManager.register(modal.id, close);
+        window.ModalManager.open(modal.id);
+    }
+
+    // P3 · Android "Your invite is here": nothing on this device yet (the
+    // Play-referrer first launch, or F1 on an empty device). A full screen
+    // ahead of W1; resolves when the user picks "Use without sync".
+    function inviteReady(url) {
+        if (document.getElementById('invite-ready')) return Promise.resolve();
+        var w = words();
+        var overlay = el('div', 'wg-firstrun-overlay wg-invite-ready');
+        overlay.id = 'invite-ready';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'invite-ready-title');
+        var panel = el('div', 'wg-firstrun-overlay__panel');
+        var brand = el('div', 'wg-shell__brand');
+        var mark = el('span', 'wg-mark wg-mark--sm');
+        var ico = el('i', 'wg-ico');
+        ico.dataset.icon = 'pill';
+        mark.appendChild(ico);
+        brand.append(mark, el('span', 'wg-shell__name', 'Med Tracker'));
+        var title = el('h2', 'wg-firstrun-overlay__title wg-shell__title', 'Your invite is here');
+        title.id = 'invite-ready-title';
+        var error = errorLine();
+        var foot = el('div', 'wg-firstrun-foot');
+        var go = button('wg-btn wg-btn--primary wg-btn--lg', 'Sign in with ' + w.bioShort, w.bioIcon, 'sign-in');
+        var skip = button('wg-btn wg-btn--ghost', 'Use without sync', null, 'without-sync');
+        foot.append(go, skip);
+        panel.append(brand, title,
+            el('p', 'wg-shell__lede', 'Sign in once and your log syncs to your account.'),
+            facts([
+                ['cloud-up', 'Your account is ready', 'Set up by the person who invited you.'],
+                [w.bioIcon, 'Sign in with ' + w.bio, 'No password, no email.'],
+            ]),
+            error, foot);
+        overlay.appendChild(panel);
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(overlay);
+        var leave = leaver(url, error);
+        go.addEventListener('click', leave.go);
+        document.body.appendChild(overlay);
+        return new Promise(function (resolve) {
+            // Keeps the slot: W1 follows without its "Have an invite?" footer.
+            skip.addEventListener('click', function () {
+                if (leave.moving) return;
+                overlay.remove();
+                resolve();
+            });
+        });
+    }
+
+    // "Switch account?" (account mode): this host is left, nothing is copied.
+    async function switchAccount(url) {
+        var n = native();
+        var w = words();
+        var host = window.location.hostname;
+        var ok = await window.safeConfirm('', null, {
+            title: 'Switch account?',
+            icon: 'swap',
+            tone: 'warn',
+            dangerOutline: true,
+            cancelLabel: 'Keep this account',
+            confirmLabel: 'Switch',
+            facts: [
+                { text: 'This ' + w.device + ' leaves ' + host + '. Your records stay on the server for your other devices.' },
+                { text: 'The invite opens a new, empty account.' },
+                { text: 'Nothing is copied across.', gone: true },
+            ],
+        });
+        if (!ok) {
+            n.call('invite.clear').catch(function () { /* the slot stays; asked again next open */ });
+            return;
+        }
+        if (window.navigator.onLine === false) { window.safeToast(OFFLINE, 'error'); return; }
+        try {
+            await n.call('account.leave', { url: url });
+        } catch (e) {
+            var msg = (e && e.message) || '';
+            window.safeToast(/invalid url/.test(msg) ? NOT_INVITE : 'The invite could not be opened: ' + (msg || 'unknown error') + '.', 'error');
+        }
+    }
+
+    function offer(url, opts) {
+        if (opts && opts.kit) url = withKit(url);
+        if (!isLocal()) return switchAccount(url);
+        return Promise.resolve(window.CloudVault.userContentCount()).then(function (count) {
+            if (count > 0) turnOnSync(url, count);
+            else inviteReady(url);
+        });
+    }
+
+    async function route(n) {
+        var forced = false;
+        try {
+            var here = new URL(window.location.href);
+            forced = here.searchParams.get('invite') === '1';
+            if (forced) {
+                here.searchParams.delete('invite');
+                window.history.replaceState(window.history.state, '', here.pathname + here.search + here.hash);
+            }
+        } catch (_) { /* no URL: nothing forced */ }
+        if ((await within(n.has('invite.pending'), false)) !== true) return;
+        var slot = await within(n.call('invite.pending'), null);
+        var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
+        if (invite && !(slot.receivedAt > Date.now() - STALE_MS)) {
+            n.call('invite.clear').catch(function () { /* judged stale again next open */ });
+            invite = null;
+        }
+        if (!invite) {
+            // After W1 mounts (the caller's .then), so F1 opens over it.
+            if (forced) setTimeout(open, 0);
+            return;
+        }
+        if (!isLocal()) { switchAccount(invite.claimUrl); return; }
+        var count = await window.CloudVault.userContentCount();
+        if (count > 0) { turnOnSync(invite.claimUrl, count); return; }
+        await inviteReady(invite.claimUrl);
+    }
+
+    var booted = null;
+    function boot() {
+        var n = native();
+        if (!n || (n.platform !== 'ios' && n.platform !== 'android')) return null;
+        if (!booted) {
+            booted = route(n).catch(function (e) { console.warn('[invite] boot routing failed', e); });
+        }
+        return booted;
+    }
+
+    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot };
 })();
