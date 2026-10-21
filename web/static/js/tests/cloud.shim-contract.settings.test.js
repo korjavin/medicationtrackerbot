@@ -217,6 +217,58 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(all[0].clientTs).toBeGreaterThan(0);
     });
 
+    // bd med-ta2n.3 — W3 Today "Start here": read-only, over the records port.
+    it('GET /api/today/start-here: picks in W1 order, a module drops out of missing at its first live record', async () => {
+        const { window, records } = env;
+        await window.apiCall('/api/firstrun/complete', 'POST', { picked: ['food', 'medication', 'bp', 'weight'] });
+
+        expect(await window.apiCall('/api/today/start-here', 'GET')).toEqual({
+            picked: ['medication', 'bp', 'weight', 'food'],
+            missing: ['medication', 'bp', 'weight', 'food'],
+        });
+
+        // A tombstone is not a record.
+        await records.put('bp', { recordId: 'gone', clientTs: 1, deleted: true });
+        expect((await window.apiCall('/api/today/start-here', 'GET')).missing).toContain('bp');
+
+        await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 64, measured_at: new Date().toISOString() });
+        const after = await window.apiCall('/api/today/start-here', 'GET');
+        expect(after.missing).toEqual(['medication', 'weight', 'food']);
+        // Reading it wrote nothing.
+        expect((await records.list('firstrun'))[0].picked).toEqual(['food', 'medication', 'bp', 'weight']);
+    });
+
+    it('GET /api/today/start-here never lists a module whose feature is off; Diary rides the Vitals flag', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+        await window.apiCall('/api/firstrun/complete', 'POST', { picked: ['bp', 'food', 'diary'] });
+        await window.toggleFeatureSetting('food', false);
+
+        expect(await window.apiCall('/api/today/start-here', 'GET')).toEqual({ picked: ['bp', 'diary'], missing: ['bp', 'diary'] });
+
+        await window.toggleFeatureSetting('health', false);
+        expect((await window.apiCall('/api/today/start-here', 'GET')).picked).toEqual(['bp']);
+    });
+
+    it('GET /api/today/start-here: a pre-v3 vault (no stored picks) already holding user content gets no block', async () => {
+        const { window } = env;
+        await window.apiCall('/api/firstrun/complete', 'POST');
+        await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 64, measured_at: new Date().toISOString() });
+
+        expect(await window.apiCall('/api/today/start-here', 'GET')).toEqual({ picked: [], missing: [] });
+    });
+
+    it('GET /api/today/start-here falls back to the six feature flags (never Diary) without stored picks or content', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+        await window.apiCall('/api/firstrun/complete', 'POST');
+        await window.toggleFeatureSetting('workout', false);
+
+        const res = await window.apiCall('/api/today/start-here', 'GET');
+        expect(res.picked).toEqual(['medication', 'bp', 'weight', 'health', 'food']);
+        expect(res.missing).toEqual(res.picked);
+    });
+
     it('a stale device overwriting the settings singleton cannot un-complete first run', async () => {
         const { window, records } = env;
 

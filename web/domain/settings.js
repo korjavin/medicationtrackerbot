@@ -88,6 +88,19 @@ const PROTECT_MIN_RECORDS = 20;
 const PROTECT_AFTER_MS = 7 * DAY_MS;
 const PROTECT_SNOOZE_MS = 14 * DAY_MS;
 const PROTECT_MAX_DISMISSALS = 2;
+// W3 Today "Start here" (bd med-ta2n.3): the W1 modules in picker order and
+// the record types whose first live row means "this module has a record".
+// Workouts count a plan or a session (an ad-hoc session has no plan); Diary
+// is the notes in the Vitals section, so it rides the `health` flag.
+const START_HERE_MODULES = [
+  ['medication', ['medication']],
+  ['bp', ['bp']],
+  ['weight', ['weight']],
+  ['workout', ['workoutgroup', 'workoutsession']],
+  ['health', ['sleep']],
+  ['food', ['foodlog']],
+  ['diary', ['note']],
+];
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -207,6 +220,29 @@ export function createSettingsDomain({ records, now, timeZone }) {
     if (Array.isArray(picked)) rec.picked = picked.filter((k) => typeof k === 'string');
     await records.put(FIRSTRUN_RECORD_TYPE, rec);
     return !!done;
+  }
+
+  // Read-only (no write, no derived row). picked: the firstrun record's W1
+  // picks in W1 order, minus modules whose feature is off; a vault onboarded
+  // without stored picks falls back to the six flags (never Diary) only while
+  // it holds no user content: a pre-v3 vault already in use gets no block
+  // (hasContent: async () => bool, the caller's vault.js userContentCount > 0;
+  // asked only on that path). missing: the picked modules with no live record.
+  async function getStartHere({ hasContent = async () => false } = {}) {
+    const fr = findSingleton(await records.list(FIRSTRUN_RECORD_TYPE), FIRSTRUN_RECORD_ID);
+    const stored = !!(fr && Array.isArray(fr.picked));
+    if (!stored && await hasContent()) return { picked: [], missing: [] };
+    const flags = await getFeatures();
+    const has = stored ? (k) => fr.picked.includes(k) : (k) => k !== 'diary';
+    const picked = START_HERE_MODULES.map(([k]) => k)
+      .filter((k) => has(k) && flags[k === 'diary' ? 'health' : k] !== false);
+    const missing = [];
+    for (const [k, types] of START_HERE_MODULES) {
+      if (!picked.includes(k)) continue;
+      const lists = await Promise.all(types.map((t) => records.list(t)));
+      if (!lists.flat().some((r) => !r.deleted)) missing.push(k);
+    }
+    return { picked, missing };
   }
 
   async function getFeatures() {
@@ -492,6 +528,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
     setTimezone,
     setDismissedTzSuggestion,
     setFirstRunComplete,
+    getStartHere,
     getFeatures,
     setFeature,
     getTabOrder,
