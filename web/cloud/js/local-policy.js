@@ -2,8 +2,8 @@
 // med-o7zq): what local-boot.js injects into installApiShim in place of the
 // cloud's server-backed effects. In local mode nothing leaves the device except
 // calls to the providers the user configured with their own key (BYOK AI,
-// their own food DB), the free trial (AI and food database) only if the user
-// turns it on, and feedback the user sends. The iOS shell enforces that with its CSP (connect-src
+// their own food DB) and, only if the user turns it on, the free trial (AI and
+// food database). The iOS shell enforces that with its CSP (connect-src
 // 'self' + the hosts registered here, ios/App/LocalOrigin.swift); this module
 // makes the app stop asking for anything else:
 //
@@ -15,15 +15,10 @@
 //   egress      BYOK hosts go to the shell (bridge op setEgressHosts), never
 //               to a server.
 //   trial AI    off unless the user turns on the anonymous trial (bd
-//               med-o7zq.16): then local-trial.js signs each request with
-//               App Attest. Our server's base domain is in the shell's host
-//               list wherever the shell has App Attest (bd med-ta2n.20), but
-//               the code calls it only for the trial or a feedback send. The
-//               account trial's meta flag stays out of the bundle
-//               (ios/bundle-web.sh).
-//   feedback    the cloud's Send feedback row, sealed to the developer's age
-//               key and POSTed to the attested /api/attest/feedback, only
-//               when the user taps Send (mountLocalFeedback below).
+//               med-o7zq.16): then, and only then, our server's base domain
+//               joins the shell's host list and local-trial.js signs each
+//               request with App Attest. The account trial's meta flag stays
+//               out of the bundle (ios/bundle-web.sh).
 //   food DB     no food-DB meta in the bundle. The operator's DB rides the
 //               same trial switch (bd med-o7zq.20): LOCAL_FOOD_DB below sends
 //               fooddb.js's lookups through local-trial.js to the attest
@@ -35,6 +30,11 @@
 //   UI          features that need our server carry .wg-cloud-only and hide
 //               under :root.wg-local-vault (styles.css), which local-boot.js
 //               sets before the body parses.
+//   feedback    the cloud's Send feedback row, sealed to the developer's age
+//               key and POSTed to the attested /api/attest/feedback, only
+//               when the user taps Send (mountLocalFeedback below, bd
+//               med-ta2n.20). Needs the base domain in the shell's host list
+//               with the trial off: med-ta2n.14's localEgressHosts.
 //
 // Privacy disclosure: the local-* rows in privacy-manifest.js.
 import {
@@ -252,20 +252,10 @@ async function attestStatus(win) {
   try {
     if (win.Attest?.isSupported?.() !== true) return null;
     const status = await win.Attest.status();
-    const base = bareHost(status?.base);
-    return status && status.supported === true && base ? { ...status, base } : null;
+    return status && status.supported === true && status.base ? status : null;
   } catch {
     return null;
   }
-}
-
-// The shells take the host list whole or not at all: at most SHELL_MAX_HOSTS
-// bare lowercase hostnames (no scheme, port or path). A base that is not one
-// is no base.
-const SHELL_MAX_HOSTS = 8;
-function bareHost(raw) {
-  const host = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-  return /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host) ? host : '';
 }
 
 // The anonymous trial (bd med-o7zq.16: AI; med-o7zq.20: food) this document's
@@ -493,13 +483,11 @@ export async function mountLocalFeedback({ win }) {
 // reloads). Resolves to { hosts, changed },
 // or null where there is no shell to tell (the web, tests).
 //
-// Our server's base domain is on the list wherever the shell supports App
-// Attest (the trial and local feedback, bd med-ta2n.20); ElevenLabs only
-// while the user has the trial on (the `anon` trial consent: one switch in
-// Settings → AI & integrations for the AI and the food database, bd
-// med-o7zq.20). With the trial off, nothing here talks to our server; only a
-// feedback Send does. The order is fixed (BYOK, base, ElevenLabs): a
-// reordered list would reload on every boot. The transport is installed
+// The trial AI's host — our server's base domain — joins the list only while
+// the user has it on (the `anon` trial consent: one switch in Settings → AI &
+// integrations for the AI and the food database, bd med-o7zq.20) and
+// the shell supports App Attest. Off, the CSP admits no server of ours and
+// nothing here talks to one. The transport is installed
 // only once this document's CSP carries the host (no change pending a
 // reload), and a first enrollment runs then, so Settings can show the count.
 // Settled by the first registerLocalEgress, whatever its outcome: until then
@@ -523,11 +511,8 @@ async function registerLocalEgressNow({ settings, win }) {
   const hosts = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
   const attest = await attestStatus(win);
   const trialOn = !!attest && (await settings.getTrialConsent())?.anon === true;
-  // The base domain is admitted wherever the shell has App Attest (bd
-  // med-ta2n.14, med-ta2n.20): the code calls it only for the trial or a
-  // feedback send. ElevenLabs only while the trial is on.
-  for (const host of [attest?.base, trialOn && ELEVENLABS_HOST]) {
-    if (host && !hosts.includes(host) && hosts.length < SHELL_MAX_HOSTS) hosts.push(host);
+  if (trialOn) {
+    for (const host of [attest.base, ELEVENLABS_HOST]) if (!hosts.includes(host)) hosts.push(host);
   }
   const reply = await native.call('setEgressHosts', { hosts });
   const changed = !!(reply && reply.changed);

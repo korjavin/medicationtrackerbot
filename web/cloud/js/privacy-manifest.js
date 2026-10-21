@@ -783,20 +783,20 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'On-device mode (iPhone and Android apps) — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above), feedback you send (the local-feedback row below) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below)',
-    destination: 'Only those providers, plus our server while the free trial is on or when you send feedback (and, for trial voice calls, the operator\'s ElevenLabs account). Where the phone supports the app check, the app\'s CSP always admits our server\'s base domain so a feedback send can reach it, but the app calls it only for the trial or feedback. The CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below)',
+    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:530', 'web/cloud/js/local-policy.js:532', 'web/cloud/js/local-policy.js:251', 'ios/App/LocalOrigin.swift:41', 'android/app/src/main/java/com/example/medtracker/MainActivity.kt:382'],
+    evidence: ['web/cloud/js/local-policy.js:287', 'web/cloud/js/local-policy.js:295', 'web/cloud/js/local-policy.js:247', 'ios/App/LocalOrigin.swift:41', 'android/app/src/main/java/com/example/medtracker/MainActivity.kt:382'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send feedback. Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
     },
   },
   {
@@ -882,7 +882,9 @@ export const PRIVACY_MANIFEST = [
     // bd med-ta2n.19 (server: POST /api/attest/feedback) + med-ta2n.20 (client:
     // local-policy.js swaps feedback-submit.js's transport for the attest
     // client). Same age recipient and feedback_queue as the cloud 'feedback'
-    // row; the row's account_id is 'attest:' + the per-install key id.
+    // row; the row's account_id is 'attest:' + the bucket id. With the trial
+    // off the shell CSP must admit the base domain: med-ta2n.14's
+    // localEgressHosts (then the local-egress row should name feedback too).
     id: 'local-feedback',
     mode: 'local',
     feature: 'On-device mode (iPhone and Android apps) — feedback you send',
@@ -894,7 +896,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'user-initiated',
     activationNote: 'when you tap Send in Settings → Send feedback; the first send on an install without a trial key also enrolls one (the app check, no data about you)',
     byo: 'n/a',
-    evidence: ['web/cloud/js/feedback-submit.js:166', 'web/cloud/js/local-policy.js:432', 'web/cloud/js/local-policy.js:469', 'web/cloud/js/local-boot.js:95', 'internal/cloudserver/attest.go:331'],
+    evidence: ['web/cloud/js/feedback-submit.js:166', 'web/cloud/js/local-policy.js:429', 'web/cloud/js/local-policy.js:459', 'web/cloud/js/local-boot.js:85', 'internal/cloudserver/attest.go:331'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: [] },
     docSignal: null,
     userCopy: {

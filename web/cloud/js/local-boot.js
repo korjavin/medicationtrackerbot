@@ -42,19 +42,9 @@ window.MedTrackerCloudReady = (async function boot() {
         // after a Settings save alike (the app shell has no reload control of
         // its own). The next load's list matches, so it reloads once. null
         // skips apishim's "reload to apply" toast.
-        // The first registration settles egressSettled unless it reloads: boot
-        // waits for it below, so a CSP change (a fresh install now adds the
-        // base domain, bd med-ta2n.20) reloads before first run or anything paints.
-        let egressSettled;
-        const firstEgress = new Promise((resolve) => { egressSettled = resolve; });
         const registerEgress = async ({ settings }) => {
             await domReady;
-            let res = null;
-            try {
-                res = await policy.registerLocalEgress({ settings, win: window });
-            } finally {
-                if (!res || !res.changed) egressSettled();
-            }
+            const res = await policy.registerLocalEgress({ settings, win: window });
             if (!res) return null;
             if (res.changed) {
                 window.location.reload();
@@ -100,8 +90,6 @@ window.MedTrackerCloudReady = (async function boot() {
                 ? shimCall(endpoint, method, body, opts)
                 : realApiCallDirect(endpoint, method, body, opts)
         );
-        // Bounded: a shell that never answers setEgressHosts must not hold the app.
-        await Promise.race([firstEgress, new Promise((resolve) => { setTimeout(resolve, 5000); })]);
     } catch (e) {
         // Nothing to redirect to — there is no unlock screen in local mode.
         console.error('[local-boot] boot failed', e);

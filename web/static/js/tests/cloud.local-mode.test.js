@@ -1538,7 +1538,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -1550,13 +1550,11 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
 
     const toBase = () => fetched.filter((u) => /^https?:/.test(u) && new URL(u).hostname === TRIAL_BASE);
 
-    // bd med-ta2n.14 / med-ta2n.20: the CSP admits the base domain wherever the
-    // shell has App Attest (feedback, invites); the code still never calls it.
-    it('off by default: the base domain is admitted but never called', async () => {
+    it('off by default: the base domain is absent from the host list and never called', async () => {
         const { window } = env;
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
         for (const [op, args] of bridge.mock.calls) {
-            if (op === 'setEgressHosts') expect(args.hosts).toEqual([TRIAL_BASE]);
+            if (op === 'setEgressHosts') expect(args.hosts).not.toContain(TRIAL_BASE);
         }
         // Without a key or the trial, meal parsing asks for a key, sends nothing.
         await expect(window.CloudFoodAI.parseMealFromDescription('two eggs')).rejects.toMatchObject({ code: 'no_api_key' });
@@ -1611,7 +1609,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
 
         await window.SettingsIntegrations._setLocalTrial(false);
         expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(false);
-        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
         expect(toBase()).toEqual([]);
     });
@@ -1692,7 +1690,7 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -1892,7 +1890,7 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
         conv = { endSession: vi.fn(async () => {}), setMicMuted: vi.fn() };
         startSession = vi.fn(async (opts) => { opts.onConnect(); return conv; });
         env.window.__fakeSDK = { Conversation: { startSession } };
@@ -1947,8 +1945,7 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         expect(shown(hint)).toBe(true);
         for (const [op, args] of bridge.mock.calls) {
             if (op === 'setEgressHosts') {
-                // The base domain is admitted (bd med-ta2n.20); ElevenLabs only with the trial.
-                expect(args.hosts).toEqual([TRIAL_BASE]);
+                expect(args.hosts).not.toContain(TRIAL_BASE);
                 expect(args.hosts).not.toContain('api.elevenlabs.io');
             }
         }
@@ -2075,7 +2072,7 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -2261,7 +2258,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] }));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
     });
 
     afterEach(async () => {
@@ -2325,7 +2322,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         expect(window.Attest.enroll).toHaveBeenCalledTimes(1);
 
         await window.SettingsIntegrations._setLocalTrial(false);
-        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
         expect(await window.CloudVault.trial.status()).toEqual({ on: false });
     });
 
