@@ -5,8 +5,8 @@
 // → the shell's stash (no_backup/move/vault.json, plain vault v1 JSON, checked against
 // tests/fixtures/vault-v1.json) + local.leave {url} → the claim page, claimed with the soft
 // authenticator → the account picks the stash up by itself (no Backup & import): "Sync is on · N
-// records are on your account", the seeded records, the stash gone → Switch account → Only on this
-// device → Start → the local records are all still there. results.localToCloudSeamless has the
+// records are on your account", the seeded records, the stash gone → Switch account → local mode
+// (F1, bd med-ta2n.12) → the local records are all still there. results.localToCloudSeamless has the
 // counts. Claims the run's one invite: not in `all` (smoke claims it there), no retry.
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -17,7 +17,6 @@ import { GATED, counts, vaultCounts, confirmDialog } from './local-to-cloud.mjs'
 export const retry = false;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\..*/;
 const TOAST = /^Sync is on · \d+ records? (is|are) on your account$/;
 const WAIT = 240_000; // claim + import + snapshot upload + reload on the software-GPU emulator
 
@@ -25,7 +24,7 @@ const lost = (from, to) => GATED.filter((k) => !(to[k] >= from[k]));
 const diff = (a, b) => Object.fromEntries(Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]).map((k) => [k, [a[k], b[k]]]));
 
 export default async function localToCloudSeamless(ctx) {
-  const { shell, pkg, sleep, device, log, LOCAL_ORIGIN } = ctx;
+  const { shell, pkg, sleep, log, LOCAL_ORIGIN } = ctx;
   const r = (ctx.results.localToCloudSeamless = {});
   if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
   const stashFiles = () => shell(`run-as ${pkg} sh -c 'ls no_backup/move 2>/dev/null; true'`);
@@ -129,22 +128,10 @@ export default async function localToCloudSeamless(ctx) {
   });
 
   // 4. Back to local mode: the move erased nothing there.
-  await ctx.step('Switch account → Only on this device → Start → local records intact', async () => {
-    await shell(`am force-stop ${pkg}`);
-    await sleep(2000);
-    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
-    await ctx.waitFor({ text: 'Only on this device' });
-    const hint = await device.wait({ text: HINT }, { timeout: 1_000 }).then(() => true, () => false);
-    if (hint) throw new Error('the hint outlived the stash');
-    await ctx.shot('switch-first-run');
-    await device.tap({ text: 'Only on this device' });
-    await ctx.waitFor({ text: 'Start' });
-    await ctx.shot('intro');
-    await device.tap({ text: 'Start' });
-    page = await ctx.attachPage();
-    if (!page) throw new Error('no WebView page');
-    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    await ctx.waitLocalReady(page);
+  await ctx.step('Switch account → local mode (F1) → local records intact', async () => {
+    page = await ctx.launch(); // bd med-ta2n.12: Switch account lands in local mode with F1 open
+    await ctx.shot('switch-f1');
+    await page.locator('[data-invite-action="not-now"]').click();
     await page.waitForFunction(() => window.MedTrackerCloudReady, null, { timeout: 60_000 });
     await page.evaluate(() => window.MedTrackerCloudReady);
     r.localAfter = await vaultCounts(page);

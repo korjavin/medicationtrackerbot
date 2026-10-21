@@ -50,10 +50,6 @@
         <meta-data
             android:name="android.webkit.WebView.EnableSafeBrowsing"
             android:value="false" />
-        <!-- First-run QR: fetch the Play services scanner module at install, not on first tap. -->
-        <meta-data
-            android:name="com.google.mlkit.vision.DEPENDENCIES"
-            android:value="barcode_ui" />
         <!-- Downloads to share and camera shots for the page (Files.kt): cache files only. -->
         <provider
             android:name="androidx.core.content.FileProvider"

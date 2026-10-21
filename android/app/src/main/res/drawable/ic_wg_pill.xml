@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Kit icon "pill" (ui_kits/app-v2/icons.js), 24 grid, stroke 1.8; tinted where used. -->
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:pathData="M10.6 20.4a5 5 0 0 1-7-7l6.8-6.8a5 5 0 0 1 7 7z" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round" />
-    <path android:pathData="m7 10 7 7" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round" />
-</vector>

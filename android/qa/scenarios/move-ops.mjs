@@ -1,10 +1,10 @@
 // The local → cloud move's shell ops (bd med-nt9p.32.17, docs/android.md → Local mode: the shell),
-// at the bridge: no web UI drives them yet (the web sides are bd med-nt9p.32.15/.18; the user-level
-// end-to-end is bd med-nt9p.32.19). Local mode: shell.ops lists move.stash, the account-only ops are
-// refused, a bad vault is rejected, a stash lands in no_backup/move/vault.json → local.leave → the
-// first run's hint → Only on this device → Start deletes it (an abandoned move) → local.leave shows
-// no stale hint → Start → stash again →
-// local.leave → the runner's invite → the account's pickup clears it (bd med-nt9p.32.18) → a seeded
+// at the bridge (the user-level end-to-end is local-to-cloud-seamless). Local mode: shell.ops lists
+// move.stash, the account-only ops are refused, a bad vault is rejected, a stash lands in
+// no_backup/move/vault.json → local.leave → still local mode with F1, the stash kept (bd med-ta2n.12)
+// → Switch account (a native exit) deletes it (an abandoned move, bd med-nt9p.49) → stash again →
+// local.leave → local.leave {url: the runner's invite} keeps it → the account's pickup clears it (bd
+// med-nt9p.32.18) → a seeded
 // stash: move.stash refused, move.take returns it and keeps the file, move.clear deletes it, → null. Then the leave.* mirror (bd
 // med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work (under the
 // local boot's pickup confirm, bd med-o7zq.36.4, then cancelled), deleted by
@@ -14,9 +14,6 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 
 export const retry = false;
 
-// Waited for up to 60 s: the fresh emulator's launcher ANR dialog hid it from UiAutomator for 20 s (first run).
-const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\..*/;
-
 /** The page's own bridge call (native/index.js): {ok, result} or {ok: false, error}. */
 const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotifications.__native.call(o, a)
   .then((result) => ({ ok: true, result }), (e) => ({ ok: false, error: String(e && e.message) })), [op, args]);
@@ -24,7 +21,7 @@ const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotificat
 const expect = (cond, what) => { if (!cond) throw new Error(what); };
 
 export default async function moveOps(ctx) {
-  const { shell, pkg, sleep, device, log, LOCAL_ORIGIN } = ctx;
+  const { shell, pkg, sleep, log, LOCAL_ORIGIN } = ctx;
   const r = (ctx.results.moveOps = {});
   if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
   const stashFiles = () => shell(`run-as ${pkg} sh -c 'ls no_backup/move 2>/dev/null; true'`);
@@ -49,48 +46,43 @@ export default async function moveOps(ctx) {
     expect((await stashFiles()) === '', 'a rejected stash wrote a file');
   });
 
+  /**
+   * Runs `leave`, then the local page the shell reloaded on home?invite=1 (F1 open). The old page is
+   * marked first: it may still show F1 while the reload is on its way.
+   */
+  const f1Page = async (leave, { f1 = true } = {}) => {
+    await page.evaluate(() => { window.__qaOld = true; }).catch(() => {});
+    await leave();
+    for (let end = Date.now() + 90_000; ; await sleep(2000)) {
+      const p = await ctx.attachPage();
+      const fresh = await p?.evaluate((f1) => location.origin === 'https://appassets.androidplatform.net' && !window.__qaOld
+        && (!f1 || !!document.querySelector('[data-invite-action="paste"]')), f1).catch(() => false);
+      if (fresh) { page = p; break; }
+      if (Date.now() > end) throw new Error(`no reloaded local page with F1: ${p?.url()}`);
+    }
+    expect(/name="wgLocalMode" value="true"/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'left local mode');
+  };
   const stashAndLeave = async (label) => {
     await ctx.step(`${label}: move.stash → no_backup/move/vault.json`, async () => {
       const res = await call(page, 'move.stash', { vault });
       expect(res.ok && res.result === true, `stash: ${JSON.stringify(res)}`);
       expect((await stashFiles()) === 'vault.json', `files: ${await stashFiles()}`);
     });
-    await ctx.step(`${label}: local.leave → first run with the hint`, async () => {
-      await call(page, 'local.leave').catch(() => {}); // the page goes away right after the reply
-      await ctx.waitFor({ text: HINT }, 60_000);
+    // bd med-ta2n.12: no native first run. Stays in local mode, F1 opens, the stash waits for its account.
+    await ctx.step(`${label}: local.leave → local mode with F1, the stash kept`, async () => {
+      await f1Page(() => call(page, 'local.leave').catch(() => {})); // the page goes away right after the reply
+      expect((await stashFiles()) === 'vault.json', `local.leave dropped the stash: ${await stashFiles()}`);
     });
-    await ctx.shot(`hint-${label}`);
+    await ctx.shot(`f1-${label}`);
   };
 
-  const start = async () => {
-    await device.tap({ text: 'Only on this device' });
-    // N2 names the consequence while a stash is pending (bd med-ckm5.14).
-    const START = /^Start( and cancel the move)?$/;
-    await ctx.waitFor({ text: START });
-    await device.tap({ text: START });
-    page = await ctx.attachPage();
-    if (!page) throw new Error('no WebView page');
-    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    await ctx.waitLocalReady(page);
-  };
-
+  // A native exit from local mode abandoning the stash (bd med-nt9p.49) is the cold step at the end:
+  // a warm `am start` stacks a second MainActivity, and the attach finds the old one's WebView.
   await stashAndLeave('first');
-  await ctx.step('Only on this device → Start: the abandoned stash is deleted', async () => {
-    await start();
-    expect((await stashFiles()) === '', `stash survived local mode: ${await stashFiles()}`);
-  });
-  await ctx.step('local.leave without a stash → first run without the hint', async () => {
-    await call(page, 'local.leave').catch(() => {});
-    await ctx.waitFor({ text: 'Continue' }, 20_000);
-    await sleep(1500);
-    const stale = await device.wait({ text: HINT }, { timeout: 1_000 }).then(() => true, () => false);
-    expect(!stale, 'the hint outlived the stash');
-    await start();
-  });
-
-  await stashAndLeave('second');
-  page = await ctx.step('open the invite → signup wizard', async () => {
-    await ctx.openLink(ctx.claimUrl);
+  page = await ctx.step('local.leave {url} → signup wizard, the stash kept for it', async () => {
+    await call(page, 'local.leave', { url: ctx.claimUrl }).catch(() => {});
+    await sleep(2000);
+    expect((await stashFiles()) === 'vault.json', `local.leave {url} dropped the stash: ${await stashFiles()}`);
     const p = await ctx.attachPage();
     if (!p) throw new Error('no WebView page (see the run log)');
     await p.waitForURL(/\/unlock/, { timeout: 30_000 });
@@ -206,31 +198,25 @@ export default async function moveOps(ctx) {
   });
   await ctx.step('local.leave keeps it; opening an account deletes it', async () => {
     await seedLeave();
-    await call(page, 'local.leave').catch(() => {});
-    await ctx.waitFor({ text: 'Continue' }, 60_000);
-    expect((await leaveFiles()) === 'vault.json', 'leaving local mode deleted the leave stash');
-    await ctx.openLink(ctx.claimUrl); // open() runs before the page loads
+    // The reloaded page offers the seeded leave stash first ("Records already on this phone"), over F1.
+    await f1Page(() => call(page, 'local.leave').catch(() => {}), { f1: false });
+    expect((await leaveFiles()) === 'vault.json', 'local.leave deleted the leave stash');
+    await call(page, 'local.leave', { url: ctx.claimUrl }).catch(() => {}); // enterAccount runs before the page loads
     await sleep(2000);
     expect((await leaveFiles()) === '', `open() left: ${await leaveFiles()}`);
     r.leaveOk = true;
   });
-  // A native exit from local mode (Switch account / "Use an account instead") abandons a pending move
+  // A native exit from local mode (Switch account) abandons a pending move
   // (bd med-nt9p.49); the page's local.leave (above) keeps it. Only a fresh stash for the next account may remain.
   await ctx.step('native forget from local mode drops the move stash', async () => {
-    await shell(`am force-stop ${pkg}`);
-    await sleep(2000);
-    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
-    await ctx.waitFor({ text: 'Only on this device' }, 60_000);
-    await start();
+    // Cold: launch() force-stops and starts Switch account → local mode with F1 (bd med-ta2n.12).
+    page = await ctx.launch();
     const res = await call(page, 'move.stash', { vault });
     expect(res.ok && res.result === true, `stash: ${JSON.stringify(res)}`);
     expect((await stashFiles()) === 'vault.json', `files: ${await stashFiles()}`);
-    await shell(`am force-stop ${pkg}`);
-    await sleep(2000);
-    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
-    await ctx.waitFor({ text: 'Only on this device' }, 60_000);
+    page = await ctx.launch();
     expect((await stashFiles()) === '', `native forget kept the move stash: ${await stashFiles()}`);
-    r.forgetDrops = true;
+    r.forgetDropsCold = true;
   });
   log('moveOps', JSON.stringify(r));
 }
