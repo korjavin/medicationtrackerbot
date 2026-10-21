@@ -1024,6 +1024,41 @@ func TestManagerOnboarding(t *testing.T) {
 		}
 	})
 
+	// The "yes" gate ran when the request was filed; a claim of an earlier
+	// invite while it waits must still stop the Approve from minting a second.
+	t.Run("approve after the user claimed an earlier invite mints nothing", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
+		tgMessage(t, f.top, f.secret, "yes")
+		now := time.Now().UTC()
+		inv, err := Provision(t.Context(), f.store, 14*24*time.Hour, now, tgCreator)
+		if err != nil {
+			t.Fatalf("Provision: %v", err)
+		}
+		raw, err := hex.DecodeString(inv.Token)
+		if err != nil {
+			t.Fatalf("decode claim token: %v", err)
+		}
+		sum := sha256.Sum256(raw)
+		if _, err := f.store.ConsumeClaimToken(t.Context(), inv.Account.Subdomain, sum[:], now); err != nil {
+			t.Fatalf("ConsumeClaimToken: %v", err)
+		}
+
+		f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
+		if n := mintedBy(t, f.store, tgCreator); n != 1 {
+			t.Fatalf("minted %d accounts, want 1 (the claimed one)", n)
+		}
+		sent, edits, _ := f.snapshot()
+		if !strings.Contains(sent[len(sent)-1], `"chat_id":77`) || !strings.Contains(sent[len(sent)-1], "passkey") {
+			t.Fatalf("user not told they already have an account: %v", sent)
+		}
+		if len(edits) != 1 || !strings.Contains(edits[0], "already have an account") || strings.Contains(edits[0], "#claim=") {
+			t.Fatalf("admin edit = %v", edits)
+		}
+		if s := f.request(t, 1).Status; s != "declined" {
+			t.Fatalf("status = %s, want declined", s)
+		}
+	})
+
 	t.Run("group chats and bot senders are ignored", func(t *testing.T) {
 		store, tg, top, secret := managerFixture(t)
 		group := `{"update_id":9,"message":{"message_id":1,"text":"yes","from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"group"}}}`

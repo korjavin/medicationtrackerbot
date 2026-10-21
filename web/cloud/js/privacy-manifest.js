@@ -681,7 +681,7 @@ export const PRIVACY_MANIFEST = [
     evidence: [
       'internal/cloudserver/vitals_import_api.go:42',
       'internal/cloudserver/vitals_import_api.go:86',
-      'internal/cloudserver/telegram.go:1137',
+      'internal/cloudserver/telegram.go:1147',
     ],
     code: {
       go: [
