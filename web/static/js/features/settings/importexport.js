@@ -727,6 +727,9 @@
     window.SettingsImportExport = {
         load: () => { bindControls(); },
         export: doExport,
+        // The passphrase sheet the Export backup button opens (the W4 sheet's
+        // "Save backup", bd med-ta2n.4).
+        openExport: openExportSheet,
         import: doImport,
         restoreVault,
         importNxk: doNxkImport,

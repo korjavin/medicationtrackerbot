@@ -56,6 +56,43 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect('trackers' in recordsToVault(vaultToRecords(legacy, { now: NOW }), { now: NOW }).data).toBe(false);
   });
 
+  // bd med-ta2n.4: a restored backup remembers its last backup and dismissals;
+  // a file without the block leaves this device's state alone.
+  it('carries the W4 protection state; an older file imports none and keeps the destination record', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    expect(records.filter((r) => r.recordType === 'protection')).toEqual([{
+      recordType: 'protection', recordId: 'protection', clientTs: NOW, deleted: false,
+      lastBackupAt: null, nudgeDismissedAt: [Date.parse('2026-06-01T09:00:00Z')],
+    }]);
+    expect(managedTypesForImport(fixture).has('protection')).toBe(true);
+    const backedUp = recordsToVault([
+      { recordType: 'protection', recordId: 'protection', clientTs: 1, deleted: false, lastBackupAt: Date.parse('2026-07-01T10:00:00Z'), nudgeDismissedAt: [] },
+    ], { now: NOW });
+    expect(backedUp.data.protection).toEqual({ last_backup_at: '2026-07-01T10:00:00Z', nudge_dismissed_at: [] });
+    expect(vaultToRecords(backedUp, { now: NOW }).find((r) => r.recordType === 'protection').lastBackupAt).toBe(Date.parse('2026-07-01T10:00:00Z'));
+
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.protection;
+    expect(vaultToRecords(legacy, { now: NOW }).some((r) => r.recordType === 'protection')).toBe(false);
+    expect(managedTypesForImport(legacy).has('protection')).toBe(false);
+    expect('protection' in recordsToVault(vaultToRecords(legacy, { now: NOW }), { now: NOW }).data).toBe(false);
+    // A bad timestamp is dropped, never fatal.
+    const bad = { ...legacy, data: { ...legacy.data, protection: { last_backup_at: 'soon', nudge_dismissed_at: ['x', '2026-06-01T09:00:00Z'] } } };
+    expect(vaultToRecords(bad, { now: NOW }).find((r) => r.recordType === 'protection'))
+      .toMatchObject({ lastBackupAt: null, nudgeDismissedAt: [Date.parse('2026-06-01T09:00:00Z')] });
+  });
+
+  // Forward compat (docs/vault-format.md "Newer exporter, older importer"):
+  // the importer reads named sections only, so a key it does not know — what
+  // `protection` is to an older client — imports cleanly and is dropped.
+  it('a vault with an unknown top-level data key imports cleanly', () => {
+    const future = JSON.parse(JSON.stringify(fixture));
+    future.data.some_future_section = { anything: [1, 2, 3] };
+    const records = vaultToRecords(future, { now: NOW });
+    expect(records).toEqual(vaultToRecords(fixture, { now: NOW }));
+    expect(recordsToVault(records, { now: NOW }).data).toEqual(dropGps(fixture.data));
+  });
+
   it('re-attaches goal milestones to the re-minted goal with their goal_set_at (med-8tur.5)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const goal = records.find((r) => r.recordType === 'weightgoal' && r.set_at === '2026-06-01T09:00:00Z');
@@ -146,6 +183,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       if (d.food) delete d.food.incomplete_days;
       // User trackers are cloud-only too (med-1vy5).
       delete d.trackers;
+      // So is the W4 nudge state (med-ta2n.4).
+      delete d.protection;
       // Gyms are cloud-only too (med-8j5w.1): the locations list, the
       // active-gym singleton and the per-session stamp.
       if (d.workouts) {

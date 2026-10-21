@@ -486,6 +486,20 @@ Absent when the export is taken with secrets off. Only the **hash** exists in th
 already-minted MCP/API token keep authenticating after a server move. Cloud mode has no
 API tokens and carries the array as a passthrough record.
 
+### `protection`
+
+```json
+"protection": { "last_backup_at": RFC3339|null, "nudge_dismissed_at": [RFC3339, …] }   // optional, cloud-only — omitted when the record is absent
+```
+
+The W4 protect-your-data nudge state (bd med-ta2n.4): the `protection` singleton
+(`{lastBackupAt, nudgeDismissedAt}`, ms) written by a local-mode backup export and
+by the Today card's ×. Carried so a restored backup remembers when it was taken.
+A file without the key (every older backup) leaves the destination's record alone:
+`managedTypesForImport` drops `protection` from the replace, like the secret blocks.
+An unparseable timestamp is dropped on import, never fatal. Older clients ignore
+the key (unknown `data` keys are skipped — pinned by a round-trip test).
+
 ### `tombstones`
 
 ```json
@@ -624,6 +638,8 @@ Export → import → export (and each single hop) must be
   files omit it; stripped the same way.
 - **Cloud-only trackers** — `trackers` (med-1vy5). Legacy bot files omit it;
   stripped the same way.
+- **Cloud-only nudge state** — `protection` (med-ta2n.4). Legacy bot files omit
+  it; stripped the same way. A local export stamps its own `last_backup_at`.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy
   bot import normalized every timestamp to UTC before storing it
   (`2026-07-07T12:00:00+02:00` → `2026-07-07T10:00:00Z`), because
@@ -637,8 +653,9 @@ Export → import → export (and each single hop) must be
 `tests/fixtures/vault-v1.json` is a small hand-curated vault exercising every domain,
 every deterministic-id case (scheduled + manual intake, tz transition plan, workout
 scheduled session + rotation), a vitals day-batch boundary (samples spanning two calendar
-days), an integrations key, and two derived-slot tombstones (a deleted workout day +
-a deleted dose, med-jtaj). The Vitest cloud round-trip test pins this one file —
+days), an integrations key, two derived-slot tombstones (a deleted workout day +
+a deleted dose, med-jtaj), and a `protection` block (no backup, one old
+dismissal — so the seeded QA vault shows the W4 card, med-ta2n.4). The Vitest cloud round-trip test pins this one file —
 any field-name drift fails the pin. A second fixture,
 `tests/fixtures/vault-v1-botexport.json`, is FROZEN (its generator was deleted with
 the bot runtime): real legacy export output, kept to prove old exports remain

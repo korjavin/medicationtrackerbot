@@ -1644,3 +1644,137 @@ describe('AI trial card', () => {
         expect(si.trialOffer).not.toHaveBeenCalled();
     });
 });
+
+// bd med-ta2n.4 — W4 "Keep your week safe": local mode's card + sheet. The
+// clock rules live behind GET /api/protection/status (cloud.local-mode suite
+// drives them with a fake clock over the real store); Today renders its answer.
+describe('W4 protect-your-data card', () => {
+    let env;
+    let api;
+    let status;
+    const card = () => env.document.querySelector('[data-section="protect"]');
+    const shown = () => !!card() && !card().classList.contains('hidden');
+    const sheet = () => env.document.getElementById('today-protect-sheet');
+    const sheetOpen = () => !!sheet() && !sheet().classList.contains('hidden');
+    const act = (root, name) => root.querySelector(`[data-action="${name}"]`);
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    function setup({ local = true, nudge = true, records = 43, invite = null } = {}) {
+        env = loadRenderEnv();
+        if (local) env.document.documentElement.classList.add('wg-local-vault');
+        status = { records, firstRunAt: 1, lastBackupAt: null, dismissedCount: 0, lastDismissedAt: null, synced: false, nudge };
+        api = vi.fn(async (endpoint) => (endpoint === '/api/protection/status' ? status : { success: true }));
+        env.window.apiCall = api;
+        env.window.LocalNotifications = { copy: { device: 'phone' } };
+        env.window.switchTab = vi.fn();
+        env.window.SettingsView = { openSettingsPage: vi.fn() };
+        env.window.SettingsImportExport = { openExport: vi.fn() };
+        env.window.InviteSheet = { pending: vi.fn(async () => invite), offer: vi.fn() };
+        const root = env.document.getElementById('today-content');
+        env.paint = () => env.render(baseState(), root, { now: NOW });
+        env.paint();
+    }
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    it('shows below Next up, above the tiles, with the live record count; a re-render does not flash', async () => {
+        setup();
+        expect(shown()).toBe(false); // hidden until the answer lands
+        await flush();
+        expect(shown()).toBe(true);
+        expect(card().querySelector('.wg-card__title').textContent).toBe('Keep your week safe');
+        expect(card().querySelector('.wg-meta').textContent).toBe('43 records · only on this phone');
+        // Raised, not sun: Take keeps the sun. Tokens only: kit classes, no style.
+        expect(act(card(), 'protect-open').classList.contains('wg-btn--primary')).toBe(false);
+        expect(card().querySelector('[style]')).toBeNull();
+        const sections = [...env.document.querySelectorAll('#today-content > [data-section]')].map((n) => n.getAttribute('data-section'));
+        if (sections.includes('next-up')) expect(sections.indexOf('protect')).toBeGreaterThan(sections.indexOf('next-up'));
+        expect(sections.indexOf('protect')).toBeLessThan(sections.indexOf('vitals'));
+        status = { ...status, records: 44 };
+        env.paint();
+        expect(shown()).toBe(true);
+        await flush();
+        expect(card().querySelector('.wg-meta').textContent).toBe('44 records · only on this phone');
+    });
+
+    it('no card when the status says no nudge', async () => {
+        setup({ nudge: false });
+        await flush();
+        expect(shown()).toBe(false);
+    });
+
+    it('never renders in cloud mode, and asks nothing', async () => {
+        setup({ local: false });
+        await flush();
+        expect(card()).toBeNull();
+        expect(api).not.toHaveBeenCalledWith('/api/protection/status');
+    });
+
+    it('× removes it and records the dismissal', async () => {
+        setup();
+        await flush();
+        act(card(), 'protect-dismiss').click();
+        expect(card()).toBeNull();
+        await flush();
+        expect(api).toHaveBeenCalledWith('/api/protection/dismiss', 'POST');
+    });
+
+    it('the sheet: backup preselected, the primary follows the choice, Save backup opens the Backup export', async () => {
+        setup();
+        await flush();
+        act(card(), 'protect-open').click();
+        expect(sheetOpen()).toBe(true);
+        expect(sheet().querySelector('.wg-eyebrow').textContent).toBe('43 records on this phone');
+        const choice = (v) => sheet().querySelector(`[data-protect-choice="${v}"]`);
+        expect(choice('backup').getAttribute('aria-pressed')).toBe('true');
+        expect(choice('sync').getAttribute('aria-pressed')).toBe('false');
+        expect(choice('sync').textContent).toContain('Needs an invite.');
+        expect(act(sheet(), 'protect-go').textContent).toBe('Save backup');
+        choice('sync').click();
+        expect(choice('sync').getAttribute('aria-pressed')).toBe('true');
+        expect(act(sheet(), 'protect-go').textContent).toBe('Turn on sync');
+        choice('backup').click();
+        expect(act(sheet(), 'protect-go').textContent).toBe('Save backup');
+        act(sheet(), 'protect-go').click();
+        expect(sheetOpen()).toBe(false);
+        expect(env.window.switchTab).toHaveBeenCalledWith('settings');
+        expect(env.window.SettingsView.openSettingsPage).toHaveBeenCalledWith('backup');
+        expect(env.window.SettingsImportExport.openExport).toHaveBeenCalledTimes(1);
+        expect(api).not.toHaveBeenCalledWith('/api/protection/dismiss', 'POST');
+    });
+
+    it('Turn on sync: no invite → the Backup page; an invite waiting → P3 with the kit offer', async () => {
+        setup();
+        await flush();
+        act(card(), 'protect-open').click();
+        await flush();
+        sheet().querySelector('[data-protect-choice="sync"]').click();
+        act(sheet(), 'protect-go').click();
+        expect(env.window.SettingsView.openSettingsPage).toHaveBeenCalledWith('backup');
+        expect(env.window.SettingsImportExport.openExport).not.toHaveBeenCalled();
+        expect(env.window.InviteSheet.offer).not.toHaveBeenCalled();
+        env.cleanup();
+
+        const url = 'https://abc.app.example.com/#claim=0a1b2c';
+        setup({ invite: url });
+        await flush();
+        act(card(), 'protect-open').click();
+        await flush();
+        const sync = sheet().querySelector('[data-protect-choice="sync"]');
+        expect(sync.textContent).toContain('An invite is waiting.');
+        sync.click();
+        act(sheet(), 'protect-go').click();
+        expect(env.window.InviteSheet.offer).toHaveBeenCalledWith(url, { kit: true });
+        expect(env.window.SettingsView.openSettingsPage).not.toHaveBeenCalled();
+    });
+
+    it('Later is the ×: closes the sheet, retires the card, records the dismissal', async () => {
+        setup();
+        await flush();
+        act(card(), 'protect-open').click();
+        act(sheet(), 'protect-later').click();
+        expect(sheetOpen()).toBe(false);
+        expect(card()).toBeNull();
+        await flush();
+        expect(api).toHaveBeenCalledWith('/api/protection/dismiss', 'POST');
+    });
+});

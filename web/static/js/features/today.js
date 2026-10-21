@@ -1578,6 +1578,139 @@
         return card;
     }
 
+    // ---- Protect-your-data card (W4, bd med-ta2n.4) -------------------------
+    //
+    // Local mode only: the records live on this device alone until a backup
+    // or sync exists. GET /api/protection/status decides (`nudge`: 20 records
+    // or 7 days, no backup yet, × snoozes 14 days, gone after the second).
+    // Below Next up so a due dose never moves down; the button is raised
+    // because Take keeps the sun. The card is never a banner.
+    const PROTECT_SHEET_ID = 'today-protect-sheet';
+    let protectStatus = null; // last answer, so a re-render does not flash the card in or out
+
+    function isLocalVault() {
+        const d = doc();
+        return !!d && d.documentElement.classList.contains('wg-local-vault');
+    }
+
+    function deviceWord() {
+        const c = (typeof window !== 'undefined' && window.LocalNotifications && window.LocalNotifications.copy) || {};
+        return c.device || 'device';
+    }
+
+    function recordsLabel(n) {
+        return n === 1 ? '1 record' : `${n} records`;
+    }
+
+    function dismissProtect() {
+        protectStatus = null;
+        const card = doc().querySelector('[data-section="protect"]');
+        if (card) card.remove();
+        const api = trackersApi();
+        if (api) Promise.resolve().then(() => api('/api/protection/dismiss', 'POST')).catch(() => {});
+    }
+
+    function paintProtectCard(card, status) {
+        card.classList.toggle('hidden', !(status && status.nudge));
+        if (status) card.querySelector('[data-protect-meta]').textContent = `${recordsLabel(status.records)} · only on this ${deviceWord()}`;
+    }
+
+    function renderProtectCard() {
+        const api = trackersApi();
+        if (!api || !isLocalVault()) return null;
+        const card = el('div', 'wg-card wg-vstack');
+        card.setAttribute('data-section', 'protect');
+        const head = el('div', 'wg-hstack');
+        const lead = el('span', 'wg-row__lead wg-row__lead--sky');
+        lead.appendChild(ico('shield'));
+        const titles = el('span', 'wg-vstack wg-spacer');
+        const meta = el('span', 'wg-meta');
+        meta.setAttribute('data-protect-meta', '');
+        titles.append(el('span', 'wg-card__title', 'Keep your week safe'), meta);
+        head.append(lead, titles, btn(null, {
+            ghost: true, iconOnly: true, sm: true, icon: 'x', aria: 'Remind me later', action: 'protect-dismiss', onClick: dismissProtect,
+        }));
+        const go = btn('Protect my records', { action: 'protect-open', onClick: () => openProtectSheet(protectStatus) });
+        go.classList.add('wg-btn--block');
+        card.append(head, el('p', 'wg-hint', `If this ${deviceWord()} is lost or reset, they go with it. A backup takes a few seconds.`), go);
+        paintProtectCard(card, protectStatus);
+        Promise.resolve().then(() => api('/api/protection/status')).catch(() => null).then((s) => {
+            protectStatus = (s && typeof s === 'object') ? s : null;
+            paintProtectCard(card, protectStatus);
+        });
+        return card;
+    }
+
+    function openBackupPage() {
+        if (typeof window.switchTab === 'function') window.switchTab('settings');
+        if (window.SettingsView && typeof window.SettingsView.openSettingsPage === 'function') window.SettingsView.openSettingsPage('backup');
+    }
+
+    function closeProtectSheet() {
+        hideTrackerModal(PROTECT_SHEET_ID);
+    }
+
+    // Two kit choices; the primary follows the pick. Later = the card's ×.
+    // "Turn on sync" opens P3 when the shell holds an invite, else the Backup
+    // page (the W5 page, med-ta2n.5, takes over that route when it lands).
+    function openProtectSheet(status) {
+        const sheet = mountTrackerModal(PROTECT_SHEET_ID, null, 'Protect your records');
+        sheet.replaceChildren();
+        const head = trackerSheetHead(`${recordsLabel((status && status.records) || 0)} on this ${deviceWord()}`, 'Protect your records', closeProtectSheet);
+        const choice = (value, title, sub) => {
+            const b = el('button', 'wg-choice');
+            b.type = 'button';
+            b.setAttribute('data-protect-choice', value);
+            const label = el('span', null, title);
+            const subEl = el('span', 'wg-choice__sub', sub);
+            label.appendChild(subEl);
+            b.appendChild(label);
+            return { b, subEl };
+        };
+        const backup = choice('backup', 'Save a backup file', 'To Files or Drive. Works now, no account.');
+        const sync = choice('sync', 'Turn on sync', 'Keeps a copy on your account. Needs an invite.');
+        const choices = el('div', 'wg-choices');
+        choices.append(backup.b, sync.b);
+        const body = el('div', 'wg-sheet__body');
+        body.append(choices, el('p', 'wg-hint', "We'll remind you every week while there's no backup. Change this in Settings → Sync & backup."));
+        let picked = 'backup';
+        let invite = null;
+        const primary = btn('Save backup', {
+            primary: true,
+            action: 'protect-go',
+            onClick: () => {
+                closeProtectSheet();
+                if (picked === 'sync' && invite && window.InviteSheet) window.InviteSheet.offer(invite, { kit: true });
+                else if (picked === 'sync') openBackupPage();
+                else {
+                    openBackupPage();
+                    if (window.SettingsImportExport && typeof window.SettingsImportExport.openExport === 'function') window.SettingsImportExport.openExport();
+                }
+            },
+        });
+        const pick = (value) => {
+            picked = value;
+            backup.b.setAttribute('aria-pressed', String(value === 'backup'));
+            sync.b.setAttribute('aria-pressed', String(value === 'sync'));
+            primary.textContent = value === 'sync' ? 'Turn on sync' : 'Save backup';
+        };
+        backup.b.addEventListener('click', () => pick('backup'));
+        sync.b.addEventListener('click', () => pick('sync'));
+        pick('backup');
+        const foot = el('div', 'wg-sheet__foot');
+        foot.append(btn('Later', { action: 'protect-later', onClick: () => { closeProtectSheet(); dismissProtect(); } }), primary);
+        sheet.append(el('div', 'wg-sheet__grab'), head, body, foot);
+        showTrackerModal(sheet, closeProtectSheet);
+        const pending = window.InviteSheet && typeof window.InviteSheet.pending === 'function' ? window.InviteSheet.pending : null;
+        if (pending) {
+            Promise.resolve().then(pending).catch(() => null).then((url) => {
+                invite = typeof url === 'string' && url ? url : null;
+                if (invite) sync.subEl.textContent = 'Keeps a copy on your account. An invite is waiting.';
+            });
+        }
+        return sheet;
+    }
+
     // ---- Tracker log sheet (TR1b) ------------------------------------------
 
     function closeTrackerSheet() {
@@ -3044,6 +3177,10 @@
 
         const next = renderNextUp(state, h, nowMs);
         if (next.node) { root.appendChild(next.node); }
+
+        // W4: below Next up, above the tiles (bd med-ta2n.4).
+        const protect = renderProtectCard();
+        if (protect) { root.appendChild(protect); }
 
         // After Next up, so the offer never pushes a due dose down (kit A1).
         const aiTrial = renderAITrialCard(state);

@@ -25,6 +25,7 @@ import { createBriefDomain } from '../../domain/brief.js';
 import {
   MAX_LIMIT, clampLimit, clampDays, clampOffset, pageOf,
 } from '../../domain/paginate.js';
+import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import * as cloudReminders from './reminders.js';
@@ -47,6 +48,20 @@ let materializeTimerHandle;
 // Re-exported for the store replacers (cloud-boot.js, local-policy.js) and the
 // tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
 export { materializationSettled, withMaterializationStopped };
+
+// The weekly backup toast's stamp (bd med-o7zq.5, retired by med-ta2n.4): read
+// as the W4 nudge's snooze baseline so an existing user gets 14 days of grace
+// (owner decision), never written, removed once the protection record is.
+const LEGACY_BACKUP_NUDGE_KEY = 'wg:local-backup-nudge-at';
+export function readLegacyBackupNudge(win) {
+  try { return Number(win.localStorage.getItem(LEGACY_BACKUP_NUDGE_KEY)) || null; } catch { return null; }
+}
+export function clearLegacyBackupNudge(win) {
+  try { win.localStorage.removeItem(LEGACY_BACKUP_NUDGE_KEY); } catch { /* storage blocked */ }
+}
+function isLocalVault(win) {
+  return !!(win && win.document && win.document.documentElement.classList.contains('wg-local-vault'));
+}
 
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
@@ -683,6 +698,27 @@ export function createApiRouter(ctx, {
     // Cloud Settings binds the same record through reminders.js directly. A
     // change reschedules at once: the schedule is a replace-all of bodies
     // computed up front.
+    // W4 protect-your-data nudge (bd med-ta2n.4): the Today card and the
+    // Settings "Unprotected" chip read this. Local mode only — an account is
+    // synced by definition, so it never nudges.
+    if (path === '/api/protection/status' && method === 'GET') {
+      if (!isLocalVault(targetWindow)) {
+        return {
+          records: 0, firstRunAt: null, lastBackupAt: null, dismissedCount: 0, lastDismissedAt: null, synced: true, nudge: false,
+        };
+      }
+      const lists = await Promise.all([...USER_CONTENT_TYPES].map((t) => records.list(t)));
+      return settings.getProtectionStatus({
+        records: userContentCount(lists.flat()),
+        legacyDismissedAt: readLegacyBackupNudge(targetWindow),
+      });
+    }
+    if (path === '/api/protection/dismiss' && method === 'POST') {
+      await settings.dismissNudge();
+      clearLegacyBackupNudge(targetWindow);
+      return { success: true };
+    }
+
     if (path === '/api/settings/reminder-delivery') {
       if (method === 'GET') return reminders.getDeliveryPref();
       if (method === 'PUT') {

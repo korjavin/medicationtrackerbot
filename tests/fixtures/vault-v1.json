@@ -825,6 +825,12 @@
         "last_used_at": null
       }
     ],
+    "protection": {
+      "last_backup_at": null,
+      "nudge_dismissed_at": [
+        "2026-06-01T09:00:00Z"
+      ]
+    },
     "tombstones": [
       {
         "recordType": "intake",

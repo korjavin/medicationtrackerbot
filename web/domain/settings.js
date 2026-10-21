@@ -72,6 +72,22 @@ const TRIALCONSENT_SCOPES = ['ai', 'voice', 'tg', 'anon'];
 const EMERGENCYKIT_RECORD_TYPE = 'emergencykit';
 const EMERGENCYKIT_RECORD_ID = 'emergencykit';
 const EMERGENCYKIT_HOW = new Set(['download', 'print', 'ack', 'none']);
+// The W4 protect-your-data nudge (bd med-ta2n.4): {lastBackupAt: ms|null,
+// nudgeDismissedAt: [ms…]}. Written ONLY by deliberate actions — a backup
+// export (markBackup) and the card's × / Later (dismissNudge) — with now() +
+// put. Never lazily materialized: an absent record reads as "never backed up,
+// never dismissed", so CLAUDE.md rule 12's floor does not apply. Carried in
+// the vault (data.protection) so a restored backup remembers its last backup.
+export const PROTECTION_RECORD_TYPE = 'protection';
+const PROTECTION_RECORD_ID = 'protection';
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Shown once the log is worth losing: 20 records or 7 days since first run,
+// whichever first; × snoozes 14 days; after the second × only the Settings
+// chip remains.
+const PROTECT_MIN_RECORDS = 20;
+const PROTECT_AFTER_MS = 7 * DAY_MS;
+const PROTECT_SNOOZE_MS = 14 * DAY_MS;
+const PROTECT_MAX_DISMISSALS = 2;
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -391,6 +407,58 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return { savedAt, how };
   }
 
+  async function getProtection() {
+    const rec = findSingleton(await records.list(PROTECTION_RECORD_TYPE), PROTECTION_RECORD_ID);
+    return {
+      lastBackupAt: (rec && Number.isFinite(rec.lastBackupAt)) ? rec.lastBackupAt : null,
+      nudgeDismissedAt: (rec && Array.isArray(rec.nudgeDismissedAt)) ? rec.nudgeDismissedAt.filter(Number.isFinite) : [],
+    };
+  }
+
+  async function putProtection(p) {
+    await records.put(PROTECTION_RECORD_TYPE, {
+      recordId: PROTECTION_RECORD_ID, clientTs: now(), deleted: false, ...p,
+    });
+    return p;
+  }
+
+  async function markBackup() {
+    return putProtection({ ...(await getProtection()), lastBackupAt: now() });
+  }
+
+  async function dismissNudge() {
+    const p = await getProtection();
+    return putProtection({ ...p, nudgeDismissedAt: [...p.nudgeDismissedAt, now()] });
+  }
+
+  // records: the live user-record count (vault.js userContentCount), computed
+  // by the caller. legacyDismissedAt: the old weekly toast's last stamp
+  // (localStorage, owner-accepted 14-day grace) — a snooze baseline that
+  // never counts as one of the two dismissals. firstRunAt: the firstrun
+  // record's clientTs (0, a restored vault's floor, means unknown).
+  async function getProtectionStatus({ records: count = 0, legacyDismissedAt = null } = {}) {
+    const p = await getProtection();
+    const fr = findSingleton(await records.list(FIRSTRUN_RECORD_TYPE), FIRSTRUN_RECORD_ID);
+    const firstRunAt = (fr && fr.clientTs > 0) ? fr.clientTs : null;
+    const stamps = [...p.nudgeDismissedAt];
+    if (Number.isFinite(legacyDismissedAt) && legacyDismissedAt > 0) stamps.push(legacyDismissedAt);
+    const lastDismissedAt = stamps.length ? Math.max(...stamps) : null;
+    const t = now();
+    const nudge = p.lastBackupAt == null
+      && p.nudgeDismissedAt.length < PROTECT_MAX_DISMISSALS
+      && (lastDismissedAt == null || t - lastDismissedAt >= PROTECT_SNOOZE_MS)
+      && (count >= PROTECT_MIN_RECORDS || (firstRunAt != null && t - firstRunAt >= PROTECT_AFTER_MS));
+    return {
+      records: count,
+      firstRunAt,
+      lastBackupAt: p.lastBackupAt,
+      dismissedCount: p.nudgeDismissedAt.length,
+      lastDismissedAt,
+      synced: false,
+      nudge,
+    };
+  }
+
   // getTGPrefsNote / setTGPrefsNote back the Settings UI's Telegram agent
   // glossary field (bd med-vcv.4): read the note the agent has learned, or
   // FULL-REPLACE it (never append — that's inbox-apply.js's appendTGPref,
@@ -429,6 +497,10 @@ export function createSettingsDomain({ records, now, timeZone }) {
     setTrialConsent,
     getEmergencyKit,
     setEmergencyKit,
+    getProtection,
+    markBackup,
+    dismissNudge,
+    getProtectionStatus,
     getTGPrefsNote,
     setTGPrefsNote,
     getVoiceProvisioning,
