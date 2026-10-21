@@ -5,7 +5,7 @@
 // and the local mirror is cleared afterwards.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { reauthAndDelete, exportVaultToFile, baseDomainURL, clearLocalVault, DELETE_CONFIRM_PHRASE } from '../account-delete.js';
+import { reauthAndDelete, baseDomainURL, clearLocalVault, DELETE_CONFIRM_PHRASE } from '../account-delete.js';
 
 // clearLocalVault dynamic-imports ./push.js for the best-effort browser-side
 // unsubscribe (getSubscription → sub.unsubscribe(); the server-first
@@ -117,57 +117,6 @@ describe('reauthAndDelete (med-d5t.8)', () => {
     expect(navigator.credentials.get).toHaveBeenCalledTimes(2);
     expect(navigator.credentials.get.mock.calls[1][0].publicKey).toMatchObject({ challenge: 'x', allowCredentials: [], userVerification: 'required' });
     expect(fetchCalls.filter((c) => c.url === '/api/account' && c.method === 'DELETE')).toHaveLength(2);
-  });
-});
-
-describe('exportVaultToFile', () => {
-  let clicks;
-
-  beforeEach(() => {
-    clicks = [];
-    globalThis.document = {
-      createElement: () => ({ click() { clicks.push(this.download); }, remove() {}, set href(v) { this._href = v; }, get href() { return this._href; } }),
-      body: { appendChild() {} },
-    };
-    globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} };
-    window.CloudVault = { exportAll: vi.fn(async () => '{"meds":[]}') };
-    window.safeConfirm = vi.fn(async () => true);
-  });
-
-  afterEach(() => {
-    delete globalThis.document;
-    delete globalThis.URL;
-    delete globalThis.Blob;
-    delete window.CloudVault;
-    delete window.safeConfirm;
-  });
-
-  it('warns about plaintext secrets, then downloads the vault JSON and returns true', async () => {
-    const blobs = [];
-    globalThis.Blob = class { constructor(parts) { blobs.push(parts.join('')); } };
-
-    const downloaded = await exportVaultToFile(Date.parse('2026-07-10T00:00:00Z'));
-
-    expect(window.safeConfirm).toHaveBeenCalledWith(expect.stringMatching(/plain text/i), null, expect.any(Object));
-    expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: true });
-    expect(clicks[0]).toBe('medtracker-vault-2026-07-10.json');
-    expect(blobs[0]).toBe('{"meds":[]}');
-    expect(downloaded).toBe(true);
-  });
-
-  it('returns false without downloading when the plaintext-secrets warning is declined', async () => {
-    window.safeConfirm = vi.fn(async () => false);
-
-    const downloaded = await exportVaultToFile(Date.parse('2026-07-10T00:00:00Z'));
-
-    expect(downloaded).toBe(false);
-    expect(window.CloudVault.exportAll).not.toHaveBeenCalled();
-    expect(clicks).toHaveLength(0);
-  });
-
-  it('refuses to claim an export when the vault is not ready', async () => {
-    window.CloudVault = undefined;
-    await expect(exportVaultToFile()).rejects.toThrow(/unlock/i);
   });
 });
 

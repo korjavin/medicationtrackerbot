@@ -118,7 +118,7 @@ the metadata-only signals are also in
 
 **This table is generated.** Its source is the privacy/egress manifest at
 `web/cloud/js/privacy-manifest.js`, which is also what
-`web/cloud/js/privacy.js` renders into Settings → *What can the operator see?*
+`web/cloud/js/privacy.js` renders into Settings → Account & privacy → *What the operator can see*
 (every row except the local-mode ones, `mode: 'local'`, which are not a cloud
 account's).
 Edit the manifest and run `pnpm privacy:docs`; editing the table by hand fails
