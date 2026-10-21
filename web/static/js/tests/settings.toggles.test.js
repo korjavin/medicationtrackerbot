@@ -548,6 +548,31 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         }
     });
 
+    it('Reminders > Medications row is hidden while the medication feature is off (med-v7bp)', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.SettingsState.applyBootstrapFeatures({
+                medication: true, workout: true, food: true, bp: true, weight: true, health: true
+            });
+            window.AppStore.set('currentTab', 'today');
+            window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.rebuildCanonicalBottomNav = vi.fn();
+            window.switchTab = vi.fn();
+            const row = document.getElementById('settings-reminders-meds');
+
+            // The live toggle path: off hides the row, on brings it back.
+            await window.toggleFeatureSetting('medication', false);
+            expect(row.classList.contains('wg-settings-hidden')).toBe(true);
+
+            await window.toggleFeatureSetting('medication', true);
+            expect(row.classList.contains('wg-settings-hidden')).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
     // med-8tur.12: the Journey mode switches share the gamification gate, load
     // from GET /api/gamification/mode, PUT one key per flip, and revert on failure.
     it('Journey mode switches: gated on gamification, loaded from and written to /api/gamification/mode', async () => {

@@ -1809,6 +1809,10 @@ function updateFeatureTabVisibility() {
     // Gamification toggling here also gates the weekly-digest row (both-on), so
     // refresh its visibility on the toggle success path — not just on load.
     updateWeeklyDigestVisibility(window.featureSettings || {});
+    // Reminders → Medications jumps to the Meds tab, which bounces to Today when
+    // off (med-v7bp). Boot/bundle and the live toggle both funnel through here.
+    document.getElementById('settings-reminders-meds')
+        ?.classList.toggle('wg-settings-hidden', !(window.featureSettings && window.featureSettings.medication));
     // A toggle just changed a target section's visibility; roll that up to the
     // home row so an all-hidden Targets row doesn't linger (and reappears when a
     // target is re-enabled) without a full Settings reload.

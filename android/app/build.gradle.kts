@@ -111,8 +111,6 @@ androidComponents {
 dependencies {
     // >= 1.12: WebSettingsCompat.setWebAuthenticationSupport (passkeys in WebView).
     implementation("androidx.webkit:webkit:1.12.1")
-    // QR first run: Play services' scanner UI — no camera permission, no bundled model.
-    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     // FileProvider: downloads to share, camera shots for the file chooser (Files.kt).
     implementation("androidx.core:core:1.13.1")
     // Health Connect read import (bd med-nt9p.8); coroutines for its suspend API.

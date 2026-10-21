@@ -1,7 +1,7 @@
 // The run's invite on the local cloud → /unlock signup wizard inside the app, with the page-coloured
 // bands and the web-owned exit bar at the top (N5, bd med-ckm5.2; the native bar and its AlertDialog
 // are gone, bd med-ckm5.16) → "Not your account?" → its in-page confirm → Cancel keeps the wizard.
-// Default, font 1.3, dark; the last variant confirms → account.leave → the native first run.
+// Default, font 1.3, dark; the last variant confirms → account.leave → local mode with F1 (bd med-ta2n.12).
 const storedHost = async (ctx) => {
   await ctx.sleep(1500); // SharedPreferences.apply() writes asynchronously
   const xml = await ctx.shell(`run-as ${ctx.pkg} cat shared_prefs/shell.xml`);
@@ -41,10 +41,10 @@ export default async function claimPage(ctx) {
         if (!/\/unlock/.test(page.url())) throw new Error(`left the wizard: ${page.url()}`);
       });
     } else {
-      await ctx.step(`Use another invite → the native first run, host forgotten (${label})`, async () => {
+      await ctx.step(`Use another invite → local mode with F1, host forgotten (${label})`, async () => {
         await ctx.tapElement(page, '.mt-confirm-modal__confirm');
-        await ctx.waitFor({ text: 'Continue' }, 15_000);
-        await ctx.waitFor({ text: 'Only on this device' }, 5_000);
+        await ctx.sleep(2000);
+        await ctx.localPage((p) => p.locator('[data-invite-action="paste"]').waitFor({ state: 'visible', timeout: 60_000 }));
         const h = await storedHost(ctx);
         if (h !== null) throw new Error(`accountHost still stored: ${h}`);
       });
