@@ -574,7 +574,7 @@
                     <button type="button" class="wg-setting" data-settings-open="account">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="shield"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Account &amp; privacy</span><span class="wg-setting__desc">What the operator can see · delete</span></span>
-                        <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitChip). -->
+                        <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitState). -->
                         <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-kit-chip">Kit</span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
@@ -1256,54 +1256,69 @@
 
             </div>
 
+            <!-- Account & privacy (kit S9, bd med-ckm5.9), cloud only. The
+                 Emergency Kit row sits at the end of the Account list; while
+                 the emergencykit record says the kit was never saved,
+                 settings.js paintKitState moves it to the top of the page,
+                 boxed, with a Save chip. -->
             <div class="wg-settings-page" data-settings-page="account">
 
-            <section class="wg-card wg-settings-section wg-settings-privacy wg-settings-hidden">
-                <h3 class="wg-settings-section__title">What can the operator see?</h3>
-                <p class="wg-settings-section__desc">Your vault — every health record you store and sync — is end-to-end encrypted: the keys never leave your devices, and the server holds only ciphertext it cannot open. Optional integrations you turn on reach outside that vault and have separately disclosed boundaries. All of them are listed below.</p>
-                <details class="wg-privacy-details">
-                    <summary class="wg-privacy-summary">Show what the operator can and cannot see</summary>
-                    <div id="privacy-content" class="wg-privacy-content"></div>
-                </details>
-            </section>
-
-            <!-- iOS/Android app, signed into an account (bd med-o7zq.32, med-nt9p.32.15): settings.js
-                 bindLeaveAccount. Back to the native first-run; nothing erased. -->
-            <section class="wg-settings-leave-account wg-settings-hidden">
-                <div class="wg-list">
-                    <button type="button" id="settings-leave-account-btn" class="wg-setting">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="user"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Use this <span data-device-word>iPhone</span> without an account</span><span class="wg-setting__desc">Keep a copy of your records only on this <span data-device-word>iPhone</span>. The account stays on the server.</span></span>
+            <section class="wg-section wg-settings-privacy wg-settings-hidden">
+                <div class="wg-section__head"><span class="wg-eyebrow">Account</span></div>
+                <div class="wg-list" id="settings-account-list">
+                    <div class="wg-setting">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="globe"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Address</span><span class="wg-setting__desc" id="settings-account-host"></span></span>
+                    </div>
+                    <button type="button" class="wg-setting" data-settings-open="operator">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="eye"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">What the operator can see</span><span class="wg-setting__desc">Sync times and sizes. Never what your records say.</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" class="wg-setting" data-settings-open="backup">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Export everything</span><span class="wg-setting__desc">Opens Backup &amp; import</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" id="settings-account-kit-row" class="wg-setting">
+                        <span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="key"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Emergency Kit</span><span class="wg-setting__desc" id="settings-account-kit-desc">Regenerate if you lost the printed copy</span></span>
+                        <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-account-kit-save">Save</span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                 </div>
             </section>
 
-            <section class="wg-card wg-settings-section wg-settings-danger wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Delete account</h3>
-                <p class="wg-settings-section__desc">Permanently erase your account and all of its data from this server. This cannot be undone.</p>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Export my data first</div>
-                            <div class="wg-settings-row__desc">Download a copy before you delete — no one can recover it afterwards</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <button type="button" id="delete-account-export" class="wg-btn wg-btn--sm">Export</button>
-                        </div>
-                    </div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Delete my account</div>
-                            <div class="wg-settings-row__desc">Asks you to type a phrase, then verify with your passkey</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <button type="button" id="delete-account-open" class="wg-btn wg-btn--danger wg-btn--sm">Delete…</button>
-                        </div>
-                    </div>
+            <!-- iOS/Android app, signed into an account (bd med-o7zq.32, med-nt9p.32.15): settings.js
+                 bindLeaveAccount. Back to the native first-run; nothing erased. -->
+            <section class="wg-section wg-settings-leave-account wg-settings-hidden">
+                <div class="wg-section__head"><span class="wg-eyebrow">Leave</span></div>
+                <div class="wg-list">
+                    <button type="button" id="settings-leave-account-btn" class="wg-setting">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Use this <span data-device-word>iPhone</span> without an account</span><span class="wg-setting__desc">Keeps a copy here. The account stays on the server.</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
                 </div>
-                <p id="delete-account-export-status" class="wg-settings-danger__status" role="status"></p>
-                <p id="delete-account-error" class="wg-settings-danger__error" role="alert"></p>
+            </section>
+
+            <section class="wg-section wg-settings-danger wg-settings-hidden">
+                <div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--danger">Danger</span></div>
+                <button type="button" id="delete-account-open" class="wg-setting wg-setting--boxed wg-setting--danger">
+                    <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="trash"></i></span>
+                    <span class="wg-setting__body"><span class="wg-setting__title">Delete account</span><span class="wg-setting__desc">Removes your vault from the server for good</span></span>
+                    <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                </button>
+                <p id="delete-account-error" class="wg-error" role="alert"></p>
+            </section>
+            </div>
+
+            <!-- Account & privacy → What the operator can see (med-d5t.9):
+                 web/cloud/js/privacy.js renders into #privacy-content. -->
+            <div class="wg-settings-page" data-settings-page="operator" data-settings-parent="Account">
+            <section class="wg-vstack">
+                <p class="wg-hint">Your vault (every health record you store and sync) is end-to-end encrypted: the keys never leave your devices, and the server holds only ciphertext it cannot open. Optional integrations you turn on reach outside that vault and have separately disclosed boundaries. All of them are listed below.</p>
+                <div id="privacy-content" class="wg-privacy-content"></div>
             </section>
             </div>
             </div>

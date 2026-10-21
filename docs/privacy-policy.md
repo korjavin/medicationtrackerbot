@@ -107,7 +107,7 @@ is computed on the device.
 
 ## Deleting your data
 
-**Settings → Account & privacy → Delete my account** erases your account and all
+**Settings → Account & privacy → Delete account** erases your account and all
 its data from the server immediately and wipes this device's copy. Server
 backups, where the operator keeps them, expire within 7 days. Data already
 sent to a third party through an optional feature stays under that party's
