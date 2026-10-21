@@ -976,8 +976,10 @@ mode, gated on the bridge platform being `ios` or `android`
   account host. With no account the app is always in local mode (bd
   med-ta2n.17, onboarding v3: no native first run, no native intro — the
   web's W1 and Settings say what "on this device" means); the shell persists
-  `wgLocalMode` the first time it finds no account, which also drops a move
-  stash a pre-v3 native first run kept. iPhone Settings → Med Tracker →
+  `wgLocalMode` at launch when it finds no account (`applySettings`), which
+  also drops a move stash a pre-v3 native first run kept. That stash is only
+  a copy (the local vault is intact) and the pending invite survives, so
+  "Turn on sync?" stashes afresh. iPhone Settings → Med Tracker →
   *Local mode* switches an account user into local mode; off with no account
   it changes nothing. *Switch account* lands in local mode too; the origin's
   data is kept either way. At launch the shell logs (`os_log`,
