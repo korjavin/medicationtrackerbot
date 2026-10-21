@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { userContentCount } from '../../../domain/vault.js';
 
 describe('cloud shim contract — settings flows (features/settings.js over web/domain/settings.js)', () => {
     let env;
@@ -256,6 +257,22 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 64, measured_at: new Date().toISOString() });
 
         expect(await window.apiCall('/api/today/start-here', 'GET')).toEqual({ picked: [], missing: [] });
+    });
+
+    // bd med-ta2n.22: the harness port stamps recordType on every row the way
+    // sync.js stampAndPut does, so a cross-type count (the W4 protection
+    // route's userContentCount over records.list) sees production's shape.
+    it('rows written through the shim carry their recordType, so userContentCount counts them', async () => {
+        const { window, records } = env;
+        await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 64, measured_at: new Date().toISOString() });
+        await records.put('weight', { recordId: 'w1', clientTs: 1, deleted: false, weight: 80 });
+        await records.put('weight', { recordId: 'w2', clientTs: 1, deleted: false, weight: 81 });
+        await records.del('weight', 'w2');
+
+        const rows = [...await records.list('bp'), ...await records.list('weight')];
+        expect(rows.map((r) => r.recordType).sort()).toEqual(['bp', 'weight']);
+        expect(userContentCount(rows)).toBe(2);
+        expect((await records.listRaw('weight')).find((r) => r.recordId === 'w2')).toMatchObject({ deleted: true, recordType: 'weight' });
     });
 
     it('GET /api/today/start-here falls back to the six feature flags (never Diary) without stored picks or content', async () => {
