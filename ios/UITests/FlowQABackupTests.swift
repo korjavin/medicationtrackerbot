@@ -100,16 +100,10 @@ final class FlowQABackupTests: XCTestCase {
         continueAfterFailure = false
         let flow = "erase"
         let app = XCUIApplication()
-        // Choose local mode on first run, so it is persisted (not only the
-        // launch argument) and the relaunch below can run with no arguments.
-        app.launchArguments = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgQAScene", "settings-erase-confirm"]
+        // No account means local mode, persisted at launch (bd med-ta2n.17),
+        // so the relaunch below can run with no arguments.
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-erase-confirm"]
         app.launch()
-        let onlyHere = app.buttons["Only on this device"]
-        XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
-        onlyHere.tap()
-        let start = app.buttons["Start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
-        start.tap()
         erase(app, flow: flow)
         XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "wgLocalMode is not persisted before the relaunch")
         app.terminate()
@@ -120,7 +114,6 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertTrue(webText(app, containing: "No medications yet").waitForExistence(timeout: 20), "Meds → Schedule is not empty after erase")
         XCTAssertFalse(webText(app, containing: "Lisinopril").exists, "an erased medication is still listed")
         shot(flow, "empty")
-        XCTAssertFalse(app.buttons["Only on this device"].exists, "erase dropped local mode (first run showed)")
         XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "erase dropped the persisted local-mode flag")
         app.terminate()
     }
