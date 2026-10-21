@@ -54,23 +54,24 @@ func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, ap
 
 // AttestFeedbackAccount is the feedback_queue account_id of a local-mode
 // install's feedback (bd med-ta2n.19): it has no accounts row, so the install's
-// stable key id stands in. The per-account cap and client_id dedupe apply per
-// install.
-func AttestFeedbackAccount(keyID string) string { return "attest:" + keyID }
+// trial BUCKET id stands in. The per-account cap and client_id dedupe then
+// apply per bucket, like every other attest budget, so a pass-rejoin or a
+// re-enrolled key cannot mint a fresh 100-item allowance.
+func AttestFeedbackAccount(bucketID string) string { return "attest:" + bucketID }
 
 // AppendAttestFeedback, in ONE transaction: the assertion-counter
 // compare-and-set every attested route runs first (ErrAttestCounter; the
 // advance commits even when the cap then refuses, so the assertion stays
 // spent), then AppendFeedback's dedupe + cap + insert under
-// AttestFeedbackAccount(keyID).
+// AttestFeedbackAccount(the key's bucket id).
 func (r *Repo) AppendAttestFeedback(ctx context.Context, keyID string, newCounter uint32, clientID, kind, appVersion string, ciphertext []byte, now time.Time) (queued bool, err error) {
 	full := false
 	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
-		if _, txErr := advanceAttestCounter(ctx, tx, keyID, newCounter, now); txErr != nil {
+		bucket, txErr := advanceAttestCounter(ctx, tx, keyID, newCounter, now)
+		if txErr != nil {
 			return txErr
 		}
-		var txErr error
-		queued, txErr = appendFeedback(ctx, tx, AttestFeedbackAccount(keyID), clientID, kind, appVersion, ciphertext, now)
+		queued, txErr = appendFeedback(ctx, tx, AttestFeedbackAccount(bucket), clientID, kind, appVersion, ciphertext, now)
 		if errors.Is(txErr, ErrFeedbackQueueFull) {
 			full = true
 			return nil

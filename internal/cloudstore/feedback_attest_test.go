@@ -111,4 +111,15 @@ func TestAppendAttestFeedback(t *testing.T) {
 	if in, _ := r.AttestInstall(ctx, "k1"); in.Counter != 3 {
 		t.Fatalf("counter not spent on a refused append: %d", in.Counter)
 	}
+	// A second key in k1's bucket (pass rejoin / key rotation) shares the cap
+	// and the client_id dedupe: no fresh allowance.
+	if err := r.InsertAttestInstall(ctx, AttestInstall{KeyID: "k2", BucketID: "k1", PublicKey: []byte{1}, Env: "production", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.AppendAttestFeedback(ctx, "k2", 1, "k2-new", "bug", "1.0", []byte{1}, now); !errors.Is(err, ErrFeedbackQueueFull) {
+		t.Fatalf("joined key over the bucket cap: %v", err)
+	}
+	if q, err := r.AppendAttestFeedback(ctx, "k2", 2, "c1", "bug", "1.0", []byte{1}, now); q || err != nil {
+		t.Fatalf("joined key retry of the bucket's c1: %v %v", q, err)
+	}
 }

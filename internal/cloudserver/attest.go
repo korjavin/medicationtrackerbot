@@ -324,9 +324,10 @@ func (a *AttestAPI) feedbackRecipient() string {
 // submitFeedback is the attested POST /api/attest/feedback (bd med-ta2n.19):
 // the session route's body ({client_id, kind, app_version, ciphertext}, an
 // age blob sealed in the app to feedbackRecipient) and cap, queued under
-// cloudstore.AttestFeedbackAccount(key id) so cmd/feedbackpull drains it
-// unchanged. The assertion binds this URI and the exact body. Never logs the
-// ciphertext; the admin ping carries kind + app version only, never the install.
+// cloudstore.AttestFeedbackAccount(bucket id) so cmd/feedbackpull drains it
+// unchanged and the cap is per bucket. The assertion binds this URI and the
+// exact body. Never logs the ciphertext, key id or bucket id; the admin ping
+// carries kind + app version only.
 func (a *AttestAPI) submitFeedback(w http.ResponseWriter, r *http.Request) {
 	if a.feedbackRecipient() == "" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "feedback_disabled"})
