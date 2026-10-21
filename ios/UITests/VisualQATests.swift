@@ -91,6 +91,10 @@ final class VisualQATests: XCTestCase {
         let region = scene.nativeOnly ? nil : paintRegion(app)
         let (screenshot, painted) = QA.stableScreenshot(paint: region, points: app.frame.width)
         if !painted, failure == nil { failure = "the ready content never painted (blank frame)" }
+        // The app is dark: a white status-bar band hides the clock (med-o7zq.44).
+        if !scene.nativeOnly, failure == nil, Self.cornerLuma(screenshot.image) > 0.9 {
+            failure = "the status-bar band is white (shell sampled the wrong page colour)"
+        }
         let shot = XCTAttachment(screenshot: screenshot)
         shot.name = "\(scene.name).png"
         shot.lifetime = .keepAlways
@@ -112,6 +116,17 @@ final class VisualQATests: XCTestCase {
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }
         app.terminate()
+    }
+
+    /// Luma (0–1) of the screenshot's top-left 4×4 px: the status-bar band, clear of the clock.
+    static func cornerLuma(_ image: UIImage) -> Double {
+        guard let cg = image.cgImage?.cropping(to: CGRect(x: 0, y: 0, width: 4, height: 4)) else { return 0 }
+        var px = [UInt8](repeating: 0, count: 4)
+        guard let ctx = CGContext(data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return 0 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return (0.2126 * Double(px[0]) + 0.7152 * Double(px[1]) + 0.0722 * Double(px[2])) / 255
     }
 
     /// The ready node's probe JSON (WebKit appends the role, ", application
