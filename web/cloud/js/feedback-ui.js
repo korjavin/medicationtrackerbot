@@ -284,6 +284,7 @@ function openFeedbackModal() {
 export async function mountFeedbackLauncher(ctx, win) {
     if (win) pageWin = win;
     const document = w().document;
+    if (!document) return null; // the page went away before the mount ran
     if (!document.body) {
         await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
     }
