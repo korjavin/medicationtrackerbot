@@ -719,12 +719,21 @@ export function createApiRouter(ctx, {
     }
     // Emergency Kit nudge (bd med-ta2n.15): an account only — local mode has
     // no kit, and its W4 card is the one that speaks there. POST {action:
-    // 'later'|'never'}; the count is the shim's, not the caller's.
+    // 'later'|'never'}; the count is the shim's, not the caller's. Lazy and
+    // type by type, stopping at atLeast: the domain asks only when the card
+    // could show, and a saved kit (most accounts) reads no user type at all.
     if (path === '/api/protection/kit-nudge' && !protection) {
-      const count = async () => userContentCount((await Promise.all([...USER_CONTENT_TYPES].map((t) => records.list(t)))).flat());
-      if (method === 'GET') return settings.getKitNudgeStatus({ records: await count() });
+      const count = async (atLeast = Infinity) => {
+        let n = 0;
+        for (const t of USER_CONTENT_TYPES) {
+          n += userContentCount(await records.list(t));
+          if (n >= atLeast) break;
+        }
+        return n;
+      };
+      if (method === 'GET') return settings.getKitNudgeStatus({ count });
       if (method === 'POST') {
-        await settings.setKitNudge(body && body.action, await count());
+        await settings.setKitNudge(body && body.action, { count });
         return { success: true };
       }
     }

@@ -1743,7 +1743,8 @@
 
     function paintKitCard(card, status) {
         card.classList.toggle('hidden', !(status && status.nudge));
-        if (status) card.querySelector('[data-kit-meta]').textContent = `${recordsLabel(status.records)} synced · no kit saved`;
+        // records is counted only for a card that shows (null otherwise).
+        if (status && status.nudge) card.querySelector('[data-kit-meta]').textContent = `${recordsLabel(status.records)} synced · no kit saved`;
     }
 
     // action: 'later' (×) or 'never' (Don't remind me again).

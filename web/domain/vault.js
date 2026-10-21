@@ -271,9 +271,20 @@ export function managedTypesForImport(vault) {
   if (!(data.settings && data.settings.integrations)) types.delete('integrations');
   if (!data.api_tokens) types.delete('apitokens');
   // A file without the W4 protection block (any backup older than bd
-  // med-ta2n.4) leaves this device's backup/dismissal state alone.
-  if (!data.protection) types.delete('protection');
+  // med-ta2n.4) leaves this device's backup/dismissal state alone — and so
+  // does an empty one (an older client exporting a kitNudge-only record,
+  // bd med-ta2n.15): it carries nothing to restore.
+  if (!protectionBlockHasW4(data.protection)) types.delete('protection');
   return types;
+}
+
+// A protection block with a backup stamp or a dismissal; anything else
+// (absent, null/[] — what an older client exports for a kitNudge-only
+// record) is treated as absent on import.
+function protectionBlockHasW4(p) {
+  if (!p || typeof p !== 'object') return false;
+  const ok = (s) => typeof s === 'string' && Number.isFinite(Date.parse(s));
+  return ok(p.last_backup_at) || (Array.isArray(p.nudge_dismissed_at) && p.nudge_dismissed_at.some(ok));
 }
 
 const META_FIELDS = new Set(['recordType', 'recordId', 'clientTs', 'deleted']);
@@ -878,7 +889,7 @@ export function vaultToRecords(vault, { now } = {}) {
   if (data.api_tokens) push('apitokens', 'apitokens', { tokens: [...data.api_tokens] });
   // W4 nudge state (bd med-ta2n.4). A bad timestamp is dropped, never fatal:
   // losing it only shows the nudge again.
-  if (data.protection && typeof data.protection === 'object') {
+  if (protectionBlockHasW4(data.protection)) {
     const ms = (s) => (typeof s === 'string' ? Date.parse(s) : NaN);
     const last = ms(data.protection.last_backup_at);
     push('protection', 'protection', {

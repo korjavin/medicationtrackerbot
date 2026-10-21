@@ -84,6 +84,17 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const bad = { ...legacy, data: { ...legacy.data, protection: { last_backup_at: 'soon', nudge_dismissed_at: ['x', '2026-06-01T09:00:00Z'] } } };
     expect(vaultToRecords(bad, { now: NOW }).find((r) => r.recordType === 'protection'))
       .toMatchObject({ lastBackupAt: null, nudgeDismissedAt: [Date.parse('2026-06-01T09:00:00Z')] });
+    // An empty block — what an older client exports for a kitNudge-only
+    // record (bd med-ta2n.15) — is no block: the destination keeps its state.
+    for (const protection of [{ last_backup_at: null, nudge_dismissed_at: [] }, { last_backup_at: 'soon', nudge_dismissed_at: ['x'] }]) {
+      const empty = { ...legacy, data: { ...legacy.data, protection } };
+      expect(vaultToRecords(empty, { now: NOW }).some((r) => r.recordType === 'protection')).toBe(false);
+      expect(managedTypesForImport(empty).has('protection')).toBe(false);
+    }
+    // And a kitNudge-only record exports no block.
+    expect('protection' in recordsToVault([
+      { recordType: 'protection', recordId: 'protection', clientTs: 1, deleted: false, lastBackupAt: null, nudgeDismissedAt: [], kitNudge: { optedOut: true } },
+    ], { now: NOW }).data).toBe(false);
   });
 
   // Forward compat (docs/vault-format.md "Newer exporter, older importer"):

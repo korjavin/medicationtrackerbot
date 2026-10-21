@@ -471,30 +471,45 @@ export function createSettingsDomain({ records, now, timeZone }) {
     };
   }
 
-  // records: the live user-record count, computed by the caller. Sync-on
-  // baseline: the kit record's savedAt while it reads how 'none' (the claim
-  // ceremony files it at sign-in, a rotation when the old kit dies), else
-  // the firstrun record's clientTs (an account older than the kit record).
-  async function getKitNudgeStatus({ records: count = 0 } = {}) {
+  // count(atLeast?): the caller's live user-record count (vault.js
+  // userContentCount), allowed to stop early once it reaches atLeast. Asked
+  // only when the card could show — kit unsaved, not opted out, 2 days past
+  // the baseline — since counting reads every user type (bd med-ta2n.15:
+  // most accounts have a saved kit and must stay instant). records is null
+  // when it was not counted. Sync-on baseline: the kit record's savedAt
+  // while it reads how 'none' (the claim ceremony files it at sign-in, a
+  // rotation when the old kit dies), else the firstrun record's clientTs (an
+  // account older than the kit record; 0, a restored vault's floor, is none).
+  async function getKitNudgeStatus({ count = async () => 0 } = {}) {
     const kit = await getEmergencyKit();
     const k = kitNudgeOf(await getProtection());
     const kitSaved = !!kit && kit.how !== 'none';
-    const fr = findSingleton(await records.list(FIRSTRUN_RECORD_TYPE), FIRSTRUN_RECORD_ID);
-    const since = kit && Number.isFinite(kit.savedAt) ? kit.savedAt : ((fr && fr.clientTs > 0) ? fr.clientTs : null);
-    const t = now();
     let nudge = false;
-    if (!kitSaved && !k.optedOut && since != null) {
-      nudge = k.lastShownAt == null
-        ? count >= KIT_NUDGE_MIN_RECORDS && t - since >= KIT_NUDGE_AFTER_MS
-        : count >= Math.max(KIT_NUDGE_MIN_RECORDS, k.lastShownRecordCount * KIT_NUDGE_GROWTH)
-          || t - k.lastShownAt >= KIT_NUDGE_REPEAT_MS;
+    let n = null;
+    if (!kitSaved && !k.optedOut) {
+      const fr = kit ? null : findSingleton(await records.list(FIRSTRUN_RECORD_TYPE), FIRSTRUN_RECORD_ID);
+      const since = kit && Number.isFinite(kit.savedAt) ? kit.savedAt : ((fr && fr.clientTs > 0) ? fr.clientTs : null);
+      const t = now();
+      if (since != null && t - since >= KIT_NUDGE_AFTER_MS) {
+        if (k.lastShownAt != null && t - k.lastShownAt >= KIT_NUDGE_REPEAT_MS) {
+          nudge = true;
+        } else {
+          const need = k.lastShownAt == null
+            ? KIT_NUDGE_MIN_RECORDS
+            : Math.max(KIT_NUDGE_MIN_RECORDS, k.lastShownRecordCount * KIT_NUDGE_GROWTH);
+          nudge = await count(need) >= need;
+        }
+      }
+      // The card shows the full count; a hidden one needs none.
+      if (nudge) n = await count();
     }
-    return { records: count, kitSaved, ...k, nudge };
+    return { records: n, kitSaved, ...k, nudge };
   }
 
   // action 'later' (×) or 'never' (Don't remind me again). A deliberate
-  // user write: now() + put, never a derived row.
-  async function setKitNudge(action, count = 0) {
+  // user write: now() + put, never a derived row. count() as above, asked
+  // only for 'later' (the snooze baseline).
+  async function setKitNudge(action, { count = async () => 0 } = {}) {
     if (action !== 'later' && action !== 'never') {
       const err = new Error(`Unknown kit nudge action: ${action}`);
       err.code = 'invalid_kit_nudge';
@@ -504,7 +519,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
     const k = kitNudgeOf(p);
     const kitNudge = action === 'never'
       ? { ...k, optedOut: true }
-      : { ...k, lastShownAt: now(), lastShownRecordCount: count };
+      : { ...k, lastShownAt: now(), lastShownRecordCount: await count() };
     await putProtection({ ...p, kitNudge });
     return kitNudge;
   }

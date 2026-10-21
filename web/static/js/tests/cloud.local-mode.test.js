@@ -2516,27 +2516,38 @@ describe('Kit nudge status (cloud router, real store, fake clock)', () => {
     const close = (action) => router('/api/protection/kit-nudge', 'POST', { action });
     const at = (ms) => vi.setSystemTime(ms);
     let seq = 0;
+    let listed = [];
     const addRecords = async (n) => {
         for (let i = 0; i < n; i += 1) {
             seq += 1;
             await localRecordsPort().put('weight', { recordId: `kit-${seq}`, clientTs: Date.now(), deleted: false, weight: 80 });
         }
     };
+    // The real port, with the types each request read: the count must be lazy.
+    const freshRouter = () => {
+        const port = localRecordsPort();
+        return createApiRouter(null, { records: { ...port, list: (t) => { listed.push(t); return port.list(t); } }, timeZone: 'UTC' });
+    };
 
     beforeEach(async () => {
         await deleteDb();
         seq = 0;
+        listed = [];
         vi.useFakeTimers({ toFake: ['Date'], now: T0 });
-        router = createApiRouter(null, { records: localRecordsPort(), timeZone: 'UTC' });
+        router = freshRouter();
         // Sign-in without the kit offer files how 'none' (signup.js): sync is on.
         await router('/api/settings/emergency-kit', 'PUT', { savedAt: T0, how: 'none' });
     });
     afterEach(() => { vi.useRealTimers(); });
 
-    it('first show: 2 days after sync is on AND 10 records, not before', async () => {
+    it('first show: 2 days after sync is on AND 10 records, not before; no count before day 2', async () => {
         await addRecords(9);
+        listed = [];
+        expect(await status()).toMatchObject({ records: null, nudge: false });
+        expect(listed).not.toContain('weight');
         at(T0 + 5 * DAY);
-        expect(await status()).toMatchObject({ records: 9, kitSaved: false, nudge: false });
+        expect(await status()).toMatchObject({ records: null, kitSaved: false, nudge: false });
+        expect(listed).toContain('weight');
         await addRecords(1);
         at(T0 + 2 * DAY - 1);
         expect((await status()).nudge).toBe(false);
@@ -2564,29 +2575,83 @@ describe('Kit nudge status (cloud router, real store, fake clock)', () => {
         expect((await status()).nudge).toBe(true);
     });
 
-    it("Don't remind me again is permanent, whatever the growth; the W4 fields survive it", async () => {
+    it("Don't remind me again is permanent, whatever the growth, and reads no user type", async () => {
         await addRecords(10);
         at(T0 + 2 * DAY);
+        listed = [];
         await close('never');
+        expect(listed).not.toContain('weight');
         await addRecords(100);
         at(T0 + 400 * DAY);
-        expect(await status()).toMatchObject({ optedOut: true, nudge: false });
-        const rec = (await localRecordsPort().list('protection'))[0];
-        expect(rec).toMatchObject({ recordId: 'protection', nudgeDismissedAt: [], kitNudge: { optedOut: true } });
+        listed = [];
+        expect(await status()).toMatchObject({ optedOut: true, nudge: false, records: null });
+        expect(listed).not.toContain('weight');
         // A kit-only protection record stays out of the backup file.
         const vault = recordsToVault(await localRecordsPort().list('protection'), { now: Date.now() });
         expect(vault.data.protection).toBeUndefined();
     });
 
-    it('never once the kit is saved, opted out or not', async () => {
+    it('kitNudge and the W4 fields survive each other\'s writes', async () => {
+        const B = T0 - 3 * DAY;
+        await localRecordsPort().put('protection', {
+            recordId: 'protection', clientTs: T0, deleted: false, lastBackupAt: B, nudgeDismissedAt: [T0 - DAY],
+        });
+        await addRecords(10);
+        at(T0 + 2 * DAY);
+        await close('later');
+        const rec = () => localRecordsPort().list('protection').then((l) => l[0]);
+        expect(await rec()).toMatchObject({
+            lastBackupAt: B, nudgeDismissedAt: [T0 - DAY], kitNudge: { lastShownAt: T0 + 2 * DAY, lastShownRecordCount: 10, optedOut: false },
+        });
+        // The W4 writers keep kitNudge.
+        await router.domains.settings.dismissNudge();
+        await router.domains.settings.markBackup();
+        expect(await rec()).toMatchObject({
+            lastBackupAt: T0 + 2 * DAY, nudgeDismissedAt: [T0 - DAY, T0 + 2 * DAY], kitNudge: { lastShownAt: T0 + 2 * DAY, lastShownRecordCount: 10 },
+        });
+        await close('never');
+        expect(await rec()).toMatchObject({ lastBackupAt: T0 + 2 * DAY, nudgeDismissedAt: [T0 - DAY, T0 + 2 * DAY], kitNudge: { optedOut: true } });
+    });
+
+    it('never once the kit is saved, opted out or not; a saved kit reads no user type', async () => {
         await addRecords(10);
         at(T0 + 2 * DAY);
         expect((await status()).nudge).toBe(true);
         await router('/api/settings/emergency-kit', 'PUT', { savedAt: Date.now(), how: 'download' });
-        expect(await status()).toMatchObject({ kitSaved: true, nudge: false });
+        listed = [];
+        expect(await status()).toMatchObject({ kitSaved: true, nudge: false, records: null });
+        expect(listed).not.toContain('weight');
         at(T0 + 400 * DAY);
         await addRecords(100);
         expect((await status()).nudge).toBe(false);
+    });
+
+    describe('no kit record (an account older than it): the firstrun baseline', () => {
+        beforeEach(async () => {
+            await deleteDb();
+            router = freshRouter();
+            await addRecords(10);
+        });
+
+        it('counts from the firstrun record\'s clientTs', async () => {
+            await localRecordsPort().put('firstrun', { recordId: 'firstrun', clientTs: T0, deleted: false, first_run_complete: true });
+            at(T0 + 2 * DAY - 1);
+            expect((await status()).nudge).toBe(false);
+            at(T0 + 2 * DAY);
+            expect(await status()).toMatchObject({ records: 10, kitSaved: false, nudge: true });
+        });
+
+        it('clientTs 0 (a restored vault\'s floor) is no baseline: never shows', async () => {
+            await localRecordsPort().putIfAbsent('firstrun', { recordId: 'firstrun', clientTs: 0, deleted: false, first_run_complete: true });
+            expect((await localRecordsPort().list('firstrun'))[0].clientTs).toBe(0);
+            at(T0 + 400 * DAY);
+            expect(await status()).toMatchObject({ nudge: false, records: null });
+        });
+
+        it('no firstrun record either: never shows', async () => {
+            at(T0 + 400 * DAY);
+            expect((await status()).nudge).toBe(false);
+        });
     });
 
     it('an unknown action is refused and writes nothing', async () => {
