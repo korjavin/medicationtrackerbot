@@ -533,9 +533,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 if !local { move.clear() }
                 enter(url, host: h)
             } else if local {
-                // Without a url (bd med-ta2n.17): Settings → Backup → Move to a
-                // cloud account, after its move.stash. Stays local, nothing
-                // else changes (the stash waits for the invite); home?invite=1
+                // Without a url (bd med-ta2n.17): no web caller since the
+                // Settings Move row went (#1255; the P3 sheet always passes
+                // {url}). Stays local, nothing
+                // else changes (a stash waits for the invite); home?invite=1
                 // opens "Have an invite?".
                 replyHandler(true, nil)
                 if let url = inviteHome { reopen(to: url) }

@@ -13,6 +13,12 @@ import XCTest
 /// its claim URL over as WG_QA_CLAIM_URL.
 @MainActor
 final class FlowQACeremonyExitTests: XCTestCase {
+    nonisolated override func setUp() {
+        super.setUp()
+        // bd med-w6gx.23.8: a clean slate, so one failed flow stays one red test.
+        MainActor.assumeIsolated { QA.reset() } // XCTest runs setUp on the main thread
+    }
+
     func testWebExitBarLeaves() throws {
         continueAfterFailure = false
         let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_CLAIM_URL"].flatMap { URL(string: $0) },
@@ -24,7 +30,7 @@ final class FlowQACeremonyExitTests: XCTestCase {
 
         let app = XCUIApplication()
         // No account: local mode. The lock off, so the flow is not held behind it.
-        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO"]
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
         app.launch()
         XCTAssertTrue(app.webViews.buttons.firstMatch.waitForExistence(timeout: 60), "local mode never showed its page")
 
@@ -48,7 +54,7 @@ final class FlowQACeremonyExitTests: XCTestCase {
                       "account.leave did not land on local mode's \"Have an invite?\"")
         shot("ceremony-exit", "landing")
         app.terminate()
-        app.launchArguments = ["-wgLocalLockOn", "NO"]
+        app.launchArguments = ["-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
         app.launch()
         XCTAssertTrue(app.webViews.buttons.firstMatch.waitForExistence(timeout: 60), "the relaunch showed no page")
         XCTAssertFalse(app.webViews.buttons["Not your account?"].waitForExistence(timeout: 10), "after relaunch the left account reopened")

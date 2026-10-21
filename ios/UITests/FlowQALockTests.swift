@@ -11,6 +11,12 @@ import LocalAuthentication
 /// lock off for any flow that runs after it.
 @MainActor
 final class FlowQALockTests: XCTestCase {
+    nonisolated override func setUp() {
+        super.setUp()
+        // bd med-w6gx.23.8: a clean slate, so one failed flow stays one red test.
+        MainActor.assumeIsolated { QA.reset() } // XCTest runs setUp on the main thread
+    }
+
     func testLocalLock() {
         continueAfterFailure = false
         Biometry.enroll()

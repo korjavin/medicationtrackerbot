@@ -72,8 +72,8 @@ window.MedTrackerCloudReady = (async function boot() {
         // The account → local move (bd med-o7zq.36.4): after domReady, as
         // restoreVault is importexport.js's; before the reminders and the
         // Health import, which a replace would only redo after its reload.
-        policy.showLeaveToastOnce({ win: window });
-        await policy.pickupLeaveStash({ win: window })
+        const justPicked = policy.showLeaveToastOnce({ win: window });
+        await policy.pickupLeaveStash({ win: window, justPicked })
             .catch((e) => console.error('[local] leave pickup failed', e));
         const records = localRecordsPort();
         policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records, win: window });

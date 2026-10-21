@@ -149,15 +149,23 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   sheet writes the move stash now, right before `local.leave {url}`) → a
   stash seeded into the container survives a relaunch in local mode with the
   records → iOS Settings' Switch account (`forgetKey`) drops the stash and
-  lands on "Have an invite?". `testLeaveStashPickup` — wipes
-  `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
+  lands on "Have an invite?". `testLeaveStashPickup` — on the empty store
+  setUp left, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
-  clears the file → seeded again over records: Merge / Replace → Cancel →
-  "Records not copied", file cleared.
+  clears the file → seeded again over records: Merge / Replace → Cancel → no
+  further dialog, records kept, file cleared.
+
+**Isolation (bd med-w6gx.23.8):** every flow class's `setUp` calls
+`QA.reset()`: the app stopped, then `Library/WebKit` (the store), both
+stashes and `tmp/wg-downloads` removed until they stay gone (a killed
+instance's WebKit processes can write on for a moment). Every flow starts on
+an empty store; a scene seeds what it needs. Defaults are not wiped (cfprefsd
+caches them): pin them per launch, e.g. `-wgLocalLock NO` beside
+`-wgLocalLockOn NO`, so a lock left on by a failed lock flow stays there.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
-(`-wgLocalMode`, `-wgAccountHost`, `-wgLocalLockOn`, and the Debug-only
+(`-wgLocalMode`, `-wgAccountHost`, `-wgLocalLockOn` + `-wgLocalLock`, and the Debug-only
 `-wgQAScene <scene>` to have the in-page driver seed the golden vault). Assert
 what the UI shows (native labels, web elements through `QA.webElement` /
 `QA.tabBarShows`) or files the app already writes, read from the runner:

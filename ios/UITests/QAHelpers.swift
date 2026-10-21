@@ -46,10 +46,32 @@ enum QA {
             .waitForExistence(timeout: timeout)
     }
 
-    /// Removes the local origin's website data (Library/WebKit) with the app
-    /// stopped: the next launch boots an empty store, as a fresh install does.
-    static func wipeWebData() {
-        if let dir = appContainer()?.appendingPathComponent("Library/WebKit") { try? FileManager.default.removeItem(at: dir) }
+    /// Every flow's setUp (bd med-w6gx.23.8): the app stopped, then its
+    /// website data (Library/WebKit: the next launch boots an empty store, as
+    /// a fresh install does), both shell stashes and the export dir removed,
+    /// so one flow's failure stays one red test. The killed instance's WebKit
+    /// processes can outlive it and write on (run 39549993399: records came
+    /// back after a wipe, and `try?` hid it), so it settles first and removes
+    /// until everything stays gone. Defaults are pinned per launch instead
+    /// (NSArgumentDomain, e.g. `-wgLocalLock NO`): cfprefsd caches them, so
+    /// deleting the plist does not reliably reset them.
+    static func reset() {
+        let app = XCUIApplication()
+        if app.state != .notRunning {
+            app.terminate()
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 30), "QA.reset: the app did not exit")
+        }
+        guard let dir = appContainer() else { return } // never launched: nothing to clear
+        let paths = ["Library/WebKit", "Library/Application Support/move", "Library/Application Support/leave", "tmp/wg-downloads"]
+            .map { dir.appendingPathComponent($0) }
+        let fm = FileManager.default
+        Thread.sleep(forTimeInterval: 2)
+        for _ in 0..<15 {
+            for url in paths { try? fm.removeItem(at: url) }
+            Thread.sleep(forTimeInterval: 1)
+            if paths.allSatisfy({ !fm.fileExists(atPath: $0.path) }) { return }
+        }
+        XCTFail("QA.reset could not clear \(paths.filter { fm.fileExists(atPath: $0.path) }.map(\.path))")
     }
 
     /// A device's first keyboard opens under the slide-to-type tip (seen on
