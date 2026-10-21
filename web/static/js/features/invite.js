@@ -56,6 +56,9 @@
     var NO_CAMERA = 'The camera is unavailable. Paste the link instead.';
     var SCAN_MS = 200;
     var PROBE_MS = 3000;
+    // ?invite=1 (a shell with the slot): a cold bridge may need longer, but a
+    // shell that never answers must not hold W1 for good.
+    var FORCED_PROBE_MS = 15000;
     var STALE_MS = 14 * 24 * 60 * 60 * 1000;
 
     // scheme://authority path ?query #fragment, raw. `.` stops at a newline, so
@@ -340,13 +343,11 @@
 
     // ---- P3 (bd med-ta2n.7) ------------------------------------------------
 
-    // A shell answer, or `fallback` after PROBE_MS; `wait`: no time box.
-    function within(promise, fallback, wait) {
-        var answer = Promise.resolve(promise).catch(function () { return fallback; });
-        if (wait) return answer;
+    // A shell answer, or `fallback` after PROBE_MS (FORCED_PROBE_MS if `long`).
+    function within(promise, fallback, long) {
         return Promise.race([
-            answer,
-            new Promise(function (r) { setTimeout(function () { r(fallback); }, PROBE_MS); }),
+            Promise.resolve(promise).catch(function () { return fallback; }),
+            new Promise(function (r) { setTimeout(function () { r(fallback); }, long ? FORCED_PROBE_MS : PROBE_MS); }),
         ]);
     }
 
@@ -567,8 +568,8 @@
             }
         } catch (_) { /* no URL: nothing forced */ }
         // ?invite=1 comes only from a shell with the slot (contract §6-7): its
-        // answers are awaited, not raced — a bridge slowed past PROBE_MS on a
-        // cold start must not drop F1 (iOS flow QA, bd med-w6gx.23.8).
+        // answers get FORCED_PROBE_MS, not PROBE_MS — a bridge slowed past 3 s
+        // on a cold start must not drop F1 (iOS flow QA, bd med-w6gx.23.8).
         if ((await within(n.has('invite.pending'), false, forced)) !== true) return;
         var slot = await within(n.call('invite.pending'), null, forced);
         var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
