@@ -440,6 +440,13 @@ func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstor
 			edit(fmt.Sprintf("✖️ Declined: at the %d live-invite cap", managerInviteQuota), !settled)
 			return
 		}
+		if refusal == onboardingClaimedMessage {
+			// They claimed an earlier invite while this request waited.
+			settled := settle(cloudstore.InviteRequestDeclined)
+			t.replyManagerClaimed(ctx, req.TGChatID)
+			edit("✖️ Not sent: they already have an account", !settled)
+			return
+		}
 		// Nothing was minted: reopen so the admin can tap Approve again (if the
 		// reopen fails, the stale-approval re-run serves the same tap).
 		settle(cloudstore.InviteRequestPending)

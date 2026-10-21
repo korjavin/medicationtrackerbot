@@ -811,6 +811,16 @@ func (t *TelegramAPI) mintTGInviteLocked(ctx context.Context, creator string) (*
 	t.mintMu.Lock()
 	defer t.mintMu.Unlock()
 
+	// The "yes" gate checked this when the request was filed; a user can claim
+	// an earlier invite while this request waits, so check again at approve time.
+	switch claimed, err := t.store.HasClaimedAccountCreatedBy(ctx, creator); {
+	case err != nil:
+		slog.Error("telegram manager message: claimed check", "error", err, "creator", creator)
+		return nil, onboardingMintFailMessage
+	case claimed:
+		return nil, onboardingClaimedMessage
+	}
+
 	now := time.Now().UTC()
 	// Sweep before counting, same as InviteAPI.CreateInvite: a user sitting at
 	// the cap never reaches Provision, so without this their own expired
