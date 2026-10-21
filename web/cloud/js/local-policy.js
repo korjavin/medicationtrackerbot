@@ -670,7 +670,8 @@ const BASE_POST_HEADERS = ['X-Attest-Key-Id', 'X-Attest-Challenge', 'X-Attest-As
 // network failure; every HTTP status — 429, 404, 5xx — is a Response.
 export function shellPost(native) {
   return async (url, init = {}) => {
-    const path = new URL(String(url), 'https://base.invalid').pathname;
+    // Drop any scheme://host, then the query and fragment.
+    const path = String(url).replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').split(/[?#]/)[0];
     const given = new Headers(init.headers || {});
     const headers = {};
     for (const name of BASE_POST_HEADERS) if (given.has(name)) headers[name] = given.get(name);
