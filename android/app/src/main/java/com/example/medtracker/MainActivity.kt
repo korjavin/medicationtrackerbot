@@ -465,7 +465,10 @@ class MainActivity : Activity() {
      * into local mode (account.leave {then: "local"}, bd med-nt9p.32.13, iOS forget(thenLocal:)).
      * WebView data is per origin and kept.
      */
-    private fun forget(thenLocal: Boolean = false) {
+    private fun forget(thenLocal: Boolean = false, keepMove: Boolean = false) {
+        // Native exits from local mode (Switch account, "Use an account instead") must not leave a stale
+        // move stash for the next account (bd med-nt9p.49); only the page's local.leave hands off a fresh one.
+        if (local && !keepMove) move.clear()
         // The account a leave left (bd med-o7zq.42): leave.clear {back: true} reopens it.
         val left = host
         prefs.edit().apply { if (thenLocal && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
@@ -894,7 +897,7 @@ class MainActivity : Activity() {
             // Settings → Backup → Move to a cloud account: the first run, as Switch account; the data stays.
             "local.leave" -> {
                 answer(true)
-                forget()
+                forget(keepMove = true)
             }
             // Settings → App lock (local-policy.js mountLocalLockRow); available: the phone has a screen lock.
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))

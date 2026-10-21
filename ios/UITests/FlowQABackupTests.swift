@@ -1,7 +1,7 @@
 import XCTest
 
 /// Flow QA: local mode's data lifecycle (bd med-w6gx.23.4, docs/ios.md "Flow
-/// QA (Simulator)") — backup export to the share sheet, restore from a file,
+/// QA (Simulator)") — backup export to the Files export picker, restore from a file,
 /// erase. Twin of android/qa smoke.mjs exportBackup / local-smoke / erase.
 /// Same contract as FlowQATests: first failed step ends the flow, shots are
 /// `<flow>-<step>.png`, assertions are UI or files the app already writes.
@@ -16,8 +16,8 @@ final class FlowQABackupTests: XCTestCase {
 
     /// Settings → Backup & import → Export backup → passphrase sheet → Backup
     /// ready → Save to device, plain then encrypted: each lands in the shell's
-    /// Downloads temp dir, is offered through the share sheet, and is deleted
-    /// once the sheet closes (kit S7, bd med-ckm5.7).
+    /// Downloads temp dir, is offered through the Files export picker, and is
+    /// deleted once the picker closes (kit S7, bd med-ckm5.7, med-o7zq.43).
     func testBackupExport() throws {
         continueAfterFailure = false
         let flow = "backup-export"
@@ -40,7 +40,7 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertTrue(save.waitForExistence(timeout: 60), "Backup ready never showed")
         shot(flow, "plain-ready")
         save.tap()
-        shareSheetRoundTrip(app, flow: flow, step: "plain", downloads: downloads, suffix: ".json.gz")
+        exportPickerRoundTrip(app, flow: flow, step: "plain", downloads: downloads, suffix: ".json.gz")
         XCTAssertTrue(webText(app, containing: ".json.gz.").waitForExistence(timeout: 10), "the export status never said \"Backup exported\"")
 
         // Encrypted: the passphrase makes it .age (proof the typing landed).
@@ -57,7 +57,7 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertTrue(save.waitForExistence(timeout: 120), "encrypted Backup ready never showed")
         shot(flow, "encrypted-ready")
         save.tap()
-        shareSheetRoundTrip(app, flow: flow, step: "encrypted", downloads: downloads, suffix: ".json.gz.age", timeout: 60)
+        exportPickerRoundTrip(app, flow: flow, step: "encrypted", downloads: downloads, suffix: ".json.gz.age", timeout: 60)
         XCTAssertTrue(webText(app, containing: ".json.gz.age").waitForExistence(timeout: 10), "the encrypted export status never said \"Backup exported\"")
         shot(flow, "after-dismiss")
         XCTAssertFalse(webText(app, containing: "Preparing").exists || webText(app, containing: "Encrypting").exists, "the export status still says it is running")
@@ -158,23 +158,40 @@ final class FlowQABackupTests: XCTestCase {
         shot(flow, "after-erase")
     }
 
-    /// Waits for the share sheet, checks the file sits in the Downloads dir
-    /// while it shows, dismisses it, and checks the dir is empty after.
-    private func shareSheetRoundTrip(_ app: XCUIApplication, flow: String, step: String, downloads: URL,
-                                     suffix: String, timeout: TimeInterval = 60) {
-        let sheetUI = XCUIApplication(bundleIdentifier: "com.apple.ShareSheetUI")
-        let marks = NSPredicate(format: "identifier IN {'ActivityListView', 'UIActivityContentView'} OR label IN {'Save to Files', 'Copy', 'Close'}")
-        let inApp = app.descendants(matching: .any).matching(marks).firstMatch
-        let remote = sheetUI.descendants(matching: .any).matching(marks).firstMatch
-        XCTAssertTrue(waitUntil(timeout) { inApp.exists || remote.exists }, "\(step): the share sheet never showed")
-        shot(flow, "\(step)-share-sheet")
+    /// Waits for the Files export picker (bd med-o7zq.43), checks the file sits
+    /// in the Downloads dir while it shows, swipes it away, and checks the dir is
+    /// empty after. The picker is a remote view whose controls show in the app
+    /// tree; they count only beyond the web view's own matches, so page
+    /// buttons never pass.
+    private func exportPickerRoundTrip(_ app: XCUIApplication, flow: String, step: String, downloads: URL,
+                                       suffix: String, timeout: TimeInterval = 60) {
+        let marks = NSPredicate(format: "label IN {'Cancel', 'Save', 'Move', 'Browse', 'Recents', 'On My iPhone'}")
+        let shown = {
+            app.descendants(matching: .any).matching(marks).count > app.webViews.descendants(matching: .any).matching(marks).count
+        }
+        let up = waitUntil(timeout, shown)
+        shot(flow, "\(step)-export-picker")
+        guard up else {
+            return XCTFail("\(step): the Files export picker never showed — tree: \(tree(app))")
+        }
         let files = filesIn(downloads)
         XCTAssertTrue(files.count == 1 && files[0].hasSuffix(suffix), "\(step): Downloads holds \(files), want one *\(suffix)")
 
-        let close = [app.buttons["Close"], sheetUI.buttons["Close"]].first { $0.exists }
-        if let close { close.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap() }
-        XCTAssertTrue(waitUntil(15) { !inApp.exists && !remote.exists }, "\(step): the share sheet did not close")
-        XCTAssertTrue(waitUntil(10) { filesIn(downloads).isEmpty }, "\(step): the export file outlived the sheet: \(filesIn(downloads))")
+        // Swipe the sheet down by its header: the picker opens at its last
+        // location (Browse with an X, or a folder with Back + Save), so no
+        // single button is always there.
+        let header = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.112))
+        header.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
+        let closed = waitUntil(15) { !shown() }
+        XCTAssertTrue(closed, "\(step): the export picker did not close — tree tail: \(tree(app, tail: true))")
+        XCTAssertTrue(waitUntil(10) { filesIn(downloads).isEmpty }, "\(step): the export file outlived the picker: \(filesIn(downloads))")
+    }
+
+    /// The element tree on one line, for a failure message (the job's log keeps
+    /// only " error: " lines and the artifact only PNGs).
+    private func tree(_ app: XCUIApplication, tail: Bool = false) -> String {
+        let line = app.debugDescription.split(separator: "\n").joined(separator: " | ")
+        return String(tail ? line.suffix(6000) : line.prefix(6000))
     }
 
     /// Bottom tab bar → Meds → Schedule (the tab restores its last sub-tab).
