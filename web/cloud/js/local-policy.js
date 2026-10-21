@@ -15,9 +15,10 @@
 //   egress      BYOK hosts go to the shell (bridge op setEgressHosts), never
 //               to a server.
 //   trial AI    off unless the user turns on the anonymous trial (bd
-//               med-o7zq.16): then, and only then, our server's base domain
-//               joins the shell's host list and local-trial.js signs each
-//               request with App Attest. The account trial's meta flag stays
+//               med-o7zq.16): then local-trial.js signs each request with App
+//               Attest. Our base domain is in the shell's host list whenever
+//               the shell names it (localEgressHosts), called only by the
+//               trial and the "Request an invite" form. The account trial's meta flag stays
 //               out of the bundle (ios/bundle-web.sh).
 //   food DB     no food-DB meta in the bundle. The operator's DB rides the
 //               same trial switch (bd med-o7zq.20): LOCAL_FOOD_DB below sends
@@ -35,7 +36,7 @@
 import {
   scheduleReminderRecompute, recomputeAndPush, onLocalScheduleResult,
 } from './reminders.js';
-import { hostsFromIntegrations } from './egress-hosts.js';
+import { canAllowlist, hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords, localRecordsPort } from './sync.js';
 import { withMaterializationStopped } from './apishim.js';
 import { createSettingsDomain, PROTECTION_RECORD_TYPE } from '../../domain/settings.js';
@@ -353,16 +354,38 @@ export const LOCAL_FOOD_DB = {
 // reloads). Resolves to { hosts, changed },
 // or null where there is no shell to tell (the web, tests).
 //
-// The trial AI's host — our server's base domain — joins the list only while
-// the user has it on (the `anon` trial consent: one switch in Settings → AI &
-// integrations for the AI and the food database, bd med-o7zq.20) and
-// the shell supports App Attest. Off, the CSP admits no server of ours and
-// nothing here talks to one. The transport is installed
+// The list is localEgressHosts below. The trial (the `anon` trial consent:
+// one switch in Settings → AI & integrations for the AI and the food database,
+// bd med-o7zq.20) needs the shell's App Attest; off, nothing here talks to our
+// server, though its base stays listed. The transport is installed
 // only once this document's CSP carries the host (no change pending a
 // reload), and a first enrollment runs then, so Settings can show the count.
 // Settled by the first registerLocalEgress, whatever its outcome: until then
 // LOCAL_VAULT.trial cannot tell "no App Attest" from "not told yet", so its
 // readers wait for it (the first-run screen renders right after boot).
+// localEgressHosts is the shell's host list (bd med-ta2n.14). Both shells take
+// it whole or not at all — at most SHELL_MAX_HOSTS bare [a-z0-9.-] names, else
+// "invalid hosts" — and reload when the ordered array changes, so the order is
+// fixed: [BYOK in hostsFromIntegrations order, base, api.elevenlabs.io].
+// - base (Attest.status().base): listed whenever it normalizes (trim,
+//   lowercase, canAllowlist), trial or not — the "Request an invite" POST
+//   needs it and a CSP change only lands on the next load. One that doesn't
+//   (a QA base with a port) is skipped, never sent raw.
+// - elevenlabs: only while the trial is on.
+// - over the cap: with the trial on, base + elevenlabs win and BYOK is cut
+//   from the end; off, BYOK wins and the base is skipped. (BYOK is at most
+//   three hosts today, so the cap does not bind.)
+const SHELL_MAX_HOSTS = 8; // ios/App/LocalOrigin.swift maxHosts, Android MainActivity
+export function localEgressHosts(byok, base, trialOn) {
+  const b = typeof base === 'string' ? base.trim().toLowerCase() : '';
+  const tail = canAllowlist(b) ? [b] : [];
+  if (trialOn) tail.push(ELEVENLABS_HOST);
+  const head = [];
+  for (const h of byok || []) if (canAllowlist(h) && !tail.includes(h) && !head.includes(h)) head.push(h);
+  if (trialOn) return [...head.slice(0, SHELL_MAX_HOSTS - tail.length), ...tail];
+  return head.length + tail.length <= SHELL_MAX_HOSTS ? [...head, ...tail] : head.slice(0, SHELL_MAX_HOSTS);
+}
+
 let firstEgressSettled;
 const firstEgress = new Promise((resolve) => { firstEgressSettled = resolve; });
 
@@ -378,12 +401,10 @@ async function registerLocalEgressNow({ settings, win }) {
   const native = shellNative(win);
   if (!native) return null;
   lastEgress = { settings, win };
-  const hosts = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
+  const byok = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
   const attest = await attestStatus(win);
   const trialOn = !!attest && (await settings.getTrialConsent())?.anon === true;
-  if (trialOn) {
-    for (const host of [attest.base, ELEVENLABS_HOST]) if (!hosts.includes(host)) hosts.push(host);
-  }
+  const hosts = localEgressHosts(byok, attest && attest.base, trialOn);
   const reply = await native.call('setEgressHosts', { hosts });
   const changed = !!(reply && reply.changed);
   if (!changed) {

@@ -16,7 +16,7 @@
 // actually contacts when the user leaves the provider URL blank.
 const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
 
-function canAllowlist(host) {
+export function canAllowlist(host) {
   if (!host || host.length > 253) return false;
   if (host.startsWith('.') || host.startsWith('-')
     || host.endsWith('.') || host.endsWith('-') || host.includes('..')) return false;
