@@ -162,21 +162,6 @@ extension VerticalAlignment {
     static let markCenter = VerticalAlignment(MarkCenter.self)
 }
 
-/// The app mark (.wg-mark): the pill on ink, sun-coloured.
-struct WgMark: View {
-    var size: CGFloat = 36
-    var body: some View {
-        RoundedRectangle(cornerRadius: size * 10 / 36)
-            .fill(LinearGradient(stops: [.init(color: .white.opacity(0.16), location: 0), .init(color: .white.opacity(0), location: 0.52)],
-                                 startPoint: .top, endPoint: .bottom))
-            .background(Wg.ink, in: RoundedRectangle(cornerRadius: size * 10 / 36))
-            .overlay(RoundedRectangle(cornerRadius: size * 10 / 36).strokeBorder(Color.white.opacity(0.1)))
-            .overlay(Image(systemName: "pills.fill").font(.system(size: size * 20 / 36)).foregroundStyle(Wg.sun))
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
-    }
-}
-
 /// .wg-note: an icon and a line on a status tint (info, warn, danger).
 struct WgNote: View {
     enum Tone { case info, warn, danger }
@@ -203,13 +188,5 @@ struct WgNote: View {
         .padding(.vertical, 12)
         .background(bg, in: RoundedRectangle(cornerRadius: Wg.radiusField))
         .overlay(RoundedRectangle(cornerRadius: Wg.radiusField).strokeBorder(line))
-    }
-}
-
-/// .wg-label: the uppercase eyebrow.
-struct WgLabel: View {
-    let text: String
-    var body: some View {
-        Text(text.uppercased()).font(Wg.ui(10.5, .semibold)).tracking(1.5).foregroundStyle(Wg.fg3)
     }
 }
