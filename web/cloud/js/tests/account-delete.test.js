@@ -1,8 +1,9 @@
 // bd med-d5t.8 — client half of self-service account deletion. The security
 // property (a stolen session alone cannot delete) is enforced server-side and
 // tested in internal/cloudserver/account_test.go; these cover the browser flow:
-// the re-auth ceremony is actually driven, the export-first safety copy works,
-// and the local mirror is cleared afterwards.
+// the re-auth ceremony is actually driven and the local mirror is cleared
+// afterwards. Export-first is the dialog's link to Backup & import, pinned in
+// settings.toggles.test.js.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { reauthAndDelete, baseDomainURL, clearLocalVault, DELETE_CONFIRM_PHRASE } from '../account-delete.js';

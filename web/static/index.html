@@ -574,7 +574,7 @@
                     <button type="button" class="wg-setting" data-settings-open="account">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="shield"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Account &amp; privacy</span><span class="wg-setting__desc">What the operator can see · delete</span></span>
-                        <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitChip). -->
+                        <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitState). -->
                         <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-kit-chip">Kit</span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
@@ -1309,7 +1309,7 @@
                     <span class="wg-setting__body"><span class="wg-setting__title">Delete account</span><span class="wg-setting__desc">Removes your vault from the server for good</span></span>
                     <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                 </button>
-                <p id="delete-account-error" class="wg-hint" role="alert" hidden></p>
+                <p id="delete-account-error" class="wg-error" role="alert"></p>
             </section>
             </div>
 

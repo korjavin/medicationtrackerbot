@@ -1119,6 +1119,8 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     expect(text).toMatch(/close other open tabs/i);
                     expect(text).toMatch(/keep this tab open/i);
                 });
+                // The retry instruction reads as an error (kit .wg-error, danger token).
+                expect(document.getElementById('delete-account-error').classList.contains('wg-error')).toBe(true);
                 expect(mod.reauthAndDelete).toHaveBeenCalled();
                 expect(baseDomainURL).not.toHaveBeenCalled();
                 expect(window.location.href).toBe(before);
@@ -1292,6 +1294,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 // D1 (med-ckm5.5): the account staying on the server is a kept fact.
                 const stays = [...dialog.querySelectorAll('.wg-dialog__facts li:not(.is-gone)')].map((li) => li.textContent);
                 expect(stays).toContain(`Your account stays on ${window.location.hostname}`);
+                // Kit S9: warn tile, and Leave is raised, not clay (nothing is destroyed).
+                expect(dialog.querySelector('.wg-dialog__icon--warn')).not.toBeNull();
+                expect(dialog.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(false);
                 dialog.querySelector('.mt-confirm-modal__confirm').click();
                 // bd med-o7zq.34: straight into local mode, not the native first-run.
                 await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));

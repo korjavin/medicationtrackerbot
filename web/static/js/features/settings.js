@@ -703,11 +703,8 @@ function bindDeleteAccount() {
     const openBtn = document.getElementById('delete-account-open');
     const errorEl = document.getElementById('delete-account-error');
     if (!openBtn) return;
-    const showError = (text) => {
-        if (!errorEl) return;
-        errorEl.textContent = text;
-        errorEl.hidden = !text;
-    };
+    // Kit .wg-error (danger text); empty, it takes no space (.wg-page .wg-error:empty).
+    const showError = (text) => { if (errorEl) errorEl.textContent = text; };
 
     // Hoisted across clicks: once the server delete succeeds, the account (and
     // its session) is gone — a retry after a blocked local wipe must skip the
@@ -844,12 +841,13 @@ function showLeaveAccount(leave) {
             // bd med-o7zq.36: a shell with leave.stash carries a copy of the
             // vault into local mode; an older one starts it empty.
             const stash = await nativeHas('leave.stash');
-            // D1 (med-ckm5.5): warn tone, what stays and what stops.
+            // D1 (med-ckm5.5): warn tone, what stays and what stops. Nothing is
+            // destroyed, so Leave is a raised button, not clay (kit S9).
             const ok = await safeConfirm(
                 '',
                 null,
                 {
-                    title: `Use this ${device} without an account?`, icon: 'device', tone: 'warn', destructive: true, confirmLabel: 'Leave',
+                    title: `Use this ${device} without an account?`, icon: 'device', tone: 'warn', confirmLabel: 'Leave',
                     facts: [
                         stash
                             ? { text: `A copy of your records stays on this ${device}` }

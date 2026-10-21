@@ -1464,7 +1464,7 @@ privately:
 > invite link A into the first-run screen and create a passkey on this device
 > (Google Password Manager; a screen lock is required). The account starts
 > empty. Link B is for testing account deletion (Settings → Account &
-> privacy → Delete my account); link C is a spare, for a new device or a
+> privacy → Delete account); link C is a spare, for a new device or a
 > reinstall. Suggested walk-through: add a medication, record a dose and a
 > blood-pressure reading, open History, enable reminders. Health Connect
 > import needs data in the reviewer device's Health Connect. Contact for a new
