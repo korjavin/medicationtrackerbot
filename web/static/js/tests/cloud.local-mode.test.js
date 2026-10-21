@@ -913,8 +913,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
         const chip = document.getElementById('settings-sync-chip');
         window.paintSyncCard();
-        await vi.waitFor(() => expect(chip.textContent).toBe('Unprotected'));
-        expect(chip.classList.contains('wg-settings-hidden')).toBe(false);
+        // The static markup already says Unprotected: wait for the painted (shown) chip.
+        await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(false));
+        expect(chip.textContent).toBe('Unprotected');
         expect(chip.classList.contains('wg-chip--warn')).toBe(true);
         const n = await window.CloudVault.userContentCount();
         expect(document.getElementById('settings-sync-meta').textContent)

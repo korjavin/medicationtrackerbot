@@ -52,14 +52,14 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
     it('renders the everyday and connected groups as .wg-list of .wg-setting rows', () => {
         const { document, cleanup } = loadSettingsView();
         try {
-            // The local-mode indicator (med-o7zq.9) is a row with no page.
             const groups = Array.from(document.querySelectorAll('.wg-settings-home > .wg-settings-slot > .wg-list:not(.wg-local-only)'));
             expect(groups.map((g) => Array.from(g.querySelectorAll('[data-settings-open]')).map((r) => r.dataset.settingsOpen)))
                 .toEqual([
                     ['features', 'targets', 'notifications', 'units'],
                     ['integrations', 'devices', 'backup', 'account'],
                 ]);
-            for (const r of document.querySelectorAll('.wg-settings-home [data-settings-open]')) {
+            // The slot-① cards (cloud vault, local Sync & backup) are cards, not rows.
+            for (const r of document.querySelectorAll('.wg-settings-home .wg-list [data-settings-open]')) {
                 expect(r.tagName).toBe('BUTTON');
                 expect(r.classList.contains('wg-setting')).toBe(true);
                 expect(r.querySelector('.wg-setting__title').textContent.trim()).not.toBe('');
