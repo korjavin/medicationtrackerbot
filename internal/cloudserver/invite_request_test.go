@@ -204,6 +204,27 @@ func TestInviteRequest_CallbackGuards(t *testing.T) {
 	}
 }
 
+// A pending email row outliving its SMTP config (codex review): Approve is
+// refused before any mint, the row stays pending, and nothing panics.
+func TestInviteRequest_EmailApproveWithoutSMTP(t *testing.T) {
+	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
+	f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`)
+	f.api.mailer = nil // the restart without SMTP
+	f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
+	if f.request(t, 1).Status != "pending" || mintedBy(t, f.store, "req:1") != 0 || len(f.mails()) != 0 {
+		t.Fatal("approve without SMTP minted or decided")
+	}
+	_, edits, answered := f.snapshot()
+	if len(edits) != 0 || len(answered) != 1 || !strings.Contains(answered[0], "fix SMTP") {
+		t.Fatalf("answers=%v edits=%v", answered, edits)
+	}
+	// Decline still works without mail.
+	f.tap(t, 1, "d", inviteAdmin, f.request(t, 1).AdminMessageID)
+	if f.request(t, 1).Status != "declined" {
+		t.Fatal("decline without SMTP did not decide")
+	}
+}
+
 func TestInviteRequest_SendFailureShowsLink(t *testing.T) {
 	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
 	f.mail.err = errors.New("dial tcp: connection refused")

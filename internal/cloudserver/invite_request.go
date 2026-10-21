@@ -289,6 +289,14 @@ func (t *TelegramAPI) handleInviteCallback(ctx context.Context, cq *tgclient.Cal
 		answer("")
 		return
 	}
+	// A row filed while SMTP was set can outlive it (a restart with SMTP
+	// removed or invalid): refuse before anything is minted and keep the row
+	// pending, so Approve works again once mail is back.
+	if approve && req.Channel == cloudstore.InviteRequestEmail && t.mailer == nil {
+		slog.Warn("invite request: email approve without SMTP", "request", id)
+		answer("Email isn't set up on the server — fix SMTP, then tap Approve again.")
+		return
+	}
 	to := cloudstore.InviteRequestDeclined
 	if approve {
 		to = cloudstore.InviteRequestApproved
