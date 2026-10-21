@@ -772,7 +772,8 @@
             send.disabled = true;
             try {
                 var base = opts.base || (await shellBase());
-                var post = opts.post || shellPostFn();
+                var post = opts.post || ((await canRequest()) ? shellPostFn() : null);
+                if (!modal.isConnected) return;
                 if (!post) { showOff(base); return; } // no base.post: an old shell
                 var res = await post('/api/invite-requests', {
                     method: 'POST',

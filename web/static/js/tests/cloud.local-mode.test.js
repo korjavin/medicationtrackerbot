@@ -1122,6 +1122,17 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await window.paintSyncSection();
                 expect(document.getElementById('settings-sync-request').hidden).toBe(true);
                 expect(document.getElementById('settings-sync-how').hidden).toBe(false); // the landing link stays
+                // Opened anyway (the W1 entry, a stale page): "not open here" + the landing link, no op call.
+                window.InviteSheet.request();
+                fill(document, 'a@b.co');
+                const off = await vi.waitFor(() => {
+                    const n = requestSheet(document).querySelector('[data-invite-request="off"]');
+                    expect(n).not.toBeNull();
+                    return n;
+                });
+                expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
+                expect(posts()).toEqual([]);
+                requestAct(document, 'not-now').click();
             });
 
             it('the shell sends email + note, 202 → "Request sent", Done closes; the page fetches nothing', async () => {
