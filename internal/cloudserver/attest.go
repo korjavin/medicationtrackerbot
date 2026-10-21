@@ -46,6 +46,7 @@ const (
 	attestChallengePath = "/api/attest/challenge"
 	attestEnrollPath    = "/api/attest/enroll"
 	attestChatPath      = "/api/attest/trial/openai/chat/completions"
+	attestFeedbackPath  = "/api/attest/feedback"
 	attestFoodSearch    = "/api/attest/food/search"
 	attestFoodBarcode   = "/api/attest/food/barcode/"
 	attestVoiceStart    = "/api/attest/voice/start"
@@ -266,6 +267,9 @@ type AttestAPI struct {
 	trial     *TrialProxyAPI
 	food      *FoodProxyAPI
 	voice     *VoiceLLMRelayAPI // nil until SetVoiceRelay: the voice routes 503
+	// feedback supplies the age recipient and admin ping of the session
+	// feedback route; nil until SetFeedback: the feedback route 503s.
+	feedback *FeedbackAPI
 	// android verifies Play Integrity enrollments (caches the Google bearer);
 	// nil unless cfg.AndroidConfigured.
 	android   *playintegrity.Verifier
@@ -291,6 +295,7 @@ func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyA
 	a.mux.HandleFunc("POST "+attestChallengePath, a.challenge)
 	a.mux.HandleFunc("POST "+attestEnrollPath, a.enroll)
 	a.mux.HandleFunc("POST "+attestChatPath, a.chat)
+	a.mux.HandleFunc("POST "+attestFeedbackPath, a.submitFeedback)
 	a.mux.HandleFunc("GET "+attestFoodSearch, a.foodLookup)
 	a.mux.HandleFunc("GET "+attestFoodBarcode+"{code}", a.foodLookup)
 	a.mux.HandleFunc("POST "+attestVoiceStart, a.voiceStart)
@@ -303,6 +308,73 @@ func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyA
 func (a *AttestAPI) SetVoiceRelay(relay *VoiceLLMRelayAPI) {
 	a.voice = relay
 	relay.trial = a.trial
+}
+
+// SetFeedback enables local-mode feedback (bd med-ta2n.19) with fb's age
+// recipient and admin notifier, read per request (SetNotifier may run later).
+func (a *AttestAPI) SetFeedback(fb *FeedbackAPI) { a.feedback = fb }
+
+func (a *AttestAPI) feedbackRecipient() string {
+	if a.feedback == nil {
+		return ""
+	}
+	return a.feedback.recipient
+}
+
+// submitFeedback is the attested POST /api/attest/feedback (bd med-ta2n.19):
+// the session route's body ({client_id, kind, app_version, ciphertext}, an
+// age blob sealed in the app to feedbackRecipient) and cap, queued under
+// cloudstore.AttestFeedbackAccount(key id) so cmd/feedbackpull drains it
+// unchanged. The assertion binds this URI and the exact body. Never logs the
+// ciphertext; the admin ping carries kind + app version only, never the install.
+func (a *AttestAPI) submitFeedback(w http.ResponseWriter, r *http.Request) {
+	if a.feedbackRecipient() == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "feedback_disabled"})
+		return
+	}
+	q, ok := a.assertHeaders(w, r)
+	if !ok {
+		return
+	}
+	// The body may be a 5 MB attachment blob: lift the unauth read deadline
+	// only now that the key is known.
+	extendTrialDeadlines(w)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFeedbackBodyBytes))
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	if !a.verifyAssertion(w, r, q, body) {
+		return
+	}
+	var req submitFeedbackRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.ClientID == "" || len(req.Ciphertext) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	queued, err := a.store.AppendAttestFeedback(r.Context(), q.keyID, q.counter, req.ClientID, req.Kind, req.AppVersion, req.Ciphertext, time.Now().UTC())
+	switch {
+	case errors.Is(err, cloudstore.ErrAttestCounter):
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
+		return
+	case errors.Is(err, cloudstore.ErrFeedbackQueueFull):
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "feedback_queue_full"})
+		return
+	case err != nil:
+		slog.Error("attest feedback append failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "feedback_unavailable"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	// Same metadata-only ping as the session route, only for a new item.
+	if notify := a.feedback.notify; notify != nil && queued {
+		go notify(req.Kind, req.AppVersion)
+	}
 }
 
 // voiceConfigured is the anonymous voice master switch (attestation is already
@@ -497,7 +569,10 @@ func (a *AttestAPI) challenge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"challenge": c, "expires_in": int(attestChallengeTTL.Seconds())})
+	// feedback_recipient (bd med-ta2n.19): the age PUBLIC key local-mode
+	// feedback is sealed to ("" = feedback off), so the client needs no extra
+	// unauthenticated route. Additive: older builds ignore it.
+	writeJSON(w, http.StatusOK, map[string]any{"challenge": c, "expires_in": int(attestChallengeTTL.Seconds()), "feedback_recipient": a.feedbackRecipient()})
 }
 
 func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {

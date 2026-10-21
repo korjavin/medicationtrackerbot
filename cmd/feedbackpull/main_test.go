@@ -261,3 +261,49 @@ func TestRun(t *testing.T) {
 		}
 	})
 }
+
+// bd med-ta2n.19: local-mode feedback (queued under 'attest:<key id>' by the
+// attested route) drains through the same run as account feedback.
+func TestRunDrainsAccountAndInstallFeedback(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := setupStore(t)
+	if _, err := st.AppendFeedback(ctx, "acc-1", "from-account", "bug", "1.0", encryptDoc(t, sampleDoc(), id.Recipient()), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertAttestInstall(ctx, cloudstore.AttestInstall{KeyID: "key-1", PublicKey: []byte{1}, Env: "production", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendAttestFeedback(ctx, "key-1", 1, "from-install", "bug", "1.0", encryptDoc(t, sampleDoc(), id.Recipient()), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := run(st, []age.Identity{id}, t.TempDir(), 100, true, true, &buf); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want 2 drained items, got %q", buf.String())
+	}
+	var accounts []string
+	for _, l := range lines {
+		var got struct {
+			AccountID string `json:"account_id"`
+			Text      string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(l), &got); err != nil || got.Text != "app crashes on save" {
+			t.Fatalf("line %q: %v", l, err)
+		}
+		accounts = append(accounts, got.AccountID)
+	}
+	if accounts[0] != "acc-1" || accounts[1] != "attest:key-1" {
+		t.Fatalf("drained accounts: %v", accounts)
+	}
+	if left, _ := st.ListFeedback(ctx, 10); len(left) != 0 {
+		t.Fatalf("not acked: %+v", left)
+	}
+}
