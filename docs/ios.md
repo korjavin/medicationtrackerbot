@@ -119,10 +119,11 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
 - **Output:** the step summary has one row per test (result plus failure
   message); artifact `ios-qa` (14 days) has `<flow>-<step>.png`:
   `gh run download <run> -n ios-qa -D /tmp/ios-qa`.
-- **Flows:** `testLocalFirstRun` — first run → "Only on this device" → intro
-  (lock off) → Start → the app (seeded by the QA driver) → relaunch with no
-  arguments: local mode persisted, no first-run screen, `wgLocalMode` true in
-  the app's prefs plist.
+- **Flows:** `testLocalFirstRun` — cold launch with no account and an empty
+  store → straight into local mode's web W1 picker with its "Have an invite?"
+  footer, no native screen (bd med-ta2n.17; shot `local-first-run-cold-launch`)
+  → the app (seeded by the QA driver) → relaunch with no arguments: still
+  local, `wgLocalMode` true in the app's prefs plist.
 - **Lock flows** (bd med-w6gx.23.2,
   [`FlowQALockTests.swift`](../ios/UITests/FlowQALockTests.swift),
   `testLocalLock`): the real `LocalLock` + `DeviceAuth` with simulated Face
@@ -130,7 +131,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   the way `simctl spawn <udid> notifyutil` does (Darwin notifications
   `com.apple.BiometricKit.enrollmentChanged`,
   `com.apple.BiometricKit_Sim.pearl.match|nomatch`). Four activities: opt-in
-  on the intro → relaunch locked (no web view) → match; a failed check holds
+  from Settings → App lock → relaunch locked (no web view) → match; a failed check holds
   the lock with Unlock enabled and no re-prompt; home → back locks; Settings →
   App lock off → relaunch opens unlocked. Leaves the lock off.
 - **Backup flows** ([`FlowQABackupTests.swift`](../ios/UITests/FlowQABackupTests.swift),
@@ -145,9 +146,10 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   bd med-w6gx.23.3): the shell's stashes from the local
   side, as files in the container's `Application Support/{move,leave}/vault.json`:
   `testMoveLocalSide` — Settings → Move to a cloud account → Backup &
-  import's Move button → the stash (fixture format, sections, counts) and the
-  first-run hint → Back keeps it, Start deletes it → a relaunch stays local
-  with no stale hint, records kept. `testLeaveStashPickup` — wipes
+  import's Move button → the stash (fixture format, sections, counts), still
+  local on "Have an invite?" (no-url `local.leave`) → a relaunch stays local
+  with the records and the stash → iOS Settings' Switch account (`forgetKey`)
+  drops the stash and lands on "Have an invite?". `testLeaveStashPickup` — wipes
   `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
   clears the file → seeded again over records: Merge / Replace → Cancel →
@@ -175,12 +177,19 @@ add-root-cert`), and curls the three hosts as a preflight. Runner-only: never a
 dev-machine step. `testAccountGone` in
 [`FlowQAAccountGoneTests.swift`](../ios/UITests/FlowQAAccountGoneTests.swift)
 (twin of Android's `not-found`): `nobody` (the server's 404 with
-`X-Account-Gone: 1`) → the first run with "There is no account at …", no Try
-again, and a relaunch stays on the first run (not a prefs-plist read: the
-removal is not flushed before the app is killed); `stale` (a bare 404) → "Can't open your account" with Try again, the
-host kept, a relaunch reopens the error screen, Switch account → first run;
+`X-Account-Gone: 1`) → local mode on home?invite=1, the web's "Have an
+invite?" sheet, no Try again (shot `account-gone-landing`; the account comes
+from `-wgAccountHost`, so the forgotten host is checked in memory, not across a
+relaunch); `stale` (a bare 404) → "We can't find this account" with Try again, the
+host kept, a relaunch reopens the error screen, Use another invite → "Have an invite?";
 `down` (503) → the error screen, Try again keeps it. A "certificate" message on
-the error screen is a failed trust setup, never a pass. The `qa` job runs every
+the error screen is a failed trust setup, never a pass. `testWebExitBarLeaves`
+in [`FlowQACeremonyExitTests.swift`](../ios/UITests/FlowQACeremonyExitTests.swift)
+(cmd/cloud behind tlsfront, one minted invite): local mode →
+`app.open(medtracker://i/<sub>#<token>)` (warm capture → home`?invite=1`) →
+the web's offer (*Turn on sync* / *Sign in with …*) → `local.leave {url}` →
+the claim page's "Not your account?" → `account.leave` → local mode on "Have
+an invite?" (shot `ceremony-exit-landing`), and a relaunch stays local. The `qa` job runs every
 `MedTrackerUITests` class but `VisualQATests`, so a flow class in its own file
 needs no workflow edit.
 
@@ -193,8 +202,8 @@ Not covered by flow QA; check on a TestFlight build before release:
    the account, and the local stash is gone (relaunch: no "pending move").
 2. **Leave cloud → local:** in an account, Settings → "Use this iPhone without
    an account". Local mode opens with the account's records on the device.
-3. **Delete account:** Settings → delete account. The app returns to the native
-   first run, and a relaunch stays there.
+3. **Delete account:** Settings → delete account. The app lands in local mode
+   on "Have an invite?", and a relaunch stays local.
 
 A passkey stand-in for these (a Debug-only WKUserScript injecting
 `android/app/src/debug/assets/qa-softauthn.js` on a `qa.test` account origin)
@@ -219,7 +228,7 @@ Store Connect (ASC) by the owner from this section.
   (`LaunchMark` imageset, rendered from the kit's `.wg-mark--lg`). N6 (bd
   med-ckm5.15): RootView keeps the same mark over the first page and fades it
   out over 180 ms once the page reports ready (`didFinish` or its first
-  `wgChrome` sample), or straight away for the native first run, the lock
+  `wgChrome` sample), or straight away for the lock
   screen (whose mark sits at the same spot) and the error screen.
 - **Bundle id / team:** the `IOS_BUNDLE_ID` / `IOS_TEAM_ID` repo variables
   (Owner setup above).
@@ -227,7 +236,7 @@ Store Connect (ASC) by the owner from this section.
 
   | Key | Why |
   |-----|-----|
-  | `NSCameraUsageDescription` | barcode scan, meal photos, first-run QR |
+  | `NSCameraUsageDescription` | barcode scan, meal photos, invite QR |
   | `NSMicrophoneUsageDescription` | voice assistant, voice notes in feedback |
   | `NSHealthShareUsageDescription` | Apple Health read import |
   | `NSHealthUpdateUsageDescription` | demanded by upload validation; says the app never writes |
@@ -275,7 +284,7 @@ in `PrivacyInfo.xcprivacy`.
 ### Listing text
 
 - **Privacy policy URL:** <https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md>
-  ([privacy-policy.md](privacy-policy.md); the first-run screen links it, iOS
+  ([privacy-policy.md](privacy-policy.md); iOS
   Settings → Med Tracker → Privacy names it, and
   the signed-in app shows its disclosures under Settings → Account & privacy;
   a clickable link there would change the web app, so it is not added).
@@ -283,7 +292,8 @@ in `PrivacyInfo.xcprivacy`.
   domain serves a policy: the base domain serves only the landing page and
   the AASA.
 - **Support URL:** <https://github.com/korjavin/medicationtrackerbot/issues>.
-- **Medical disclaimer** — end of the description, and the first-run footer:
+- **Medical disclaimer** — end of the description (the native first-run
+  footer that also carried it is gone, bd med-ta2n.17):
 
   > Med Tracker is a personal log, not a medical device, and does not give
   > medical advice. Talk to your doctor before changing a treatment.
@@ -291,9 +301,9 @@ in `PrivacyInfo.xcprivacy`.
 - **Account deletion** (guideline 5.1.1(v)): in the app, Settings → Account &
   privacy → Delete my account (passkey re-check, then `DELETE /api/account`,
   [`internal/cloudserver/account.go`](../internal/cloudserver/account.go)).
-  It is immediate; no web form needed. Afterwards the app returns to its
-  native first-run via `account.leave` (bd med-o7zq.33); a shell without the
-  op gets the old redirect to the base domain.
+  It is immediate; no web form needed. Afterwards the app lands in local
+  mode on "Have an invite?" via `account.leave` (bd med-o7zq.33,
+  med-ta2n.17); a shell without the op gets the old redirect to the base domain.
 
 ### Reviewer access
 
@@ -400,7 +410,7 @@ Native features:
   writes to Health and never uses Health data for advertising.
 - Reminders: Settings > Notifications > Enable, then "Send test". Medication
   reminders are scheduled on the device as local notifications.
-- Camera: food barcode scanning and meal photos (Food), QR scan on first run.
+- Camera: food barcode scanning and meal photos (Food), scanning an invite QR.
 - Downloads and printing (backups, Emergency Kit) via the Files save picker and the print sheet.
 
 Account deletion: Settings > Account & privacy > Delete my account.
@@ -412,16 +422,15 @@ Med Tracker is a personal log, not a medical device, and does not give
 medical advice.
 ```
 
-When a build with on-device local mode is submitted (epic `med-o7zq`; the
-first-run "Only on this device" button is bd med-o7zq.5), add one line to the
-notes so the reviewer can test both modes: `No-account mode: on first run tap
-"Only on this device"; data stays on the device.` Leave it out of a
-submission that is cloud-only.
+Since onboarding v3 (bd med-ta2n.17) the app opens in no-account mode with no
+choice screen; add one line to the notes so the reviewer knows:
+`The app works without an account: records stay on the device. An invite
+(Settings → Sync & backup, or "Have an invite?") turns on sync.`
 
 ### Submission checklist
 
 Repo side (done in this bead): icon, launch colour, usage strings, privacy
-manifest, privacy policy, first-run disclaimer and policy link, this section.
+manifest, privacy policy, this section.
 
 Owner only:
 
@@ -617,15 +626,19 @@ PWA — no bundled web code ([`ios/App/Shell.swift`](../ios/App/Shell.swift),
 UI in [`ios/App/App.swift`](../ios/App/App.swift)). Nothing outside `ios/`
 changes for it.
 
-- **First run** (invite-only, no signup): paste an invite/claim link, a device
-  hand-off link or the account address, or scan a QR — the `cloud admin
-  invite` QR or the Emergency Kit QR (only its first line, the account URL, is
-  read; the recovery code is never touched).
+- **First launch = local mode** (bd med-ta2n.17, onboarding v3): there is no
+  native first run. With no account the shell is in local mode (`Shell.init` /
+  `applySettings`: no host means local, persisted as `wgLocalMode`, whatever
+  the Settings toggle says) and the bundled app shows the web W1 picker
+  (`WGFirstRun`); an invite comes in through the web — W1's "Have an invite?"
+  (F1: paste, or scan with `window.Barcode` in the WKWebView; VisionKit is
+  gone), a captured invite link (below), or Settings. The account is opened
+  only by the web's `local.leave {url}` / `account.leave {url}`.
   [`AccountURL.swift`](../ios/App/AccountURL.swift) accepts only `https` hosts
   exactly one label under `CLOUD_BASE_DOMAIN`; CI runs its check
   (`ios/Tests/main.swift`). The app stores the account **host** only, never
   the claim fragment, and opens `https://<host>/` on every later launch.
-  The native screens follow UI kit v2.1 N1/N2
+  The native screens (lock, load error) follow UI kit v2.1
   (`docs/design/claude-design/ui_kits/app-v2/screens-native.html`) through
   the token mirror in [`Wg.swift`](../ios/App/Wg.swift): palette, the bundled
   OFL fonts in `ios/App/Fonts` (Space Grotesk, JetBrains Mono; `UIAppFonts`),
@@ -636,37 +649,44 @@ changes for it.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   load-error screen (N4, bd med-ckm5.15: "Can't reach your account" with Try
   again / Switch account; a bare 404 "We can't find this account" with Use
-  another invite / Try again; local mode "Can't open Med Tracker" with Use an
-  account instead; each with Copy diagnostics and a mono status line) appears only
+  another invite / Try again; local mode "Can't open Med Tracker" with Try
+  again only — the invite entry is that bundled page; each with Copy diagnostics and a mono status line) appears only
   when the very first load fails with nothing cached, or the host answers an
   HTTP error. Try again keeps an invite link's `#claim=` fragment (in memory
   only). A 404 carrying the server's `X-Account-Gone: 1` marker (an unknown
   account subdomain — mistyped, deleted or expired) instead forgets the host
-  and returns to the native first run with "There is no account at <host>."
-  (`AccountURL.accountGone`, bd med-w6gx.22, as Android).
-- **Switch account:** iOS Settings → Med Tracker → *Switch account*, then return
-  to the app; also on the load-error screen. Website data is per origin and is
-  kept, so switching back still finds offline data and warm unlock.
+  (no way back: `wgLeaveHost` removed) and lands in local mode on
+  `wgapp://local/?invite=1`, where the web opens "Have an invite?"
+  (`AccountURL.accountGone`, bd med-w6gx.22; med-ta2n.17).
+- **Switch account** (`Shell.forget()`): iOS Settings → Med Tracker → *Switch
+  account*, then return to the app; also on the load-error screen (*Switch
+  account*, *Use another invite*). It lands in local mode on home`?invite=1`
+  ("Have an invite?") — every exit that used to show the native first run
+  does (contract med-ta2n.7 §7). It drops the move stash: from local mode a
+  stale snapshot would bring deleted rows back into the next account
+  (med-ta2n.17). Website data is per origin and is kept, so switching back
+  still finds offline data and warm unlock.
 - **Use another invite** (bd med-w6gx.21, moved to the web by med-ckm5.2 /
   med-ckm5.15 N5): the ceremony pages (`/unlock`, `/claim`, `/recover`) render
   their own `.wg-exitbar` at the top inside the native shells; "Not your
   account?" opens an in-page confirm and calls bridge op `account.leave` (no
-  args), which does Switch account. The shell draws no bar of its own. Copy
+  args), which does Switch account (local mode, "Have an invite?"). The shell
+  draws no bar of its own. Copy
   diagnostics stays on the Home Screen quick action and the load-error screen.
 - **Use this iPhone without an account** (bd med-o7zq.30, moved by
   med-o7zq.32): Settings → Account shows the row inside the iOS app only
   (account origin, `CloudVault.leaveAccount` present, platform `ios`). The
   account's own first-run (`WGFirstRun` welcome) offers only *Get started* /
-  *Skip all* on every platform — choosing local belongs to the app's native
-  first-run. After a `safeConfirm` the row calls
+  *Skip all* on every platform. After a `safeConfirm` the row calls
   `CloudVault.leaveAccount({ then: 'local' })` → bridge op `account.leave`
   with args `{then: "local"}` (account origin only), which forgets the account
   host and opens local mode directly (`forget(thenLocal: true)`, bd
-  med-o7zq.34) — no stop at the native first-run. Local mode shows whatever
+  med-o7zq.34), remembering it in `wgLeaveHost` for the pickup's Cancel
+  (`leave.clear {back}`). Local mode shows whatever
   the local origin already holds from an earlier device-only period, or starts
   empty with its own first-run. Nothing is erased (account on the server, the
   account origin's website data on the phone). A shell built before .34 has
-  the op but ignores the args, so it lands on the native first-run as before;
+  the op but ignores the args, so it lands on its native first run;
   a shell without the op answers `unsupported` and the page points at iOS
   Settings → *Switch account*. When the shell lists `leave.stash` in
   `shell.ops` (bd med-o7zq.36), the page first hands it
@@ -677,13 +697,13 @@ changes for it.
   backup file brings the records.
 - **After account deletion** (bd med-o7zq.33): once the server delete and the
   local wipe finish, the iOS app calls `leaveAccount()` with no args and lands
-  on the native first-run instead of the base-domain page (which has no way
-  back into the app). If the op is missing it falls back to that redirect.
+  in local mode on "Have an invite?" instead of the base-domain page (which
+  has no way back into the app). If the op is missing it falls back to that redirect.
 - **Chrome:** the page sits inside the safe area; the status-bar and
   home-indicator bands take the page's own background colour at its top and
   bottom edge (a page script reports it), the status bar is light, and the page
   does not rubber-band past its edges.
-- **Invite links** (bd med-ta2n.11 phase 1; contract in `bd show med-ta2n.7`
+- **Invite links** (bd med-ta2n.11, phase 2 med-ta2n.17; contract in `bd show med-ta2n.7`
   design §§1–7): the entitlement `applinks:$(WG_BASE_DOMAIN)` (base only; the
   server's AASA lists `/i/*`, med-ta2n.9) makes the landing
   `https://<base>/i/<sub>#<token>` open the app, and `CFBundleURLTypes`
@@ -693,9 +713,8 @@ changes for it.
   `https://<sub>.<base>/#claim=<token>` and stores the **pending slot**
   `{url, receivedAt}` (`InviteSlot`, UserDefaults `wgPendingInvite`; newest
   wins, never expired by the shell). A capture never opens anything by itself
-  (any page can fire the scheme): the native first run prefills its invite
-  field from the slot and the user taps Continue; with a page loaded (local or
-  account mode) the shell loads that mode's home with `?invite=1` (deferred
+  (any page can fire the scheme): with a page loaded (local or account mode)
+  the shell loads that mode's home with `?invite=1` (deferred
   under the lock); on a cold start nothing more — the booting page reads the
   slot. `parseInvite` checks the raw (not percent-decoded) path and fragment:
   sub `^[a-z0-9-]+$` after lowercasing, token `^[0-9a-f]+$` (the server's hex
@@ -708,10 +727,14 @@ changes for it.
   with no change), then store the host, leave local mode, clear `wgLeaveHost`,
   the leave stash and the slot, and reopen on the URL (`then` is ignored).
   `local.leave {url}` keeps the move stash for the new account;
-  `account.leave {url}` drops it. A present `url` that is `null`, empty or not a string is "invalid url" (contract A3). Without a
-  url both keep their pre-v3 behaviour (native first run / `{then: "local"}`)
-  until phase 2 removes the native first run. Older shells ignore `url` and
-  land on their first run; the web probes `shell.ops` for `invite.pending`.
+  `account.leave {url}` drops it. A present `url` that is `null`, empty or not a string is "invalid url" (contract A3).
+  Without the key: `local.leave` (Settings → Backup → Move to a cloud account,
+  after its `move.stash`) replies true and reopens local home`?invite=1` —
+  still local, nothing else changes, the stash waits; `account.leave` with no
+  args is Switch account (local mode, home`?invite=1`, `wgLeaveHost`
+  removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set).
+  Older shells ignore `url` and land on their first run; the web probes
+  `shell.ops` for `invite.pending`.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are
@@ -830,23 +853,24 @@ a Web Push subscription.
 
 ### Device check (TestFlight)
 
-1. Fresh install → first-run. Paste a claim link from `cloud admin invite`
-   (test account) → claim with Face ID → unlocked app.
+1. Fresh install → local mode, the web W1 picker → *Have an invite?* → paste
+   a claim link from `cloud admin invite` (test account) → *Sign in with Face
+   ID* → claim with Face ID → unlocked app.
 2. Kill and reopen → back on the account, warm unlock without a prompt.
 3. Airplane mode, kill, reopen → the app renders from the Service Worker.
 4. Tap an external link (e.g. a Telegram link) → Safari opens; the app stays put.
 5. No white bands at the top/bottom or when dragging past the page edge; the
    header does not scroll behind the status bar or an open sheet.
-6. Settings → Med Tracker → Switch account on → back in the app: first-run.
-   Scan the Emergency Kit QR → the same account opens.
+6. Settings → Med Tracker → Switch account on → back in the app: local mode,
+   "Have an invite?". Scan the Emergency Kit QR → the same account opens.
    **Use another invite** (med-w6gx.21), no reinstall in any of these:
    a. Fresh install → paste an already-claimed invite → the "already claimed"
       page shows "Not your account? Use another invite" under it → tap →
-      confirm → first-run → scan a valid invite QR → claims.
+      confirm → local mode, "Have an invite?" → scan a valid invite QR → claims.
    b. Same with an expired or garbage `#claim=` token.
    c. Kill and relaunch while stuck on `/unlock` → the bar is still there.
-   d. Local mode: Settings → Backup → Move to a cloud account → bad invite →
-      the bar → "Only on this device" → local data intact.
+   d. Local mode: Settings → Backup → Move to a cloud account → "Have an
+      invite?" → bad invite → the bar → back in local mode, local data intact.
    e. A returning user at `/unlock` ignores the bar and unlocks as before.
 7. Claiming in the app goes from the Emergency Kit (and Telegram, when
    offered) straight into the app: no "Add to your Home Screen" step.
@@ -949,29 +973,21 @@ mode, gated on the bridge platform being `ios` or `android`
   `isExcludedFromBackup` on that dir and its parents up to `WebsiteData` at
   launch, after each page load and on going to the background.
 - **Mode:** persisted in `UserDefaults` `wgLocalMode`; it wins over a stored
-  account host. Set by the first-run screen's secondary button *Only on this
-  device* (bd med-o7zq.5; the invite form stays primary), after a native intro
-  (`LocalIntroView` in `App.swift`): records only on this iPhone and in its
-  own backup, no other copy, deleting the app loses them, export regularly,
-  BYOK only. *Start* stores the choice; *Back* returns to the invite form.
-  iPhone Settings → Med Tracker → *Local mode* is the same switch. *Switch
-  account* leaves local mode too; the origin's data is kept either way.
-  When first-run shows (no account, not local) while `LocalOrigin.dataDirs()`
-  still finds the `wgapp://local` origin's data — local mode left on purpose,
-  or its flag lost across an update (bd med-o7zq.31) — it leads with
-  *Continue on this iPhone*, which reopens local mode directly
-  (`LocalOrigin.offersResume`, checked in `ios/Tests/main.swift`). A button,
-  not a silent resume, so someone who left for an invite still reaches the
-  invite form. The first-run screen scrolls, so *Only on this device* stays
-  reachable with the keyboard up. At launch the shell logs (`os_log`,
+  account host. With no account the app is always in local mode (bd
+  med-ta2n.17, onboarding v3: no native first run, no native intro — the
+  web's W1 and Settings say what "on this device" means); the shell persists
+  `wgLocalMode` at launch when it finds no account (`applySettings`), which
+  also drops a move stash a pre-v3 native first run kept. That stash is only
+  a copy (the local vault is intact) and the pending invite survives, so
+  "Turn on sync?" stashes afresh. iPhone Settings → Med Tracker →
+  *Local mode* switches an account user into local mode; off with no account
+  it changes nothing. *Switch account* lands in local mode too; the origin's
+  data is kept either way. At launch the shell logs (`os_log`,
   category `shell`) the mode, whether a host is stored and the local data
   dir count — no host name.
   Settings opens on an *On this device only* row in local mode.
 - **Lock** (bd med-o7zq.8, [`LocalLock.swift`](../ios/App/LocalLock.swift)):
-  optional, off by default; opted into on the local intro (*Lock with Face
-  ID*, shown when the phone has a passcode and starting on when a lock is
-  still on from an earlier stay; *Start* turns it on, or that one off, only
-  after a successful check), the in-app Settings → *App lock* row (bd
+  optional, off by default; opted into from the in-app Settings → *App lock* row (bd
   med-o7zq.39, under *On this device only*; bridge ops `lock.status` →
   `{on, available}` and `lock.set {on}` → the same check as *Start*, `true`
   once applied, `false` when cancelled or there is no passcode to turn it on
@@ -1001,11 +1017,18 @@ mode, gated on the bridge platform being `ios` or `android`
   from the phone, the lock lets the user in (nothing to check against; it
   must not strand the only copy of their records). The lifecycle is checked
   in CI by `ios/Tests/main.swift`.
-- **Export reminder** (bd med-o7zq.5, `local-policy.js` `nudgeLocalBackup`):
-  at most once a week, counted from the first open, the last reminder or the
-  last export, and only once something is stored, a toast suggests exporting
-  a backup file (*Back up* opens Settings → Backup & import). Checked at boot
-  and on every return to the front.
+- **Protect-your-data card** (W4, bd med-ta2n.4; replaced the weekly toast of
+  bd med-o7zq.5): a card on Today, below Next up, once there are 20 records
+  or 7 days have passed since first run, until a backup file is shared with
+  a confirmed result (Save to device hands the file to a picker that never
+  reports a cancel, so a Save only snoozes it 14 days, through
+  `wg.backup.last`). × (or the sheet's *Later*) snoozes it 14 days; after the second it
+  stops (the Settings "Unprotected" chip, med-ta2n.5, reads the same status
+  once it ships). State: the vault `protection` singleton
+  (`web/domain/settings.js`), read through `GET /api/protection/status`;
+  the old toast's `wg:local-backup-nudge-at` stamp counts as a free snooze
+  for existing users and is removed once the record is written. Same on
+  Android.
 - **Backup, restore, move to cloud** (bd med-o7zq.6, `local-policy.js`
   `LOCAL_VAULT`): Settings → Backup & import exports the same vault v1 file
   as the cloud (`recordsToVault`, pinned against `tests/fixtures/vault-v1.json`
@@ -1049,12 +1072,11 @@ mode, gated on the bridge platform being `ios` or `android`
   64 MB of UTF-8, atomic write replacing any older stash, replies `true`);
   `move.take` (account mode only; `{vault}` or `null`, does not delete, so a
   failed import retries on the next open); `move.clear` (account mode only,
-  replies `true`). Deleted by `move.clear`, `local.reset` and whenever local
-  mode is entered again (*Only on this device*, *Continue on this iPhone*,
-  `account.leave {then: "local"}`, the Settings toggle); `local.leave` and
-  Switch account keep it. While it exists the native first-run says *Your
-  records are ready to move: paste or scan your invite.* and hides *Continue
-  on this iPhone*. `shell.ops` replies the op names this shell answers in the
+  replies `true`). Deleted by `move.clear`, `local.reset`, `account.leave
+  {url}` and whenever local mode is entered again (Switch account /
+  `forget()` — from local mode too, bd med-ta2n.17 —, `account.leave`
+  without a url, the Settings toggle); `local.leave` (with or without a url)
+  keeps it. `shell.ops` replies the op names this shell answers in the
   current mode (`LocalOrigin.ops`), the page's capability probe; a shell
   before it answers `unsupported: shell.ops`. `Tests/main.swift` covers the
   file lifecycle and the per-mode op lists.
@@ -1114,9 +1136,8 @@ mode, gated on the bridge platform being `ios` or `android`
 
 ### Device check (TestFlight)
 
-1. Fresh install, airplane mode, open the app → *Only on this device* → read
-   the intro → *Start*: the app renders from the bundle with no network.
-   (*Back* on the intro returns to the invite form.)
+1. Fresh install, airplane mode, open the app: local mode, the web W1 picker
+   renders from the bundle with no network (no native screen first).
 2. Safari Web Inspector (Mac): no failed module or asset loads; the main
    document's response has the `Content-Security-Policy` header; a `fetch` to
    a host not registered via `setEgressHosts` is refused by CSP.
@@ -1129,8 +1150,7 @@ mode, gated on the bridge platform being `ios` or `android`
 6. Apple Health on, airplane mode: a Health BP reading appears in BP.
 7. Erase data on this device: the app reopens empty; switching to the
    account shows its data untouched.
-8. Lock (fresh install): *Only on this device* → *Lock with Face ID* on →
-   *Start* → Face ID → the app opens. Then: the app switcher shows the plain
+8. Lock (fresh install): Settings → *App lock* on → Face ID → on. Then: the app switcher shows the plain
    cover; returning from the background, killing and reopening, and tapping a
    reminder each ask for Face ID first (the tap then opens its section);
    cancel → lock screen, no second prompt until *Unlock*; Safari Web

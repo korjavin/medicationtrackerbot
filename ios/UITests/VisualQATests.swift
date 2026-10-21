@@ -9,7 +9,8 @@ import XCTest
 /// `-wgQAScene <name>` hook (Shell.swift), so the page opens on
 /// wgapp://local/?qa=<name>; the in-page QA driver seeds the fixture,
 /// navigates and publishes `<div role="status" id="wg-qa-ready" aria-label="<probe json>">`.
-/// Native scenes (`"nativeOnly": true`, or a `native-` name) open first-run.
+/// Native scenes (`"nativeOnly": true`, or a `native-` name) launch without
+/// the driver and no account (so local mode, bd med-ta2n.17) plus their `args`.
 ///
 /// Per scene, attachments `<scene>.png` (XCUIScreen) and, for web scenes,
 /// `<scene>.json` (the ready node's label), kept on success too. The device is
@@ -32,7 +33,7 @@ final class VisualQATests: XCTestCase {
         let name: String
         let nativeOnly: Bool
         let steps: [[String: Any]]
-        /// `"args"`: extra launch arguments (Dynamic Type, the Debug-only `-wgQAMovePending`).
+        /// `"args"`: extra launch arguments (Dynamic Type, the Debug-only `-wgQALoadError`).
         let args: [String]
     }
 
@@ -55,6 +56,8 @@ final class VisualQATests: XCTestCase {
         return try list.compactMap { raw in
             // Web scenes run in local mode here; a cloud-only one (an account control) has nothing to show.
             if raw["cloudOnly"] as? Bool == true { return nil }
+            // Another shell's scene (Android's native first run; iOS has none, bd med-ta2n.17).
+            if let platform = raw["platform"] as? String, platform != "ios" { return nil }
             let name = try XCTUnwrap(raw["name"] as? String, "scenes.json: a scene without a name")
             return Scene(name: name,
                          nativeOnly: raw["nativeOnly"] as? Bool ?? name.hasPrefix("native-"),
@@ -66,7 +69,7 @@ final class VisualQATests: XCTestCase {
     private func run(_ scene: Scene) {
         let app = XCUIApplication()
         // Launch arguments land in NSArgumentDomain, over the persisted choice:
-        // first-run (no local mode, no account) or local mode, lock off, on the scene.
+        // no account (local mode unless a QA error screen sets a host) or local mode, lock off, on the scene.
         var args = scene.nativeOnly
             ? ["-wgLocalMode", "NO", "-wgAccountHost", ""]
             : ["-wgLocalMode", "1", "-wgLocalLockOn", "0", "-wgQAScene", scene.name]
@@ -79,7 +82,7 @@ final class VisualQATests: XCTestCase {
 
         var failure: String?
         if scene.nativeOnly {
-            if !app.buttons.firstMatch.waitForExistence(timeout: 30) { failure = "first-run never showed" }
+            if !app.buttons.firstMatch.waitForExistence(timeout: 30) { failure = "the native scene never showed a button" }
         } else if !QA.readyNode(app).waitForExistence(timeout: 60) {
             failure = "ready node #wg-qa-ready never appeared"
         }
@@ -88,6 +91,10 @@ final class VisualQATests: XCTestCase {
         let region = scene.nativeOnly ? nil : paintRegion(app)
         let (screenshot, painted) = QA.stableScreenshot(paint: region, points: app.frame.width)
         if !painted, failure == nil { failure = "the ready content never painted (blank frame)" }
+        // The app is dark: a white status-bar band hides the clock (med-o7zq.44).
+        if !scene.nativeOnly, failure == nil, Self.cornerLuma(screenshot.image) > 0.9 {
+            failure = "the status-bar band is white (shell sampled the wrong page colour)"
+        }
         let shot = XCTAttachment(screenshot: screenshot)
         shot.name = "\(scene.name).png"
         shot.lifetime = .keepAlways
@@ -109,6 +116,17 @@ final class VisualQATests: XCTestCase {
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }
         app.terminate()
+    }
+
+    /// Luma (0–1) of the screenshot's top-left 4×4 px: the status-bar band, clear of the clock.
+    static func cornerLuma(_ image: UIImage) -> Double {
+        guard let cg = image.cgImage?.cropping(to: CGRect(x: 0, y: 0, width: 4, height: 4)) else { return 0 }
+        var px = [UInt8](repeating: 0, count: 4)
+        guard let ctx = CGContext(data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return 0 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return (0.2126 * Double(px[0]) + 0.7152 * Double(px[1]) + 0.0722 * Double(px[2])) / 255
     }
 
     /// The ready node's probe JSON (WebKit appends the role, ", application

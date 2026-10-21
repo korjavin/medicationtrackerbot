@@ -160,37 +160,99 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
     });
 
-    // bd med-o7zq.5: the on-device store is the only copy outside the
-    // iPhone's backup, so a weekly toast suggests exporting one.
-    it('reminds to export a backup at most weekly, only once there is data; an export restarts the week', async () => {
-        const { window } = env;
-        const { nudgeLocalBackup, BACKUP_NUDGE_MS } = await import('../../../cloud/js/local-policy.js');
-        const KEY = 'wg:local-backup-nudge-at';
-        const toast = vi.fn();
-        window.safeToast = toast;
-        window.switchTab = vi.fn();
-        window.SettingsView = { openSettingsPage: vi.fn() };
+    // bd med-ta2n.4: the W4 protect-your-data nudge replaces the weekly
+    // toast. GET /api/protection/status is what the Today card and the
+    // Settings chip read; the clock is faked, the store is the real one.
+    describe('W4 protection status (fake clock)', () => {
+        const DAY = 24 * 60 * 60 * 1000;
+        const T0 = Date.parse('2026-10-01T09:00:00Z');
+        const LEGACY = 'wg:local-backup-nudge-at';
+        const status = () => env.window.apiCall('/api/protection/status');
+        const at = (ms) => vi.setSystemTime(ms);
+        const addRecords = async (n, from = 0) => {
+            for (let i = from; i < from + n; i += 1) {
+                await localRecordsPort().put('weight', { recordId: `w4-${i}`, clientTs: Date.now(), deleted: false, weight: 80 });
+            }
+        };
+        beforeEach(async () => {
+            vi.useFakeTimers({ toFake: ['Date'], now: T0 });
+            await env.window.apiCall('/api/firstrun/complete', 'POST');
+        });
+        afterEach(() => { vi.useRealTimers(); });
 
-        // The boot started the week.
-        const start = Number(window.localStorage.getItem(KEY));
-        expect(start).toBeGreaterThan(0);
-        const due = start + BACKUP_NUDGE_MS;
-        expect(await nudgeLocalBackup({ win: window, now: due })).toBe(false); // nothing stored yet
+        it('19 records at day 6: no nudge; the 20th: nudge, the count live', async () => {
+            await addRecords(19);
+            at(T0 + 6 * DAY);
+            expect(await status()).toMatchObject({
+                records: 19, firstRunAt: T0, lastBackupAt: null, dismissedCount: 0, lastDismissedAt: null, synced: false, nudge: false,
+            });
+            await addRecords(1, 19);
+            expect(await status()).toMatchObject({ records: 20, nudge: true });
+            expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
+        });
 
-        await window.apiCall('/api/weight', 'POST', { weight: 80 });
-        expect(await nudgeLocalBackup({ win: window, now: due - 1 })).toBe(false);
-        expect(await nudgeLocalBackup({ win: window, now: due })).toBe(true);
-        expect(await nudgeLocalBackup({ win: window, now: due + 1 })).toBe(false); // next one a week on
-        expect(toast).toHaveBeenCalledTimes(1);
-        expect(toast.mock.calls[0][0]).toContain('only on this iPhone');
-        toast.mock.calls[0][2].action.onClick();
-        expect(window.switchTab).toHaveBeenCalledWith('settings');
-        expect(window.SettingsView.openSettingsPage).toHaveBeenCalledWith('backup');
+        it('day 7 with one record: nudge; × snoozes 14 days; after the second × never again while unprotected', async () => {
+            await addRecords(1);
+            at(T0 + 7 * DAY - 1);
+            expect((await status()).nudge).toBe(false);
+            at(T0 + 7 * DAY);
+            expect((await status()).nudge).toBe(true);
 
-        const before = Date.now();
-        await window.CloudVault.exportAll({ includeSecrets: false, win: window });
-        expect(Number(window.localStorage.getItem(KEY))).toBeGreaterThanOrEqual(before);
-        expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
+            const first = Date.now();
+            await env.window.apiCall('/api/protection/dismiss', 'POST');
+            expect(await status()).toMatchObject({ nudge: false, dismissedCount: 1, lastDismissedAt: first });
+            at(first + 14 * DAY - 1);
+            expect((await status()).nudge).toBe(false);
+            at(first + 14 * DAY);
+            expect((await status()).nudge).toBe(true);
+
+            await env.window.apiCall('/api/protection/dismiss', 'POST');
+            at(Date.now() + 365 * DAY);
+            // The chip still reads "Unprotected": no backup exists.
+            expect(await status()).toMatchObject({ nudge: false, dismissedCount: 2, lastBackupAt: null });
+            const rec = (await localRecordsPort().list('protection'))[0];
+            expect(rec).toMatchObject({ recordId: 'protection', nudgeDismissedAt: [first, first + 14 * DAY] });
+        });
+
+        it('a backup ends the nudge once the file leaves the device; the file says it is a backup', async () => {
+            await addRecords(20);
+            expect((await status()).nudge).toBe(true);
+            at(T0 + DAY);
+            // Built but not saved (Backup ready dismissed): nothing changes.
+            const json = await env.window.CloudVault.exportAll({ includeSecrets: false, win: env.window });
+            expect(JSON.parse(json).data.protection).toEqual({ last_backup_at: '2026-10-02T09:00:00Z', nudge_dismissed_at: [] });
+            expect(await status()).toMatchObject({ nudge: true, lastBackupAt: null });
+            expect(await localRecordsPort().list('protection')).toEqual([]);
+            // A completed Share (importexport.js stampLastBackup, confirmed).
+            await env.window.CloudVault.markBackup({ win: env.window });
+            expect(await status()).toMatchObject({ nudge: false, lastBackupAt: T0 + DAY });
+        });
+
+        it('a Save to device (wg.backup.last, maybe a cancelled picker) is a free 14-day snooze, never a backup', async () => {
+            await addRecords(20);
+            env.window.localStorage.setItem('wg.backup.last', String(T0));
+            at(T0 + 14 * DAY - 1);
+            expect(await status()).toMatchObject({
+                nudge: false, lastBackupAt: null, lastSavedAt: T0, dismissedCount: 0, lastDismissedAt: null,
+            });
+            at(T0 + 14 * DAY);
+            expect((await status()).nudge).toBe(true);
+            await env.window.apiCall('/api/protection/dismiss', 'POST');
+            // Read only: the Backup page's "last N days ago" keeps its stamp.
+            expect(env.window.localStorage.getItem('wg.backup.last')).toBe(String(T0));
+        });
+
+        it('an existing user: the old toast stamp is a free 14-day snooze, removed once the record is written', async () => {
+            env.window.localStorage.setItem(LEGACY, String(T0));
+            await addRecords(20);
+            at(T0 + 14 * DAY - 1);
+            expect(await status()).toMatchObject({ nudge: false, dismissedCount: 0, lastDismissedAt: T0 });
+            at(T0 + 14 * DAY);
+            expect((await status()).nudge).toBe(true);
+            await env.window.apiCall('/api/protection/dismiss', 'POST');
+            expect(env.window.localStorage.getItem(LEGACY)).toBeNull();
+            expect((await status()).dismissedCount).toBe(1); // the legacy stamp never cost a dismissal
+        });
     });
 
     // bd med-o7zq.6: restore into local mode, and the local bundle's export is
@@ -203,14 +265,18 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         const json = await window.CloudVault.exportAll({ win: window });
         const exported = JSON.parse(json);
         const now = Date.parse(exported.exported_at);
-        expect(exported.data).toEqual(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data);
+        // The export itself is a backup (bd med-ta2n.4): the file carries it.
+        const withoutBackup = (d) => { const c = { ...d }; delete c.protection; return c; };
+        expect(exported.data.protection).toEqual({ ...VAULT_FIXTURE.data.protection, last_backup_at: expect.any(String) });
+        expect(Date.parse(exported.data.protection.last_backup_at)).toBeLessThanOrEqual(now);
+        expect(withoutBackup(exported.data)).toEqual(withoutBackup(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data));
         const weights = (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight);
         expect(weights.sort()).toEqual(VAULT_FIXTURE.data.weight.logs.map((r) => r.weight).sort());
         // The cloud's importAll runs this same conversion on the file.
         expect(vaultToRecords(exported, { now }).length).toBe(vaultToRecords(VAULT_FIXTURE, { now }).length);
         // Restoring its own export again changes nothing.
         await window.CloudVault.importAll(json, { win: window });
-        expect(JSON.parse(await window.CloudVault.exportAll({ win: window })).data).toEqual(exported.data);
+        expect(withoutBackup(JSON.parse(await window.CloudVault.exportAll({ win: window })).data)).toEqual(withoutBackup(exported.data));
         expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
         expect(await pendingRows()).toEqual([]);
     });
@@ -892,6 +958,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         it('Move button: export → move.stash → local.leave, records kept', async () => {
             const { window, document } = env;
             await window.apiCall('/api/weight', 'POST', { weight: 80 });
+            await window.apiCall('/api/protection/dismiss', 'POST'); // a W4 record exists
             cancelReminderRecompute({ accountId: 'local' });
             let stashed = null;
             withMoveOps(({ vault }) => { stashed = vault; return true; });
@@ -903,7 +970,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(dialog.textContent).toMatch(/Move to a cloud account\?/);
             dialog.querySelector('.mt-confirm-modal__confirm').click();
             await vi.waitFor(() => expect(moveOps()).toEqual(['move.stash', 'local.leave']));
+            // The W4 nudge is local-only (bd med-ta2n.4): even with a record
+            // here, the account gets no data.protection.
+            expect(JSON.parse(stashed).data).not.toHaveProperty('protection');
             const expected = JSON.parse(await window.CloudVault.exportAll({ win: window }));
+            delete expected.data.protection;
             expect(JSON.parse(stashed).data).toEqual(expected.data);
             expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
             expect(offDevice()).toEqual([]);
@@ -1304,18 +1375,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
     // other platform (the web, an unknown one) is still refused.
     it('the Android shell gets the same egress, move and erase ops, with "phone" copy', async () => {
         const { window } = env;
-        const { nudgeLocalBackup } = await import('../../../cloud/js/local-policy.js');
         const local = window.LocalNotifications;
         local.__native.platform = 'android';
         local.copy = { os: 'Android', device: 'phone' };
         await window.apiCall('/api/weight', 'POST', { weight: 80 });
         cancelReminderRecompute({ accountId: 'local' });
-        const toast = vi.fn();
-        window.safeToast = toast;
-        window.localStorage.setItem('wg:local-backup-nudge-at', '1');
-        expect(await nudgeLocalBackup({ win: window })).toBe(true);
-        expect(toast.mock.calls[0][0]).toContain('only on this phone.');
-        expect(toast.mock.calls[0][0]).not.toMatch(/iPhone/);
         // The boot's registration (on 'ios') is the window trial.apply re-runs.
         await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
         bridge.mockClear();

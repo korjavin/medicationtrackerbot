@@ -19,16 +19,16 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 | Anonymous trial attestation | App Attest | Play Integrity (device-recall flag OFF) | divergent: platform API |
 | Health data | HealthKit | Health Connect | divergent: platform API |
 | Notifications (bridge ops) | ✓ | ✓ | parity |
-| Account gone (`X-Account-Gone` → native first run) | ✓ | ✓ → local mode + F1 (med-ta2n.12) | divergent until med-ta2n.17 (iOS still shows its native first run) |
+| Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12) | parity |
 | Local app lock (`lock.status` / `lock.set`) | ✓ | ✓ | parity (med-o7zq.39) |
 | Switch account entry | Settings.bundle | launcher long-press shortcut (`MainActivity.kt`) | divergent: platform convention |
-| Native token mirror + N1 first run / N2 local intro (kit v2.1) | ✓ (med-ckm5.13) | N1/N2 deleted (med-ta2n.12); the mirror stays for N3/N4 | divergent until med-ta2n.17 deletes iOS's |
-| N3 lock / N4 load error / N5 web exit bar / N6 splash hand-off + `notifications.openSettings` (kit v2.1) | ✓ (med-ckm5.15) | ✓ (med-ckm5.16) | parity |
-| Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 1 (med-ta2n.11) | ✓ phase 2 (med-ta2n.12.1, med-ta2n.12) | parity on the ops; first run native on iOS until med-ta2n.17 |
+| Native token mirror (N1 first run / N2 local intro deleted, kit v2.1) | ✓ mirror only (med-ta2n.17) | ✓ mirror only (med-ta2n.12) | parity |
+| N3 lock / N4 load error / N5 web exit bar / N6 splash hand-off + `notifications.openSettings` (kit v2.1); N4 · local has no exit | ✓ (med-ckm5.15, med-ta2n.17) | ✓ (med-ckm5.16, med-ta2n.12) | parity |
+| Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1, med-ta2n.12) | parity |
 | `clipboard.read` (F1 Paste) | n/a (`navigator.clipboard` from the tap) | ✓ | Android-only: WebView has no clipboard-read prompt |
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
-| "Only on this device" while a move stash exists | hides one-tap Continue | n/a: the screen is gone (med-ta2n.12) | divergent until med-ta2n.17 |
-| First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | pending (med-ta2n.17) | ✓ (med-ta2n.12) | divergent until med-ta2n.17 |
+| First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
+| Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
 | `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ | parity (med-w6gx.24) |
 | Back gesture exits app | n/a | ✓ | Android-only: back-exit |

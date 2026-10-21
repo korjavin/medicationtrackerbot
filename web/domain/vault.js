@@ -89,6 +89,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
   'gamificationmilestone', 'gamificationweek',
   'gamificationjournal', 'gamificationexperiment', 'gamificationtargets', 'gamificationmode',
+  'protection',
 ]);
 
 // Settings / preference / catalog types: present on a vault that holds no user
@@ -97,7 +98,7 @@ const NON_CONTENT_TYPES = new Set([
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'apitokens',
   'medreminderpref', 'bpreminderpref', 'weightreminderpref', 'weightunitpref',
   'tzplan', 'tzhistory', 'activelocation',
-  'gamificationtargets', 'gamificationmode',
+  'gamificationtargets', 'gamificationmode', 'protection',
 ]);
 export const USER_CONTENT_TYPES = new Set([...VAULT_MANAGED_TYPES].filter((t) => !NON_CONTENT_TYPES.has(t)));
 
@@ -269,6 +270,9 @@ export function managedTypesForImport(vault) {
   const data = (vault && vault.data) || {};
   if (!(data.settings && data.settings.integrations)) types.delete('integrations');
   if (!data.api_tokens) types.delete('apitokens');
+  // A file without the W4 protection block (any backup older than bd
+  // med-ta2n.4) leaves this device's backup/dismissal state alone.
+  if (!data.protection) types.delete('protection');
   return types;
 }
 
@@ -315,7 +319,7 @@ function sortBy(arr, keyFn) {
 // Export: records -> vault
 // ---------------------------------------------------------------------------
 
-export function recordsToVault(records, { now, includeSecrets = true } = {}) {
+export function recordsToVault(records, { now, includeSecrets = true, backupAt } = {}) {
   const byType = new Map();
   const tombstones = [];
   for (const rec of records) {
@@ -556,6 +560,18 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   // Same rule as `integrations`: emit `[]` (not absent) so a restore can clear
   // stale tokens on the destination.
   if (includeSecrets) data.api_tokens = (tokensRec && tokensRec.tokens) || [];
+  // W4 nudge state (bd med-ta2n.4). backupAt: this file IS a backup (local
+  // mode's export), so it says so — restored, it remembers being one. Omitted
+  // when there is neither, so a store that never had it exports as before.
+  const protectionRec = singleton('protection', 'protection');
+  if (protectionRec || Number.isFinite(backupAt)) {
+    const last = Number.isFinite(backupAt) ? backupAt : protectionRec.lastBackupAt;
+    data.protection = {
+      last_backup_at: Number.isFinite(last) ? toRFC3339(last) : null,
+      nudge_dismissed_at: ((protectionRec && Array.isArray(protectionRec.nudgeDismissedAt)) ? protectionRec.nudgeDismissedAt : [])
+        .filter(Number.isFinite).map(toRFC3339),
+    };
+  }
   // Omitted (not `[]`) when empty: absent and empty compare equal, and an
   // empty store must export byte-identical to a pre-tombstone client.
   if (tombstones.length > 0) {
@@ -855,6 +871,17 @@ export function vaultToRecords(vault, { now } = {}) {
     });
   }
   if (data.api_tokens) push('apitokens', 'apitokens', { tokens: [...data.api_tokens] });
+  // W4 nudge state (bd med-ta2n.4). A bad timestamp is dropped, never fatal:
+  // losing it only shows the nudge again.
+  if (data.protection && typeof data.protection === 'object') {
+    const ms = (s) => (typeof s === 'string' ? Date.parse(s) : NaN);
+    const last = ms(data.protection.last_backup_at);
+    push('protection', 'protection', {
+      lastBackupAt: Number.isFinite(last) ? last : null,
+      nudgeDismissedAt: (Array.isArray(data.protection.nudge_dismissed_at) ? data.protection.nudge_dismissed_at : [])
+        .map(ms).filter(Number.isFinite),
+    });
+  }
   // Goal milestones re-attach to the goal re-minted above with the same set_at
   // (the episode id); one whose goal is not in the file keeps a stable orphan
   // episode so it still lands in the Journey timeline.
