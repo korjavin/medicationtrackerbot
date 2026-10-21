@@ -44,7 +44,8 @@ type inviteFixture struct {
 	router http.Handler
 	secret string
 	api    *TelegramAPI
-	mail   *fakeMailer
+	mail    *fakeMailer
+	enabled bool
 }
 
 func newInviteFixture(t *testing.T, adminChat int64, ttl time.Duration, withMail bool) *inviteFixture {
@@ -57,12 +58,12 @@ func newInviteFixture(t *testing.T, adminChat int64, ttl time.Duration, withMail
 	top := http.NewServeMux()
 	api.RegisterWebhookRoutes(top)
 	f.top = top
-	reqs := NewInviteRequestAPI(store, tgTestSecret)
+	reqs := NewInviteRequestAPI(store)
 	if withMail {
 		f.mail = &fakeMailer{}
 		api.mailer = f.mail
-		reqs.Enable(api)
 	}
+	f.enabled = reqs.Enable(api)
 	mux := http.NewServeMux()
 	reqs.RegisterRoutes(mux)
 	f.router = New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
@@ -154,8 +155,8 @@ func TestInviteRequest_EmailApprove(t *testing.T) {
 	if len(answered) != 1 || !strings.Contains(answered[0], "Approved") {
 		t.Fatalf("answers = %v", answered)
 	}
-	if f.request(t, 1).Status != "approved" {
-		t.Fatal("row not approved")
+	if f.request(t, 1).Status != "done" {
+		t.Fatal("row not settled done")
 	}
 
 	// A second tap (or a Telegram redelivery) decides nothing again.
@@ -254,7 +255,7 @@ func TestInviteRequest_SendFailureShowsLink(t *testing.T) {
 	f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
 	accounts, _ := f.store.ListAccounts(t.Context())
 	_, edits, _ := f.snapshot()
-	if f.request(t, 1).Status != "approved" || len(edits) != 1 || !strings.Contains(edits[0], "FAILED") ||
+	if f.request(t, 1).Status != "done" || len(edits) != 1 || !strings.Contains(edits[0], "FAILED") ||
 		!strings.Contains(edits[0], "https://"+accounts[0].Subdomain+".localhost/#claim=") || strings.Contains(edits[0], "refused") {
 		t.Fatalf("failure edit = %v", edits)
 	}
@@ -304,29 +305,71 @@ func TestInviteRequest_LimitsAndDedupe(t *testing.T) {
 		t.Fatalf("6th from one IP → %d, want 429", rec.Code)
 	}
 
-	// Global: 50 a day, persisted.
+	// Global: 50 a day, persisted. A full cap answers a known address and a new
+	// one alike, so the endpoint never tells whether an address already asked.
 	now := time.Now().UTC()
 	for i := 0; i < inviteRequestDailyCap; i++ {
-		if _, _, err := f.store.CreateEmailInviteRequest(t.Context(), fmt.Sprintf("g%d@example.com", i), "", "", now, inviteRequestDedupe, 1000); err != nil {
+		if _, _, err := f.store.CreateEmailInviteRequest(t.Context(), fmt.Sprintf("g%d@example.com", i), "", now, inviteRequestDedupe, 1000); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if rec := f.post(t, "localhost", "192.0.2.10", `{"email":"late@example.com"}`); rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "busy") {
-		t.Fatalf("over the daily cap → %d %s, want 429 busy", rec.Code, rec.Body.String())
+	for i, email := range []string{"late@example.com", "ada@example.com"} {
+		ip := "192.0.2." + strconv.Itoa(10+i)
+		if rec := f.post(t, "localhost", ip, `{"email":"`+email+`"}`); rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "busy") {
+			t.Fatalf("%s over the daily cap → %d %s, want 429 busy", email, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// An approval whose run never settled (a crash mid-mint) is not a dead end:
+// inside the work budget a re-tap says it is in flight; past it, Approve
+// re-runs the mint and delivery.
+func TestInviteRequest_StaleApprovalReruns(t *testing.T) {
+	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
+	f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`)
+	msgID := f.request(t, 1).AdminMessageID
+	// The crash: decided, nothing minted, nothing sent.
+	if moved, err := f.store.MoveInviteRequest(t.Context(), 1, "pending", "approved", time.Now().UTC()); err != nil || !moved {
+		t.Fatalf("move: %v %v", moved, err)
+	}
+	f.tap(t, 1, "a", inviteAdmin, msgID)
+	if _, _, answered := f.snapshot(); mintedBy(t, f.store, "req:1") != 0 || !strings.Contains(answered[len(answered)-1], "Already being sent") {
+		t.Fatalf("fresh approval re-ran: answers=%v", answered)
+	}
+
+	if moved, err := f.store.MoveInviteRequest(t.Context(), 1, "approved", "approved", time.Now().UTC().Add(-2*inviteRequestWorkBudget)); err != nil || !moved {
+		t.Fatalf("backdate: %v %v", moved, err)
+	}
+	f.tap(t, 1, "a", inviteAdmin, msgID)
+	if n := mintedBy(t, f.store, "req:1"); n != 1 || len(f.mails()) != 1 || f.request(t, 1).Status != "done" {
+		t.Fatalf("stale approval: minted=%d mails=%d status=%s", n, len(f.mails()), f.request(t, 1).Status)
+	}
+	// Settled: no further re-run.
+	f.tap(t, 1, "a", inviteAdmin, msgID)
+	if n := mintedBy(t, f.store, "req:1"); n != 1 {
+		t.Fatalf("done row re-ran: minted=%d", n)
 	}
 }
 
 func TestInviteRequest_DisabledAndRouting(t *testing.T) {
+	// Each case lacks exactly one of the two prerequisites; Enable is called
+	// either way and must refuse.
 	for name, f := range map[string]*inviteFixture{
 		"no mailer":     newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false),
-		"no admin chat": newInviteFixture(t, 0, 14*24*time.Hour, false),
+		"no admin chat": newInviteFixture(t, 0, 14*24*time.Hour, true),
 	} {
+		if f.enabled {
+			t.Errorf("%s: Enable reported on", name)
+		}
 		if rec := f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: POST → %d, want 404", name, rec.Code)
 		}
 	}
 
 	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
+	if !f.enabled {
+		t.Fatal("admin chat + mailer: Enable reported off")
+	}
 	acc, _ := setupInvite(t, f.store)
 	if rec := f.post(t, acc.Subdomain+".localhost", "203.0.113.1", `{"email":"ada@example.com"}`); rec.Code != http.StatusNotFound {
 		t.Fatalf("account host POST → %d, want 404 (base host only)", rec.Code)
@@ -353,10 +396,10 @@ func TestInviteRequest_DisabledAndRouting(t *testing.T) {
 func TestInviteRequest_Sweep(t *testing.T) {
 	store := setupStore(t)
 	old := time.Now().UTC().Add(-91 * 24 * time.Hour)
-	if _, _, err := store.CreateEmailInviteRequest(t.Context(), "old@example.com", "", "", old, inviteRequestDedupe, 50); err != nil {
+	if _, _, err := store.CreateEmailInviteRequest(t.Context(), "old@example.com", "", old, inviteRequestDedupe, 50); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.CreateTGInviteRequest(t.Context(), 77, 4242, time.Now().UTC()); err != nil {
+	if _, _, err := store.CreateTGInviteRequest(t.Context(), 77, 4242, time.Now().UTC(), inviteRequestDedupe); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.InviteRequestByID(t.Context(), 1); !errors.Is(err, sql.ErrNoRows) {

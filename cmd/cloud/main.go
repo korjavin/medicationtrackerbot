@@ -323,11 +323,12 @@ func main() {
 		cloudserver.RegisterTelegramDisabledRoutes(apiMux, store, cfg.sessionSecret)
 	}
 
-	// Request an invite (bd med-ta2n.14): the in-app email form needs the SMTP
-	// relay, the manager bot and the admin chat that approves; any missing →
-	// POST 404 and the app keeps the landing page's mailto. A bad SMTP_* set
-	// is logged and leaves it off — never a startup failure.
-	inviteRequests := cloudserver.NewInviteRequestAPI(store, cfg.sessionSecret)
+	// Request an invite (bd med-ta2n.14). Telegram requests ("yes" to the
+	// manager bot) need only the admin chat that approves; the in-app email form
+	// also needs the SMTP relay — without it POST 404s and the app keeps the
+	// landing page's mailto. A bad SMTP_* set is logged and leaves email off —
+	// never a startup failure.
+	inviteRequests := cloudserver.NewInviteRequestAPI(store)
 	inviteRequests.RegisterRoutes(apiMux)
 	smtpCfg, err := cloudserver.SMTPConfigFromEnv()
 	if err != nil {
@@ -336,12 +337,12 @@ func main() {
 	if tgAPI != nil && cfg.feedbackAdminChatID == 0 {
 		slog.Warn("manager bot invites closed: FEEDBACK_ADMIN_CHAT_ID unset, nobody can approve a request")
 	}
-	inviteRequestsOn := tgAPI != nil && cfg.feedbackAdminChatID != 0 && smtpCfg.Enabled()
-	if inviteRequestsOn {
+	if tgAPI != nil && smtpCfg.Enabled() {
 		tgAPI.SetSMTP(smtpCfg)
-		inviteRequests.Enable(tgAPI)
 	}
-	slog.Info("invite requests", "enabled", inviteRequestsOn, "smtp_host", smtpCfg.Host)
+	emailOn := inviteRequests.Enable(tgAPI)
+	tgOn := tgAPI != nil && cfg.feedbackAdminChatID != 0
+	slog.Info("invite requests", "email", emailOn, "telegram", tgOn, "smtp_host", smtpCfg.Host)
 
 	// Self-service account deletion (med-d5t.8). Registered after tgAPI is
 	// finalized so its teardown can tear down Telegram too. teardown composes the

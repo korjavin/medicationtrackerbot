@@ -17,8 +17,9 @@ const (
 	InviteRequestTG    = "tg"
 
 	InviteRequestPending  = "pending"
-	InviteRequestApproved = "approved"
+	InviteRequestApproved = "approved" // mint + delivery in flight
 	InviteRequestDeclined = "declined"
+	InviteRequestDone     = "done" // approved and delivered (or the link handed to the admin)
 
 	// inviteRequestRetention: every row, decided or not, is deleted this long
 	// after it was created (docs/cloud-operations-security.md §4).
@@ -28,8 +29,8 @@ const (
 // ErrInviteRequestsFull is the persisted global daily cap on email requests.
 var ErrInviteRequestsFull = errors.New("cloudstore: invite request daily cap reached")
 
-// InviteRequest is one row of invite_requests. Email rows carry EmailLC, Note
-// and IPHash; Telegram rows carry TGChatID and TGUserID.
+// InviteRequest is one row of invite_requests. Email rows carry EmailLC and
+// Note; Telegram rows carry TGChatID and TGUserID.
 type InviteRequest struct {
 	ID             int64
 	Channel        string
@@ -48,23 +49,15 @@ func sweepInviteRequests(ctx context.Context, tx storedb.TX, now time.Time) erro
 	return err
 }
 
-// CreateEmailInviteRequest sweeps rows past retention, then inserts an email
-// request unless the same address already has a row created within dedupe
+// CreateEmailInviteRequest sweeps rows past retention, then refuses with
+// ErrInviteRequestsFull once dailyCap email rows were made in the last 24h —
+// checked FIRST, so a full cap answers a known and an unknown address alike —
+// then inserts unless the same address already has a row created within dedupe
 // (created=false, no error: the caller answers exactly as for a new one, so the
-// endpoint never reveals state). A new row past dailyCap email rows in the last
-// 24h is refused with ErrInviteRequestsFull.
-func (r *Repo) CreateEmailInviteRequest(ctx context.Context, emailLC, note, ipHash string, now time.Time, dedupe time.Duration, dailyCap int) (id int64, created bool, err error) {
+// endpoint never reveals state).
+func (r *Repo) CreateEmailInviteRequest(ctx context.Context, emailLC, note string, now time.Time, dedupe time.Duration, dailyCap int) (id int64, created bool, err error) {
 	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
 		if err := sweepInviteRequests(ctx, tx, now); err != nil {
-			return err
-		}
-		var one int
-		switch err := tx.QueryRowContext(ctx,
-			`SELECT 1 FROM invite_requests WHERE channel = 'email' AND email_lc = ? AND created_at_unix > ? LIMIT 1`,
-			emailLC, storedb.TimeToUnix(now.Add(-dedupe))).Scan(&one); {
-		case err == nil:
-			return nil
-		case !errors.Is(err, sql.ErrNoRows):
 			return err
 		}
 		var count int
@@ -76,9 +69,18 @@ func (r *Repo) CreateEmailInviteRequest(ctx context.Context, emailLC, note, ipHa
 		if count >= dailyCap {
 			return ErrInviteRequestsFull
 		}
+		var one int
+		switch err := tx.QueryRowContext(ctx,
+			`SELECT 1 FROM invite_requests WHERE channel = 'email' AND email_lc = ? AND created_at_unix > ? LIMIT 1`,
+			emailLC, storedb.TimeToUnix(now.Add(-dedupe))).Scan(&one); {
+		case err == nil:
+			return nil
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO invite_requests (channel, email_lc, note, ip_hash, created_at_unix) VALUES ('email', ?, ?, ?, ?)`,
-			emailLC, note, ipHash, storedb.TimeToUnix(now))
+			`INSERT INTO invite_requests (channel, email_lc, note, created_at_unix) VALUES ('email', ?, ?, ?)`,
+			emailLC, note, storedb.TimeToUnix(now))
 		if err != nil {
 			return err
 		}
@@ -90,18 +92,19 @@ func (r *Repo) CreateEmailInviteRequest(ctx context.Context, emailLC, note, ipHa
 }
 
 // CreateTGInviteRequest sweeps rows past retention, then inserts a Telegram
-// request unless this Telegram user already has a pending one (created=false).
-// That pending check is also the update_id dedupe: a Telegram retry of the same
-// "yes" finds the row and pings nobody.
-func (r *Repo) CreateTGInviteRequest(ctx context.Context, chatID, userID int64, now time.Time) (id int64, created bool, err error) {
+// request unless this Telegram user has a pending one or asked within cooldown,
+// whatever came of it (created=false) — so one user cannot keep pinging the
+// admin. It is also the update_id dedupe: a Telegram retry of the same "yes"
+// finds the row and pings nobody.
+func (r *Repo) CreateTGInviteRequest(ctx context.Context, chatID, userID int64, now time.Time, cooldown time.Duration) (id int64, created bool, err error) {
 	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
 		if err := sweepInviteRequests(ctx, tx, now); err != nil {
 			return err
 		}
 		var one int
 		switch err := tx.QueryRowContext(ctx,
-			`SELECT 1 FROM invite_requests WHERE channel = 'tg' AND tg_user_id = ? AND status = 'pending' LIMIT 1`,
-			userID).Scan(&one); {
+			`SELECT 1 FROM invite_requests WHERE channel = 'tg' AND tg_user_id = ? AND (status = 'pending' OR created_at_unix > ?) LIMIT 1`,
+			userID, storedb.TimeToUnix(now.Add(-cooldown))).Scan(&one); {
 		case err == nil:
 			return nil
 		case !errors.Is(err, sql.ErrNoRows):
@@ -158,11 +161,27 @@ func (r *Repo) DeleteUnpingedInviteRequest(ctx context.Context, id int64) error 
 	return err
 }
 
+// ReclaimStaleInviteRequest lets an Approve re-run a row left 'approved' by a
+// run that never finished (a crash, a shutdown past the grace, a failed
+// rollback): it takes the row only if it was decided before staleBefore, and
+// restamps it, so of two concurrent re-taps exactly one sees true.
+func (r *Repo) ReclaimStaleInviteRequest(ctx context.Context, id int64, now, staleBefore time.Time) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE invite_requests SET decided_at_unix = ? WHERE id = ? AND status = ? AND decided_at_unix < ?`,
+		storedb.TimeToUnix(now), id, InviteRequestApproved, storedb.TimeToUnix(staleBefore))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // MoveInviteRequest changes a row's status from `from` to `to`, and reports
 // whether it did: the conditional UPDATE is the one-decision-per-request guard,
 // so of two concurrent taps exactly one sees true. pending → approved|declined
-// decides; approved → pending reopens after a failed mint; approved → declined
-// records the Telegram live-invite cap found at approve time.
+// decides; approved → done settles a finished run; approved → pending reopens
+// after a failed mint; approved → declined records the Telegram live-invite cap
+// found at approve time.
 func (r *Repo) MoveInviteRequest(ctx context.Context, id int64, from, to string, now time.Time) (bool, error) {
 	decided := sql.NullInt64{Int64: storedb.TimeToUnix(now), Valid: to != InviteRequestPending}
 	res, err := r.db.ExecContext(ctx,

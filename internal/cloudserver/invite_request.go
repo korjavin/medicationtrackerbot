@@ -2,9 +2,7 @@ package cloudserver
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,7 +44,7 @@ const (
 // Copy for the Telegram channel and the admin chat (server constants).
 const (
 	inviteTGAskedMessage   = "Thanks — I've asked the admin. You'll get your link here once it's approved."
-	inviteTGAlreadyMessage = "Already asked — you'll hear back here."
+	inviteTGAlreadyMessage = "You've already asked recently. Please wait a few days before asking again."
 	inviteTGClosedMessage  = "Invites are closed right now."
 	inviteTGDeclineMessage = "Sorry, invites are closed for now."
 	inviteTGFailMessage    = "Sorry, I couldn't pass that on just now. Please try again in a few minutes."
@@ -57,24 +55,29 @@ const (
 // admin chat (the sheet then falls back to the landing page's mailto).
 type InviteRequestAPI struct {
 	store   *cloudstore.Repo
-	ipSalt  string
-	limiter *rateLimiter
+	limiter *rateLimiter // per IP, in memory only: no IP is ever stored
 	tg      *TelegramAPI
-	mu      sync.Mutex // serializes dedupe + daily-cap + insert across requests
+	mu      sync.Mutex // serializes daily-cap + dedupe + insert across requests
 }
 
-// NewInviteRequestAPI builds the handler; the IP hash salt is derived from
-// SESSION_SECRET so no raw address is ever stored.
-func NewInviteRequestAPI(store *cloudstore.Repo, sessionSecret string) *InviteRequestAPI {
+// NewInviteRequestAPI builds the handler.
+func NewInviteRequestAPI(store *cloudstore.Repo) *InviteRequestAPI {
 	return &InviteRequestAPI{
 		store:   store,
-		ipSalt:  deriveWebhookSecret(sessionSecret, "mt/invite-request-ip/v1"),
 		limiter: newRateLimiter(inviteRequestIPMax, inviteRequestIPWindow),
 	}
 }
 
-// Enable turns the endpoint on. Call only when tg has an admin chat and a mailer.
-func (a *InviteRequestAPI) Enable(tg *TelegramAPI) { a.tg = tg }
+// Enable turns the email endpoint on, and reports whether it did: it needs the
+// manager bot's admin chat (who approves) and a mailer (who delivers). Without
+// either, POST answers 404 and the app keeps the landing page's mailto.
+func (a *InviteRequestAPI) Enable(tg *TelegramAPI) bool {
+	if tg == nil || tg.feedbackAdminChatID == 0 || tg.mailer == nil {
+		return false
+	}
+	a.tg = tg
+	return true
+}
 
 // RegisterRoutes mounts the POST and its CORS preflight (the local-mode app
 // posts cross-origin from its bundled origin). router.go forwards the path from
@@ -131,10 +134,8 @@ func (a *InviteRequestAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_note"})
 		return
 	}
-	sum := sha256.Sum256([]byte(ip + a.ipSalt))
-
 	a.mu.Lock()
-	id, created, err := a.store.CreateEmailInviteRequest(r.Context(), email, note, hex.EncodeToString(sum[:]), time.Now().UTC(), inviteRequestDedupe, inviteRequestDailyCap)
+	id, created, err := a.store.CreateEmailInviteRequest(r.Context(), email, note, time.Now().UTC(), inviteRequestDedupe, inviteRequestDailyCap)
 	a.mu.Unlock()
 	switch {
 	case errors.Is(err, cloudstore.ErrInviteRequestsFull):
@@ -232,7 +233,7 @@ func (t *TelegramAPI) requestTGInvite(ctx context.Context, msg *tgclient.Message
 		return
 	}
 	t.mintMu.Lock() // the pending check + insert, against concurrent retries
-	id, created, err := t.store.CreateTGInviteRequest(ctx, msg.Chat.ID, msg.From.ID, time.Now().UTC())
+	id, created, err := t.store.CreateTGInviteRequest(ctx, msg.Chat.ID, msg.From.ID, time.Now().UTC(), inviteRequestDedupe)
 	t.mintMu.Unlock()
 	if err != nil {
 		slog.Error("invite request: store tg", "error", err)
@@ -322,14 +323,27 @@ func (t *TelegramAPI) handleInviteCallback(ctx context.Context, cq *tgclient.Cal
 	if approve {
 		to = cloudstore.InviteRequestApproved
 	}
-	moved, err := t.store.MoveInviteRequest(ctx, id, cloudstore.InviteRequestPending, to, time.Now().UTC())
+	now := time.Now().UTC()
+	moved, err := t.store.MoveInviteRequest(ctx, id, cloudstore.InviteRequestPending, to, now)
+	if err == nil && !moved && approve && req.Status == cloudstore.InviteRequestApproved {
+		// An approval whose run never finished (crash, shutdown past the grace,
+		// failed rollback): once its work budget has passed, Approve re-runs it.
+		// A re-run may mint a second invite; the unclaimed one just expires.
+		if moved, err = t.store.ReclaimStaleInviteRequest(ctx, id, now, now.Add(-inviteRequestWorkBudget)); moved {
+			slog.Warn("invite request: re-running a stale approval", "request", id)
+		}
+	}
 	if err != nil {
 		slog.Error("invite request: decide", "error", err, "request", id)
 		answer("Something went wrong — try again.")
 		return
 	}
 	if !moved {
-		answer("Already decided.")
+		if req.Status == cloudstore.InviteRequestApproved {
+			answer("Already being sent — if nothing arrives, tap Approve again in a minute.")
+		} else {
+			answer("Already decided.")
+		}
 		return
 	}
 	if approve {
@@ -378,32 +392,52 @@ func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstor
 		return
 	}
 
+	// settle moves the row out of 'approved'. The context may be spent by now,
+	// so it gets a fresh one. A failed settle leaves 'approved', which Approve
+	// re-runs once stale (handleInviteCallback) — never a dead end.
+	settle := func(to string) bool {
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		moved, err := t.store.MoveInviteRequest(sctx, req.ID, cloudstore.InviteRequestApproved, to, time.Now().UTC())
+		if err != nil || !moved {
+			slog.Error("invite request: settle", "error", err, "moved", moved, "to", to, "request", req.ID)
+			return false
+		}
+		return true
+	}
+
 	inv, refusal := t.mintForRequest(ctx, req)
 	if inv == nil {
 		if refusal == onboardingQuotaMessage {
-			t.store.MoveInviteRequest(ctx, req.ID, cloudstore.InviteRequestApproved, cloudstore.InviteRequestDeclined, time.Now().UTC())
+			settle(cloudstore.InviteRequestDeclined)
 			t.reply(ctx, req.TGChatID, onboardingQuotaMessage)
 			edit(fmt.Sprintf("✖️ Declined: at the %d live-invite cap", managerInviteQuota), false)
 			return
 		}
-		// Nothing was minted: reopen so the admin can tap Approve again.
-		t.store.MoveInviteRequest(ctx, req.ID, cloudstore.InviteRequestApproved, cloudstore.InviteRequestPending, time.Now().UTC())
+		// Nothing was minted: reopen so the admin can tap Approve again (if the
+		// reopen fails, the stale-approval re-run serves the same tap).
+		settle(cloudstore.InviteRequestPending)
 		edit("⚠️ Couldn't create the account — tap Approve to retry.", true)
 		return
 	}
 	link := inv.ClaimURL(t.baseDomain)
 
+	// From here the outcome is final either way: delivered, or the link is in
+	// the admin message to pass on by hand.
 	if req.Channel == cloudstore.InviteRequestTG {
 		if err := t.managerClient().SendMessage(ctx, req.TGChatID, inviteReadyMessage(link)); err != nil {
 			slog.Warn("invite request: DM invite failed", "error", err, "request", req.ID)
+			settle(cloudstore.InviteRequestDone)
 			edit("⚠️ Approved, but the Telegram DM FAILED — link for them: "+link, false)
 			return
 		}
+		settle(cloudstore.InviteRequestDone)
 		edit("✅ Approved · link sent in Telegram", false)
 		return
 	}
 
 	err := t.mailer.send(ctx, req.EmailLC, "Your invite to "+t.baseDomain, t.inviteEmailBody(link))
+	settle(cloudstore.InviteRequestDone)
 	if err != nil {
 		class := mailErrorClass(err)
 		slog.Warn("invite request: email failed", "class", class, "request", req.ID)

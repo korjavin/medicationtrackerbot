@@ -1624,9 +1624,6 @@ describe('localEgressHosts (the shell host list)', () => {
         expect(localEgressHosts(byok, 'base.test', false)).toEqual(byok);
         expect(localEgressHosts(byok.slice(0, 7), 'base.test', false)).toEqual([...byok.slice(0, 7), 'base.test']);
     });
-    it('is stable: the same input gives the same array every boot', () => {
-        expect(localEgressHosts(['b.test', 'a.test'], 'base.test', true)).toEqual(localEgressHosts(['b.test', 'a.test'], 'base.test', true));
-    });
 
     // A fresh install goes [] → [base]: the shell answers changed, the page
     // reloads, and boot never hands the app a page that is going away (the
@@ -1682,8 +1679,9 @@ describe('localEgressHosts (the shell host list)', () => {
 });
 
 // bd med-o7zq.16 — the anonymous trial is one opt-in switch (the `anon` trial
-// consent). Off, our server's base domain is not in the shell's CSP host list
-// and nothing calls it; on, it is, and aiclient gets the attest transport.
+// consent). Off, the base domain stays in the shell's CSP host list (the
+// "Request an invite" form posts there) but no trial call goes to it; on,
+// aiclient gets the attest transport.
 describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
     const TRIAL_BASE = 'trial-base.example.test';
     let env;

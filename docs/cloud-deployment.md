@@ -242,10 +242,11 @@ routes simply don't register.
    Approve mints (cap 3 live invites per Telegram user) and DMs the link. The
    in-app "Request an invite" form (`POST /api/invite-requests` on the base
    host) uses the same buttons and, on Approve, emails the claim link — set the
-   `SMTP_*` variables ([environment.md](environment.md)) for it. Requests are on
-   only with the manager bot, the admin chat and SMTP all set; the startup log
-   line `invite requests enabled=<bool>` says which. A partial SMTP set logs an
-   error naming the missing variables and keeps requests off — the server still
+   `SMTP_*` variables ([environment.md](environment.md)) for it. Telegram
+   requests need only the manager bot and the admin chat; the email form also
+   needs SMTP. The startup log line `invite requests email=<bool>
+   telegram=<bool>` says which are on. A partial SMTP set logs an error naming
+   the missing variables and keeps the email form off — the server still
    starts. With no admin chat, the bot answers "Invites are closed right now."
 
 **Token-at-rest trade-off (read before setting `SESSION_SECRET`):** each child

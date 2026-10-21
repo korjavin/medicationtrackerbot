@@ -826,8 +826,8 @@ func TestManagerOnboarding(t *testing.T) {
 		if len(edits) != 1 || !strings.Contains(edits[0], "link sent") || strings.Contains(edits[0], "#claim=") {
 			t.Fatalf("admin edit = %v", edits)
 		}
-		if f.request(t, 1).Status != "approved" {
-			t.Fatal("row not approved")
+		if f.request(t, 1).Status != "done" {
+			t.Fatal("row not settled done")
 		}
 	})
 
@@ -859,11 +859,27 @@ func TestManagerOnboarding(t *testing.T) {
 		tgMessage(t, f.top, f.secret, "yes")
 		tgMessage(t, f.top, f.secret, "yes")
 		sent, _, _ := f.snapshot()
-		if adminPings(sent) != 1 || !strings.Contains(sent[len(sent)-1], "Already asked") {
+		if adminPings(sent) != 1 || !strings.Contains(sent[len(sent)-1], "already asked recently") {
 			t.Fatalf("retry pinged again or got the wrong reply: %v", sent)
 		}
 		if _, err := f.store.InviteRequestByID(t.Context(), 2); err == nil {
 			t.Fatal("retry inserted a second row")
+		}
+	})
+
+	// A decision does not reopen the door: a re-ask within the cooldown pings
+	// nobody, whatever the admin decided.
+	t.Run("a yes after a decline within the cooldown pings nobody", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
+		tgMessage(t, f.top, f.secret, "yes")
+		f.tap(t, 1, "d", inviteAdmin, f.request(t, 1).AdminMessageID)
+		tgMessage(t, f.top, f.secret, "yes")
+		sent, _, _ := f.snapshot()
+		if adminPings(sent) != 1 || !strings.Contains(sent[len(sent)-1], "already asked recently") {
+			t.Fatalf("re-ask after decline: %v", sent)
+		}
+		if _, err := f.store.InviteRequestByID(t.Context(), 2); err == nil {
+			t.Fatal("re-ask inserted a second row")
 		}
 	})
 

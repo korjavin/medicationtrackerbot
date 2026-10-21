@@ -228,8 +228,8 @@ ours.**
 
 `invite_requests` rows (bd med-ta2n.14, `internal/cloudstore/invite_requests.go`)
 hold a requester's **plaintext** email address and note (email form) or Telegram
-chat/user id (manager bot), a salted SHA-256 of the requesting IP (never the IP
-itself), the decision and its time. They are not account-keyed — a request
+chat/user id (manager bot), the decision and its time. No IP address is stored
+(the per-IP rate limit is in memory only). They are not account-keyed — a request
 precedes any account — so `DELETE /api/account` does not touch them. Each is
 deleted **90 days after it was made**, swept on the next request anywhere on
 the instance (no background job, so an idle instance can hold one longer). The
@@ -239,7 +239,7 @@ in that Telegram chat and with the SMTP relay / the recipient's mail provider
 
 | Row | Holds | Gone |
 |---|---|---|
-| `invite_requests` | email + note or Telegram ids, IP hash, status | 90 days after creation (swept on the next request) |
+| `invite_requests` | email + note or Telegram ids, status | 90 days after creation (swept on the next request) |
 
 ### Time-boxed rows: workout share links
 
