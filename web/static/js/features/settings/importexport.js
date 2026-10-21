@@ -188,7 +188,9 @@
             Promise.resolve().then(() => window.CloudVault.markBackup()).catch((e) => console.warn('[backup] could not record the backup', e));
         }
         paintLastBackup();
-        setExportStatus(`Backup exported: ${name}. Keep it somewhere safe.`);
+        setExportStatus(confirmed
+            ? `Backup exported: ${name}. Keep it somewhere safe.`
+            : `Backup downloaded: ${name}. Check that it saved, and keep it somewhere safe.`);
     }
 
     // The ready file: name split into stem + extension (.wg-fname) so a narrow

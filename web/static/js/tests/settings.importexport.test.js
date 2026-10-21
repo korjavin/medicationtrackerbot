@@ -482,7 +482,9 @@ describe('Settings → Import/Export section', () => {
         expect(ready.classList.contains('hidden')).toBe(true);
         expect(status.hidden).toBe(false);
         expect(status.classList.contains('wg-error')).toBe(false);
-        expect(status.textContent).toMatch(/^Backup exported: medtracker-vault-.*\.json\.gz\.age/);
+        // Save can't see a cancelled Save As, so it never claims "exported".
+        expect(status.textContent).toMatch(/^Backup downloaded: medtracker-vault-.*\.json\.gz\.age\. Check that it saved/);
+        expect(status.textContent).not.toMatch(/exported/);
     });
 
     it('dismissing Backup ready saves nothing and says nothing was saved', async () => {

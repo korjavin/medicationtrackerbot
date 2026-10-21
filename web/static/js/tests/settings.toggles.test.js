@@ -548,6 +548,26 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         }
     });
 
+    it('Reminders > Medications row is hidden while the medication feature is off (med-v7bp)', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+            const row = document.getElementById('settings-reminders-meds');
+
+            window.featureSettings = { medication: false };
+            window.SettingsView.updateFeatureToggles();
+            expect(row.classList.contains('wg-settings-hidden')).toBe(true);
+
+            window.featureSettings = { medication: true };
+            window.SettingsView.updateFeatureToggles();
+            expect(row.classList.contains('wg-settings-hidden')).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
     // med-8tur.12: the Journey mode switches share the gamification gate, load
     // from GET /api/gamification/mode, PUT one key per flip, and revert on failure.
     it('Journey mode switches: gated on gamification, loaded from and written to /api/gamification/mode', async () => {

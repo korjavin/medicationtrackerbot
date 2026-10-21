@@ -1524,6 +1524,8 @@ function updateFeatureToggles() {
     document.getElementById('gamification-feature-toggle').checked = !!flags.gamification;
     document.getElementById('live-hr-feature-toggle').checked = !!flags.live_hr;
     updateWeeklyDigestVisibility(flags);
+    // Reminders → Medications jumps to the Meds tab, which bounces to Today when off.
+    document.getElementById('settings-reminders-meds')?.classList.toggle('wg-settings-hidden', !flags.medication);
     refreshSettingsSummaries();
 }
 
