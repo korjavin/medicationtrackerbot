@@ -39,23 +39,18 @@ final class FlowQABackupTests: XCTestCase {
         exportBtn.tap()
         let plain = app.webViews.buttons["Export without encryption"]
         XCTAssertTrue(plain.waitForExistence(timeout: 10), "the passphrase sheet never showed")
-        // Run 39551908023: the tap never reached the page. The sheet focuses
-        // the passphrase field, so the run's first keyboard (and its
-        // slide-to-type tip) comes up, and the sheet may still be sliding in:
-        // clear the tip, and tap again while the button is still there.
+        // The sheet focuses the passphrase field: the run's first keyboard
+        // can open under the slide-to-type tip.
         QA.dismissKeyboardTip(app)
+        tapUntilGone(plain)
         let confirm = app.webViews.buttons["Confirm"]
-        var confirmed = false
-        for _ in 0..<3 where !confirmed {
-            if plain.exists { plain.tap() }
-            confirmed = confirm.waitForExistence(timeout: 5)
-        }
+        let confirmed = confirm.waitForExistence(timeout: 10)
         if !confirmed { shot(flow, "plain-no-confirm") }
         XCTAssertTrue(confirmed, "the plain-export confirm never showed")
-        confirm.tap()
+        tapUntilGone(confirm)
         XCTAssertTrue(save.waitForExistence(timeout: 60), "Backup ready never showed")
         shot(flow, "plain-ready")
-        save.tap()
+        tapUntilGone(save)
         exportPickerRoundTrip(app, flow: flow, step: "plain", downloads: downloads, suffix: ".json.gz")
         XCTAssertTrue(webText(app, containing: ".json.gz.").waitForExistence(timeout: 10), "the export status never said \"Backup exported\"")
 
@@ -69,10 +64,10 @@ final class FlowQABackupTests: XCTestCase {
         QA.dismissKeyboardTip(app)
         shot(flow, "passphrase")
         hideKeyboard(app)
-        app.webViews.buttons["Encrypt and export"].tap()
+        tapUntilGone(app.webViews.buttons["Encrypt and export"])
         XCTAssertTrue(save.waitForExistence(timeout: 120), "encrypted Backup ready never showed")
         shot(flow, "encrypted-ready")
-        save.tap()
+        tapUntilGone(save)
         exportPickerRoundTrip(app, flow: flow, step: "encrypted", downloads: downloads, suffix: ".json.gz.age", timeout: 60)
         XCTAssertTrue(webText(app, containing: ".json.gz.age").waitForExistence(timeout: 10), "the encrypted export status never said \"Backup exported\"")
         shot(flow, "after-dismiss")
@@ -217,6 +212,19 @@ final class FlowQABackupTests: XCTestCase {
         let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == 'Schedule'")).firstMatch
         XCTAssertTrue(schedule.waitForExistence(timeout: 10), "no Meds → Schedule sub-tab")
         schedule.tap()
+    }
+
+    /// Taps a sheet button its own tap closes, again while it is still there:
+    /// on the CI Simulator a tap on a web sheet button now and then never
+    /// reaches the page (runs 39551908023 "Export without encryption",
+    /// 39557470507 "Save to device": the sheet still up a minute later). A
+    /// landed tap closes the sheet, so there is no second one.
+    private func tapUntilGone(_ button: XCUIElement) {
+        for _ in 0..<3 where button.exists {
+            button.tap()
+            if waitUntil(5, { !button.exists }) { return }
+        }
+        XCTAssertFalse(button.exists, "\(button.label): three taps did not close its sheet")
     }
 
     /// WKWebView's form accessory bar has Done; else the keyboard's own key.
