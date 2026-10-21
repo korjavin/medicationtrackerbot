@@ -1142,6 +1142,8 @@ async function paintSyncSection() {
         const f1 = (action) => document.dispatchEvent(new window.CustomEvent('wg:invite-open', { detail: { kit: true, action } }));
         document.getElementById('settings-sync-paste')?.addEventListener('click', () => f1('paste'));
         document.getElementById('settings-sync-scan')?.addEventListener('click', () => f1('scan'));
+        // bd med-ta2n.14: the email request sheet (InviteSheet.request).
+        document.getElementById('settings-sync-request')?.addEventListener('click', () => sheet.request());
         document.getElementById('settings-sync-turn-on')?.addEventListener('click', () => {
             if (_syncInvite) sheet.offer(_syncInvite, { kit: true });
         });
@@ -1155,6 +1157,8 @@ async function paintSyncSection() {
     waiting.hidden = !_syncInvite;
     how.hidden = !base;
     if (base) how.href = `https://${base}/`;
+    const request = document.getElementById('settings-sync-request');
+    if (request) request.hidden = !base;
 }
 
 // Load settings (BP reminders status, etc.)
