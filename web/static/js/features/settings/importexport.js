@@ -170,9 +170,18 @@
         meta.textContent = days <= 0 ? 'last today' : days === 1 ? 'last yesterday' : `last ${days} days ago`;
     }
 
-    // The file left the device (Save or Share): only now is there a backup.
-    function stampLastBackup(name) {
+    // The file left the device (Save or Share). confirmed: the OS said it was
+    // delivered (a resolved Web Share); only then does local mode retire the
+    // Today W4 nudge for good (CloudVault.markBackup, bd med-ta2n.4). Save
+    // hands the file to a download / native picker that never reports a
+    // cancel, so it only stamps wg.backup.last — which the nudge reads as a
+    // 14-day snooze (local-policy.js LOCAL_PROTECTION). The cloud vault has no
+    // markBackup.
+    function stampLastBackup(name, { confirmed = false } = {}) {
         try { window.localStorage.setItem(LAST_BACKUP_KEY, String(Date.now())); } catch (_) { /* not remembered */ }
+        if (confirmed && window.CloudVault && typeof window.CloudVault.markBackup === 'function') {
+            Promise.resolve().then(() => window.CloudVault.markBackup()).catch((e) => console.warn('[backup] could not record the backup', e));
+        }
         paintLastBackup();
         setExportStatus(`Backup exported: ${name}. Keep it somewhere safe.`);
     }
@@ -222,7 +231,7 @@
         if (!readyFile || !readyFile.file) return;
         try {
             await navigator.share({ files: [readyFile.file], title: readyFile.name });
-            stampLastBackup(readyFile.name);
+            stampLastBackup(readyFile.name, { confirmed: true });
             if (closeSheet) closeSheet(true);
         } catch (e) {
             // Dismissing the OS sheet is not an error.
@@ -727,6 +736,9 @@
     window.SettingsImportExport = {
         load: () => { bindControls(); },
         export: doExport,
+        // The passphrase sheet the Export backup button opens (the W4 sheet's
+        // "Save backup", bd med-ta2n.4).
+        openExport: openExportSheet,
         import: doImport,
         restoreVault,
         importNxk: doNxkImport,

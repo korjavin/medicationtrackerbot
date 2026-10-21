@@ -25,6 +25,7 @@ import { createBriefDomain } from '../../domain/brief.js';
 import {
   MAX_LIMIT, clampLimit, clampDays, clampOffset, pageOf,
 } from '../../domain/paginate.js';
+import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import * as cloudReminders from './reminders.js';
@@ -169,9 +170,11 @@ function debugOnce(key, ...args) {
 //   opts.operatorFoodDb  fooddb.js's operator food-DB port; omitted keeps the
 //                 cloud's same-origin one (local mode: LOCAL_FOOD_DB, bd
 //                 med-o7zq.20).
+//   opts.protection  the W4 nudge's local half (local-policy.js
+//                 LOCAL_PROTECTION, bd med-ta2n.4); omitted = never nudge.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
-  rxnorm = createRxnormPort(), operatorFoodDb,
+  rxnorm = createRxnormPort(), operatorFoodDb, protection,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -676,6 +679,28 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/emergency-kit') {
       if (method === 'GET') return settings.getEmergencyKit();
       if (method === 'PUT') return settings.setEmergencyKit(body);
+    }
+
+    // W4 protect-your-data nudge (bd med-ta2n.4): the Today card reads this
+    // (and the Settings chip, med-ta2n.5). Only local mode injects
+    // `protection`; an account is synced by definition and never nudges.
+    if (path === '/api/protection/status' && method === 'GET') {
+      if (!protection) {
+        return {
+          records: 0, firstRunAt: null, lastBackupAt: null, lastSavedAt: null, dismissedCount: 0, lastDismissedAt: null, synced: true, nudge: false,
+        };
+      }
+      const lists = await Promise.all([...USER_CONTENT_TYPES].map((t) => records.list(t)));
+      return settings.getProtectionStatus({
+        records: userContentCount(lists.flat()),
+        legacyDismissedAt: protection.legacyDismissedAt(targetWindow),
+        savedAt: typeof protection.savedAt === 'function' ? protection.savedAt(targetWindow) : null,
+      });
+    }
+    if (path === '/api/protection/dismiss' && method === 'POST' && protection) {
+      await settings.dismissNudge();
+      protection.recordWritten(targetWindow);
+      return { success: true };
     }
 
     // Reminder delivery pref (bd med-o7zq.3): the /api seam local-only mode's
@@ -1520,7 +1545,7 @@ export function createApiRouter(ctx, {
 // egress allowlist upload (local mode tells the iOS shell instead, which
 // serves its own CSP).
 export function installApiShim(ctx, {
-  records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, registerEgress = registerEgressHosts,
+  records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
   win, now: nowOverride, timeZone: timeZoneOverride,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
@@ -1539,7 +1564,7 @@ export function installApiShim(ctx, {
   // both, which keeps the harness a drop-in swap.
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
-    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, now: nowOverride, timeZone: timeZoneOverride, win,
+    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });

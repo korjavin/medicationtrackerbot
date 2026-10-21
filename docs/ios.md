@@ -1001,11 +1001,18 @@ mode, gated on the bridge platform being `ios` or `android`
   from the phone, the lock lets the user in (nothing to check against; it
   must not strand the only copy of their records). The lifecycle is checked
   in CI by `ios/Tests/main.swift`.
-- **Export reminder** (bd med-o7zq.5, `local-policy.js` `nudgeLocalBackup`):
-  at most once a week, counted from the first open, the last reminder or the
-  last export, and only once something is stored, a toast suggests exporting
-  a backup file (*Back up* opens Settings → Backup & import). Checked at boot
-  and on every return to the front.
+- **Protect-your-data card** (W4, bd med-ta2n.4; replaced the weekly toast of
+  bd med-o7zq.5): a card on Today, below Next up, once there are 20 records
+  or 7 days have passed since first run, until a backup file is shared with
+  a confirmed result (Save to device hands the file to a picker that never
+  reports a cancel, so a Save only snoozes it 14 days, through
+  `wg.backup.last`). × (or the sheet's *Later*) snoozes it 14 days; after the second it
+  stops (the Settings "Unprotected" chip, med-ta2n.5, reads the same status
+  once it ships). State: the vault `protection` singleton
+  (`web/domain/settings.js`), read through `GET /api/protection/status`;
+  the old toast's `wg:local-backup-nudge-at` stamp counts as a free snooze
+  for existing users and is removed once the record is written. Same on
+  Android.
 - **Backup, restore, move to cloud** (bd med-o7zq.6, `local-policy.js`
   `LOCAL_VAULT`): Settings → Backup & import exports the same vault v1 file
   as the cloud (`recordsToVault`, pinned against `tests/fixtures/vault-v1.json`

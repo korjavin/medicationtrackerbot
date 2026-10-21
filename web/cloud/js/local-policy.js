@@ -36,8 +36,9 @@ import {
   scheduleReminderRecompute, recomputeAndPush, onLocalScheduleResult,
 } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
-import { readAllLocalRecords, replaceAllRecords } from './sync.js';
+import { readAllLocalRecords, replaceAllRecords, localRecordsPort } from './sync.js';
 import { withMaterializationStopped } from './apishim.js';
+import { createSettingsDomain, PROTECTION_RECORD_TYPE } from '../../domain/settings.js';
 import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, userContentCount, mergeRecords } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
@@ -396,42 +397,6 @@ async function registerLocalEgressNow({ settings, win }) {
   return { hosts, changed };
 }
 
-// Export reminder (bd med-o7zq.5): the on-device store is the user's only
-// copy outside the phone's own backup, so at most once a week — counted from
-// the first open, the last reminder or the last export — a toast suggests
-// exporting a backup file. Checked at boot and on every return to the front.
-// The timestamp is per-viewer localStorage on purpose: losing it only makes
-// the next reminder come a week later.
-const BACKUP_NUDGE_KEY = 'wg:local-backup-nudge-at';
-export const BACKUP_NUDGE_MS = 7 * 24 * 60 * 60 * 1000;
-
-function markBackupNudge(win, now) {
-  try { win.localStorage.setItem(BACKUP_NUDGE_KEY, String(now)); } catch { /* storage blocked */ }
-}
-
-// Resolves true when it showed the reminder.
-export async function nudgeLocalBackup({ win, now = Date.now() }) {
-  let since;
-  try { since = Number(win.localStorage.getItem(BACKUP_NUDGE_KEY)); } catch { return false; }
-  if (!since) {
-    markBackupNudge(win, now);
-    return false;
-  }
-  if (now - since < BACKUP_NUDGE_MS) return false;
-  if (!(await readAllLocalRecords()).some((r) => !r.deleted)) return false; // nothing to lose yet
-  markBackupNudge(win, now);
-  win.safeToast(`Your records are stored only on this ${deviceName(win)}. Export a backup file to keep a copy somewhere else.`, 'info', {
-    action: {
-      label: 'Back up',
-      onClick: () => {
-        if (typeof win.switchTab === 'function') win.switchTab('settings');
-        win.SettingsView?.openSettingsPage?.('backup');
-      },
-    },
-  });
-  return true;
-}
-
 // The account → local move, local side (bd med-o7zq.36.4; contract in
 // docs/ios.md and docs/android.md "leave stash"). Settings → Account "Use this
 // <device> without an account" stashed the account's vault (leave.stash);
@@ -496,6 +461,37 @@ export async function pickupLeaveStash({ win }) {
   );
 }
 
+// backupAt: the file is a backup and says so (vault.js data.protection), so a
+// restore remembers it. Nothing is written here: the record is marked when the
+// file confirmably leaves the device (LOCAL_VAULT.markBackup). withProtection
+// false: no data.protection block at all (the move stash, below).
+async function exportJSON(includeSecrets, backupAt, { withProtection = true } = {}) {
+  let records = await readAllLocalRecords();
+  if (!withProtection) records = records.filter((r) => r.recordType !== PROTECTION_RECORD_TYPE);
+  return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets, backupAt }), null, 2);
+}
+
+// The W4 nudge's local half (bd med-ta2n.4), injected into the router as
+// `protection` (apishim GET /api/protection/status): only local mode nudges.
+// The weekly toast's stamp (bd med-o7zq.5, retired) is read as a free 14-day
+// snooze for existing users (owner decision), never written, and removed
+// once the protection record is. wg.backup.last (importexport.js, every Save
+// or Share, med-ckm5.7) is read the same way — a 14-day snooze, since a Save
+// cannot tell a cancelled picker — and never written or removed here (the
+// Backup page's "last N days ago" owns it).
+const LEGACY_BACKUP_NUDGE_KEY = 'wg:local-backup-nudge-at';
+const LAST_SAVE_KEY = 'wg.backup.last';
+const readStamp = (win, key) => {
+  try { return Number(win.localStorage.getItem(key)) || null; } catch { return null; }
+};
+export const LOCAL_PROTECTION = {
+  legacyDismissedAt(win) { return readStamp(win, LEGACY_BACKUP_NUDGE_KEY); },
+  savedAt(win) { return readStamp(win, LAST_SAVE_KEY); },
+  recordWritten(win) {
+    try { win.localStorage.removeItem(LEGACY_BACKUP_NUDGE_KEY); } catch { /* storage blocked */ }
+  },
+};
+
 // Settings → Backup (importexport.js reads window.CloudVault): the same
 // recordsToVault / vaultToRecords conversion as cloud-boot.js, over the
 // on-device store. Moving to a cloud account is moveToCloud: this export,
@@ -509,11 +505,16 @@ export const LOCAL_VAULT = {
   async userContentCount() {
     return userContentCount(await readAllLocalRecords());
   },
-  async exportAll({ includeSecrets = true, win = globalThis.window } = {}) {
-    const records = await readAllLocalRecords();
-    const json = JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
-    markBackupNudge(win, Date.now()); // an export restarts the reminder's week
-    return json;
+  async exportAll({ includeSecrets = true } = {}) {
+    return exportJSON(includeSecrets, Date.now());
+  },
+  // The backup file confirmably left the device (Backup ready's Share
+  // resolved, importexport.js): the W4 nudge retires (bd med-ta2n.4). Save,
+  // a cancelled Share, a dismissed Backup ready or a failed export never
+  // gets here.
+  async markBackup({ win = globalThis.window } = {}) {
+    await createSettingsDomain({ records: localRecordsPort(), now: Date.now, timeZone: 'UTC' }).markBackup();
+    LOCAL_PROTECTION.recordWritten(win);
   },
   // Replace-only, like the cloud's importAll: everything the file manages is
   // replaced, records it does not (the secrets of a secrets-free file) stay.
@@ -559,7 +560,9 @@ export const LOCAL_VAULT = {
   async moveToCloud({ win = globalThis.window, url } = {}) {
     const native = shellNative(win);
     if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
-    const vault = await LOCAL_VAULT.exportAll({ includeSecrets: true, win });
+    // The W4 nudge is local-only (an account is synced and never reads it):
+    // the stash carries no data.protection, so the account keeps none.
+    const vault = await exportJSON(true, undefined, { withProtection: false });
     await native.call('move.stash', { vault });
     if (url === undefined) await native.call('local.leave');
     else await native.call('local.leave', { url });
