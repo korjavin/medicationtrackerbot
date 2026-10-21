@@ -323,6 +323,26 @@ func main() {
 		cloudserver.RegisterTelegramDisabledRoutes(apiMux, store, cfg.sessionSecret)
 	}
 
+	// Request an invite (bd med-ta2n.14): the in-app email form needs the SMTP
+	// relay, the manager bot and the admin chat that approves; any missing →
+	// POST 404 and the app keeps the landing page's mailto. A bad SMTP_* set
+	// is logged and leaves it off — never a startup failure.
+	inviteRequests := cloudserver.NewInviteRequestAPI(store, cfg.sessionSecret)
+	inviteRequests.RegisterRoutes(apiMux)
+	smtpCfg, err := cloudserver.SMTPConfigFromEnv()
+	if err != nil {
+		slog.Error("invite requests: SMTP config invalid, email invites off", "error", err)
+	}
+	if tgAPI != nil && cfg.feedbackAdminChatID == 0 {
+		slog.Warn("manager bot invites closed: FEEDBACK_ADMIN_CHAT_ID unset, nobody can approve a request")
+	}
+	inviteRequestsOn := tgAPI != nil && cfg.feedbackAdminChatID != 0 && smtpCfg.Enabled()
+	if inviteRequestsOn {
+		tgAPI.SetSMTP(smtpCfg)
+		inviteRequests.Enable(tgAPI)
+	}
+	slog.Info("invite requests", "enabled", inviteRequestsOn, "smtp_host", smtpCfg.Host)
+
 	// Self-service account deletion (med-d5t.8). Registered after tgAPI is
 	// finalized so its teardown can tear down Telegram too. teardown composes the
 	// external + in-memory cleanup a pure DB delete can't: closing MCP relay legs

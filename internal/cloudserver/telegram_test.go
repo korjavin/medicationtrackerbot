@@ -754,7 +754,7 @@ func TestManagerOnboarding(t *testing.T) {
 		if !strings.Contains(sent, "@mt_mine_bot") || !strings.Contains(sent, `https://t.me/mt_mine_bot`) {
 			t.Fatalf("reply lacks the child-bot pointer + one-tap URL button: %s", sent)
 		}
-		if strings.Contains(sent, "Want me to create an account") {
+		if strings.Contains(sent, "Want an account") {
 			t.Fatalf("re-offered onboarding to a provisioned user: %s", sent)
 		}
 		if n := mintedBy(t, store, tgCreator); n != 0 {
@@ -788,37 +788,129 @@ func TestManagerOnboarding(t *testing.T) {
 		}
 	})
 
-	t.Run("yes mints one invite and replies with its claim link", func(t *testing.T) {
-		store, tg, top, secret := managerFixture(t)
-		tgMessage(t, top, secret, "yes")
-		if n := mintedBy(t, store, tgCreator); n != 1 {
+	// bd med-ta2n.14: "yes" no longer mints — it files a request the admin
+	// approves; the mint, its "tg:<uid>" provenance and the live-invite cap all
+	// move to the Approve tap.
+	t.Run("yes files one request and pings the admin, mints nothing", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
+		tgMessage(t, f.top, f.secret, "yes")
+		if n := mintedBy(t, f.store, tgCreator); n != 0 {
+			t.Fatalf("yes minted %d accounts, want 0 before approval", n)
+		}
+		req := f.request(t, 1)
+		if req.Channel != "tg" || req.TGUserID != 4242 || req.TGChatID != 77 || req.Status != "pending" || req.AdminMessageID == 0 {
+			t.Fatalf("row = %+v", req)
+		}
+		sent, _, _ := f.snapshot()
+		if len(sent) != 2 || adminPings(sent) != 1 || !strings.Contains(sent[0], "(4242)") || !strings.Contains(sent[1], "asked the admin") {
+			t.Fatalf("want the admin ping then the user's thanks, got %v", sent)
+		}
+	})
+
+	t.Run("approve mints one invite and DMs its claim link", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
+		tgMessage(t, f.top, f.secret, "yes")
+		f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
+		if n := mintedBy(t, f.store, tgCreator); n != 1 {
 			t.Fatalf("minted %d accounts, want exactly 1 attributed to %s", n, tgCreator)
 		}
-		accounts, err := store.ListAccounts(t.Context())
+		accounts, err := f.store.ListAccounts(t.Context())
 		if err != nil || len(accounts) != 1 {
 			t.Fatalf("ListAccounts = (%d, %v), want 1", len(accounts), err)
 		}
 		want := "https://" + accounts[0].Subdomain + ".localhost/#claim="
-		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], want) {
-			t.Fatalf("reply missing claim URL %q: %v", want, tg.mu.sent)
+		sent, edits, _ := f.snapshot()
+		if len(sent) != 3 || !strings.Contains(sent[2], `"chat_id":77`) || !strings.Contains(sent[2], want) {
+			t.Fatalf("DM missing claim URL %q: %v", want, sent)
+		}
+		if len(edits) != 1 || !strings.Contains(edits[0], "link sent") || strings.Contains(edits[0], "#claim=") {
+			t.Fatalf("admin edit = %v", edits)
+		}
+		if f.request(t, 1).Status != "approved" {
+			t.Fatal("row not approved")
 		}
 	})
 
-	t.Run("fourth yes while three invites are live is refused", func(t *testing.T) {
+	t.Run("decline DMs one line and mints nothing", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
+		tgMessage(t, f.top, f.secret, "yes")
+		f.tap(t, 1, "d", inviteAdmin, f.request(t, 1).AdminMessageID)
+		sent, _, _ := f.snapshot()
+		if mintedBy(t, f.store, tgCreator) != 0 || len(sent) != 3 || !strings.Contains(sent[2], "invites are closed") {
+			t.Fatalf("decline: %v", sent)
+		}
+	})
+
+	t.Run("a DM failure puts the link in the admin message", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
+		tgMessage(t, f.top, f.secret, "yes")
+		f.tg.mu.Lock()
+		f.tg.mu.sendFails = true
+		f.tg.mu.Unlock()
+		f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
+		_, edits, _ := f.snapshot()
+		if len(edits) != 1 || !strings.Contains(edits[0], "FAILED") || !strings.Contains(edits[0], "#claim=") {
+			t.Fatalf("admin edit = %v", edits)
+		}
+	})
+
+	t.Run("a retried yes files one request and one ping", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
+		tgMessage(t, f.top, f.secret, "yes")
+		tgMessage(t, f.top, f.secret, "yes")
+		sent, _, _ := f.snapshot()
+		if adminPings(sent) != 1 || !strings.Contains(sent[len(sent)-1], "Already asked") {
+			t.Fatalf("retry pinged again or got the wrong reply: %v", sent)
+		}
+		if _, err := f.store.InviteRequestByID(t.Context(), 2); err == nil {
+			t.Fatal("retry inserted a second row")
+		}
+	})
+
+	t.Run("no admin chat: invites are closed, nothing is filed or minted", func(t *testing.T) {
 		store, tg, top, secret := managerFixture(t)
-		now := time.Now().UTC()
+		tgMessage(t, top, secret, "hi")
+		tgMessage(t, top, secret, "yes")
+		if len(tg.mu.sent) != 2 || !strings.Contains(tg.mu.sent[0], "Invites are closed") || !strings.Contains(tg.mu.sent[1], "Invites are closed") {
+			t.Fatalf("closed copy: %v", tg.mu.sent)
+		}
+		if n := mintedBy(t, store, tgCreator); n != 0 {
+			t.Fatalf("minted %d accounts, want 0 (never the unapproved mint)", n)
+		}
+		if _, err := store.InviteRequestByID(t.Context(), 1); err == nil {
+			t.Fatal("filed a request nobody can approve")
+		}
+	})
+
+	// approveAtCap files a "yes" and approves it with the creator already
+	// holding managerInviteQuota invites minted at `at` under a 14d TTL.
+	approveAtCap := func(t *testing.T, ttl time.Duration, at time.Time) *inviteFixture {
+		f := newInviteFixture(t, inviteAdmin, ttl, false)
 		for i := 0; i < managerInviteQuota; i++ {
-			if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
+			if _, err := Provision(t.Context(), f.store, 14*24*time.Hour, at, tgCreator); err != nil {
 				t.Fatalf("seed mint %d: %v", i, err)
 			}
 		}
-		tgMessage(t, top, secret, "yes")
-		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+		tgMessage(t, f.top, f.secret, "yes")
+		f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
+		return f
+	}
+	refusedAtCap := func(t *testing.T, f *inviteFixture) {
+		t.Helper()
+		if n := mintedBy(t, f.store, tgCreator); n != managerInviteQuota {
 			t.Fatalf("minted %d accounts, want the quota %d (no new mint)", n, managerInviteQuota)
 		}
-		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
-			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		sent, edits, _ := f.snapshot()
+		if !strings.Contains(sent[len(sent)-1], "limit per person") || len(edits) != 1 || !strings.Contains(edits[0], "cap") {
+			t.Fatalf("cap not explained: sent=%v edits=%v", sent, edits)
 		}
+		if f.request(t, 1).Status != "declined" {
+			t.Fatal("capped request not declined")
+		}
+	}
+
+	t.Run("approve while three invites are live is refused", func(t *testing.T) {
+		refusedAtCap(t, approveAtCap(t, 14*24*time.Hour, time.Now().UTC()))
 	})
 
 	// The cap counts live invites over the whole claim TTL, not a rolling day.
@@ -826,101 +918,61 @@ func TestManagerOnboarding(t *testing.T) {
 	// occupy the quota — otherwise a user could stack quota × TTL/day claim
 	// links by saying "yes" three times a day until the first batch expires.
 	t.Run("day-old unclaimed invites still occupy the quota", func(t *testing.T) {
-		store, tg, top, secret := managerFixture(t)
-		yesterday := time.Now().UTC().Add(-25 * time.Hour)
-		for i := 0; i < managerInviteQuota; i++ {
-			if _, err := Provision(t.Context(), store, 14*24*time.Hour, yesterday, tgCreator); err != nil {
-				t.Fatalf("seed mint %d: %v", i, err)
-			}
-		}
-		tgMessage(t, top, secret, "yes")
-		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
-			t.Fatalf("minted %d accounts, want the quota %d (yesterday's live invites freed a slot)", n, managerInviteQuota)
-		}
-		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
-			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
-		}
+		refusedAtCap(t, approveAtCap(t, 14*24*time.Hour, time.Now().UTC().Add(-25*time.Hour)))
 	})
 
 	// Liveness comes from the row's own claim_expires_unix, not from a window
 	// derived from the *current* CLOUD_CLAIM_TTL: shortening the TTL after a
 	// batch was minted must not hand back quota while those links still work.
 	t.Run("shortening the claim TTL does not free live invites", func(t *testing.T) {
-		store := setupStore(t)
-		tg := newRecordingTG(t)
-		tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
-		top := http.NewServeMux()
-		tgAPI.RegisterWebhookRoutes(top)
-		secret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
-
-		old := time.Now().UTC().Add(-25 * time.Hour) // older than the new 1h TTL...
-		for i := 0; i < managerInviteQuota; i++ {
-			// ...but minted under the old 14d TTL, so still claimable.
-			if _, err := Provision(t.Context(), store, 14*24*time.Hour, old, tgCreator); err != nil {
-				t.Fatalf("seed mint %d: %v", i, err)
-			}
-		}
-		tgMessage(t, top, secret, "yes")
-		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
-			t.Fatalf("minted %d accounts, want the quota %d (TTL change freed live slots)", n, managerInviteQuota)
-		}
-		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
-			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
-		}
+		// Older than the new 1h TTL, but minted under the old 14d one, so still
+		// claimable.
+		refusedAtCap(t, approveAtCap(t, time.Hour, time.Now().UTC().Add(-25*time.Hour)))
 	})
 
 	// ...but once they expire the sweep frees the quota, so "I lost my link"
 	// still recovers — just not before the old link is dead.
 	t.Run("expired unclaimed invites free the quota", func(t *testing.T) {
-		store, tg, top, secret := managerFixture(t)
-		old := time.Now().UTC().Add(-15 * 24 * time.Hour)
-		for i := 0; i < managerInviteQuota; i++ {
-			if _, err := Provision(t.Context(), store, 14*24*time.Hour, old, tgCreator); err != nil {
-				t.Fatalf("seed mint %d: %v", i, err)
-			}
-		}
-		tgMessage(t, top, secret, "yes")
-		if n := mintedBy(t, store, tgCreator); n != 1 {
+		f := approveAtCap(t, 14*24*time.Hour, time.Now().UTC().Add(-15*24*time.Hour))
+		if n := mintedBy(t, f.store, tgCreator); n != 1 {
 			t.Fatalf("minted %d accounts, want 1 (expired invites swept, one fresh mint)", n)
 		}
-		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "#claim=") {
-			t.Fatalf("reply missing a fresh claim URL: %v", tg.mu.sent)
+		sent, _, _ := f.snapshot()
+		if !strings.Contains(sent[len(sent)-1], "#claim=") {
+			t.Fatalf("DM missing a fresh claim URL: %v", sent)
 		}
 	})
 
-	// Concurrent "yes" deliveries (Telegram retries, or a user tapping twice)
-	// must not all read a sub-quota count and all provision. mintMu serializes
-	// the count-then-insert; this races 8 of them for the one free slot.
-	t.Run("concurrent yes cannot exceed the quota", func(t *testing.T) {
-		store, _, top, secret := managerFixture(t)
-		now := time.Now().UTC()
-		for i := 0; i < managerInviteQuota-1; i++ {
-			if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
-				t.Fatalf("seed mint %d: %v", i, err)
-			}
-		}
-
+	// Concurrent deliveries — of the "yes" (Telegram retries, a double send)
+	// and of the Approve tap — must file one request and mint one invite: the
+	// pending-row check and the pending → approved move are the guards.
+	t.Run("concurrent yes and concurrent approve mint once", func(t *testing.T) {
+		f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, false)
 		const racers = 8
-		body := `{"update_id":9,"message":{"message_id":1,"text":"yes",` +
+		yes := `{"update_id":9,"message":{"message_id":1,"text":"yes",` +
 			`"from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"private"}}}`
-		var wg sync.WaitGroup
-		codes := make([]int, racers)
-		for i := 0; i < racers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				codes[i] = postWebhook(t, top, "/tg/manager/"+secret, secret, body).Code
-			}()
-		}
-		wg.Wait()
-
-		for i, code := range codes {
-			if code != http.StatusOK {
-				t.Fatalf("racer %d status = %d, want 200", i, code)
+		race := func(body string) {
+			var wg sync.WaitGroup
+			for i := 0; i < racers; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if code := postWebhook(t, f.top, "/tg/manager/"+f.secret, f.secret, body).Code; code != http.StatusOK {
+						t.Errorf("racer status = %d, want 200", code)
+					}
+				}()
 			}
+			wg.Wait()
+			f.api.inviteWork.Wait()
 		}
-		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
-			t.Errorf("minted %d accounts, want the quota %d (concurrent mints overran the cap)", n, managerInviteQuota)
+		race(yes)
+		if sent, _, _ := f.snapshot(); adminPings(sent) != 1 {
+			t.Fatalf("concurrent yes pinged %d times, want 1", adminPings(sent))
+		}
+		race(fmt.Sprintf(`{"update_id":50,"callback_query":{"id":"c","data":"ir:1:a","from":{"id":555},"message":{"message_id":%d,"chat":{"id":555,"type":"private"}}}}`,
+			f.request(t, 1).AdminMessageID))
+		if n := mintedBy(t, f.store, tgCreator); n != 1 {
+			t.Errorf("minted %d accounts, want 1 (concurrent approves overran the guard)", n)
 		}
 	})
 

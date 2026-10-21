@@ -89,6 +89,11 @@ func (t *TelegramAPI) handleManagerCallback(ctx context.Context, cq *tgclient.Ca
 	if cq == nil {
 		return
 	}
+	// Invite-request Approve/Decline (bd med-ta2n.14) answers its own tap.
+	if strings.HasPrefix(cq.Data, inviteCallbackPrefix) {
+		t.handleInviteCallback(ctx, cq)
+		return
+	}
 	if cq.ID != "" {
 		if err := t.managerClient().AnswerCallbackQuery(ctx, cq.ID, ""); err != nil {
 			slog.Warn("telegram manager callback: answer failed", "error", err)
