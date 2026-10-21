@@ -11,7 +11,10 @@ import { cancelReminderRecompute } from '../../../../cloud/js/reminders.js';
 
 // In-memory stand-in for web/cloud/js/sync.js's recordsPort(ctx): same
 // list/listRange/put/del contract (list returns only live/non-tombstoned
-// records), no crypto or IndexedDB involved.
+// records), no crypto or IndexedDB involved. Every stored row carries its
+// recordType, as sync.js stampAndPut / applyIncoming stamp it on the real store
+// (bd med-ta2n.22): readers that count across types (userContentCount) see the
+// same shape here as in production.
 export function createInMemoryRecordsPort(seed = {}) {
     const store = new Map(); // recordType -> Map<recordId, record>
 
@@ -26,7 +29,7 @@ export function createInMemoryRecordsPort(seed = {}) {
 
     for (const [recordType, records] of Object.entries(seed)) {
         const byId = bucket(recordType);
-        records.forEach((r) => byId.set(r.recordId, r));
+        records.forEach((r) => byId.set(r.recordId, { ...r, recordType }));
     }
 
     return {
@@ -46,8 +49,9 @@ export function createInMemoryRecordsPort(seed = {}) {
             return [...bucket(recordType).values()];
         },
         async put(recordType, record) {
-            bucket(recordType).set(record.recordId, record);
-            return record;
+            const stamped = { ...record, recordType };
+            bucket(recordType).set(record.recordId, stamped);
+            return stamped;
         },
         // Mirrors sync.js recordsPort.putIfAbsent (bd med-qhpu): the RAW slot
         // decides — a tombstone counts as occupied — and the stored winner comes
@@ -56,16 +60,17 @@ export function createInMemoryRecordsPort(seed = {}) {
             const byId = bucket(recordType);
             const existing = byId.get(record.recordId);
             if (existing) return existing;
-            byId.set(record.recordId, record);
-            return record;
+            const stamped = { ...record, recordType };
+            byId.set(record.recordId, stamped);
+            return stamped;
         },
         // Bodyless, like sync.js recordsPort.del (which writes via writeRecord):
-        // a tombstone is { recordId, clientTs, deleted } — no reader may need a
+        // a tombstone is { recordId, clientTs, deleted, recordType } — no reader may need a
         // body off it (the reminder horizon reads the day off the slot id, bd
         // med-jtaj). Keeping the body here let suites pass against shapes the
         // real store never holds.
         async del(recordType, recordId) {
-            bucket(recordType).set(recordId, { recordId, clientTs: Date.now(), deleted: true });
+            bucket(recordType).set(recordId, { recordId, clientTs: Date.now(), deleted: true, recordType });
         }
     };
 }
