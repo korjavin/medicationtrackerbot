@@ -489,7 +489,7 @@ API tokens and carries the array as a passthrough record.
 ### `protection`
 
 ```json
-"protection": { "last_backup_at": RFC3339|null, "nudge_dismissed_at": [RFC3339, …] }   // optional, cloud-only — omitted when the record is absent
+"protection": { "last_backup_at": RFC3339|null, "nudge_dismissed_at": [RFC3339, …] }   // optional, cloud-only — omitted unless the record has a backup stamp or a dismissal (or the export is itself a backup); an empty block imports as absent
 ```
 
 The W4 protect-your-data nudge state (bd med-ta2n.4): the `protection` singleton
@@ -500,6 +500,14 @@ its per-device `wg.backup.last` stamp only snoozes the nudge 14 days. A local
 export stamps its own `last_backup_at` (`recordsToVault` `backupAt`), so a
 restored backup remembers being one. The local → cloud move stash carries no
 `protection` block: the nudge is local-only.
+The record's `kitNudge` (`{lastShownAt, lastShownRecordCount, optedOut}`, the cloud
+Emergency Kit nudge, bd med-ta2n.15) is account state like `emergencykit` and is
+never exported: a record holding only `kitNudge` emits no block. An older client
+exports such a record as an empty block (`null` / `[]`); the importer treats a block
+with no parseable backup stamp and no parseable dismissal as absent, so the
+destination keeps its record. Importing a file whose block does carry W4 state
+replaces the record, so an account's kit-nudge snooze/opt-out resets (the nudge can
+show again; the Settings Kit chip is unaffected).
 A file without the key (every older backup) leaves the destination's record alone:
 `managedTypesForImport` drops `protection` from the replace, like the secret blocks.
 An unparseable timestamp is dropped on import, never fatal. Older clients ignore

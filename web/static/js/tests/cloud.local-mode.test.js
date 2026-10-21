@@ -18,7 +18,7 @@ import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.
 import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
-import { installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
+import { createApiRouter, installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
 import { LOCAL_EFFECTS } from '../../../cloud/js/local-policy.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
@@ -2502,5 +2502,160 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual([80]);
         expect(window.safeAlert.mock.calls.map(([m]) => m)).toContain(NOT_COPIED);
+    });
+});
+
+// bd med-ta2n.15 — the Emergency Kit nudge, an account's Today card. The
+// cloud router (no `protection` port) over the real store, the clock faked:
+// GET /api/protection/kit-nudge is what the card reads.
+describe('Kit nudge status (cloud router, real store, fake clock)', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const T0 = Date.parse('2026-10-01T09:00:00Z');
+    let router;
+    const status = () => router('/api/protection/kit-nudge', 'GET');
+    const close = (action) => router('/api/protection/kit-nudge', 'POST', { action });
+    const at = (ms) => vi.setSystemTime(ms);
+    let seq = 0;
+    let listed = [];
+    const addRecords = async (n) => {
+        for (let i = 0; i < n; i += 1) {
+            seq += 1;
+            await localRecordsPort().put('weight', { recordId: `kit-${seq}`, clientTs: Date.now(), deleted: false, weight: 80 });
+        }
+    };
+    // The real port, with the types each request read: the count must be lazy.
+    const freshRouter = () => {
+        const port = localRecordsPort();
+        return createApiRouter(null, { records: { ...port, list: (t) => { listed.push(t); return port.list(t); } }, timeZone: 'UTC' });
+    };
+
+    beforeEach(async () => {
+        await deleteDb();
+        seq = 0;
+        listed = [];
+        vi.useFakeTimers({ toFake: ['Date'], now: T0 });
+        router = freshRouter();
+        // Sign-in without the kit offer files how 'none' (signup.js): sync is on.
+        await router('/api/settings/emergency-kit', 'PUT', { savedAt: T0, how: 'none' });
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('first show: 2 days after sync is on AND 10 records, not before; no count before day 2', async () => {
+        await addRecords(9);
+        listed = [];
+        expect(await status()).toMatchObject({ records: null, nudge: false });
+        expect(listed).not.toContain('weight');
+        at(T0 + 5 * DAY);
+        expect(await status()).toMatchObject({ records: null, kitSaved: false, nudge: false });
+        expect(listed).toContain('weight');
+        await addRecords(1);
+        at(T0 + 2 * DAY - 1);
+        expect((await status()).nudge).toBe(false);
+        at(T0 + 2 * DAY);
+        expect(await status()).toMatchObject({ records: 10, nudge: true, lastShownAt: null, optedOut: false });
+    });
+
+    it('× snoozes; it returns once the count doubles, or after 30 days', async () => {
+        await addRecords(12);
+        at(T0 + 3 * DAY);
+        expect((await status()).nudge).toBe(true);
+        const shown = Date.now();
+        expect(await close('later')).toEqual({ success: true });
+        expect(await status()).toMatchObject({ nudge: false, lastShownAt: shown, lastShownRecordCount: 12 });
+        await addRecords(11);
+        expect((await status()).nudge).toBe(false);
+        await addRecords(1); // 24 = 2 × 12
+        expect((await status()).nudge).toBe(true);
+
+        await close('later');
+        const second = Date.now();
+        at(second + 30 * DAY - 1);
+        expect((await status()).nudge).toBe(false);
+        at(second + 30 * DAY);
+        expect((await status()).nudge).toBe(true);
+    });
+
+    it("Don't remind me again is permanent, whatever the growth, and reads no user type", async () => {
+        await addRecords(10);
+        at(T0 + 2 * DAY);
+        listed = [];
+        await close('never');
+        expect(listed).not.toContain('weight');
+        await addRecords(100);
+        at(T0 + 400 * DAY);
+        listed = [];
+        expect(await status()).toMatchObject({ optedOut: true, nudge: false, records: null });
+        expect(listed).not.toContain('weight');
+        // A kit-only protection record stays out of the backup file.
+        const vault = recordsToVault(await localRecordsPort().list('protection'), { now: Date.now() });
+        expect(vault.data.protection).toBeUndefined();
+    });
+
+    it('kitNudge and the W4 fields survive each other\'s writes', async () => {
+        const B = T0 - 3 * DAY;
+        await localRecordsPort().put('protection', {
+            recordId: 'protection', clientTs: T0, deleted: false, lastBackupAt: B, nudgeDismissedAt: [T0 - DAY],
+        });
+        await addRecords(10);
+        at(T0 + 2 * DAY);
+        await close('later');
+        const rec = () => localRecordsPort().list('protection').then((l) => l[0]);
+        expect(await rec()).toMatchObject({
+            lastBackupAt: B, nudgeDismissedAt: [T0 - DAY], kitNudge: { lastShownAt: T0 + 2 * DAY, lastShownRecordCount: 10, optedOut: false },
+        });
+        // The W4 writers keep kitNudge.
+        await router.domains.settings.dismissNudge();
+        await router.domains.settings.markBackup();
+        expect(await rec()).toMatchObject({
+            lastBackupAt: T0 + 2 * DAY, nudgeDismissedAt: [T0 - DAY, T0 + 2 * DAY], kitNudge: { lastShownAt: T0 + 2 * DAY, lastShownRecordCount: 10 },
+        });
+        await close('never');
+        expect(await rec()).toMatchObject({ lastBackupAt: T0 + 2 * DAY, nudgeDismissedAt: [T0 - DAY, T0 + 2 * DAY], kitNudge: { optedOut: true } });
+    });
+
+    it('never once the kit is saved, opted out or not; a saved kit reads no user type', async () => {
+        await addRecords(10);
+        at(T0 + 2 * DAY);
+        expect((await status()).nudge).toBe(true);
+        await router('/api/settings/emergency-kit', 'PUT', { savedAt: Date.now(), how: 'download' });
+        listed = [];
+        expect(await status()).toMatchObject({ kitSaved: true, nudge: false, records: null });
+        expect(listed).not.toContain('weight');
+        at(T0 + 400 * DAY);
+        await addRecords(100);
+        expect((await status()).nudge).toBe(false);
+    });
+
+    describe('no kit record (an account older than it): the firstrun baseline', () => {
+        beforeEach(async () => {
+            await deleteDb();
+            router = freshRouter();
+            await addRecords(10);
+        });
+
+        it('counts from the firstrun record\'s clientTs', async () => {
+            await localRecordsPort().put('firstrun', { recordId: 'firstrun', clientTs: T0, deleted: false, first_run_complete: true });
+            at(T0 + 2 * DAY - 1);
+            expect((await status()).nudge).toBe(false);
+            at(T0 + 2 * DAY);
+            expect(await status()).toMatchObject({ records: 10, kitSaved: false, nudge: true });
+        });
+
+        it('clientTs 0 (a restored vault\'s floor) is no baseline: never shows', async () => {
+            await localRecordsPort().putIfAbsent('firstrun', { recordId: 'firstrun', clientTs: 0, deleted: false, first_run_complete: true });
+            expect((await localRecordsPort().list('firstrun'))[0].clientTs).toBe(0);
+            at(T0 + 400 * DAY);
+            expect(await status()).toMatchObject({ nudge: false, records: null });
+        });
+
+        it('no firstrun record either: never shows', async () => {
+            at(T0 + 400 * DAY);
+            expect((await status()).nudge).toBe(false);
+        });
+    });
+
+    it('an unknown action is refused and writes nothing', async () => {
+        await expect(close('snooze')).rejects.toThrow(/Unknown kit nudge action/);
+        expect(await localRecordsPort().list('protection')).toEqual([]);
     });
 });
