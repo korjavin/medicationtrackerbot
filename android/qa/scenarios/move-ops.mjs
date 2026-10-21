@@ -50,13 +50,13 @@ export default async function moveOps(ctx) {
    * Runs `leave`, then the local page the shell reloaded on home?invite=1 (F1 open). The old page is
    * marked first: it may still show F1 while the reload is on its way.
    */
-  const f1Page = async (leave, { f1 = true } = {}) => {
+  const f1Page = async (leave) => {
     await page.evaluate(() => { window.__qaOld = true; }).catch(() => {});
     await leave();
     for (let end = Date.now() + 90_000; ; await sleep(2000)) {
       const p = await ctx.attachPage();
-      const fresh = await p?.evaluate((f1) => location.origin === 'https://appassets.androidplatform.net' && !window.__qaOld
-        && (!f1 || !!document.querySelector('[data-invite-action="paste"]')), f1).catch(() => false);
+      const fresh = await p?.evaluate(() => location.origin === 'https://appassets.androidplatform.net' && !window.__qaOld
+        && !!document.querySelector('[data-invite-action="paste"]')).catch(() => false);
       if (fresh) { page = p; break; }
       if (Date.now() > end) throw new Error(`no reloaded local page with F1: ${p?.url()}`);
     }
@@ -198,8 +198,8 @@ export default async function moveOps(ctx) {
   });
   await ctx.step('local.leave keeps it; opening an account deletes it', async () => {
     await seedLeave();
-    // The reloaded page offers the seeded leave stash first ("Records already on this phone"), over F1.
-    await f1Page(() => call(page, 'local.leave').catch(() => {}), { f1: false });
+    // F1 only: the "Records already on this phone" pickup sheet appearing here is the #1264/#1265 race, a failure.
+    await f1Page(() => call(page, 'local.leave').catch(() => {}));
     expect((await leaveFiles()) === 'vault.json', 'local.leave deleted the leave stash');
     await call(page, 'local.leave', { url: ctx.claimUrl }).catch(() => {}); // enterAccount runs before the page loads
     await sleep(2000);
