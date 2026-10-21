@@ -548,6 +548,31 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         }
     });
 
+    it('Reminders > Medications row is hidden while the medication feature is off (med-v7bp)', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.SettingsState.applyBootstrapFeatures({
+                medication: true, workout: true, food: true, bp: true, weight: true, health: true
+            });
+            window.AppStore.set('currentTab', 'today');
+            window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.rebuildCanonicalBottomNav = vi.fn();
+            window.switchTab = vi.fn();
+            const row = document.getElementById('settings-reminders-meds');
+
+            // The live toggle path: off hides the row, on brings it back.
+            await window.toggleFeatureSetting('medication', false);
+            expect(row.classList.contains('wg-settings-hidden')).toBe(true);
+
+            await window.toggleFeatureSetting('medication', true);
+            expect(row.classList.contains('wg-settings-hidden')).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
     // med-8tur.12: the Journey mode switches share the gamification gate, load
     // from GET /api/gamification/mode, PUT one key per flip, and revert on failure.
     it('Journey mode switches: gated on gamification, loaded from and written to /api/gamification/mode', async () => {
@@ -787,6 +812,15 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(mount.querySelectorAll('.wg-privacy-item').length).toBe(privacy.PRIVACY_ITEMS.length);
                 // The reassuring frame is present.
                 expect(mount.textContent).toMatch(/encrypted on your device/i);
+
+                // Kit S9 (bd med-ckm5.9): the Account list names the host, and
+                // the content sits behind "What the operator can see".
+                expect(document.getElementById('settings-account-host').textContent).toBe(window.location.hostname);
+                window.SettingsView.openSettingsPage('account');
+                document.querySelector('[data-settings-open="operator"]').click();
+                const top = Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop();
+                expect(top.querySelector('.wg-pagebar__title').textContent).toBe('What the operator can see');
+                expect(top.contains(mount)).toBe(true);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
@@ -824,7 +858,6 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         const mountCloudWithDeleteModule = async (window, overrides = {}) => {
             const mod = {
                 DELETE_CONFIRM_PHRASE: 'DELETE',
-                exportVaultToFile: vi.fn(async () => {}),
                 reauthAndDelete: vi.fn(async () => {}),
                 clearLocalVault: vi.fn(async () => {}),
                 baseDomainURL: () => 'https://app.example/',
@@ -916,40 +949,20 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('the export-first button downloads the vault and reports the download', async () => {
+        // Kit S9 (bd med-ckm5.9): "Export a backup first" cancels the dialog
+        // and opens Backup & import; nothing is deleted.
+        it('the export-first link cancels the dialog and opens Backup & import', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const mod = await mountCloudWithDeleteModule(window, {
-                    exportVaultToFile: vi.fn(async () => true),
-                });
-                document.getElementById('delete-account-export').click();
-                await vi.waitFor(() => expect(mod.exportVaultToFile).toHaveBeenCalled());
-                await vi.waitFor(() => {
-                    expect(document.getElementById('delete-account-export-status').textContent).toMatch(/downloaded/i);
-                });
-            } finally {
-                delete window.__MEDTRACKER_CLOUD__;
-                cleanup();
-            }
-        });
-
-        // exportVaultToFile resolves false when the user declines the
-        // plaintext-secrets warning. The status must NOT claim a download —
-        // in a delete flow a false "downloaded" is a data-loss trap.
-        it('a declined secrets warning shows "cancelled", never "downloaded"', async () => {
-            allowConsoleNoise();
-            const { window, document, cleanup } = loadFrontendEnv();
-            try {
-                await mountCloudWithDeleteModule(window, {
-                    exportVaultToFile: vi.fn(async () => false),
-                });
-                document.getElementById('delete-account-export').click();
-                await vi.waitFor(() => {
-                    const text = document.getElementById('delete-account-export-status').textContent;
-                    expect(text).toMatch(/cancelled/i);
-                    expect(text).not.toMatch(/export downloaded/i);
-                });
+                const mod = await mountCloudWithDeleteModule(window);
+                const dialog = await openDeleteDialog(window, document);
+                dialog.querySelector('.mt-confirm-modal__link').click();
+                await vi.waitFor(() => expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
+                    ?.querySelector('.wg-pagebar__title').textContent).toBe('Backup & import'));
+                expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
@@ -1131,6 +1144,8 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     expect(text).toMatch(/close other open tabs/i);
                     expect(text).toMatch(/keep this tab open/i);
                 });
+                // The retry instruction reads as an error (kit .wg-error, danger token).
+                expect(document.getElementById('delete-account-error').classList.contains('wg-error')).toBe(true);
                 expect(mod.reauthAndDelete).toHaveBeenCalled();
                 expect(baseDomainURL).not.toHaveBeenCalled();
                 expect(window.location.href).toBe(before);
@@ -1304,6 +1319,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 // D1 (med-ckm5.5): the account staying on the server is a kept fact.
                 const stays = [...dialog.querySelectorAll('.wg-dialog__facts li:not(.is-gone)')].map((li) => li.textContent);
                 expect(stays).toContain(`Your account stays on ${window.location.hostname}`);
+                // Kit S9: warn tile, and Leave is raised, not clay (nothing is destroyed).
+                expect(dialog.querySelector('.wg-dialog__icon--warn')).not.toBeNull();
+                expect(dialog.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(false);
                 dialog.querySelector('.mt-confirm-modal__confirm').click();
                 // bd med-o7zq.34: straight into local mode, not the native first-run.
                 await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));

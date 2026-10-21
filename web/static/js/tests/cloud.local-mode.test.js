@@ -1382,6 +1382,38 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(sheet(document)).not.toBeNull());
             });
 
+            // iOS flow QA (bd med-w6gx.23.8): a bridge slowed past the 3 s probe
+            // on a cold start dropped the shell's ?invite=1, landing on W1 alone.
+            it('?invite=1 waits out a capability probe slower than 3 s: F1 still opens', async () => {
+                const { window, document } = env;
+                window.history.replaceState(null, '', '/?invite=1');
+                slotted(null);
+                let answer;
+                window.LocalNotifications.__native.has = vi.fn(() => new Promise((r) => { answer = r; }));
+                const gate = window.InviteSheet.boot();
+                await new Promise((r) => { setTimeout(r, 3200); });
+                answer(true);
+                await gate;
+                await vi.waitFor(() => expect(sheet(document)).not.toBeNull());
+            });
+
+            // ...but not for good: a shell that never answers holds W1 for at
+            // most FORCED_PROBE_MS (a white screen is worse than a missed F1).
+            it('?invite=1 gives up on a shell that never answers after 15 s', async () => {
+                const { window } = env;
+                window.history.replaceState(null, '', '/?invite=1');
+                slotted(null);
+                window.LocalNotifications.__native.has = vi.fn(() => new Promise(() => {}));
+                const timers = vi.spyOn(window, 'setTimeout');
+                let done = false;
+                const gate = window.InviteSheet.boot().then(() => { done = true; });
+                await vi.waitFor(() => expect(timers.mock.calls.some((c) => c[1] === 15000)).toBe(true));
+                expect(done).toBe(false);
+                timers.mock.calls.find((c) => c[1] === 15000)[0]();
+                await gate;
+                expect(done).toBe(true);
+            });
+
             describe('with no records on this device (the Play-referrer first launch)', () => {
                 beforeAll(() => { healthOn = false; });
                 afterAll(() => { healthOn = true; });
@@ -2619,7 +2651,19 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         const next = await boot({ notice: true });
         expect(next.window.safeToast.mock.calls.filter(([m]) => m === NOTICE)).toEqual([[NOTICE, 'success']]);
         expect(next.window.sessionStorage.getItem('wg-leave-picked-up')).toBeNull();
-        expect(leaveOps()).toEqual(['leave.take']);
+        expect(leaveOps()).toEqual(['leave.clear']);
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+    });
+
+    // iOS flow QA (bd med-w6gx.23.8): the pickup's leave.clear lost to the 5 s
+    // box on a slow bridge, so the reloaded page still found the stash and
+    // asked Merge / Replace over the records it had just imported.
+    it('the reload right after a pickup clears a stash still there instead of taking it again', async () => {
+        await boot({ take: { vault: VAULT } });
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+        const next = await boot({ notice: true, take: { vault: VAULT } });
+        expect(next.window.safeChoose).not.toHaveBeenCalled();
+        expect(leaveOps()).toEqual(['leave.clear']);
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });
 

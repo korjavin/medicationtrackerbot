@@ -1,9 +1,9 @@
 // bd med-nt9p.32.15: the account's ways out on the Android shell (account.leave, bd med-nt9p.32.13).
 // Claim the run's invite → Settings → Account → "Use this phone without an account" → straight into
 // local mode → Switch account → open the account again (unlock) → Settings → Account → Delete my
-// account (typed confirm + soft authenticator) → the NATIVE first run, the WebView on about:blank and
-// the host forgotten (A) → force-stop + plain relaunch → the first run again, no "There is no
-// account" screen (B). Claims the run's one invite: dispatch-only (not in `all`), no retry.
+// account (typed confirm + soft authenticator) → local mode with the web's F1 (bd med-ta2n.12: no
+// native first run), the host forgotten and no leaveHost (A) → force-stop + plain relaunch → local
+// mode again, no "There is no account" screen (B). Claims the run's one invite: dispatch-only (not in `all`), no retry.
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,7 +30,7 @@ async function openAccountPage(page) {
   await row.click();
 }
 
-/** The account opened from the first run: a warm vault boots straight in; otherwise /unlock's passkey button. */
+/** The account opened from F1: a warm vault boots straight in; otherwise /unlock's passkey button. */
 async function unlock(ctx, page, r) {
   const end = Date.now() + 60_000;
   for (;;) {
@@ -96,9 +96,9 @@ export default async function deleteAccount(ctx) {
   });
   await ctx.stableShot('local-mode');
 
-  // 2. Back to the account: Switch account → first run → Open the account address → unlock.
-  await ctx.step('Switch account → first run', () => ctx.launch({ softAuthn: true }));
-  await ctx.shot('first-run');
+  // 2. Back to the account: Switch account → F1 → the account address → unlock.
+  await ctx.step('Switch account → local mode with F1', () => ctx.launch({ softAuthn: true }));
+  await ctx.shot('switch-f1');
   await ctx.step('open the account again → unlocked', async () => {
     await ctx.openLink(`https://${r.accountHost}/`);
     page = await ctx.attachPage();
@@ -108,7 +108,7 @@ export default async function deleteAccount(ctx) {
   });
   await ctx.stableShot('account-again');
 
-  // 3. Delete my account → the native first run (A).
+  // 3. Delete my account → local mode with F1 (A).
   await ctx.step('Settings → Account → Delete → typed confirm', async () => {
     await openAccountPage(page);
     await page.locator('#delete-account-open').scrollIntoViewIfNeeded();
@@ -119,23 +119,22 @@ export default async function deleteAccount(ctx) {
     await ctx.shot('delete-confirm');
     await page.click('.mt-confirm-modal__confirm');
   });
-  await ctx.step('deleted → the native first run (A)', async () => {
-    await ctx.waitFor({ text: 'Only on this device' }, 60_000);
-    await ctx.waitFor({ text: 'Continue' }, 5_000);
-    r.urlAfterDelete = await page.evaluate(() => location.href).catch(async () => (await ctx.attachPage())?.url());
-    if (r.urlAfterDelete !== 'about:blank') throw new Error(`WebView on ${r.urlAfterDelete}, want about:blank`);
+  await ctx.step('deleted → local mode with F1, the host forgotten (A)', async () => {
+    await sleep(3000);
+    page = await ctx.localPage((p) => p.locator('[data-invite-action="paste"]').waitFor({ state: 'visible', timeout: 90_000 }));
+    r.urlAfterDelete = page.url();
     const h = await storedHost(ctx);
     if (h !== null) throw new Error(`accountHost still stored: ${h}`);
+    if (/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`))) throw new Error('a deleted account left leaveHost');
   });
   await ctx.shot('after-delete');
 
-  // 4. A cold relaunch stays on the first run (B).
-  await ctx.step('force-stop + relaunch → first run, no error screen (B)', async () => {
+  // 4. A cold relaunch stays in local mode (B).
+  await ctx.step('force-stop + relaunch → local mode, no error screen (B)', async () => {
     await shell(`am force-stop ${pkg}`);
     await sleep(2000);
     await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
-    await ctx.waitFor({ text: 'Only on this device' }, 30_000);
-    await ctx.waitFor({ text: 'Continue' }, 5_000);
+    page = await ctx.localPage((p) => p.waitForFunction(() => window.MedTrackerCloudReady, null, { timeout: 60_000 }));
     for (const text of [/There is no account.*/, 'Copy diagnostics', 'Try again']) {
       if (await device.wait({ text }, { timeout: 1_500 }).then(() => true, () => false)) throw new Error(`showing ${text}`);
     }

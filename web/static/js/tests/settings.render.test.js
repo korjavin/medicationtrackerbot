@@ -83,6 +83,10 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
             }
             // The legacy collapsible groups are gone.
             expect(document.querySelector('.wg-settings-group, details.wg-settings-group')).toBeNull();
+            // Kit S9 (bd med-ckm5.9): Account & privacy is all kit rows.
+            for (const name of ['account', 'operator']) {
+                expect(page(document, name).querySelector('.wg-settings-section, .wg-settings-row, .wg-mono-display, details'), name).toBeNull();
+            }
         } finally {
             cleanup();
         }
@@ -294,10 +298,22 @@ describe('Settings home slots + mode card (kit S6)', () => {
             // No kit save on any device yet → the chip nudges.
             await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(false));
             expect(chip.closest('[data-settings-open]').dataset.settingsOpen).toBe('account');
+            // Kit S9 (bd med-ckm5.9): the Emergency Kit row leads the Account
+            // page, boxed, with a Save chip …
+            const kitRow = document.getElementById('settings-account-kit-row');
+            const accountPage = page(document, 'account');
+            expect(accountPage.firstElementChild).toBe(kitRow);
+            expect(kitRow.classList.contains('wg-setting--boxed')).toBe(true);
+            expect(kitRow.textContent).toMatch(/Not downloaded on any device yet/);
+            expect(document.getElementById('settings-account-kit-save').classList.contains('wg-settings-hidden')).toBe(false);
 
             kit = { savedAt: 1, how: 'download' };
             await window.loadSettings();
             await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(true));
+            // … and once saved it is the Account list's last plain row.
+            expect(document.getElementById('settings-account-list').lastElementChild).toBe(kitRow);
+            expect(kitRow.classList.contains('wg-setting--boxed')).toBe(false);
+            expect(document.getElementById('settings-account-kit-save').classList.contains('wg-settings-hidden')).toBe(true);
 
             // A new code nobody confirmed saving: the kit is unsaved again.
             kit = { savedAt: 2, how: 'none' };

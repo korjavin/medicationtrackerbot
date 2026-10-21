@@ -444,6 +444,7 @@ function withinMs(promise, ms) {
 }
 
 // The reload after a pickup lands here once more: say where the records went.
+// Returns whether it did (pickupLeaveStash's `justPicked`).
 export function showLeaveToastOnce({ win }) {
   let picked = false;
   try {
@@ -451,18 +452,24 @@ export function showLeaveToastOnce({ win }) {
     if (picked) win.sessionStorage.removeItem(LEAVE_NOTICE_KEY);
   } catch { /* storage blocked */ }
   if (picked) win.safeToast(`Your records from your account are on this ${deviceName(win)}.`, 'success');
+  return picked;
 }
 
-export async function pickupLeaveStash({ win }) {
+export async function pickupLeaveStash({ win, justPicked = false }) {
   const native = shellNative(win);
   // nativeHas: features/settings.js, the one memoised shell.ops probe per page.
   if (!native || typeof win.nativeHas !== 'function') return;
   if ((await withinMs(win.nativeHas('leave.take').catch(() => false), LEAVE_PROBE_MS)) !== true) return;
+  const clear = () => withinMs(native.call('leave.clear').catch(() => null), LEAVE_PROBE_MS);
+  // The reload right after a pickup: a stash still here is the one just
+  // imported, its leave.clear lost to the time box on a slow bridge. Taking
+  // it again would ask Merge / Replace over its own records (iOS flow QA,
+  // bd med-w6gx.23.8).
+  if (justPicked) { await clear(); return; }
   const stash = await withinMs(native.call('leave.take').catch(() => null), LEAVE_PROBE_MS);
   const vault = stash && stash.vault;
   const restore = win.SettingsImportExport && win.SettingsImportExport.restoreVault;
   if (typeof vault !== 'string' || !vault || typeof restore !== 'function') return;
-  const clear = () => withinMs(native.call('leave.clear').catch(() => null), LEAVE_PROBE_MS);
   const r = await restore(vault, {
     source: 'leave',
     beforeReload: async () => {

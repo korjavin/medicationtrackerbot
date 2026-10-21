@@ -20,20 +20,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.PowerManager
-import android.os.SystemClock
 import android.provider.Settings
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.autofill.AutofillManager
-import android.view.inputmethod.EditorInfo
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
@@ -42,14 +37,10 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.Space
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
@@ -59,9 +50,6 @@ import com.android.installreferrer.api.InstallReferrerStateListener
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -97,8 +85,6 @@ class MainActivity : Activity() {
     private var onCeremony = false
     /** N6: the splash stays up until the page or a native screen is ready ([releaseSplash]). */
     private var splashHeld = true
-    /** Until then the first-run field's keyboard is still owed a hide (bd med-nt9p.34). */
-    private var hideImeUntil = 0L
     private var topColor = SCREEN
     private var bottomColor = SCREEN
     private var bars = WindowInsets.CONSUMED
@@ -107,20 +93,6 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var topBand: View
     private lateinit var bottomBand: View
-    private lateinit var firstRun: View
-    private lateinit var localIntro: View
-    private lateinit var input: EditText
-    /** N1's pieces, put in order by [renderFirstRun]: a pending move puts the invite first. */
-    private lateinit var firstRunColumn: LinearLayout
-    private lateinit var firstRunHead: List<View>
-    private lateinit var firstRunFoot: List<View>
-    private lateinit var moveNote: View
-    private lateinit var localRow: View
-    private lateinit var localRowDesc: TextView
-    private lateinit var orDivider: View
-    private lateinit var inviteSection: View
-    private lateinit var inputError: TextView
-    private lateinit var inputHint: TextView
     private lateinit var errorView: View
     private lateinit var errorIcon: ImageView
     private lateinit var errorTitle: TextView
@@ -132,13 +104,6 @@ class MainActivity : Activity() {
     private lateinit var lockNote: View
     private lateinit var lockFoot: View
     private lateinit var unlockButton: Button
-    private lateinit var lockSwitch: Switch
-    private lateinit var lockRow: View
-    private lateinit var introScroll: ScrollView
-    private lateinit var introMove: View
-    private lateinit var introMessage: LinearLayout
-    private lateinit var startButton: Button
-    private lateinit var openInviteButton: Button
 
     private val files by lazy { Files(this) { if (concealed) null else vaultHost } }
     private val notifications by lazy { Notifications(this) { vaultHost } }
@@ -185,7 +150,7 @@ class MainActivity : Activity() {
     /** The account → local leave stash (bd med-o7zq.36.3): the same class, its own no-backup dir. */
     private val leave by lazy { Move(File(noBackupFilesDir, "leave")) }
 
-    private val back = OnBackInvokedCallback { if (localIntro.visibility == View.VISIBLE) showIntro(false) else web.goBack() }
+    private val back = OnBackInvokedCallback { web.goBack() }
     private var backRegistered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -217,8 +182,11 @@ class MainActivity : Activity() {
         }
         // An invite link launched the app (A5): into the slot; the launch path below boots as usual.
         capture(intent, savedInstanceState == null)
-        // QA launch extra, false in release (src/release): enter local mode without the first-run tap.
+        // QA launch extra, false in release (src/release): enter local mode even with an account stored.
         if (!local && savedInstanceState == null && DebugHooks.localMode(this)) setLocal(true)
+        // No account: the bundled app (bd med-ta2n.12, contract med-ta2n.7 §9). A fresh install, and an
+        // install that was on the old native first run, open W1 there; invites come in through F1.
+        if (!local && host == null) setLocal(true)
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
         if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
         else reopen(Notifications.tappedSection(intent, vaultHost)?.let { sectionUrl(it) } ?: home)
@@ -292,18 +260,10 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Warm delivery (§6): the first run's field takes the invite (the user taps Continue); a page
-     * (any mode) reloads its home with ?invite=1 — history cleared, deferred under the lock — so
-     * the web reads the slot. The mode never changes.
+     * Warm delivery (§6): the page (any mode) reloads its home with ?invite=1 — history cleared,
+     * deferred under the lock — so the web reads the slot. The mode never changes.
      */
-    private fun deliverInvite() {
-        if (firstRun.visibility == View.VISIBLE) {
-            prefs.getString(Invite.URL_KEY, null)?.let { input.setText(it) }
-            fieldError(null)
-            return
-        }
-        home?.let { reopen(Invite.withInvite(it)) }
-    }
+    private fun deliverInvite() = reopen(Invite.withInvite(home))
 
     /**
      * Play Install Referrer (§4, A6), on a true first install only: invite=<landing URL> into the
@@ -407,7 +367,6 @@ class MainActivity : Activity() {
 
     /** The deep-link router reads ?tab= (section ids are Notifications.SECTIONS only). */
     private fun sectionUrl(section: String) = vaultHost?.let { "https://$it/?tab=$section" }
-
     override fun onDestroy() {
         if (screenOffRegistered) unregisterReceiver(screenOff)
         health.close()
@@ -419,36 +378,13 @@ class MainActivity : Activity() {
 
     // MARK: account
 
-    private val home get() = if (local) localHome else host?.let { "https://$it/" }
-
-    /** First-run submit: open the account, or say why not. */
-    private fun open(raw: String) {
-        val url = AccountUrl.parse(raw, base)
-        val h = url?.let { Uri.parse(it).host }
-        if (url == null || h == null) {
-            val second = "Use your invite link or your account address (yourname.$base)."
-            when {
-                base.isEmpty() -> fieldError("This build has no service configured.")
-                raw.isBlank() -> fieldError("Paste or scan your invite first.", second)
-                else -> fieldError("That isn't an account link.", second)
-            }
-            return
-        }
-        input.setText("")
-        fieldError(null)
-        // Found by the emulator harness (bd med-nt9p.23): the keyboard stayed up over the
-        // page or the error screen, so the first Back only closed it. A show still animating
-        // cancels this hide (bd med-nt9p.34): the insets listener repeats it when the IME lands.
-        // ponytail: 5 s window; a web field focused that fast after Open would lose its keyboard once.
-        hideImeUntil = SystemClock.uptimeMillis() + 5_000
-        window.insetsController?.hide(WindowInsets.Type.ime())
-        enterAccount(url, h)
-    }
+    /** No account means local mode (onCreate, forget()), so there is always a home. */
+    private val home: String get() = host?.takeUnless { local }?.let { "https://$it/" } ?: localHome
 
     /**
-     * Opens a validated account URL from any mode (A1): the first-run submit (open()) and
-     * local.leave / account.leave {url}. It leaves local mode with setLocal(false), which keeps the
-     * move stash (forget()/setLocal(true) would drop it): dropping it is account.leave's call.
+     * Opens a validated account URL from any mode (A1): local.leave / account.leave {url}. It
+     * leaves local mode with setLocal(false), which keeps the move stash (forget()/setLocal(true)
+     * would drop it): dropping it is account.leave's call.
      */
     private fun enterAccount(url: String, h: String) {
         if (h != host) Notifications.clear(this)
@@ -461,40 +397,35 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Switch account: back to first run, leaving local mode too — or, with [thenLocal], straight
-     * into local mode (account.leave {then: "local"}, bd med-nt9p.32.13, iOS forget(thenLocal:)).
-     * WebView data is per origin and kept.
+     * Every native way out — launcher Switch account, N4's "Use another invite" / "Switch account",
+     * X-Account-Gone, account.leave without args — lands in local mode on
+     * home?invite=1, where the web opens F1 (bd med-ta2n.12, contract med-ta2n.7 §7; it replaced the
+     * native first run). With [thenLocal] (account.leave {then: "local"}, bd med-nt9p.32.13) the
+     * plain home, and leave.clear {back: true} can reopen the account left. Entering local mode
+     * drops a pending move stash (setLocal), from local mode too (bd med-nt9p.49): only the page's
+     * own local.leave hands one off. WebView data is per origin and kept.
      */
-    private fun forget(thenLocal: Boolean = false, keepMove: Boolean = false) {
-        // Native exits from local mode (Switch account, "Use an account instead") must not leave a stale
-        // move stash for the next account (bd med-nt9p.49); only the page's local.leave hands off a fresh one.
-        if (local && !keepMove) move.clear()
+    private fun forget(thenLocal: Boolean = false) {
         // The account a leave left (bd med-o7zq.42): leave.clear {back: true} reopens it.
         val left = host
         prefs.edit().apply { if (thenLocal && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
-        setLocal(thenLocal)
+        setLocal(true)
         Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
         host = null
-        reopen()
-    }
-
-    /** The intro's Start: the persisted choice, then the bundled app. */
-    private fun openLocal() {
-        setLocal(true)
-        reopen()
+        reopen(if (thenLocal) home else Invite.withInvite(home))
     }
 
     /** Every mode change clears the alarms (med-o7zq.9): no reminder of the other vault fires or opens it. */
     private fun setLocal(on: Boolean) {
         if (on != local) Notifications.clear(this)
-        // Entering local mode again abandons a pending move; the next move stashes afresh.
+        // Entering local mode (or a native exit within it) abandons a pending move; the next move stashes afresh.
         if (on) move.clear()
         prefs.edit().putBoolean(LocalOrigin.MODE_KEY, on).apply()
         local = on
     }
 
-    private fun reopen(url: String? = home) {
+    private fun reopen(url: String = home) {
         deferredUrl = null
         deferredSection = null
         if (concealed) web.loadUrl("about:blank") // the old page must not run behind the lock
@@ -504,19 +435,7 @@ class MainActivity : Activity() {
         clearHistory = true
         onCeremony = false
         errorView.visibility = View.GONE
-        localIntro.visibility = View.GONE
-        if (url == null) {
-            web.loadUrl("about:blank")
-            firstRun.visibility = View.VISIBLE
-            // Callers that explain why (an account gone) set their field error after this.
-            fieldError(null)
-            // A captured invite waits in the field (phase 1, as iOS): the user taps Continue to open it.
-            prefs.getString(Invite.URL_KEY, null)?.let { input.setText(it) }
-            renderFirstRun()
-        } else {
-            firstRun.visibility = View.GONE
-            load(url)
-        }
+        load(url)
         updateChrome()
     }
 
@@ -531,9 +450,7 @@ class MainActivity : Activity() {
         updateChrome()
     }
 
-    private fun retry() {
-        (lastUrl ?: home)?.let { load(it) }
-    }
+    private fun retry() = load(lastUrl ?: home)
 
     /** N4's three variants (screens-native.html; twin of iOS LoadErrorView). */
     private enum class LoadError { NETWORK, NOT_FOUND, LOCAL }
@@ -574,13 +491,15 @@ class MainActivity : Activity() {
             b.text = label
             b.setOnClickListener { action() }
         }
-        // Leaving local mode keeps its data: it is back on the next switch.
+        // Leaving an account keeps its data: it is back on the next switch. Local mode has no exit here
+        // (bd med-ta2n.12, iOS twin): forget() would only reload the bundle that just failed.
+        errorSecondary.visibility = if (kind == LoadError.LOCAL) View.GONE else View.VISIBLE
         if (warn) {
             set(errorPrimary, "Use another invite") { forget() }
             set(errorSecondary, "Try again") { retry() }
         } else {
             set(errorPrimary, "Try again") { retry() }
-            set(errorSecondary, if (kind == LoadError.LOCAL) "Use an account instead" else "Switch account") { forget() }
+            set(errorSecondary, "Switch account") { forget() }
         }
         errorView.visibility = View.VISIBLE
         updateChrome()
@@ -679,6 +598,16 @@ class MainActivity : Activity() {
         }
 
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+            // A mode switch from a page with a dialog open (the wizard's "Use another invite", F1's
+            // Continue) races the dialog's own history.back(): WebView delivers it late, it lands after
+            // reopen()'s load and the old vault's page stays (bd med-ta2n.12). Only the open vault's
+            // origin belongs here (isInside), so anything else committing is that stale page: load again.
+            val u = url?.let(Uri::parse)
+            if (u != null && (u.scheme == "https" || u.scheme == "http") && !isInside(u.host)) {
+                diag("shell stale page after a mode switch")
+                view.post { reopen(lastUrl?.takeIf { isInside(Uri.parse(it).host) } ?: home) }
+                return
+            }
             // The ceremony pages leave by full navigation, so every commit is seen here.
             val ceremony = AccountUrl.isCeremony(url, base)
             // Leaving /unlock, /claim or /recover for the app (bd med-nt9p.33): Back on Today
@@ -726,14 +655,12 @@ class MainActivity : Activity() {
             }
             val h = request.url.host?.lowercase()
             // The server says the stored account is gone (deleted here or elsewhere, or a typo): forget
-            // it and say why on the first run (bd med-nt9p.32.14). A 404 without the server's marker
-            // (a proxy's during a redeploy, an older server) keeps the error screen and Try again.
-            // Set after forget()'s reopen(), which resets the field error; the next open or reopen clears it.
-            // The address stays in the field (N1 · error), so it can be fixed in place.
+            // it (bd med-nt9p.32.14) — local mode with F1 open, no way back to it (no leaveHost). A 404
+            // without the server's marker (a proxy's during a redeploy, an older server) keeps the
+            // error screen and Try again.
             if (h != null && h == host && AccountUrl.accountGone(response.statusCode, response.responseHeaders)) {
+                diag("shell account gone")
                 forget()
-                input.setText(h)
-                fieldError("There is no account at $h.", "Check the address, or ask whoever invited you for a new link.")
                 return
             }
             loadFailed = true
@@ -758,11 +685,7 @@ class MainActivity : Activity() {
             if (!concealed) root.addView(web, 0) // else the unlock attaches it
             layoutBars()
             showingAccount = false
-            when {
-                url != null -> load(url)
-                home == null -> web.loadUrl("about:blank")
-                else -> retry()
-            }
+            if (url != null) load(url) else retry()
             return true
         }
     }
@@ -823,7 +746,7 @@ class MainActivity : Activity() {
             "shell.ops" -> answer(JSONArray(LocalOrigin.ops(local)))
             // Leave the account (account mode only); the account and this origin's data stay. Settings
             // → Account "Use this phone without an account" passes {then: "local"} → local mode; after
-            // an account delete (no args) → the first run, as Switch account (iOS #1179's contract).
+            // an account delete (no args) → local mode with F1, as Switch account (forget()).
             "account.leave" -> {
                 answer(true)
                 forget(thenLocal = msg.optJSONObject("args")?.optString("then") == "local")
@@ -877,7 +800,7 @@ class MainActivity : Activity() {
                 answer(true)
             }
             // Account → local leave (bd med-o7zq.36.3): the mirror image, same contract, the "leave" dir.
-            // Entering local mode (setLocal/forget) deliberately keeps it; enterAccount (open(), leave {url}) and local.reset delete it.
+            // Entering local mode (setLocal/forget) deliberately keeps it; enterAccount (leave {url}) and local.reset delete it.
             "leave.stash" -> stash(leave, msg) { r, e -> answer(r, e) }
             "leave.take" -> take(leave) { r, e -> answer(r, e) }
             // {back: true}: the user cancelled the pickup (bd med-o7zq.42), so nothing happened:
@@ -894,10 +817,12 @@ class MainActivity : Activity() {
                     reopen()
                 } else answer(true)
             }
-            // Settings → Backup → Move to a cloud account: the first run, as Switch account; the data stays.
+            // No url (bd med-ta2n.12, contract §7): no current web caller sends one (the Settings Move
+            // row went with bd med-ta2n.5); an older page might. Stay in local mode and reload home
+            // with ?invite=1, so the web opens F1. Not forget(): a move stash stays for the account F1 opens.
             "local.leave" -> {
                 answer(true)
-                forget(keepMove = true)
+                reopen(Invite.withInvite(home))
             }
             // Settings → App lock (local-policy.js mountLocalLockRow); available: the phone has a screen lock.
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))
@@ -921,19 +846,12 @@ class MainActivity : Activity() {
         bottomBand = View(this)
         root.addView(topBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.TOP))
         root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
-        firstRun = buildFirstRun()
-        localIntro = buildLocalIntro()
         errorView = buildError()
         lockView = buildLock()
-        root.addView(firstRun, MATCH_PARENT, MATCH_PARENT)
-        root.addView(localIntro, MATCH_PARENT, MATCH_PARENT)
         root.addView(errorView, MATCH_PARENT, MATCH_PARENT)
         root.addView(lockView, MATCH_PARENT, MATCH_PARENT)
         root.setOnApplyWindowInsetsListener { _, insets ->
             bars = insets
-            if (insets.isVisible(WindowInsets.Type.ime()) && firstRun.visibility != View.VISIBLE &&
-                SystemClock.uptimeMillis() < hideImeUntil
-            ) window.insetsController?.hide(WindowInsets.Type.ime())
             layoutBars()
             WindowInsets.CONSUMED
         }
@@ -949,13 +867,7 @@ class MainActivity : Activity() {
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
-        // The keyboard's extra height is a margin, not padding: the ScrollView really shrinks and
-        // its onSizeChanged scrolls the focused invite field above the keyboard (N1 at 2x).
-        val imeLift = bottom - sys.bottom
-        for (v in listOf(firstRun, localIntro, errorView)) {
-            v.setPadding(sys.left, sys.top, sys.right, sys.bottom)
-            v.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = imeLift }
-        }
+        errorView.setPadding(sys.left, sys.top, sys.right, sys.bottom)
         // The lock fills the window so its mark sits at the window's centre, where the splash put
         // it (N6); only its foot clears the navigation bar. The lock hides the keyboard.
         lockView.setPadding(sys.left, 0, sys.right, 0)
@@ -964,8 +876,7 @@ class MainActivity : Activity() {
 
     /** Bands and bar icons follow the page, or wg_screen while a native screen is up. */
     private fun updateChrome() {
-        val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE ||
-            localIntro.visibility == View.VISIBLE || lockView.visibility == View.VISIBLE
+        val native = errorView.visibility == View.VISIBLE || lockView.visibility == View.VISIBLE
         if (native) releaseSplash() // N6: a native screen is ready to show at once
         val top = if (native) SCREEN else topColor
         val bottom = if (native) SCREEN else bottomColor
@@ -985,10 +896,9 @@ class MainActivity : Activity() {
 
     private fun isLight(c: Int) = Color.luminance(c) > 0.5f
 
-    /** Back walks the web view's history while the page shows, then leaves the app; on the intro it returns to first run. */
+    /** Back walks the web view's history while the page shows, then leaves the app. */
     private fun updateBack() {
-        val want = lockView.visibility != View.VISIBLE && (localIntro.visibility == View.VISIBLE ||
-            firstRun.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack())
+        val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack()
         if (want == backRegistered) return
         if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, back)
         else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
@@ -996,196 +906,6 @@ class MainActivity : Activity() {
     }
 
     // MARK: native screens (kit token mirror, bd med-ckm5.14; Wg.kt + res/values/styles.xml)
-
-    /**
-     * N1 first run (screens-native.html): one scrolling column that fades at the bottom while more
-     * is below. Owner decision 2026-10-19: local first — the boxed "Only on this device" row
-     * pushes N2, then "or" and the invite field with Scan in its row and Continue, the only sun.
-     * A pending move ([renderFirstRun]) leads with an info note and puts the invite first.
-     */
-    private fun buildFirstRun(): View {
-        input = EditText(this, null, 0, R.style.Widget_Wg_EditText).apply {
-            // N1 · 2x: the long placeholder would clip at large font scales.
-            hint = if (resources.configuration.fontScale >= 1.5f) "Invite link" else "Paste invite link or address"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            imeOptions = EditorInfo.IME_ACTION_GO
-            isSingleLine = true
-            setOnEditorActionListener { _, action, _ ->
-                (action == EditorInfo.IME_ACTION_GO).also { if (it) open(text.toString()) }
-            }
-        }
-        val scan = ImageButton(this, null, 0, R.style.Widget_Wg_IconButton).apply {
-            setImageResource(R.drawable.ic_wg_qr)
-            contentDescription = "Scan QR code"
-            setOnClickListener { scan() }
-        }
-        val inputRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(input, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { gravity = Gravity.CENTER_VERTICAL })
-            addView(scan, LinearLayout.LayoutParams(48.dp, 48.dp).apply { marginStart = 8.dp; gravity = Gravity.TOP })
-        }
-        inputError = wgText(R.style.Widget_Wg_Text_Error).apply {
-            setCompoundDrawablesRelative(getDrawable(R.drawable.ic_wg_alert)!!.apply { setBounds(0, 0, 14.dp, 14.dp) }, null, null, null)
-            visibility = View.GONE
-        }
-        inputHint = wgText(R.style.Widget_Wg_Text_Hint, INVITE_HINT)
-        inviteSection = wgStack(
-            8,
-            wgStack(6, wgText(R.style.Widget_Wg_Text_Label, "Have an invite?"), inputRow, inputError, inputHint),
-            wgButton(R.style.Widget_Wg_Button_Primary, "Continue") { open(input.text.toString()) },
-        )
-        localRowDesc = wgText(R.style.Widget_Wg_Text_RowDesc)
-        localRow = wgRow(
-            wgLeadTile(R.drawable.wg_lead_ok, R.drawable.ic_wg_device, R.color.wg_ok_fg),
-            wgText(R.style.Widget_Wg_Text_RowTitle, "Only on this device"),
-            localRowDesc,
-            wgIcon(R.drawable.ic_wg_chev_r, R.color.wg_fg_4),
-        ).apply { setOnClickListener { showIntro(true) } }
-        orDivider = wgOr()
-        moveNote = wgNote(
-            Wg.Tone.INFO, R.drawable.ic_wg_route,
-            wgLead("Your records are ready to move.", " Paste or scan the invite for your new account. They move in after you sign in."),
-        )
-        firstRunHead = listOf(
-            wgBrand(),
-            wgStack(
-                8,
-                wgText(R.style.Widget_Wg_Text_Title, "Your health log, on your terms"),
-                wgText(R.style.Widget_Wg_Text_Lede, "Keep it on this phone with no account, or open the account you were invited to."),
-            ),
-        )
-        val links = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(link("Privacy policy", PermissionsRationaleActivity.PRIVACY_POLICY))
-            addView(Space(this@MainActivity), LinearLayout.LayoutParams(0, 0, 1f))
-            // The service's landing page says how to get an invite; the address is the build's, never committed.
-            if (base.isNotEmpty()) addView(link("How to get an invite", "https://$base/"))
-        }
-        firstRunFoot = listOf(
-            // Store-review footnote (bd med-nt9p.31): word for word as ios/App/App.swift.
-            wgText(
-                R.style.Widget_Wg_Text_Fine,
-                "Med Tracker is a personal log, not a medical device, and does not give medical advice. " +
-                    "Talk to your doctor before changing a treatment.",
-            ),
-            links,
-        )
-        firstRunColumn = wgStack(20).apply { setPadding(24.dp, 8.dp, 24.dp, 24.dp) }
-        renderFirstRun()
-        return wgScroll(firstRunColumn, fade = true)
-    }
-
-    /** N1's order: local first; with a move pending (shot 21) the note, the invite, then the local row. */
-    private fun renderFirstRun() {
-        val pending = move.exists
-        localRowDesc.text = if (pending) "Stay without an account and cancel the move" else "No account. Records stay on this phone."
-        val middle = if (pending) listOf(moveNote, inviteSection, orDivider, localRow) else listOf(localRow, orDivider, inviteSection)
-        firstRunColumn.removeAllViews()
-        for (v in firstRunHead + middle + firstRunFoot) {
-            (v.parent as? ViewGroup)?.removeView(v)
-            firstRunColumn.addView(v, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        }
-    }
-
-    /** The invite field's error (wg-field--error): danger line, the message with its icon, and what to do. */
-    private fun fieldError(message: String?, hint: String = INVITE_HINT) {
-        inputError.text = message ?: ""
-        inputError.visibility = if (message == null) View.GONE else View.VISIBLE
-        inputHint.text = hint
-        input.setBackgroundResource(if (message == null) R.drawable.wg_field else R.drawable.wg_field_error)
-    }
-
-    /**
-     * N2 local intro (bd med-nt9p.32.4), twin of ios/App/App.swift LocalIntroView: Back in the top
-     * bar, four facts, the optional lock (.9), Start docked. While a move is pending, a warn note
-     * above the dock, Start names the consequence and a ghost button goes back to the invite.
-     */
-    private fun buildLocalIntro(): View {
-        val lockLead = wgLeadTile(R.drawable.wg_lead, R.drawable.ic_wg_lock, R.color.wg_fg_2)
-        lockSwitch = Switch(this, null, 0, R.style.Widget_Wg_Switch).apply {
-            contentDescription = "Lock with fingerprint or face"
-            setOnCheckedChangeListener { _, on ->
-                lockLead.setBackgroundResource(if (on) R.drawable.wg_lead_sun else R.drawable.wg_lead)
-                lockLead.imageTintList = getColorStateList(if (on) R.color.wg_sun else R.color.wg_fg_2)
-            }
-        }
-        // Optional lock (bd med-nt9p.32.9); also Settings → App lock in the app. The full
-        // "fingerprint, face or screen lock" wording is the system prompt's.
-        lockRow = wgRow(
-            lockLead,
-            wgText(R.style.Widget_Wg_Text_RowTitle, "Lock with fingerprint or face"),
-            wgText(R.style.Widget_Wg_Text_RowDesc, "Hides the app. It doesn't encrypt, and reminders still show on the lock screen."),
-            lockSwitch,
-        ).apply { setOnClickListener { lockSwitch.toggle() } }
-        introMove = wgNote(
-            Wg.Tone.WARN, R.drawable.ic_wg_alert,
-            wgLead("A move to a cloud account is waiting.", " Start here cancels it. Your records stay on this phone."),
-        )
-        introMessage = wgNote(Wg.Tone.DANGER, R.drawable.ic_wg_alert, "").apply { visibility = View.GONE }
-        val body = wgStack(
-            20,
-            wgStack(
-                8,
-                wgText(R.style.Widget_Wg_Text_Title, "Only on this device"),
-                wgText(R.style.Widget_Wg_Text_Lede, "Use Med Tracker without an account. Your records live on this phone."),
-            ),
-            wgStack(
-                14,
-                wgFact(R.drawable.ic_wg_device, "Stored here, nowhere else", "Nothing is sent to a server."),
-                // Scoped Auto Backup, bd med-nt9p.32.5 (data_extraction_rules.xml; privacy-manifest local-records).
-                wgFact(R.drawable.ic_wg_download, "You make the backups", "Google backup keeps up to 25 MB. Export a file for the rest."),
-                wgFact(R.drawable.ic_wg_alert, "Lose the phone, lose the records", "Unless you have a backup file.", warn = true),
-                // The seamless move (bd med-nt9p.32.16-.19); Backup & import keeps the file steps as the fallback.
-                wgFact(R.drawable.ic_wg_route, "Move to an account later", "Settings → Move to a cloud account."),
-            ),
-            lockRow,
-            introMove,
-            introMessage,
-        ).apply { setPadding(24.dp, 8.dp, 24.dp, 24.dp) }
-        startButton = wgButton(R.style.Widget_Wg_Button_Primary, "Start") {
-            setLock(lockSwitch.isChecked) { e ->
-                if (e == null) openLocal() else introMessage.apply { noteText(e); visibility = View.VISIBLE }
-            }
-        }
-        openInviteButton = wgButton(R.style.Widget_Wg_Button_Ghost, "Open the new account instead") { showIntro(false) }
-        val dock = wgStack(8, startButton, openInviteButton).apply { setPadding(24.dp, 12.dp, 24.dp, 16.dp) }
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.color.wg_screen)
-            addView(LinearLayout(this@MainActivity).apply {
-                setPadding(10.dp, 2.dp, 10.dp, 2.dp)
-                addView(wgButton(R.style.Widget_Wg_Button_Back, "Back") { showIntro(false) })
-            })
-            addView(wgRule())
-            addView(wgScroll(body).also { introScroll = it }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
-            addView(wgRule())
-            addView(dock)
-            visibility = View.GONE
-        }
-    }
-
-    private fun showIntro(on: Boolean) {
-        localIntro.visibility = if (on) View.VISIBLE else View.GONE
-        if (on) {
-            lockSwitch.isChecked = lock.on // still on from an earlier stay in local mode
-            lockRow.visibility = if (deviceSecure() || lock.on) View.VISIBLE else View.GONE
-            // A pending move (bd med-nt9p.32.19): Start enters local mode, which drops the stash
-            // (setLocal). Kept reachable, unlike iOS's one-tap Continue on this iPhone: it is the
-            // only way back here, and the records stay in local mode either way.
-            val pending = move.exists
-            introMove.visibility = if (pending) View.VISIBLE else View.GONE
-            openInviteButton.visibility = if (pending) View.VISIBLE else View.GONE
-            startButton.text = if (pending) "Start and cancel the move" else "Start"
-            introMessage.visibility = View.GONE
-            introScroll.scrollTo(0, 0)
-            window.insetsController?.hide(WindowInsets.Type.ime()) // the invite field's keyboard
-        }
-        updateChrome()
-    }
-
-    private fun link(label: String, url: String) = wgText(R.style.Widget_Wg_Text_Link, label).apply {
-        setOnClickListener { openOutside(Uri.parse(url)) }
-    }
 
     /** The browser (or the link's own app); nothing installed to take it is a silent no-op. */
     private fun openOutside(uri: Uri) {
@@ -1355,14 +1075,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Play services' scanner: no camera permission here; any failure falls back to paste. A match fills the field and runs Continue. */
-    private fun scan() {
-        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-        GmsBarcodeScanning.getClient(this, options).startScan()
-            .addOnSuccessListener { code -> (code.rawValue ?: "").let { input.setText(it); open(it) } }
-            .addOnFailureListener { fieldError("Scanning isn't available on this phone.", "Paste the link instead.") }
-    }
-
     // MARK: diagnostics (bd med-nt9p.22)
 
     /** Appends one redacted line to the capped ceremony log. */
@@ -1425,7 +1137,5 @@ class MainActivity : Activity() {
         const val DIAG_KEY = "log"
         /** --wg-bg-screen: the bands' colour until the page reports its own. */
         val SCREEN = Wg.SCREEN
-        /** N1's second line under the invite field when nothing is wrong. */
-        const val INVITE_HINT = "From your invite, or scan the QR on your Emergency Kit."
     }
 }

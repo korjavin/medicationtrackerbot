@@ -1,6 +1,6 @@
 // Self-service account deletion (bd med-d5t.8). Zero-knowledge means the server
-// can wipe the account but can never hand the data back, so the flow offers a
-// full-vault export FIRST, then gates the irreversible delete on a FRESH passkey
+// can wipe the account but can never hand the data back, so the dialog links to
+// Backup & import FIRST, then the irreversible delete is gated on a FRESH passkey
 // assertion — a stolen session cookie alone must not be able to delete a vault.
 //
 // The server side lives in internal/cloudserver/account.go; the re-auth ceremony
@@ -10,40 +10,6 @@
 import { getAssertion } from './passkey-get.js';
 import { diagHttp } from './passkey-diag.js';
 import { withMaterializationStopped } from './materialize-gate.js';
-
-// exportVaultToFile downloads a plaintext JSON copy of the whole vault, so a
-// friend about to delete keeps their data without having to know to export
-// beforehand. The featured export (optional passphrase) still lives in Settings
-// → Import/Export; this is the safety copy in the delete flow itself.
-// Returns true after a download, false when the secrets warning is declined —
-// the caller must not claim "downloaded" on false, or the user proceeds to an
-// irreversible delete believing they hold a backup.
-export async function exportVaultToFile(nowMs = Date.now()) {
-  if (!window.CloudVault || typeof window.CloudVault.exportAll !== 'function') {
-    throw new Error('Vault not ready — unlock the app first.');
-  }
-  // Same gate as Settings → Import/Export: the file holds live secrets, so warn
-  // BEFORE they land in ~/Downloads in plain text.
-  const ok = await window.safeConfirm(
-    'This backup will contain your provider API keys and access tokens in plain text. Download anyway?',
-    null,
-    { title: 'Download backup?', icon: 'download', tone: 'warn', confirmLabel: 'Download' },
-  );
-  if (!ok) {
-    return false;
-  }
-  const json = await window.CloudVault.exportAll({ includeSecrets: true });
-  const stamp = new Date(nowMs).toISOString().slice(0, 10);
-  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `medtracker-vault-${stamp}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
-  return true;
-}
 
 // reauthAndDelete runs the fresh-passkey ceremony and deletes the account.
 // Throws on any failure with a message suitable to show the user; resolves only

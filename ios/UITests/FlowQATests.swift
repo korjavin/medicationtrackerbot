@@ -12,6 +12,12 @@ import XCTest
 /// One flow: `xcodebuild test-without-building ... -only-testing:MedTrackerUITests/FlowQATests/testLocalFirstRun`.
 @MainActor
 final class FlowQATests: XCTestCase {
+    nonisolated override func setUp() {
+        super.setUp()
+        // bd med-w6gx.23.8: a clean slate, so one failed flow stays one red test.
+        MainActor.assumeIsolated { QA.reset() } // XCTest runs setUp on the main thread
+    }
+
     /// Cold launch with no account (bd med-ta2n.17): no native first run — the
     /// app opens straight into local mode's web W1 picker, with the v3 shell's
     /// "Have an invite?" footer. Then the app (seeded by the QA driver) →
@@ -21,11 +27,8 @@ final class FlowQATests: XCTestCase {
         let flow = "local-first-run"
         let app = XCUIApplication()
         // A fresh install: no account, no local-mode choice, an empty local store.
-        let fresh = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgLocalLockOn", "NO"]
-        app.launchArguments = fresh
-        app.launch() // the container exists from here on
-        app.terminate()
-        QA.wipeWebData()
+        let fresh = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
+        app.launchArguments = fresh // setUp's QA.reset emptied the store
         app.launch()
 
         XCTAssertTrue(QA.w1Shows(app, timeout: 60), "the cold launch did not open the web W1 picker")
@@ -37,7 +40,7 @@ final class FlowQATests: XCTestCase {
 
         // The QA driver's scene seeds the golden vault and completes the web
         // onboarding (tests/visual/driver.js).
-        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "today"]
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQAScene", "today"]
         app.launch()
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the local app never published #wg-qa-ready")
         let inApp = QA.tabBarShows(app, timeout: 10)
@@ -45,7 +48,7 @@ final class FlowQATests: XCTestCase {
         XCTAssertTrue(inApp, "the local app shows no tab bar")
 
         app.terminate()
-        app.launchArguments = []
+        app.launchArguments = ["-wgLocalLock", "NO"] // the persisted mode only (the lock pinned off, as everywhere)
         app.launch()
         let back = QA.tabBarShows(app, timeout: 60)
         shot(flow, "relaunch")

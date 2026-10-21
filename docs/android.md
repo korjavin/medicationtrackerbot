@@ -106,28 +106,18 @@ twin of [`ios/App/Shell.swift`](../ios/App/Shell.swift)). Nothing outside
 Service Workers are on; passkeys use `WEB_AUTHENTICATION_SUPPORT_FOR_APP`;
 remote debugging (`chrome://inspect`) is on only in debug builds.
 
-- **First run** (invite-only, no signup): paste an invite/claim link, a device
-  hand-off link or the account address, or *Scan QR code* — the `cloud admin
-  invite` QR or the Emergency Kit QR (only its first line, the account URL, is
-  read; the recovery code is never touched). The scanner is Google Play
-  services' code scanner: no camera permission, no bundled model; where it is
-  unavailable the screen says so and pasting still works.
+- **First run**: since bd med-ta2n.12 the first launch is local mode and the
+  web draws the first run (W1) and the invite sheet (F1: paste or scan an
+  invite/claim link, a device hand-off link or the account address); F1 hands
+  the url to `local.leave {url}`.
   [`AccountUrl.kt`](../android/app/src/main/java/com/example/medtracker/AccountUrl.kt)
   accepts only `https` hosts exactly one label under `CLOUD_BASE_DOMAIN`
   (baked in by CI, never committed); `AccountUrlTest` runs the same cases as
   `ios/Tests/main.swift` in CI. The app stores the account **host** only,
   never the claim fragment, and opens `https://<host>/` on every later launch.
   A spike install's last account is adopted once, then the spike's data is
-  deleted. Below the buttons, as on iOS (bd med-nt9p.31): the "not a medical
-  device" footnote (same wording as `ios/App/App.swift` and the store listing)
-  and a *Privacy policy* link that opens `docs/privacy-policy.md` in the browser.
-  Layout and states are N1 of `docs/design/claude-design/ui_kits/app-v2/screens-native.html`
-  (bd med-ckm5.14): **Continue** is the only sun and stays enabled; an empty
-  or unknown address, a failed scan and "There is no account at <host>." are
-  inline field errors (danger line, icon, and a second line saying what to
-  do), and the gone account's address stays in the field. At font scales
-  ≥ 1.5 the placeholder shortens to "Invite link"; the column scrolls and
-  fades at the bottom while more is below.
+  deleted. The native N1/N2 (with the "not a medical device" footnote and
+  the privacy link, still on iOS until med-ta2n.17) are gone on Android.
 - **Invite links** (bd med-ta2n.12.1, twin of iOS med-ta2n.11; contract in
   `bd show med-ta2n.7` design §§1–7, A1–A7): `InviteLinkActivity`
   ([`Invite.kt`](../android/app/src/main/java/com/example/medtracker/Invite.kt))
@@ -147,8 +137,7 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   with `commit()`; newest wins, never expired by the shell) — only on a fresh
   delivery (`savedInstanceState == null`, not `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`),
   and the intent is consumed. A capture never opens anything (any app can fire
-  the scheme): the native first run prefills its field and the user taps
-  Continue; with a page up (either mode) the shell reloads that mode's home with
+  the scheme): with a page up (either mode) the shell reloads that mode's home with
   `?invite=1` (history cleared, deferred under the lock); on a cold start
   nothing more — the booting page reads the slot.
   **Play Install Referrer** (`installreferrer:2.2`): on a true first install
@@ -166,8 +155,10 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   `enterAccount`: store the host, leave local mode, drop `leaveHost`, the leave
   stash and the slot, and load the URL (`then` ignored). `local.leave {url}`
   keeps the move stash for the new account; `account.leave {url}` drops it.
-  Without a url both keep their pre-v3 behaviour until phase 2 (med-ta2n.12)
-  removes the native first run. QA scenario `invite-link`.
+  Without a url (phase 2, med-ta2n.12): `local.leave` stays in local mode and
+  reloads home with `?invite=1` (the web opens F1; the move stash stays for the
+  account F1 opens), and `account.leave` is a native exit (below). QA
+  scenarios `invite-link`, `firstrun`.
 - **Native token mirror** (bd med-ckm5.14, the "Native token mirror" table):
   `res/values/colors.xml` (`wg_*`, values from the kit's `tokens.css`),
   `res/color/wg_fg_{2,3,4}.xml` (alpha state lists), `res/values/dimens.xml`,
@@ -207,9 +198,8 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   HTTP error. Only the server's own "no such account" 404 — marked
   `X-Account-Gone: 1` by `internal/cloudserver/router.go` (a mistyped account,
   or one deleted here, on another device or by the operator) — on the stored
-  host before any page of the account showed forgets the host and returns to
-  the first run with "There is no account at <host>." (bd med-nt9p.32.14,
-  `AccountUrl.accountGone`). A bare 404 (the proxy's while the server
+  host before any page of the account showed forgets the host and opens local
+  mode with F1 (bd med-nt9p.32.14, med-ta2n.12; `AccountUrl.accountGone`). A bare 404 (the proxy's while the server
   redeploys, or an older server) keeps the account and this screen. Try again keeps an
   invite link's `#claim=` fragment (in memory only). Unlike WKWebView, WebView
   replaces the page on a failed navigation, so a later page load that fails
@@ -237,7 +227,7 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   (`LocalNotifications.copy.leaveFallback`).
 - **After account deletion** (bd med-nt9p.32.15): once the server delete and
   the local wipe finish, the page calls `leaveAccount()` with no args and the
-  shell shows its native first run, not the base-domain page (which the shell
+  shell opens local mode with F1, not the base-domain page (which the shell
   renders in-app with no way out). An APK without the op rejects and the page
   keeps that redirect. `android-qa.yml` scenario `delete-account` drives both
   paths end to end.
@@ -516,20 +506,18 @@ step's pass/fail, screenshot list — also the run's step summary), `logcat.txt`
 (`adb logcat -d`; WebView console lines are under the `chromium` tag), and
 `diag.xml` (the shell's passkey log, `run-as … cat shared_prefs/diag.xml`).
 
-`native-screens` (on its own, no invite; bd med-ckm5.14) shoots N1 and N2 for
-reading against the kit frames: first run, the empty-field error, Scan, the
-gone-account error (`nobody.qa.test`), the intro, the lock switch on (a
-throwaway `locksettings` PIN, removed after), the move hint and the
-pending-move intro (a fake `run-as` stash file, removed after), and the
-Health Connect rationale. Dispatch it again with `-f font_scale=2.0` for
-N1 · 2×. `native-dark` now differs from `firstrun` in nothing but the
-system setting: the theme is pinned dark.
+`native-screens` (on its own, no invite; bd med-ckm5.14, med-ta2n.12) shoots
+the screens the shell still draws or opens: F1 after a launch, N4 (503, 404,
+404 → *Use another invite* → F1, local load error), N3 locked (a throwaway
+`locksettings` PIN, removed after) and the Health Connect rationale. Dispatch
+it again with `-f font_scale=2.0` for 2×. `native-dark` now differs from
+`firstrun` in nothing but the system setting: the theme is pinned dark.
 
 A scenario is `android/qa/scenarios/<name>.mjs` exporting one
 `async (ctx) => {}`; add its name to `SCENARIOS` in `run.mjs` and to the
 workflow's `scenario` options. `ctx`: `device` (Playwright `AndroidDevice`),
 `shell(cmd)`, `shot(name)`, `step(name, fn)` (reported; a throw stops the
-scenario), `launch()` (cold start on first run), `openAccount(url)`,
+scenario), `launch()` (cold *Switch account* → local mode with F1; returns the `page`), `openAccount(url)`,
 `inForeground()`, `attachPage()` (Playwright `page` on the shell's WebView, for
 DOM/console/CDP), `openLink(url)`, `openClaim({ softAuthn })` (cold start → the run's
 invite → `page` on the `/unlock` signup wizard), `launchLocal(scene?, { extra })`
@@ -628,10 +616,10 @@ are in the artifact.
 
 Scenarios on it: `claim-page` (invite → signup wizard with the page-coloured
 bands and the web exit bar at the top, no native bar → its in-page confirm →
-Cancel; default, font 1.3, then dark, which confirms → the first run with
+Cancel; default, font 1.3, then dark, which confirms → local mode with F1,
 `accountHost` gone), `not-found` (`nobody.qa.test`, which `tlsfront` answers with
-the server's marked 404 → the first run with "There is no account at …", no
-Try again, `accountHost` gone from `shell.xml`; `stale.qa.test`, a bare 404 →
+the server's marked 404 → local mode with F1, no Try again, `accountHost`
+and `leaveHost` gone from `shell.xml`; `stale.qa.test`, a bare 404 →
 N4 · 404, `accountHost` kept; the other error-screen scenarios open
 `down.qa.test`, which `tlsfront` answers 503), `load-error` (N4's 503, bare-404
 and local variants with their meta line; local via the debug-only
@@ -1096,29 +1084,27 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   it from `LocalApp`, only that host navigates inside the app, and a load
   error or 404 on it is logged to the diagnostics log and keeps the page —
   except a miss of the app document itself, which shows N4 · local (*Can't
-  open Med Tracker*, *Use an account instead*, never Switch account).
-- **First run (N1):** the boxed *Only on this device* row comes first (owner
-  decision 2026-10-19 — the Play build's reviewer path needs no invite); then
-  "or" and the invite field under "Have an invite?" with the Scan icon button
-  in its row and **Continue**, then the store footnote, the privacy link and a
-  **How to get an invite** link to the service landing page
-  `https://<BuildConfig.BASE_DOMAIN>/` (absent when the build has no base).
-  The row opens the native intro (N2): *Back* in the top bar (system Back
-  too), four facts (stored here, nowhere else; you make the backups — Google
-  backup keeps up to 25 MB, export a file for the rest; lose the phone, lose
-  the records, in warn; move to an account later), the optional
-  **Lock** switch row ([Lock](#local-mode-lock-bd-med-nt9p329)) and
-  **Start** docked at the bottom (stores `wgLocalMode=true`, clears
-  reminders, opens the bundled app).
+  open Med Tracker*, Try again and Copy diagnostics only — no exit, bd med-ta2n.12).
+- **First launch = local mode** (bd med-ta2n.12, contract med-ta2n.7 §9): with
+  no stored account the shell stores `wgLocalMode=true` and opens the bundled
+  app, whose web W1 is the first run — nothing native is drawn (N1/N2 and the
+  Play code scanner are deleted; F1 scans with `window.Barcode` in the
+  WebView). An install upgraded while on the old native first run lands here
+  too (a pending move stash is dropped, as on any entry to local mode; the
+  local records stay). **Native exits** — the launcher *Switch account*, N4's
+  *Use another invite* / *Switch account*,
+  `X-Account-Gone` and `account.leave` without args — all go through
+  `forget()`: local mode (move stash dropped, bd med-nt9p.49), host and
+  `leaveHost` removed, home with `?invite=1` so the web opens F1. The local
+  lock is turned on from Settings → App lock ([Lock](#local-mode-lock-bd-med-nt9p329)).
 - **One vault at a time:** reminders (`Notifications`), their taps
   (`https://<vault>/?tab=…`), file grants and camera/mic (`Files`) and the
   bridge all follow the open vault: the account host, or the asset host in
   local mode. **Every mode change clears the alarms**, so a reminder of the
-  other vault never fires or opens the wrong origin. Leaving local mode (the
-  page's *Turn on sync*, or the launcher *Switch account*
-  shortcut) sets `wgLocalMode=false` and shows first run; each origin keeps
-  its own WebView data, so *Only on this device* again (or the account
-  address) finds it. The only thing carried across is the move stash
+  other vault never fires or opens the wrong origin. Leaving local mode is
+  only `local.leave {url}` (the web's F1 / *Turn on sync*); each origin keeps
+  its own WebView data, so local mode again (or the account address) finds
+  it. The only thing carried across is the move stash
   (`move.stash` → `move.take`, below): one file, never backed up, deleted
   after the import or when local mode is entered again.
 - **Bridge:** `wgNative`, `wgFiles`, `chrome.js` and `files.js` are injected
@@ -1131,7 +1117,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   |---|---|
   | `setEgressHosts {hosts}` | `LocalOrigin.validHosts` (≤ 8 bare DNS names, whole list or `invalid hosts`), stored under `wgLocalEgressHosts`; replies `{changed}` — the page reloads itself when true and the next document's CSP `connect-src` lists the hosts |
   | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, deletes the move and leave stashes and the invite slot (A4), replies `true` |
-  | `local.leave {url?}` | without `url`: replies `true`, then Switch account (first run). With `url` (bd med-ta2n.12.1): `AccountUrl.parse` or `invalid url` (nothing changes; a `null`/empty/non-string `url` too), else `true` and `enterAccount` — the account opens on that URL, the move stash is **kept** for it, the leave stash and the invite slot go |
+  | `local.leave {url?}` | without `url`: replies `true`, stays in local mode and reloads home with `?invite=1` (F1; nothing else changes, the move stash stays; bd med-ta2n.12). With `url` (bd med-ta2n.12.1): `AccountUrl.parse` or `invalid url` (nothing changes; a `null`/empty/non-string `url` too), else `true` and `enterAccount` — the account opens on that URL, the move stash is **kept** for it, the leave stash and the invite slot go |
   | `move.stash {vault}` | the local → cloud move (bd med-nt9p.32.17, [`Move.kt`](../android/app/src/main/java/com/example/medtracker/Move.kt)): writes the vault v1 JSON string to `no_backup/move/vault.json` (temp file + rename, one stash at a time, replaces the old one); `invalid vault` when missing, empty or not a string, `too large` above 64 MB (UTF-8 bytes); replies `true` |
   | `leave.take` | local pickup (bd med-o7zq.36.3): replies `{vault}` or `null`; does not delete (same as `move.take`) |
   | `leave.clear {back?}` | deletes the leave stash, replies `true`; with `back: true` (the page's pickup was cancelled, bd med-o7zq.42) and an account remembered by `account.leave {then: "local"}` (`leaveHost`), replies `{back: true}` and reopens that account |
@@ -1144,7 +1130,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
 
   | op | does |
   |---|---|
-  | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args the first run (after an account delete). Nothing is erased: the account and its origin's WebView data stay. With `{url}` (bd med-ta2n.12.1): as `local.leave {url}`, `then` ignored, and the move stash is **deleted** (a stale one must not land in the next account) |
+  | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args local mode with F1 and no way back (`leaveHost` removed; after an account delete, bd med-ta2n.12). Nothing is erased: the account and its origin's WebView data stay. With `{url}` (bd med-ta2n.12.1): as `local.leave {url}`, `then` ignored, and the move stash is **deleted** (a stale one must not land in the next account) |
   | `move.take` | the new account's pickup (bd med-nt9p.32.17): replies `{vault}` (the stashed string) or `null` when there is none; does not delete, so a failed import retries on the next open |
   | `move.clear` | deletes the stash once the page imported it, replies `true` |
   | `leave.stash {vault}` | account → local (bd med-o7zq.36.3, a second `Move` over `no_backup/leave/vault.json`): same contract and errors as `move.stash` (`invalid vault`, `too large`, `write failed`), but **account mode only** |
@@ -1158,15 +1144,12 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   `no_backup/` is excluded from every backup by the platform, and the Auto
   Backup include-list never names it either. It is deleted by `move.clear`
   (after the import), `local.reset`, `account.leave {url}`, and whenever local mode is entered again
-  (*Start*, `account.leave {then: "local"}`: the move was abandoned, the next
-  one stashes afresh); Switch account keeps it, since that is the hand-off.
-  While it exists the first run leads with an info note, *Your records are
-  ready to move.*, and puts the invite above *Only on this device* (N1 · move);
-  the intro shows a warn note, *Start and cancel the move* and *Open the new
-  account instead* (N2 · move). Its contents never reach the diagnostics log or an error
+  (`account.leave {then: "local"}` and every native exit: the move was
+  abandoned, the next one stashes afresh); `local.leave` with or without a url
+  keeps it, since that is the hand-off. Its contents never reach the diagnostics log or an error
   reply. Emulator proof at the bridge: QA scenario `move-ops` (not in `all`, it
   claims the run's invite) — mode gates, `invalid vault`, the file in the
-  `run-as` listing after the stash, the hint, deleted on *Start*, and in the
+  `run-as` listing after the stash, kept by `local.leave`, deleted by Switch account, and in the
   new account the pickup clears it, then a seeded stash: `move.take` returns
   it and keeps the file, `move.clear` deletes it. The user path end to end is
   `local-to-cloud-seamless` ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
@@ -1464,7 +1447,7 @@ privately:
 > invite link A into the first-run screen and create a passkey on this device
 > (Google Password Manager; a screen lock is required). The account starts
 > empty. Link B is for testing account deletion (Settings → Account &
-> privacy → Delete my account); link C is a spare, for a new device or a
+> privacy → Delete account); link C is a spare, for a new device or a
 > reinstall. Suggested walk-through: add a medication, record a dose and a
 > blood-pressure reading, open History, enable reminders. Health Connect
 > import needs data in the reviewer device's Health Connect. Contact for a new

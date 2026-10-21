@@ -13,10 +13,16 @@ import XCTest
 /// reopens it: the forgotten host is proven in memory, not across launches.
 @MainActor
 final class FlowQAAccountGoneTests: XCTestCase {
+    nonisolated override func setUp() {
+        super.setUp()
+        // bd med-w6gx.23.8: a clean slate, so one failed flow stays one red test.
+        MainActor.assumeIsolated { QA.reset() } // XCTest runs setUp on the main thread
+    }
+
     /// Local mode off (another flow may have persisted it, and it wins over a
     /// host), the lock off (the landing is local mode), and this account.
     private func account(_ host: String) -> [String] {
-        ["-wgLocalMode", "NO", "-wgLocalLockOn", "NO", "-wgAccountHost", host]
+        ["-wgLocalMode", "NO", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgAccountHost", host]
     }
 
     func testAccountGone() {

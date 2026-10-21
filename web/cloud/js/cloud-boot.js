@@ -93,6 +93,8 @@ const REMINDER_ACTION_ROUTES = {
 //   unknown account state (offline, failed pull) keeps the stash and the next
 //   open tries again.
 const MOVE_NOTICE_KEY = 'wg-move-picked-up';
+const MOVE_PICKED_AT_KEY = 'wg-move-picked-at';
+const MOVE_JUST_PICKED_MS = 5 * 60 * 1000;
 const MOVE_PROBE_MS = 5000;
 function withinMs(promise, ms) {
     return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
@@ -107,9 +109,12 @@ async function pickUpMovedVault(win) {
     // The reload after a pickup lands here once more: say where the records
     // went (P3 · done, bd med-ta2n.7). The key holds the moved record count.
     let moved = null;
+    let pickedAt = NaN;
     try {
         moved = win.sessionStorage.getItem(MOVE_NOTICE_KEY);
-        if (moved !== null) win.sessionStorage.removeItem(MOVE_NOTICE_KEY);
+        pickedAt = Number(win.sessionStorage.getItem(MOVE_PICKED_AT_KEY));
+        win.sessionStorage.removeItem(MOVE_NOTICE_KEY);
+        win.sessionStorage.removeItem(MOVE_PICKED_AT_KEY);
     } catch { /* storage blocked */ }
     if (moved !== null) {
         const n = Number(moved);
@@ -120,6 +125,18 @@ async function pickUpMovedVault(win) {
     // nativeHas: features/settings.js, the one shell.ops probe per page.
     if (typeof win.nativeHas !== 'function') return;
     if ((await withinMs(win.nativeHas('move.take').catch(() => false), MOVE_PROBE_MS)) !== true) return;
+    // The reload right after a pickup (bd med-ta2n.23, twin of local-policy.js
+    // pickupLeaveStash justPicked): a stash still here is the one just
+    // imported, its move.clear lost to the time box on a slow bridge. Taking it
+    // again would ask Merge / Replace over its own records. Only a fresh
+    // stamp counts: beforeReload writes both keys after a successful import,
+    // and a flag a reload never consumed (bounced to /unlock) must not drop a
+    // later move's stash. No stamp or a stale one → take it, as before.
+    const age = Date.now() - pickedAt;
+    if (moved !== null && age >= 0 && age < MOVE_JUST_PICKED_MS) {
+        await withinMs(native.call('move.clear').catch(() => null), MOVE_PROBE_MS);
+        return;
+    }
     const stash = await withinMs(native.call('move.take').catch(() => null), MOVE_PROBE_MS);
     const vault = stash && stash.vault;
     const restore = win.SettingsImportExport && win.SettingsImportExport.restoreVault;
@@ -147,7 +164,10 @@ async function pickUpMovedVault(win) {
     await restore(vault, {
         source: 'move',
         beforeReload: async () => {
-            try { win.sessionStorage.setItem(MOVE_NOTICE_KEY, String(count ?? '')); } catch { /* storage blocked */ }
+            try {
+                win.sessionStorage.setItem(MOVE_NOTICE_KEY, String(count ?? ''));
+                win.sessionStorage.setItem(MOVE_PICKED_AT_KEY, String(Date.now()));
+            } catch { /* storage blocked */ }
             await withinMs(native.call('move.clear'), MOVE_PROBE_MS);
         },
     });

@@ -606,16 +606,32 @@ async function paintVaultCard() {
 // the synced emergencykit record says the current kit was never saved (no
 // record, or a new code nobody confirmed saving: how 'none'). A failed read
 // hides it rather than nag on a guess — hence apiCallDirect, which throws where
-// apiCall would hand back the same null as "no record".
-async function paintKitChip() {
-    const chip = document.getElementById('settings-kit-chip');
-    if (!chip) return;
+// apiCall would hand back the same null as "no record". The same read places
+// the S9 Emergency Kit row (bd med-ckm5.9).
+async function paintKitState() {
     let unsaved = false;
     try {
         const kit = await window.apiCallDirect('/api/settings/emergency-kit', 'GET');
         unsaved = !kit || kit.how === 'none';
     } catch { /* keep it hidden */ }
-    chip.classList.toggle('wg-settings-hidden', !unsaved);
+    document.getElementById('settings-kit-chip')?.classList.toggle('wg-settings-hidden', !unsaved);
+    placeAccountKitRow(unsaved);
+}
+
+// Kit S9: while the kit is unsaved the Emergency Kit row leads the Account &
+// privacy page, boxed, with a Save chip; once saved it is the last plain row
+// of the Account list.
+function placeAccountKitRow(unsaved) {
+    const row = document.getElementById('settings-account-kit-row');
+    const list = document.getElementById('settings-account-list');
+    const page = row?.closest('[data-settings-page]');
+    if (!row || !list || !page) return;
+    row.classList.toggle('wg-setting--boxed', unsaved);
+    document.getElementById('settings-account-kit-save')?.classList.toggle('wg-settings-hidden', !unsaved);
+    const desc = document.getElementById('settings-account-kit-desc');
+    if (desc) desc.textContent = unsaved ? 'Not downloaded on any device yet' : 'Regenerate if you lost the printed copy';
+    if (unsaved) page.prepend(row);
+    else list.appendChild(row);
 }
 
 let _cloudDevicesBound = false; // module-state: bind the Devices page rows once across repeated loadSettings() calls
@@ -623,9 +639,12 @@ function bindCloudDevicesPage() {
     if (_cloudDevicesBound) return;
     _cloudDevicesBound = true;
     document.getElementById('settings-claude-connector-row')?.addEventListener('click', openConnectorPage);
-    document.getElementById('settings-emergency-kit-row')?.addEventListener('click', () => {
-        window.location.assign(EMERGENCY_KIT_URL);
-    });
+    // Devices (S4) and Account & privacy (S9) both open the kit ceremony.
+    for (const id of ['settings-emergency-kit-row', 'settings-account-kit-row']) {
+        document.getElementById(id)?.addEventListener('click', () => {
+            window.location.assign(EMERGENCY_KIT_URL);
+        });
+    }
 }
 
 // ?tab=settings&page=devices|connectors (deeplink-router.js; the old shell
@@ -650,6 +669,8 @@ async function bindOperatorVisibility() {
     const mount = document.getElementById('privacy-content');
     if (!section || !mount) return;
     section.classList.remove('wg-settings-hidden');
+    const host = document.getElementById('settings-account-host');
+    if (host) host.textContent = window.location.hostname;
     if (_operatorVisibilityRendered) return;
     try {
         const { renderPrivacyInto } = await loadPrivacyModule();
@@ -680,37 +701,22 @@ function bindDeleteAccount() {
     _deleteAccountBound = true;
 
     const openBtn = document.getElementById('delete-account-open');
-    const exportBtn = document.getElementById('delete-account-export');
-    const exportStatus = document.getElementById('delete-account-export-status');
     const errorEl = document.getElementById('delete-account-error');
     if (!openBtn) return;
-
-    exportBtn?.addEventListener('click', async () => {
-        if (exportStatus) exportStatus.textContent = 'Preparing your export…';
-        try {
-            const { exportVaultToFile } = await loadAccountDeleteModule();
-            const downloaded = await exportVaultToFile();
-            // false = the plaintext-secrets warning was declined — never claim
-            // a backup exists when nothing was written.
-            if (exportStatus) exportStatus.textContent = downloaded === false
-                ? 'Export cancelled — nothing was downloaded.'
-                : 'Export downloaded. Keep it somewhere safe.';
-        } catch (err) {
-            if (exportStatus) exportStatus.textContent = err.message || 'Export failed.';
-        }
-    });
+    // Kit .wg-error (danger text); empty, it takes no space (.wg-page .wg-error:empty).
+    const showError = (text) => { if (errorEl) errorEl.textContent = text; };
 
     // Hoisted across clicks: once the server delete succeeds, the account (and
     // its session) is gone — a retry after a blocked local wipe must skip the
     // re-auth ceremony (it would 401) and go straight back to the wipe.
     let serverDeleted = false;
     openBtn.addEventListener('click', async () => {
-        if (errorEl) errorEl.textContent = '';
+        showError('');
         let mod;
         try {
             mod = await loadAccountDeleteModule();
         } catch (err) {
-            if (errorEl) errorEl.textContent = err.message || 'Could not delete the account.';
+            showError(err.message || 'Could not delete the account.');
             return;
         }
         // The typed-confirmation gate (shared safeConfirm dialog, kit rule 3):
@@ -719,8 +725,9 @@ function bindDeleteAccount() {
         // nothing left to confirm — only the local wipe to retry.
         if (!serverDeleted) {
             // D1 (med-ckm5.5): what goes, what stays, typed DELETE.
+            // The link cancels this dialog and opens Backup & import (S9).
             const ok = await window.safeConfirm(
-                'if you might want your records later. Your data is encrypted, so no one, the operator included, can recover it afterwards.',
+                'if you might want your records later.',
                 null,
                 {
                     title: 'Delete your account?',
@@ -728,7 +735,7 @@ function bindDeleteAccount() {
                     destructive: true,
                     typedConfirm: mod.DELETE_CONFIRM_PHRASE,
                     confirmLabel: 'Delete account',
-                    link: { label: 'Export a backup first', onClick: () => exportBtn?.click() },
+                    link: { label: 'Export a backup first', onClick: () => openSettingsPage('backup') },
                     facts: [
                         { text: `Your vault on ${window.location.hostname}, for every device`, gone: true },
                         { text: 'Connectors and the Telegram link', gone: true },
@@ -772,9 +779,9 @@ function bindDeleteAccount() {
             // that the account is gone but this device isn't clean yet, and
             // that this tab is the last thing able to finish the wipe.
             const msg = err.message || 'Could not delete the account.';
-            if (errorEl) errorEl.textContent = serverDeleted
-                ? `Your account was deleted, but this device's local copy could not be erased. ${msg} Keep this tab open and press Delete again — once this tab closes, the app can no longer wipe this device.`
-                : msg;
+            showError(serverDeleted
+                ? `Your account was deleted, but this device's local copy could not be erased. ${msg} Keep this tab open and tap Delete account again — once this tab closes, the app can no longer wipe this device.`
+                : msg);
             openBtn.disabled = false;
         }
     });
@@ -834,12 +841,13 @@ function showLeaveAccount(leave) {
             // bd med-o7zq.36: a shell with leave.stash carries a copy of the
             // vault into local mode; an older one starts it empty.
             const stash = await nativeHas('leave.stash');
-            // D1 (med-ckm5.5): warn tone, what stays and what stops.
+            // D1 (med-ckm5.5): warn tone, what stays and what stops. Nothing is
+            // destroyed, so Leave is a raised button, not clay (kit S9).
             const ok = await safeConfirm(
                 '',
                 null,
                 {
-                    title: `Use this ${device} without an account?`, icon: 'device', tone: 'warn', destructive: true, confirmLabel: 'Leave',
+                    title: `Use this ${device} without an account?`, icon: 'device', tone: 'warn', confirmLabel: 'Leave',
                     facts: [
                         stash
                             ? { text: `A copy of your records stays on this ${device}` }
@@ -1182,7 +1190,7 @@ async function loadSettings() {
         if (!document.documentElement.classList.contains('wg-local-vault')) {
             // Neither throws; not awaited so Settings never waits on the sync module.
             paintVaultCard();
-            paintKitChip();
+            paintKitState();
         }
         await bindSecondDeviceNudge();
         await bindOperatorVisibility();
@@ -1805,6 +1813,10 @@ function updateFeatureTabVisibility() {
     // Gamification toggling here also gates the weekly-digest row (both-on), so
     // refresh its visibility on the toggle success path — not just on load.
     updateWeeklyDigestVisibility(window.featureSettings || {});
+    // Reminders → Medications jumps to the Meds tab, which bounces to Today when
+    // off (med-v7bp). Boot/bundle and the live toggle both funnel through here.
+    document.getElementById('settings-reminders-meds')
+        ?.classList.toggle('wg-settings-hidden', !(window.featureSettings && window.featureSettings.medication));
     // A toggle just changed a target section's visibility; roll that up to the
     // home row so an all-hidden Targets row doesn't linger (and reappears when a
     // target is re-enabled) without a full Settings reload.
