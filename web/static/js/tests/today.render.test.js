@@ -1843,6 +1843,119 @@ describe('W4 protect-your-data card', () => {
     });
 });
 
+// bd med-ta2n.15 — the Emergency Kit nudge: an account's card in W4's slot.
+// The clock rules live behind GET /api/protection/kit-nudge (cloud.local-mode
+// suite, real store, fake clock); Today renders its answer.
+describe('Emergency Kit nudge card', () => {
+    let env;
+    let api;
+    let status;
+    const card = () => env.document.querySelector('[data-section="kit-nudge"]');
+    const shown = () => !!card() && !card().classList.contains('hidden');
+    const act = (root, name) => root.querySelector(`[data-action="${name}"]`);
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    function setup({ cloud = true, local = false, nudge = true, writeOk = true } = {}) {
+        env = loadRenderEnv();
+        if (cloud) env.window.__MEDTRACKER_CLOUD__ = true;
+        if (local) env.document.documentElement.classList.add('wg-local-vault');
+        status = { records: 64, kitSaved: false, lastShownAt: null, lastShownRecordCount: 0, optedOut: false, nudge };
+        api = vi.fn(async (endpoint, method) => {
+            if (endpoint === '/api/protection/kit-nudge' && method === undefined) return status;
+            if (endpoint === '/api/protection/status') return { records: 64, nudge: true };
+            return writeOk ? { success: true } : null;
+        });
+        env.window.apiCall = api;
+        env.window.LocalNotifications = { copy: { device: 'phone' } };
+        env.window.switchTab = vi.fn();
+        env.window.SettingsView = { openSettingsPage: vi.fn() };
+        const root = env.document.getElementById('today-content');
+        env.paint = () => env.render(baseState(), root, { now: NOW });
+        env.paint();
+    }
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    it('cloud: below Next up, above the tiles, raised not sun, tokens only; a re-render does not flash', async () => {
+        setup();
+        expect(shown()).toBe(false);
+        await flush();
+        expect(shown()).toBe(true);
+        expect(card().querySelector('.wg-card__title').textContent).toBe('Save your Emergency Kit');
+        expect(card().querySelector('.wg-meta').textContent).toBe('64 records synced · no kit saved');
+        expect(act(card(), 'kit-save').textContent).toBe('Save kit');
+        expect(act(card(), 'kit-save').classList.contains('wg-btn--primary')).toBe(false);
+        expect(act(card(), 'kit-never').textContent).toBe("Don't remind me again");
+        expect(card().querySelector('[style]')).toBeNull();
+        const sections = [...env.document.querySelectorAll('#today-content > [data-section]')].map((n) => n.getAttribute('data-section'));
+        if (sections.includes('next-up')) expect(sections.indexOf('kit-nudge')).toBeGreaterThan(sections.indexOf('next-up'));
+        expect(sections.indexOf('kit-nudge')).toBeLessThan(sections.indexOf('vitals'));
+        expect(sections).not.toContain('protect');
+        env.paint();
+        expect(shown()).toBe(true);
+    });
+
+    it('no card when the status says no nudge (kit saved, opted out, too early)', async () => {
+        setup({ nudge: false });
+        await flush();
+        expect(shown()).toBe(false);
+    });
+
+    it('local mode: never — the W4 card holds the slot, and the kit status is never asked', async () => {
+        setup({ local: true });
+        await flush();
+        expect(card()).toBeNull();
+        expect(env.document.querySelector('[data-section="protect"]')).not.toBeNull();
+        expect(api).not.toHaveBeenCalledWith('/api/protection/kit-nudge');
+    });
+
+    it('outside the cloud app: no card, no request', async () => {
+        setup({ cloud: false });
+        await flush();
+        expect(card()).toBeNull();
+        expect(api).not.toHaveBeenCalledWith('/api/protection/kit-nudge');
+    });
+
+    it('× is later: hides it and records the showing', async () => {
+        setup();
+        await flush();
+        act(card(), 'kit-later').click();
+        expect(shown()).toBe(false);
+        await flush();
+        expect(api).toHaveBeenCalledWith('/api/protection/kit-nudge', 'POST', { action: 'later' });
+        env.paint();
+        expect(shown()).toBe(false);
+    });
+
+    it("Don't remind me again: hides it and opts out", async () => {
+        setup();
+        await flush();
+        act(card(), 'kit-never').click();
+        expect(shown()).toBe(false);
+        await flush();
+        expect(api).toHaveBeenCalledWith('/api/protection/kit-nudge', 'POST', { action: 'never' });
+        expect(api).not.toHaveBeenCalledWith('/api/protection/kit-nudge', 'POST', { action: 'later' });
+    });
+
+    it('a failed write brings the card back', async () => {
+        setup({ writeOk: false });
+        await flush();
+        act(card(), 'kit-never').click();
+        expect(shown()).toBe(false);
+        await flush();
+        await flush();
+        expect(shown()).toBe(true);
+    });
+
+    it('Save kit opens the Devices page, where the Kit row starts the kit; it writes nothing', async () => {
+        setup();
+        await flush();
+        act(card(), 'kit-save').click();
+        expect(env.window.switchTab).toHaveBeenCalledWith('settings');
+        expect(env.window.SettingsView.openSettingsPage).toHaveBeenCalledWith('devices');
+        expect(api).not.toHaveBeenCalledWith('/api/protection/kit-nudge', 'POST', expect.anything());
+    });
+});
+
 // bd med-ta2n.3 — W3 "Start here": one hint per picked module with no record
 // yet. Which ones comes from GET /api/today/start-here (today-loader.js puts
 // it on state; the domain rules run in cloud.shim-contract.settings).

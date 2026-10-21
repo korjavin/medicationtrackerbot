@@ -563,8 +563,13 @@ export function recordsToVault(records, { now, includeSecrets = true, backupAt }
   // W4 nudge state (bd med-ta2n.4). backupAt: this file IS a backup (local
   // mode's export), so it says so — restored, it remembers being one. Omitted
   // when there is neither, so a store that never had it exports as before.
+  // kitNudge (bd med-ta2n.15) is the account's kit reminder and stays out of
+  // the file, like the emergencykit record: a record holding only it exports
+  // no block, so a cloud backup still leaves a destination's W4 state alone.
   const protectionRec = singleton('protection', 'protection');
-  if (protectionRec || Number.isFinite(backupAt)) {
+  const hasW4 = !!protectionRec && (Number.isFinite(protectionRec.lastBackupAt)
+    || (Array.isArray(protectionRec.nudgeDismissedAt) && protectionRec.nudgeDismissedAt.length > 0));
+  if (hasW4 || Number.isFinite(backupAt)) {
     const last = Number.isFinite(backupAt) ? backupAt : protectionRec.lastBackupAt;
     data.protection = {
       last_backup_at: Number.isFinite(last) ? toRFC3339(last) : null,

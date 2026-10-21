@@ -18,7 +18,7 @@ import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.
 import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
-import { installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
+import { createApiRouter, installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
 import { LOCAL_EFFECTS } from '../../../cloud/js/local-policy.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
@@ -2490,5 +2490,95 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual([80]);
         expect(window.safeAlert.mock.calls.map(([m]) => m)).toContain(NOT_COPIED);
+    });
+});
+
+// bd med-ta2n.15 — the Emergency Kit nudge, an account's Today card. The
+// cloud router (no `protection` port) over the real store, the clock faked:
+// GET /api/protection/kit-nudge is what the card reads.
+describe('Kit nudge status (cloud router, real store, fake clock)', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const T0 = Date.parse('2026-10-01T09:00:00Z');
+    let router;
+    const status = () => router('/api/protection/kit-nudge', 'GET');
+    const close = (action) => router('/api/protection/kit-nudge', 'POST', { action });
+    const at = (ms) => vi.setSystemTime(ms);
+    let seq = 0;
+    const addRecords = async (n) => {
+        for (let i = 0; i < n; i += 1) {
+            seq += 1;
+            await localRecordsPort().put('weight', { recordId: `kit-${seq}`, clientTs: Date.now(), deleted: false, weight: 80 });
+        }
+    };
+
+    beforeEach(async () => {
+        await deleteDb();
+        seq = 0;
+        vi.useFakeTimers({ toFake: ['Date'], now: T0 });
+        router = createApiRouter(null, { records: localRecordsPort(), timeZone: 'UTC' });
+        // Sign-in without the kit offer files how 'none' (signup.js): sync is on.
+        await router('/api/settings/emergency-kit', 'PUT', { savedAt: T0, how: 'none' });
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('first show: 2 days after sync is on AND 10 records, not before', async () => {
+        await addRecords(9);
+        at(T0 + 5 * DAY);
+        expect(await status()).toMatchObject({ records: 9, kitSaved: false, nudge: false });
+        await addRecords(1);
+        at(T0 + 2 * DAY - 1);
+        expect((await status()).nudge).toBe(false);
+        at(T0 + 2 * DAY);
+        expect(await status()).toMatchObject({ records: 10, nudge: true, lastShownAt: null, optedOut: false });
+    });
+
+    it('× snoozes; it returns once the count doubles, or after 30 days', async () => {
+        await addRecords(12);
+        at(T0 + 3 * DAY);
+        expect((await status()).nudge).toBe(true);
+        const shown = Date.now();
+        expect(await close('later')).toEqual({ success: true });
+        expect(await status()).toMatchObject({ nudge: false, lastShownAt: shown, lastShownRecordCount: 12 });
+        await addRecords(11);
+        expect((await status()).nudge).toBe(false);
+        await addRecords(1); // 24 = 2 × 12
+        expect((await status()).nudge).toBe(true);
+
+        await close('later');
+        const second = Date.now();
+        at(second + 30 * DAY - 1);
+        expect((await status()).nudge).toBe(false);
+        at(second + 30 * DAY);
+        expect((await status()).nudge).toBe(true);
+    });
+
+    it("Don't remind me again is permanent, whatever the growth; the W4 fields survive it", async () => {
+        await addRecords(10);
+        at(T0 + 2 * DAY);
+        await close('never');
+        await addRecords(100);
+        at(T0 + 400 * DAY);
+        expect(await status()).toMatchObject({ optedOut: true, nudge: false });
+        const rec = (await localRecordsPort().list('protection'))[0];
+        expect(rec).toMatchObject({ recordId: 'protection', nudgeDismissedAt: [], kitNudge: { optedOut: true } });
+        // A kit-only protection record stays out of the backup file.
+        const vault = recordsToVault(await localRecordsPort().list('protection'), { now: Date.now() });
+        expect(vault.data.protection).toBeUndefined();
+    });
+
+    it('never once the kit is saved, opted out or not', async () => {
+        await addRecords(10);
+        at(T0 + 2 * DAY);
+        expect((await status()).nudge).toBe(true);
+        await router('/api/settings/emergency-kit', 'PUT', { savedAt: Date.now(), how: 'download' });
+        expect(await status()).toMatchObject({ kitSaved: true, nudge: false });
+        at(T0 + 400 * DAY);
+        await addRecords(100);
+        expect((await status()).nudge).toBe(false);
+    });
+
+    it('an unknown action is refused and writes nothing', async () => {
+        await expect(close('snooze')).rejects.toThrow(/Unknown kit nudge action/);
+        expect(await localRecordsPort().list('protection')).toEqual([]);
     });
 });

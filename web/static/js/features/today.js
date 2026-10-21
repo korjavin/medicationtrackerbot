@@ -1657,44 +1657,48 @@
         if (card) paintProtectCard(card, protectStatus);
     }
 
-    // × / Later: optimistic nudge:false on the cached status, then the write;
-    // a failed dismiss (apiCall resolves null and has told the user) rolls the
-    // cache back and the card returns.
-    async function dismissProtect() {
-        const api = trackersApi();
-        const prev = protectStatus;
+    // A nudge card's × (W4, the kit card): optimistic nudge:false on the
+    // cached status `key`, then send(); a failed write (apiCall resolves null
+    // and has told the user) rolls the cache back and the card returns.
+    async function hideNudge(key, prev, set, send) {
         const hide = (s) => (s && typeof s === 'object' ? { ...s, nudge: false } : s);
-        setProtectStatus(hide(prev));
+        set(hide(prev));
         const ds = typeof window !== 'undefined' ? window.DataStore : null;
         let handle = null;
         try {
-            if (ds && typeof ds.applyOptimistic === 'function') handle = await ds.applyOptimistic(PROTECT_KEY, hide, []);
+            if (ds && typeof ds.applyOptimistic === 'function') handle = await ds.applyOptimistic(key, hide, []);
         } catch (_) { handle = null; }
         let res = null;
-        try { res = api ? await api('/api/protection/dismiss', 'POST') : null; } catch (_) { res = null; }
+        try { res = await send(); } catch (_) { res = null; }
         const ok = !!(res && res.success);
         try {
             if (handle) await (ok ? handle.commit(null) : handle.rollback());
         } catch (_) { /* best-effort */ }
-        if (!ok) setProtectStatus(prev);
+        if (!ok) set(prev);
+    }
+
+    // Through the DataStore cache when there is one, so a status GET racing a
+    // pending dismiss is held back (fetchFresh) instead of flashing the card.
+    function loadNudgeStatus(api, key, endpoint, set) {
+        const ds = typeof window !== 'undefined' ? window.DataStore : null;
+        const fetcher = () => api(endpoint);
+        if (ds && typeof ds.loadSWR === 'function') {
+            ds.loadSWR({ key, tags: ['protection'], fetcher, onCached: set, onFresh: set, onError: () => {} })
+                .catch(() => {});
+            return;
+        }
+        Promise.resolve().then(fetcher).catch(() => null).then(set);
+    }
+
+    // × / Later.
+    function dismissProtect() {
+        const api = trackersApi();
+        return hideNudge(PROTECT_KEY, protectStatus, setProtectStatus, () => (api ? api('/api/protection/dismiss', 'POST') : null));
     }
 
     function paintProtectCard(card, status) {
         card.classList.toggle('hidden', !(status && status.nudge));
         if (status) card.querySelector('[data-protect-meta]').textContent = `${recordsLabel(status.records)} · only on this ${deviceWord()}`;
-    }
-
-    // Through the DataStore cache when there is one, so a status GET racing a
-    // pending dismiss is held back (fetchFresh) instead of flashing the card.
-    function loadProtectStatus(api) {
-        const ds = typeof window !== 'undefined' ? window.DataStore : null;
-        const fetcher = () => api('/api/protection/status');
-        if (ds && typeof ds.loadSWR === 'function') {
-            ds.loadSWR({ key: PROTECT_KEY, tags: ['protection'], fetcher, onCached: setProtectStatus, onFresh: setProtectStatus, onError: () => {} })
-                .catch(() => {});
-            return;
-        }
-        Promise.resolve().then(fetcher).catch(() => null).then(setProtectStatus);
     }
 
     function renderProtectCard() {
@@ -1716,7 +1720,66 @@
         go.classList.add('wg-btn--block');
         card.append(head, el('p', 'wg-hint', `If this ${deviceWord()} is lost or reset, they go with it. A backup takes a few seconds.`), go);
         paintProtectCard(card, protectStatus);
-        loadProtectStatus(api);
+        loadNudgeStatus(api, PROTECT_KEY, '/api/protection/status', setProtectStatus);
+        return card;
+    }
+
+    // ---- Emergency Kit nudge card (bd med-ta2n.15) --------------------------
+    //
+    // Cloud only — local mode has no kit and W4 holds the slot there. The W4
+    // card anatomy with the W5·kit wording. GET /api/protection/kit-nudge
+    // decides (2 days after sync is on with 10 records; after a ×, again once
+    // the log doubles or after 30 days; never once the kit is saved or after
+    // "Don't remind me again"). Save kit opens the Devices page's Kit row, the
+    // existing entry point. Raised, not sun: Take keeps the sun.
+    const KIT_NUDGE_KEY = 'kit_nudge_status';
+    let kitStatus = null; // last answer, so a re-render does not flash the card
+
+    function setKitStatus(s) {
+        kitStatus = (s && typeof s === 'object') ? s : null;
+        const card = doc().querySelector('[data-section="kit-nudge"]');
+        if (card) paintKitCard(card, kitStatus);
+    }
+
+    function paintKitCard(card, status) {
+        card.classList.toggle('hidden', !(status && status.nudge));
+        if (status) card.querySelector('[data-kit-meta]').textContent = `${recordsLabel(status.records)} synced · no kit saved`;
+    }
+
+    // action: 'later' (×) or 'never' (Don't remind me again).
+    function closeKitNudge(action) {
+        const api = trackersApi();
+        return hideNudge(KIT_NUDGE_KEY, kitStatus, setKitStatus, () => (api ? api('/api/protection/kit-nudge', 'POST', { action }) : null));
+    }
+
+    function renderKitNudgeCard() {
+        const api = trackersApi();
+        if (!api || !window.__MEDTRACKER_CLOUD__ || isLocalVault()) return null;
+        const card = el('div', 'wg-card wg-vstack');
+        card.setAttribute('data-section', 'kit-nudge');
+        const head = el('div', 'wg-hstack');
+        const lead = el('span', 'wg-row__lead wg-row__lead--sky');
+        lead.appendChild(ico('key'));
+        const titles = el('span', 'wg-vstack wg-spacer');
+        const meta = el('span', 'wg-meta');
+        meta.setAttribute('data-kit-meta', '');
+        titles.append(el('span', 'wg-card__title', 'Save your Emergency Kit'), meta);
+        head.append(lead, titles, btn(null, {
+            ghost: true, iconOnly: true, sm: true, icon: 'x', aria: 'Remind me later', action: 'kit-later', onClick: () => closeKitNudge('later'),
+        }));
+        const go = btn('Save kit', {
+            icon: 'download',
+            action: 'kit-save',
+            onClick: () => {
+                if (typeof window.switchTab === 'function') window.switchTab('settings');
+                if (window.SettingsView && typeof window.SettingsView.openSettingsPage === 'function') window.SettingsView.openSettingsPage('devices');
+            },
+        });
+        go.classList.add('wg-btn--block');
+        const never = btn("Don't remind me again", { ghost: true, sm: true, action: 'kit-never', onClick: () => closeKitNudge('never') });
+        card.append(head, el('p', 'wg-hint', 'If you ever lose every device, this one-page kit gets you back in. Nobody can reset it for you.'), go, never);
+        paintKitCard(card, kitStatus);
+        loadNudgeStatus(api, KIT_NUDGE_KEY, '/api/protection/kit-nudge', setKitStatus);
         return card;
     }
 
@@ -3270,6 +3333,9 @@
         // W4: below Next up, above the tiles (bd med-ta2n.4).
         const protect = renderProtectCard();
         if (protect) { root.appendChild(protect); }
+        // Its cloud twin, the kit nudge (bd med-ta2n.15): never both.
+        const kitNudge = renderKitNudgeCard();
+        if (kitNudge) { root.appendChild(kitNudge); }
 
         // After Next up, so the offer never pushes a due dose down (kit A1).
         const aiTrial = renderAITrialCard(state);

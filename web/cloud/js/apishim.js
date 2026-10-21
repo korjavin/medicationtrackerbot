@@ -717,6 +717,17 @@ export function createApiRouter(ctx, {
       protection.recordWritten(targetWindow);
       return { success: true };
     }
+    // Emergency Kit nudge (bd med-ta2n.15): an account only — local mode has
+    // no kit, and its W4 card is the one that speaks there. POST {action:
+    // 'later'|'never'}; the count is the shim's, not the caller's.
+    if (path === '/api/protection/kit-nudge' && !protection) {
+      const count = async () => userContentCount((await Promise.all([...USER_CONTENT_TYPES].map((t) => records.list(t)))).flat());
+      if (method === 'GET') return settings.getKitNudgeStatus({ records: await count() });
+      if (method === 'POST') {
+        await settings.setKitNudge(body && body.action, await count());
+        return { success: true };
+      }
+    }
 
     // Reminder delivery pref (bd med-o7zq.3): the /api seam local-only mode's
     // lock-screen text choice uses (Settings → Reminders & notifications).

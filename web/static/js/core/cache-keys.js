@@ -113,6 +113,11 @@
             tag: 'protection',
             description: 'W4 protect-your-data status (GET /api/protection/status, local mode only): the Today card; revalidated on every Today render, written optimistically by its × / Later (bd med-ta2n.4).'
         },
+        kit_nudge_status: {
+            key: 'kit_nudge_status',
+            tag: 'protection',
+            description: 'Emergency Kit nudge status (GET /api/protection/kit-nudge, cloud mode only): the Today card; revalidated on every Today render, written optimistically by its × and "Don\'t remind me again" (bd med-ta2n.15).'
+        },
         trackers: {
             key: 'trackers',
             tag: 'trackers',

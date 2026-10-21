@@ -500,6 +500,11 @@ its per-device `wg.backup.last` stamp only snoozes the nudge 14 days. A local
 export stamps its own `last_backup_at` (`recordsToVault` `backupAt`), so a
 restored backup remembers being one. The local → cloud move stash carries no
 `protection` block: the nudge is local-only.
+The record's `kitNudge` (`{lastShownAt, lastShownRecordCount, optedOut}`, the cloud
+Emergency Kit nudge, bd med-ta2n.15) is account state like `emergencykit` and is
+never exported: a record holding only `kitNudge` emits no block. Importing a file
+that has a block replaces the record, so an account's kit-nudge snooze/opt-out
+resets (the nudge can show again; the Settings Kit chip is unaffected).
 A file without the key (every older backup) leaves the destination's record alone:
 `managedTypesForImport` drops `protection` from the replace, like the secret blocks.
 An unparseable timestamp is dropped on import, never fatal. Older clients ignore

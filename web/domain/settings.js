@@ -88,6 +88,15 @@ const PROTECT_MIN_RECORDS = 20;
 const PROTECT_AFTER_MS = 7 * DAY_MS;
 const PROTECT_SNOOZE_MS = 14 * DAY_MS;
 const PROTECT_MAX_DISMISSALS = 2;
+// The Emergency Kit nudge (bd med-ta2n.15), cloud only: protection.kitNudge
+// {lastShownAt, lastShownRecordCount, optedOut}, written only by the card's
+// × (lastShownAt = the showing the user closed, with the count at the time)
+// and "Don't remind me again" (optedOut). First shown 2 days after sync is on
+// with 10 records; after a ×, again once the count doubles or after 30 days.
+const KIT_NUDGE_MIN_RECORDS = 10;
+const KIT_NUDGE_AFTER_MS = 2 * DAY_MS;
+const KIT_NUDGE_GROWTH = 2;
+const KIT_NUDGE_REPEAT_MS = 30 * DAY_MS;
 // W3 Today "Start here" (bd med-ta2n.3): the W1 modules in picker order and
 // the record types whose first live row means "this module has a record".
 // Workouts count a plan or a session (an ad-hoc session has no plan); Diary
@@ -448,7 +457,56 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return {
       lastBackupAt: (rec && Number.isFinite(rec.lastBackupAt)) ? rec.lastBackupAt : null,
       nudgeDismissedAt: (rec && Array.isArray(rec.nudgeDismissedAt)) ? rec.nudgeDismissedAt.filter(Number.isFinite) : [],
+      // Carried through every rewrite (markBackup, dismissNudge) untouched.
+      ...(rec && rec.kitNudge && typeof rec.kitNudge === 'object' ? { kitNudge: rec.kitNudge } : {}),
     };
+  }
+
+  function kitNudgeOf(p) {
+    const k = p.kitNudge || {};
+    return {
+      lastShownAt: Number.isFinite(k.lastShownAt) ? k.lastShownAt : null,
+      lastShownRecordCount: Number.isFinite(k.lastShownRecordCount) ? k.lastShownRecordCount : 0,
+      optedOut: k.optedOut === true,
+    };
+  }
+
+  // records: the live user-record count, computed by the caller. Sync-on
+  // baseline: the kit record's savedAt while it reads how 'none' (the claim
+  // ceremony files it at sign-in, a rotation when the old kit dies), else
+  // the firstrun record's clientTs (an account older than the kit record).
+  async function getKitNudgeStatus({ records: count = 0 } = {}) {
+    const kit = await getEmergencyKit();
+    const k = kitNudgeOf(await getProtection());
+    const kitSaved = !!kit && kit.how !== 'none';
+    const fr = findSingleton(await records.list(FIRSTRUN_RECORD_TYPE), FIRSTRUN_RECORD_ID);
+    const since = kit && Number.isFinite(kit.savedAt) ? kit.savedAt : ((fr && fr.clientTs > 0) ? fr.clientTs : null);
+    const t = now();
+    let nudge = false;
+    if (!kitSaved && !k.optedOut && since != null) {
+      nudge = k.lastShownAt == null
+        ? count >= KIT_NUDGE_MIN_RECORDS && t - since >= KIT_NUDGE_AFTER_MS
+        : count >= Math.max(KIT_NUDGE_MIN_RECORDS, k.lastShownRecordCount * KIT_NUDGE_GROWTH)
+          || t - k.lastShownAt >= KIT_NUDGE_REPEAT_MS;
+    }
+    return { records: count, kitSaved, ...k, nudge };
+  }
+
+  // action 'later' (×) or 'never' (Don't remind me again). A deliberate
+  // user write: now() + put, never a derived row.
+  async function setKitNudge(action, count = 0) {
+    if (action !== 'later' && action !== 'never') {
+      const err = new Error(`Unknown kit nudge action: ${action}`);
+      err.code = 'invalid_kit_nudge';
+      throw err;
+    }
+    const p = await getProtection();
+    const k = kitNudgeOf(p);
+    const kitNudge = action === 'never'
+      ? { ...k, optedOut: true }
+      : { ...k, lastShownAt: now(), lastShownRecordCount: count };
+    await putProtection({ ...p, kitNudge });
+    return kitNudge;
   }
 
   async function putProtection(p) {
@@ -545,6 +603,8 @@ export function createSettingsDomain({ records, now, timeZone }) {
     markBackup,
     dismissNudge,
     getProtectionStatus,
+    getKitNudgeStatus,
+    setKitNudge,
     getTGPrefsNote,
     setTGPrefsNote,
     getVoiceProvisioning,
