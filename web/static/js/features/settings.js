@@ -1360,7 +1360,7 @@ function openSettingsPage(name) {
     if (!store || !body || !window.WGPage) return null; // absent, or already open
     // The row this mode shows: local mode opens 'backup' from the W5 card.
     const rows = Array.from(document.querySelectorAll(`[data-settings-open="${name}"]`));
-    const row = rows.find((r) => !r.matches(':root.wg-local-vault .wg-cloud-only, :root:not(.wg-local-vault) .wg-local-only')) || rows[0];
+    const row = rows.find((r) => !isSettingsSectionHidden(r)) || rows[0];
     const title = row?.querySelector('.wg-setting__title, .wg-row__title')?.textContent.trim() || name;
     let page = null;
     page = window.WGPage.push({

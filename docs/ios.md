@@ -134,7 +134,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   the lock with Unlock enabled and no re-prompt; home → back locks; Settings →
   App lock off → relaunch opens unlocked. Leaves the lock off.
 - **Backup flows** ([`FlowQABackupTests.swift`](../ios/UITests/FlowQABackupTests.swift),
-  bd med-w6gx.23.4): `testBackupExport` — Export backup → the passphrase
+  bd med-w6gx.23.4): `testBackupExport` — Save a backup → the passphrase
   sheet → *Backup ready* → Save to device, plain then with a
   passphrase (`.age`): each file sits in `tmp/wg-downloads` while the Files
   export picker shows and is gone once it is swiped away (med-o7zq.43). `testRestoreFromFile` — restore via
@@ -738,7 +738,7 @@ search left the sheet entirely below the visible area. `noFocusZoom()` adds
 
 The shell does not set `ignoresViewportScaleLimits` (med-r6sh). With it on
 (PR #1115 to build 351) the app pinch-zoomed as in Safari, but the page was
-scalable again and a double-tap on a card (Settings → On this device only)
+scalable again and a double-tap on a card (Settings → Sync & backup)
 zoomed it, `touch-action: manipulation` on `html, body` (PR #1177)
 notwithstanding. Honouring the cap makes the scroll view's minimum and maximum
 zoom equal, and WebKit turns double-tap gestures off for a page it cannot scale.
@@ -763,7 +763,7 @@ viewport. The tests pin the viewport cap and the dock's arithmetic
    screen with its header fully visible.
 5. Repeat step 1 with a 15px field, for example a Settings
    number field. It must not zoom either.
-6. App: double-tap Settings → On this device only, and any other card. The
+6. App: double-tap Settings → Sync & backup, and any other card. The
    page must not zoom. Pinch does not zoom in the app either (Mobile Safari
    still pinch-zooms).
 
@@ -843,8 +843,8 @@ a Web Push subscription.
       confirm → first-run → scan a valid invite QR → claims.
    b. Same with an expired or garbage `#claim=` token.
    c. Kill and relaunch while stuck on `/unlock` → the bar is still there.
-   d. Local mode: Settings → Backup → Move to a cloud account → bad invite →
-      the bar → "Only on this device" → local data intact.
+   d. Local mode: Settings → Sync & backup → Paste a bad invite → the F1
+      sheet's error, nothing leaves → local data intact.
    e. A returning user at `/unlock` ignores the bar and unlocks as before.
 7. Claiming in the app goes from the Emergency Kit (and Telegram, when
    offered) straight into the app: no "Add to your Home Screen" step.
@@ -964,13 +964,13 @@ mode, gated on the bridge platform being `ios` or `android`
   reachable with the keyboard up. At launch the shell logs (`os_log`,
   category `shell`) the mode, whether a host is stored and the local data
   dir count — no host name.
-  Settings opens on an *On this device only* row in local mode.
+  Settings opens on the *Sync & backup* card in local mode (bd med-ta2n.5).
 - **Lock** (bd med-o7zq.8, [`LocalLock.swift`](../ios/App/LocalLock.swift)):
   optional, off by default; opted into on the local intro (*Lock with Face
   ID*, shown when the phone has a passcode and starting on when a lock is
   still on from an earlier stay; *Start* turns it on, or that one off, only
   after a successful check), the in-app Settings → *App lock* row (bd
-  med-o7zq.39, under *On this device only*; bridge ops `lock.status` →
+  med-o7zq.39, under *Sync & backup*; bridge ops `lock.status` →
   `{on, available}` and `lock.set {on}` → the same check as *Start*, `true`
   once applied, `false` when cancelled or there is no passcode to turn it on
   with) or iPhone Settings → Med Tracker → *Lock*. The row and the iPhone

@@ -1111,6 +1111,25 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(bridge).not.toHaveBeenCalledWith('invite.clear');
         });
 
+        // A stash the shell refuses must never be followed by the leave: the
+        // account would open with none of these records.
+        it('a rejected move.stash stops before local.leave; the P3 sheet says why', async () => {
+            const { window, document } = env;
+            allowConsoleNoise();
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            bridge.mockImplementation(async (op) => {
+                if (op === 'shell.ops') return bootShellOps;
+                if (op === 'move.stash') throw new Error('too large');
+                return op === 'setEgressHosts' ? { changed: false } : true;
+            });
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            const p3 = await sync(document);
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(p3.querySelector('.wg-error').textContent).toMatch(/too large/));
+            expect(leaveOps()).toEqual([['move.stash']]);
+        });
+
         it('Not now closes "Turn on sync?" with nothing stashed', async () => {
             const { window, document } = env;
             await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
