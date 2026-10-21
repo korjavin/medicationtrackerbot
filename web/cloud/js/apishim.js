@@ -634,12 +634,13 @@ export function createApiRouter(ctx, {
 
     // W3 Today "Start here" (bd med-ta2n.3): read on every Today render.
     if (path === '/api/today/start-here' && method === 'GET') {
-      // userContentCount > 0, short-circuited: type by type (medication, bp, …
-      // before the big sample histories), stop at the first live record.
+      // vault.js userContentCount > 0, short-circuited: type by type
+      // (medication, bp, … before the big sample histories), stop at the
+      // first live record. Per type because list() rows carry no recordType.
       return settings.getStartHere({
         hasContent: async () => {
           for (const t of USER_CONTENT_TYPES) {
-            if (t !== 'gamification' && userContentCount(await records.list(t)) > 0) return true;
+            if (t !== 'gamification' && (await records.list(t)).some((r) => !r.deleted)) return true;
           }
           return false;
         },
