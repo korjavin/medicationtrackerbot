@@ -1301,6 +1301,23 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(sheet(document)).not.toBeNull());
             });
 
+            // ...but not for good: a shell that never answers holds W1 for at
+            // most FORCED_PROBE_MS (a white screen is worse than a missed F1).
+            it('?invite=1 gives up on a shell that never answers after 15 s', async () => {
+                const { window } = env;
+                window.history.replaceState(null, '', '/?invite=1');
+                slotted(null);
+                window.LocalNotifications.__native.has = vi.fn(() => new Promise(() => {}));
+                const timers = vi.spyOn(window, 'setTimeout');
+                let done = false;
+                const gate = window.InviteSheet.boot().then(() => { done = true; });
+                await vi.waitFor(() => expect(timers.mock.calls.some((c) => c[1] === 15000)).toBe(true));
+                expect(done).toBe(false);
+                timers.mock.calls.find((c) => c[1] === 15000)[0]();
+                await gate;
+                expect(done).toBe(true);
+            });
+
             describe('with no records on this device (the Play-referrer first launch)', () => {
                 beforeAll(() => { healthOn = false; });
                 afterAll(() => { healthOn = true; });
