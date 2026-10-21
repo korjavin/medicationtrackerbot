@@ -33,6 +33,7 @@
 //                     here" (P3 · Android, any shell); account mode → the
 //                     "Switch account?" D1. kit: entered from Settings (W5/W4),
 //                     appends &kit=1 to the claim fragment (contract §8).
+//   pending()         → claim URL | null: the slot's live invite, read-only.
 //   boot()            ONE invite.pending read per page (contract §8), called by
 //                     auth-bootstrap.js before W1 mounts; null outside a shell,
 //                     else a promise that settles when W1 may mount (the "Your
@@ -573,6 +574,17 @@
         await inviteReady(invite.claimUrl);
     }
 
+    // The shell slot's invite as a claim URL, or null (no v3 shell, empty,
+    // stale or unparseable). Read-only: boot()'s route owns clearing a stale
+    // slot. The W4 sheet (today.js) reads it for "An invite is waiting."
+    async function pending() {
+        var n = native();
+        if (!n || (await within(n.has('invite.pending'), false)) !== true) return null;
+        var slot = await within(n.call('invite.pending'), null);
+        var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
+        return invite && slot.receivedAt > Date.now() - STALE_MS ? invite.claimUrl : null;
+    }
+
     var booted = null;
     function boot() {
         var n = native();
@@ -583,5 +595,5 @@
         return booted;
     }
 
-    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot };
+    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending };
 })();

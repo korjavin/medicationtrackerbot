@@ -108,6 +108,11 @@
             tag: ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'],
             description: 'Goal Line read model (GET /api/gamification/goal-line): weight goal on the trend + workout/BP facts + one CTA. Today hero + Journey goal-context card. Bootstrap-warmed from res.gamification_goal_line so the Today card renders on a cold-start/offline relaunch.'
         },
+        protection_status: {
+            key: 'protection_status',
+            tag: 'protection',
+            description: 'W4 protect-your-data status (GET /api/protection/status, local mode only): the Today card; revalidated on every Today render, written optimistically by its × / Later (bd med-ta2n.4).'
+        },
         trackers: {
             key: 'trackers',
             tag: 'trackers',

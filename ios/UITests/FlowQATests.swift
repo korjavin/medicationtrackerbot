@@ -12,32 +12,33 @@ import XCTest
 /// One flow: `xcodebuild test-without-building ... -only-testing:MedTrackerUITests/FlowQATests/testLocalFirstRun`.
 @MainActor
 final class FlowQATests: XCTestCase {
-    /// First run → "Only on this device" → intro (lock off) → Start → the app
-    /// (seeded by the QA driver) → relaunch with no arguments: local mode
-    /// persisted, no first-run screen.
+    /// Cold launch with no account (bd med-ta2n.17): no native first run — the
+    /// app opens straight into local mode's web W1 picker, with the v3 shell's
+    /// "Have an invite?" footer. Then the app (seeded by the QA driver) →
+    /// relaunch with no arguments: still local, the mode persisted.
     func testLocalFirstRun() {
         continueAfterFailure = false
         let flow = "local-first-run"
         let app = XCUIApplication()
-        // NSArgumentDomain over any persisted choice: first-run, and the QA
-        // driver's scene once local mode opens (it seeds the golden vault and
-        // completes the web onboarding, tests/visual/driver.js).
-        app.launchArguments = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgQAScene", "today"]
+        // A fresh install: no account, no local-mode choice, an empty local store.
+        let fresh = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgLocalLockOn", "NO"]
+        app.launchArguments = fresh
+        app.launch() // the container exists from here on
+        app.terminate()
+        QA.wipeWebData()
         app.launch()
 
-        let onlyHere = app.buttons["Only on this device"]
-        XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
-        shot(flow, "first-run")
-        onlyHere.tap()
+        XCTAssertTrue(QA.w1Shows(app, timeout: 60), "the cold launch did not open the web W1 picker")
+        let invite = app.webViews.buttons["Have an invite?"].waitForExistence(timeout: 10)
+        shot(flow, "cold-launch")
+        XCTAssertTrue(invite, "W1 has no \"Have an invite?\" footer (shell.ops lacks invite.pending?)")
+        XCTAssertFalse(app.buttons["Only on this device"].exists, "a native first run showed")
+        app.terminate()
 
-        let start = app.buttons["Start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
-        // The lock toggle shows only where Face ID / a passcode is set up.
-        let lock = app.switches.firstMatch
-        if lock.exists { XCTAssertEqual(lock.value as? String, "0", "the intro's lock toggle starts on") }
-        shot(flow, "intro")
-        start.tap()
-
+        // The QA driver's scene seeds the golden vault and completes the web
+        // onboarding (tests/visual/driver.js).
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "today"]
+        app.launch()
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the local app never published #wg-qa-ready")
         let inApp = QA.tabBarShows(app, timeout: 10)
         shot(flow, "app")
@@ -49,7 +50,7 @@ final class FlowQATests: XCTestCase {
         let back = QA.tabBarShows(app, timeout: 60)
         shot(flow, "relaunch")
         XCTAssertTrue(back, "after relaunch the local app shows no tab bar")
-        XCTAssertFalse(app.buttons["Only on this device"].exists, "after relaunch first run showed again")
+        XCTAssertFalse(app.buttons["Only on this device"].exists, "after relaunch a native first run showed")
         // The persisted choice itself, read from the app's container.
         XCTAssertNotNil(QA.appContainer(), "the app's data container is not visible to the test runner")
         XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "wgLocalMode is not persisted in the app's defaults")

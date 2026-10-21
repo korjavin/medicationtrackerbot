@@ -92,7 +92,7 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: invite
             CFBundleURLSchemes: [medtracker]
-        # First-run accepts only accounts at <sub>.<this> (Shell.swift, AccountURL.swift).
+        # Invites open only accounts at <sub>.<this> (Shell.swift, AccountURL.swift).
         WGBaseDomain: $(WG_BASE_DOMAIN)
         # The app's screens are dark (--wg-bg-screen) in both system appearances.
         UIViewControllerBasedStatusBarAppearance: false

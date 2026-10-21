@@ -622,7 +622,7 @@ The handoff's `AppHeader` (title + date) was never adopted, so no screen has a t
 - **Settings home rows are built imperatively** by three modules (App lock `cloud/js/local-policy.js:175`, Health `cloud/js/health-import.js:239`, Feedback). Their order depends on mount timing.
 - **High-stakes data choices use generic dialogs**:
   - Merge / Replace for move and leave pickups is a `safeChoose` with a paragraph of prose (`static/js/features/settings/importexport.js:316`).
-  - The local backup reminder is only a toast (`cloud/js/local-policy.js:425`).
+  - ~~The local backup reminder is only a toast~~ — replaced by the Today protect-your-data card and sheet (W4, bd med-ta2n.4).
   - Erase and leave use `safeConfirm` (`static/js/features/settings.js:744,936-1010`).
 - **Trial consent is a wall of text**: the iOS and Android device-trial paragraphs run to about 120 words each (`static/js/features/trial-consent.js:57`, `static/js/native/attest.js:69`), and the AI trial is offered from three places with three different shapes: Today card, Settings card or switch, onboarding step.
 - **The local-mode "Move to a cloud account" exists twice**: as a Settings-home row (seamless move) and as a 3-step manual list in Backup (`index.html:510`, `:1189`), with different wording.
