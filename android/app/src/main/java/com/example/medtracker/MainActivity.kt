@@ -596,6 +596,16 @@ class MainActivity : Activity() {
         }
 
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+            // A mode switch from a page with a dialog open (the wizard's "Use another invite", F1's
+            // Continue) races the dialog's own history.back(): WebView delivers it late, it lands after
+            // reopen()'s load and the old vault's page stays (bd med-ta2n.12). Only the open vault's
+            // origin belongs here (isInside), so anything else committing is that stale page: load again.
+            val u = url?.let(Uri::parse)
+            if (u != null && (u.scheme == "https" || u.scheme == "http") && !isInside(u.host)) {
+                diag("shell stale page after a mode switch")
+                view.post { reopen(lastUrl?.takeIf { isInside(Uri.parse(it).host) } ?: home) }
+                return
+            }
             // The ceremony pages leave by full navigation, so every commit is seen here.
             val ceremony = AccountUrl.isCeremony(url, base)
             // Leaving /unlock, /claim or /recover for the app (bd med-nt9p.33): Back on Today
