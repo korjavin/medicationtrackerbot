@@ -217,6 +217,8 @@ export default async function moveOps(ctx) {
   // A native exit from local mode (Switch account / "Use an account instead") abandons a pending move
   // (bd med-nt9p.49); the page's local.leave (above) keeps it. Only a fresh stash for the next account may remain.
   await ctx.step('native forget from local mode drops the move stash', async () => {
+    await shell(`am force-stop ${pkg}`);
+    await sleep(2000);
     await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
     await ctx.waitFor({ text: 'Only on this device' }, 60_000);
     await start();
