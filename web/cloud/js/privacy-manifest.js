@@ -749,6 +749,35 @@ export const PRIVACY_MANIFEST = [
       detail: 'Sending feedback through the bot is not the same as sending it from inside the app. Telegram delivers it in the clear, the server reads your text and downloads any voice note or screenshot to package it, and it then copies your original message straight into the developer\'s Telegram chat — so both the operator and the developer see the contents. Your name is not attached, but nothing about this path is encrypted before it reaches the server. Use the in-app feedback form if you would rather the operator could not read it.',
     },
   },
+  {
+    // bd med-ta2n.14: "Request an invite" — the in-app email form (on-device
+    // mode's Settings → Sync & backup) and the manager bot's "yes" both file a
+    // request the admin approves in Telegram; an approved email request is
+    // mailed the claim link through the operator's SMTP relay.
+    id: 'invite-request',
+    feature: 'Invite requests (email form or the Telegram bot)',
+    boundary: 'carve-out',
+    data: 'Your email address and optional note (email form), or your Telegram chat and user id (bot); the admin\'s ping shows the address and note. On approval, the invite email — the claim link — goes to that address. Your IP address is kept only as a salted hash for rate limiting',
+    destination: 'The operator\'s server (plaintext), the admin\'s Telegram chat, and — for an approved email request — the operator\'s SMTP relay and your mail provider',
+    operatorVisibility: 'plaintext',
+    retention: 'The request row (address, note, IP hash, decision) is deleted 90 days after it was made; the admin-chat ping stays in that Telegram chat; the sent email is kept per the SMTP relay\'s and your mail provider\'s own policy',
+    activation: 'user-initiated',
+    activationNote: 'only when you send the form or answer "yes" to the bot, and only if the operator has turned requests on',
+    byo: 'n/a — or skip it: an invite link someone sends you needs no request',
+    evidence: [
+      'internal/cloudserver/invite_request.go:92',
+      'internal/cloudserver/invite_request.go:197',
+      'internal/cloudserver/invite_request.go:326',
+      'internal/cloudserver/mailer.go:79',
+    ],
+    code: { go: ['internal/cloudserver/invite_request.go', 'internal/cloudserver/mailer.go'], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'visible',
+      title: 'An invite request, if you send one',
+      detail: 'Asking for an invite — from the app\'s "Request an invite" form or by answering "yes" to the Telegram bot — sends the operator your email address and note (or your Telegram id) in the clear, and the admin sees them in Telegram to approve or decline. If an emailed request is approved, the invite link is sent to that address through the operator\'s mail relay, so the relay and your mail provider see the email. Nothing from your records is sent. The request is deleted after 90 days; your IP address is kept only as a salted hash, to limit how often requests can be sent.',
+    },
+  },
 
   // ==========================================================================
   // On-device mode (bd med-o7zq.3; Android bd med-nt9p.32): the "Only on this
@@ -783,8 +812,8 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'On-device mode (iPhone and Android apps) — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below)',
-    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above); only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); and an invite request you send from Settings → Sync & backup (the invite-request row)',
+    destination: 'Only those providers, plus our server for the free trial while it is on (and, for trial voice calls, the operator\'s ElevenLabs account) and for an invite request you send. The app\'s CSP lists our server whenever the app knows it, but nothing calls it otherwise, and admits no other host; every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
@@ -796,7 +825,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request. Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
     },
   },
   {
