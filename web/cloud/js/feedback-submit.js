@@ -141,15 +141,22 @@ export async function enqueueFeedback(bundle, { shouldAbort } = {}) {
     app_version: appVersion(),
     created_at: new Date().toISOString(),
   };
-  const ciphertext = await encryptToRecipient(serializeFeedback(bundle, meta), recipient);
-  await putFeedbackItem({
-    client_id: meta.client_id,
-    kind: meta.kind,
-    app_version: meta.app_version,
-    ciphertext,
-    attempts: 0,
-    created_at: meta.created_at,
-  });
+  try {
+    const ciphertext = await encryptToRecipient(serializeFeedback(bundle, meta), recipient);
+    await putFeedbackItem({
+      client_id: meta.client_id,
+      kind: meta.kind,
+      app_version: meta.app_version,
+      ciphertext,
+      attempts: 0,
+      created_at: meta.created_at,
+    });
+  } catch (e) {
+    // Local: the sheet must not say "sent" for what never reached the
+    // outbox (a storage quota, a failed seal) — keep it open, say so.
+    if (transport) throw Object.assign(new Error(String(e && e.message)), { userMessage: 'Your feedback could not be saved on this phone. Your message was not sent.' });
+    throw e;
+  }
   if (transport) {
     // Local: wait for the first attempt (each step is bounded) and report it.
     awaiting.set(meta.client_id, 'queued');
@@ -158,6 +165,11 @@ export async function enqueueFeedback(bundle, { shouldAbort } = {}) {
     } catch { /* stays queued; the backoff retries */ }
     const outcome = awaiting.get(meta.client_id);
     awaiting.delete(meta.client_id);
+    // The sheet closed while it waited: it cannot show a refusal, so the
+    // next one does.
+    if (outcome === 'dropped' && shouldAbort && shouldAbort() && transport.onDropped) {
+      transport.onDropped({ client_id: meta.client_id });
+    }
     return outcome;
   }
   // Cloud: delivery is the queue's job — the UI's "sent" is optimistic. Kick a
