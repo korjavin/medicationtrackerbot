@@ -949,6 +949,11 @@ func (a *AttestAPI) keyed(w http.ResponseWriter, r *http.Request, install clouds
 // 403 trial_already_used and the row stays (the key keeps signing feedback).
 // A failed bit write revokes the grant again. The caller holds a.grantMu for
 // an Android recall-on enroll; every other kind takes it here.
+// Reach: Android re-enrolls the same Keystore key with a new integrity token.
+// Apple attests a key once, so the iOS shell's attest.enroll on an attested
+// key mints a NEW key (ios/App/Attest.swift): an iOS upgrade arrives as a
+// fresh key on the ordinary grant path, and this branch serves only a client
+// replaying a key's attestation over a new challenge (tests).
 // SECURITY: the tokens and the pass are never logged.
 func (a *AttestAPI) upgrade(w http.ResponseWriter, r *http.Request, in *cloudstore.AttestInstall, deviceToken string, recall *playintegrity.DeviceRecall, integrityToken string) {
 	ctx := r.Context()
