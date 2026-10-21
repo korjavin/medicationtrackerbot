@@ -1771,10 +1771,20 @@ describe('W4 protect-your-data card', () => {
         setup();
         await flush();
         act(card(), 'protect-open').click();
+        expect(sheet().querySelector('.wg-sheet__body .wg-hint').textContent).toBe("Pick Later and we'll remind you again in 2 weeks.");
         act(sheet(), 'protect-later').click();
         expect(sheetOpen()).toBe(false);
         expect(card()).toBeNull();
         await flush();
         expect(api).toHaveBeenCalledWith('/api/protection/dismiss', 'POST');
+        env.cleanup();
+
+        // Second showing: Later is the last time.
+        setup();
+        status.dismissedCount = 1;
+        env.paint();
+        await flush();
+        act(card(), 'protect-open').click();
+        expect(sheet().querySelector('.wg-sheet__body .wg-hint').textContent).toBe("Pick Later and we won't ask again.");
     });
 });

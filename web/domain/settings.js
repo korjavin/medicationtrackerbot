@@ -82,8 +82,8 @@ export const PROTECTION_RECORD_TYPE = 'protection';
 const PROTECTION_RECORD_ID = 'protection';
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Shown once the log is worth losing: 20 records or 7 days since first run,
-// whichever first; × snoozes 14 days; after the second × only the Settings
-// chip remains.
+// whichever first; × snoozes 14 days; the second × stops it for good (the
+// Settings chip, med-ta2n.5, keeps reading the status).
 const PROTECT_MIN_RECORDS = 20;
 const PROTECT_AFTER_MS = 7 * DAY_MS;
 const PROTECT_SNOOZE_MS = 14 * DAY_MS;
