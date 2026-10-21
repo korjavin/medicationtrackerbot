@@ -98,13 +98,33 @@ const ctx = {
     }
   },
   /**
-   * Cold start on the first-run screen: the Switch account action forgets any stored account.
+   * Cold start through the launcher's Switch account (bd med-ta2n.12: there is no native first run):
+   * any stored account forgotten, local mode on home?invite=1, so the web's F1 "Have an invite?"
+   * sheet is open (over W1 on an empty device). Returns the page.
    * softAuthn: the debug-only QA soft authenticator (bd med-nt9p.25, src/debug/DebugHooks.kt).
    */
   async launch({ softAuthn = false } = {}) {
     await shell(`am force-stop ${pkg}`);
+    await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
     await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity${softAuthn ? ' --ez qaSoftAuthn true' : ''}`);
-    await ctx.waitFor({ text: 'Continue' });
+    return ctx.localPage((page) => page.locator('[data-invite-action="paste"]').waitFor({ state: 'visible', timeout: 90_000 }));
+  },
+  /** The shell's page on the local origin once `ready(page)` resolves; one re-attach when the first target closes under us. */
+  async localPage(ready) {
+    // ponytail: one re-attach (run 39249851915, right after pm clear: "Target page, context or browser has been closed").
+    for (let attempt = 1; ; attempt++) {
+      const page = await ctx.attachPage();
+      if (!page) throw new Error('no WebView page (see the run log)');
+      try {
+        await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
+        await ready(page);
+        return page;
+      } catch (e) {
+        if (attempt > 1 || !/has been closed/.test(String(e?.message))) throw e;
+        log('local page closed while waiting; re-attaching');
+        await ctx.sleep(2000);
+      }
+    }
   },
   /**
    * Cold start in local mode (bd med-nt9p.32.6) with the debug-only extras of bd med-nt9p.32.4:
@@ -118,21 +138,7 @@ const ctx = {
     await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
     const extras = `${extra ? ' --ez wgLocalMode true' : ''}${scene ? ` --es wgQAScene ${scene}` : ''}${softAuthn ? ' --ez qaSoftAuthn true' : ''}`;
     await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity${extras}`);
-    // ponytail: one re-attach when the first target closes under us (run 39249851915, right after
-    // pm clear: "Target page, context or browser has been closed").
-    for (let attempt = 1; ; attempt++) {
-      const page = await ctx.attachPage();
-      if (!page) throw new Error('no WebView page (see the run log)');
-      try {
-        await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-        await ctx.waitLocalReady(page, scene);
-        return page;
-      } catch (e) {
-        if (attempt > 1 || !/has been closed/.test(String(e?.message))) throw e;
-        log('local page closed while waiting; re-attaching');
-        await ctx.sleep(2000);
-      }
-    }
+    return ctx.localPage((page) => ctx.waitLocalReady(page, scene));
   },
   /** The local app is up: #wg-qa-ready attached (scene; the first one seeds + reloads) or the bottom nav visible. */
   async waitLocalReady(page, scene) {
@@ -170,18 +176,35 @@ const ctx = {
       }
     }
   },
-  /** First run → type a link → Continue (N1). */
-  async openLink(url, { shotTyped = false } = {}) {
-    await device.fill({ clazz: 'android.widget.EditText' }, url);
-    if (shotTyped) await ctx.shot('typed');
-    // At a large font scale the keyboard covers Continue (local mode's row sits above the form,
-    // bd med-nt9p.32.4) and the tap lands on it: Back closes the keyboard first (never the app,
-    // the system gives Back to a shown IME).
-    if (/mInputShown=true|mIsInputViewShown=true|isInputViewShown=true/.test(await shell('dumpsys input_method'))) {
-      await shell('input keyevent KEYCODE_BACK');
-      await ctx.sleep(700);
+  /**
+   * The web's way onto an account (bd med-ta2n.12), on the F1 sheet launch() leaves open: Paste
+   * (the emulator's clipboard holds no invite, so the field shows) → type the link → Continue →
+   * "Your invite is here" (no records) or "Turn on sync?" (records) → its button, which runs
+   * CloudVault.moveToCloud = move.stash + local.leave {url}. move: false (the default) answers
+   * move.stash in the page without writing a stash, so the account scenarios test the claim, not
+   * the pickup (move-ops and local-to-cloud-seamless own that). The page goes away after the tap.
+   */
+  async openLink(url, { shotTyped = false, move = false } = {}) {
+    const page = ctx.page;
+    if (!page) throw new Error('openLink: no page (launch() first)');
+    const field = page.locator('[data-invite-field]');
+    if (!(await field.isVisible())) {
+      await page.locator('[data-invite-action="paste"]').click();
+      await field.waitFor({ state: 'visible', timeout: 10_000 });
     }
-    await device.tap({ text: 'Continue' });
+    await field.fill(url);
+    if (shotTyped) await ctx.shot('typed');
+    if (!move) {
+      await page.evaluate(() => {
+        const n = window.LocalNotifications.__native;
+        const call = n.call.bind(n);
+        n.call = (op, args) => (op === 'move.stash' ? Promise.resolve(true) : call(op, args));
+      });
+    }
+    await page.locator('[data-invite-action="submit"]').click();
+    const go = page.locator('[data-invite-action="sign-in"], [data-invite-action="turn-on-sync"]').first();
+    await go.waitFor({ state: 'visible', timeout: 30_000 });
+    await go.click().catch((e) => log('openLink: the page went during the tap:', String(e?.message).split('\n')[0]));
   },
   /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the load-error screen (N4; every variant has Copy diagnostics). */
   async openAccount(url = 'https://down.qa.test/', opts = {}) {
@@ -189,7 +212,7 @@ const ctx = {
     await ctx.waitFor({ text: 'Copy diagnostics' });
   },
   /**
-   * Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard.
+   * Cold start → F1 → the run's invite → the WebView page on /unlock with the signup wizard.
    * kit: append &kit=1 (sync turned on from Settings), so the ceremony ends on the kit offer.
    */
   async openClaim(opts = {}) {

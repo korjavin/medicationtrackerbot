@@ -3,7 +3,7 @@
 // with `--es wgQAScene <name>` (debug-only, bd med-nt9p.32.4), the QA=1 bundle's driver seeds the
 // golden vault, navigates and publishes #wg-qa-ready; the scene's native steps run on the device;
 // then visual/android/<scene>.png (full device) + visual/android/<scene>.json (the ready node's report). Native-only
-// scenes open first run. Dark / font scale / landscape are the dispatch inputs, applied to every scene.
+// scenes are skipped (the native first run is gone, bd med-ta2n.12). Dark / font scale / landscape are the dispatch inputs, applied to every scene.
 // A failed scene still attaches its shot; the rest still run; the scenario fails at the end.
 // Not in `all` (~20 cold starts).
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -26,14 +26,16 @@ export default async function localVisual(ctx) {
   for (const scene of scenes) {
     if (scene.platform && scene.platform !== 'android') continue; // iOS-only native scenes (SwiftUI states)
     if (scene.cloudOnly) continue; // needs a cloud account; the local passes skip it, as iOS and Playwright do
-    const nativeOnly = scene.nativeOnly ?? scene.name.startsWith('native-');
+    // The shared native-only scenes are N1/N2 (the native first run): gone on Android (bd med-ta2n.12),
+    // still iOS's until med-ta2n.17. N3/N4 shots are native-screens / native-lock's.
+    if (scene.nativeOnly ?? scene.name.startsWith('native-')) continue;
     const s = (r[scene.name] = {});
     for (let attempt = 1; attempt <= 2; attempt++) {
       // A retry starts from the golden vault again: attempt 1 may have changed it (journey turns
       // gamification on, so its retry could never find the unchecked toggle).
       if (attempt > 1) await shell(`pm clear ${pkg}`);
       try {
-        await runScene(scene, nativeOnly);
+        await runScene(scene);
         s.error = undefined;
       } catch (e) {
         s.error = String(e?.message || e).split('\n')[0];
@@ -42,17 +44,15 @@ export default async function localVisual(ctx) {
       // The shot is taken either way: a failed scene shows what was on screen.
       const typing = (scene.native || []).some((n) => n.keyboard || n.type || n.tap);
       s.stableAfter = await ctx.stableShot(scene.name, { file: join(dir, `${scene.name}.png`), cap: typing ? 0 : 15 });
-      if (!nativeOnly) {
-        const json = await ctx.page?.evaluate(() => document.getElementById('wg-qa-ready')?.getAttribute('aria-label')).catch(() => null);
-        // No report at the shot = the page reloaded or navigated away: the shot proves nothing.
-        if (!json && !s.error) s.error = 'ready report gone at the shot';
-        if (json) {
-          writeFileSync(join(dir, `${scene.name}.json`), json);
-          const rep = JSON.parse(json);
-          s.ok = rep.ok; s.failed = rep.failed;
-          // As iOS: only lost ready content fails the scene; the probes are findings for med-y5xx.9.
-          if (!s.error && rep.failed?.includes('ready')) s.error = `ready content gone at the shot: ${rep.probes?.readyLost}`;
-        }
+      const json = await ctx.page?.evaluate(() => document.getElementById('wg-qa-ready')?.getAttribute('aria-label')).catch(() => null);
+      // No report at the shot = the page reloaded or navigated away: the shot proves nothing.
+      if (!json && !s.error) s.error = 'ready report gone at the shot';
+      if (json) {
+        writeFileSync(join(dir, `${scene.name}.json`), json);
+        const rep = JSON.parse(json);
+        s.ok = rep.ok; s.failed = rep.failed;
+        // As iOS: only lost ready content fails the scene; the probes are findings for med-y5xx.9.
+        if (!s.error && rep.failed?.includes('ready')) s.error = `ready content gone at the shot: ${rep.probes?.readyLost}`;
       }
       if (!s.error) break;
       if (attempt === 1) s.firstError = s.error; // a flake that passed on retry still shows
@@ -63,15 +63,10 @@ export default async function localVisual(ctx) {
     if (bad.length) throw new Error(bad.join(' | '));
   });
 
-  async function runScene(scene, nativeOnly) {
-    if (nativeOnly) {
-      await ctx.launch(); // first run (Switch account leaves local mode; the local data stays)
-      ctx.page = undefined;
-    } else {
-      const page = await ctx.launchLocal(scene.name);
-      const rep = JSON.parse(await page.locator('#wg-qa-ready').getAttribute('aria-label'));
-      if (rep.error) throw new Error(`driver: ${rep.error}`);
-    }
+  async function runScene(scene) {
+    const page = await ctx.launchLocal(scene.name);
+    const rep = JSON.parse(await page.locator('#wg-qa-ready').getAttribute('aria-label'));
+    if (rep.error) throw new Error(`driver: ${rep.error}`);
     for (const step of scene.native || []) await nativeStep(step);
     await sleep(1000); // keyboard and sheet animations settle; the driver re-publishes
   }

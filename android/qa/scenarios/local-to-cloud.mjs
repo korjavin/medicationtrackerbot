@@ -3,9 +3,9 @@
 // → Settings → Backup & import → Export backup → the passphrase sheet (left empty) → Backup ready
 // → Save to device (the file Files.kt wrote is read back from the device and checked against
 // tests/fixtures/vault-v1.json's shape) → Save to device → local.leave (the op the page's removed
-// "I have an invite" called, bd med-ckm5.7) → native first run → the runner's invite, claimed with the soft
+// "I have an invite" called, bd med-ckm5.7) → local mode with F1 (bd med-ta2n.12) → the runner's invite, claimed with the soft
 // authenticator → the new account's Restore of that file → the account lists the seeded records and
-// they reached the server → Switch account → Only on this device → Start → the local records are
+// they reached the server → Switch account → local mode (F1) → the local records are
 // all still there (nothing is erased by a move). results.localToCloud has the counts per vault list.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
 import { readFileSync } from 'node:fs';
@@ -55,7 +55,7 @@ export async function confirmDialog(page, timeout = 10_000) {
 }
 
 export default async function localToCloud(ctx) {
-  const { shell, pkg, sleep, device, log, LOCAL_ORIGIN } = ctx;
+  const { shell, pkg, sleep, device, log } = ctx;
   const r = (ctx.results.localToCloud = {});
   if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
   await shell(`pm clear ${pkg}`); // the golden vault exactly
@@ -118,16 +118,17 @@ export default async function localToCloud(ctx) {
   await sleep(1000);
   await ctx.stableShot('export-done');
 
-  // 2. The shell's first run through local.leave, the op the removed "I have an invite" button
-  //    called (bd med-ckm5.7; the seamless Move is local-to-cloud-seamless.mjs). The page goes
-  //    away right after the reply, hence the catch.
-  await ctx.step('local.leave → first run', async () => {
+  // 2. local.leave without a url (the op the removed "I have an invite" button called, bd med-ckm5.7;
+  //    the seamless Move is local-to-cloud-seamless.mjs): the shell stays in local mode and reloads
+  //    home?invite=1, so F1 opens (bd med-ta2n.12). The page goes away right after the reply.
+  await ctx.step('local.leave → local mode with F1', async () => {
     await page.evaluate(() => window.LocalNotifications.__native.call('local.leave')).catch(() => {});
-    await ctx.waitFor({ text: 'Only on this device' }, 20_000);
+    await sleep(2000);
+    page = await ctx.localPage((p) => p.locator('[data-invite-action="paste"]').waitFor({ state: 'visible', timeout: 60_000 }));
   });
-  await ctx.shot('first-run');
+  await ctx.shot('f1');
 
-  // 3. The runner's invite, claimed on the account origin.
+  // 3. The runner's invite through F1 → "Turn on sync?" (the file is the move here: no stash), claimed on the account origin.
   page = await ctx.step('open the invite → signup wizard', async () => {
     await ctx.openLink(ctx.claimUrl);
     const p = await ctx.attachPage();
@@ -205,20 +206,10 @@ export default async function localToCloud(ctx) {
   });
 
   // 5. Back to local mode: the move erased nothing there.
-  await ctx.step('Switch account → Only on this device → Start → local records intact', async () => {
-    await shell(`am force-stop ${pkg}`);
-    await sleep(2000);
-    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
-    await ctx.waitFor({ text: 'Only on this device' });
-    await ctx.shot('switch-first-run');
-    await device.tap({ text: 'Only on this device' });
-    await ctx.waitFor({ text: 'Start' });
-    await ctx.shot('intro');
-    await device.tap({ text: 'Start' });
-    page = await ctx.attachPage();
-    if (!page) throw new Error('no WebView page');
-    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    await ctx.waitLocalReady(page);
+  await ctx.step('Switch account → local mode (F1) → local records intact', async () => {
+    page = await ctx.launch(); // bd med-ta2n.12: Switch account lands in local mode with F1 open
+    await ctx.shot('switch-f1');
+    await page.locator('[data-invite-action="not-now"]').click();
     await page.waitForFunction(() => window.MedTrackerCloudReady, null, { timeout: 60_000 });
     await page.evaluate(() => window.MedTrackerCloudReady);
     r.localAfter = await vaultCounts(page);

@@ -1,7 +1,7 @@
 // Invite links at the shell (bd med-ta2n.12.1, contract med-ta2n.7 §3–§7; docs/android.md → Invite
 // links). adb delivers medtracker://i/<sub>#<tok> (through the manifest filter) and the landing
 // https://<base>/i/<sub>#<tok> (explicit InviteLinkActivity: qa.test has no verified App Link), cold
-// and warm, and the bridge reads the slot: cold first run → the field holds the claim URL, nothing
+// and warm, and the bridge reads the slot: cold first launch → local mode, the web's "Your invite is here", nothing
 // opens → cold local launch → invite.pending → warm local → home?invite=1 → local.leave {url}
 // (invalid urls refused, the move stash kept, the slot consumed) → warm account → home?invite=1 →
 // account.leave {url} (the move stash dropped) → local.reset clears the slot.
@@ -79,16 +79,20 @@ export default async function inviteLink(ctx) {
   };
 
   await shell(`pm clear ${pkg}`);
-  await ctx.step('cold first run: medtracker:// fills the field, opens nothing', async () => {
+  // bd med-ta2n.12: the first launch is local mode; the web reads the slot ("Your invite is here").
+  await ctx.step('cold first launch: medtracker:// → local mode, the slot, "Your invite is here", nothing opened', async () => {
     await view(scheme);
-    await ctx.waitFor({ text: want }, 60_000);
-    expect(await ctx.waitFor({ text: 'Continue' }, 5_000).then(() => true, () => false), 'not on the first run');
-    await ctx.shot('firstrun-prefilled');
+    const p = await ctx.localPage((pg) => pg.locator('[data-invite-action="sign-in"]').waitFor({ state: 'visible', timeout: 90_000 }));
+    await expectSlot(p, 'cold first launch');
+    await sleep(1500); // apply() writes the xml off-thread
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/accountHost/.test(xml) && /name="wgLocalMode" value="true"/.test(xml), `opened something: ${xml}`);
+    await ctx.shot('first-launch-invite-ready');
   });
 
   let page = await ctx.step('local mode: the slot persisted; invite.clear empties it', async () => {
     const p = await ctx.launchLocal('today');
-    await expectSlot(p, 'after the first run');
+    await expectSlot(p, 'after the first launch');
     await clear(p);
     const ops = await call(p, 'shell.ops');
     expect(ops.ok && ['invite.pending', 'invite.clear', 'clipboard.read'].every((o) => ops.result.includes(o)), `shell.ops ${JSON.stringify(ops)}`);
