@@ -9,6 +9,8 @@
 //                     footer, med-ta2n.1; the W5 page, med-ta2n.5).
 //   base()            → the shell's deployment domain, or '' (W5's "How to get
 //                     an invite" link).
+//   request()         the "Request an invite" sheet (bd med-ta2n.14, W5): email
+//                     + note → POST https://<base>/api/invite-requests.
 //   parse(raw, base?) → {claimUrl, sub} | null. Accepts the landing link
 //                     https://<base>/i/<sub>#<token>, the scheme link
 //                     medtracker://i/<sub>#<token>, the claim link
@@ -602,5 +604,178 @@
         return booted;
     }
 
-    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending, base: shellBase };
+    // ---- Request an invite (bd med-ta2n.14) --------------------------------
+    // The W5 page's "Request an invite": email + optional note, POSTed to
+    // https://<base>/api/invite-requests (the shell's deployment; local mode's
+    // CSP lists it, local-policy.js). The admin approves in Telegram and the
+    // server emails the invite — nothing comes back here but "sent". A 404
+    // means the operator has not turned the form on: say so and point at the
+    // landing page, whose contact line is the fallback. opts.base / opts.post
+    // replace the shell base and window.fetch (the visual QA driver).
+    var REQUEST_SENT = "Request sent — if it's approved, your invite arrives by email.";
+    var REQUEST_BUSY = 'Too many requests right now — try again in an hour.';
+    var REQUEST_OFF = "Requests aren't open in the app right now.";
+    var REQUEST_FAILED = "Couldn't send the request. Check your connection and try again.";
+    var REQUEST_BAD_EMAIL = 'Enter an email address like name@example.com.';
+    var NOTE_MAX = 500;
+
+    function note(tone, iconName, lead, text) {
+        var box = el('div', 'wg-note wg-note--' + tone);
+        box.setAttribute('role', tone === 'ok' ? 'status' : 'alert');
+        var i = el('i', 'wg-ico');
+        i.dataset.icon = iconName;
+        var body = el('div', 'wg-note__body');
+        var line = el('span');
+        if (lead) line.appendChild(el('b', null, lead + ' '));
+        line.appendChild(document.createTextNode(text));
+        body.appendChild(line);
+        box.append(i, body);
+        return { el: box, body: body };
+    }
+
+    function request(opts) {
+        if (document.getElementById('invite-request-sheet') || !window.WGSheet || !window.ModalManager) return;
+        opts = opts || {};
+        var modal = el('mt-modal', 'wg-modal wg-sheet wg-invite-sheet');
+        modal.id = 'invite-request-sheet';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        var backdrop = el('div', 'mt-confirm-backdrop wg-sheet-backdrop');
+        var head = window.WGSheet.header({
+            eyebrow: 'Sync',
+            title: 'Request an invite',
+            actions: [{ label: 'Close', icon: 'x', attrs: { 'data-invite-action': 'close' } }],
+        });
+        var body = el('div', 'wg-sheet__body');
+        var lede = el('p', 'wg-hint', "Sync is invite-only for now. Leave your email — if the request is approved, the invite arrives there.");
+
+        var emailField = el('div', 'wg-field');
+        var emailLabel = el('label', 'wg-label', 'Email');
+        emailLabel.htmlFor = 'invite-request-email';
+        var email = el('input', 'wg-input');
+        email.id = 'invite-request-email';
+        email.type = 'email';
+        email.autocomplete = 'email';
+        email.required = true;
+        email.placeholder = 'name@example.com';
+        email.setAttribute('autocapitalize', 'off');
+        email.setAttribute('inputmode', 'email');
+        var emailError = errorLine();
+        emailField.append(emailLabel, email, emailError);
+
+        var noteField = el('div', 'wg-field');
+        var noteLabel = el('label', 'wg-label', 'Note (optional)');
+        noteLabel.htmlFor = 'invite-request-note';
+        var noteInput = el('textarea', 'wg-input wg-textarea');
+        noteInput.id = 'invite-request-note';
+        noteInput.rows = 3;
+        noteInput.maxLength = NOTE_MAX;
+        noteInput.placeholder = 'Anything the admin should know';
+        noteField.append(noteLabel, noteInput, el('p', 'wg-hint', 'Up to ' + NOTE_MAX + ' characters.'));
+
+        var status = el('div', 'wg-vstack');
+        body.append(lede, emailField, noteField,
+            facts([['lock', 'What we send', 'Your email and your note. Nothing from your records.']], true),
+            status);
+
+        var foot = el('div', 'wg-sheet__foot');
+        var notNow = button('wg-btn wg-btn--ghost', 'Not now', null, 'not-now');
+        var send = button('wg-btn wg-btn--primary', 'Send request', 'message', 'send-request');
+        foot.append(notNow, send);
+        modal.append(el('div', 'wg-sheet__grab'), head.el, body, foot);
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(modal);
+
+        var busy = false;
+        function close() {
+            if (!modal.isConnected) return false;
+            document.removeEventListener('keydown', onKeydown, true);
+            window.ModalManager.close(modal.id);
+            window.ModalManager.register(modal.id, null);
+            modal.remove();
+            backdrop.remove();
+            return true;
+        }
+        function onKeydown(e) {
+            if (e.key === 'Escape') { e.preventDefault(); close(); }
+        }
+        function showStatus(box) {
+            status.replaceChildren();
+            if (box) status.appendChild(box);
+            if (box && window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(status);
+        }
+        function showEmailError(message) {
+            emailField.classList.toggle('wg-field--error', !!message);
+            emailError.textContent = message || '';
+            emailError.hidden = !message;
+        }
+        function sent() {
+            var done = note('ok', 'check', null, REQUEST_SENT);
+            done.el.setAttribute('data-invite-request', 'sent');
+            body.replaceChildren(done.el);
+            var ok = button('wg-btn wg-btn--primary', 'Done', null, 'done');
+            ok.addEventListener('click', close);
+            foot.replaceChildren(ok);
+            if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(modal);
+        }
+
+        async function submit() {
+            if (busy) return;
+            var address = email.value.trim();
+            showStatus(null);
+            if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(address)) { showEmailError(REQUEST_BAD_EMAIL); return; }
+            showEmailError('');
+            if (window.navigator.onLine === false) { showStatus(note('warn', 'cloud-off', null, OFFLINE).el); return; }
+            busy = true;
+            send.disabled = true;
+            try {
+                var base = opts.base || (await shellBase());
+                if (!base) throw new Error('no base');
+                var post = opts.post || window.fetch.bind(window);
+                var res = await post('https://' + base + '/api/invite-requests', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: address, note: noteInput.value.trim() }),
+                });
+                if (!modal.isConnected) return;
+                if (res.status === 202) { sent(); return; }
+                if (res.status === 429) { showStatus(note('warn', 'clock', null, REQUEST_BUSY).el); return; }
+                if (res.status === 400) {
+                    var reply = await res.json().catch(function () { return {}; });
+                    if (reply.error === 'invalid_email') { showEmailError(REQUEST_BAD_EMAIL); return; }
+                }
+                if (res.status === 404) {
+                    var off = note('info', 'info', null, REQUEST_OFF);
+                    off.el.setAttribute('data-invite-request', 'off');
+                    var how = el('a', 'wg-link', 'How to get an invite');
+                    how.href = 'https://' + base + '/';
+                    how.target = '_blank';
+                    how.rel = 'noopener';
+                    off.body.appendChild(how);
+                    showStatus(off.el);
+                    return;
+                }
+                showStatus(note('warn', 'alert', null, REQUEST_FAILED).el);
+            } catch (_) {
+                if (modal.isConnected) showStatus(note('warn', 'alert', null, REQUEST_FAILED).el);
+            } finally {
+                busy = false;
+                send.disabled = false;
+            }
+        }
+
+        send.addEventListener('click', submit);
+        email.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); submit(); }
+        });
+        head.buttons[0].addEventListener('click', close);
+        notNow.addEventListener('click', close);
+        backdrop.addEventListener('click', close);
+        document.addEventListener('keydown', onKeydown, true);
+        document.body.append(backdrop, modal);
+        window.ModalManager.register(modal.id, close);
+        window.ModalManager.open(modal.id);
+        return { email: email, note: noteInput, send: send };
+    }
+
+    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending, base: shellBase, request: request };
 })();
