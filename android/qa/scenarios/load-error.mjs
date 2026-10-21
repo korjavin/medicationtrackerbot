@@ -2,8 +2,9 @@
 // 503 (tlsfront's down.qa.test): "Can't reach your account", Try again / Switch account / Copy
 // diagnostics. A bare 404 (stale.qa.test): "We can't find this account", Use another invite leads.
 // Local mode (the debug-only wgQALocalError extra; a real bundle never fails): "Can't open Med
-// Tracker" with "Use an account instead" and never Switch account. Every exit (Switch account,
-// Use an account instead, Use another invite) lands in local mode with F1. No invite used.
+// Tracker" with Try again and Copy diagnostics only (no exit: it would reload the failed bundle;
+// bd med-ta2n.12, iOS twin). Every exit (Switch account, Use another invite) lands in local mode
+// with F1. No invite used.
 const has = (ctx, text) => ctx.device.wait({ text }, { timeout: 1_500 }).then(() => true, () => false);
 async function f1(ctx) {
   await ctx.sleep(2000);
@@ -47,14 +48,10 @@ export default async function loadError(ctx) {
     await ctx.shell(`am start -W -n ${ctx.pkg}/com.example.medtracker.MainActivity --ez wgLocalMode true --ez wgQALocalError true`);
     await ctx.waitFor({ text: 'Can\'t open Med Tracker' });
     await ctx.waitFor({ text: /^local · bundle failed to load · \d\d:\d\d$/ }, 5_000);
-    for (const t of ['Try again', 'Use an account instead', 'Copy diagnostics']) await ctx.waitFor({ text: t }, 5_000);
-    if (await has(ctx, 'Switch account')) throw new Error('local mode offers Switch account');
+    for (const t of ['Try again', 'Copy diagnostics']) await ctx.waitFor({ text: t }, 5_000);
+    for (const t of ['Switch account', 'Use an account instead']) if (await has(ctx, t)) throw new Error(`local mode offers ${t}`);
   });
   await ctx.shot('error-local');
-  await ctx.step('Use an account instead → local mode with F1', async () => {
-    await ctx.device.tap({ text: 'Use an account instead' });
-    await f1(ctx);
-  });
   await ctx.step('bare 404: Use another invite → local mode with F1', async () => {
     await ctx.launch();
     await ctx.openAccount('https://stale.qa.test/');

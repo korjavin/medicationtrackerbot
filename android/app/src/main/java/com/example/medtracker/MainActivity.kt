@@ -397,8 +397,8 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Every native way out — launcher Switch account, N4's "Use another invite" / "Switch account" /
-     * "Use an account instead", X-Account-Gone, account.leave without args — lands in local mode on
+     * Every native way out — launcher Switch account, N4's "Use another invite" / "Switch account",
+     * X-Account-Gone, account.leave without args — lands in local mode on
      * home?invite=1, where the web opens F1 (bd med-ta2n.12, contract med-ta2n.7 §7; it replaced the
      * native first run). With [thenLocal] (account.leave {then: "local"}, bd med-nt9p.32.13) the
      * plain home, and leave.clear {back: true} can reopen the account left. Entering local mode
@@ -491,13 +491,15 @@ class MainActivity : Activity() {
             b.text = label
             b.setOnClickListener { action() }
         }
-        // Leaving local mode keeps its data: it is back on the next switch.
+        // Leaving an account keeps its data: it is back on the next switch. Local mode has no exit here
+        // (bd med-ta2n.12, iOS twin): forget() would only reload the bundle that just failed.
+        errorSecondary.visibility = if (kind == LoadError.LOCAL) View.GONE else View.VISIBLE
         if (warn) {
             set(errorPrimary, "Use another invite") { forget() }
             set(errorSecondary, "Try again") { retry() }
         } else {
             set(errorPrimary, "Try again") { retry() }
-            set(errorSecondary, if (kind == LoadError.LOCAL) "Use an account instead" else "Switch account") { forget() }
+            set(errorSecondary, "Switch account") { forget() }
         }
         errorView.visibility = View.VISIBLE
         updateChrome()

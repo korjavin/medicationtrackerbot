@@ -1083,7 +1083,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   it from `LocalApp`, only that host navigates inside the app, and a load
   error or 404 on it is logged to the diagnostics log and keeps the page —
   except a miss of the app document itself, which shows N4 · local (*Can't
-  open Med Tracker*, *Use an account instead*, never Switch account).
+  open Med Tracker*, Try again and Copy diagnostics only — no exit, bd med-ta2n.12).
 - **First launch = local mode** (bd med-ta2n.12, contract med-ta2n.7 §9): with
   no stored account the shell stores `wgLocalMode=true` and opens the bundled
   app, whose web W1 is the first run — nothing native is drawn (N1/N2 and the
@@ -1091,7 +1091,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   WebView). An install upgraded while on the old native first run lands here
   too (a pending move stash is dropped, as on any entry to local mode; the
   local records stay). **Native exits** — the launcher *Switch account*, N4's
-  *Use another invite* / *Switch account* / *Use an account instead*,
+  *Use another invite* / *Switch account*,
   `X-Account-Gone` and `account.leave` without args — all go through
   `forget()`: local mode (move stash dropped, bd med-nt9p.49), host and
   `leaveHost` removed, home with `?invite=1` so the web opens F1. The local
