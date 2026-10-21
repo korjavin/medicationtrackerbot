@@ -192,7 +192,14 @@ const ctx = {
       await page.locator('[data-invite-action="paste"]').click();
       await field.waitFor({ state: 'visible', timeout: 10_000 });
     }
-    await field.fill(url);
+    // Paste reads the clipboard asynchronously (Copy diagnostics may have left the log there) and can
+    // land after fill(): fill until the url stays.
+    for (let i = 0; ; i++) {
+      await field.fill(url);
+      await ctx.sleep(500);
+      if ((await field.inputValue()) === url) break;
+      if (i === 4) throw new Error(`openLink: the field keeps ${JSON.stringify((await field.inputValue()).slice(0, 80))}`);
+    }
     if (shotTyped) await ctx.shot('typed');
     if (!move) {
       await page.evaluate(() => {
