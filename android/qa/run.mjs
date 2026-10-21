@@ -245,7 +245,8 @@ const ctx = {
   async attachPage() {
     try {
       const wv = await device.webView({ pkg }, { timeout: 15_000 });
-      ctx.page = await wv.page();
+      // Bounded: a page attach to a process Play services is killing never settled (run 39534712229 hung 40 min).
+      ctx.page = await Promise.race([wv.page(), ctx.sleep(30_000).then(() => { throw new Error('page attach timed out'); })]);
       return ctx.page;
     } catch (e) {
       log('webview attach failed:', String(e?.message || e).split('\n')[0]);
