@@ -2454,7 +2454,19 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         const next = await boot({ notice: true });
         expect(next.window.safeToast.mock.calls.filter(([m]) => m === NOTICE)).toEqual([[NOTICE, 'success']]);
         expect(next.window.sessionStorage.getItem('wg-leave-picked-up')).toBeNull();
-        expect(leaveOps()).toEqual(['leave.take']);
+        expect(leaveOps()).toEqual(['leave.clear']);
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+    });
+
+    // iOS flow QA (bd med-w6gx.23.8): the pickup's leave.clear lost to the 5 s
+    // box on a slow bridge, so the reloaded page still found the stash and
+    // asked Merge / Replace over the records it had just imported.
+    it('the reload right after a pickup clears a stash still there instead of taking it again', async () => {
+        await boot({ take: { vault: VAULT } });
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+        const next = await boot({ notice: true, take: { vault: VAULT } });
+        expect(next.window.safeChoose).not.toHaveBeenCalled();
+        expect(leaveOps()).toEqual(['leave.clear']);
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });
 
