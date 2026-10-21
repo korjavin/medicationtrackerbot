@@ -160,17 +160,15 @@ final class FlowQABackupTests: XCTestCase {
 
     /// Waits for the Files export picker (bd med-o7zq.43), checks the file sits
     /// in the Downloads dir while it shows, cancels it, and checks the dir is
-    /// empty after. The picker is a remote view service whose controls may show
-    /// in the app tree or in the service process; in the app tree they count
-    /// only beyond the web view's own matches, so page buttons never pass.
+    /// empty after. The picker is a remote view whose controls show in the app
+    /// tree; they count only beyond the web view's own matches, so page
+    /// buttons never pass.
     private func exportPickerRoundTrip(_ app: XCUIApplication, flow: String, step: String, downloads: URL,
                                        suffix: String, timeout: TimeInterval = 60) {
-        let service = XCUIApplication(bundleIdentifier: "com.apple.DocumentManagerUICore.Service")
         let marks = NSPredicate(format: "label IN {'Cancel', 'Save', 'Move', 'Browse', 'Recents', 'On My iPhone'}")
         let cancel = NSPredicate(format: "label IN {'Cancel', 'Close', 'Dismiss'} OR identifier IN {'xmark', 'Cancel', 'Close'}")
         let shown = {
-            service.descendants(matching: .any).matching(marks).firstMatch.exists
-                || app.descendants(matching: .any).matching(marks).count > app.webViews.descendants(matching: .any).matching(marks).count
+            app.descendants(matching: .any).matching(marks).count > app.webViews.descendants(matching: .any).matching(marks).count
         }
         let up = waitUntil(timeout, shown)
         shot(flow, "\(step)-export-picker")
@@ -183,11 +181,12 @@ final class FlowQABackupTests: XCTestCase {
         // The picker's X sits in its header, top left (iOS 26: a glass xmark
         // button); the web Backup ready sheet's own close sits low, under the
         // picker. No labelled match → tap where the X is drawn.
-        let x = (service.buttons.matching(cancel).allElementsBoundByIndex + app.buttons.matching(cancel).allElementsBoundByIndex)
-            .first { (40..<150).contains($0.frame.minY) }
+        let buttons = app.buttons.matching(cancel)
+        let x = (0..<buttons.count).map { buttons.element(boundBy: $0) }
+            .first { $0.exists && (40..<150).contains($0.frame.minY) }
         if let x { x.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.096, dy: 0.112)).tap() }
         let closed = waitUntil(15) { !shown() }
-        XCTAssertTrue(closed, "\(step): the export picker did not close — tree tail: \(tree(app, tail: true)) — service: \(tree(service, tail: true))")
+        XCTAssertTrue(closed, "\(step): the export picker did not close — tree tail: \(tree(app, tail: true))")
         XCTAssertTrue(waitUntil(10) { filesIn(downloads).isEmpty }, "\(step): the export file outlived the picker: \(filesIn(downloads))")
     }
 
