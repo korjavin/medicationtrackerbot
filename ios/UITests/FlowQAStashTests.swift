@@ -8,84 +8,9 @@ import XCTest
 /// app's container (QA.appContainer).
 @MainActor
 final class FlowQAStashTests: XCTestCase {
-    /// The first run's move note (App.swift, v2.1 since med-ckm5.13): one
-    /// label, its bold lead plus the rest, so matched by the lead.
-    private func moveHint(_ app: XCUIApplication) -> XCUIElement {
-        app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Your records are ready to move.'")).firstMatch
-    }
-
-    /// Settings → Move to a cloud account → Backup & import's Move button →
-    /// stash + first run with the hint → Only on this device → Back keeps it →
-    /// Start abandons it (file gone) → relaunch stays local, and the records
-    /// are still there.
-    func testMoveLocalSide() throws {
-        continueAfterFailure = false
-        // A failed step must not leave a stash for the next flow's boot to pick up.
-        addTeardownBlock { @MainActor in Self.clearStashes() }
-        let flow = "move-local"
-        let fixture = try Self.fixture()
-        let app = XCUIApplication()
-        // Into local mode through the first run, not -wgLocalMode YES: the
-        // argument domain would win over local.leave's persisted false on the
-        // next applySettings and clear the stash (Shell.swift local.didSet).
-        app.launchArguments = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-home"]
-        app.launch()
-        startLocal(app)
-        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the settings-home scene never published #wg-qa-ready")
-
-        let moveRow = webButton(app, prefix: "Move to a cloud account")
-        let shown = moveRow.waitForExistence(timeout: 15)
-        shot(flow, "settings-move-row")
-        XCTAssertTrue(shown, "Settings shows no Move to a cloud account row (shell.ops lacks move.stash?)")
-        moveRow.tap()
-        // The row opens Backup & import's Move section; its button is the one Move control (bd med-ckm5.7).
-        let moveBtn = app.webViews.buttons["Move to a cloud account"]
-        XCTAssertTrue(moveBtn.waitForExistence(timeout: 15), "the Move row opened no Move section")
-        shot(flow, "move-section")
-        moveBtn.tap()
-        XCTAssertTrue(webText(app, "Move to a cloud account?").waitForExistence(timeout: 10), "no move confirm")
-        shot(flow, "move-confirm")
-        app.webViews.buttons["Move"].tap()
-
-        XCTAssertTrue(moveHint(app).waitForExistence(timeout: 60), "the first run shows no move hint")
-        XCTAssertFalse(app.buttons["Continue on this iPhone"].exists, "the first run offers Continue on this iPhone during a move")
-        shot(flow, "first-run-hint")
-        let stash = try XCTUnwrap(Self.stashData("move"), "no move/vault.json after move.stash")
-        let vault = try XCTUnwrap(JSONSerialization.jsonObject(with: stash) as? [String: Any], "the move stash is not a JSON object")
-        XCTAssertEqual(vault["format"] as? String, fixture["format"] as? String)
-        XCTAssertEqual(vault["version"] as? Int, fixture["version"] as? Int)
-        let got = vault["data"] as? [String: Any] ?? [:], want = fixture["data"] as? [String: Any] ?? [:]
-        XCTAssertEqual(Set(want.keys).subtracting(got.keys), [], "the stash lacks fixture sections")
-        // The driver shifts dates, not counts; intakes are left out (the app may materialize slots).
-        for (section, list) in [("medications", "items"), ("bp", "readings"), ("weight", "logs")] {
-            XCTAssertEqual(Self.count(got, section, list), Self.count(want, section, list), "\(section).\(list) count")
-        }
-
-        app.buttons["Only on this device"].tap()
-        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
-        XCTAssertTrue(start.waitForExistence(timeout: 10), "no local intro")
-        XCTAssertTrue(app.buttons["Start and cancel the move"].exists, "the intro does not say Start cancels the move")
-        shot(flow, "intro")
-        app.buttons["Back"].tap()
-        XCTAssertTrue(moveHint(app).waitForExistence(timeout: 10), "Back lost the move hint")
-        XCTAssertNotNil(Self.stashData("move"), "Back deleted the move stash")
-
-        startLocal(app)
-        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "local mode never came back after Start")
-        XCTAssertNil(Self.stashData("move"), "Start kept the abandoned move stash")
-
-        // No mode argument: Start persisted local mode, and nothing was erased.
-        // (Backup & import's "I have an invite" leave is gone, bd med-ckm5.7.)
-        app.terminate()
-        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO"]
-        app.launch()
-        XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
-        XCTAssertFalse(moveHint(app).exists, "the hint outlived the stash")
-        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
-        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move round-trip")
-        shot(flow, "records-kept")
-        app.terminate()
-    }
+    // The move's local side (Settings Move row → stash → first-run hint) is
+    // gone with the row (bd med-ta2n.5): the move now starts from the web P3
+    // sheet over an invite, local.leave {url} straight to the claim page.
 
     /// The local boot's leave pickup: on an empty store it imports without a
     /// question, toasts and clears the file; over records it asks Merge /
@@ -154,16 +79,6 @@ final class FlowQAStashTests: XCTestCase {
 
     // MARK: helpers
 
-    /// First run → Only on this device → Start (lock off by argument).
-    private func startLocal(_ app: XCUIApplication) {
-        let onlyHere = app.buttons["Only on this device"]
-        XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
-        onlyHere.tap()
-        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
-        XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
-        start.tap()
-    }
-
     private func webButton(_ app: XCUIApplication, prefix: String) -> XCUIElement {
         app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
     }
@@ -189,10 +104,6 @@ final class FlowQAStashTests: XCTestCase {
     private static func firstMed(_ vault: [String: Any]) -> String {
         let meds = (vault["data"] as? [String: Any])?["medications"] as? [String: Any]
         return ((meds?["items"] as? [[String: Any]])?.first?["name"] as? String) ?? "?"
-    }
-
-    private static func count(_ data: [String: Any], _ section: String, _ list: String) -> Int? {
-        ((data[section] as? [String: Any])?[list] as? [Any])?.count
     }
 
     private static func stashURL(_ dir: String) -> URL? {

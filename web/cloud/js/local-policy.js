@@ -545,7 +545,8 @@ export const LOCAL_VAULT = {
     }
     resetHealthAnchors(win.localStorage);
   },
-  // Backup & import → Move to a cloud account (bd med-nt9p.32.16): the shell
+  // The move to an account (bd med-nt9p.32.16; since med-ta2n.5 only the P3
+  // "Turn on sync" sheet calls it, always with a url): the shell
   // carries the vault across origins (move.stash, docs/android.md "move
   // stash"); the new account picks it up with move.take. A rejected stash
   // ('invalid vault', 'too large', an old shell) throws before the leave.

@@ -219,7 +219,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
 // INTO theirs, so the order never depends on which one finished first.
 describe('Settings home slots + mode card (kit S6)', () => {
     const SLOTS = ['mode-card', 'mode-actions', 'health', 'everyday', 'connected', 'feedback'];
-    const ROWS_IN_ORDER = ['#settings-vault-card', '#settings-local-mode', '#settings-local-lock', '#health-import-row',
+    const ROWS_IN_ORDER = ['#settings-vault-card', '#settings-sync-card', '#settings-local-lock', '#health-import-row',
         '[data-settings-open="features"]', '[data-settings-open="account"]', '#feedback-launcher'];
     const order = (document) => Array.from(document.querySelectorAll(ROWS_IN_ORDER.join(', ')))
         .map((el) => ROWS_IN_ORDER.find((sel) => el.matches(sel)));
@@ -339,6 +339,58 @@ describe('Settings home slots + mode card (kit S6)', () => {
             expect(window.apiCallDirect).not.toHaveBeenCalledWith('/api/settings/emergency-kit', 'GET');
         } finally {
             delete window.__MEDTRACKER_CLOUD__;
+            cleanup();
+        }
+    });
+
+    // W5 (bd med-ta2n.5): slot ① in local mode is "Sync & backup"; it opens
+    // the backup page under its own title, and the Backup & import row is
+    // the account's entry only.
+    const pagedTitle = (document) => Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
+        ?.querySelector('.wg-pagebar__title').textContent;
+
+    it('local mode: the Sync & backup card, its chip off the protection status, opens "Sync & backup"', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            document.documentElement.classList.add('wg-local-vault');
+            let status = { records: 43, lastBackupAt: null, lastSavedAt: null };
+            window.apiCall = vi.fn(async (path) => (path === '/api/protection/status' ? status : null));
+            const chip = document.getElementById('settings-sync-chip');
+            const meta = document.getElementById('settings-sync-meta');
+            window.paintSyncCard();
+            await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(false));
+            expect(chip.textContent).toBe('Unprotected');
+            expect(chip.classList.contains('wg-chip--warn')).toBe(true);
+            expect(meta.textContent).toBe('43 records · only on this iPhone');
+
+            const day = 24 * 60 * 60 * 1000;
+            status = { records: 43, lastBackupAt: null, lastSavedAt: Date.now() - 3 * day };
+            window.paintSyncCard();
+            await vi.waitFor(() => expect(chip.textContent).toBe('Saved · 3 days ago'));
+            expect(chip.classList.contains('wg-chip--warn')).toBe(false);
+
+            status = { records: 1, lastBackupAt: Date.now(), lastSavedAt: Date.now() - 3 * day };
+            window.paintSyncCard();
+            await vi.waitFor(() => expect(chip.textContent).toBe('Backed up · today'));
+            expect(chip.classList.contains('wg-chip--ok')).toBe(true);
+            expect(meta.textContent).toBe('1 record · only on this iPhone');
+
+            const row = document.querySelector('.wg-settings-home .wg-setting[data-settings-open="backup"]');
+            expect(row.classList.contains('wg-cloud-only')).toBe(true);
+            window.SettingsView.openSettingsPage('backup');
+            await vi.waitFor(() => expect(pagedTitle(document)).toBe('Sync & backup'));
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('cloud mode: the backup page keeps its Backup & import title', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.SettingsView.openSettingsPage('backup');
+            await vi.waitFor(() => expect(pagedTitle(document)).toBe('Backup & import'));
+        } finally {
             cleanup();
         }
     });

@@ -1081,58 +1081,80 @@ function bindLocalErase() {
     });
 }
 
-// Move to a cloud account (bd med-nt9p.32.16): the shell stashes the vault
-// and opens its invite screen; the new account restores it by itself. One
-// control (kit S7, bd med-ckm5.7): the Backup & import Move section's button;
-// the Settings-home row only opens that section. Both stay hidden unless the
-// shell lists move.stash — without it a backup file is the way to move.
-let _localMoveRowBound = false; // module-state: bind the row once across repeated loadSettings() calls
-function bindLocalMoveRow() {
-    const row = document.getElementById('settings-local-move-row');
-    const group = document.getElementById('importexport-local-move-group');
-    const btn = document.getElementById('settings-local-move-btn');
-    if (!row || !group || !btn || _localMoveRowBound) return;
-    _localMoveRowBound = true;
-    nativeHas('move.stash').then((has) => {
-        if (!has) return;
-        row.classList.remove('wg-settings-hidden');
-        group.classList.remove('wg-settings-hidden');
-        row.addEventListener('click', () => {
-            openSettingsPage('backup');
-            group.scrollIntoView?.({ block: 'center' });
-        });
-        btn.addEventListener('click', () => moveToCloudAccount(btn));
-    });
+// W5 slot-① card, local mode (bd med-ta2n.5): "Sync & backup", its chip off
+// GET /api/protection/status (the W4 status, bd med-ta2n.4). lastBackupAt (a
+// confirmed Share) → "Backed up · …"; else lastSavedAt (Save to device, whose
+// picker never reports a cancel) → a neutral "Saved · …", so a Save-only user
+// (Android WebView has no file Share) is not told "Unprotected" forever; else
+// "Unprotected". No status (a failed read) hides the chip rather than guess.
+// Repainted on every Settings open and when the page closes.
+function daysAgo(at) {
+    const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86400000);
+    return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
 }
 
-async function moveToCloudAccount(btn) {
-    if (btn.disabled) return;
-    btn.disabled = true;
-    try {
-        const device = nativeCopy().device;
-        const ok = await safeConfirm(
-            '',
-            null,
-            {
-                title: 'Move to a cloud account?', icon: 'route', tone: 'warn', destructive: true, confirmLabel: 'Move',
-                facts: [
-                    { text: `Your records are packed and kept on this ${device}` },
-                    { text: 'They move in after you sign in to the new account' },
-                    { text: 'Cancel any time from the start screen' },
-                ],
-            },
-        );
-        if (!ok) return;
-        await window.CloudVault.moveToCloud({ win: window });
-    } catch (e) {
-        await safeAlert(
-            `Your records could not be prepared for the move: ${e?.message || 'unknown error'}.\n\n`
-            + 'Move them with a file instead: Settings → Backup & import → Export backup, open your invite and create the account, then in the new account use Backup & import → Restore with that file.',
-            { title: 'Move to a cloud account' },
-        );
-    } finally {
-        btn.disabled = false;
+function paintSyncChip(status) {
+    const chip = document.getElementById('settings-sync-chip');
+    const meta = document.getElementById('settings-sync-meta');
+    if (!chip || !meta) return;
+    const s = status && typeof status === 'object' ? status : null;
+    const where = `only on this ${nativeCopy().device}`;
+    const n = Number.isFinite(s?.records) ? s.records : null;
+    meta.textContent = n == null ? where : `${n === 1 ? '1 record' : `${n} records`} · ${where}`;
+    chip.classList.toggle('wg-settings-hidden', !s);
+    if (!s) return;
+    const tone = s.lastBackupAt ? 'ok' : s.lastSavedAt ? null : 'warn';
+    chip.textContent = s.lastBackupAt ? `Backed up · ${daysAgo(s.lastBackupAt)}`
+        : s.lastSavedAt ? `Saved · ${daysAgo(s.lastSavedAt)}` : 'Unprotected';
+    chip.classList.toggle('wg-chip--ok', tone === 'ok');
+    chip.classList.toggle('wg-chip--warn', tone === 'warn');
+}
+
+// The same cache entry the Today W4 card reads (protection_status).
+function paintSyncCard() {
+    const fetcher = () => window.apiCall('/api/protection/status');
+    const ds = window.DataStore;
+    if (typeof ds?.loadSWR === 'function') {
+        ds.loadSWR({ key: 'protection_status', tags: ['protection'], fetcher, onCached: paintSyncChip, onFresh: paintSyncChip, onError: () => {} })
+            .catch(() => {});
+        return;
     }
+    Promise.resolve().then(fetcher).then(paintSyncChip, () => paintSyncChip(null));
+}
+
+// W5 page Sync section (bd med-ta2n.5; replaces the Move row and section —
+// the move runs from P3, features/invite.js). No invite: Paste / Scan run the
+// F1 sheet's action (entered from Settings, so the claim gets &kit=1) and
+// "How to get an invite" opens the deployment's base landing. An invite in
+// the shell slot (InviteSheet.pending reads it only where the shell lists
+// invite.pending — the A7 shell gate): "Turn on sync" opens P3, whose button
+// holds the A7 offline gate. Re-read on every Settings open.
+let _syncSectionBound = false; // module-state: bind the buttons once across repeated loadSettings() calls
+let _syncInvite = null; // module-state: the slot's claim URL from the last paint
+async function paintSyncSection() {
+    const none = document.getElementById('settings-sync-none');
+    const waiting = document.getElementById('settings-sync-waiting');
+    const how = document.getElementById('settings-sync-how');
+    const sheet = window.InviteSheet;
+    if (!none || !waiting || !how || !sheet) return;
+    if (!_syncSectionBound) {
+        _syncSectionBound = true;
+        const f1 = (action) => document.dispatchEvent(new window.CustomEvent('wg:invite-open', { detail: { kit: true, action } }));
+        document.getElementById('settings-sync-paste')?.addEventListener('click', () => f1('paste'));
+        document.getElementById('settings-sync-scan')?.addEventListener('click', () => f1('scan'));
+        document.getElementById('settings-sync-turn-on')?.addEventListener('click', () => {
+            if (_syncInvite) sheet.offer(_syncInvite, { kit: true });
+        });
+    }
+    const [invite, base] = await Promise.all([
+        Promise.resolve().then(() => sheet.pending()).catch(() => null),
+        Promise.resolve().then(() => sheet.base()).catch(() => ''),
+    ]);
+    _syncInvite = invite || null;
+    none.hidden = !!_syncInvite;
+    waiting.hidden = !_syncInvite;
+    how.hidden = !base;
+    if (base) how.href = `https://${base}/`;
 }
 
 // Load settings (BP reminders status, etc.)
@@ -1169,7 +1191,8 @@ async function loadSettings() {
         bindLocalReminderText();
         bindLocalNotifications();
         bindLocalErase();
-        bindLocalMoveRow();
+        paintSyncCard();
+        paintSyncSection();
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
@@ -1335,8 +1358,10 @@ function openSettingsPage(name) {
     const store = document.querySelector('.wg-settings-pages');
     const body = settingsPageBody(name);
     if (!store || !body || !window.WGPage) return null; // absent, or already open
-    const row = document.querySelector(`[data-settings-open="${name}"]`);
-    const title = row?.querySelector('.wg-setting__title')?.textContent.trim() || name;
+    // The row this mode shows: local mode opens 'backup' from the W5 card.
+    const rows = Array.from(document.querySelectorAll(`[data-settings-open="${name}"]`));
+    const row = rows.find((r) => !r.matches(':root.wg-local-vault .wg-cloud-only, :root:not(.wg-local-vault) .wg-local-only')) || rows[0];
+    const title = row?.querySelector('.wg-setting__title, .wg-row__title')?.textContent.trim() || name;
     let page = null;
     page = window.WGPage.push({
         title,
@@ -1349,6 +1374,7 @@ function openSettingsPage(name) {
             _openSettingsPages.delete(name);
             store.appendChild(body);
             refreshSettingsSummaries();
+            if (name === 'backup' && document.documentElement.classList.contains('wg-local-vault')) paintSyncCard();
         },
     });
     _openSettingsPages.set(name, page);

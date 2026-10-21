@@ -589,7 +589,9 @@ describe('cloud Notifications controls inside the iOS app (LocalNotifications)',
             const words = [...document.querySelectorAll('[data-device-word]')];
             expect(words.length).toBeGreaterThan(0);
             words.forEach((el) => expect(el.textContent).toBe(word));
-            expect(document.querySelector('#settings-local-mode').textContent).toContain(`only on this ${word};`);
+            // The W5 card's meta (bd med-ta2n.5); the status read failed, so no chip.
+            expect(document.querySelector('#settings-sync-meta').textContent).toBe(`only on this ${word}`);
+            expect(document.getElementById('settings-sync-chip').classList.contains('wg-settings-hidden')).toBe(true);
         } finally {
             cleanup();
         }

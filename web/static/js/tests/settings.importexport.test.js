@@ -202,16 +202,17 @@ describe('Settings → Import/Export section', () => {
         });
     });
 
-    // Kit S7 (bd med-ckm5.7): Back up, Restore, Move, Danger in that order,
-    // one sun on the page.
-    it('lays the page out as Back up, Restore, Move, Danger', () => {
+    // Kit S7 (bd med-ckm5.7) as the W5 page (bd med-ta2n.5): Back up, Restore,
+    // Sync (local; it replaced Move), Danger in that order, one sun on the page.
+    it('lays the page out as Back up, Restore, Sync, Danger', () => {
         const { document } = env;
         const heads = [...document.querySelectorAll('#settings-importexport > .wg-section > .wg-section__head .wg-eyebrow')]
             .map((e) => e.textContent);
-        expect(heads.filter((h) => ['Back up', 'Restore', 'Move to a cloud account', 'Danger'].includes(h)))
-            .toEqual(['Back up', 'Restore', 'Move to a cloud account', 'Danger']);
+        expect(heads.filter((h) => ['Back up', 'Restore', 'Sync', 'Danger'].includes(h)))
+            .toEqual(['Back up', 'Restore', 'Sync', 'Danger']);
+        expect(heads).not.toContain('Move to a cloud account');
         expect(document.querySelectorAll('[data-settings-page="backup"] .wg-btn--primary')).toHaveLength(1);
-        expect(document.getElementById('importexport-export-btn').textContent).toBe('Export backup');
+        expect(document.getElementById('importexport-export-btn').textContent).toBe('Save a backup');
         const erase = document.getElementById('importexport-local-erase-btn');
         expect(erase.classList.contains('wg-setting--boxed')).toBe(true);
         expect(erase.closest('section').querySelector('.wg-eyebrow--danger')).not.toBeNull();

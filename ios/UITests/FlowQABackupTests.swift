@@ -25,11 +25,11 @@ final class FlowQABackupTests: XCTestCase {
         launch(app, scene: "settings-backup")
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "Backup & import never published #wg-qa-ready")
         let downloads = try XCTUnwrap(QA.appContainer(), "no app container").appendingPathComponent("tmp/wg-downloads")
-        let exportBtn = app.webViews.buttons["Export backup"]
+        let exportBtn = app.webViews.buttons["Save a backup"]
         let save = app.webViews.buttons["Save to device"]
 
         // Plain: no passphrase → the page asks before writing API keys in clear.
-        XCTAssertTrue(exportBtn.waitForExistence(timeout: 10), "no Export backup button")
+        XCTAssertTrue(exportBtn.waitForExistence(timeout: 10), "no Save a backup button")
         exportBtn.tap()
         let plain = app.webViews.buttons["Export without encryption"]
         XCTAssertTrue(plain.waitForExistence(timeout: 10), "the passphrase sheet never showed")

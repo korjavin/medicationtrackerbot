@@ -144,10 +144,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
 - **Stash flows** ([`FlowQAStashTests.swift`](../ios/UITests/FlowQAStashTests.swift),
   bd med-w6gx.23.3): the shell's stashes from the local
   side, as files in the container's `Application Support/{move,leave}/vault.json`:
-  `testMoveLocalSide` — Settings → Move to a cloud account → Backup &
-  import's Move button → the stash (fixture format, sections, counts) and the
-  first-run hint → Back keeps it, Start deletes it → a relaunch stays local
-  with no stale hint, records kept. `testLeaveStashPickup` — wipes
+  (the move's local side went with the Settings Move row, med-ta2n.5: it
+  starts from the web P3 sheet over an invite now). `testLeaveStashPickup` — wipes
   `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
   clears the file → seeded again over records: Merge / Replace → Cancel →
@@ -1022,9 +1020,9 @@ mode, gated on the bridge platform being `ios` or `android`
   is that file: the shell's *Switch account*, claim the invite, restore the
   file in the new account's Settings (the page's *I have an invite* is gone
   since bd med-ckm5.7). The local records stay until the user erases them;
-  nothing prompts to. A shell that lists `move.stash` gets Settings home →
-  *Move to a cloud account* (opens Backup & import's Move section, whose
-  button is the one Move control), which carries the records without the file (the
+  nothing prompts to. A v3 shell gets the P3 *Turn on sync* (from an invite
+  link, or Settings → *Sync & backup* → Paste / Scan; the Settings *Move to a
+  cloud account* row is gone since bd med-ta2n.5), which carries the records without the file (the
   move stash below; shared contract in
   [android.md → Moving to a cloud account](android.md#moving-to-a-cloud-account-bd-med-nt9p3210),
   which also has the P3 invite path, bd med-ta2n.7: *Turn on sync?* / *Your

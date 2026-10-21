@@ -1280,10 +1280,11 @@ med-o7zq.35; the web side is
 [cloud-mode.md → C2e implementation notes](cloud-mode.md#c2e-implementation-notes)). Vault
 format v1, no server change.
 
-1. Local mode: Settings home → **Move to a cloud account** (opens Backup &
-   import's Move section, kit S7) → its **Move to a cloud account** button →
-   *Continue*. Row and section show only when `shell.ops` lists `move.stash`
-   (the web and older shells keep only the file steps below). The page exports the vault
+1. Local mode: an invite reaches the app (link, or Paste / Scan on Settings →
+   **Sync & backup**, bd med-ta2n.5 — the old Settings *Move to a cloud
+   account* row is gone) → the web P3 **Turn on sync?** sheet → *Turn on sync*.
+   Only a shell whose `shell.ops` lists `invite.pending` gets it (older
+   shells keep only the file steps below). The page exports the vault
    (`exportAll`, API keys included) and sends `move.stash {vault}` then
    `local.leave`; the shell writes the stash and shows first run with the
    *Your records are ready to move.* note, the invite first. A rejected stash
