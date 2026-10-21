@@ -7,7 +7,8 @@
 // cloud shim's PORTED_SET (web/cloud/js/apishim.js), so every write here can
 // stick in every build that renders the overlay. Sleep is the Vitals section
 // (`health`). Diary has NO flag (the notes section has none, owner decision
-// 2026-10-20): picking it only drives the W3 Today hints. Deliberately not
+// 2026-10-20): picking it drives the W3 Today hints and keeps `health` on,
+// since the notes live in Vitals (bd med-ta2n.21). Deliberately not
 // rows: `gamification` (not a tracking section), `weekly_digest` (bot-only
 // Telegram summary), `live_hr` (an experimental Vitals sub-feature).
 //
@@ -86,7 +87,11 @@
         return CATALOG.reduce(function (chain, item) {
             if (item.flag === false) return chain;
             return chain.then(function () {
-                return _writeFeature(item.key, picked.indexOf(item.key) !== -1);
+                // Diary's notes live in Vitals: picking it keeps `health` on
+                // even without Sleep (bd med-ta2n.21).
+                var on = picked.indexOf(item.key) !== -1
+                    || (item.key === 'health' && picked.indexOf('diary') !== -1);
+                return _writeFeature(item.key, on);
             });
         }, Promise.resolve());
     }

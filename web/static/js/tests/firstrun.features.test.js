@@ -164,18 +164,35 @@ describe('firstrun W1 module picker', () => {
         const { window, document, cleanup } = loadFlow({ fetchMock });
         try {
             window.WGFirstRun.mount();
-            pick(document, 'food', 'medication', 'diary');
+            pick(document, 'food', 'medication', 'bp');
             action(document, 'continue').click();
             await flush();
 
             const { flags, complete } = writes(fetchMock);
-            expect(flags).toEqual({ medication: true, bp: false, weight: false, workout: false, health: false, food: true });
-            // W1 order, not tap order; Diary has no flag but is a pick.
-            expect(complete).toEqual({ picked: ['medication', 'food', 'diary'] });
+            expect(flags).toEqual({ medication: true, bp: true, weight: false, workout: false, health: false, food: true });
+            // W1 order, not tap order.
+            expect(complete).toEqual({ picked: ['medication', 'bp', 'food'] });
             expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
             expect(window.__MEDTRACKER_BOOTSTRAP__.needs_first_run).toBe(false);
             expect(window.sessionStorage.getItem('wg-firstrun-step')).toBeNull();
             expect(window.sessionStorage.getItem('wg-firstrun-picked')).toBeNull();
+        } finally { cleanup(); }
+    });
+
+    // bd med-ta2n.21: Diary's notes live in Vitals, so Diary without Sleep
+    // still keeps `health` on; Diary has no flag of its own but is a pick.
+    it('Diary picked without Sleep keeps health on', async () => {
+        const fetchMock = okFetch();
+        const { window, document, cleanup } = loadFlow({ fetchMock });
+        try {
+            window.WGFirstRun.mount();
+            pick(document, 'diary', 'medication');
+            action(document, 'continue').click();
+            await flush();
+
+            const { flags, complete } = writes(fetchMock);
+            expect(flags).toEqual({ medication: true, bp: false, weight: false, workout: false, health: true, food: false });
+            expect(complete).toEqual({ picked: ['medication', 'diary'] });
         } finally { cleanup(); }
     });
 

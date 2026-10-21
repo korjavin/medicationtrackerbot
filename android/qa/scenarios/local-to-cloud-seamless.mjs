@@ -73,7 +73,10 @@ export default async function localToCloudSeamless(ctx) {
     const vault = JSON.parse(await shell(`run-as ${pkg} cat no_backup/move/vault.json`));
     const fixture = JSON.parse(readFileSync(join(here, '../../../tests/fixtures/vault-v1.json'), 'utf8'));
     if (vault.format !== fixture.format || vault.version !== fixture.version) throw new Error(`format ${vault.format} v${vault.version}`);
-    const missing = Object.keys(fixture.data).filter((k) => !(k in vault.data));
+    // protection: the move stash carries none by design (local-policy.js moveToCloud), so the
+    // account keeps no backup claim.
+    const missing = Object.keys(fixture.data).filter((k) => k !== 'protection' && !(k in vault.data));
+    if ('protection' in vault.data) throw new Error('the move stash carries data.protection');
     if (missing.length) throw new Error(`data sections missing vs the fixture: ${missing.join(', ')}`);
     r.stashCounts = counts(vault);
     const off = GATED.filter((k) => r.stashCounts[k] !== r.local[k]);

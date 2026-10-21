@@ -514,21 +514,17 @@
                     </span>
                     <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                 </button>
-                <!-- Local-only mode indicator (bd med-o7zq.9); med-ta2n.5 replaces it. -->
-                <div class="wg-list wg-local-only">
-                    <div class="wg-setting" id="settings-local-mode">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">On this device only</span><span class="wg-setting__desc">No account. Your data is stored only on this <span data-device-word>iPhone</span>; Backup &amp; import keeps a copy.</span></span>
-                    </div>
-                    <!-- bd med-nt9p.32.16: shown by settings.js bindLocalMoveRow only
-                         when the shell lists move.stash (shell.ops); opens the
-                         Backup & import Move section (bd med-ckm5.7). -->
-                    <button type="button" class="wg-setting wg-settings-hidden" id="settings-local-move-row">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="cloud-up"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Move to a cloud account</span><span class="wg-setting__desc">Bring your records into an account with an invite.</span></span>
-                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                    </button>
-                </div>
+                <!-- Local: "Sync & backup" (W5, bd med-ta2n.5; settings.js
+                     paintSyncCard): the chip follows /api/protection/status.
+                     Opens the backup page, titled after this card. -->
+                <button type="button" class="wg-card wg-hstack wg-local-only" id="settings-sync-card" data-settings-open="backup">
+                    <span class="wg-row__lead"><i class="wg-ico" data-icon="cloud-up"></i></span>
+                    <span class="wg-vstack wg-spacer">
+                        <span class="wg-hstack"><span class="wg-row__title">Sync &amp; backup</span><span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-sync-chip">Unprotected</span></span>
+                        <span class="wg-meta" id="settings-sync-meta">only on this <span data-device-word>iPhone</span></span>
+                    </span>
+                    <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                </button>
                 </div>
                 <div class="wg-settings-slot" data-settings-slot="mode-actions"></div>
                 <div class="wg-settings-slot" data-settings-slot="health"></div>
@@ -569,7 +565,8 @@
                         <span class="wg-setting__body"><span class="wg-setting__title">Devices &amp; connectors</span><span class="wg-setting__desc" data-settings-summary="devices">Devices, Claude connector, invites</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
-                    <button type="button" class="wg-setting" data-settings-open="backup">
+                    <!-- Local mode opens this page from the slot-① card instead. -->
+                    <button type="button" class="wg-setting wg-cloud-only" data-settings-open="backup">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Backup &amp; import</span><span class="wg-setting__desc">Download or restore all your data</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
@@ -1152,7 +1149,8 @@
             </div>
 
             <!-- Backup & import (med-xso6.24 kit S3; local layout kit S7, bd
-                 med-ckm5.7): Back up, Restore, Move, Danger in that order. File
+                 med-ckm5.7; local = the W5 "Sync & backup" page, bd med-ta2n.5):
+                 Back up, Restore, Sync (local), Danger in that order. File
                  inputs stay in the DOM but hidden; a .wg-file picker shows their
                  empty/filled state (importexport.js bindFilePicker). Passphrases
                  are typed in docked sheets (#importexport-export-sheet,
@@ -1165,7 +1163,7 @@
                     <div class="wg-section__head"><span class="wg-eyebrow">Back up</span><span id="importexport-last-backup" class="wg-meta" hidden></span></div>
                     <div class="wg-card wg-vstack">
                         <p class="wg-hint">A file with all records, settings and keys, encrypted with your passphrase. Keep it somewhere other than this device.</p>
-                        <button id="importexport-export-btn" type="button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Export backup</button>
+                        <button id="importexport-export-btn" type="button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Save a backup</button>
                         <p id="importexport-export-status" class="wg-hint" role="status" aria-live="polite" hidden></p>
                     </div>
                 </section>
@@ -1187,18 +1185,30 @@
                     </div>
                 </section>
 
-                <!-- The one Move control (kit S7, bd med-ckm5.7; med-ta2n.5 folds it
-                     into Turn on sync). Shown by settings.js bindLocalMoveRow only
-                     when the shell lists move.stash; the Settings-home row opens it. -->
-                <section id="importexport-local-move-group" class="wg-section wg-local-only wg-settings-hidden">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Move to a cloud account</span></div>
+                <!-- W5 Sync (bd med-ta2n.5; settings.js paintSyncSection). It
+                     replaces the old Move section: the move now runs from P3.
+                     No invite: Paste / Scan open F1 (InviteSheet), plus the base
+                     landing link. An invite in the shell slot: Turn on sync → P3. -->
+                <section id="importexport-sync-group" class="wg-section wg-local-only">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Sync</span></div>
                     <div class="wg-card wg-vstack">
-                        <ol class="wg-olist">
-                            <li>Get an invite from whoever runs your server.</li>
-                            <li>Tap Move. Med Tracker gets your records ready and returns to the start screen.</li>
-                            <li>Open the invite. Your records move in after you sign in.</li>
-                        </ol>
-                        <button type="button" id="settings-local-move-btn" class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="route"></i>Move to a cloud account</button>
+                        <ul class="wg-facts wg-facts--sm">
+                            <li><i class="wg-ico" data-icon="device"></i><span><b>Your records on every device</b>Sign in once, then add a tablet or a browser.</span></li>
+                            <li><i class="wg-ico" data-icon="lock"></i><span><b>Private by design</b>The server stores your log but can't read it.</span></li>
+                        </ul>
+                        <div id="settings-sync-none" class="wg-vstack">
+                            <p class="wg-hint">Sync needs an invite for now.</p>
+                            <div class="wg-hstack">
+                                <button type="button" id="settings-sync-paste" class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="copy"></i>Paste</button>
+                                <span class="wg-spacer"></span>
+                                <button type="button" id="settings-sync-scan" class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Scan</button>
+                            </div>
+                            <a id="settings-sync-how" class="wg-link" target="_blank" rel="noopener" hidden>How to get an invite</a>
+                        </div>
+                        <div id="settings-sync-waiting" class="wg-vstack" hidden>
+                            <p class="wg-hint">An invite is waiting.</p>
+                            <button type="button" id="settings-sync-turn-on" class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="cloud-up"></i>Turn on sync</button>
+                        </div>
                     </div>
                 </section>
 

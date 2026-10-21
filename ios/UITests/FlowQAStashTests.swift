@@ -8,10 +8,10 @@ import XCTest
 /// app's container (QA.appContainer).
 @MainActor
 final class FlowQAStashTests: XCTestCase {
-    /// Settings → Move to a cloud account → Backup & import's Move button →
-    /// stash + local.leave with no url: still local, on "Have an invite?" (bd
-    /// med-ta2n.17) → relaunch stays local with the records and the
-    /// stash → iOS Settings' Switch account drops the stash.
+    /// The move stash on the local side (bd med-ta2n.17). The web's Settings
+    /// Move row that wrote it is gone (bd med-ta2n.5; P3 writes it right
+    /// before local.leave {url}), so it is seeded straight into the container:
+    /// a relaunch in local mode keeps it → iOS Settings' Switch account drops it.
     func testMoveLocalSide() throws {
         continueAfterFailure = false
         // A failed step must not leave a stash for the next flow's boot to pick up.
@@ -22,40 +22,14 @@ final class FlowQAStashTests: XCTestCase {
         // No account: local mode (bd med-ta2n.17). No -wgLocalMode: a NO
         // there would make every activation's applySettings drop the stash.
         app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgQAScene", "settings-home"]
-        app.launch()
+        app.launch() // the container exists from here on, local mode persisted
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the settings-home scene never published #wg-qa-ready")
-
-        let moveRow = webButton(app, prefix: "Move to a cloud account")
-        let shown = moveRow.waitForExistence(timeout: 15)
-        shot(flow, "settings-move-row")
-        XCTAssertTrue(shown, "Settings shows no Move to a cloud account row (shell.ops lacks move.stash?)")
-        moveRow.tap()
-        // The row opens Backup & import's Move section; its button is the one Move control (bd med-ckm5.7).
-        let moveBtn = app.webViews.buttons["Move to a cloud account"]
-        XCTAssertTrue(moveBtn.waitForExistence(timeout: 15), "the Move row opened no Move section")
-        shot(flow, "move-section")
-        moveBtn.tap()
-        XCTAssertTrue(webText(app, "Move to a cloud account?").waitForExistence(timeout: 10), "no move confirm")
-        shot(flow, "move-confirm")
-        app.webViews.buttons["Move"].tap()
-
-        // local.leave with no url (bd med-ta2n.17): stays local, home?invite=1.
-        XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60), "the move did not land on \"Have an invite?\"")
-        XCTAssertFalse(app.buttons["Only on this device"].exists, "the move showed a native first run")
-        shot(flow, "invite-sheet")
-        let stash = try XCTUnwrap(Self.stashData("move"), "no move/vault.json after move.stash")
-        let vault = try XCTUnwrap(JSONSerialization.jsonObject(with: stash) as? [String: Any], "the move stash is not a JSON object")
-        XCTAssertEqual(vault["format"] as? String, fixture["format"] as? String)
-        XCTAssertEqual(vault["version"] as? Int, fixture["version"] as? Int)
-        let got = vault["data"] as? [String: Any] ?? [:], want = fixture["data"] as? [String: Any] ?? [:]
-        XCTAssertEqual(Set(want.keys).subtracting(got.keys), [], "the stash lacks fixture sections")
-        // The driver shifts dates, not counts; intakes are left out (the app may materialize slots).
-        for (section, list) in [("medications", "items"), ("bp", "readings"), ("weight", "logs")] {
-            XCTAssertEqual(Self.count(got, section, list), Self.count(want, section, list), "\(section).\(list) count")
-        }
+        XCTAssertFalse(webButton(app, prefix: "Move to a cloud account").exists, "Settings still shows the Move row")
+        shot(flow, "settings-home")
+        app.terminate()
+        try Self.writeStash("move", try JSONSerialization.data(withJSONObject: fixture))
 
         // Still local, nothing erased, and the stash still waits for the invite.
-        app.terminate()
         app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO"]
         app.launch()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
@@ -168,10 +142,6 @@ final class FlowQAStashTests: XCTestCase {
     private static func firstMed(_ vault: [String: Any]) -> String {
         let meds = (vault["data"] as? [String: Any])?["medications"] as? [String: Any]
         return ((meds?["items"] as? [[String: Any]])?.first?["name"] as? String) ?? "?"
-    }
-
-    private static func count(_ data: [String: Any], _ section: String, _ list: String) -> Int? {
-        ((data[section] as? [String: Any])?[list] as? [Any])?.count
     }
 
     private static func stashURL(_ dir: String) -> URL? {

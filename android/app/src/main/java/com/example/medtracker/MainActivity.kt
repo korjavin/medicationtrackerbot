@@ -817,9 +817,9 @@ class MainActivity : Activity() {
                     reopen()
                 } else answer(true)
             }
-            // No url (a move started without an invite in hand; bd med-ta2n.12, contract §7): stay in
-            // local mode and reload home with ?invite=1, so the web opens F1. Not forget(): the move
-            // stash the page just wrote stays for the account F1 opens.
+            // No url (bd med-ta2n.12, contract §7): no current web caller sends one (the Settings Move
+            // row went with bd med-ta2n.5); an older page might. Stay in local mode and reload home
+            // with ?invite=1, so the web opens F1. Not forget(): a move stash stays for the account F1 opens.
             "local.leave" -> {
                 answer(true)
                 reopen(Invite.withInvite(home))
