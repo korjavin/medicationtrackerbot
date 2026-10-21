@@ -696,8 +696,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
       if (!h) return;
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       const clear = (c) => !c || c === 'transparent' || /^rgba\(.*,\s*0\)$/.test(c);
-      const bg = (el) => {
-        for (; el; el = el.parentElement) {
+      // Paint order, not DOM ancestry: a transparent full-screen layer (a sheet's
+      // tap-catching backdrop) is a child of <body>, so walking its parents hit
+      // body's legacy white instead of the opaque layer painted under it (med-o7zq.44).
+      const bg = (x, y) => {
+        for (const el of document.elementsFromPoint(x, y)) {
           const c = getComputedStyle(el).backgroundColor;
           if (!clear(c)) return c;
         }
@@ -707,7 +710,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
       const sample = () => {
         timer = 0;
         const x = innerWidth / 2;
-        const m = { top: bg(document.elementFromPoint(x, 0)), bottom: bg(document.elementFromPoint(x, innerHeight - 1)) };
+        const m = { top: bg(x, 0), bottom: bg(x, innerHeight - 1) };
         const s = m.top + '|' + m.bottom;
         if (s !== last) { last = s; h.postMessage(m); }
       };
