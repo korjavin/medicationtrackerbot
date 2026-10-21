@@ -790,7 +790,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:521', 'web/cloud/js/local-policy.js:523', 'web/cloud/js/local-policy.js:251', 'ios/App/LocalOrigin.swift:41', 'android/app/src/main/java/com/example/medtracker/MainActivity.kt:382'],
+    evidence: ['web/cloud/js/local-policy.js:530', 'web/cloud/js/local-policy.js:532', 'web/cloud/js/local-policy.js:251', 'ios/App/LocalOrigin.swift:41', 'android/app/src/main/java/com/example/medtracker/MainActivity.kt:382'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -894,7 +894,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'user-initiated',
     activationNote: 'when you tap Send in Settings → Send feedback; the first send on an install without a trial key also enrolls one (the app check, no data about you)',
     byo: 'n/a',
-    evidence: ['web/cloud/js/feedback-submit.js:166', 'web/cloud/js/local-policy.js:424', 'web/cloud/js/local-policy.js:460', 'web/cloud/js/local-boot.js:95', 'internal/cloudserver/attest.go:331'],
+    evidence: ['web/cloud/js/feedback-submit.js:166', 'web/cloud/js/local-policy.js:432', 'web/cloud/js/local-policy.js:469', 'web/cloud/js/local-boot.js:95', 'internal/cloudserver/attest.go:331'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: [] },
     docSignal: null,
     userCopy: {

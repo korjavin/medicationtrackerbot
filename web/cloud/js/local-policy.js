@@ -420,6 +420,14 @@ function noteFeedbackKey(win, granted) {
 }
 
 const feedbackError = (userMessage) => Object.assign(new Error(userMessage), { userMessage });
+// Each network step of a Send or a drain is bounded: the attest client's
+// challenge and enroll fetches carry no signal, and a stalled one must neither
+// hold the sheet nor feedback-submit.js's single-slot drain. A late answer still
+// lands in the client (challenge, enrollment); only this wait gives up.
+const FEEDBACK_STEP_MS = 30_000;
+const bounded = (promise) => Promise.race([promise, new Promise((_, reject) => {
+  setTimeout(() => reject(new Error('feedback request timed out')), FEEDBACK_STEP_MS);
+})]);
 
 function localFeedbackTransport(win) {
   async function client() {
@@ -432,9 +440,9 @@ function localFeedbackTransport(win) {
       const c = await client();
       let recipient;
       try {
-        recipient = await c.feedbackRecipient();
+        recipient = await bounded(c.feedbackRecipient());
       } catch {
-        recipient = undefined; // offline
+        recipient = undefined; // offline or stalled
       }
       const memo = readFeedbackMemo(win);
       if (typeof recipient === 'string') writeFeedbackMemo(win, { recipient });
@@ -448,7 +456,7 @@ function localFeedbackTransport(win) {
       if (memo.key !== 'granted' && !trialKeyGranted(win.localStorage)) {
         let res;
         try {
-          res = await c.enroll();
+          res = await bounded(c.enroll());
         } catch {
           throw feedbackError(FEEDBACK_OFFLINE_COPY);
         }
@@ -457,7 +465,8 @@ function localFeedbackTransport(win) {
       return recipient;
     },
     async send(body, signal) {
-      return (await client()).post('/api/attest/feedback', body, signal);
+      // A throw (timeout included) is feedback-submit.js's retryable status 0.
+      return bounded((await client()).post('/api/attest/feedback', body, signal));
     },
   };
 }
