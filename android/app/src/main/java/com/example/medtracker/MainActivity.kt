@@ -406,6 +406,7 @@ class MainActivity : Activity() {
      * own local.leave hands one off. WebView data is per origin and kept.
      */
     private fun forget(thenLocal: Boolean = false) {
+        // The account a leave left (bd med-o7zq.42): leave.clear {back: true} reopens it.
         val left = host
         prefs.edit().apply { if (thenLocal && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
         setLocal(true)
