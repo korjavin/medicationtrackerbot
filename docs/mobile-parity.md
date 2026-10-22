@@ -37,6 +37,7 @@ iOS feature work and the iOS visual-testing epic (`med-y5xx`) are paused; Androi
 | N3 lock / N4 load error / N5 web exit bar / N6 splash hand-off + `notifications.openSettings` (kit v2.1); N4 · local has no exit | ✓ (med-ckm5.15, med-ta2n.17) | ✓ (med-ckm5.16, med-ta2n.12) | parity |
 | Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1, med-ta2n.12) | parity |
 | `clipboard.read` (F1 Paste) | n/a (`navigator.clipboard` from the tap) | ✓ | Android-only: WebView has no clipboard-read prompt |
+| `base.post` (local-mode invite request + feedback POST through the shell) | pending (med-ta2n.26, iOS hold) | ✓ (med-ta2n.27) | pending-ios: contract med-ta2n.24 §A |
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |

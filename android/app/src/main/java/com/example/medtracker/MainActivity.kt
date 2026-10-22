@@ -57,6 +57,7 @@ import java.io.IOException
 import java.time.Instant
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import kotlin.concurrent.thread
 
 /**
  * The shell (bd med-nt9p.5), twin of ios/App/Shell.swift: one Android System
@@ -831,6 +832,24 @@ class MainActivity : Activity() {
             "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             "attest.status", "attest.enroll", "attest.setPass", "attest.assert" ->
                 attest.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
+            // Local mode's invite request + feedback POST (BasePost.kt): off the main thread, answered on it.
+            "base.post" -> {
+                val args = msg.optJSONObject("args") ?: JSONObject()
+                val headers = when (val h = args.opt("headers")) {
+                    null, JSONObject.NULL -> null
+                    is JSONObject -> h.keys().asSequence().associateWith { h.opt(it) }
+                    else -> h
+                }
+                thread(name = "base.post") {
+                    val (result, error) = try {
+                        val r = BasePost.post(BuildConfig.BASE_DOMAIN, args.opt("path"), args.opt("body"), headers)
+                        JSONObject().put("status", r.status).put("headers", JSONObject(r.headers)).put("body", r.body) to null
+                    } catch (e: BasePost.Failure) {
+                        null to e.message
+                    }
+                    runOnUiThread { runCatching { answer(result, error) } } // the WebView may be gone by now
+                }
+            }
             else -> if (op.startsWith("notifications.")) notifications.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
                 else answer(null, "unsupported: $op")
         }
