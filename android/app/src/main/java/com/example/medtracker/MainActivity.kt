@@ -363,8 +363,10 @@ class MainActivity : Activity() {
             return
         }
         if (!showingAccount || web.progress < 100) return load(url)
+        // A page without the router (e.g. the unlock page) loads the path instead.
         web.evaluateJavascript(
-            "history.replaceState({}, '', ${JSONObject.quote(path)}); window.handleDeepLinks && window.handleDeepLinks()", null)
+            "!!window.handleDeepLinks && (history.replaceState({}, '', ${JSONObject.quote(path)}), window.handleDeepLinks(), true)"
+        ) { if (it != "true") load(url) }
     }
 
     /** [path] is a ReminderPath.sanitize result ("/?…"). */
@@ -841,6 +843,7 @@ class MainActivity : Activity() {
                     is JSONObject -> h.keys().asSequence().associateWith { h.opt(it) }
                     else -> h
                 }
+                // ponytail: one thread per call, uncapped — the only caller is the bundled local page; pool if that changes.
                 thread(name = "base.post") {
                     val (result, error) = try {
                         val r = BasePost.post(BuildConfig.BASE_DOMAIN, args.opt("path"), args.opt("body"), headers)
@@ -848,7 +851,11 @@ class MainActivity : Activity() {
                     } catch (e: BasePost.Failure) {
                         null to e.message
                     }
-                    runOnUiThread { runCatching { answer(result, error) } } // the WebView may be gone by now
+                    runOnUiThread {
+                        // Locked or left local mode mid-call: drop the reply — no native result behind the lock.
+                        if (concealed || !LocalOrigin.opAllowed(op, local)) return@runOnUiThread
+                        runCatching { answer(result, error) } // the WebView may be gone by now
+                    }
                 }
             }
             else -> if (op.startsWith("notifications.")) notifications.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
