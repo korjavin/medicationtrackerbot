@@ -37,7 +37,7 @@ Audited 2026-10-22 against the iOS hold baseline (bd med-nt9p.51): every iOS-shi
 | Trial reinstall rejoins the same device bucket | ✓ keychain pass (med-o7zq.26) | ✓ `wg_trial` prefs in the backup rules (med-nt9p.32.8.4, .32.5) | parity |
 | Health data (BP + weight; sleep + workouts) | HealthKit (med-w6gx.6, .7) | Health Connect (med-nt9p.8, .9) | divergent: platform API; iOS follow-ups med-w6gx.18 open |
 | Reminders: local notifications from the horizon (replace-all, lapse notice, tap guard for another vault) | ✓ (med-w6gx.5, med-o7zq.9) | ✓ exact alarms + boot/update rearm (med-nt9p.7) | parity (iOS 64-slot cap is the platform's; Android caps at 200) |
-| **Reminder tap target: a dose opens its take/log sheet (row `url`, `ReminderPath` allowlist), else its section** | ✓ (med-w6gx.20, #1102) | **gap**: tap Intent is `?tab=<section>` only, row `url` ignored | **open: med-nt9p.52** |
+| Reminder tap target: a dose opens its take/log sheet (row `url`, `ReminderPath` allowlist), else its section | ✓ (med-w6gx.20, #1102) | ✓ (med-nt9p.52) | parity |
 | Notifications (bridge ops incl. `notifications.openSettings`) | ✓ | ✓ | parity |
 | Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12, #1251) | parity |
 | Load-error screen (503 / 404 / local), Try again keeps the `#claim=` fragment, renderer-crash reload | ✓ (med-w6gx.3, med-ckm5.15) | ✓ (med-ckm5.16, med-nt9p.32.14) | parity |

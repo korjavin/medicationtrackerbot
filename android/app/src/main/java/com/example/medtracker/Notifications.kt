@@ -166,8 +166,6 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
     companion object {
         /** No 64 cap like iOS; a sane ceiling anyway (the page sends at most 64). */
         const val CAP = 200
-        /** The sections a tap may open (stable section ids, CLAUDE.md rule 6). */
-        val SECTIONS = setOf("today", "meds", "bp", "weight", "workouts", "health")
         private const val ACTION_TAP = "com.example.medtracker.OPEN_REMINDER"
         private const val CHANNEL = "reminders"
         private const val PERMISSION_REQUEST = 7001
@@ -218,7 +216,7 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
                 val body = item.optString("body").takeIf { it.isNotEmpty() } ?: continue
                 if (at <= now) continue
                 keep.put(JSONObject().put("fireAtUnix", at).put("title", item.optString("title")).put("body", body)
-                    .put("section", item.optString("section", "today")))
+                    .put("section", item.optString("section", "today")).put("url", item.optString("url")))
             }
             store(c).edit().putString(HOST, host).putString(ROWS, keep.toString()).commit()
             return arm(c)
@@ -258,9 +256,10 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         private fun post(c: Context, host: String, id: Int, row: JSONObject) {
             val nm = manager(c)
             channel(nm)
-            val section = row.optString("section").takeIf { it in SECTIONS } ?: "today"
-            // The URL is the intent's identity, so each section keeps its own tap target.
-            val tap = Intent(ACTION_TAP, Uri.parse("https://$host/?tab=$section"), c, MainActivity::class.java)
+            // A row from a page before med-9d1a has no url: its section.
+            val path = ReminderPath.sanitize(row.optString("url").ifEmpty { ReminderPath.legacy(row.optString("section")) })
+            // The URL is the intent's identity, so each row target keeps its own PendingIntent.
+            val tap = Intent(ACTION_TAP, Uri.parse("https://$host$path"), c, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             val body = row.optString("body")
             nm.notify(id, Notification.Builder(c, CHANNEL)
@@ -274,12 +273,12 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
                 .build())
         }
 
-        /** A reminder tap for this account: the section it opens, else null (another account's, or not a tap). */
-        fun tappedSection(intent: Intent?, host: String?): String? {
+        /** A reminder tap for this vault: the sanitized "/?…" path it opens, else null (another vault's, or not a tap). */
+        fun tappedPath(intent: Intent?, host: String?): String? {
             if (intent?.action != ACTION_TAP || host == null) return null
             val uri = intent.data ?: return null
             if (uri.host?.lowercase() != host) return null
-            return uri.getQueryParameter("tab")?.takeIf { it in SECTIONS }
+            return ReminderPath.sanitize("/?" + (uri.encodedQuery ?: ""))
         }
     }
 }

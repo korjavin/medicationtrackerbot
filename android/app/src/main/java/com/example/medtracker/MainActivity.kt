@@ -124,7 +124,7 @@ class MainActivity : Activity() {
     private val concealed get() = lock.holds(local) || DebugHooks.qaLock(this)
     /** What the lock held back, run on unlock. */
     private var deferredUrl: String? = null
-    private var deferredSection: String? = null
+    private var deferredPath: String? = null
     /** This app's own screen is up (a picker, print, Settings): its onStop is not a background. */
     private var outbound = false
     /** The phone's check is up; its screen-lock screen stops this activity too. */
@@ -190,7 +190,7 @@ class MainActivity : Activity() {
         if (!local && host == null) setLocal(true)
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
         if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
-        else reopen(Notifications.tappedSection(intent, vaultHost)?.let { sectionUrl(it) } ?: home)
+        else reopen(Notifications.tappedPath(intent, vaultHost)?.let { pathUrl(it) } ?: home)
         if (DebugHooks.qaLocalError(this)) showError(LoadError.LOCAL, "local · bundle failed to load")
     }
 
@@ -224,7 +224,7 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         if (intent.action == ACTION_SWITCH) forget()
         if (intent.action == ACTION_DIAG) copyDiagnostics()
-        Notifications.tappedSection(intent, vaultHost)?.let { openSection(it) }
+        Notifications.tappedPath(intent, vaultHost)?.let { openPath(it) }
         if (capture(intent, fresh = true)) deliverInvite()
     }
 
@@ -352,22 +352,23 @@ class MainActivity : Activity() {
         }
     }
 
-    /** A reminder tap (bd med-nt9p.7): switch the open page to the section, or load the account on it. */
-    private fun openSection(section: String) {
-        val url = sectionUrl(section) ?: return
+    /**
+     * A reminder tap (bd med-nt9p.7, med-nt9p.52; Shell.openReminder's twin): hand the sanitized
+     * path to the open page's deep-link router, or load the vault on it.
+     */
+    private fun openPath(path: String) {
+        val url = pathUrl(path) ?: return
         if (concealed) {
-            deferredSection = section // opened after the unlock
+            deferredPath = path // opened after the unlock
             return
         }
         if (!showingAccount || web.progress < 100) return load(url)
-        // No switchTab (the unlock page): load the section URL, the deep-link router opens it after unlock.
-        web.evaluateJavascript("typeof window.switchTab === 'function' ? (window.switchTab('$section'), true) : false") {
-            if (it != "true") load(url)
-        }
+        web.evaluateJavascript(
+            "history.replaceState({}, '', ${JSONObject.quote(path)}); window.handleDeepLinks && window.handleDeepLinks()", null)
     }
 
-    /** The deep-link router reads ?tab= (section ids are Notifications.SECTIONS only). */
-    private fun sectionUrl(section: String) = vaultHost?.let { "https://$it/?tab=$section" }
+    /** [path] is a ReminderPath.sanitize result ("/?…"). */
+    private fun pathUrl(path: String) = vaultHost?.let { "https://$it$path" }
     override fun onDestroy() {
         if (screenOffRegistered) unregisterReceiver(screenOff)
         health.close()
@@ -428,7 +429,7 @@ class MainActivity : Activity() {
 
     private fun reopen(url: String = home) {
         deferredUrl = null
-        deferredSection = null
+        deferredPath = null
         if (concealed) web.loadUrl("about:blank") // the old page must not run behind the lock
         applyLock()
         showingAccount = false
@@ -1027,7 +1028,7 @@ class MainActivity : Activity() {
         updateChrome()
         if (hide) return
         deferredUrl?.let { deferredUrl = null; load(it) }
-        deferredSection?.let { deferredSection = null; openSection(it) }
+        deferredPath?.let { deferredPath = null; openPath(it) }
     }
 
     private fun authenticate(attempt: Int) {
