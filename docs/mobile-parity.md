@@ -30,6 +30,7 @@ iOS feature work and the iOS visual-testing epic (`med-y5xx`) are paused; Androi
 | Anonymous trial attestation | App Attest | Play Integrity (device-recall flag OFF) | divergent: platform API |
 | Health data | HealthKit | Health Connect | divergent: platform API |
 | Notifications (bridge ops) | ✓ | ✓ | parity |
+| Reminder tap target (row `url` → take sheet / section, `ReminderPath` allowlist) | ✓ (med-w6gx.20) | ✓ (med-nt9p.52) | parity |
 | Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12) | parity |
 | Local app lock (`lock.status` / `lock.set`) | ✓ | ✓ | parity (med-o7zq.39) |
 | Switch account entry | Settings.bundle | launcher long-press shortcut (`MainActivity.kt`) | divergent: platform convention |
