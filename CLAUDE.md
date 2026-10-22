@@ -96,3 +96,5 @@ Checklists live with the docs that own them — this section only routes to them
 ## Issue Tracking
 
 Issue tracking uses **bd** (beads); run `bd prime` for workflow context. Use bd for all task tracking — not TodoWrite or markdown TODO lists.
+
+Agents in zmx sessions coordinate over Agent Mail — rules in [AGENTS.md → Agent Mail](AGENTS.md#agent-mail-experiment).
