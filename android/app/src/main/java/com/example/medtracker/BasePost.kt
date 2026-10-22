@@ -53,7 +53,10 @@ object BasePost {
         } catch (e: IOException) {
             throw Failure("network")
         }
-        // The whole call, connect to last byte: a server dripping bytes under readTimeout still ends here.
+        // The whole call, connect to last byte: a server dripping bytes under readTimeout still ends.
+        // Two halves: the timer's disconnect aborts a blocked connect/write/read (OkHttp-backed on
+        // Android); the body loop checks the clock itself (the JVM's disconnect doesn't abort a read).
+        val until = System.nanoTime() + timeoutMs * 1_000_000L
         val deadline = deadlines.schedule(timeoutMs.toLong()) { runCatching { conn.disconnect() } } // a throw would kill the shared timer
         try {
             conn.requestMethod = "POST"
@@ -71,7 +74,7 @@ object BasePost {
             if (status < 0) throw Failure("network") // no valid status line
             val out = RESPONSE_HEADERS.mapNotNull { h -> conn.getHeaderField(h)?.let { h to it } }.toMap()
             val stream: InputStream? = if (status >= 400) conn.errorStream else conn.inputStream
-            return Reply(status, out, stream?.use { read(it) } ?: "")
+            return Reply(status, out, stream?.use { read(it, until) } ?: "")
         } catch (e: Failure) {
             throw e
         } catch (e: Exception) {
@@ -84,7 +87,7 @@ object BasePost {
         }
     }
 
-    private fun read(input: InputStream): String {
+    private fun read(input: InputStream, until: Long): String {
         val buf = ByteArrayOutputStream()
         val chunk = ByteArray(8192)
         while (true) {
@@ -92,6 +95,7 @@ object BasePost {
             if (n < 0) break
             buf.write(chunk, 0, n)
             if (buf.size() > MAX_RESPONSE) throw Failure("response too large")
+            if (System.nanoTime() > until) throw Failure("network")
         }
         return buf.toString(Charsets.UTF_8.name())
     }
