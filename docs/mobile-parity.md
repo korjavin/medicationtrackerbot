@@ -21,27 +21,46 @@ iOS feature work and the iOS visual-testing epic (`med-y5xx`) are paused; Androi
 
 ## Feature matrix
 
+Audited 2026-10-22 against the iOS hold baseline (bd med-nt9p.51): every iOS-shipped behaviour has a row; bridge ops are at parity (`PLATFORM_ONLY` = `chrome`, `clipboard.read`, both Android-only by design). One Android gap found and filed (med-nt9p.52).
+
 | Feature | iOS | Android | Status / reason |
 |---|---|---|---|
 | Account mode (cloud vault in WebView) | ✓ | ✓ | parity |
 | Local mode (bundled app, no account) | `WKURLSchemeHandler` (`wgapp://local`) | `appassets` + `files.js` / `chrome.js` | divergent: platform loader |
-| Local → cloud move / account → local leave | ✓ | ✓ | parity |
+| Local → cloud move (`move.stash` / `move.take` / `move.clear`, stash lifecycle, first-run hint) | ✓ (med-o7zq.35) | ✓ (med-nt9p.32.17) | parity |
+| Account → local leave (`leave.stash` / `leave.take` / `leave.clear`, Cancel returns to the account) | ✓ (med-o7zq.36.2, med-o7zq.42) | ✓ (med-o7zq.36.3, med-nt9p.43) | parity |
+| Mode-switch restore: Replace / Merge / Cancel choice, silent pickup Cancel, orphan-intake guard | ✓ | ✓ | parity: shared web (med-o7zq.37, .38, .40, .41, .42) |
 | Page downloads (blob:/data:) | Files export picker (med-o7zq.43) | `ACTION_CREATE_DOCUMENT` picker, no shell dialog (med-nt9p.48) | parity: both go straight to the system picker; Share lives in the web sheet (hidden in the Android WebView) |
-| Anonymous trial attestation | App Attest | Play Integrity (device-recall flag OFF) | divergent: platform API |
-| Health data | HealthKit | Health Connect | divergent: platform API |
-| Notifications (bridge ops) | ✓ | ✓ | parity |
-| Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12) | parity |
-| Local app lock (`lock.status` / `lock.set`) | ✓ | ✓ | parity (med-o7zq.39) |
+| `window.print()` → native print (incl. the offscreen print-doc iframe) | ✓ (med-w6gx.11) | ✓ (med-nt9p.10) | parity |
+| File chooser (`<input type=file>`, `.age` / `.nxk` restore) | ✓ (med-2au7) | ✓ `ACTION_GET_CONTENT` `*/*` + `EXTRA_MIME_TYPES` (med-nt9p.10) | parity |
+| Anonymous trial attestation (AI, food DB, voice) | App Attest (med-o7zq.16, .20, .23) | Play Integrity client shipped (med-nt9p.32.8.4), device-recall flag OFF | divergent: platform API; Android owner checks open: med-nt9p.32.8.5, .32.8.7, .32.8.9 |
+| Trial reinstall rejoins the same device bucket | ✓ keychain pass (med-o7zq.26) | ✓ `wg_trial` prefs in the backup rules (med-nt9p.32.8.4, .32.5) | parity |
+| Health data (BP + weight; sleep + workouts) | HealthKit (med-w6gx.6, .7) | Health Connect (med-nt9p.8, .9) | divergent: platform API; iOS follow-ups med-w6gx.18 open |
+| Reminders: local notifications from the horizon (replace-all, lapse notice, tap guard for another vault) | ✓ (med-w6gx.5, med-o7zq.9) | ✓ exact alarms + boot/update rearm (med-nt9p.7) | parity (iOS 64-slot cap is the platform's; Android caps at 200) |
+| **Reminder tap target: a dose opens its take/log sheet (row `url`, `ReminderPath` allowlist), else its section** | ✓ (med-w6gx.20, #1102) | **gap**: tap Intent is `?tab=<section>` only, row `url` ignored | **open: med-nt9p.52** |
+| Notifications (bridge ops incl. `notifications.openSettings`) | ✓ | ✓ | parity |
+| Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12, #1251) | parity |
+| Load-error screen (503 / 404 / local), Try again keeps the `#claim=` fragment, renderer-crash reload | ✓ (med-w6gx.3, med-ckm5.15) | ✓ (med-ckm5.16, med-nt9p.32.14) | parity |
+| Failed invite claim → native "Use another invite" exit | ✓ (med-w6gx.21) | ✓ (med-nt9p.20) | parity |
+| Local app lock (`lock.status` / `lock.set`; lifecycle: resume, taps deferred, snapshot cover, bridge says `locked`, screen-off) | ✓ Face ID (med-o7zq.8, .39) | ✓ BiometricPrompt (med-nt9p.32.9) | parity |
 | Switch account entry | Settings.bundle | launcher long-press shortcut (`MainActivity.kt`) | divergent: platform convention |
+| Local-mode storage diagnostic (owner spike page) | Settings.bundle toggle, test builds (med-o7zq.1) | debug-only `LocalSpikeActivity` (med-nt9p.32.1) | divergent: build flavour, not user-facing |
 | Native token mirror (N1 first run / N2 local intro deleted, kit v2.1) | ✓ mirror only (med-ta2n.17) | ✓ mirror only (med-ta2n.12) | parity |
 | N3 lock / N4 load error / N5 web exit bar / N6 splash hand-off + `notifications.openSettings` (kit v2.1); N4 · local has no exit | ✓ (med-ckm5.15, med-ta2n.17) | ✓ (med-ckm5.16, med-ta2n.12) | parity |
-| Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1, med-ta2n.12) | parity |
+| Status/navigation band colour sampled in paint order (sheet backdrops) | ✓ `Shell.pageJS` (med-o7zq.44) | ✓ `chrome.js` → `chrome` op | parity |
+| Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1 #1240, med-ta2n.12 #1251) | parity; Android owner device check med-ta2n.12.2 open |
 | `clipboard.read` (F1 Paste) | n/a (`navigator.clipboard` from the tap) | ✓ | Android-only: WebView has no clipboard-read prompt |
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |
+| Late `history.back()` across a mode/account switch: off-origin reload guard | pending-ios (med-o7zq.47) | ✓ (#1251) | Android-first |
+| `base.post` (local-mode POST to the shell's own base, four allowlisted paths) | pending-ios (med-ta2n.26) | in flight: med-ta2n.27 (#1270) | Android-first |
+| Native push (`push.token`, remote wake) | pending-ios (med-erq1.4) | open: med-erq1.5 | neither shipped |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
-| `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ | parity (med-w6gx.24) |
+| `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ (error screen, launcher shortcut) | parity (med-w6gx.24, med-nt9p.22) |
+| Passkey ceremony serialisation + discoverable gets + PRF-probe retry | n/a (ASAuthorization) | ✓ (med-nt9p.19 #1110, #1116; shell-gated web fix in flight) | Android-only: WebView WebAuthn quirks |
+| WebView tuning (textZoom 100, pinch-zoom, no overscroll glow, Safe Browsing off), portrait lock, `VIBRATE`, cookie flush on pause | n/a (WKWebView defaults / `UIRequiresFullScreen`) | ✓ (med-nt9p.28, .29, .30, .45) | Android-only: engine settings matching iOS defaults |
 | Back gesture exits app | n/a | ✓ | Android-only: back-exit |
-| e2e flow QA scenarios | partial: local-mode flows (`ios.yml` `qa`) | ✓ (`android/qa`) | partial: account flows are owner device checks ([ios.md](ios.md#owner-device-checklist-account-flows-need-a-passkey)); med-w6gx.23 |
-| Visual QA scene driver | ✓ (Simulator) | gap | open: med-y5xx.9 |
+| Store packaging, reviewer access, device verification | open: med-w6gx.8, .13, .14, .15 | open: med-nt9p.11, .13; reviewer runbook ✓ med-nt9p.12 | n/a: per-store owner work |
+| e2e flow QA scenarios | partial: local-mode flows (`ios.yml` `qa`, med-w6gx.23.x) | ✓ (`android/qa`: first-run, invite-link, native-*, lock, backup, move-ops, delete-account, not-found, load-error) | partial: iOS account flows are owner device checks ([ios.md](ios.md#owner-device-checklist-account-flows-need-a-passkey)); med-w6gx.23 |
+| Visual QA scene driver + compare against master | ✓ (Simulator, med-y5xx.1–.4) | ✓ (`android-qa` `local-visual` + `tests/visual/compare.sh`, med-y5xx.9) | parity; iOS epic deferred (hold) |
