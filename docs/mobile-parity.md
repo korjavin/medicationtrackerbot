@@ -50,6 +50,7 @@ Audited 2026-10-22 against the iOS hold baseline (bd med-nt9p.51): every iOS-shi
 | Status/navigation band colour sampled in paint order (sheet backdrops) | ✓ `Shell.pageJS` (med-o7zq.44) | ✓ `chrome.js` → `chrome` op | parity |
 | Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1 #1240, med-ta2n.12 #1251) | parity; Android owner device check med-ta2n.12.2 open |
 | `clipboard.read` (F1 Paste) | n/a (`navigator.clipboard` from the tap) | ✓ | Android-only: WebView has no clipboard-read prompt |
+| `base.post` (local-mode invite request + feedback POST through the shell) | pending (med-ta2n.26, iOS hold) | ✓ (med-ta2n.27) | pending-ios: contract med-ta2n.24 §A |
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |

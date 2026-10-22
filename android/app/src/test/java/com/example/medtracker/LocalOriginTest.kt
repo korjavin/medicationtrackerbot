@@ -76,7 +76,7 @@ class LocalOriginTest {
         assertFalse(LocalOrigin.bridgeCaller(true, "http", acct, acct))
         assertFalse(LocalOrigin.bridgeCaller(true, "https", null, null))
         assertFalse(LocalOrigin.bridgeCaller(true, "https", "other.example.org", acct))
-        for (op in listOf("setEgressHosts", "local.reset", "local.leave", "attest.status", "attest.enroll", "attest.setPass", "attest.assert", "lock.status", "lock.set", "move.stash", "leave.take", "leave.clear")) {
+        for (op in listOf("setEgressHosts", "local.reset", "local.leave", "attest.status", "attest.enroll", "attest.setPass", "attest.assert", "lock.status", "lock.set", "move.stash", "leave.take", "leave.clear", "base.post")) {
             assertFalse(op, LocalOrigin.opAllowed(op, local = false))
             assertTrue(op, LocalOrigin.opAllowed(op, local = true))
         }
@@ -111,6 +111,8 @@ class LocalOriginTest {
         assertFalse(local.contains("move.take") || local.contains("move.clear"))
         assertTrue(local.containsAll(listOf("leave.take", "leave.clear")))
         assertFalse(local.contains("leave.stash"))
+        // base.post (bd med-ta2n.27): local only; an account page gets "unsupported: base.post".
+        assertTrue(local.contains("base.post") && !account.contains("base.post"))
         for (op in account) assertTrue(op, LocalOrigin.opAllowed(op, local = false))
         for (op in local) assertTrue(op, LocalOrigin.opAllowed(op, local = true))
     }
