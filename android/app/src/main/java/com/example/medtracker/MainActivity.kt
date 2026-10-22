@@ -57,7 +57,6 @@ import java.io.IOException
 import java.time.Instant
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import kotlin.concurrent.thread
 
 /**
  * The shell (bd med-nt9p.5), twin of ios/App/Shell.swift: one Android System
@@ -843,14 +842,8 @@ class MainActivity : Activity() {
                     is JSONObject -> h.keys().asSequence().associateWith { h.opt(it) }
                     else -> h
                 }
-                // ponytail: one thread per call, uncapped — the only caller is the bundled local page; pool if that changes.
-                thread(name = "base.post") {
-                    val (result, error) = try {
-                        val r = BasePost.post(BuildConfig.BASE_DOMAIN, args.opt("path"), args.opt("body"), headers)
-                        JSONObject().put("status", r.status).put("headers", JSONObject(r.headers)).put("body", r.body) to null
-                    } catch (e: BasePost.Failure) {
-                        null to e.message
-                    }
+                BasePost.call(BuildConfig.BASE_DOMAIN, args.opt("path"), args.opt("body"), headers) { r, error ->
+                    val result = r?.let { JSONObject().put("status", it.status).put("headers", JSONObject(it.headers)).put("body", it.body) }
                     runOnUiThread {
                         // Locked or left local mode mid-call: drop the reply — no native result behind the lock.
                         if (concealed || !LocalOrigin.opAllowed(op, local)) return@runOnUiThread

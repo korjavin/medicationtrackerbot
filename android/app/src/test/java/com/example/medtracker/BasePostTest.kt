@@ -14,6 +14,8 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 // base.post against a scripted loopback HTTP/1.1 server (contract med-ta2n.24 A7, bd med-ta2n.27).
@@ -191,6 +193,33 @@ class BasePostTest {
         Thread.sleep(200) // a retry would land here
         assertEquals(1, requests.size)
         assertEquals("close", requests.single().headers["connection"])
+    }
+
+    @Test fun deadlineAnswersOnceWhileResolutionBlocks() {
+        // Stands in for platform OkHttp's synchronous DNS: blocked before any connection exists,
+        // where disconnect() can't reach. The deadline answers anyway; the late outcome is dropped.
+        val resolving = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val answers = CopyOnWriteArrayList<Pair<BasePost.Reply?, String?>>()
+        val start = System.nanoTime()
+        BasePost.start({
+            try {
+                resolving.await()
+                BasePost.send(root, "/api/invite-requests", "{}", null)
+            } finally {
+                finished.countDown()
+            }
+        }, 500) { r, e -> answers += r to e }
+        Thread.sleep(1500)
+        assertEquals(1, answers.size)
+        assertNull(answers.single().first)
+        assertEquals("network", answers.single().second)
+        assertTrue((System.nanoTime() - start) / 1_000_000 < 3000)
+        resolving.countDown()
+        assertTrue(finished.await(5, TimeUnit.SECONDS))
+        Thread.sleep(200)
+        assertEquals(1, requests.size) // the worker did complete its 200…
+        assertEquals(1, answers.size) // …and it never reached the page
     }
 
     @Test fun refusedConnectionIsNetwork() {

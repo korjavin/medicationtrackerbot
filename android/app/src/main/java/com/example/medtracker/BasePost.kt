@@ -6,7 +6,9 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Timer
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.schedule
+import kotlin.concurrent.thread
 
 /**
  * The bridge op base.post (contract med-ta2n.24 §A, bd med-ta2n.27; iOS twin med-ta2n.26): local
@@ -33,6 +35,30 @@ object BasePost {
     class Reply(val status: Int, val headers: Map<String, String>, val body: String)
 
     private val deadlines = Timer("base.post deadline", true)
+
+    /**
+     * The op: [post] on a worker thread, [done] called exactly once — with the worker's outcome, or
+     * with "network" at the deadline even while the worker is stuck where disconnect can't reach it
+     * (platform OkHttp resolves DNS synchronously before a connection exists). A late outcome is dropped.
+     */
+    fun call(base: String, path: Any?, body: Any?, headers: Any?, done: (Reply?, String?) -> Unit) =
+        start({ post(base, path, body, headers) }, TIMEOUT_MS, done)
+
+    internal fun start(work: () -> Reply, timeoutMs: Int, done: (Reply?, String?) -> Unit) {
+        val answered = AtomicBoolean()
+        // runCatching: a throw would kill the shared timer.
+        val deadline = deadlines.schedule(timeoutMs.toLong()) { if (answered.compareAndSet(false, true)) runCatching { done(null, "network") } }
+        // ponytail: one thread per call, uncapped — the only caller is the bundled local page; pool if that changes.
+        thread(name = "base.post") {
+            val (reply, error) = try {
+                work() to null
+            } catch (e: Failure) {
+                null to e.message
+            }
+            deadline.cancel()
+            if (answered.compareAndSet(false, true)) done(reply, error)
+        }
+    }
 
     /** [headers]: null when absent, else must be a Map of the allowlisted names to strings. */
     fun post(base: String, path: Any?, body: Any?, headers: Any?): Reply {
