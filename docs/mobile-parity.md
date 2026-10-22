@@ -13,10 +13,11 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 iOS feature work and the iOS visual-testing epic (`med-y5xx`) are paused; Android + web bugfixes and App Store submission (`med-w6gx`) continue. The iOS backlog is rebuilt at resume, not filed as twins now.
 
 - **No iOS twin beads** for Android shell changes (rule 1). `parity:n/a` still applies to non-user-visible work.
-- **iOS baseline** = last TestFlight upload: master `1ff23578ba4d3101db256ea4cd3c5f412f39f80c` (2026-10-20). Update it when a new TestFlight build ships.
+- **Catch-up baseline** = master `1ff23578ba4d3101db256ea4cd3c5f412f39f80c` (last TestFlight upload, 2026-10-20). Fixed: a later TestFlight build does not move it; advance it only after the intervening range is audited and banked.
+- **Installed-shell build** = the latest TestFlight build/SHA, tracked on `med-w6gx`; it is what the compatibility review item below protects.
 - **New Android-only bridge op** goes in `PLATFORM_ONLY` with a reason starting `pending-ios:` (genuine platform differences keep their normal reason). Don't change the test code.
 - **Review item for every PR touching web/native contracts:** the installed iOS shell must keep working (account mode loads fresh web code; bundled local mode is pinned to the shell release). Web must feature-detect the new op/field, gate the rollout, or record a release blocker on `med-w6gx`.
-- **Resume:** (a) `pending-ios:` entries in the parity test; (b) Android beads closed since the baseline + their PRs (final contracts); (c) `git log <baseline>..master -- android/ web/` for shell-gated web changes; (d) `bd list --label pending-ios` (deferred: `med-y5xx`, `med-y5xx.13`, `med-o7zq.47`, `med-ta2n.26`, `med-erq1.4`) then `bd undefer`, file iOS beads, refresh the feature matrix, run iOS smoke + upgrade checks before claiming parity.
+- **Resume:** (a) `pending-ios:` entries in the parity test; (b) Android beads closed since the catch-up baseline + their PRs (final contracts); (c) `git log <baseline>..master -- android/ web/` for shell-gated web changes; (d) `bd list --label pending-ios` (deferred: `med-y5xx`, `med-y5xx.13`, `med-o7zq.47`, `med-ta2n.26`, `med-erq1.4`) then `bd undefer`, file iOS beads, refresh the feature matrix, run iOS smoke + upgrade checks before claiming parity.
 
 ## Feature matrix
 
