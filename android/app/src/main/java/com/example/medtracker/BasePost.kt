@@ -66,6 +66,10 @@ object BasePost {
             conn.readTimeout = timeoutMs
             conn.doOutput = true
             conn.setFixedLengthStreamingMode(bytes.size)
+            // No silent POST replay (an invite request must not double-submit): the streamed body is
+            // not replayable, so OkHttp can't resend it once written; Connection: close keeps every call
+            // off a pooled socket, the stale-connection case OkHttp would otherwise retry.
+            conn.setRequestProperty("Connection", "close")
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Accept", "application/json")
             extra.forEach { (k, v) -> conn.setRequestProperty(k, v) }

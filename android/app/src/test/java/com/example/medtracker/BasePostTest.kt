@@ -184,6 +184,15 @@ class BasePostTest {
         drip.close()
     }
 
+    @Test fun droppedReplyIsNotRetried() {
+        // The server got the whole POST and hung up without a status: one request, never a silent resend.
+        respond = { ByteArray(0) }
+        fails("network") { BasePost.send(root, "/api/invite-requests", "{}", null) }
+        Thread.sleep(200) // a retry would land here
+        assertEquals(1, requests.size)
+        assertEquals("close", requests.single().headers["connection"])
+    }
+
     @Test fun refusedConnectionIsNetwork() {
         val port = ServerSocket(0, 50, InetAddress.getLoopbackAddress()).use { it.localPort }
         fails("network") { BasePost.send("http://127.0.0.1:$port", "/api/attest/enroll", "{}", null) }
