@@ -149,15 +149,23 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   sheet writes the move stash now, right before `local.leave {url}`) → a
   stash seeded into the container survives a relaunch in local mode with the
   records → iOS Settings' Switch account (`forgetKey`) drops the stash and
-  lands on "Have an invite?". `testLeaveStashPickup` — wipes
-  `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
+  lands on "Have an invite?". `testLeaveStashPickup` — on the empty store
+  setUp left, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
-  clears the file → seeded again over records: Merge / Replace → Cancel →
-  "Records not copied", file cleared.
+  clears the file → seeded again over records: Merge / Replace → Cancel → no
+  further dialog, records kept, file cleared.
+
+**Isolation (bd med-w6gx.23.8):** every flow class's `setUp` calls
+`QA.reset()`: the app stopped, then `Library/WebKit` (the store), both
+stashes and `tmp/wg-downloads` removed until they stay gone (a killed
+instance's WebKit processes can write on for a moment). Every flow starts on
+an empty store; a scene seeds what it needs. Defaults are not wiped (cfprefsd
+caches them): pin them per launch, e.g. `-wgLocalLock NO` beside
+`-wgLocalLockOn NO`, so a lock left on by a failed lock flow stays there.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
-(`-wgLocalMode`, `-wgAccountHost`, `-wgLocalLockOn`, and the Debug-only
+(`-wgLocalMode`, `-wgAccountHost`, `-wgLocalLockOn` + `-wgLocalLock`, and the Debug-only
 `-wgQAScene <scene>` to have the in-page driver seed the golden vault). Assert
 what the UI shows (native labels, web elements through `QA.webElement` /
 `QA.tabBarShows`) or files the app already writes, read from the runner:
@@ -645,7 +653,10 @@ changes for it.
   the primary/raised/ghost button styles and an `AccentColor` asset set to
   sun (bd med-ckm5.13).
 - **Navigation:** the account host and the base domain load in the app; every
-  other link (and `mailto:`/`tel:`) opens in Safari or its own app.
+  other link (and `mailto:`/`tel:`) opens in Safari or its own app. A
+  back/forward navigation to a page outside the current mode or account (a
+  late `history.back()` after a mode or account switch) is cancelled, never
+  opened in Safari (bd med-o7zq.47).
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   load-error screen (N4, bd med-ckm5.15: "Can't reach your account" with Try
   again / Switch account; a bare 404 "We can't find this account" with Use
@@ -847,7 +858,9 @@ a Web Push subscription.
   `reminderOpenUrl` (root, keys tab/action/ids/scheduled, no fragment; else
   `/?tab=today`); a reminder without a url (older page or build) maps its
   `section`. The open app gets `history.replaceState` + `handleDeepLinks()`,
-  a cold start loads the path.
+  a cold start loads the path. A page without the router (e.g. `/unlock`)
+  is left untouched and the path loads instead (bd med-w6gx.27, the Android
+  #1273 contract).
 - **Not in v1:** Confirm/Snooze buttons on the notification; a cold start onto
   a locked vault lands on Today after unlock (`/unlock` drops the query).
 
@@ -965,7 +978,28 @@ mode, gated on the bridge platform being `ios` or `android`
   `assert`, `setPass` — the anonymous trial's pass in the Keychain,
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not iCloud-synced, so a
   reinstall rejoins the same trial budget (bd med-o7zq.26); entitlement `com.apple.developer.devicecheck.appattest-environment`,
-  checked on the signed archive in `ios.yml`) exist only there, `notifications.*` and `health.*` serve both modes.
+  checked on the signed archive in `ios.yml`) and `base.post` exist only there, `notifications.*` and `health.*` serve both modes.
+  `base.post {path, body, headers?}` (contract med-ta2n.24 §A, bd med-ta2n.26,
+  [`BasePost.swift`](../ios/App/BasePost.swift); twin of Android `BasePost.kt`)
+  is local mode's invite request and attested feedback, POSTed by the shell —
+  its only native egress, so the local CSP never needs the base host. `path`
+  exactly one of `LocalOrigin.basePostPaths` (`/api/attest/challenge`,
+  `/api/attest/enroll`, `/api/attest/feedback`, `/api/invite-requests`), sent
+  to `https://` + `WGBaseDomain`; `body` a string sent as its UTF-8 bytes
+  verbatim (the attest assertion binds it), ≤ 5 MiB; `headers` only
+  `X-Attest-Key-Id` / `X-Attest-Challenge` / `X-Attest-Assertion` (≤ 8 KiB, no
+  line break). The shell adds `Content-Type`/`Accept: application/json`, follows
+  no redirect, uses an ephemeral per-call `URLSession` (no cache, cookies or
+  pooled socket, so no silent POST replay), answers `network` at the 30 s
+  whole-call deadline exactly once, and logs nothing. Replies `{status, headers,
+  body}` for any HTTP status (headers: only `X-Attest-Challenge`,
+  `X-Trial-Remaining`, `Retry-After`; body ≤ 64 KiB). Errors: `no base`,
+  `invalid path`, `invalid body`, `body too large`, `invalid headers`,
+  `network`, `response too large`. A call still running when the lock comes up
+  or local mode is left answers `locked` / `unsupported: base.post` instead of
+  the server's reply (WebKit requires every reply; Android drops it). Only a
+  user tap or the page's outbox drain calls it, so a cold start stays
+  zero-egress. Tests: `ios/Tests/main.swift` (loopback server).
   The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell
   keeps `limitsNavigationsToAppBoundDomains` on in both modes.
 - **Backup flag:** WebKit excludes a new origin's data dir from backup for its

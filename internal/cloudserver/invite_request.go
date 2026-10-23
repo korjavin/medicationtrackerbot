@@ -82,11 +82,10 @@ func (a *InviteRequestAPI) Enable(tg *TelegramAPI) bool {
 	return true
 }
 
-// RegisterRoutes mounts the POST and its CORS preflight (the local-mode app
-// posts cross-origin from its bundled origin). router.go forwards the path from
-// the base host only.
+// RegisterRoutes mounts the POST. No CORS: the local-mode app's shell sends it
+// natively (bridge op base.post), with no Origin. router.go forwards the path
+// from the base host only.
 func (a *InviteRequestAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("OPTIONS "+inviteRequestsPath, a.ServeHTTP)
 	mux.HandleFunc("POST "+inviteRequestsPath, a.ServeHTTP)
 }
 
@@ -97,22 +96,6 @@ type inviteRequestBody struct {
 
 func (a *InviteRequestAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	if origin := r.Header.Get("Origin"); origin == localAppOrigin || origin == androidLocalOrigin {
-		h := w.Header()
-		h.Set("Access-Control-Allow-Origin", origin)
-		h.Add("Vary", "Origin")
-		if r.Method == http.MethodOptions {
-			h.Set("Access-Control-Allow-Methods", "POST")
-			h.Set("Access-Control-Allow-Headers", "Content-Type")
-			h.Set("Access-Control-Max-Age", "600")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-	}
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
 	if a.tg == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_enabled"})
 		return

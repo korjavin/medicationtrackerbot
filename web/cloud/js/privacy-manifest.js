@@ -765,9 +765,9 @@ export const PRIVACY_MANIFEST = [
     activationNote: 'only when you send the form or answer "yes" to the bot, and only if the operator has turned requests on',
     byo: 'n/a — or skip it: an invite link someone sends you needs no request',
     evidence: [
-      'internal/cloudserver/invite_request.go:98',
-      'internal/cloudserver/invite_request.go:233',
-      'internal/cloudserver/invite_request.go:379',
+      'internal/cloudserver/invite_request.go:97',
+      'internal/cloudserver/invite_request.go:216',
+      'internal/cloudserver/invite_request.go:362',
       'internal/cloudserver/mailer.go:79',
     ],
     code: { go: ['internal/cloudserver/invite_request.go', 'internal/cloudserver/mailer.go'], hosts: [] },
@@ -812,8 +812,8 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'On-device mode (iPhone and Android apps) — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above); only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); an invite request you send from Settings → Sync & backup (the invite-request row); and feedback you send from Settings → Send feedback (the local-feedback row)',
-    destination: 'Only those providers, plus our server for the free trial while it is on (and, for trial voice calls, the operator\'s ElevenLabs account) and for an invite request or feedback you send. The app\'s CSP lists our server whenever the app knows it, but nothing calls it otherwise, and admits no other host; every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); and, through the app shell rather than the page, an invite request or feedback you send (the invite-request and local-feedback rows)',
+    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on, and our server for an invite request or feedback you send, which the app shell posts (never the page). The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
@@ -825,7 +825,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls), send an invite request or send feedback. Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request or feedback (the app itself sends them, not the page). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
     },
   },
   {
@@ -911,9 +911,9 @@ export const PRIVACY_MANIFEST = [
     // bd med-ta2n.19 (server: POST /api/attest/feedback) + med-ta2n.20 (client:
     // local-policy.js swaps feedback-submit.js's transport for the attest
     // client). Same age recipient and feedback_queue as the cloud 'feedback'
-    // row; the row's account_id is 'attest:' + the bucket id. The shell CSP
-    // admits the base domain with the trial off too (med-ta2n.14's
-    // localEgressHosts); the local-egress row names this send.
+    // row; the row's account_id is 'attest:' + the bucket id. The shell
+    // POSTs it (bridge op base.post, med-ta2n.24); the CSP is unchanged and
+    // the local-egress row names this send.
     id: 'local-feedback',
     mode: 'local',
     feature: 'On-device mode (iPhone and Android apps) — feedback you send',
@@ -923,9 +923,9 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'ciphertext',
     retention: 'Until the developer drains the queue',
     activation: 'user-initiated',
-    activationNote: 'when you tap Send in Settings → Send feedback; the first send on an install without a trial key also enrolls one (the app check, no data about you)',
+    activationNote: 'when you tap Send in Settings → Send feedback; the first send on an install without a key enrolls one — the app check only; it does not use or spend the free trial',
     byo: 'n/a',
-    evidence: ['web/cloud/js/feedback-submit.js:195', 'web/cloud/js/local-policy.js:436', 'web/cloud/js/local-policy.js:466', 'web/cloud/js/local-boot.js:102', 'internal/cloudserver/attest.go:331'],
+    evidence: ['web/cloud/js/feedback-submit.js:195', 'web/cloud/js/local-policy.js:486', 'web/cloud/js/local-policy.js:509', 'web/cloud/js/local-boot.js:85', 'internal/cloudserver/attest.go:331'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -940,13 +940,13 @@ export const PRIVACY_MANIFEST = [
     feature: 'On-device mode (iPhone and Android apps) — reminder text on the lock screen',
     boundary: 'on-device',
     data: 'The text of each scheduled reminder: generic by default ("Medication time"); with Detailed, the full text — medication and tracker names, workout plans, your weight and goal, the weekly summary',
-    destination: 'The phone\'s notification scheduler, then the lock screen and Notification Center, readable by anyone holding the phone',
+    destination: 'The phone\'s notification scheduler, then the lock screen and Notification Center, readable by anyone holding the phone. On Android the pending schedule (the same text, plus the medication ids a dose reminder opens) is kept in the app\'s device-protected storage, so reminders still fire after a reboot before the first unlock; that storage is readable before the unlock only below the OS (root, forensic tools)',
     operatorVisibility: 'none',
     retention: 'Until the reminder fires or is replaced by the next schedule',
     activation: 'opt-in',
     activationNote: 'you allow notifications; Settings → Reminders & notifications → Lock-screen text picks Generic or Detailed',
     byo: 'n/a',
-    evidence: ['web/cloud/js/reminders.js:189', 'web/cloud/js/reminders.js:237', 'android/app/src/main/java/com/example/medtracker/Notifications.kt:29'],
+    evidence: ['web/cloud/js/reminders.js:189', 'web/cloud/js/reminders.js:237', 'android/app/src/main/java/com/example/medtracker/Notifications.kt:30'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {

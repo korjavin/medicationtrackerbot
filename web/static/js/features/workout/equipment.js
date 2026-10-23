@@ -541,9 +541,12 @@ function _readEquipmentPlateRows() {
 }
 
 // Strict: any non-numeric token aborts with null (the caller alerts) so a
-// typo never saves a load set the user did not ask for.
+// typo never saves a load set the user did not ask for. A comma directly
+// between digits is a decimal mark ('12,5' = 12.5); lists separate on
+// whitespace, ';' or a comma followed by space, so the "10, 12.5" form the
+// field itself renders (and any saved list) parses unchanged.
 function _parseEquipmentLoads(text) {
-    const tokens = String(text || '').split(/[,;\s]+/).filter((s) => s !== '');
+    const tokens = String(text || '').replace(/(?<=\d),(?=\d)/g, '.').split(/[,;\s]+/).filter((s) => s !== '');
     const loads = [];
     for (const token of tokens) {
         const n = Number(token);
@@ -730,7 +733,7 @@ function _buildEquipmentShapePayload() {
     if (kind === 'fixed') {
         const loads = _parseEquipmentLoads(document.getElementById('workout-equipment-loads').value);
         if (!loads || loads.length === 0) {
-            safeAlert('Fixed loads must be positive numbers, comma-separated (or use the generator).');
+            safeAlert('Fixed loads must be positive numbers separated by spaces or semicolons (or use the generator).');
             return null;
         }
         const fixedPayload = { kind: 'fixed', name, loads_kg: loads };

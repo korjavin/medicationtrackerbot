@@ -53,4 +53,16 @@ describe('native bridge op parity', () => {
     it('PLATFORM_ONLY has no stale entries', () => {
         expect(Object.keys(PLATFORM_ONLY).filter((op) => !!ios[op] === !!android[op])).toEqual([]);
     });
+
+    // base.post's path allowlist (contract med-ta2n.24 A2/A7): one list in each shell and the page.
+    it('base.post paths are identical in both shells and the page', () => {
+        const paths = (file, re) => {
+            const m = fs.readFileSync(file, 'utf8').replace(/\/\/.*$/gm, '').match(re);
+            return m ? [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]).sort() : [];
+        };
+        const iosPaths = paths(IOS, /\bbasePostPaths\b[^=]*=\s*\[([\s\S]*?)\]/);
+        expect(iosPaths).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
+        expect(paths(ANDROID, /\bBASE_POST_PATHS\s*=\s*setOf\(([\s\S]*?)\)/)).toEqual(iosPaths);
+        expect(paths(path.join(ROOT, 'web/cloud/js/local-policy.js'), /\bBASE_POST_PATHS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]/)).toEqual(iosPaths);
+    });
 });

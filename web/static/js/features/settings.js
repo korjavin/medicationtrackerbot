@@ -1156,9 +1156,11 @@ async function paintSyncSection() {
             if (_syncInvite) sheet.offer(_syncInvite, { kit: true });
         });
     }
-    const [invite, base] = await Promise.all([
+    const [invite, base, canRequest] = await Promise.all([
         Promise.resolve().then(() => sheet.pending()).catch(() => null),
         Promise.resolve().then(() => sheet.base()).catch(() => ''),
+        // The shell POSTs the request (base.post); without the op, no button.
+        Promise.resolve().then(() => sheet.canRequest && sheet.canRequest()).catch(() => false),
     ]);
     _syncInvite = invite || null;
     none.hidden = !!_syncInvite;
@@ -1166,7 +1168,7 @@ async function paintSyncSection() {
     how.hidden = !base;
     if (base) how.href = `https://${base}/`;
     const request = document.getElementById('settings-sync-request');
-    if (request) request.hidden = !base;
+    if (request) request.hidden = canRequest !== true;
 }
 
 // Load settings (BP reminders status, etc.)

@@ -364,7 +364,7 @@ client-computed horizon — the twin of iOS
 [`ios/App/Notifications.swift`](../ios/App/Notifications.swift)). No web or
 server change, no FCM. The page (`web/cloud/js/reminders.js`) sends the same
 replace-all list it sends on iOS — at most 64 rows `{fireAtUnix, title, body,
-section}`, the last one the "Open the app to keep reminders running" notice.
+section, url}`, the last one the "Open the app to keep reminders running" notice.
 
 - **Ops:** `notifications.permission` / `requestPermission` → `granted`
   only when **both** grants exist, else `default` (or `denied` once the
@@ -378,7 +378,10 @@ section}`, the last one the "Open the app to keep reminders running" notice.
   `POST_NOTIFICATIONS` prompt (or the app's notification settings once it was
   refused), then *Alarms & reminders* (`ACTION_REQUEST_SCHEDULE_EXACT_ALARM`;
   `SCHEDULE_EXACT_ALARM` is off by default for new installs on Android 14+).
-  The reply waits until the user is back from each screen. `USE_EXACT_ALARM`
+  The reply waits until the user is back from each screen: a resume counts
+  only after a pause that followed the open (`ReturnGate`, bd med-nt9p.56),
+  so the resume right after the permission dialog never answers for the
+  Alarms page it just opened. `USE_EXACT_ALARM`
   is not used (Play keeps it for alarm and calendar apps).
 - **Schedule** cancels the previous alarms, stores the rows in app-private
   storage (plaintext, like iOS's pending requests; capped at 200) and arms
@@ -386,14 +389,53 @@ section}`, the last one the "Open the app to keep reminders running" notice.
   posts every row now due and arms the next. Doze rate-limits allow-while-idle
   alarms per app, so same-time reminders share one wake and a late wake still
   posts what it missed (rows missed by over an hour, e.g. while the phone was
-  off, are dropped). Without both grants it stores the rows and arms nothing;
-  granting *Alarms & reminders* later arms them, as do a reboot and an app
-  update (alarms survive neither). Notifications post on the high-importance
+  off, are dropped). Without notifications it stores the rows and arms
+  nothing; without *Alarms & reminders* the alarm is inexact (see Direct
+  Boot below) and `schedule` still answers 0. Granting either later re-arms,
+  as do a reboot and an app update (alarms survive neither). Notifications post on the high-importance
   **Reminders** channel; switching that channel off counts as `denied`, and
   Enable opens its settings.
-- **Tap** opens the reminder's section (`/?tab=<section>`, stable ids), in the
-  open page or by loading the account on it. Switching account clears the
-  previous account's alarms; the newly opened page schedules its own.
+- **Before the first unlock (Direct Boot, bd med-nt9p.57):** the `Fire` and
+  `Rearm` receivers are `directBootAware` and `Rearm` also takes
+  `LOCKED_BOOT_COMPLETED`, so after a reboot (e.g. an overnight OTA) the
+  alarm is armed while the phone is still locked and reminders post on time
+  instead of at the first unlock (or never, past the one-hour stale cut).
+  After a reboot AlarmManager refuses exact alarms for a while even with the
+  grant (`canScheduleExactAlarms()` false, `setExactAndAllowWhileIdle`
+  throws — before the unlock and still at `BOOT_COMPLETED` on the API 34
+  emulator), so `arm()` falls back to an inexact `setAndAllowWhileIdle`
+  alarm whenever exact is refused: late by at most ~¾ of the time left to
+  the slot, at once when already due. The next arm (each post, each app
+  open) tries exact again.
+  For that the `reminders` prefs file — and only it — lives in
+  **device-protected** storage (`createDeviceProtectedStorageContext()`);
+  the account host prefs, lock, invite slot, Health Connect anchors and all
+  WebView/vault data stay credential-encrypted. Upgrade: the first
+  `store()` call after an unlock moves an existing credential-encrypted
+  `reminders.xml` over with `moveSharedPreferencesFrom` (deleting it there);
+  once moved it is a no-op, and a failed move retries. A tap on a reminder
+  posted while locked asks for the unlock first (`MainActivity` is not
+  direct-boot aware — the WebView and the vault need it), then opens as
+  below. Backup rules are include-only on credential-encrypted domains, so
+  the device-protected file is never backed up.
+  **Privacy:** the schedule rows (account host, title, body — medication
+  names at *Detailed* — and the `url` with medication ids) are readable on a
+  rebooted, still-locked phone by anyone who can read app storage below the
+  OS (root, forensic tools) — not by someone merely holding it. That is the
+  same text the posted notification puts on the lock screen anyway; no
+  vault data or keys are in it.
+- **Tap** (bd med-nt9p.52, twin of iOS med-w6gx.20) opens the row's `url`
+  (`reminderDeeplink`: `/?action=medication_confirm&ids=…&scheduled=…` for a
+  dose → its take sheet, else `/?tab=<section>`).
+  [`ReminderPath.kt`](../android/app/src/main/java/com/example/medtracker/ReminderPath.kt)
+  allowlists it like `sw.js reminderOpenUrl`: a same-origin `/?…` path, keys
+  `tab`/`action`/`ids`/`scheduled` only, URL-query-safe characters, else
+  `/?tab=today`; a row without `url` (older web build) opens
+  `/?tab=<section>`. An open page gets `history.replaceState` +
+  `window.handleDeepLinks()`; otherwise the vault loads on the path. A tap
+  under the lock opens after unlock; another vault's tap is ignored.
+  Switching account clears the previous account's alarms; the newly opened
+  page schedules its own.
 - **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
   says iPhone/iOS Settings.
 
@@ -450,6 +492,18 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   Note: `energy` is *total* calories, iOS reads *active* energy.
 - **Foreground only:** reads run only when the page asks (unlock, return to
   the app); no background reads, no background permission.
+- **Diagnostics (bd med-nt9p.59):** every `health.query` adds one line to the
+  Copy diagnostics log — `health <kind> <scan|changes|expired-scan> read=<n>
+  records=<n> more=<b>`, or `health <kind> denied` (no read access for that
+  type), or the op's error. A kind that has never returned anything keeps no
+  anchor, so it shows `scan` on every run.
+- **QA:** android-qa `health-connect` writes a BP through the debug-only
+  `QaHealthWrite` activity (src/debug, `WRITE_BLOOD_PRESSURE` in the debug
+  manifest only), switches the import on, then — in a process Playwright never
+  attached to — goes Home, writes a second one and returns, and asserts the
+  shell logged a `health bp changes` read and the reading is in Vitals.
+  Playwright must be detached for that: its focus emulation keeps an attached
+  page "visible", so the WebView never fires `visibilitychange`.
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health
   Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
   `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy
@@ -460,6 +514,11 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   type → no samples, no error. A night and a workout recorded by a fitness
   app → the sleep day and the workout appear (sleep ~3 h after waking, once
   settled); updating from a .8 build shows one dialog for the new types.
+  A reading missing from the app: open Health Connect → Data and access →
+  Vitals → Blood pressure; it must be listed with its source app. If not, the
+  source (e.g. Fit → Settings → "Sync Fit with Health Connect") never synced
+  it; that sync is batched, not immediate. The Settings row's "Checked …" time
+  moves on every app open, so it shows whether the rescan ran.
 
 ### Device check (CI debug APK)
 
@@ -489,7 +548,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -679,6 +738,26 @@ from the warm cache. The Back steps record PASS/FAIL and the press counts
 (`results.smoke.backPressesToCloseSheet`, `backPressesToLeave`, and `backTrail`: the page path after each Back on Today) without
 stopping the scenario.
 
+**`reminders-offline`** (bd med-nt9p.55; in `all` right after `smoke`, whose
+account it reopens; dispatched alone it claims the invite): the grants
+local-smoke gave are revoked first, then Settings → *Reminders &
+notifications* → *Enable* walks both system screens through UiAutomator
+(the `POST_NOTIFICATIONS` prompt's *Allow*, then the *Allow setting alarms
+and reminders* switch and Back; a screen that never shows falls back to `pm
+grant` / `appops` and says so in `results.reminders.permission`) → the page
+reads *On* and `permission()` `granted` (bd med-nt9p.56 was this step) → a
+daily med due at the next whole minute ≥ 90 s ahead, its row in the shell's
+store → HOME + `am kill` (+ `kill -9`), **not** `am force-stop`, which drops
+the app's alarms → the notification is posted with no app process → its tap
+opens the take sheet for that dose (`med-confirm-modal` naming the med) →
+offline cold start: airplane mode + wifi/data off, force-stop, relaunch → the
+app renders from the Service Worker (`navigator.onLine` false, SW-controlled,
+no N4), network restored. Shots: `reminders-offline-*` (system screens, the
+shade, the take sheet, the offline start). Not covered yet: a reminder tap
+under local mode's app lock (the lock exists in local mode only). Turning the
+lock on needs the system credential screen, which the harness could not
+drive (see the ponytail note in the scenario).
+
 **Agent how-to.**
 
 ```bash
@@ -800,7 +879,7 @@ and before any *Clear storage*, and paste it into the bead.
    it back on B, unlocked with **no** passkey prompt (warm unlock). *Run
    checks*: `idb.markerFromEarlierLaunch: true`, `keyFromEarlierRun: true`,
    `keyUsable: true`, `serviceWorker.controlled: true`.
-7. **Offline (3).** Airplane mode on, kill, reopen. Expect the app to render
+7. **Offline (3).** *Emulator-covered: android-qa `reminders-offline`.* Airplane mode on, kill, reopen. Expect the app to render
    from the Service Worker, not a WebView error page; *Run checks*:
    `online: false`, `controlled: true`. Airplane mode off.
 8. **APK update (4).** Dispatch the workflow again (new run = new
@@ -1123,6 +1202,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | `leave.clear {back?}` | deletes the leave stash, replies `true`; with `back: true` (the page's pickup was cancelled, bd med-o7zq.42) and an account remembered by `account.leave {then: "local"}` (`leaveHost`), replies `{back: true}` and reopens that account |
   | `lock.status` | `{on, available}`: the lock's state, and whether the phone has a screen lock ([Lock](#local-mode-lock-bd-med-nt9p329)) |
   | `lock.set {on}` | the phone's own check, then the choice; `true` once applied, `false` when refused or cancelled |
+  | `base.post {path, body, headers?}` | local mode's invite request and attested feedback, POSTed by the shell (contract med-ta2n.24 §A, bd med-ta2n.27, [`BasePost.kt`](../android/app/src/main/java/com/example/medtracker/BasePost.kt)) — the shell's only native egress, so the local CSP never needs the base host. `path` exactly one of `LocalOrigin.BASE_POST_PATHS` (`/api/attest/challenge`, `/api/attest/enroll`, `/api/attest/feedback`, `/api/invite-requests`), sent to `https://` + `BuildConfig.BASE_DOMAIN`; `body` a string sent as its UTF-8 bytes verbatim (the attest assertion binds it), ≤ 5 MiB; `headers` only `X-Attest-Key-Id` / `X-Attest-Challenge` / `X-Attest-Assertion` (≤ 8 KiB). The shell adds `Content-Type`/`Accept: application/json`, follows no redirect, keeps no cache or cookies, bounds the call at 30 s off the main thread and logs nothing. Replies `{status, headers, body}` for any HTTP status (headers: only `X-Attest-Challenge`, `X-Trial-Remaining`, `Retry-After`; body ≤ 64 KiB). Errors: `no base`, `invalid path`, `invalid body`, `body too large`, `invalid headers`, `network`, `response too large`. Only a user tap or the page's outbox drain calls it, so a cold start stays zero-egress. Tests: `BasePostTest.kt` (loopback server) |
 
   The `attest.*` ops are local-only too
   ([Free trial](#local-mode-free-trial-bd-med-nt9p3284)). Account-only — the
@@ -1232,8 +1312,10 @@ account has its passkey, and cloud mode never shows or checks it.
    offline, `wg-local-vault` on `<html>`, no network requests in
    `chrome://inspect`.
 2. Add a med, kill and reopen: still there, no first run.
-3. Settings → Reminders → Allow → a reminder fires; its tap opens Meds in
-   local mode.
+3. Settings → Reminders → Allow → a reminder fires; a dose reminder's tap opens
+   that dose's take sheet in local mode. *Emulator-covered: android-qa
+   `reminders-offline` (both system grants, the app killed, the tap; on an
+   account). The phone keeps real-OEM doze and reboot.*
 4. Save a BYOK key in Settings → AI & integrations: the page reloads once
    and the provider host is in the document CSP (`chrome://inspect`).
 5. Settings → *Sync & backup*: the chip says *Unprotected*, the page shows

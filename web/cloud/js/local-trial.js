@@ -32,7 +32,9 @@ async function errorCode(res) {
   }
 }
 
-// createAttestClient({ attest, base, fetchImpl, onResponse })
+// createAttestClient({ attest, base, fetchImpl, onResponse, enrollTrial })
+//   enrollTrial()                    → false: enroll asks for a feedback-only key
+//                                      (`trial: false`, bd med-ta2n.25), no grant
 //   enroll()                         → Response of POST /api/attest/enroll
 //                                      (or of the challenge fetch, when that failed)
 //   post(pathAndQuery, body, signal) → Response of the signed POST
@@ -45,7 +47,7 @@ async function errorCode(res) {
 // single-use: the next one rides on the last response (X-Attest-Challenge),
 // so the steady state is one round trip per request.
 export function createAttestClient({
-  attest, base, fetchImpl, onResponse = () => {}, subtle = globalThis.crypto.subtle,
+  attest, base, fetchImpl, onResponse = () => {}, enrollTrial = () => true, subtle = globalThis.crypto.subtle,
 }) {
   const origin = `https://${base}`;
   let challenge = '';
@@ -127,6 +129,7 @@ export function createAttestClient({
         // Android (Attest.kt): Play Integrity instead; its reply has no attestation/deviceToken, so both drop out.
         ...(reply.kind === 'android' ? { kind: 'android', public_key: reply.publicKey, integrity_token: reply.integrityToken } : {}),
         ...(pass ? { pass } : {}),
+        ...(enrollTrial() ? {} : { trial: false }),
       }),
     });
     if (res.ok) {
@@ -336,7 +339,8 @@ export function createLocalTrial({ attest, base, fetchImpl, storage, client: sha
         const voice = typeof body.voice_remaining_seconds === 'number'
           ? { voiceRemaining: body.voice_remaining_seconds, voiceDailyRemaining: body.voice_daily_remaining_seconds, ...voiceLimits(body) }
           : {};
-        writeState(storage, { daily: body.daily, used: false, ...voice });
+        // A feedback-only key (granted false) is no trial grant.
+        if (body.granted !== false) writeState(storage, { daily: body.daily, used: false, ...voice });
       }
       return res;
     },

@@ -38,6 +38,7 @@ type AttestInstall struct {
 	Counter    uint32
 	BucketID   string // on insert: "" founds a new bucket (id = KeyID)
 	PassHash   []byte // on insert of a new bucket: SHA-256 of its pass secret
+	Granted    bool   // bucket passed the trial gate; false = feedback-only key (bd med-ta2n.25); on insert: a new bucket's
 	Used       int    // the BUCKET's lifetime request count (read only)
 	Env        string
 	CreatedAt  time.Time
@@ -58,8 +59,8 @@ func (r *Repo) InsertAttestInstall(ctx context.Context, in AttestInstall) error 
 		bucket := in.BucketID
 		if bucket == "" {
 			bucket = in.KeyID
-			if _, err := tx.ExecContext(ctx, `INSERT INTO attest_buckets (bucket_id, pass_hash, created_at) VALUES (?, ?, ?)`,
-				bucket, in.PassHash, in.CreatedAt.Unix()); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO attest_buckets (bucket_id, pass_hash, created_at, granted) VALUES (?, ?, ?, ?)`,
+				bucket, in.PassHash, in.CreatedAt.Unix(), in.Granted); err != nil {
 				return err
 			}
 		}
@@ -101,14 +102,39 @@ func (r *Repo) AttestInstall(ctx context.Context, keyID string) (*AttestInstall,
 	var in AttestInstall
 	var created, seen int64
 	err := r.db.QueryRowContext(ctx,
-		`SELECT i.key_id, i.public_key, i.counter, i.bucket_id, b.used, i.env, i.created_at, i.last_seen_at, i.kind
+		`SELECT i.key_id, i.public_key, i.counter, i.bucket_id, b.used, b.granted, i.env, i.created_at, i.last_seen_at, i.kind
 		 FROM attest_installs i JOIN attest_buckets b ON b.bucket_id = i.bucket_id WHERE i.key_id = ?`, keyID).
-		Scan(&in.KeyID, &in.PublicKey, &in.Counter, &in.BucketID, &in.Used, &in.Env, &created, &seen, &in.Kind)
+		Scan(&in.KeyID, &in.PublicKey, &in.Counter, &in.BucketID, &in.Used, &in.Granted, &in.Env, &created, &seen, &in.Kind)
 	if err != nil {
 		return nil, err
 	}
 	in.CreatedAt, in.LastSeenAt = time.Unix(created, 0).UTC(), time.Unix(seen, 0).UTC()
 	return &in, nil
+}
+
+// SetAttestBucketGrant grants a feedback-only bucket its trial with the pass
+// hash of the pass just minted (bd med-ta2n.25), or with passHash nil revokes
+// the grant again (rollback when the DeviceCheck / recall write fails).
+func (r *Repo) SetAttestBucketGrant(ctx context.Context, bucketID string, passHash []byte) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE attest_buckets SET granted = ?, pass_hash = ? WHERE bucket_id = ?`,
+		passHash != nil, passHash, bucketID)
+	return err
+}
+
+// MoveAttestInstall moves a known install to another bucket (a feedback-only
+// key presenting a trial pass, bd med-ta2n.25). The bucket it leaves stays,
+// inert. sql.ErrNoRows when the install or the bucket is unknown.
+func (r *Repo) MoveAttestInstall(ctx context.Context, keyID, bucketID string) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE attest_installs SET bucket_id = ? WHERE key_id = ? AND EXISTS (SELECT 1 FROM attest_buckets WHERE bucket_id = ?)`,
+		bucketID, keyID, bucketID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // AttestBucketPassHash is a bucket's stored pass hash (nil for a backfilled

@@ -335,7 +335,8 @@ func TestAttestEnroll(t *testing.T) {
 	k := attestKey(t)
 	chal := e.challenge()
 	rec := e.enroll(k, attestTestAppID, chal, "tok-1")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"remaining":3`) || rec.Header().Get("X-Attest-Challenge") == "" {
+	// bd med-ta2n.25: today's body (no "trial") is a trial grant, now saying so.
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"remaining":3`) || !strings.Contains(rec.Body.String(), `"granted":true`) || rec.Header().Get("X-Attest-Challenge") == "" {
 		t.Fatalf("enroll: %d %s", rec.Code, rec.Body.String())
 	}
 	if bits, _ := e.dc.state("tok-1"); bits != [2]bool{true, false} {
@@ -819,7 +820,7 @@ func TestAttestRejoin(t *testing.T) {
 	bucket, _, _ := strings.Cut(pass, ".")
 	wrong := bucket + "." + base64.RawURLEncoding.EncodeToString(make([]byte, trialPassBytes))
 	_, secret, _ := strings.Cut(pass, ".")
-	if err := e.store.InsertAttestInstall(ctx, cloudstore.AttestInstall{KeyID: "legacy", PublicKey: []byte{1}, Env: "production", CreatedAt: time.Now()}); err != nil {
+	if err := e.store.InsertAttestInstall(ctx, cloudstore.AttestInstall{KeyID: "legacy", PublicKey: []byte{1}, Granted: true, Env: "production", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{wrong, "unknown." + secret, "no-dot", "." + secret, bucket + ".!!", "legacy." + secret} {

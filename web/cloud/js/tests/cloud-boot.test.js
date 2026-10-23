@@ -942,6 +942,39 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     expect(window.safeConfirm).not.toHaveBeenCalled();
     expect(MOVED).toBeGreaterThan(1);
     expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe(String(MOVED));
+    const at = Number(window.sessionStorage.getItem('wg-move-picked-at'));
+    expect(Date.now() - at).toBeGreaterThanOrEqual(0);
+    expect(Date.now() - at).toBeLessThan(60_000);
+  });
+
+  // bd med-ta2n.23 (twin of #1264's leave fix): the pickup's move.clear lost to
+  // the 5 s box on a slow bridge, so the reloaded page found the stash again
+  // and asked Merge / Replace over the records it had just imported.
+  it('the reload right after a pickup clears a stash still there instead of taking it again', async () => {
+    env.window.sessionStorage.setItem('wg-move-picked-up', String(MOVED));
+    env.window.sessionStorage.setItem('wg-move-picked-at', String(Date.now()));
+    const { window, log } = await boot({ content: true });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    await settle();
+    expect(log).toEqual(['shell.ops', 'move.clear']);
+    expect(window.safeChoose).not.toHaveBeenCalled();
+    expect(window.safeConfirm).not.toHaveBeenCalled();
+    expect(window.safeToast).toHaveBeenCalledWith(`Sync is on · ${MOVED} records are on your account`, 'success');
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+    expect(window.sessionStorage.getItem('wg-move-picked-at')).toBeNull();
+  });
+
+  it('a notice flag without a fresh pickup stamp still takes the stash (asks, never drops it)', async () => {
+    for (const at of [null, String(Date.now() - 10 * 60 * 1000)]) {
+      env.cleanup();
+      env = loadFrontendEnv();
+      env.window.sessionStorage.setItem('wg-move-picked-up', '3');
+      if (at !== null) env.window.sessionStorage.setItem('wg-move-picked-at', at);
+      const { window, log } = await boot({ content: true, choice: 'merge' });
+      await vi.waitFor(() => expect(log).toContain('move.clear'));
+      expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'choose', 'importAll', 'move.clear']);
+      expect(window.safeChoose).toHaveBeenCalledTimes(1);
+    }
   });
 
   // P3 · done (bd med-ta2n.7): the count the pickup moved.

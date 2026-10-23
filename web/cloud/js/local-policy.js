@@ -15,10 +15,9 @@
 //   egress      BYOK hosts go to the shell (bridge op setEgressHosts), never
 //               to a server.
 //   trial AI    off unless the user turns on the anonymous trial (bd
-//               med-o7zq.16): then local-trial.js signs each request with App
-//               Attest. Our base domain is in the shell's host list whenever
-//               the shell names it (localEgressHosts), called only by the
-//               trial, the "Request an invite" form and a feedback Send. The account trial's meta flag stays
+//               med-o7zq.16): then, and only then, our server's base domain
+//               joins the shell's host list and local-trial.js signs each
+//               request with App Attest. The account trial's meta flag stays
 //               out of the bundle (ios/bundle-web.sh).
 //   food DB     no food-DB meta in the bundle. The operator's DB rides the
 //               same trial switch (bd med-o7zq.20): LOCAL_FOOD_DB below sends
@@ -34,13 +33,14 @@
 //   feedback    the cloud's Send feedback row, sealed to the developer's age
 //               key and POSTed to the attested /api/attest/feedback, only
 //               when the user taps Send (mountLocalFeedback below, bd
-//               med-ta2n.20), through the base domain localEgressHosts lists.
+//               med-ta2n.20). The shell POSTs it (bridge op base.post,
+//               shellPost below), so the CSP never lists our base domain for it.
 //
 // Privacy disclosure: the local-* rows in privacy-manifest.js.
 import {
   scheduleReminderRecompute, recomputeAndPush, onLocalScheduleResult,
 } from './reminders.js';
-import { canAllowlist, hostsFromIntegrations } from './egress-hosts.js';
+import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords, localRecordsPort } from './sync.js';
 import { withMaterializationStopped } from './apishim.js';
 import { createSettingsDomain, PROTECTION_RECORD_TYPE } from '../../domain/settings.js';
@@ -248,20 +248,14 @@ export async function mountLocalLockRow({ win }) {
 // The shell's App Attest support (window.Attest, ios/App/Attest.swift):
 // { supported, base, attested }, or null where there is none (the web, the
 // Simulator, a stub, a locked shell).
-// The shell's Attest.status() as is (its base even where App Attest itself is
-// unsupported — what invite.js's shellBase() reads), or null.
-async function shellStatus(win) {
+async function attestStatus(win) {
   try {
     if (win.Attest?.isSupported?.() !== true) return null;
-    return (await win.Attest.status()) || null;
+    const status = await win.Attest.status();
+    return status && status.supported === true && status.base ? status : null;
   } catch {
     return null;
   }
-}
-
-async function attestStatus(win) {
-  const status = await shellStatus(win);
-  return status && status.supported === true && status.base ? status : null;
 }
 
 // The anonymous trial (bd med-o7zq.16: AI; med-o7zq.20: food) this document's
@@ -290,11 +284,20 @@ const NO_AI = {
 
 // One attest client per document and base for every attest-gated route (the
 // trial, local feedback): one challenge cache and one single-flight
-// enrollment, so the two never mint two keys (the second would meet
-// trial_already_used). Responses go to the trial's memo and the feedback one.
+// enrollment, so the two never mint two keys. Responses go to the trial's memo
+// and the feedback one. The base.post paths (challenge, enroll, feedback) go
+// through the shell when it has the op (bd med-ta2n.24 §B1); the trial's
+// chat/food/voice keep window.fetch under the trial-on CSP.
 let attestClient = null; // { base, win, attest, client }
 function sharedAttestClient(base, win) {
   if (!attestClient || attestClient.base !== base || attestClient.win !== win || attestClient.attest !== win.Attest) {
+    const native = shellNative(win);
+    const fetchImpl = async (url, init) => {
+      if (native && BASE_POST_PATHS.includes(new URL(url).pathname) && (await hasBasePost(native))) {
+        return shellPost(native)(url, init);
+      }
+      return win.fetch(url, init);
+    };
     attestClient = {
       base,
       win,
@@ -302,9 +305,17 @@ function sharedAttestClient(base, win) {
       client: createAttestClient({
         attest: win.Attest,
         base,
-        fetchImpl: win.fetch.bind(win),
+        fetchImpl,
+        // A trial grant only while the trial is installed and was not refused
+        // on this device; else a feedback-only key (trial: false, bd
+        // med-ta2n.25), which never spends the trial.
+        enrollTrial: () => !!localTrial && localTrial.state()?.used !== true,
         async onResponse(res, pathAndQuery) {
-          if (pathAndQuery === '/api/attest/enroll') noteFeedbackKey(win, res.ok);
+          if (pathAndQuery === '/api/attest/enroll' && res.ok) {
+            const body = await res.clone().json().catch(() => null);
+            // A server from before `granted` granted every key it enrolled.
+            writeFeedbackMemo(win, { keyed: true, granted: body?.granted !== false });
+          }
           await localTrial?.onResponse(res, pathAndQuery);
         },
       }),
@@ -312,6 +323,10 @@ function sharedAttestClient(base, win) {
   }
   return attestClient.client;
 }
+
+const hasBasePost = (native) => Promise.resolve()
+  .then(() => native.has?.('base.post'))
+  .then((has) => has === true, () => false);
 
 function useLocalTrial(base, attest, win) {
   if (!win.CloudVoiceLLM?.localTrial) defaultVoice = win.CloudVoiceLLM;
@@ -385,18 +400,19 @@ export const LOCAL_FOOD_DB = {
 // Feedback in local mode (bd med-ta2n.20; server: attest.go submitFeedback).
 // The cloud's launcher and outbox, with feedback-submit.js's transport swapped:
 // the age recipient comes from the attest challenge JSON and the drain POSTs
-// /api/attest/feedback signed with this install's key. Only a Send asks our
-// server anything: the recipient is learned on each document's first one and
-// kept for a Send while offline.
-// An install the server never granted a key (trial_already_used,
-// trial_unavailable at enroll) cannot sign it: the sheet says so and nothing
-// is queued.
+// /api/attest/feedback signed with this install's key, all through the shell
+// (base.post). Only a Send asks our server anything: the recipient is learned
+// on each document's first one and kept for a Send while offline. An install
+// without a key enrolls a feedback-only one (trial: false): the app check
+// alone, it neither uses nor spends the free trial.
 const FEEDBACK_KEY = 'wg:local-feedback';
 export const FEEDBACK_OFFLINE_COPY = 'Could not reach the server to send feedback. Check your connection and try again.';
 export const FEEDBACK_UNAVAILABLE_COPY = 'Feedback is not available from device-only mode right now. Your message was not sent.';
 const feedbackDroppedCopy = () => `Earlier feedback from this ${deviceName()} could not be delivered: our server did not accept it. Please send it again.`;
-const feedbackNoKeyCopy = () => `Feedback can't be sent from this ${deviceName()} in device-only mode: our server did not accept this app install. Your message was not sent.`;
 
+// { keyed, granted, recipient, dropped }: keyed = the server enrolled a key for
+// this install; granted = that key carries the trial (the enroll reply's
+// `granted`, bd med-ta2n.25).
 function readFeedbackMemo(win) {
   try {
     return JSON.parse(win.localStorage.getItem(FEEDBACK_KEY)) || {};
@@ -411,20 +427,23 @@ function writeFeedbackMemo(win, patch) {
   } catch { /* storage blocked: the next Send asks again */ }
 }
 
-// Every enroll answer, the trial's included: granted or not.
-function noteFeedbackKey(win, granted) {
-  writeFeedbackMemo(win, { key: granted ? 'granted' : 'refused' });
-}
-
 const feedbackError = (userMessage) => Object.assign(new Error(userMessage), { userMessage });
 // Each network step of a Send or a drain is bounded: the attest client's
-// challenge and enroll fetches carry no signal, and a stalled one must neither
+// challenge and enroll requests carry no signal, and a stalled one must neither
 // hold the sheet nor feedback-submit.js's single-slot drain. A late answer still
 // lands in the client (challenge, enrollment); only this wait gives up.
 const FEEDBACK_STEP_MS = 30_000;
 const bounded = (promise) => Promise.race([promise, new Promise((_, reject) => {
   setTimeout(() => reject(new Error('feedback request timed out')), FEEDBACK_STEP_MS);
 })]);
+
+async function errorOf(res) {
+  try {
+    return (await res.clone().json())?.error || '';
+  } catch {
+    return '';
+  }
+}
 
 function localFeedbackTransport(win) {
   async function client() {
@@ -446,30 +465,34 @@ function localFeedbackTransport(win) {
       else if (typeof memo.recipient === 'string') recipient = memo.recipient;
       if (recipient === undefined) throw feedbackError(FEEDBACK_OFFLINE_COPY);
       if (!recipient) throw feedbackError(FEEDBACK_UNAVAILABLE_COPY);
-      // A key the server granted signs it; else enroll one now. Enrolling
+      // A key the server enrolled signs it; else enroll one now. Enrolling
       // sends nothing about the user (it is not the trial consent). The
       // shell's `attested` is no proof: it turns true before the server
       // answers.
-      if (memo.key !== 'granted' && !trialKeyGranted(win.localStorage)) {
+      if (memo.keyed !== true && !trialKeyGranted(win.localStorage)) {
         let res;
         try {
           res = await bounded(c.enroll());
+          // The trial's grant refused on this device (the trial memo now says
+          // so): the next enroll asks for a feedback-only key.
+          if (!res.ok && (await errorOf(res)) === 'trial_already_used') res = await bounded(c.enroll());
         } catch {
           throw feedbackError(FEEDBACK_OFFLINE_COPY);
         }
-        if (!res.ok) throw feedbackError(feedbackNoKeyCopy());
+        if (!res.ok) throw feedbackError(FEEDBACK_UNAVAILABLE_COPY);
       }
       return recipient;
     },
     async send(body, signal) {
-      // A throw (timeout included) is feedback-submit.js's retryable status 0.
+      // A throw (timeout, the op's "network") is feedback-submit.js's retryable status 0.
       return bounded((await client()).post('/api/attest/feedback', body, signal));
     },
-    // A queued item the server refused for good (a key it lost and would not
-    // re-grant: 403) after its sheet closed: the next sheet says so, once.
-    // Its text is sealed to the developer, so it cannot be shown back.
+    // A queued item the server refused for good (a key it lost: 403) after
+    // its sheet closed: the next sheet says so, once, and the next Send
+    // enrolls again. Its text is sealed to the developer, so it cannot be
+    // shown back.
     onDropped() {
-      writeFeedbackMemo(win, { dropped: (readFeedbackMemo(win).dropped || 0) + 1, key: 'refused' });
+      writeFeedbackMemo(win, { dropped: (readFeedbackMemo(win).dropped || 0) + 1, keyed: false });
     },
     notice() {
       if (!readFeedbackMemo(win).dropped) return '';
@@ -480,11 +503,12 @@ function localFeedbackTransport(win) {
 }
 
 // local-boot.js: the Settings "Send feedback" row and the outbox drain, where
-// the shell has App Attest; nothing at all elsewhere (the web, the
-// Simulator, an old shell). Mounting asks no server: whether the operator has
-// feedback on is learned on the first Send, which says so when it is off.
+// the shell has App Attest and base.post; nothing at all elsewhere (the web,
+// the Simulator, an old shell). Mounting asks no server: whether the operator
+// has feedback on is learned on the first Send, which says so when it is off.
 export async function mountLocalFeedback({ win }) {
-  if (!(await attestStatus(win))) return false;
+  const native = shellNative(win);
+  if (!native || !(await attestStatus(win)) || !(await hasBasePost(native))) return false;
   const submit = await import('./feedback-submit.js');
   submit.setFeedbackTransport(localFeedbackTransport(win));
   const { mountFeedbackLauncher } = await import('./feedback-ui.js');
@@ -501,38 +525,16 @@ export async function mountLocalFeedback({ win }) {
 // reloads). Resolves to { hosts, changed },
 // or null where there is no shell to tell (the web, tests).
 //
-// The list is localEgressHosts below. The trial (the `anon` trial consent:
-// one switch in Settings → AI & integrations for the AI and the food database,
-// bd med-o7zq.20) needs the shell's App Attest; off, nothing here talks to our
-// server, though its base stays listed. The transport is installed
+// The trial AI's host — our server's base domain — joins the list only while
+// the user has it on (the `anon` trial consent: one switch in Settings → AI &
+// integrations for the AI and the food database, bd med-o7zq.20) and
+// the shell supports App Attest. Off, the CSP admits no server of ours and
+// nothing here talks to one. The transport is installed
 // only once this document's CSP carries the host (no change pending a
 // reload), and a first enrollment runs then, so Settings can show the count.
 // Settled by the first registerLocalEgress, whatever its outcome: until then
 // LOCAL_VAULT.trial cannot tell "no App Attest" from "not told yet", so its
 // readers wait for it (the first-run screen renders right after boot).
-// localEgressHosts is the shell's host list (bd med-ta2n.14). Both shells take
-// it whole or not at all — at most SHELL_MAX_HOSTS bare [a-z0-9.-] names, else
-// "invalid hosts" — and reload when the ordered array changes, so the order is
-// fixed: [BYOK in hostsFromIntegrations order, base, api.elevenlabs.io].
-// - base (Attest.status().base): listed whenever it normalizes (trim,
-//   lowercase, canAllowlist), trial or not — the "Request an invite" POST
-//   needs it and a CSP change only lands on the next load. One that doesn't
-//   (a QA base with a port) is skipped, never sent raw.
-// - elevenlabs: only while the trial is on.
-// - over the cap: with the trial on, base + elevenlabs win and BYOK is cut
-//   from the end; off, BYOK wins and the base is skipped. (BYOK is at most
-//   three hosts today, so the cap does not bind.)
-const SHELL_MAX_HOSTS = 8; // ios/App/LocalOrigin.swift maxHosts, Android MainActivity
-export function localEgressHosts(byok, base, trialOn) {
-  const b = typeof base === 'string' ? base.trim().toLowerCase() : '';
-  const tail = canAllowlist(b) ? [b] : [];
-  if (trialOn) tail.push(ELEVENLABS_HOST);
-  const head = [];
-  for (const h of byok || []) if (canAllowlist(h) && !tail.includes(h) && !head.includes(h)) head.push(h);
-  if (trialOn) return [...head.slice(0, SHELL_MAX_HOSTS - tail.length), ...tail];
-  return head.length + tail.length <= SHELL_MAX_HOSTS ? [...head, ...tail] : head.slice(0, SHELL_MAX_HOSTS);
-}
-
 let firstEgressSettled;
 const firstEgress = new Promise((resolve) => { firstEgressSettled = resolve; });
 
@@ -548,18 +550,26 @@ async function registerLocalEgressNow({ settings, win }) {
   const native = shellNative(win);
   if (!native) return null;
   lastEgress = { settings, win };
-  const byok = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
-  const status = await shellStatus(win);
-  const attest = status && status.supported === true && status.base ? status : null;
+  const hosts = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
+  const attest = await attestStatus(win);
   const trialOn = !!attest && (await settings.getTrialConsent())?.anon === true;
-  const hosts = localEgressHosts(byok, status && status.base, trialOn);
+  if (trialOn) {
+    for (const host of [attest.base, ELEVENLABS_HOST]) if (!hosts.includes(host)) hosts.push(host);
+  }
   const reply = await native.call('setEgressHosts', { hosts });
   const changed = !!(reply && reply.changed);
   if (!changed) {
     // The call bar's "turn on the free trial" hint, where the trial exists.
     win.document.documentElement.classList.toggle('wg-local-trial-off', !!attest && !trialOn);
     useLocalTrial(trialOn ? attest.base : null, win.Attest, win);
-    if (trialOn && !attest.attested && !localTrial.state()) {
+    // Enroll for the trial where this install holds no trial key yet: a fresh
+    // install, or one whose only key is feedback-only (granted false), which
+    // the server upgrades (bd med-ta2n.25; on iOS the shell attests a new
+    // key). Never again after a trial_already_used.
+    const state = localTrial.state();
+    const memo = readFeedbackMemo(win);
+    const hasTrialKey = memo.granted === true || trialKeyGranted(win.localStorage);
+    if (trialOn && !hasTrialKey && state?.used !== true && (memo.keyed === true || (!attest.attested && !state))) {
       localTrial.enroll().catch((e) => console.warn('[local] trial enrollment failed', e));
     }
   }
@@ -585,6 +595,7 @@ function withinMs(promise, ms) {
 }
 
 // The reload after a pickup lands here once more: say where the records went.
+// Returns whether it did (pickupLeaveStash's `justPicked`).
 export function showLeaveToastOnce({ win }) {
   let picked = false;
   try {
@@ -592,18 +603,24 @@ export function showLeaveToastOnce({ win }) {
     if (picked) win.sessionStorage.removeItem(LEAVE_NOTICE_KEY);
   } catch { /* storage blocked */ }
   if (picked) win.safeToast(`Your records from your account are on this ${deviceName(win)}.`, 'success');
+  return picked;
 }
 
-export async function pickupLeaveStash({ win }) {
+export async function pickupLeaveStash({ win, justPicked = false }) {
   const native = shellNative(win);
   // nativeHas: features/settings.js, the one memoised shell.ops probe per page.
   if (!native || typeof win.nativeHas !== 'function') return;
   if ((await withinMs(win.nativeHas('leave.take').catch(() => false), LEAVE_PROBE_MS)) !== true) return;
+  const clear = () => withinMs(native.call('leave.clear').catch(() => null), LEAVE_PROBE_MS);
+  // The reload right after a pickup: a stash still here is the one just
+  // imported, its leave.clear lost to the time box on a slow bridge. Taking
+  // it again would ask Merge / Replace over its own records (iOS flow QA,
+  // bd med-w6gx.23.8).
+  if (justPicked) { await clear(); return; }
   const stash = await withinMs(native.call('leave.take').catch(() => null), LEAVE_PROBE_MS);
   const vault = stash && stash.vault;
   const restore = win.SettingsImportExport && win.SettingsImportExport.restoreVault;
   if (typeof vault !== 'string' || !vault || typeof restore !== 'function') return;
-  const clear = () => withinMs(native.call('leave.clear').catch(() => null), LEAVE_PROBE_MS);
   const r = await restore(vault, {
     source: 'leave',
     beforeReload: async () => {
@@ -667,6 +684,9 @@ export const LOCAL_PROTECTION = {
 // handed to the shell, which the new account picks up. This origin keeps
 // its data.
 export const LOCAL_VAULT = {
+  // The W5 "Request an invite" sheet (features/invite.js, a classic script)
+  // posts through this when the shell has base.post.
+  shellPost,
   async hasUserContent() {
     return hasUserContent(await readAllLocalRecords());
   },
@@ -808,3 +828,39 @@ export const LOCAL_VAULT = {
     win.location.replace('/');
   },
 };
+
+// The base-host routes the shell POSTs for the page (bridge op base.post, bd
+// med-ta2n.24 §A: an invite request, feedback, and the attest enroll they
+// need). The local CSP never lists our base domain for these; the trial's
+// chat/food/voice keep window.fetch under the trial-on CSP. One list, the
+// shells' basePostPaths / BASE_POST_PATHS.
+export const BASE_POST_PATHS = Object.freeze([
+  '/api/attest/challenge',
+  '/api/attest/enroll',
+  '/api/attest/feedback',
+  '/api/invite-requests',
+]);
+const BASE_POST_HEADERS = ['X-Attest-Key-Id', 'X-Attest-Challenge', 'X-Attest-Assertion'];
+
+// shellPost(native) → a fetch-shaped (url, init) => Response over base.post:
+// the path comes from the url (its host is the shell's own, never ours to
+// pick), the body string and the X-Attest-* headers go verbatim. An op error
+// ("network", "invalid path", …) rejects with a TypeError, as fetch does on a
+// network failure; every HTTP status — 429, 404, 5xx — is a Response.
+export function shellPost(native) {
+  return async (url, init = {}) => {
+    // Drop any scheme://host, then the query and fragment.
+    const path = String(url).replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').split(/[?#]/)[0];
+    const given = new Headers(init.headers || {});
+    const headers = {};
+    for (const name of BASE_POST_HEADERS) if (given.has(name)) headers[name] = given.get(name);
+    let reply;
+    try {
+      reply = await native.call('base.post', { path, body: typeof init.body === 'string' ? init.body : '', headers });
+    } catch (e) {
+      throw new TypeError(String((e && e.message) || e));
+    }
+    const status = reply && reply.status;
+    return new Response([204, 205, 304].includes(status) ? null : (reply.body || ''), { status, headers: reply.headers || {} });
+  };
+}

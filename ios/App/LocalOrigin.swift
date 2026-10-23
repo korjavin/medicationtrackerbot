@@ -23,7 +23,14 @@ enum LocalOrigin {
                            "attest.status", "attest.enroll", "attest.setPass", "attest.assert",
                            "lock.status", "lock.set", // Settings → App lock (bd med-o7zq.39)
                            "move.stash", // the local → cloud move (bd med-o7zq.35, Move.swift)
-                           "leave.take", "leave.clear"] // the account → local move (bd med-o7zq.36)
+                           "leave.take", "leave.clear", // the account → local move (bd med-o7zq.36)
+                           "base.post"] // local mode's invite request + attested feedback (BasePost.swift, bd med-ta2n.26)
+    /// base.post's paths (contract med-ta2n.24 A2): exact match, no query, no
+    /// normalization. Twin of Android LocalOrigin.BASE_POST_PATHS and the page's
+    /// BASE_POST_PATHS (local-policy.js); the trial chat/food/voice stay page fetch.
+    static let basePostPaths: Set<String> = [
+        "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
+    ]
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
     static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash"]
     /// Every other op the shell answers, in both modes.
