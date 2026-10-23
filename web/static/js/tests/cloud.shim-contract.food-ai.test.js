@@ -467,6 +467,14 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
         const grouped = await window.apiCall('/api/food/log?days=1');
         expect(grouped.flatMap((g) => g.logs).map((l) => l.name)).toEqual(['Oatmeal']);
         expect(window.safeAlert).not.toHaveBeenCalled();
+
+        // bd med-kl85: the trial rejection is remembered for the session, so
+        // the next parse skips the doomed strict round-trip entirely.
+        const nextSpy = vi.fn().mockResolvedValue(success);
+        vi.stubGlobal('fetch', nextSpy);
+        await describeAndLog(window, document, 'a bowl of oatmeal', { log: false });
+        expect(nextSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(nextSpy.mock.calls[0][1].body).response_format).toBeUndefined();
     });
 
     it('trial upstream 401: message points at the operator, not at the user adding a key', async () => {
@@ -694,6 +702,31 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 expect(url).toBe('https://api.openai.com/v1/chat/completions');
             }
             expect(settingsDomain.getTrialConsent).not.toHaveBeenCalled();
+        });
+
+        // bd med-kl85: BYO memory survives a reload through the device store,
+        // per scope — the text slot never steers the vision provider.
+        it('BYO json_schema memory: a remembered text rejection skips strict after reload, vision still probes', async () => {
+            const m = new Map();
+            const deviceStore = { get: vi.fn(async (k) => m.get(k) ?? null), set: vi.fn(async (k, v) => { m.set(k, v); }) };
+            const settingsDomain = stubSettingsDomain({ apiKey: 'sk-own' });
+            const fetchSpy = vi.fn()
+                .mockResolvedValueOnce({ ok: false, status: 400, async text() { return JSON.stringify({ error: { message: 'model does not support response_format' } }); } })
+                .mockResolvedValue(chatCompletionResponse(BANANA));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            await createAIClient({ settingsDomain, deviceStore }).parseMealFromDescription('a banana');
+            expect(fetchSpy).toHaveBeenCalledTimes(2);
+            expect([...m.keys()]).toEqual(['ai.nojsonschema.text']);
+
+            const reloaded = createAIClient({ settingsDomain, deviceStore });
+            await reloaded.parseMealFromDescription('a banana');
+            expect(fetchSpy).toHaveBeenCalledTimes(3);
+            expect(JSON.parse(fetchSpy.mock.calls[2][1].body).response_format).toBeUndefined();
+
+            await reloaded.parseMealFromImage(makeImageFile(env));
+            expect(fetchSpy).toHaveBeenCalledTimes(4);
+            expect(JSON.parse(fetchSpy.mock.calls[3][1].body).response_format).toBeDefined();
         });
 
         it('scope separation: ai consent alone parses meals, but chat refuses with scope tg', async () => {

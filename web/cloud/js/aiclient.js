@@ -124,8 +124,40 @@ function extractErrorMessage(text) {
   return text ? text.slice(0, 300) : '';
 }
 
+// The one-off retry trigger: any API error naming response_format gets one
+// fenced retry. Deliberately broad (schema errors, med-gdb4's temperature 400).
 function isResponseFormatRejection(err) {
   return !!(err && err.apiError && /response_format/i.test(err.message));
+}
+
+// The durable-memory trigger (bd med-kl85), much narrower than the retry one:
+// only a message about the response_format TYPE / model capability persists.
+// Anything about schema contents ("Invalid schema for response_format:
+// unsupported keyword 'minLength'", additionalProperties, required, ...) or
+// another parameter (temperature) is ambiguous — retried once, never stored.
+export function isResponseFormatUnsupported(err) {
+  const msg = String((err && err.message) || '');
+  return !!(err && err.apiError)
+    && /unsupported|not supported|does not support/i.test(msg)
+    && /response_format|json_schema/i.test(msg)
+    && !/invalid|keyword|propert|field|required|temperature/i.test(msg);
+}
+
+// Trial memory is session-only (module-level, shared by every client
+// instance): the operator forces the model server-side (trial_proxy.go), so
+// the client cannot tell when it changes and a persisted bit would strand
+// trial users on the fenced prompt after an operator upgrade.
+const trialNoJSONSchema = new Set();
+
+// configIdentity is the stored slot value: SHA-256 of the JSON tuple
+// [url, model]. A collision-safe identity, NOT a privacy boundary — the host
+// is already in the account's egress allowlist / document CSP, and the device
+// store it lands in already holds the NK in plaintext. The API key is not part
+// of it: capability is a model property, so key rotation does not reset.
+async function configIdentity(provider) {
+  const bytes = new TextEncoder().encode(JSON.stringify([provider.url, provider.model]));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 // isLunaModel — gpt-6-luna (or a dated variant) refuses function tools at
@@ -435,7 +467,10 @@ Do not wrap the JSON in markdown fences or add explanations.`;
 // createAIClient builds the aiClient port — settingsDomain is a
 // web/domain/settings.js instance whose readIntegrationsUnmasked() supplies
 // the raw provider credentials (never exposed through any /api shim route).
-export function createAIClient({ settingsDomain }) {
+// deviceStore ({ get(key), set(key, value) }, sync.js's deviceValues in
+// production) persists the BYO "no json_schema" memory on this device only;
+// omitted → no BYO memory, today's strict-then-fenced on every call.
+export function createAIClient({ settingsDomain, deviceStore = null }) {
   async function credentials() {
     const { openai } = await settingsDomain.readIntegrationsUnmasked();
     return {
@@ -446,6 +481,57 @@ export function createAIClient({ settingsDomain }) {
         model: openai.vision_model || openai.model || DEFAULT_MODEL,
       },
     };
+  }
+
+  // postStructured is the one strict→fenced path for every structured parse
+  // (bd med-kl85). Strict json_schema first; a response_format rejection
+  // retries once with the fenced prompt. An explicit "unsupported" rejection
+  // is remembered so later calls go straight to fenced:
+  //  - BYO: one device-store slot per scope holding configIdentity of the last
+  //    config that rejected. A product tradeoff, not a capability guarantee:
+  //    the user resets it by changing url or model in Settings (new identity
+  //    ≠ slot → strict re-probe); a provider-side upgrade is never noticed.
+  //    A→B→A keeps A remembered unless B also rejected in between (no Settings
+  //    hook, no generation counter). Key rotation does not reset.
+  //  - Trial: session-only, keyed by transport + scope, decided by the proxy's
+  //    machine code, never persisted.
+  // Callers run the consent / no-key checks before this, so a cached fallback
+  // never skips them. Store failures fail open (no memory, today's behavior).
+  async function postStructured({ scope, provider, useTrial, post, strictBody, fencedBody }) {
+    const slot = `ai.nojsonschema.${scope}`;
+    const trialKey = `trial|${trialTransport ? 'local' : 'cloud'}|${scope}`;
+    let identity = null;
+    if (useTrial) {
+      if (trialNoJSONSchema.has(trialKey)) return post(fencedBody);
+    } else if (deviceStore) {
+      try {
+        identity = await configIdentity(provider);
+        if ((await deviceStore.get(slot)) === identity) return post(fencedBody);
+      } catch { /* fail open: probe strict as if nothing were remembered */ }
+    }
+    try {
+      return await post(strictBody);
+    } catch (err) {
+      if (!isResponseFormatRejection(err)) throw err;
+      if (useTrial) {
+        if (err.code === 'response_format_unsupported') trialNoJSONSchema.add(trialKey);
+      } else if (identity && isResponseFormatUnsupported(err)) {
+        await rememberUnsupported(scope, slot, identity);
+      }
+      return post(fencedBody);
+    }
+  }
+
+  // Write only if the config this request was sent with is still the saved
+  // one: a late rejection from a config the user has since replaced must not
+  // overwrite the newer config's slot.
+  async function rememberUnsupported(scope, slot, identity) {
+    try {
+      const creds = await credentials();
+      const current = scope === 'vision' ? creds.vision : creds.text;
+      if (!current.apiKey || (await configIdentity(current)) !== identity) return;
+      await deviceStore.set(slot, identity);
+    } catch { /* fail open: the fenced retry still runs */ }
   }
 
   // In-memory only, for the life of this client. A model list is derived from
@@ -492,26 +578,27 @@ export function createAIClient({ settingsDomain }) {
       ? postTrialChatCompletion(false, body)
       : postChatCompletion(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body));
 
-    const body = {
-      model: text.model,
-      messages: [
-        { role: 'system', content: MealSystemPrompt },
-        { role: 'user', content: description },
-      ],
-      response_format: RESPONSE_FORMAT,
-    };
-    try {
-      return await post(body);
-    } catch (err) {
-      if (!isResponseFormatRejection(err)) throw err;
-      return post({
+    return postStructured({
+      scope: 'text',
+      provider: text,
+      useTrial,
+      post,
+      strictBody: {
+        model: text.model,
+        messages: [
+          { role: 'system', content: MealSystemPrompt },
+          { role: 'user', content: description },
+        ],
+        response_format: RESPONSE_FORMAT,
+      },
+      fencedBody: {
         model: text.model,
         messages: [
           { role: 'system', content: fenceInstruction(MealSystemPrompt) },
           { role: 'user', content: description },
         ],
-      });
-    }
+      },
+    });
   }
 
   async function parseActivityFromDescription(description) {
@@ -523,26 +610,27 @@ export function createAIClient({ settingsDomain }) {
       ? postTrialChatCompletion(false, body)
       : postChatCompletion(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body));
 
-    const body = {
-      model: text.model,
-      messages: [
-        { role: 'system', content: ActivitySystemPrompt },
-        { role: 'user', content: description },
-      ],
-      response_format: ACTIVITY_RESPONSE_FORMAT,
-    };
-    try {
-      return await post(body);
-    } catch (err) {
-      if (!isResponseFormatRejection(err)) throw err;
-      return post({
+    return postStructured({
+      scope: 'text',
+      provider: text,
+      useTrial,
+      post,
+      strictBody: {
+        model: text.model,
+        messages: [
+          { role: 'system', content: ActivitySystemPrompt },
+          { role: 'user', content: description },
+        ],
+        response_format: ACTIVITY_RESPONSE_FORMAT,
+      },
+      fencedBody: {
         model: text.model,
         messages: [
           { role: 'system', content: activityFenceInstruction(ActivitySystemPrompt) },
           { role: 'user', content: description },
         ],
-      });
-    }
+      },
+    });
   }
 
   async function parseMealFromImage(file, caption = '') {
@@ -567,26 +655,27 @@ export function createAIClient({ settingsDomain }) {
       { type: 'image_url', image_url: { url: dataURL } },
     ];
 
-    const body = {
-      model: vision.model,
-      messages: [
-        { role: 'system', content: MealPhotoSystemPrompt },
-        { role: 'user', content: userContent('Identify the foods in this photo and return the JSON described above.') },
-      ],
-      response_format: RESPONSE_FORMAT,
-    };
-    try {
-      return await post(body);
-    } catch (err) {
-      if (!isResponseFormatRejection(err)) throw err;
-      return post({
+    return postStructured({
+      scope: 'vision',
+      provider: vision,
+      useTrial,
+      post,
+      strictBody: {
+        model: vision.model,
+        messages: [
+          { role: 'system', content: MealPhotoSystemPrompt },
+          { role: 'user', content: userContent('Identify the foods in this photo and return the JSON described above.') },
+        ],
+        response_format: RESPONSE_FORMAT,
+      },
+      fencedBody: {
         model: vision.model,
         messages: [
           { role: 'system', content: fenceInstruction(MealPhotoSystemPrompt) },
           { role: 'user', content: userContent('Identify the foods in this photo and return JSON.') },
         ],
-      });
-    }
+      },
+    });
   }
 
   // chat is the general tool-calling primitive (bd med-vcv.2): one round of the
@@ -612,39 +701,36 @@ export function createAIClient({ settingsDomain }) {
       : postChatCompletion(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body));
 
     const user = JSON.stringify({ names });
-    const body = {
-      model: text.model,
-      messages: [
-        { role: 'system', content: ExerciseTagSystemPrompt },
-        { role: 'user', content: user },
-      ],
-      response_format: EXERCISE_TAG_RESPONSE_FORMAT,
-    };
     // Diagnostics for the first prod runs: which path, which model, how many
     // names, and what came back — names are the user's own vault data shown
     // in their own console, nothing new crosses a boundary here.
     console.info('exercise auto-tag: request', { trial: useTrial, model: useTrial ? '(operator)' : text.model, names: names.length });
     let parsed;
     try {
-      parsed = await post(body);
-    } catch (err) {
-      if (!isResponseFormatRejection(err)) {
-        console.error('exercise auto-tag: provider call failed', { status: err && err.status, message: err && err.message, body: err && err.body });
-        throw err;
-      }
-      console.warn('exercise auto-tag: response_format rejected, retrying with fenced prompt');
-      try {
-        parsed = await post({
+      parsed = await postStructured({
+        scope: 'text',
+        provider: text,
+        useTrial,
+        post,
+        strictBody: {
+          model: text.model,
+          messages: [
+            { role: 'system', content: ExerciseTagSystemPrompt },
+            { role: 'user', content: user },
+          ],
+          response_format: EXERCISE_TAG_RESPONSE_FORMAT,
+        },
+        fencedBody: {
           model: text.model,
           messages: [
             { role: 'system', content: exerciseTagFenceInstruction(ExerciseTagSystemPrompt) },
             { role: 'user', content: user },
           ],
-        });
-      } catch (err2) {
-        console.error('exercise auto-tag: fenced retry failed', { status: err2 && err2.status, message: err2 && err2.message, body: err2 && err2.body });
-        throw err2;
-      }
+        },
+      });
+    } catch (err) {
+      console.error('exercise auto-tag: provider call failed', { status: err && err.status, message: err && err.message, body: err && err.body });
+      throw err;
     }
     console.info('exercise auto-tag: response', parsed);
     return parsed;
@@ -674,26 +760,27 @@ export function createAIClient({ settingsDomain }) {
       { type: 'image_url', image_url: { url: dataURL } },
     ];
 
-    const body = {
-      model: vision.model,
-      messages: [
-        { role: 'system', content: WorkoutSheetPhotoSystemPrompt },
-        { role: 'user', content: userContent('Read the handwritten sets on this workout sheet and return the JSON described above.') },
-      ],
-      response_format: WORKOUT_SHEET_RESPONSE_FORMAT,
-    };
-    try {
-      return await post(body);
-    } catch (err) {
-      if (!isResponseFormatRejection(err)) throw err;
-      return post({
+    return postStructured({
+      scope: 'vision',
+      provider: vision,
+      useTrial,
+      post,
+      strictBody: {
+        model: vision.model,
+        messages: [
+          { role: 'system', content: WorkoutSheetPhotoSystemPrompt },
+          { role: 'user', content: userContent('Read the handwritten sets on this workout sheet and return the JSON described above.') },
+        ],
+        response_format: WORKOUT_SHEET_RESPONSE_FORMAT,
+      },
+      fencedBody: {
         model: vision.model,
         messages: [
           { role: 'system', content: workoutSheetFenceInstruction(WorkoutSheetPhotoSystemPrompt) },
           { role: 'user', content: userContent('Read the handwritten sets on this workout sheet and return JSON.') },
         ],
-      });
-    }
+      },
+    });
   }
 
   async function chat({ messages, tools }) {
