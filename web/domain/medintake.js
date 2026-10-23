@@ -249,6 +249,12 @@ export function projectOccurrences({
     for (const s of tzPlan.steps) stepByKey.set(`${s.medicationId}-${s.scheduledAtMs}`, s);
   }
   const occupied = new Set(intakes.map((i) => String(i.recordId)));
+  // A live row for the same med at the same second also covers the slot: a
+  // vault import keys a tz_step dose `intake-<m>-<s>-tz_step`, not the bare
+  // slot id, and its forecast twin must not be offered again.
+  for (const i of intakes) {
+    if (!i.deleted) occupied.add(slotId(i.medication_id, Date.parse(i.scheduled_at)));
+  }
 
   function row({ occId, medId, plannedMs, plannedAt, source, state }) {
     const med = medById.get(medId);
@@ -585,18 +591,24 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // an arbitrary instant. The grace covers a slot that came due while the take
   // sheet was open but has not been materialized yet (the shim materializes on
   // a 60s cadence).
+  // Matched on the whole second, the occId's resolution: a tz-plan step can
+  // keep its anchor's milliseconds, and its slot id floors them — the target's
+  // own scheduledAtMs is the instant to write. The horizon reaches the slot
+  // (up to the projection's MAX_FORECAST_DAYS), so every occId /api/doses
+  // lists is actionable.
   async function forecastAt(scheduledAtMs, nowMs) {
     const slots = new Map();
     if (!Number.isFinite(scheduledAtMs) || scheduledAtMs <= nowMs - CONFIRM_DUE_GRACE_MS) return slots;
+    const sec = Math.floor(scheduledAtMs / 1000);
     const targets = forecastDosesWithTzPlan({
       medications: (await loadMeds()).map(toMedScheduleShape),
       timeZone,
-      now: Math.min(nowMs, scheduledAtMs - 1),
-      days: UPCOMING_FORECAST_DAYS,
+      now: Math.min(nowMs, sec * 1000 - 1),
+      days: Math.min(MAX_FORECAST_DAYS, Math.max(UPCOMING_FORECAST_DAYS, Math.ceil((scheduledAtMs - nowMs) / DAY_MS) + 1)),
       tzPlan: await loadActiveTzPlan(),
     });
     for (const t of targets) {
-      if (t.scheduledAtMs === scheduledAtMs) slots.set(t.medicationId, t);
+      if (Math.floor(t.scheduledAtMs / 1000) === sec) slots.set(t.medicationId, t);
     }
     return slots;
   }
@@ -642,12 +654,13 @@ export function createIntakeDomain({ records, now, timeZone }) {
         // upcoming dose early is not a silent no-op (Meds → Schedule "Take N",
         // Today's Take). Same deterministic slot id, so the later floored
         // materialization of this slot loses to this real write.
+        const plannedMs = forecastSlots.get(medId).scheduledAtMs;
         await putIntake({
-          recordId: slotId(medId, scheduledAtMs),
+          recordId: slotId(medId, plannedMs),
           clientTs: nowMs,
           deleted: false,
           medication_id: medId,
-          scheduled_at: new Date(scheduledAtMs).toISOString(),
+          scheduled_at: new Date(plannedMs).toISOString(),
           taken_at: takenIso,
           status: 'TAKEN',
           snoozed_until: null,
@@ -701,12 +714,13 @@ export function createIntakeDomain({ records, now, timeZone }) {
         const m = /^intake-(.+)-(\d+)$/.exec(String(occId));
         const med = m && (await loadMeds()).find((x) => String(x.recordId) === m[1]);
         if (m && med && !tombstoned.has(String(occId))) {
-          const ms = Number(m[2]) * 1000;
-          intake = intakes.find((i) => i.medication_id === med.recordId && Date.parse(i.scheduled_at) === ms) || null;
+          const sec = Number(m[2]);
+          intake = intakes.find((i) => i.medication_id === med.recordId
+            && Math.floor(Date.parse(i.scheduled_at) / 1000) === sec) || null;
           if (!intake) {
-            if (!forecasts.has(ms)) forecasts.set(ms, await forecastAt(ms, nowMs));
-            const t = forecasts.get(ms).get(med.recordId);
-            if (t) slot = { med, ms, source: t.source === 'tz_step' ? 'tz_step' : 'schedule' };
+            if (!forecasts.has(sec)) forecasts.set(sec, await forecastAt(sec * 1000, nowMs));
+            const t = forecasts.get(sec).get(med.recordId);
+            if (t) slot = { med, ms: t.scheduledAtMs, source: t.source === 'tz_step' ? 'tz_step' : 'schedule' };
           }
         }
       }

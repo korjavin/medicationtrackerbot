@@ -444,6 +444,32 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    it('a dose stored under a non-bare id (vault-imported tz_step) is not re-offered as a forecast, and act resolves it by slot', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({
+                    recordId: 1,
+                    inventory_count: 5,
+                    schedule: JSON.stringify({ type: 'daily', times: ['00:00', '06:00', '12:00', '18:00'] })
+                })]
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const from = new Date(Date.now() + 60 * 1000).toISOString();
+            const slot = (await window.apiCall(`/api/doses?from=${from}`)).find((d) => d.state === 'upcoming');
+            await env.records.put('intake', seedIntake({
+                recordId: `${slot.occId}-tz_step`, medication_id: 1, scheduled_at: slot.plannedAt, status: 'SKIPPED', source: 'tz_step'
+            }));
+            const rows = (await window.apiCall(`/api/doses?from=${from}`)).filter((d) => d.plannedAt === slot.plannedAt);
+            expect(rows.map((d) => [d.occId, d.state])).toEqual([[`${slot.occId}-tz_step`, 'skipped']]);
+            expect(await act(window, { action: 'undo', occ_ids: [slot.occId] })).toMatchObject({ updated: 1, failed: 0 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('confirm-schedule by intake_id only (no scheduled_at) sends no cancel-refire POST', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {
