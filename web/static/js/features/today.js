@@ -211,6 +211,13 @@
         if (!enabled) return cell(null, 'meds', 'disabled');
         const rows = bootstrap && bootstrap.intake_history;
         if (!Array.isArray(rows)) return cell(null, 'meds', 'missing');
+        // Names from the cached medications list by String(id), like the take
+        // sheet and Schedule resolve dosage; the row's own name is only the
+        // fallback — rows cached while the projection missed the med carry ''
+        // (bd med-wi09.15).
+        const medName = new Map((Array.isArray(bootstrap.medications) ? bootstrap.medications : [])
+            .filter((m) => m && typeof m.name === 'string' && m.name)
+            .map((m) => [String(m.id), m.name]));
         const isDue = (r) => r.state === 'due'
             || (r.state === 'snoozed' && !(Date.parse(r.snoozedUntil) > nowMs));
         const bySlot = new Map();
@@ -220,7 +227,7 @@
             if (!Number.isFinite(at)) continue;
             let g = bySlot.get(at);
             if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [] }; bySlot.set(at, g); }
-            g.names.push(r.name || 'Medication');
+            g.names.push(medName.get(String(r.medId)) || r.name || 'Medication');
             g.ids.push(r.medId);
             g.intakeIds.push(r.occId);
         }
