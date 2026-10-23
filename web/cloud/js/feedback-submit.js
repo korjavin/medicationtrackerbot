@@ -113,8 +113,18 @@ export function takeFeedbackNotice() {
   return (transport && transport.notice && transport.notice()) || '';
 }
 
-// client_id → outcome of a send the sheet is waiting on (local mode).
+// client_id → { outcome, done } of a send the sheet is waiting on (local
+// mode): done() fires once the drain attempted that item, so the sheet never
+// waits for the rest of a backlog.
 const awaiting = new Map();
+const SEND_WAIT_MS = 45_000;
+function settle(clientId, outcome) {
+  const w = awaiting.get(clientId);
+  if (!w) return false;
+  w.outcome = outcome;
+  w.done();
+  return true;
+}
 
 function appVersion() {
   if (typeof document === 'undefined') return 'dev';
@@ -159,11 +169,19 @@ export async function enqueueFeedback(bundle, { shouldAbort } = {}) {
   }
   if (transport) {
     // Local: wait for the first attempt (each step is bounded) and report it.
-    awaiting.set(meta.client_id, 'queued');
-    try {
-      await drainFeedbackOutbox();
-    } catch { /* stays queued; the backoff retries */ }
-    const outcome = awaiting.get(meta.client_id);
+    const wait = { outcome: 'queued', done: null };
+    const attempted = new Promise((resolve) => { wait.done = resolve; });
+    awaiting.set(meta.client_id, wait);
+    // Its own attempt (the pass posts it first), the end of the pass, or —
+    // behind a drain already stalled on older items — "queued" after a while.
+    let timer;
+    await Promise.race([
+      attempted,
+      drainFeedbackOutbox().catch(() => {}),
+      new Promise((resolve) => { timer = setTimeout(resolve, SEND_WAIT_MS); }),
+    ]);
+    clearTimeout(timer);
+    const { outcome } = wait;
     awaiting.delete(meta.client_id);
     // The sheet closed while it waited: it cannot show a refusal, so the
     // next one does.
@@ -225,14 +243,16 @@ export function drainFeedbackOutbox() {
 }
 
 async function drainOutboxUnlocked() {
-  const items = await getAllFeedbackItems();
+  // A send the sheet waits on goes first: never behind a backlog.
+  const items = (await getAllFeedbackItems())
+    .sort((a, b) => Number(awaiting.has(b.client_id)) - Number(awaiting.has(a.client_id)));
   let retryable = false;
   for (const item of items) {
     const { ok, status } = await postFeedback(item);
     if (ok) {
       // 2xx (incl. 204, and a 2xx dedupe of a re-POSTed client_id) → done.
       await deleteFeedbackItem(item.client_id);
-      if (awaiting.has(item.client_id)) awaiting.set(item.client_id, 'sent');
+      settle(item.client_id, 'sent');
       continue;
     }
     if (status === 401 && !transport) {
@@ -249,8 +269,7 @@ async function drainOutboxUnlocked() {
       // queue-full is transient, so it falls through to the retry branch.)
       await deleteFeedbackItem(item.client_id);
       // Local: the open sheet says so; else the next one does.
-      if (awaiting.has(item.client_id)) awaiting.set(item.client_id, 'dropped');
-      else if (transport && transport.onDropped) transport.onDropped(item, status);
+      if (!settle(item.client_id, 'dropped') && transport && transport.onDropped) transport.onDropped(item, status);
       continue;
     }
     // Network (status 0), 429 (queue full), 5xx, 503 (feature temporarily
@@ -259,6 +278,7 @@ async function drainOutboxUnlocked() {
     // → retry.
     const attempts = (item.attempts || 0) + 1;
     await putFeedbackItem({ ...item, attempts });
+    settle(item.client_id, 'queued');
     if (attempts < MAX_ATTEMPTS) retryable = true; // else park it
   }
   if (retryable) {
