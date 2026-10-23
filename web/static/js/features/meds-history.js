@@ -1,13 +1,14 @@
 // ==================== Medication modal + intake history ====================
 // Extracted from app.js (Plan 2026-06-10 "finish-app-js-split", Task 1).
 //
-// This file owns the medication add/edit modal form helpers, the Meds →
-// History sub-tab (history load + next-intake card), and the push-driven
-// medication-confirm modal flow (confirm / skip / edit / log-past) with its
-// optimistic-cache helpers. These functions remain global (script-tag
+// This file owns the medication add/edit modal form helpers and the
+// push-driven medication-confirm modal flow (confirm / skip / edit / log-past)
+// with its optimistic-cache helpers. (The Meds History pane and its
+// next-intake card are gone — the timeline in features/meds.js replaced them,
+// bd med-wi09.3.) These functions remain global (script-tag
 // loading) and still rely on app.js + sibling globals: apiCall, safeAlert,
 // safeConfirm, withSubmit, formatDate, editingMedId, medications, loadMeds,
-// populateMedFilter, renderInventory, renderHistory, loadInventory,
+// loadTimeline, renderInventory, loadInventory,
 // switchTab, window.DataStore, window.PushModalState, window.ModalManager,
 // window.MedTrackerDB. The optimistic helpers
 // (_applyOptimisticHistoryFlip / _commitOptimistic / _rollbackOptimistic) are
@@ -19,13 +20,13 @@
 // inline siblings.
 
 // Refresh the meds view siblings after a mutation (confirm/skip/edit/log-past).
-// loadMeds refreshes the schedule data and the `medications` array; loadHistory
-// refreshes the history list. Inventory is re-rendered (after loadMeds resolves)
+// loadMeds refreshes the schedule data and the `medications` array; loadTimeline
+// re-reads the timeline. Inventory is re-rendered (after loadMeds resolves)
 // only when it's the active sub-tab, so stock counts stay correct without
 // burning the per-med last-refilled fetch when off-screen.
 function refreshMedsAfterMutation() {
     const medsPromise = typeof loadMeds === 'function' ? loadMeds() : null;
-    if (typeof loadHistory === 'function') loadHistory();
+    if (typeof loadTimeline === 'function') loadTimeline();
     if (medsPromise && typeof medsPromise.then === 'function') {
         medsPromise.then(() => {
             const activeMedTab = document.querySelector('.med-tab.active');
@@ -372,150 +373,6 @@ function addTimeInput(value = '') {
 
 function removeTime(btn) {
     btn.closest('.time-row').remove();
-}
-
-async function loadHistory() {
-    // Ensure medications are loaded for name resolution
-    // populateMedFilter() is called inside loadMeds(), so only call it explicitly
-    // when loadMeds() is skipped (medications pre-loaded from bootstrap)
-    if (medications.length === 0) await loadMeds();
-    else populateMedFilter();
-
-    const days = document.getElementById('history-filter-days').value;
-    const medId = document.getElementById('history-filter-med').value;
-
-    const cacheKey = `history_${days}_${medId}`;
-
-    const result = await window.DataStore.loadSWR({
-        key: cacheKey,
-        tags: ['history'],
-        fetcher: async () => await apiCall(`/api/history?days=${days}&med_id=${medId}`),
-        allowNullFresh: true,
-        onCached: async (cached) => {
-            renderHistory(cached);
-        },
-        onFresh: async (fresh) => {
-            if (fresh && window.MedTrackerDB?.IntakeHistoryStore) {
-                await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, fresh);
-            }
-            renderHistory(fresh || []);
-        },
-        onError: async (_err, cached) => {
-            if (!cached) renderHistory([]);
-        }
-    });
-    renderNextIntakeTrigger();
-    return result;
-}
-
-// module-state: holds the next-intake countdown setInterval handle so a
-// re-render clears the prior timer before starting a new one.
-let _medsHistoryState = { nextIntakeTimer: null }; // module-state: next-intake countdown interval handle
-
-function _formatCountdown(ms) {
-    if (ms <= 0) return '0:00';
-    const totalMinutes = Math.floor(ms / 60000);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return `${hours}:${String(minutes).padStart(2, '0')}`;
-}
-
-async function renderNextIntakeTrigger() {
-    const container = document.getElementById('next-intake-trigger');
-    if (!container) return;
-
-    if (_medsHistoryState.nextIntakeTimer) {
-        clearInterval(_medsHistoryState.nextIntakeTimer);
-        _medsHistoryState.nextIntakeTimer = null;
-    }
-
-    try {
-        // Kick off a refresh as a side-effect. fetchFresh returns null for
-        // both "no data" and "superseded by a concurrent invalidation", so we
-        // can't use its return value to decide between "render empty" and
-        // "leave the card alone". Instead, read the cache afterwards — it
-        // reflects whichever fetch most recently won. This avoids wiping a
-        // correctly-rendered card when an older, invalidated fetch resolves
-        // after a newer one has already populated the cache.
-        await window.DataStore.fetchFresh(
-            'next_intake',
-            fetchNextIntakePayload,
-            ['history', 'medications']
-        );
-
-        const res = await window.DataStore.getCached('next_intake');
-
-        if (!res || !res.scheduled_at) {
-            container.replaceChildren();
-            return;
-        }
-
-        const nextTime = new Date(res.scheduled_at);
-        const medNamesStr = res.medication_names.join(', ');
-
-        // Format the next time
-        const timeStr = nextTime.toLocaleString('de-DE', {
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-
-        // Round-2 Task 8 (#11b): restyled to match the Today "Next up" card —
-        // elevated-teal surface + muted-uppercase kicker + display-numeric
-        // countdown + secondary meta line + kit .wg-btn CTA.
-        const card = document.createElement('div');
-        card.className = 'wg-meds-next-intake-card';
-
-        const body = document.createElement('div');
-        body.className = 'wg-meds-next-intake-card__text';
-
-        const title = document.createElement('div');
-        title.className = 'wg-meds-next-intake-card__kicker';
-        title.textContent = 'Next scheduled intake';
-
-        const countdown = document.createElement('div');
-        countdown.className = 'wg-meds-next-intake-card__time';
-        function updateCountdown() {
-            countdown.textContent = _formatCountdown(nextTime - Date.now());
-        }
-        updateCountdown();
-        _medsHistoryState.nextIntakeTimer = setInterval(updateCountdown, 30000);
-
-        const details = document.createElement('div');
-        details.className = 'wg-meds-next-intake-card__meta';
-        details.textContent = `${medNamesStr} at ${timeStr}`;
-        body.appendChild(title);
-        body.appendChild(countdown);
-        body.appendChild(details);
-
-        const action = document.createElement('button');
-        action.type = 'button';
-        // Plain .wg-btn: the app-bar Add is the view's one primary.
-        action.className = 'wg-btn wg-btn--sm wg-meds-next-intake-card__cta';
-        action.textContent = 'Take Now';
-        action.addEventListener('click', () => {
-            triggerNextIntake();
-        });
-
-        card.appendChild(body);
-        card.appendChild(action);
-        container.replaceChildren(card);
-    } catch (e) {
-        console.error("Error fetching next intake:", e);
-        container.replaceChildren();
-    }
-}
-
-async function triggerNextIntake() {
-    const res = await apiCall('/api/medications/trigger-next-intake', 'POST');
-    if (res && res.status === 'confirmed') {
-        await window.DataStore.invalidateTags(['history', 'medications', 'gamification']);
-        await window.DataStore.invalidateKey('next_intake');
-        const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
-        safeToast(`Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`, 'info');
-        await loadHistory();
-    }
 }
 
 function closeMedicationConfirmModal() {
@@ -928,20 +785,19 @@ async function confirmLogPast() {
                 typeof renderInventory === 'function') {
                 renderInventory();
             }
-            const historyResult = await loadHistory();
+            const timelineRows = typeof loadTimeline === 'function' ? await loadTimeline() : null;
             const newId = res && typeof res.id !== 'undefined' ? res.id : null;
-            // Only run the visibility check when the history fetch actually
-            // returned an array. If it failed (historyResult.error set or
-            // fresh is null), the user is offline/degraded — the POST already
-            // succeeded, so don't shout "history did not refresh" at them.
-            if (newId !== null && historyResult && Array.isArray(historyResult.fresh)) {
-                const found = historyResult.fresh.some((l) => l && typeof l.id === 'number' && l.id === newId);
+            // Only run the visibility check when the timeline read actually
+            // returned rows. If it failed (null), the user is offline/degraded —
+            // the POST already succeeded, so don't shout "did not refresh".
+            if (newId !== null && Array.isArray(timelineRows)) {
+                const found = timelineRows.some((r) => r && String(r.occId) === String(newId));
                 if (!found) {
                     if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {
-                        window.SyncDebug.warn('log-past: new intake not visible in history after reload', { id: newId });
+                        window.SyncDebug.warn('log-past: new intake not visible in the timeline after reload', { id: newId });
                     }
                     if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
-                        window.SyncManager.showToast('Saved, but history did not refresh — pull to refresh', 'error');
+                        window.SyncManager.showToast('Saved, but the timeline did not refresh — pull to refresh', 'error');
                     }
                 }
             }
@@ -981,9 +837,6 @@ window.MedsHistory = {
     calculateDailyUsage,
     addTimeInput,
     removeTime,
-    loadHistory,
-    renderNextIntakeTrigger,
-    triggerNextIntake,
     closeMedicationConfirmModal,
     confirmSelectedMedications,
     skipSelectedMedications,

@@ -66,7 +66,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
 
         window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Vitamin D'], '2026-05-17T08:00:00.000Z', 'confirm', [101, 102]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -117,7 +117,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         checks[1].setAttribute('aria-pressed', 'false');
 
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -153,7 +153,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
 
         window.showMedicationConfirmModal([1], ['Aspirin'], '2026-05-17T08:00:00.000Z', 'confirm', [101]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
@@ -176,7 +176,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
 
         window.showMedicationConfirmModal([5], ['Med E'], '2026-05-17T09:00:00.000Z', 'confirm', [201]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -211,7 +211,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
 
         window.showMedicationConfirmModal([5], ['Med E'], '2026-05-17T09:00:00.000Z', 'confirm', [201]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
@@ -239,7 +239,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         checks[1].setAttribute('aria-pressed', 'false');  // 302 → PENDING (revert)
 
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -281,7 +281,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         document.getElementById('med-confirm-datetime').value = '2026-05-17T11:00';
 
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn(async () => ({ fresh: [] }));
+        window.loadTimeline = vi.fn(async () => ({ fresh: [] }));
         window.safeAlert = vi.fn();
         window.renderInventory = vi.fn();
 
@@ -330,7 +330,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         window.showMedicationConfirmModal([77], ['Med X'], '2026-05-17T11:00:00.000Z', 'log_past', []);
         document.getElementById('med-confirm-datetime').value = '2026-05-17T11:00';
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
@@ -340,65 +340,6 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         if (all) {
             expect(all.length).toBe(1);
             expect(all[0].id).toBe(901);
-        }
-    });
-
-    it('deleteFutureIntakes drops the target rows from cached history before the POST resolves', async () => {
-        const { window } = env;
-        const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 11, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-18T08:00:00.000Z' },
-                { id: 12, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-19T08:00:00.000Z' },
-                { id: 13, medication_id: 1, status: 'TAKEN', scheduled_at: '2026-05-17T08:00:00.000Z' }
-            ]
-        });
-
-        window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
-        window.refreshMedsAfterMutation = vi.fn();
-        window.safeAlert = vi.fn();
-
-        let postCalledSignal;
-        const postCalled = new Promise((r) => { postCalledSignal = r; });
-        const pending = deferred();
-        window.apiCall = vi.fn(async (url, method) => {
-            if (method === 'POST' && url === '/api/medications/delete-intake') {
-                postCalledSignal();
-                return pending.promise;
-            }
-            return null;
-        });
-
-        const handlerDone = window.deleteFutureIntakes([11, 12]);
-        await postCalled;
-
-        const history = cache.get('history_3_0');
-        expect(history.length).toBe(1);
-        expect(history[0].id).toBe(13);
-
-        pending.resolve({ deleted_count: 2 });
-        await handlerDone;
-    });
-
-    it('deleteFutureIntakes rolls back when the POST returns null', async () => {
-        const { window } = env;
-        const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 11, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-18T08:00:00.000Z' },
-                { id: 12, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-19T08:00:00.000Z' }
-            ]
-        });
-
-        window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
-        window.refreshMedsAfterMutation = vi.fn();
-        window.safeAlert = vi.fn();
-        window.apiCall = vi.fn(async () => null);
-
-        await window.deleteFutureIntakes([11]);
-
-        const history = cache.get('history_3_0');
-        if (history) {
-            expect(history.length).toBe(2);
-            expect(history.map((l) => l.id).sort()).toEqual([11, 12]);
         }
     });
 

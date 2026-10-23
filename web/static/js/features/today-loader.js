@@ -41,8 +41,8 @@ function todayFoodKey(nowDate) {
 // object so fetchFresh caches the authoritative "no upcoming" result. Without
 // this, a previously-cached reminder whose scheduled time drifted into the
 // past (no change event fired — wall-clock time alone doesn't invalidate)
-// would keep rendering in Today and the History trigger indefinitely.
-// Both renderNextIntakeTrigger and today.js nextMedCell treat a falsy
+// would keep rendering in Today indefinitely.
+// today.js nextMedCell treats a falsy
 // scheduled_at as "missing", so the empty-state sentinel renders as no card.
 async function fetchNextIntakePayload() {
     const res = await apiCall('/api/medications/next-intake');

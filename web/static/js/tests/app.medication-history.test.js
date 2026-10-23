@@ -47,7 +47,7 @@ describe('app.js medication, history and intake flows', () => {
     }
   });
 
-  it('renderMeds and populateMedFilter render mixed schedules and inventory badges', async () => {
+  it('renderMeds renders mixed schedules and inventory badges', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -118,193 +118,6 @@ describe('app.js medication, history and intake flows', () => {
       expect(editSpy).toHaveBeenCalledWith(1);
       expect(logSpy).toHaveBeenCalledWith(1, 'Soon Med');
       expect(deleteSpy).toHaveBeenCalledWith(1);
-
-      const filter = document.getElementById('history-filter-med');
-      const options = Array.from(filter.querySelectorAll('option'));
-
-      // Should include 'All Medications' and 'Soon Med' (taken recently)
-      // but NOT 'Later Med' (taken 2 days ago, which IS recent, so we need to add a test case for one > 7 days)
-
-      // But let's check what's actually there
-      expect(options.some(o => o.text.includes('All Medications'))).toBe(true);
-      expect(options.some(o => o.text.includes('Soon Med'))).toBe(true);
-      expect(options.some(o => o.text.includes('Later Med'))).toBe(true); // 2 days ago is within 7 days
-      expect(options.some(o => o.text.includes('As Needed'))).toBe(false); // no last_taken_at
-      expect(options.some(o => o.text.includes('Archived Med'))).toBe(false); // no last_taken_at
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('populateMedFilter only shows medications taken in the last 7 days', async () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-
-    try {
-      const now = new Date();
-      const threeDaysAgo = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000));
-      const eightDaysAgo = new Date(now.getTime() - (8 * 24 * 60 * 60 * 1000));
-
-      await seedMedications(window, [
-        {
-          id: 1,
-          name: 'Recent Med',
-          schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
-          last_taken_at: threeDaysAgo.toISOString()
-        },
-        {
-          id: 2,
-          name: 'Old Med',
-          schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
-          last_taken_at: eightDaysAgo.toISOString()
-        },
-        {
-          id: 3,
-          name: 'Never Taken Med',
-          schedule: JSON.stringify({ type: 'daily', times: ['10:00'] }),
-          last_taken_at: null
-        }
-      ]);
-
-      const filter = document.getElementById('history-filter-med');
-      const options = Array.from(filter.querySelectorAll('option'));
-
-      expect(options.length).toBe(2); // All Medications + Recent Med
-      expect(options[0].text).toBe('All Medications');
-      expect(options[1].text).toBe('Recent Med');
-
-      // Test fallback to 0 when previously selected medication ages out
-      filter.value = "2"; // Simulate 'Old Med' was selected
-      window.populateMedFilter();
-      expect(filter.value).toBe("0"); // Should fallback to 'All Medications'
-
-      // Test retaining selected value when still valid
-      filter.value = "1"; // Simulate 'Recent Med' was selected
-      window.populateMedFilter();
-      expect(filter.value).toBe("1"); // Should retain 'Recent Med'
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('loadHistory clears the list when fetching returns null or empty array', async () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-
-    try {
-      await seedMedications(window, [
-        { id: 1, name: 'Aspirin' }
-      ]);
-
-      // Seed with initial history
-      const now = new Date();
-      window.renderHistory([
-        { id: 100, medication_id: 1, status: 'TAKEN', taken_at: now.toISOString(), scheduled_at: now.toISOString() }
-      ]);
-
-      const list = document.getElementById('history-list');
-      expect(list.innerHTML).toContain('Aspirin');
-
-      // Now mock DataStore.loadSWR to return null for fresh
-      window.DataStore.loadSWR = vi.fn(async (options) => {
-        // Assert we passed allowNullFresh
-        expect(options.allowNullFresh).toBe(true);
-        await options.onFresh(null);
-      });
-
-      await window.loadHistory();
-
-      // List should be empty
-      expect(list.innerHTML).toContain('No doses logged yet');
-      expect(list.innerHTML).not.toContain('Aspirin');
-
-      // Test empty array as well
-      window.renderHistory([
-        { id: 100, medication_id: 1, status: 'TAKEN', taken_at: now.toISOString(), scheduled_at: now.toISOString() }
-      ]);
-      expect(list.innerHTML).toContain('Aspirin');
-
-      window.DataStore.loadSWR = vi.fn(async (options) => {
-        await options.onFresh([]);
-      });
-      await window.loadHistory();
-      expect(list.innerHTML).toContain('No doses logged yet');
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('loadHistory populates the med filter when medications are pre-loaded from bootstrap', async () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-
-    try {
-      const now = new Date();
-      // Pre-populate medications directly (simulating bootstrap path — loadMeds() will be skipped)
-      const recentDate = new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000)).toISOString();
-      await seedMedications(window, [
-        {
-          id: 10,
-          name: 'Pre-loaded Med',
-          schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
-          last_taken_at: recentDate
-        }
-      ]);
-
-      // Reset the filter to only default option to simulate it not being populated yet
-      const filter = document.getElementById('history-filter-med');
-      filter.innerHTML = '<option value="0">All Medications</option>';
-      expect(filter.querySelectorAll('option').length).toBe(1);
-
-      // Mock DataStore.loadSWR so loadHistory doesn't fail
-      window.DataStore.loadSWR = vi.fn(async (options) => {
-        await options.onFresh([]);
-      });
-
-      await window.loadHistory();
-
-      // Filter should now include Pre-loaded Med (medications were already loaded, populateMedFilter called)
-      const options = Array.from(filter.querySelectorAll('option'));
-      expect(options.some(o => o.text.includes('Pre-loaded Med'))).toBe(true);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('renderHistory groups intakes and opens edit modal on TAKEN group click', async () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-
-    try {
-      await seedMedications(window, [
-        { id: 1, name: 'Aspirin' },
-        { id: 2, name: '<b>Magnesium</b>' }
-      ]);
-
-      const now = new Date();
-      const takenAt = new Date(now.getTime() - (60 * 60 * 1000)).toISOString();
-      const scheduledAt = new Date(now.getTime() - (2 * 60 * 60 * 1000)).toISOString();
-
-      const logs = [
-        { id: 100, medication_id: 1, status: 'TAKEN', taken_at: takenAt, scheduled_at: scheduledAt },
-        { id: 101, medication_id: 2, status: 'TAKEN', taken_at: takenAt, scheduled_at: scheduledAt },
-        { id: 102, medication_id: 1, status: 'PENDING', scheduled_at: new Date(now.getTime() + (60 * 60 * 1000)).toISOString() }
-      ];
-
-      const modalSpy = vi.fn();
-      window.showMedicationConfirmModal = modalSpy;
-
-      window.renderHistory(logs);
-      const list = document.getElementById('history-list');
-      expect(list.innerHTML).toContain('Aspirin');
-      expect(list.innerHTML).toContain('Magnesium');
-      expect(list.querySelector('.wg-chip--ok').textContent).toBe('Taken');
-      expect(list.textContent).toContain('<b>Magnesium</b>');
-      expect(list.innerHTML).not.toContain('<b>');
-
-      const groups = list.querySelectorAll('.history-group');
-      expect(groups.length).toBeGreaterThan(0);
-      groups[1].click();
-
-      expect(modalSpy).toHaveBeenCalled();
-      expect(modalSpy.mock.calls[0][0]).toEqual([1, 2]);
-      expect(modalSpy.mock.calls[0][3]).toBe('edit');
     } finally {
       cleanup();
     }
@@ -360,71 +173,6 @@ describe('app.js medication, history and intake flows', () => {
       expect(window.MedTrackerDB.MedicationStore.saveCache).toHaveBeenCalledWith(fresh);
       expect(window.MedTrackerDB.MedicationStore.getCache).toHaveBeenCalled();
       expect(document.getElementById('med-list').innerHTML).toContain('Offline Med');
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('next intake trigger render/action behave correctly', async () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-
-    try {
-      const container = document.getElementById('next-intake-trigger');
-      const alertSpy = vi.fn();
-      window.safeAlert = alertSpy;
-
-      // fetchFresh is called for its cache side-effect; the caller reads the
-      // authoritative value via getCached. Mock getCached to drive the render:
-      // first pass returns nothing cached (empty card), second returns data.
-      window.DataStore.fetchFresh = vi.fn().mockResolvedValue(null);
-      window.DataStore.getCached = vi
-        .fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          scheduled_at: new Date().toISOString(),
-          medication_names: ['<b>Aspirin</b>', 'Vitamin D']
-        });
-
-      await window.renderNextIntakeTrigger();
-      expect(container.innerHTML).toBe('');
-
-      await window.renderNextIntakeTrigger();
-      expect(container.innerHTML).toContain('Next scheduled intake');
-      expect(container.innerHTML).toContain('Take Now');
-      expect(container.textContent).toContain('<b>Aspirin</b>, Vitamin D');
-      expect(container.innerHTML).not.toContain('<b>');
-
-      const triggerSpy = vi.spyOn(window, 'triggerNextIntake').mockResolvedValue(undefined);
-      container.querySelector('button').click();
-      expect(triggerSpy).toHaveBeenCalledTimes(1);
-      triggerSpy.mockRestore();
-
-      window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
-      window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
-      const loadHistorySpy = vi.spyOn(window, 'loadHistory').mockResolvedValue(undefined);
-
-      window.apiCall = vi
-        .fn()
-        .mockResolvedValueOnce({
-          status: 'confirmed',
-          medication_names: ['Aspirin'],
-          scheduled_at: new Date().toISOString(),
-          taken_at: new Date().toISOString()
-        })
-        .mockResolvedValueOnce(null); // null = apiCall handled the error internally
-
-      await window.triggerNextIntake();
-      expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['history', 'medications', 'gamification']);
-      expect(window.DataStore.invalidateKey).toHaveBeenCalledWith('next_intake');
-      expect(loadHistorySpy).toHaveBeenCalled();
-      expect(alertSpy).toHaveBeenCalled();
-
-      // apiCall returned null → no further action (no extra alert from triggerNextIntake)
-      loadHistorySpy.mockClear();
-      alertSpy.mockClear();
-      await window.triggerNextIntake();
-      expect(loadHistorySpy).not.toHaveBeenCalled();
-      expect(alertSpy).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }
@@ -590,13 +338,10 @@ describe('app.js medication, history and intake flows', () => {
       ];
 
       // Stateful apiCall: /api/doses/act mutates serverLogs and reports
-      // per-id outcomes; /api/history echoes the current serverLogs so the
-      // post-mutation refresh repaints authoritative state. Everything else
-      // (e.g. /api/medications/next-intake) clears.
+      // per-id outcomes; GET /api/doses projects the current serverLogs (as
+      // web/domain/medintake.js would) so the timeline repaints authoritative
+      // state. Everything else clears.
       window.apiCall = vi.fn(async (endpoint, _method, body) => {
-        if (endpoint.startsWith('/api/history')) {
-          return serverLogs.map((l) => ({ ...l }));
-        }
         if (endpoint === '/api/doses/act') {
           let updated = 0;
           const failures = [];
@@ -616,35 +361,30 @@ describe('app.js medication, history and intake flows', () => {
           }
           return { updated, unchanged: 0, failed: failures.length, failures };
         }
+        if (endpoint.startsWith('/api/doses')) {
+          return serverLogs.map((l) => ({
+            occId: l.id,
+            medId: l.medication_id,
+            plannedAt: l.scheduled_at,
+            tz: 'UTC',
+            localDate: l.scheduled_at.slice(0, 10),
+            localTime: l.scheduled_at.slice(11, 16),
+            source: 'schedule',
+            state: l.status === 'TAKEN' ? 'taken' : 'due',
+            ...(l.taken_at ? { takenAt: l.taken_at } : {})
+          }));
+        }
         return null;
       });
 
-      // Per-key loadSWR: medications resolves to the seeded list; history_* keys
-      // route through options.fetcher() so the real /api/history round-trip drives
-      // the render, exercising the full uncheck → update → re-render path.
-      window.DataStore.loadSWR = vi.fn(async (options) => {
-        if (options.key === 'medications') {
-          await options.onFresh([
-            { id: 1, name: 'Aspirin' },
-            { id: 2, name: 'Magnesium' }
-          ]);
-          return;
-        }
-        if (typeof options.key === 'string' && options.key.startsWith('history_')) {
-          const fresh = await options.fetcher();
-          await options.onFresh(fresh);
-        }
-      });
+      // Initial render: one Taken group covering both meds.
+      await window.loadTimeline();
+      const timeline = document.getElementById('med-timeline-list');
+      expect(Array.from(timeline.querySelectorAll('.wg-timeline__row')).map((r) => r.dataset.state)).toEqual(['taken']);
 
-      // Initial render: one TAKEN cluster covering both meds.
-      await window.loadHistory();
-      const list = document.getElementById('history-list');
-      let groups = Array.from(list.querySelectorAll('.history-group'));
-      expect(groups.length).toBe(1);
-      expect(groups[0].dataset.status).toBe('TAKEN');
-
-      // Open the edit modal via the group click (real cluster → modal wiring).
-      groups[0].click();
+      // The edit sheet over that cluster (opened from the Today/take flows
+      // until timeline rows get their own actions, med-wi09.17).
+      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], scheduledAt, 'edit', [100, 101]);
       const checks = document.querySelectorAll('.med-confirm-check');
       expect(checks.length).toBe(2);
 
@@ -652,23 +392,19 @@ describe('app.js medication, history and intake flows', () => {
       checks[1].setAttribute('aria-pressed', 'false');
       await window.updateIntakeHistory();
 
-      // refreshMedsAfterMutation() already kicks loadHistory(), but await an
+      // refreshMedsAfterMutation() already kicks loadTimeline(), but await an
       // explicit refresh so the assertion runs against settled server state.
-      await window.loadHistory();
+      await window.loadTimeline();
 
-      groups = Array.from(document.querySelectorAll('.history-group'));
-      const takenRow = groups.find((g) => g.dataset.status === 'TAKEN');
-      const pendingRow = groups.find((g) => g.dataset.status === 'PENDING');
+      const takenRow = timeline.querySelector('.wg-timeline__row[data-state="taken"]');
+      const pendingRow = timeline.querySelector('.wg-timeline__row[data-state="due"]');
 
       // Aspirin stays Taken; only Magnesium reverted to Pending.
-      expect(takenRow).toBeTruthy();
+      expect(takenRow.dataset.occIds).toBe('100');
       expect(takenRow.textContent).toContain('Aspirin');
-      expect(takenRow.querySelector('.wg-chip--ok').textContent).toBe('Taken');
       expect(takenRow.textContent).not.toContain('Magnesium');
-
-      expect(pendingRow).toBeTruthy();
+      expect(pendingRow.dataset.occIds).toBe('101');
       expect(pendingRow.textContent).toContain('Magnesium');
-      expect(pendingRow.querySelector('.wg-chip--pending').textContent).toBe('Pending');
       expect(pendingRow.textContent).not.toContain('Aspirin');
     } finally {
       cleanup();
@@ -825,7 +561,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
       const commitSpy = vi.spyOn(window, '_commitOptimistic');
       const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
       // skipSelectedMedications refreshes the meds view even on error; stub it
-      // so the fire-and-forget loadMeds()/loadHistory() don't reject unhandled
+      // so the fire-and-forget loadMeds()/loadTimeline() don't reject unhandled
       // against an unseeded DOM.
       vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
 

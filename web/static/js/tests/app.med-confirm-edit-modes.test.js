@@ -85,7 +85,7 @@ describe('app.js medication confirm edit/log modes', () => {
 
     try {
       window.loadMeds = vi.fn();
-      window.loadHistory = vi.fn();
+      window.loadTimeline = vi.fn();
       window.apiCall = vi.fn().mockResolvedValue({ status: 'confirmed' });
 
       window.showMedicationConfirmModal([1], ['A'], '2026-02-28T10:00:00Z', 'confirm', [100]);
@@ -108,9 +108,9 @@ describe('app.js medication confirm edit/log modes', () => {
   it('confirmSelectedMedications with nothing selected changes nothing (unchecking is never an undo), and surfaces API errors', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
-    // Mock loadMeds and loadHistory to avoid DOM errors in tests
+    // Mock loadMeds and loadTimeline to avoid DOM errors in tests
     window.loadMeds = vi.fn();
-    window.loadHistory = vi.fn();
+    window.loadTimeline = vi.fn();
 
     try {
       window.showMedicationConfirmModal([1, 2], ['A', 'B'], '2026-02-28T10:00:00Z');
@@ -141,7 +141,7 @@ describe('app.js medication confirm edit/log modes', () => {
     try {
       window.safeAlert = vi.fn();
       window.loadMeds = vi.fn();
-      window.loadHistory = vi.fn();
+      window.loadTimeline = vi.fn();
 
       window.showMedicationConfirmModal(
         [10, 20],
@@ -162,7 +162,7 @@ describe('app.js medication confirm edit/log modes', () => {
       expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST', { action: 'undo', occ_ids: [200] });
       expect(window.safeAlert).toHaveBeenCalledWith('Updated!');
       expect(window.loadMeds).toHaveBeenCalled();
-      expect(window.loadHistory).toHaveBeenCalled();
+      expect(window.loadTimeline).toHaveBeenCalled();
 
       window.showMedicationConfirmModal([30], ['Med C'], '2026-02-28T12:00:00Z', 'edit', [null]);
       window.apiCall = vi.fn();
@@ -187,7 +187,7 @@ describe('app.js medication confirm edit/log modes', () => {
     try {
       window.safeAlert = vi.fn();
       window.loadMeds = vi.fn();
-      window.loadHistory = vi.fn();
+      window.loadTimeline = vi.fn();
 
       window.showMedicationConfirmModal([77], ['Med X'], '2026-02-28T13:00:00Z', 'log_past', []);
       document.getElementById('med-confirm-datetime').value = '2026-02-28T13:20';
@@ -199,7 +199,7 @@ describe('app.js medication confirm edit/log modes', () => {
       });
       expect(window.safeAlert).toHaveBeenCalledWith('Intake logged!');
       expect(window.loadMeds).toHaveBeenCalled();
-      expect(window.loadHistory).toHaveBeenCalled();
+      expect(window.loadTimeline).toHaveBeenCalled();
 
       window.showMedicationConfirmModal([88], ['Med Y'], '2026-02-28T14:00:00Z', 'log_past', []);
       document.getElementById('med-confirm-datetime').value = '2026-02-28T14:10';

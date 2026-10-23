@@ -6,27 +6,33 @@
 // helpers (isLowOnStock, formatDate, apiCall, withSubmit, safeAlert,
 // safeConfirm, editingMedId, medications, initialAuthLoad, etc.).
 
-// Sub-tab state (Phase 5, Task 2; revised Task 5; round-2 Task 4).
-// Scoped to sessionStorage so every fresh launch lands on the History
-// default (matching the Claude Design mockup). A user's in-session tab
-// click still survives reloads within the same tab — it just doesn't
-// leak across sessions. Legacy mt-meds-subtab localStorage values are
-// cleared on boot so previously-saved "schedule"/"inventory" choices
-// don't keep overriding the history default.
+// Sub-tab state: Timeline · Schedule · Stock (bd med-wi09.3; Stock keeps its
+// `inventory` id). Scoped to sessionStorage so every fresh launch lands on the
+// Timeline default; an in-session tab click survives reloads within the same
+// tab. The retired History and Upcoming panes map to the timeline that
+// replaced them, so a stored or passed legacy value never lands on nothing.
+// Legacy mt-meds-subtab localStorage values are cleared on boot.
 const MEDS_SUBTAB_STORAGE_KEY = 'mt-meds-subtab';
-const MEDS_SUBTAB_OPTIONS = ['schedule', 'history', 'upcoming', 'inventory'];
-const MEDS_SUBTAB_DEFAULT = 'history';
+const MEDS_SUBTAB_OPTIONS = ['timeline', 'schedule', 'inventory'];
+const MEDS_SUBTAB_DEFAULT = 'timeline';
+const MEDS_SUBTAB_LEGACY = { history: 'timeline', upcoming: 'timeline' };
+
+function _normalizeMedsSubTab(tab) {
+    const mapped = MEDS_SUBTAB_LEGACY[tab] || tab;
+    return MEDS_SUBTAB_OPTIONS.indexOf(mapped) !== -1 ? mapped : null;
+}
 
 function getActiveMedsSubTab() {
     try {
-        const raw = window.sessionStorage.getItem(MEDS_SUBTAB_STORAGE_KEY);
-        if (MEDS_SUBTAB_OPTIONS.indexOf(raw) !== -1) return raw;
+        const tab = _normalizeMedsSubTab(window.sessionStorage.getItem(MEDS_SUBTAB_STORAGE_KEY));
+        if (tab) return tab;
     } catch (_) { /* ignore */ }
     return MEDS_SUBTAB_DEFAULT;
 }
 
 function setActiveMedsSubTab(tab) {
-    if (MEDS_SUBTAB_OPTIONS.indexOf(tab) === -1) return;
+    tab = _normalizeMedsSubTab(tab);
+    if (!tab) return;
     try { window.sessionStorage.setItem(MEDS_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
 }
 
@@ -96,7 +102,7 @@ function _slotKey(date) {
 // the buckets. Kept in module state because renderMeds() is synchronous and is
 // called from four places inside loadMeds().
 const MEDS_UPCOMING_DAYS = 7;
-let _medsUpcomingState = { doses: [], available: false, due: [] }; // module-state: plan-aware upcoming doses + due (missed) intakes shared by the Schedule buckets and the Upcoming list
+let _medsUpcomingState = { doses: [], available: false, due: [] }; // module-state: plan-aware upcoming doses + due (pending) intakes behind the Schedule buckets
 
 async function loadUpcomingDoses() {
     const read = (path) => Promise.resolve().then(() => apiCall(path)).catch(() => null);
@@ -174,11 +180,20 @@ function _medsIcon(name, extraClass) {
 }
 
 // One schedule bucket: `.wg-section` with an eyebrow head, an optional head
-// action and a `.wg-list` of rows. tone: 'dot' (upcoming) | 'danger' (missed).
-function _buildMedsBucket(label, { tone, action, rows }) {
+// action and a `.wg-list` of rows. tone: 'dot' (upcoming); pending: a due
+// slot, labelled with a Pending chip (no "missed" state — owner, med-wi09).
+function _buildMedsBucket(label, { tone, pending, action, rows }) {
     const section = _medsEl('section', 'wg-section wg-meds-bucket');
     const head = _medsEl('div', 'wg-section__head');
-    head.appendChild(_medsEl('span', `wg-eyebrow${tone ? ` wg-eyebrow--${tone}` : ''} wg-meds-bucket__label`, label));
+    const eyebrow = _medsEl('span', `wg-eyebrow${tone ? ` wg-eyebrow--${tone}` : ''} wg-meds-bucket__label`, label);
+    if (pending) {
+        const stack = _medsEl('span', 'wg-hstack');
+        stack.appendChild(eyebrow);
+        stack.appendChild(window.WGChip.create({ text: 'Pending', state: 'pending', small: true }));
+        head.appendChild(stack);
+    } else {
+        head.appendChild(eyebrow);
+    }
     if (action) {
         const btn = _medsEl('button', `wg-btn wg-btn--sm${action.ghost ? ' wg-btn--ghost' : ''} wg-meds-bucket__action`, action.label);
         btn.type = 'button';
@@ -240,13 +255,13 @@ function _formatMedDateRange(startIso, endIso) {
 // Rx plus status chips. Tap edits; swipe / overflow reveals Edit and Delete.
 // As-needed rows keep a per-row Log; scheduled rows log off-schedule doses
 // from the overflow menu (their bucket head owns Take / Log late).
-// opts.missed paints the lead in the danger tone.
+// opts.missed (a due dose) paints the lead in the pending tone.
 function _buildMedsRow(med, parsedSchedule, opts = {}) {
     const row = _medsEl('div', 'wg-row wg-meds-row med-item');
     row.dataset.medId = String(med.id);
     if (med.archived) row.classList.add('archived', 'wg-row--muted');
 
-    const lead = _medsEl('span', opts.missed ? 'wg-row__lead wg-row__lead--danger' : 'wg-row__lead');
+    const lead = _medsEl('span', opts.missed ? 'wg-row__lead wg-row__lead--sky' : 'wg-row__lead');
     lead.appendChild(_medsIcon('pill'));
     row.appendChild(lead);
 
@@ -388,10 +403,10 @@ function renderMeds() {
 
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     Array.from(missedBuckets.values()).sort((a, b) => a.at - b.at).forEach((bucket) => {
-        const day = bucket.at.getTime() >= todayStart ? 'today' : 'yesterday';
-        const label = `${_pad2(bucket.at.getHours())}:${_pad2(bucket.at.getMinutes())} · missed ${day}`;
+        const time = `${_pad2(bucket.at.getHours())}:${_pad2(bucket.at.getMinutes())}`;
+        const label = bucket.at.getTime() >= todayStart ? time : `${time} · yesterday`;
         list.appendChild(_buildMedsBucket(label, {
-            tone: 'danger',
+            pending: true,
             action: {
                 label: 'Log late',
                 ghost: true,
@@ -437,382 +452,381 @@ function syncMedsAddButton() {
     btn.hidden = !!(pane && pane.querySelector('.wg-empty .wg-btn--primary'));
 }
 
-// "Upcoming" forecast (bd med-gut.2): the next 7 days of doses grouped by day
-// in the TRACKED timezone. Read-only — no take/skip actions; the Today screen
-// owns those. Day labels and times come from the route (`day_offset`,
-// `local_date`, `local_time`) so this renderer never touches timezone math.
-// bd med-4oxj promoted it out of the Schedule list into its own sub-tab; it
-// still reads the same `_medsUpcomingState` the Schedule hour buckets consume,
-// so there is exactly one fetch behind both views.
-function _formatUpcomingDayLabel(dose) {
-    if (dose.day_offset === 0) return 'Today';
-    if (dose.day_offset === 1) return 'Tomorrow';
-    const parts = String(dose.local_date || '').split('-').map(Number);
-    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return String(dose.local_date || '');
-    // Constructed from wall-clock parts, so this Date is only ever read for its
-    // weekday/day/month names — never as an instant.
-    const d = new Date(parts[0], parts[1] - 1, parts[2]);
-    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+// ==================== Timeline sub-tab (kit v2 MT1/MT5, bd med-wi09.3) ====================
+// One scrollable pane replaces History and Upcoming: Tomorrow (its first two
+// groups + "N more"), Today (Next / Pending / Done) and the earlier days, all
+// read from the occurrence projection (GET /api/doses), so every row is the
+// dose — id, time, state — Telegram and the notifications show. Read-only:
+// rows carry their occIds (data-occ-ids) but no action yet (med-wi09.17); the
+// take sheet on Today / Schedule stays the way to act meanwhile.
+//
+// Rows group by (localDate, localTime, tz, state) exactly as the projection
+// stamped them, never by the device clock: a row keeps its own date across a
+// zone change, the same local time in two zones never merges, and a group
+// whose meds are in different states splits (Pending vs Done).
+const MEDS_TIMELINE_PAGE_DAYS = 7; // earlier days rendered per scroll page
+const MEDS_TIMELINE_TOMORROW_GROUPS = 2;
+const MEDS_TIMELINE_LEAD = {
+    upcoming: ['', 'pill'],
+    due: ['wg-row__lead--sky', 'clock'],
+    snoozed: ['wg-row__lead--sky', 'clock'],
+    taken: ['wg-row__lead--ok', 'check'],
+    skipped: ['wg-row__lead--stale', 'minus'],
+};
+let _medsTimelineState = { rows: null, pastShown: MEDS_TIMELINE_PAGE_DAYS, pastRendered: 0, past: [], byDate: new Map(), ctx: null, tomorrowOpen: false, observer: null }; // module-state: timeline rows + scroll-paging cursor
+
+// 'YYYY-MM-DD' of an instant on the tracked zone's calendar.
+function _tlDatePart(ms, tz) {
+    const opts = { year: 'numeric', month: '2-digit', day: '2-digit' };
+    try { return new Intl.DateTimeFormat('en-CA', { ...opts, timeZone: tz }).format(new Date(ms)); }
+    catch (_) { return new Intl.DateTimeFormat('en-CA', opts).format(new Date(ms)); }
 }
 
-function _buildUpcomingRow(dose) {
-    const row = document.createElement('div');
-    row.className = 'wg-card wg-meds-upcoming__row';
-    row.dataset.medId = String(dose.medication_id);
-    if (dose.source === 'tz_step') row.classList.add('wg-meds-upcoming__row--step');
+// 'HH:MM' of an instant on the tracked zone's clock.
+function _tlClock(iso, tz) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const opts = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+    try { return new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: tz }).format(d); }
+    catch (_) { return `${_pad2(d.getHours())}:${_pad2(d.getMinutes())}`; }
+}
 
-    const time = document.createElement('span');
-    time.className = 'wg-meds-upcoming__time wg-mono-display';
-    time.textContent = dose.local_time || '';
-    row.appendChild(time);
+// Calendar arithmetic on a 'YYYY-MM-DD' label (UTC, so no DST drift).
+function _tlDayMs(ymd) {
+    const [y, m, d] = String(ymd).split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+}
 
-    const body = document.createElement('div');
-    body.className = 'wg-meds-upcoming__body';
+function _tlShiftDate(ymd, days) {
+    return new Date(_tlDayMs(ymd) + days * 86400000).toISOString().slice(0, 10);
+}
 
-    const titleRow = document.createElement('div');
-    titleRow.className = 'wg-meds-upcoming__title';
-    const name = document.createElement('span');
-    name.className = 'wg-meds-upcoming__name';
-    name.textContent = dose.med_name || '';
-    titleRow.appendChild(name);
-    if (dose.dosage) {
-        const dosage = document.createElement('span');
-        dosage.className = 'wg-meds-upcoming__dosage';
-        dosage.textContent = dose.dosage;
-        titleRow.appendChild(dosage);
+// 'Fri 23.10'
+function _tlDayName(ymd) {
+    const at = new Date(_tlDayMs(ymd));
+    const weekday = at.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+    return `${weekday} ${_pad2(at.getUTCDate())}.${_pad2(at.getUTCMonth() + 1)}`;
+}
+
+function _tlZoneCity(tz) {
+    return String(tz || '').split('/').pop().replace(/_/g, ' ');
+}
+
+function _tlAgo(ms) {
+    const minutes = Math.max(0, Math.round(ms / 60000));
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+}
+
+const _TL_STATE_ORDER = { due: 0, snoozed: 1, upcoming: 2, taken: 3, skipped: 4 };
+
+// Groups ascending by planned instant; same instant → pending before done.
+function _tlGroups(rows) {
+    const byKey = new Map();
+    rows.forEach((r) => {
+        const key = `${r.localDate}|${r.localTime}|${r.tz}|${r.state}`;
+        if (!byKey.has(key)) {
+            byKey.set(key, { localDate: r.localDate, localTime: r.localTime, tz: r.tz, state: r.state, at: Date.parse(r.plannedAt), rows: [] });
+        }
+        byKey.get(key).rows.push(r);
+    });
+    return Array.from(byKey.values()).sort((a, b) => (a.at - b.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state]));
+}
+
+// Name from the medications list (String ids — a vault can hold a number on
+// one side and a string on the other, bd med-wi09.15), else the row's own.
+function _tlMedLabel(r, ctx) {
+    const med = ctx.medById.get(String(r.medId));
+    const name = (med && med.name) || r.name || 'Medication';
+    const dosage = (med && med.dosage) || r.dosage || '';
+    return dosage ? `${name} ${dosage}` : name;
+}
+
+function _tlChip(group, ctx) {
+    const first = group.rows[0];
+    switch (group.state) {
+    case 'upcoming':
+        return window.WGChip.create({ text: _formatNextActionRelative(group.at - ctx.nowMs), state: 'pending', small: true });
+    case 'due':
+        return window.WGChip.create({
+            text: group.localDate === ctx.todayDate ? `Due ${_tlAgo(ctx.nowMs - group.at)}` : 'Due',
+            state: 'pending',
+            small: true,
+        });
+    case 'snoozed':
+        return window.WGChip.create({ text: `Snoozed until ${_tlClock(first.snoozedUntil, ctx.tz)}`, state: 'pending', small: true });
+    case 'taken': {
+        const takenAt = group.rows.map((r) => r.takenAt).filter(Boolean).sort()[0];
+        return window.WGChip.create({ text: takenAt ? `Taken ${_tlClock(takenAt, ctx.tz)}` : 'Taken', state: 'ok', small: true });
     }
-    if (dose.source === 'tz_step' && dose.step_number) {
-        const badge = document.createElement('span');
-        badge.className = 'wg-tag wg-tag--mono wg-meds-upcoming__badge';
-        badge.textContent = `transition step ${dose.step_number}/${dose.total_steps || dose.step_number}`;
-        titleRow.appendChild(badge);
+    case 'skipped':
+        return window.WGChip.create({ text: 'Skipped', state: 'stale', small: true });
+    default:
+        return null;
     }
-    body.appendChild(titleRow);
+}
 
-    if (dose.note) {
-        const note = document.createElement('div');
-        note.className = 'wg-meds-upcoming__note';
-        note.textContent = dose.note;
-        body.appendChild(note);
+// One group = one kit row. No role/tabindex: nothing to tap until med-wi09.17.
+function _tlRow(group, ctx, { chip = true } = {}) {
+    const row = _medsEl('div', 'wg-row wg-timeline__row');
+    row.dataset.state = group.state;
+    row.dataset.localDate = group.localDate;
+    row.dataset.occIds = group.rows.map((r) => String(r.occId)).join(' ');
+
+    const [leadMod, icon] = MEDS_TIMELINE_LEAD[group.state] || MEDS_TIMELINE_LEAD.upcoming;
+    const lead = _medsEl('span', leadMod ? `wg-row__lead ${leadMod}` : 'wg-row__lead');
+    lead.appendChild(_medsIcon(icon));
+    row.appendChild(lead);
+
+    const body = _medsEl('span', 'wg-row__body');
+    // A zone shows only when it differs from the tracked one ("08:20 · Berlin"),
+    // with the time here as meta.
+    const otherZone = group.tz && group.tz !== ctx.tz;
+    body.appendChild(_medsEl('span', 'wg-row__title wg-row__title--mono',
+        otherZone ? `${group.localTime} · ${_tlZoneCity(group.tz)}` : group.localTime));
+    const names = group.rows.map((r) => _tlMedLabel(r, ctx)).join(' · ');
+    const meta = _medsEl('span', 'wg-row__meta',
+        otherZone ? `${_tlClock(group.rows[0].plannedAt, ctx.tz)} here · ${names}` : names);
+    const first = group.rows[0];
+    if (first.source === 'tz_step' && first.stepNumber) {
+        meta.appendChild(_medsEl('span', 'wg-tag', `Step ${first.stepNumber} of ${first.totalSteps || first.stepNumber}`));
     }
-
+    const chipEl = chip ? _tlChip(group, ctx) : null;
+    if (chipEl) meta.appendChild(chipEl);
+    body.appendChild(meta);
     row.appendChild(body);
     return row;
 }
 
-// Paints the Upcoming sub-tab pane from module state. Takes no argument and
-// clears the pane itself, so every caller (tab switch, loadMeds refresh) gets
-// a full repaint rather than an append.
-function renderUpcomingDoses() {
-    const list = document.getElementById('med-upcoming-list');
+function _tlHead(text, { tag = 'eyebrow', dot = false, meta } = {}) {
+    const head = _medsEl('div', 'wg-section__head');
+    head.appendChild(_medsEl('span', tag === 'label' ? 'wg-label' : `wg-eyebrow${dot ? ' wg-eyebrow--dot' : ''}`, text));
+    if (meta) head.appendChild(_medsEl('span', 'wg-meta', meta));
+    return head;
+}
+
+function _tlList(groups, ctx, opts) {
+    const list = _medsEl('div', 'wg-list');
+    groups.forEach((g) => list.appendChild(_tlRow(g, ctx, opts)));
+    return list;
+}
+
+function _tlSkeletonList() {
+    const list = _medsEl('div', 'wg-list');
+    list.appendChild(_medsEl('span', 'wg-skel wg-skel--row'));
+    list.appendChild(_medsEl('span', 'wg-skel wg-skel--row'));
+    return list;
+}
+
+function _tlTomorrowSection(groups, ctx) {
+    const section = _medsEl('section', 'wg-section wg-timeline__day wg-timeline__tomorrow');
+    section.appendChild(_tlHead(`Tomorrow · ${_tlDayName(_tlShiftDate(ctx.todayDate, 1))}`));
+    const open = _medsTimelineState.tomorrowOpen;
+    const shown = open ? groups : groups.slice(0, MEDS_TIMELINE_TOMORROW_GROUPS);
+    section.appendChild(_tlList(shown, ctx, { chip: false }));
+    const hidden = groups.slice(shown.length);
+    if (hidden.length) {
+        const more = _medsEl('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-timeline__more-btn', `${hidden.length} more · ${hidden[0].localTime}`);
+        more.type = 'button';
+        more.addEventListener('click', () => {
+            _medsTimelineState.tomorrowOpen = true;
+            section.replaceWith(_tlTomorrowSection(groups, ctx));
+        });
+        section.appendChild(more);
+    }
+    return section;
+}
+
+function _tlBlock(section, label, groups, ctx, meta) {
+    if (!groups.length) return;
+    section.appendChild(_tlHead(label, { tag: 'label', meta }));
+    section.appendChild(_tlList(groups, ctx));
+}
+
+const _tlIsPending = (g) => g.state === 'due' || g.state === 'snoozed';
+const _tlIsDone = (g) => g.state === 'taken' || g.state === 'skipped';
+
+function _tlTodaySection(groups, ctx) {
+    const section = _medsEl('section', 'wg-section wg-timeline__day wg-timeline__today');
+    section.dataset.localDate = ctx.todayDate;
+    section.appendChild(_tlHead(`Today · ${_tlDayName(ctx.todayDate)}`, {
+        dot: true,
+        meta: _tlClock(new Date(ctx.nowMs).toISOString(), ctx.tz),
+    }));
+    // The tracked zone is the clock every time here is on; say so whenever the
+    // device sits in another zone (no history needed — Phase 1).
+    if (ctx.deviceTz && ctx.tz && ctx.deviceTz !== ctx.tz) {
+        const note = _medsEl('div', 'wg-note wg-note--info wg-timeline__zone');
+        note.appendChild(_medsIcon('globe'));
+        const body = _medsEl('div', 'wg-note__body');
+        const text = _medsEl('span');
+        text.appendChild(_medsEl('b', '', `Times are ${_tlZoneCity(ctx.tz)} time.`));
+        body.appendChild(text);
+        note.appendChild(body);
+        section.appendChild(note);
+    }
+    const today = groups.filter((g) => g.localDate === ctx.todayDate);
+    const next = today.filter((g) => g.state === 'upcoming');
+    const pending = today.filter(_tlIsPending);
+    const done = today.filter(_tlIsDone).reverse();
+    // No pending dose may be out of sight: earlier days' due/snoozed rows are
+    // listed here too, under their own date, and stay in their own day below.
+    const earlier = new Map();
+    groups.filter((g) => g.localDate < ctx.todayDate && _tlIsPending(g)).forEach((g) => {
+        if (!earlier.has(g.localDate)) earlier.set(g.localDate, []);
+        earlier.get(g.localDate).push(g);
+    });
+
+    _tlBlock(section, 'Next', next, ctx);
+    _tlBlock(section, 'Pending', pending, ctx);
+    Array.from(earlier.keys()).sort().reverse().forEach((date) => {
+        const days = Math.round((_tlDayMs(ctx.todayDate) - _tlDayMs(date)) / 86400000);
+        _tlBlock(section, _tlDayName(date), earlier.get(date), ctx, days === 1 ? 'Yesterday' : `${days} days ago`);
+    });
+    _tlBlock(section, 'Done', done, ctx);
+    if (!next.length && !pending.length && !earlier.size && !done.length) {
+        section.appendChild(_medsEl('p', 'wg-hint', 'No doses planned today.'));
+    }
+    return section;
+}
+
+function _tlPastSection(date) {
+    const state = _medsTimelineState;
+    const ctx = state.ctx;
+    const groups = (state.byDate.get(date) || []).slice().sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state]));
+    const occ = groups.flatMap((g) => g.rows);
+    const pending = occ.filter((r) => r.state === 'due' || r.state === 'snoozed').length;
+    const taken = occ.filter((r) => r.state === 'taken').length;
+    const section = _medsEl('section', 'wg-section wg-timeline__day');
+    section.dataset.localDate = date;
+    const label = date === _tlShiftDate(ctx.todayDate, -1) ? `Yesterday · ${_tlDayName(date)}` : _tlDayName(date);
+    section.appendChild(_tlHead(label, { meta: pending ? `${pending} pending` : `${taken} of ${occ.length} taken` }));
+    section.appendChild(_tlList(groups, ctx));
+    return section;
+}
+
+// Earlier days, a page of dates at a time: a skeleton day head sits below the
+// last rendered day (MT5 · loading) and the next page renders when it scrolls
+// into view.
+function _tlAppendPast(list) {
+    const state = _medsTimelineState;
+    const old = list.querySelector('.wg-timeline__more');
+    if (old) old.remove();
+    const end = Math.min(state.past.length, state.pastShown);
+    for (; state.pastRendered < end; state.pastRendered++) {
+        list.appendChild(_tlPastSection(state.past[state.pastRendered]));
+    }
+    if (state.pastRendered >= state.past.length) return;
+    if (typeof window.IntersectionObserver !== 'function') {
+        state.pastShown = state.past.length;
+        _tlAppendPast(list);
+        return;
+    }
+    const more = _medsEl('section', 'wg-section wg-timeline__more');
+    more.appendChild(_tlHead(_tlDayName(state.past[state.pastRendered]), { meta: 'loading' }));
+    more.appendChild(_tlSkeletonList());
+    list.appendChild(more);
+    state.observer = new window.IntersectionObserver((entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        state.observer.disconnect();
+        state.observer = null;
+        state.pastShown += MEDS_TIMELINE_PAGE_DAYS;
+        _tlAppendPast(list);
+    }, { rootMargin: '200px 0px' });
+    state.observer.observe(more);
+}
+
+function renderTimeline({ anchor = false } = {}) {
+    const list = document.getElementById('med-timeline-list');
     if (!list) return;
+    const state = _medsTimelineState;
+    if (state.observer) { state.observer.disconnect(); state.observer = null; }
     list.replaceChildren();
 
-    const doses = _medsUpcomingState.doses || [];
-    // No forecast to show (offline cold start / legacy server): the naive
-    // device-local fallback is driving the Schedule hour buckets, so "nothing
-    // upcoming" would be a claim this renderer cannot make. Stay silent.
-    if (!_medsUpcomingState.available) { syncMedsAddButton(); return; }
-
-    // No section label: the "Upcoming" sub-tab pill above already names the
-    // pane, and repeating it inside is noise (bd med-4oxj).
-    const wrap = document.createElement('div');
-    wrap.className = 'wg-meds-upcoming';
-
-    // The forecast answered with nothing — say so, so an empty window is
-    // distinguishable from the block not being there at all (bd med-jr1e).
-    if (doses.length === 0) {
-        wrap.appendChild(createEmptyState({
-            icon: 'calendar',
-            title: 'Nothing scheduled',
-            body: `No doses in the next ${MEDS_UPCOMING_DAYS} days. Add a medication with a schedule and its next dose shows up here.`,
+    const meds = Array.isArray(medications) ? medications : [];
+    const rows = Array.isArray(state.rows) ? state.rows : [];
+    if (meds.length === 0 && rows.length === 0) {
+        const card = _medsEl('div', 'wg-card wg-card--flush');
+        card.appendChild(createEmptyState({
+            icon: 'pill',
+            title: 'No medications yet',
+            body: 'Add what you take and when. Planned, due and taken doses all show up here.',
             actions: [{ label: 'Add medication', icon: 'plus', variant: 'primary', onClick: () => showAddModal() }],
         }));
-        list.appendChild(wrap);
+        list.appendChild(card);
         syncMedsAddButton();
         return;
     }
 
-    let currentDay = null;
-    doses.forEach((dose) => {
-        if (dose.local_date !== currentDay) {
-            currentDay = dose.local_date;
-            const dayLabel = document.createElement('div');
-            dayLabel.className = 'wg-meds-upcoming__day';
-            dayLabel.textContent = _formatUpcomingDayLabel(dose);
-            wrap.appendChild(dayLabel);
-        }
-        wrap.appendChild(_buildUpcomingRow(dose));
-    });
+    const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Every row is planned on the tracked zone; the newest (a forecast row)
+    // names the current one.
+    const tz = rows.length ? rows[rows.length - 1].tz : deviceTz;
+    const nowMs = Date.now();
+    const ctx = { tz, deviceTz, nowMs, todayDate: _tlDatePart(nowMs, tz), medById: new Map(meds.map((m) => [String(m.id), m])) };
+    const groups = _tlGroups(rows);
 
-    list.appendChild(wrap);
+    const tomorrowDate = _tlShiftDate(ctx.todayDate, 1);
+    const tomorrow = groups.filter((g) => g.localDate === tomorrowDate && g.state === 'upcoming');
+    if (tomorrow.length) list.appendChild(_tlTomorrowSection(tomorrow, ctx));
+    const todaySection = _tlTodaySection(groups, ctx);
+    list.appendChild(todaySection);
+
+    state.ctx = ctx;
+    state.byDate = new Map();
+    groups.filter((g) => g.localDate < ctx.todayDate).forEach((g) => {
+        if (!state.byDate.has(g.localDate)) state.byDate.set(g.localDate, []);
+        state.byDate.get(g.localDate).push(g);
+    });
+    state.past = Array.from(state.byDate.keys()).sort().reverse();
+    state.pastRendered = 0;
+    if (anchor) state.pastShown = MEDS_TIMELINE_PAGE_DAYS;
+    _tlAppendPast(list);
+
+    // Land on Today, with Tomorrow just above it.
+    if (anchor && typeof todaySection.scrollIntoView === 'function') todaySection.scrollIntoView({ block: 'start' });
     syncMedsAddButton();
 }
 
-// Upcoming sub-tab loader (switchMedTab dispatch). The forecast rows already
-// carry med_name/dosage, so this pane needs no medication list — just the
-// shared forecast fetch and a repaint.
-async function loadUpcoming() {
-    await loadUpcomingDoses();
-    renderUpcomingDoses();
+// Timeline loader (switchMedTab / reloadCurrentTab / refreshMedsAfterMutation).
+// One projection read from the start of the ledger through tomorrow: pending
+// never expires, so Today's Pending needs every due row however old, and in
+// cloud mode the read is a local shim call. Resolves the rows (null when the
+// route did not answer).
+// ponytail: one full-ledger read, paged only in rendering; window the fetch by
+// localDate if vaults grow past ~10k intakes.
+async function loadTimeline({ anchor = false } = {}) {
+    const list = document.getElementById('med-timeline-list');
+    if (!list) return null;
+    if (_medsTimelineState.rows === null) {
+        list.replaceChildren();
+        const section = _medsEl('section', 'wg-section wg-timeline__day');
+        section.appendChild(_tlHead('Today', { dot: true }));
+        section.appendChild(_tlSkeletonList());
+        list.appendChild(section);
+    }
+    if (!Array.isArray(medications) || medications.length === 0) await loadMeds();
+    const toIso = new Date(Date.now() + 2 * 86400000).toISOString();
+    const rows = await Promise.resolve()
+        .then(() => apiCall(`/api/doses?from=${new Date(0).toISOString()}&to=${toIso}`))
+        .catch(() => null);
+    if (!Array.isArray(rows)) {
+        if (_medsTimelineState.rows === null) {
+            list.replaceChildren(createOfflineEmptyState());
+            syncMedsAddButton();
+        }
+        return null;
+    }
+    _medsTimelineState.rows = rows;
+    renderTimeline({ anchor });
+    return rows;
 }
 
 function logMedicationPast(id, name) {
     showMedicationConfirmModal([id], [name], new Date(), 'log_past');
 }
 
-
-// Meds history render (Phase 5, Task 5). Logs are grouped twice — first by
-// minute-precision cluster (so simultaneous intakes collapse into a single
-// card that can be edited/confirmed in one action, matching the legacy
-// group-click contract), then those clusters are bucketed by local day so
-// each day can carry its own `.wg-section-label` header. Each cluster is a
-// `.wg-card` row with the med names (mono-display), the trailing ISO-local
-// time, an edit `.wg-icon-btn`, and a WGChip status chip (ok/pending/danger).
-
-function _buildHistoryClusters(logs) {
-    const clusters = [];
-    logs.forEach((l) => {
-        let key = l.scheduled_at;
-        let timeSource = l.scheduled_at;
-        if (l.status === 'TAKEN' && l.taken_at) {
-            const d = new Date(l.taken_at);
-            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}`;
-            timeSource = l.taken_at;
-        }
-        let cluster = clusters.find((c) => c.key === key && c.status === l.status);
-        if (!cluster) {
-            cluster = {
-                key,
-                status: l.status,
-                items: [],
-                sortTime: new Date(timeSource).getTime(),
-                timeSource
-            };
-            clusters.push(cluster);
-        }
-        cluster.items.push(l);
-    });
-    clusters.sort((a, b) => b.sortTime - a.sortTime);
-    return clusters;
-}
-
-function _buildHistoryDayLabel(dateMs, todayMs, yesterdayMs) {
-    const d = new Date(dateMs);
-    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    if (dayStart === todayMs) return 'Today';
-    if (dayStart === yesterdayMs) return 'Yesterday';
-    return d.toLocaleDateString(undefined, {
-        weekday: 'short',
-        day: '2-digit',
-        month: '2-digit'
-    });
-}
-
-function _formatHistoryRowTime(dateMs) {
-    const d = new Date(dateMs);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
-}
-
-function _buildHistoryStatusTag(status) {
-    let chip;
-    if (status === 'TAKEN') chip = window.WGChip.create({ text: 'Taken', state: 'ok', small: true });
-    else if (status === 'PENDING') chip = window.WGChip.create({ text: 'Pending', state: 'pending', small: true });
-    else chip = window.WGChip.create({ text: _titleCaseStatus(status), state: 'danger', small: true });
-    chip.classList.add('wg-meds-history__status');
-    return chip;
-}
-
-// 'SKIPPED' → 'Skipped'; empty → 'Missed'.
-function _titleCaseStatus(status) {
-    if (!status) return 'Missed';
-    const s = String(status);
-    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-}
-
-function _buildHistoryClusterRow(cluster, medsList) {
-    const row = document.createElement('div');
-    row.className = 'wg-card wg-meds-history__row history-group';
-    row.dataset.status = cluster.status || '';
-
-    if (cluster.status === 'PENDING' || cluster.status === 'TAKEN') {
-        row.classList.add('cursor-pointer');
-        const clickHandler = () => {
-            const ids = cluster.items.map((i) => i.medication_id);
-            const names = cluster.items.map((i) => {
-                const med = medsList.find((m) => m.id === i.medication_id);
-                return med ? med.name : 'Unknown';
-            });
-            const intakeIds = cluster.items.map((i) => i.id);
-            const mode = cluster.status === 'TAKEN' ? 'edit' : 'confirm';
-            let time = cluster.key;
-            if (mode === 'edit' && cluster.items[0].taken_at) {
-                time = cluster.items[0].taken_at;
-            } else if (cluster.items[0].scheduled_at) {
-                time = cluster.items[0].scheduled_at;
-            }
-            showMedicationConfirmModal(ids, names, time, mode, intakeIds);
-        };
-        row.onclick = clickHandler;
-    }
-
-    const main = document.createElement('div');
-    main.className = 'wg-meds-history__row-main';
-
-    const namesWrap = document.createElement('div');
-    namesWrap.className = 'wg-meds-history__names history-items';
-    cluster.items.forEach((l) => {
-        const med = medsList.find((m) => m.id === l.medication_id);
-        const medName = med ? med.name : 'Unknown Med';
-        const nameEl = document.createElement('span');
-        nameEl.className = 'wg-meds-history__name wg-mono-display history-subitem';
-        if (l.id !== undefined && l.id !== null) {
-            nameEl.dataset.intakeId = String(l.id);
-        }
-        nameEl.textContent = medName;
-        namesWrap.appendChild(nameEl);
-    });
-    main.appendChild(namesWrap);
-
-    const meta = document.createElement('div');
-    meta.className = 'wg-meds-history__meta';
-    const timeEl = document.createElement('span');
-    timeEl.className = 'wg-meds-history__time';
-    timeEl.textContent = _formatHistoryRowTime(cluster.sortTime);
-    meta.appendChild(timeEl);
-    main.appendChild(meta);
-
-    row.appendChild(main);
-
-    const actions = document.createElement('div');
-    actions.className = 'wg-meds-history__actions';
-    actions.appendChild(_buildHistoryStatusTag(cluster.status));
-
-    if (cluster.status === 'PENDING' && cluster.sortTime > Date.now()) {
-        const intakeIds = cluster.items
-            .map((i) => i.id)
-            .filter((id) => id !== undefined && id !== null);
-        if (intakeIds.length > 0) {
-            row.appendChild(actions);
-            return window.WGRowActions.attach(row, {
-                label: 'future intake',
-                trail: actions,
-                onDelete: () => deleteFutureIntakes(intakeIds),
-            });
-        }
-    }
-
-    row.appendChild(actions);
-
-    return row;
-}
-
-async function deleteFutureIntakes(intakeIds) {
-    if (!Array.isArray(intakeIds) || intakeIds.length === 0) return;
-    const msg = intakeIds.length === 1
-        ? 'Delete this scheduled intake? It will be recreated on the regular schedule.'
-        : `Delete ${intakeIds.length} scheduled intakes? They will be recreated on the regular schedule.`;
-    const idSet = new Set(intakeIds);
-    await safeConfirm(msg, async (ok) => {
-        if (!ok) return;
-
-        // Optimistic: drop the to-be-deleted intake rows from every cached
-        // `history_*` payload so the row disappears from the list before the
-        // POST resolves. _applyOptimisticHistoryFlip is defined in app.js;
-        // mutator returns null/undefined to filter.
-        const handles = typeof _applyOptimisticHistoryFlip === 'function'
-            ? await _applyOptimisticHistoryFlip((log) => {
-                if (!log || typeof log !== 'object') return log;
-                if (idSet.has(log.id)) return null;
-                return log;
-            })
-            : [];
-
-        let res;
-        try {
-            res = await apiCall('/api/medications/delete-intake', 'POST', { intake_ids: intakeIds });
-        } catch (e) {
-            if (typeof _rollbackOptimistic === 'function') await _rollbackOptimistic(handles);
-            throw e;
-        }
-        if (res === null) {
-            if (typeof _rollbackOptimistic === 'function') await _rollbackOptimistic(handles);
-            return;
-        }
-        if (typeof _commitOptimistic === 'function') await _commitOptimistic(handles);
-        if (window.DataStore) {
-            await window.DataStore.invalidateByTag('history');
-            await window.DataStore.invalidateByTag('medications');
-        }
-        if (typeof refreshMedsAfterMutation === 'function') {
-            refreshMedsAfterMutation();
-        }
-        if (res && typeof res.deleted_count === 'number' && res.deleted_count < intakeIds.length) {
-            safeToast(`Deleted ${res.deleted_count} of ${intakeIds.length}. Some intakes were not future PENDING doses and were skipped.`, 'info');
-        }
-    });
-}
-
-function renderHistory(logs) {
-    const list = document.getElementById('history-list');
-    list.replaceChildren();
-    list.classList.add('wg-meds-history');
-
-    if (!logs || logs.length === 0) {
-        list.appendChild(createEmptyState({
-            icon: 'history',
-            title: 'No doses logged yet',
-            body: 'Doses you take or skip show up here, ready for your doctor.',
-        }));
-        return;
-    }
-
-    const medsList = Array.isArray(medications) ? medications : [];
-    const clusters = _buildHistoryClusters(logs);
-
-    const now = new Date();
-    const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    // DST-safe: construct yesterday's local midnight instead of subtracting 24h,
-    // which drifts by ±1h on spring-forward / fall-back days and would break
-    // the dayMs === yesterdayMs match.
-    const yesterdayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
-
-    const days = [];
-    clusters.forEach((cluster) => {
-        const d = new Date(cluster.sortTime);
-        const dayMs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-        let day = days.find((x) => x.dayMs === dayMs);
-        if (!day) {
-            day = { dayMs, clusters: [] };
-            days.push(day);
-        }
-        day.clusters.push(cluster);
-    });
-    days.sort((a, b) => b.dayMs - a.dayMs);
-
-    days.forEach((day) => {
-        const dayWrap = document.createElement('div');
-        dayWrap.className = 'wg-meds-history__day';
-
-        const header = document.createElement('div');
-        header.className = 'wg-section-label wg-meds-history__day-label';
-        const headerText = document.createElement('span');
-        headerText.textContent = _buildHistoryDayLabel(day.dayMs, todayMs, yesterdayMs);
-        header.appendChild(headerText);
-        dayWrap.appendChild(header);
-
-        const rows = document.createElement('div');
-        rows.className = 'wg-meds-history__rows';
-        day.clusters.forEach((cluster) => {
-            rows.appendChild(_buildHistoryClusterRow(cluster, medsList));
-        });
-        dayWrap.appendChild(rows);
-
-        list.appendChild(dayWrap);
-    });
-}
 
 // Stock sub-tab (kit v2 M3, med-xso6.18; tab id stays `inventory`). One
 // `.wg-card` per medication that tracks inventory, out/low first. Each card
@@ -1121,14 +1135,10 @@ async function loadMeds() {
     // cloud mode this is a local shim read (IndexedDB, no network), so it does
     // not delay the first paint; in the legacy bot server the route is absent
     // and renderMeds falls back to the device-local computation. Do NOT drop
-    // this call when touching the Upcoming sub-tab: the Schedule hour buckets
-    // read the same state (bd med-gut.1), and without it they silently regress
-    // to device-local time math that disagrees with Home's next-intake card.
+    // this call: the Schedule hour buckets read this state (bd med-gut.1), and
+    // without it they silently regress to device-local time math that
+    // disagrees with Home's next-intake card.
     await loadUpcomingDoses();
-    // Keeps the Upcoming pane in step with every meds refresh (mutation, SSE
-    // change event, sync) off the fetch we just did. No-op when that pane
-    // isn't in the document.
-    renderUpcomingDoses();
 
     if (initialAuthLoad) {
         initialAuthLoad = false;
@@ -1138,7 +1148,6 @@ async function loadMeds() {
         // hydration). Skip a redundant setCached/saveCache here — restamping would
         // overwrite the hydration-preserved timestamp.
         renderMeds();
-        populateMedFilter();
         // Refresh in background to ensure up-to-date data. fetchFresh writes to
         // api_cache (with Date.now()) internally; we only need to mirror the
         // result into MedicationStore so subsequent cold-start hydration sees it.
@@ -1153,7 +1162,6 @@ async function loadMeds() {
                 await window.MedTrackerDB.MedicationStore.saveCache(medications);
             }
             renderMeds();
-            populateMedFilter();
         }
         return;
     }
@@ -1176,7 +1184,6 @@ async function loadMeds() {
             renderedSomething = true;
             medications = Array.isArray(cached) ? cached : [];
             renderMeds();
-            populateMedFilter();
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
@@ -1185,7 +1192,6 @@ async function loadMeds() {
                 await window.MedTrackerDB.MedicationStore.saveCache(medications);
             }
             renderMeds();
-            populateMedFilter();
         },
         onError: async (_err, cached) => {
             if (cached) {
@@ -1202,7 +1208,6 @@ async function loadMeds() {
                     renderedSomething = true;
                     medications = offlineCached;
                     renderMeds();
-                    populateMedFilter();
                 }
             }
             if (!fallbackHadData) {
@@ -1213,44 +1218,6 @@ async function loadMeds() {
 
     if (!renderedSomething) {
         renderMedsEmptyState();
-    }
-}
-
-function populateMedFilter() {
-    const select = document.getElementById('history-filter-med');
-    if (!select) return;
-    const currentVal = select.value;
-
-    // Keep "All Medications"
-    const allOpt = document.createElement('option');
-    allOpt.value = "0";
-    allOpt.textContent = "All Medications";
-    select.replaceChildren(allOpt);
-
-    // Filter to only include meds taken in the last 7 days
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 7);
-
-    const activeMeds = medications.filter(m => {
-        if (!m.last_taken_at) return false;
-        const lastTaken = new Date(m.last_taken_at);
-        return lastTaken >= cutoffDate;
-    });
-
-    // Sort alphabetically
-    const sorted = activeMeds.sort((a, b) => a.name.localeCompare(b.name));
-
-    sorted.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.name + (m.archived ? ' (Archived)' : '');
-        select.appendChild(opt);
-    });
-
-    if (Array.from(select.options).some(o => o.value === currentVal)) {
-        select.value = currentVal;
-    } else {
-        select.value = "0";
     }
 }
 
