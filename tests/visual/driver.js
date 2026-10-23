@@ -292,19 +292,27 @@
             // scrollIntoView moved the page under the fixed overlay on WebKit
             // 390 (the 16e shot showed Today): scroll the element's own
             // scroller to its end and wait until it holds still with the
-            // element inside the viewport.
+            // element inside the viewport and the scroller's box, 1px slack
+            // (the Android WebView misses an exact bottom, bd med-3vc6).
             await until(() => firstVisible(step.scroll), STEP_MS, `scroll ${step.scroll}`);
             const target = firstVisible(step.scroll);
             let box = target.parentElement;
             while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
             box = box || document.scrollingElement;
-            let last = -1;
-            await until(() => {
-                box.scrollTop = box.scrollHeight;
-                const settled = box.scrollTop === last && target.getBoundingClientRect().bottom <= window.innerHeight;
-                last = box.scrollTop;
-                return settled;
-            }, STEP_MS, `scroll ${step.scroll} into view`);
+            let last = -1, seen = '';
+            try {
+                await until(() => {
+                    box.scrollTop = box.scrollHeight;
+                    const bottom = target.getBoundingClientRect().bottom;
+                    const boxBottom = box === document.scrollingElement ? window.innerHeight : box.getBoundingClientRect().bottom;
+                    const settled = box.scrollTop === last && bottom <= Math.min(window.innerHeight, boxBottom) + 1;
+                    last = box.scrollTop;
+                    seen = `bottom=${bottom} innerHeight=${window.innerHeight} boxBottom=${boxBottom} scrollTop=${box.scrollTop}/${box.scrollHeight}/${box.clientHeight}`;
+                    return settled;
+                }, STEP_MS, `scroll ${step.scroll} into view`);
+            } catch (e) {
+                throw new Error(`${e.message} (${seen})`);
+            }
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }
