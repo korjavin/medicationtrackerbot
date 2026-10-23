@@ -36,9 +36,8 @@ final class FlowQABackupTests: XCTestCase {
 
         // Plain: no passphrase → the page asks before writing API keys in clear.
         XCTAssertTrue(exportBtn.waitForExistence(timeout: 10), "no Save a backup button")
-        exportBtn.tap()
         let plain = app.webViews.buttons["Export without encryption"]
-        XCTAssertTrue(plain.waitForExistence(timeout: 10), "the passphrase sheet never showed")
+        XCTAssertTrue(QA.tapUntil(exportBtn, shows: plain), "the passphrase sheet never showed")
         // The sheet focuses the passphrase field: the run's first keyboard
         // can open under the slide-to-type tip.
         QA.dismissKeyboardTip(app)
@@ -55,9 +54,8 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertTrue(webText(app, containing: ".json.gz.").waitForExistence(timeout: 10), "the export status never said \"Backup exported\"")
 
         // Encrypted: the passphrase makes it .age (proof the typing landed).
-        exportBtn.tap()
         let pass = QA.webElement(app, id: "importexport-export-passphrase", placeholder: "Encrypt the backup")
-        XCTAssertTrue(pass.waitForExistence(timeout: 10), "no passphrase field")
+        XCTAssertTrue(QA.tapUntil(exportBtn, shows: pass), "no passphrase field")
         pass.tap()
         QA.dismissKeyboardTip(app)
         pass.typeText("qa-flow-passphrase")
@@ -144,8 +142,17 @@ final class FlowQABackupTests: XCTestCase {
             XCTAssertNoThrow(try Data("{}".utf8).write(to: dir.appendingPathComponent("vault.json")))
         }
         let field = app.webViews.textFields.matching(NSPredicate(format: "label CONTAINS 'to confirm'")).firstMatch
-        let input = field.waitForExistence(timeout: 10) ? field : app.webViews.textFields.firstMatch
-        XCTAssertTrue(input.waitForExistence(timeout: 5), "no typed-confirm input in the erase dialog")
+        var input = field.waitForExistence(timeout: 10) ? field : app.webViews.textFields.firstMatch
+        // Run 39944639601 attempt 2: #wg-qa-ready published, then no text
+        // field for 15 s. If the dialog is gone (its Erase button too), reopen
+        // it from Settings; never tap the row under an open dialog (a backdrop
+        // tap cancels it).
+        if !input.waitForExistence(timeout: 5) && !app.webViews.buttons["Erase"].exists {
+            let row = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Erase data on this'")).firstMatch
+            QA.tapUntil(row, shows: app.webViews.textFields.firstMatch)
+            input = field.exists ? field : app.webViews.textFields.firstMatch
+        }
+        XCTAssertTrue(input.waitForExistence(timeout: 5), "no typed-confirm input in the erase dialog — tree: \(tree(app))")
         input.tap()
         QA.dismissKeyboardTip(app)
         input.typeText("erase")
@@ -207,10 +214,9 @@ final class FlowQABackupTests: XCTestCase {
             skip.tap()
         }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar")
-        app.webViews.buttons["Meds"].firstMatch.tap()
         // aria-pressed makes the segment a toggle button, not a button.
         let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == 'Schedule'")).firstMatch
-        XCTAssertTrue(schedule.waitForExistence(timeout: 10), "no Meds → Schedule sub-tab")
+        XCTAssertTrue(QA.tapUntil(app.webViews.buttons["Meds"].firstMatch, shows: schedule), "no Meds → Schedule sub-tab")
         schedule.tap()
     }
 

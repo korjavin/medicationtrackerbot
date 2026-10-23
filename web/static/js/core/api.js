@@ -106,6 +106,12 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             // Aborts/timeouts are caller-driven — let them bubble so the
             // caller can render a typed status instead of seeing null.
             if (e && e.aborted) throw e;
+            // A DELETE whose target is already gone got what it asked for
+            // (bd med-lapj): the boot replay of a journaled delete
+            // (replayPendingDeletes) re-sends one that landed before the
+            // app was killed, and the domain remove() answers not_found.
+            // Idempotent success, no alert — for every record type.
+            if (e && e.code === 'not_found' && method === 'DELETE') return true;
             // Client-side validation rejections (the cloud domain layer's
             // invalidRequest, code 'invalid_request') mean the request was
             // malformed and never should have been sent — they are not a

@@ -225,8 +225,26 @@
             // the card reads with step.trial as the trial status. Scenes using
             // it run last, since the stub stays for the rest of the run.
             const status = step.trial;
-            if (window.CloudVault && window.CloudVault.trial) window.CloudVault.trial.status = async () => status;
+            if (window.CloudVault && window.CloudVault.trial) {
+                window.CloudVault.trial.status = async () => status;
+            } else if (!document.querySelector('meta[name="medtracker-trial-ai"]')) {
+                // Account mode (the cloud pass): the server advertises the
+                // operator trial with this flag only when it has a trial key,
+                // and the visual cloud server has none.
+                const meta = document.createElement('meta');
+                meta.name = 'medtracker-trial-ai';
+                meta.content = '1';
+                document.head.appendChild(meta);
+            }
             window.SettingsIntegrations.trialOffer = async () => status.on !== true;
+        } else if (step.noAIKey) {
+            // The seed vault has its own OpenAI key, which hides the Settings
+            // trial offer: answer the integrations read with that key blank.
+            // The vault itself keeps the key.
+            const call = window.apiCall;
+            window.apiCall = (endpoint, method, ...rest) => (endpoint === '/api/settings/integrations' && (!method || method === 'GET')
+                ? call(endpoint, method, ...rest).then((p) => (p && p.openai ? { ...p, openai: { ...p.openai, api_key: '' } } : p))
+                : call(endpoint, method, ...rest));
         } else if (step.kitNudge) {
             // The Emergency Kit nudge (bd med-ta2n.15) waits 2 days after
             // sign-in, and the cloud pass signs in fresh: answer the card's
@@ -268,6 +286,25 @@
             dt.items.add(new File([step.text || '{}'], step.name || 'backup.json', { type: 'application/json' }));
             input.files = dt.files;
             input.dispatchEvent(new Event('change', { bubbles: true }));
+        } else if (step.scroll) {
+            // Bring a below-the-fold element into view (the W1 footnote, bd
+            // med-ta2n.28, sits under the sticky foot).
+            // scrollIntoView moved the page under the fixed overlay on WebKit
+            // 390 (the 16e shot showed Today): scroll the element's own
+            // scroller to its end and wait until it holds still with the
+            // element inside the viewport.
+            await until(() => firstVisible(step.scroll), STEP_MS, `scroll ${step.scroll}`);
+            const target = firstVisible(step.scroll);
+            let box = target.parentElement;
+            while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+            box = box || document.scrollingElement;
+            let last = -1;
+            await until(() => {
+                box.scrollTop = box.scrollHeight;
+                const settled = box.scrollTop === last && target.getBoundingClientRect().bottom <= window.innerHeight;
+                last = box.scrollTop;
+                return settled;
+            }, STEP_MS, `scroll ${step.scroll} into view`);
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }

@@ -53,11 +53,27 @@ async function paintCloudPush(toggleBtn, on) {
     const card = doc?.getElementById('cloud-push-card');
     if (!np || !note || !card) return;
     try {
-        await np.renderNote(note);
+        // Undecided: the card's Enable is the one-tap path, so the note is for denied only.
         const denied = (await np.state()) === 'denied';
+        if (denied) await np.renderNote(note);
+        else note.replaceChildren();
         card.hidden = denied && !!note.firstChild;
         chip?.classList.toggle('wg-chip--warn', denied);
     } catch (e) { /* the card still offers Enable */ }
+}
+
+// The app shells' APNs/FCM wake channel (bd med-erq1.3, native/push-token.js):
+// "on" once the shell has a device token for the relay to wake. Hidden on the
+// web and on a page without the capability.
+async function paintNativeWake(doc) {
+    const line = doc?.getElementById('cloud-push-wake');
+    if (!line) return;
+    let on = null;
+    try {
+        if (window.NativePush?.isSupported?.() === true) on = !!(await window.NativePush.token());
+    } catch (e) { /* native/ stub: leave the line hidden */ }
+    line.hidden = on === null;
+    if (on !== null) line.textContent = on ? 'Wake-ups: on' : 'Wake-ups: off (allow notifications)';
 }
 
 // status is passed only on the initial bind. After a deliberate Disable click
@@ -69,6 +85,7 @@ async function refreshCloudPushToggleState(toggleBtn, status) {
             // iOS app shell: "subscribed" is the iOS notification permission.
             const granted = (await window.LocalNotifications.permission()) === 'granted';
             paintCloudPush(toggleBtn, granted);
+            await paintNativeWake(toggleBtn.ownerDocument);
             return;
         }
         const { getSubscription } = await loadCloudPushModule();
@@ -991,7 +1008,9 @@ async function refreshLocalNotifyState() {
         chip.classList.toggle('wg-chip--warn', tone === 'error');
     }
     try {
-        await state.ownerDocument?.defaultView?.NotifyPermission?.renderNote(note);
+        // Undecided: Enable above is the one-tap path, so the note is for denied only.
+        if (permission === 'denied') await state.ownerDocument?.defaultView?.NotifyPermission?.renderNote(note);
+        else note?.replaceChildren();
     } catch (e) { /* the card still says what is wrong */ }
     if (card) card.hidden = permission === 'denied' && !!note?.firstChild;
 }

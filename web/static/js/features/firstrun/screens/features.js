@@ -132,6 +132,57 @@
             .catch(function () { /* no invite entry: the footer keeps Skip only */ });
     }
 
+    // W1 footnote (bd med-ta2n.28, contract med-ta2n.24 §D): the disclaimer and
+    // links the deleted native first-run screens carried. "How to get an
+    // invite" is local mode only: the W5 request sheet when the shell can
+    // base.post, else the base landing page, else nothing.
+    var PRIVACY_URL = 'https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md';
+    var DISCLAIMER = 'Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.';
+
+    function _externalLink(text, href) {
+        var a = _el('a', 'wg-link', text);
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        return a;
+    }
+
+    function _renderFootnote(body) {
+        body.appendChild(_el('p', 'wg-shell__fine', DISCLAIMER));
+        var links = _el('div', 'wg-hstack wg-firstrun-links');
+        var privacy = _externalLink('Privacy policy', PRIVACY_URL);
+        privacy.setAttribute('data-firstrun-link', 'privacy');
+        links.append(privacy, _el('span', 'wg-spacer'));
+        body.appendChild(links);
+        _showInviteHowTo(links);
+    }
+
+    function _showInviteHowTo(links) {
+        var sheet = window.InviteSheet;
+        if (!document.documentElement.classList.contains('wg-local-vault')) return;
+        if (!sheet || typeof sheet.request !== 'function') return;
+        Promise.resolve(typeof sheet.canRequest === 'function' ? sheet.canRequest() : false)
+            .then(function (can) {
+                if (can === true) return { request: true };
+                return Promise.resolve(typeof sheet.base === 'function' ? sheet.base() : '')
+                    .then(function (base) { return { base: base }; });
+            })
+            .then(function (how) {
+                if (!links.isConnected) return;
+                var link;
+                if (how.request) {
+                    link = _el('button', 'wg-link', 'How to get an invite');
+                    link.type = 'button';
+                    link.addEventListener('click', function () { sheet.request(); });
+                } else if (how.base) {
+                    link = _externalLink('How to get an invite', 'https://' + how.base + '/');
+                } else return;
+                link.setAttribute('data-firstrun-link', 'invite-howto');
+                links.appendChild(link);
+            })
+            .catch(function () { /* no invite path: Privacy policy only */ });
+    }
+
     function render(body, helpers) {
         body.appendChild(_el('p', 'wg-shell__lede', 'Pick any. You can change this later in Settings.'));
 
@@ -160,6 +211,7 @@
         row.append(skip, _el('span', 'wg-spacer'));
         foot.append(cont, row);
         body.appendChild(foot);
+        _renderFootnote(body);
 
         function picks() {
             return CATALOG.filter(function (_, i) {
@@ -206,7 +258,8 @@
             slot.setAttribute('data-firstrun-notify-note', '');
             med.after(slot);
             med.addEventListener('click', function () {
-                if (med.getAttribute('aria-pressed') === 'true') window.NotifyPermission.renderNote(slot);
+                // askNow: picking Medications is the context to ask in (med-1ikf).
+                if (med.getAttribute('aria-pressed') === 'true') window.NotifyPermission.renderNote(slot, { askNow: true });
                 else slot.replaceChildren();
             });
         }

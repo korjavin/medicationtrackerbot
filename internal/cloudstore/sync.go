@@ -303,7 +303,8 @@ func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Tim
 		 FROM sync_state ss
 		 WHERE COALESCE((SELECT MAX(fire_at_unix) FROM scheduled_pushes
 		                 WHERE account_id = ss.account_id AND sent_at_unix IS NULL), 0) <= ?
-		   AND EXISTS (SELECT 1 FROM push_subscriptions WHERE account_id = ss.account_id AND disabled = 0)
+		   AND (EXISTS (SELECT 1 FROM push_subscriptions WHERE account_id = ss.account_id AND disabled = 0)
+		        OR EXISTS (SELECT 1 FROM native_push_tokens WHERE account_id = ss.account_id AND disabled = 0))
 		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)
 		   AND ((ss.last_schedule_unix IS NULL
 		         AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) >= ?)

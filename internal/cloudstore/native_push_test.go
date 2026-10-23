@@ -2,6 +2,7 @@ package cloudstore
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -77,5 +78,35 @@ func TestNativePushTokens(t *testing.T) {
 	}
 	if got := tokens("acct-b"); len(got) != 0 {
 		t.Fatalf("after delete, acct-b tokens = %+v, want none", got)
+	}
+}
+
+// bd med-erq1.2: an account keeps only its most recently seen tokens.
+func TestNativePushTokens_PerAccountCap(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	t0 := time.Unix(1_700_000_000, 0).UTC()
+	for i := 0; i <= MaxNativePushTokensPerAccount; i++ {
+		if err := r.UpsertNativePushToken(ctx, "acct-a", NativePushIOS, fmt.Sprintf("tok%02d", i), t0.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("upsert %d: %v", i, err)
+		}
+	}
+	if err := r.UpsertNativePushToken(ctx, "acct-b", NativePushIOS, "other", t0); err != nil {
+		t.Fatalf("upsert acct-b: %v", err)
+	}
+	got, err := r.ListNativePushTokens(ctx, "acct-a")
+	if err != nil {
+		t.Fatalf("ListNativePushTokens: %v", err)
+	}
+	if len(got) != MaxNativePushTokensPerAccount {
+		t.Fatalf("tokens = %d, want %d", len(got), MaxNativePushTokensPerAccount)
+	}
+	for _, tok := range got {
+		if tok.Token == "tok00" {
+			t.Fatal("the least recently seen token survived the cap")
+		}
+	}
+	if other, _ := r.ListNativePushTokens(ctx, "acct-b"); len(other) != 1 {
+		t.Fatalf("acct-b tokens = %+v, want its one token untouched", other)
 	}
 }

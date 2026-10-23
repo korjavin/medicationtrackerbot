@@ -533,7 +533,7 @@ const KIT_CSS = `
          max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.5rem; }
   dt { font-weight: 600; margin-top: 1rem; }
-  dd { margin: 0.25rem 0 0; }
+  dd { margin: 0.25rem 0 0; overflow-wrap: anywhere; }
   .code { font-family: ui-monospace, monospace; font-size: 1.25rem;
           letter-spacing: 0.08em; word-break: break-all; }
   .warn { border: 1px solid #111; padding: 0.75rem 1rem; margin: 1.5rem 0; }

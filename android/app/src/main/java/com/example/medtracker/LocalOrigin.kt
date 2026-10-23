@@ -42,8 +42,9 @@ object LocalOrigin {
     /**
      * Bridge ops only an account page may call (bd med-nt9p.32.13); the bundled app gets "unsupported".
      * move.take/move.clear (bd med-nt9p.32.17): the new account picks up the local origin's stash.
+     * push.token (bd med-erq1.5, Push.kt): local mode never reports an FCM token.
      */
-    val ACCOUNT_OPS = setOf("account.leave", "move.take", "move.clear", "leave.stash")
+    val ACCOUNT_OPS = setOf("account.leave", "move.take", "move.clear", "leave.stash", "push.token")
     /** Every other op the shell answers, in both modes (MainActivity.onBridge, Notifications, HealthConnect). */
     val SHARED_OPS = setOf(
         "ping", "chrome", "shell.ops", "diag.append", "health.authorize", "health.query",

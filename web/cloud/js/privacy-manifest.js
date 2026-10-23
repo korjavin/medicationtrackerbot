@@ -161,12 +161,38 @@ export const PRIVACY_MANIFEST = [
     activationNote: 'you grant notification permission',
     byo: 'n/a',
     evidence: ['internal/cloudserver/push.go:215', 'internal/cloudserver/relay.go:88', 'internal/cloudserver/relay.go:384'],
-    code: { go: ['internal/cloudserver/relay.go', 'internal/cloudserver/push.go'], hosts: [] },
+    code: {
+      go: ['internal/cloudserver/relay.go', 'internal/cloudserver/push.go'],
+      hosts: [],
+    },
     docSignal: 'Reminder timing',
     userCopy: {
       category: 'visible',
       title: 'When your reminders fire',
       detail: 'A reminder is a blind alarm clock: the server knows a reminder is due at a time, but its content stays sealed. Your push subscription endpoint also tells the operator which browser vendor you use, and that vendor sees the ciphertext and its timing. Sending your bot a message also fires a wake push carrying no text at all, so an open tab records it immediately — that timing reaches your push vendor too.',
+    },
+  },
+  {
+    id: 'native-push',
+    feature: 'Native app push wake',
+    boundary: 'carve-out',
+    data: 'A push token for this phone (a stable per-install identifier issued by Apple or Google), stored next to your account; the fact that the operator pushed a content-free wake to it at a given time',
+    destination: 'The operator\'s relay, then Apple (APNs) or Google (FCM)',
+    operatorVisibility: 'metadata',
+    retention: 'Until you leave the account, switch account, or the platform reports the token dead',
+    activation: 'opt-in',
+    activationNote: 'when you allow notifications in the iPhone or Android app with an account; the iPhone app does not register yet',
+    byo: 'n/a',
+    evidence: ['internal/cloudserver/relay.go:461', 'internal/cloudserver/nativepush.go:45'],
+    code: {
+      go: ['internal/cloudserver/nativepush.go'],
+      hosts: ['api.push.apple.com', 'api.sandbox.push.apple.com', 'fcm.googleapis.com', 'oauth2.googleapis.com'],
+    },
+    docSignal: 'Native push token',
+    userCopy: {
+      category: 'visible',
+      title: 'Wake-ups for the phone app',
+      detail: 'The phone app can be woken by a notification whose text is a fixed line ("Open the app to record what you sent" or "Open the app to keep reminders running"), never your data. The operator stores your phone\'s push token and knows when a wake was sent; Apple or Google see only that a notification went to your phone. Today only the Android app registers; the iPhone app does not yet.',
     },
   },
   {
@@ -813,7 +839,7 @@ export const PRIVACY_MANIFEST = [
     feature: 'On-device mode (iPhone and Android apps) — network',
     boundary: 'not-a-carve-out',
     data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); and, through the app shell rather than the page, an invite request or feedback you send (the invite-request and local-feedback rows)',
-    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on, and our server for an invite request or feedback you send, which the app shell posts (never the page). The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
+    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on, and our server for an invite request or feedback you send, which the app shell posts (never the page). The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls. Telegram is a sync feature; local mode offers it and routes to Turn on sync',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
@@ -825,7 +851,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request or feedback (the app itself sends them, not the page). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request or feedback (the app itself sends them, not the page). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key and sharing need a cloud account. Telegram needs sync: the app offers it and routes to Turn on sync.',
     },
   },
   {

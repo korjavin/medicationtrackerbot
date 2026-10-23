@@ -119,6 +119,44 @@ export async function unsubscribe() {
   await sub.unsubscribe();
 }
 
+// The app shells' APNs/FCM token (bd med-erq1.3, native/push-token.js). Null on
+// the web, before the OS granted notifications, and on a shell without the op.
+async function nativePushToken() {
+  try {
+    if (globalThis.NativePush?.isSupported?.() !== true) return null;
+  } catch {
+    return null; // native/ stub
+  }
+  return globalThis.NativePush.token();
+}
+
+async function nativeTokenRequest(method, t) {
+  const res = await fetch('/api/push/native-tokens', {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform: t.platform, token: t.token }),
+  });
+  // Never put the token in the message: it is a stable per-install identifier.
+  if (!res.ok) throw new Error(`native push token ${method} failed: ${res.status}`);
+}
+
+// POST is an upsert that refreshes last_seen and clears `disabled`, so cloud-boot
+// calls this on every unlock and again whenever the shell reports a new token.
+// Returns whether a token was registered.
+export async function registerNativePushToken() {
+  const t = await nativePushToken();
+  if (!t) return false;
+  await nativeTokenRequest('POST', t);
+  return true;
+}
+
+// Leaving the account on this device: the relay must stop waking it for this
+// account. Best-effort: the caller leaves either way.
+export async function dropNativePushToken() {
+  const t = await nativePushToken();
+  if (t) await nativeTokenRequest('DELETE', t);
+}
+
 // Safari/WebKit (including iOS) still implement the LEGACY callback form of
 // Notification.requestPermission(): it returns undefined and delivers the
 // result to a callback instead of resolving a promise. `await`ing it yields

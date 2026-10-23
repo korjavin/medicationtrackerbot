@@ -33,6 +33,7 @@
     <uses-permission android:name="android.permission.health.READ_DISTANCE" />
 
     <application
+        android:name=".App"
         android:label="Med Tracker"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -50,6 +51,25 @@
         <meta-data
             android:name="android.webkit.WebView.EnableSafeBrowsing"
             android:value="false" />
+        <!-- Native push (bd med-erq1.5, Push.kt): no token until an account page asks (push.token);
+             the server's background notification lands on the Reminders channel, with the
+             reminders' icon. Inert without the FIREBASE_* build config. -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="reminders" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@android:drawable/ic_popup_reminder" />
+        <service
+            android:name=".PushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
         <!-- Downloads to share and camera shots for the page (Files.kt): cache files only. -->
         <provider
             android:name="androidx.core.content.FileProvider"

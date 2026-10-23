@@ -306,7 +306,7 @@ The shipped screen has six collapsible groups, with a Feedback card above them:
    - One global "Save Integrations" button.
 4. **Devices & connections** [NEW]:
    - A second-device nudge, plus links "Manage devices" and "Claude connector". These go to **separate cloud-shell pages**, `/devices` and `/connectors`.
-   - **Invite a friend**: a modal with a QR code and Copy link.
+   - **Invite a friend**: a modal with a QR code and Copy link (now a Settings home row, see Settings additions).
 5. **Backup & data** [H "Export data", greatly extended]:
    - Export: "Include API keys" checkbox, optional **age** passphrase, Download.
    - Import: file + passphrase, "Import backup (replace)".
@@ -472,7 +472,7 @@ The phone apps can run with **no account**. The bundled web app is served from t
 - **Home grouping** (kit S1, shipped): local group (indicator, Move, App lock) → Health import row → Features / Targets / Reminders & notifications / Units → AI & integrations / Devices & connectors / Backup & import / Account & privacy → Feedback.
 - **Account & privacy**: new **Use this iPhone/phone without an account** row (`index.html:1262`). It keeps a copy of the records on the phone and leaves the account on the server. Confirm copy is in `static/js/features/settings.js:744`. In the apps, **Delete account** now ends on the native first run.
 - **Reminders & notifications**: native permission states ("Notifications are off for Med Tracker. Turn them on in iOS Settings → Med Tracker → Notifications"), with the path wording per platform (`static/js/native/local-notifications.js:38,45`).
-- **Invite a friend** sheet now opens above the Devices page.
+- **Invite a friend** is its own row on the Settings home (cloud only), after Devices & connectors; its sheet opens on top of any pushed page.
 
 ### Platform-specific behaviours [NEW]
 

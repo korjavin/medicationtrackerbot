@@ -12,6 +12,10 @@
         <activity
             android:name=".QaHealthWrite"
             android:exported="true" />
+        <!-- android-qa's fake FCM message (bd med-erq1.5, QaPush.kt). -->
+        <receiver
+            android:name=".QaPush"
+            android:exported="true" />
         <activity
             android:name=".LocalSpikeActivity"
             android:label="Local spike"

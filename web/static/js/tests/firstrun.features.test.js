@@ -15,6 +15,7 @@ const TRIAL_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/t
 const OFFER_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-offer-card.js');
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 const NOTIFY_JS = path.join(REPO_ROOT, 'web/static/js/features/notify-permission.js');
+const INVITE_JS = path.join(REPO_ROOT, 'web/static/js/features/invite.js');
 
 // W1 — the first-run module picker (bd med-ta2n.1, screens-onboarding-v3.html
 // W1): the first and only picker screen of the WGFirstRun overlay. Seven
@@ -33,7 +34,7 @@ const FLAGS = ['medication', 'bp', 'weight', 'workout', 'health', 'food'];
 function loadFlow({
     fetchMock = null, toggleMock = null, features = null, notifyPermission = null,
     trialOffer = null, localTrial = null, trialAi = false, trialConsent = null,
-    local = false, native = null,
+    local = false, native = null, invite = false, base = null,
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
@@ -59,8 +60,11 @@ function loadFlow({
     if (local) window.document.documentElement.classList.add('wg-local-vault');
     // The native foundation (native/index.js) as features see it.
     if (native) window.LocalNotifications = { __native: native };
+    // The shell's deployment base as InviteSheet.base() reads it (Attest.status()).
+    if (base) window.Attest = { isSupported: () => true, status: async () => ({ base }) };
 
     const files = [OFFER_CARD_JS, STATE_JS, FEATURES_JS, TRIAL_JS, INDEX_JS];
+    if (invite) files.unshift(INVITE_JS);
     if (notifyPermission) {
         window.Notification = { permission: notifyPermission };
         files.unshift(NOTIFY_JS);
@@ -336,6 +340,31 @@ describe('firstrun W1 module picker', () => {
             pick(document, 'medication');
             await flush();
             expect(slot.children).toHaveLength(0);
+        } finally { cleanup(); }
+    });
+
+    // med-1ikf: picking Medications is the context to ask in — an undecided
+    // permission gets the one-tap Allow, which runs the browser's prompt.
+    it('Medications picked + permission undecided offers Allow notifications in place', async () => {
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), notifyPermission: 'default' });
+        try {
+            const ask = vi.fn(async () => { window.Notification.permission = 'denied'; return 'denied'; });
+            window.requestNotificationPermissionNormalized = ask;
+            window.WGFirstRun.mount();
+            pick(document, 'medication');
+            await flush();
+            const slot = document.querySelector('[data-firstrun-notify-note]');
+            const allow = slot.querySelector('[data-notify-allow]');
+            expect(allow).not.toBeNull();
+            expect(allow.textContent).toBe('Allow notifications');
+
+            allow.click();
+            expect(ask).toHaveBeenCalledTimes(1);
+            await flush();
+            await flush();
+            // Denied at the prompt: the note stays, now pointing at the browser settings.
+            expect(slot.querySelector('[data-notify-allow]')).toBeNull();
+            expect(slot.textContent).toContain('Allow notifications for this site in your browser settings.');
         } finally { cleanup(); }
     });
 
@@ -648,5 +677,88 @@ describe('firstrun W1 "Have an invite?" footer', () => {
                 expect(action(document, 'skip-all')).not.toBeNull();
             } finally { cleanup(); }
         }
+    });
+});
+
+// W1 footnote (bd med-ta2n.28, contract med-ta2n.24 §D): the disclaimer and
+// links the deleted native first-run screens carried.
+describe('firstrun W1 footnote', () => {
+    const DISCLAIMER = 'Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.';
+    const link = (document, name) => document.querySelector(`[data-firstrun-link="${name}"]`);
+    function shell(ops) {
+        return { platform: 'ios', has: vi.fn(async (op) => ops.includes(op)), call: vi.fn(async () => null) };
+    }
+
+    it('shows the disclaimer and Privacy policy below the foot, after Continue/Skip in tab order', async () => {
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), invite: true });
+        try {
+            window.WGFirstRun.mount();
+            await flush();
+            const fine = document.querySelector('#wg-firstrun-overlay-body .wg-shell__fine');
+            expect(fine.textContent).toBe(DISCLAIMER);
+            expect(fine.previousElementSibling.classList.contains('wg-firstrun-foot')).toBe(true);
+            const privacy = link(document, 'privacy');
+            expect(privacy.textContent).toBe('Privacy policy');
+            expect(privacy.getAttribute('href'))
+                .toBe('https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md');
+            expect(privacy.target).toBe('_blank');
+            expect(privacy.rel).toBe('noopener');
+            expect(privacy.classList.contains('wg-link')).toBe(true);
+            expect(action(document, 'skip-all').compareDocumentPosition(privacy) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        } finally { cleanup(); }
+    });
+
+    it('has no "How to get an invite" on the web or in account mode', async () => {
+        for (const opts of [
+            { local: false, invite: true, base: 'qa.example.test' }, // the web / account mode, no shell
+            { local: false, invite: true, base: 'qa.example.test', native: shell(['base.post']) }, // account mode in a shell
+            { local: true, invite: true }, // local, no shell, no base
+            { local: true, native: shell(['base.post']), base: 'qa.example.test' }, // invite.js absent
+        ]) {
+            const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), ...opts });
+            try {
+                window.WGFirstRun.mount();
+                await flush();
+                await flush();
+                expect(link(document, 'invite-howto')).toBeNull();
+                expect(link(document, 'privacy')).not.toBeNull();
+                expect(document.getElementById('wg-firstrun-overlay').textContent).not.toContain('How to get an invite');
+            } finally { cleanup(); }
+        }
+    });
+
+    it('local shell with base.post: "How to get an invite" opens the W5 request sheet', async () => {
+        const native = shell(['base.post']);
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), local: true, invite: true, native, base: 'qa.example.test' });
+        try {
+            const request = vi.spyOn(window.InviteSheet, 'request').mockImplementation(() => {});
+            window.WGFirstRun.mount();
+            await flush();
+            await flush();
+            const how = link(document, 'invite-howto');
+            expect(how.textContent).toBe('How to get an invite');
+            expect(how.tagName).toBe('BUTTON');
+            expect(how.classList.contains('wg-link')).toBe(true);
+            expect(how.parentElement).toBe(link(document, 'privacy').parentElement);
+            expect(native.has).toHaveBeenCalledWith('base.post');
+            how.click();
+            expect(request).toHaveBeenCalledTimes(1);
+        } finally { cleanup(); }
+    });
+
+    it('local shell without base.post but with a base: links the landing page', async () => {
+        const { window, document, cleanup } = loadFlow({
+            fetchMock: okFetch(), local: true, invite: true, native: shell([]), base: 'qa.example.test',
+        });
+        try {
+            window.WGFirstRun.mount();
+            await flush();
+            await flush();
+            const how = link(document, 'invite-howto');
+            expect(how.tagName).toBe('A');
+            expect(how.getAttribute('href')).toBe('https://qa.example.test/');
+            expect(how.target).toBe('_blank');
+            expect(how.rel).toBe('noopener');
+        } finally { cleanup(); }
     });
 });

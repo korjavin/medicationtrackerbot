@@ -23,6 +23,8 @@
   rgba() overlay, or the #000 mask stop. Its .wg-shell__foot / .wg-pagefoot bottom paddings (34px / 30px)
   are kept as the kit has them; screen beads that dock them revisit the med-giuq inset note above.
   The kit's --wg-kb-h token (its phone stage's simulated keyboard) is not ported.
+- .wg-btn--ghost:hover sits under @media (hover:hover): a touch tap left the app-bar gear with a sticky
+  hover background after navigating away (med-av5l).
 - The app-only first-run overlay (.wg-firstrun-*) rules sit at the end of this file. */
 .wg-btn,.wg-input,.wg-row,.wg-setting,.wg-choice,.wg-dialog,.wg-sheet,.wg-tile,.wg-seg,.wg-stepper,.wg-daynav,.wg-code,.wg-file,.wg-toast,.wg-tabbar,.wg-pick,.wg-menu,button.wg-card{box-sizing:border-box}
 .wg-app{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--wg-bg-screen);color:var(--wg-fg-1);font-family:var(--wg-font-ui);font-size:var(--wg-fs-md);-webkit-font-smoothing:antialiased}
@@ -40,7 +42,7 @@ button.wg-card{width:100%;text-align:left;cursor:pointer;font:inherit;color:inhe
 .wg-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:var(--wg-h-md);padding:0 16px;border-radius:var(--wg-r-md);border:1px solid var(--wg-line-strong);background:var(--wg-raised);box-shadow:var(--wg-sh-raised);color:var(--wg-fg-1);font:600 var(--wg-fs-md)/1 var(--wg-font-ui);letter-spacing:.01em;white-space:nowrap;cursor:pointer;transition:filter var(--wg-dur-fast) var(--wg-ease),transform var(--wg-dur-fast) var(--wg-ease)}
 .wg-btn:hover{filter:brightness(1.07)}.wg-btn:active{transform:translateY(1px);filter:brightness(.95)}.wg-btn:focus-visible{outline:0;box-shadow:var(--wg-sh-raised),var(--wg-focus)}
 .wg-btn--primary{background:var(--wg-sunfill);border-color:rgba(0,0,0,.2);color:var(--wg-fg-on-sun);box-shadow:var(--wg-sh-sun)}
-.wg-btn--ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--wg-fg-2)}.wg-btn--ghost:hover{background:rgba(255,255,255,.06);filter:none;color:var(--wg-fg-1)}
+.wg-btn--ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--wg-fg-2)}@media (hover:hover){.wg-btn--ghost:hover{background:rgba(255,255,255,.06);filter:none;color:var(--wg-fg-1)}}
 .wg-btn--danger{background:var(--wg-clayfill);border-color:rgba(0,0,0,.22);color:var(--wg-fg-on-clay)}
 .wg-btn--danger-ghost{background:transparent;border-color:var(--wg-danger-line);box-shadow:none;color:var(--wg-danger-fg)}.wg-btn--danger-ghost:hover{background:var(--wg-danger-bg);filter:none}
 .wg-btn--sm{height:var(--wg-h-sm);padding:0 12px;font-size:var(--wg-fs-sm);border-radius:var(--wg-r-sm)}
@@ -597,6 +599,12 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
     padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--wg-line);
     background: var(--wg-bg-stage);
+}
+
+/* W1 footnote links (bd med-ta2n.28): .wg-link has no padding, so give the
+   row a tappable height. */
+.wg-firstrun-links .wg-link {
+    min-height: 44px;
 }
 
 .wg-firstrun-overlay__body {

@@ -179,7 +179,8 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         /** No 64 cap like iOS; a sane ceiling anyway (the page sends at most 64). */
         const val CAP = 200
         private const val ACTION_TAP = "com.example.medtracker.OPEN_REMINDER"
-        private const val CHANNEL = "reminders"
+        /** Also native push's fallback notification (Push.kt) and FCM's default channel (manifest). */
+        const val CHANNEL = "reminders"
         private const val PERMISSION_REQUEST = 7001
         /** Outside the reminders' ids (1..1_000_000). */
         private const val TEST_ID = 0
@@ -233,6 +234,7 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         /** Idempotent: an existing channel keeps the user's changes. */
         private fun channel(nm: NotificationManager) =
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "Reminders", NotificationManager.IMPORTANCE_HIGH))
+        fun channel(c: Context) = channel(manager(c))
 
         /** Replaces every pending reminder; returns how many are now scheduled. */
         fun schedule(c: Context, host: String, items: JSONArray): Int {

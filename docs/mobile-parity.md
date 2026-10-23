@@ -42,6 +42,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Reminder tap target: a dose opens its take/log sheet (row `url`, `ReminderPath` allowlist), else its section | ✓ (med-w6gx.20, #1102) | ✓ (med-nt9p.52) | parity |
 | Reminder tap on a page without the deep-link router (e.g. unlock) loads the path | ✓ (med-w6gx.27, #1280) | ✓ (med-nt9p.53, #1273) | parity |
 | Notifications (bridge ops incl. `notifications.openSettings`) | ✓ | ✓ | parity |
+| Telegram (needs sync) upsell | ✓ | ✓ | parity (web) (med-ta2n.18) |
 | Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12, #1251) | parity |
 | Load-error screen (503 / 404 / local), Try again keeps the `#claim=` fragment, renderer-crash reload | ✓ (med-w6gx.3, med-ckm5.15) | ✓ (med-ckm5.16, med-nt9p.32.14) | parity |
 | Failed invite claim → native "Use another invite" exit | ✓ (med-w6gx.21) | ✓ (med-nt9p.20) | parity |
@@ -58,7 +59,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |
 | Late `history.back()` across a mode/account switch: off-origin reload guard | ✓ back/forward off the current mode/account cancelled before commit, never Safari (med-o7zq.47, #1280) | ✓ reload after an off-origin commit (#1251) | parity (divergent mechanism: iOS refuses before commit) |
-| Native push (`push.token`, remote wake) | pending-ios (med-erq1.4) | open: med-erq1.5 | neither shipped |
+| Native push (`push.token`, remote wake) | pending-ios (med-erq1.4) | ✓ FCM, inert until the owner's Firebase config (med-erq1.5, med-erq1.7) | pending: Android first; `push.token` in the parity test's PLATFORM_ONLY until med-erq1.4 |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
 | `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ (error screen, launcher shortcut) | parity (med-w6gx.24, med-nt9p.22) |
 | Passkey ceremony serialisation + discoverable gets + PRF-probe retry | n/a (ASAuthorization) | ✓ (med-nt9p.19 #1110, #1116; shell-gated web fix in flight) | Android-only: WebView WebAuthn quirks |

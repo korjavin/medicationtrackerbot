@@ -40,7 +40,7 @@ const ROWS = [
     ['notifications', ['.wg-settings-notifications-cloud', '.wg-settings-reminders']],
     ['units', ['.wg-settings-units']],
     ['integrations', ['#settings-integrations', '[data-settings-open="telegram"]']],
-    ['devices', ['.wg-settings-cloud-devices', '.wg-settings-cloud-invite']],
+    ['devices', ['.wg-settings-cloud-devices']],
     ['backup', ['#settings-importexport', '#importexport-reset-sync-group']],
     ['account', ['.wg-settings-privacy', '.wg-settings-danger']],
 ];
