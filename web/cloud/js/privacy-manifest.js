@@ -925,7 +925,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'user-initiated',
     activationNote: 'when you tap Send in Settings → Send feedback; the first send on an install without a key enrolls one — the app check only; it does not use or spend the free trial',
     byo: 'n/a',
-    evidence: ['web/cloud/js/feedback-submit.js:195', 'web/cloud/js/local-policy.js:486', 'web/cloud/js/local-policy.js:509', 'web/cloud/js/local-boot.js:85', 'internal/cloudserver/attest.go:331'],
+    evidence: ['web/cloud/js/feedback-submit.js:195', 'web/cloud/js/local-policy.js:486', 'web/cloud/js/local-policy.js:516', 'web/cloud/js/local-boot.js:85', 'internal/cloudserver/attest.go:331'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: [] },
     docSignal: null,
     userCopy: {

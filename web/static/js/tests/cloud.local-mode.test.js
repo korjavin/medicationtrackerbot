@@ -3077,9 +3077,12 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         });
     }
 
-    it('a POST the server refuses for good keeps the sheet and the text and says it was not sent', async () => {
+    for (const [what, answer] of [
+        ['the server refuses for good', () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })],
+        ['the shell refuses as too large', () => { throw new Error('body too large'); }],
+    ]) it(`a POST ${what} keeps the sheet and the text and says it was not sent`, async () => {
         await boot(freshInstall());
-        reply.feedback = () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
+        reply.feedback = answer;
         const modal = await compose('hello');
         send(modal);
         await vi.waitFor(() => expect(modal.querySelector('[data-feedback-error]').textContent)

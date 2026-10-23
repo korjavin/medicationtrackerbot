@@ -484,8 +484,15 @@ function localFeedbackTransport(win) {
       return recipient;
     },
     async send(body, signal) {
-      // A throw (timeout, the op's "network") is feedback-submit.js's retryable status 0.
-      return bounded((await client()).post('/api/attest/feedback', body, signal));
+      // A throw (timeout, the op's "network") is feedback-submit.js's retryable
+      // status 0. The shell's "body too large" (> 5 MiB, the server's cap too)
+      // never succeeds: a 413, refused for good, like the cloud route's.
+      try {
+        return await bounded((await client()).post('/api/attest/feedback', body, signal));
+      } catch (e) {
+        if (/body too large/.test(String(e && e.message))) return new Response(null, { status: 413 });
+        throw e;
+      }
     },
     // A queued item the server refused for good (a key it lost: 403) after
     // its sheet closed: the next sheet says so, once, and the next Send
