@@ -195,35 +195,26 @@
         return cell(value, 'meds', status, meta);
     }
 
-    // Due / missed doses for Next up (Next up applies the missed grace):
-    // intakes still PENDING whose slot has passed and are not snoozed into the
-    // future — the same rule as the Meds tab
-    // badge (app-nav.js countDueDoses), over the cached GET /api/history?days=1
-    // rows (bootstrap.intake_history). Intake state, not cache timing, decides
-    // what is missed. One group per slot (oldest first), names joined from the
-    // cached medications list. `missing` = no history cached yet.
-    // ponytail: 24h window like the badge — an older unresolved dose is
-    // history, not a nag.
+    // Due / missed doses for Next up (Next up applies the missed grace): the
+    // occurrence projection's `due` rows (GET /api/doses over the last 24h,
+    // cached as bootstrap.intake_history) — the same rows the Meds tab badge
+    // counts (app-nav.js countDueDoses). The projection owns the rule; this
+    // only groups. One group per slot (oldest first). `missing` = nothing
+    // cached yet.
     function missedDosesCell(bootstrap, nowMs, enabled) {
         if (!enabled) return cell(null, 'meds', 'disabled');
         const rows = bootstrap && bootstrap.intake_history;
         if (!Array.isArray(rows)) return cell(null, 'meds', 'missing');
-        const meds = Array.isArray(bootstrap.medications) ? bootstrap.medications : [];
-        const nameOf = (id) => {
-            const m = meds.find((x) => x && x.id === id);
-            return m && typeof m.name === 'string' ? m.name : null;
-        };
         const bySlot = new Map();
         for (const r of rows) {
-            if (!r || r.status !== 'PENDING') continue;
-            const at = Date.parse(r.scheduled_at);
-            if (!Number.isFinite(at) || at > nowMs) continue;
-            if (r.snoozed_until && Date.parse(r.snoozed_until) > nowMs) continue;
+            if (!r || r.state !== 'due') continue;
+            const at = Date.parse(r.plannedAt);
+            if (!Number.isFinite(at)) continue;
             let g = bySlot.get(at);
-            if (!g) { g = { at, scheduledAt: r.scheduled_at, names: [], ids: [], intakeIds: [] }; bySlot.set(at, g); }
-            g.names.push(nameOf(r.medication_id) || 'Medication');
-            g.ids.push(r.medication_id);
-            g.intakeIds.push(r.id);
+            if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [] }; bySlot.set(at, g); }
+            g.names.push(r.name || 'Medication');
+            g.ids.push(r.medId);
+            g.intakeIds.push(r.occId);
         }
         const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at)
             .map(({ scheduledAt, names, ids, intakeIds }) => ({ scheduledAt, names, ids, intakeIds }));
