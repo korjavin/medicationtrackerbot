@@ -50,6 +50,15 @@ services:
       # relayed in full. Unset/0 = no relay. Needs MANAGER_BOT_TOKEN too.
       - FEEDBACK_ADMIN_CHAT_ID=${FEEDBACK_ADMIN_CHAT_ID:-}
       - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}
+      # SMTP relay for admin-approved invite emails (in-app "Request an
+      # invite"). SMTP_HOST + SMTP_FROM + MANAGER_BOT_TOKEN +
+      # FEEDBACK_ADMIN_CHAT_ID all set = on; anything missing = off.
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-}
       - CLOUD_FOOD_DB_URL=${CLOUD_FOOD_DB_URL:-}
       # Operator key for a KEYED food DB, forwarded upstream as X-API-Key.
       # Without it a keyed instance 401s and food search stays broken even

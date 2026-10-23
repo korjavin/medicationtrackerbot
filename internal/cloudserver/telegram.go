@@ -234,6 +234,12 @@ type TelegramAPI struct {
 	// insert. ponytail: one global lock — cmd/cloud is a single process and
 	// minting is rare. Same rationale as InviteAPI.mintMu.
 	mintMu sync.Mutex
+
+	// mailer delivers an approved email invite request (bd med-ta2n.14); nil
+	// keeps the email channel off. inviteWork tracks the detached decision and
+	// ping goroutines so tests can wait for them.
+	mailer     mailer
+	inviteWork sync.WaitGroup
 }
 
 // NewTelegramAPI builds the Telegram surface for a manager bot token. apiBaseURL
@@ -681,9 +687,11 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 // Onboarding copy the managebot sends in a private chat. Server constants, like
 // welcomeMessage/testMessage.
 const (
-	onboardingOfferMessage = "👋 I help you set up your own personal health-tracking bot — medications, " +
-		"blood pressure, weight, food and vitals, all yours.\n\n" +
-		"Want me to create an account for you? Just reply “yes”."
+	onboardingOfferIntro = "👋 I help you set up your own personal health-tracking bot — medications, " +
+		"blood pressure, weight, food and vitals, all yours.\n\n"
+	onboardingOfferMessage = onboardingOfferIntro +
+		"Want an account? Just reply “yes” and I'll ask the admin — your link arrives here once it's approved."
+	onboardingClosedOfferMessage = onboardingOfferIntro + "Invites are closed right now — check back later."
 	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
 		"I can't create a second one for you."
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
@@ -764,7 +772,11 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 
 	switch text := strings.TrimSpace(strings.ToLower(msg.Text)); {
 	case affirmatives[text]:
-		t.mintInvite(ctx, msg.Chat.ID, creator)
+		// The admin approves every invite (bd med-ta2n.14): "yes" files a
+		// request, the mint happens on Approve.
+		t.requestTGInvite(ctx, msg)
+	case !t.inviteRequestsEnabled():
+		t.reply(ctx, msg.Chat.ID, onboardingClosedOfferMessage)
 	default:
 		// Anything else (including the greetings) gets the offer: a sender who
 		// reaches here has no linked bot and no claimed account, so silence would
@@ -789,33 +801,33 @@ func (t *TelegramAPI) replyManagerLinked(ctx context.Context, chatID int64, botU
 	}
 }
 
-// mintInvite provisions a fresh unclaimed account attributed to creator and
-// replies with its claim link, refusing once creator holds managerInviteQuota
-// live invites.
-func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator string) {
-	t.reply(ctx, chatID, t.mintInviteLocked(ctx, creator))
-}
-
-// mintInviteLocked does the count-then-insert under mintMu and returns the text
-// to reply with. The reply itself is sent by the caller, outside the lock: it is
-// an HTTP round-trip to Telegram, and mintMu is global across every user.
-func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) string {
+// mintTGInviteLocked provisions an invite for an approved Telegram request
+// (bd med-ta2n.14), attributed to creator ("tg:<user>"), refusing once creator
+// holds managerInviteQuota live invites. It does the count-then-insert under
+// mintMu; the caller sends the DM outside the lock (an HTTP round-trip, and
+// mintMu is global). nil + the reply copy when nothing was minted. A Telegram
+// retry of the "yes" never reaches here: the pending request row dedupes it.
+func (t *TelegramAPI) mintTGInviteLocked(ctx context.Context, creator string) (*Invite, string) {
 	t.mintMu.Lock()
 	defer t.mintMu.Unlock()
 
-	// ponytail: no update_id dedupe anywhere in this codebase, so a Telegram
-	// retry of a "yes" mints again. The already-connected gate above plus the
-	// live-invite cap bound a replay to managerInviteQuota empty accounts; a
-	// dedupe table isn't worth it. We also can't re-send a pending invite's link
-	// — the token is hash-only at rest — so a user with a live unclaimed invite
-	// who asks again just gets a fresh one, up to the cap.
+	// The "yes" gate checked this when the request was filed; a user can claim
+	// an earlier invite while this request waits, so check again at approve time.
+	switch claimed, err := t.store.HasClaimedAccountCreatedBy(ctx, creator); {
+	case err != nil:
+		slog.Error("telegram manager message: claimed check", "error", err, "creator", creator)
+		return nil, onboardingMintFailMessage
+	case claimed:
+		return nil, onboardingClaimedMessage
+	}
+
 	now := time.Now().UTC()
 	// Sweep before counting, same as InviteAPI.CreateInvite: a user sitting at
 	// the cap never reaches Provision, so without this their own expired
 	// unclaimed invites would occupy slots forever.
 	if _, err := t.store.SweepExpiredClaims(ctx, now); err != nil {
 		slog.Error("telegram manager message: sweep expired claims", "error", err)
-		return onboardingMintFailMessage
+		return nil, onboardingMintFailMessage
 	}
 	// Count liveness from the rows themselves (unclaimed, expiry in the future)
 	// rather than from a created_at window: shortening CLOUD_CLAIM_TTL, or a
@@ -824,19 +836,18 @@ func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) stri
 	minted, err := t.store.CountLiveInvitesCreatedBy(ctx, creator, now)
 	if err != nil {
 		slog.Error("telegram manager message: count mints", "error", err, "creator", creator)
-		return onboardingMintFailMessage
+		return nil, onboardingMintFailMessage
 	}
 	if minted >= managerInviteQuota {
-		return onboardingQuotaMessage
+		return nil, onboardingQuotaMessage
 	}
 
 	inv, err := Provision(ctx, t.store, t.claimTTL, now, creator)
 	if err != nil {
 		slog.Error("telegram manager message: provision invite", "error", err, "creator", creator)
-		return onboardingMintFailMessage
+		return nil, onboardingMintFailMessage
 	}
-	return "🎉 Your account is ready. Open this link to set it up:\n\n" +
-		inv.ClaimURL(t.baseDomain) + "\n\nThe link is personal, works once and expires."
+	return inv, ""
 }
 
 // reply sends a managebot message, logging and swallowing failures.

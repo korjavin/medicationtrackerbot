@@ -58,7 +58,7 @@ import kotlin.reflect.KClass
  * READ_HEALTH_DATA_HISTORY, out of v1. Reads happen only when the page asks,
  * i.e. while the app is in the foreground — never in the background.
  */
-class HealthConnect(private val activity: Activity) {
+class HealthConnect(private val activity: Activity, private val diag: (String) -> Unit = {}) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val client by lazy { HealthConnectClient.getOrCreate(activity) }
     /** The kinds whose permissions this install has requested (see query). */
@@ -73,6 +73,7 @@ class HealthConnect(private val activity: Activity) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                diag("health $op ${args?.optString("type")} error ${e.javaClass.simpleName}: ${e.message}")
                 null to (e.message ?: e.javaClass.simpleName)
             }
             runCatching { answer(result, error) } // the WebView may be gone by now
@@ -142,7 +143,10 @@ class HealthConnect(private val activity: Activity) {
         val type = types.first()
         val granted = client.permissionController.getGrantedPermissions()
         // Denied: no samples, no anchor — the page keeps its anchor for when access is granted.
-        if (HealthPermission.getReadPermission(type) !in granted) return page(JSONArray(), null, 0, false)
+        if (HealthPermission.getReadPermission(type) !in granted) {
+            diag("health $kind denied")
+            return page(JSONArray(), null, 0, false)
+        }
 
         if (kind == "sleep") {
             val from = args.optDouble("from"); val to = args.optDouble("to")
@@ -156,9 +160,11 @@ class HealthConnect(private val activity: Activity) {
         var anchor = ""
         var returned = 0
         var more = false
+        var mode = "scan"
         val token = args.optString("anchor").takeIf { it.startsWith(PREFIX) }?.removePrefix(PREFIX)
         if (token != null) {
             val r = client.getChanges(token)
+            mode = if (r.changesTokenExpired) "expired-scan" else "changes"
             if (!r.changesTokenExpired) {
                 changed = r.changes.mapNotNull { (it as? UpsertionChange)?.record }
                 anchor = PREFIX + r.nextChangesToken
@@ -176,6 +182,8 @@ class HealthConnect(private val activity: Activity) {
                 .also { returned = it.size }
         }
 
+        // Copy diagnostics (bd med-nt9p.59): per kind, how it read and how much came back.
+        diag("health $kind $mode read=$returned records=${records.size} more=$more")
         return when (kind) {
             "sleep" -> {
                 // Like Health.swift: the changes find what is new; the answer is

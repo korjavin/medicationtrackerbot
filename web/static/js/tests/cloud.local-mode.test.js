@@ -19,7 +19,7 @@ import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
 import { createApiRouter, installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
-import { LOCAL_EFFECTS } from '../../../cloud/js/local-policy.js';
+import { LOCAL_EFFECTS, shellPost, BASE_POST_PATHS } from '../../../cloud/js/local-policy.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
@@ -1080,6 +1080,124 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: `${CLAIM}&kit=1` }]]));
         });
 
+        // W5 "Request an invite" (bd med-ta2n.14): the shell POSTs email + note
+        // to its own base (bridge op base.post, med-ta2n.24 §A) — the page's CSP
+        // never lists our server for it. The admin approves in Telegram, the
+        // invite arrives by email.
+        describe('W5 Request an invite', () => {
+            const BASE = 'app.example.com';
+            let shellOps;
+            let answer;
+            beforeAll(() => { shellOps = bootShellOps; bootShellOps = [...bootShellOps, 'base.post']; });
+            afterAll(() => { bootShellOps = shellOps; });
+
+            const posts = () => bridge.mock.calls.filter(([op]) => op === 'base.post').map(([, args]) => args);
+            const requestSheet = (document) => document.getElementById('invite-request-sheet');
+            const requestAct = (document, a) => requestSheet(document).querySelector(`[data-invite-action="${a}"]`);
+            async function openRequest({ window, document }) {
+                const prior = bridge.getMockImplementation();
+                // base.post → {status, headers, body}; an op error rejects with its string.
+                bridge.mockImplementation(async (op, args) => {
+                    if (op !== 'base.post') return prior(op, args);
+                    if (answer instanceof Error) throw answer;
+                    return answer;
+                });
+                window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ supported: false, base: BASE, attested: false })) };
+                await window.paintSyncSection();
+                const button = document.getElementById('settings-sync-request');
+                expect(button.hidden).toBe(false);
+                button.click();
+                return requestSheet(document);
+            }
+            const fill = (document, email, note = '') => {
+                document.getElementById('invite-request-email').value = email;
+                document.getElementById('invite-request-note').value = note;
+                requestAct(document, 'send-request').click();
+            };
+
+            it('hidden where the shell has no base.post, even with a base', async () => {
+                const { window, document } = env;
+                window.LocalNotifications.__native.has = vi.fn(async (op) => op !== 'base.post');
+                window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ supported: false, base: BASE, attested: false })) };
+                await window.paintSyncSection();
+                expect(document.getElementById('settings-sync-request').hidden).toBe(true);
+                expect(document.getElementById('settings-sync-how').hidden).toBe(false); // the landing link stays
+                // Opened anyway (the W1 entry, a stale page): "not open here" + the landing link, no op call.
+                window.InviteSheet.request();
+                fill(document, 'a@b.co');
+                const off = await vi.waitFor(() => {
+                    const n = requestSheet(document).querySelector('[data-invite-request="off"]');
+                    expect(n).not.toBeNull();
+                    return n;
+                });
+                expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
+                expect(posts()).toEqual([]);
+                requestAct(document, 'not-now').click();
+            });
+
+            it('the shell sends email + note, 202 → "Request sent", Done closes; the page fetches nothing', async () => {
+                answer = { status: 202, headers: {}, body: '' };
+                const sheet = await openRequest(env);
+                const { document } = env;
+                expect(sheet.textContent).toMatch(/Request an invite/);
+                expect(sheet.textContent).toMatch(/Your email and your note. Nothing from your records./);
+                expect(document.getElementById('invite-request-note').maxLength).toBe(500);
+                const before = fetched.length;
+                fill(document, '  Someone@Example.org ', 'friend of the admin');
+                const done = await vi.waitFor(() => {
+                    const n = sheet.querySelector('[data-invite-request="sent"]');
+                    expect(n).not.toBeNull();
+                    return n;
+                });
+                expect(done.textContent).toBe("Request sent — if it's approved, your invite arrives by email.");
+                expect(posts()).toHaveLength(1);
+                expect(posts()[0].path).toBe('/api/invite-requests');
+                expect(posts()[0].headers).toEqual({});
+                expect(JSON.parse(posts()[0].body)).toEqual({ email: 'Someone@Example.org', note: 'friend of the admin' });
+                expect(fetched.slice(before)).toEqual([]);
+                requestAct(document, 'done').click();
+                expect(requestSheet(document)).toBeNull();
+            });
+
+            it('a bad email stays local with the field error; the server\'s invalid_email shows the same', async () => {
+                answer = { status: 400, headers: {}, body: '{"error":"invalid_email"}' };
+                const sheet = await openRequest(env);
+                const { document } = env;
+                fill(document, 'not an email');
+                expect(sheet.querySelector('.wg-field--error').textContent).toMatch(/Enter an email address like name@example.com/);
+                expect(posts()).toEqual([]);
+                fill(document, 'a@b.co');
+                await vi.waitFor(() => expect(posts()).toHaveLength(1));
+                await vi.waitFor(() => expect(sheet.querySelector('.wg-field--error')).not.toBeNull());
+                expect(sheet.querySelector('[data-invite-request="sent"]')).toBeNull();
+            });
+
+            it('429 → try again in an hour; 404 → not open here, with the landing link; the op\'s "network" → retry copy', async () => {
+                const { document } = env;
+                answer = { status: 429, headers: { 'Retry-After': '3600' }, body: '{"error":"rate_limited"}' };
+                const sheet = await openRequest(env);
+                fill(document, 'a@b.co');
+                await vi.waitFor(() => expect(sheet.textContent).toMatch(/Too many requests right now — try again in an hour./));
+
+                answer = { status: 404, headers: {}, body: '{"error":"not_enabled"}' };
+                fill(document, 'a@b.co');
+                const off = await vi.waitFor(() => {
+                    const n = sheet.querySelector('[data-invite-request="off"]');
+                    expect(n).not.toBeNull();
+                    return n;
+                });
+                expect(off.textContent).toMatch(/Requests aren't open in the app right now./);
+                expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
+
+                answer = new Error('network');
+                fill(document, 'a@b.co');
+                await vi.waitFor(() => expect(sheet.textContent).toMatch(/Couldn't send the request. Check your connection and try again./));
+                expect(sheet.querySelector('[data-invite-request="off"]')).toBeNull();
+                requestAct(document, 'not-now').click();
+                expect(requestSheet(document)).toBeNull();
+            });
+        });
+
         // An invite in the shell slot → "An invite is waiting" + Turn on sync →
         // P3 (its A7 offline gate) → the move; the stash leaves the W4 record here.
         it('W5 Sync, an invite waiting: Turn on sync → P3 → move.stash (no protection) then local.leave {url&kit=1}', async () => {
@@ -1531,6 +1649,38 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(await mountLocalLockRow({ win: window })).toBeNull();
         expect(bridge).not.toHaveBeenCalled();
         expect(offDevice()).toEqual([]);
+    });
+});
+
+// bd med-ta2n.24 §B1 — shellPost: the fetch-shaped adapter over the shell's
+// base.post op. The W5 suite drives it end to end; this pins what that flow
+// cannot reach (the attest headers and empty-body statuses #1261 relies on).
+describe('shellPost over base.post', () => {
+    it('sends the path, the body verbatim and only the X-Attest-* headers; answers a Response', async () => {
+        const call = vi.fn(async () => ({ status: 401, headers: { 'X-Attest-Challenge': 'c2' }, body: '{"error":"install_unknown"}' }));
+        const body = '{"b": "é\\n"}';
+        const res = await shellPost({ call })('https://ignored.example/api/attest/feedback?x=1#y', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain', 'X-Attest-Key-Id': 'k', 'X-Attest-Assertion': 'a', Cookie: 'no' },
+            body,
+        });
+        expect(call).toHaveBeenCalledWith('base.post', {
+            path: '/api/attest/feedback', body, headers: { 'X-Attest-Key-Id': 'k', 'X-Attest-Assertion': 'a' },
+        });
+        expect(res.status).toBe(401);
+        expect(res.ok).toBe(false);
+        expect(res.headers.get('X-Attest-Challenge')).toBe('c2');
+        expect(await res.json()).toEqual({ error: 'install_unknown' });
+    });
+    it('204 has a null body; an op error rejects with a TypeError, as fetch does', async () => {
+        const ok = await shellPost({ call: async () => ({ status: 204, headers: {}, body: '' }) })('/api/attest/feedback', { body: '{}' });
+        expect(ok.status).toBe(204);
+        expect(await ok.text()).toBe('');
+        await expect(shellPost({ call: async () => { throw new Error('network'); } })('/api/invite-requests', { body: '{}' }))
+            .rejects.toThrow(TypeError);
+    });
+    it('the page allowlist is the shells\' four paths', () => {
+        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
     });
 });
 

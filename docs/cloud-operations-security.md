@@ -224,6 +224,23 @@ is immediate; backup removal, where backups exist, is by expiry within 7 days;
 and data already sent to a third party is retained per that party's policy, not
 ours.**
 
+### Time-boxed rows: invite requests
+
+`invite_requests` rows (bd med-ta2n.14, `internal/cloudstore/invite_requests.go`)
+hold a requester's **plaintext** email address and note (email form) or Telegram
+chat/user id (manager bot), the decision and its time. No IP address is stored
+(the per-IP rate limit is in memory only). They are not account-keyed — a request
+precedes any account — so `DELETE /api/account` does not touch them. Each is
+deleted **90 days after it was made**, swept on the next request anywhere on
+the instance (no background job, so an idle instance can hold one longer). The
+admin-chat ping and the sent invite email are outside the database: they stay
+in that Telegram chat and with the SMTP relay / the recipient's mail provider
+(§5).
+
+| Row | Holds | Gone |
+|---|---|---|
+| `invite_requests` | email + note or Telegram ids, status | 90 days after creation (swept on the next request) |
+
 ### Time-boxed rows: workout share links
 
 `share_links` rows (blind workout-share short links, `internal/cloudserver/share.go`)
@@ -256,6 +273,7 @@ two competing inventories.
 | **Telegram** | Reminders, chat interface | The **reminder / chat text** delivered to or from the user's Telegram. | Only if the user links Telegram (optional). |
 | **RxNav (via blind proxy)** | Drug interaction / lookup | The **drug-name query** for that lookup. Reaches RxNav through the server's blind `/api/rxnav/*` proxy; the app never logs it (§1.1), but RxNav receives the query to answer it. | Only when a medication lookup / interaction check runs. |
 | **Food database** | Product search | The **search terms** the user types. With the operator default, they reach it through the operator's same-origin `/api/food/*` proxy, so the operator also sees them in transit; with a BYO endpoint the query is browser-direct. | Only when the user searches products (degrades to local-only if unset — [cloud-deployment.md](cloud-deployment.md)). |
+| **SMTP relay** (the operator's, `SMTP_HOST`) | Invite requests | The requester's **email address** and the **invite email** (claim link). | Only when the admin approves an emailed invite request. |
 | **Push services** (browser vendor endpoints, e.g. FCM/Mozilla/Apple) | Web Push reminders | An **encrypted, opaque push payload** and the subscription endpoint. Payloads are app-layer encrypted in addition to Web Push encryption; the push service relays ciphertext it cannot read. | Whenever the user has an active push subscription. |
 
 Each slice is scoped to the moment of use — a subprocessor sees a single

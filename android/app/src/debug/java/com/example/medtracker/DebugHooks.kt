@@ -53,5 +53,5 @@ internal object DebugHooks {
     fun qaLocalError(activity: Activity): Boolean =
         qa() && activity.intent?.getBooleanExtra("wgQALocalError", false) == true
 
-    private fun qa() = BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE
+    fun qa() = BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE
 }

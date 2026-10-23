@@ -75,10 +75,10 @@ jobs:
           xcodegen generate
           xcodebuild -version
 
-      - name: Check first-run link parsing, local-origin routing, the local lock, reminder paths and the diagnostics log
+      - name: Check first-run link parsing, local-origin routing, the local lock, reminder paths, the diagnostics log and base.post
         working-directory: ios
         run: |
-          swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
+          swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
           "$RUNNER_TEMP/accounturl-check"
 
       # build-for-testing: the app plus the MedTrackerUITests bundle (bd
