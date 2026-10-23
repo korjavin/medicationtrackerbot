@@ -60,6 +60,8 @@ type pushStore interface {
 	GetByEndpoint(ctx context.Context, accountID, endpoint string) (*cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
+	UpsertNativePushToken(ctx context.Context, accountID, platform, token string, now time.Time) error
+	DeleteNativePushToken(ctx context.Context, accountID, platform, token string) error
 }
 
 // PushAPI holds the push-subscription + VAPID-public-key HTTP handlers.
@@ -93,6 +95,77 @@ func (a *PushAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/push/vapid-public-key", limitByIP(a.limiter, a.GetVapidPublicKey))
 	mux.Handle("PUT /api/push/schedule", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutSchedule)))
 	mux.Handle("POST /api/push/test", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostTestPush)))
+	mux.Handle("POST /api/push/native-tokens", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostNativeToken)))
+	mux.Handle("DELETE /api/push/native-tokens", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeleteNativeToken)))
+}
+
+// maxNativePushTokenLen caps an APNs/FCM device token. APNs tokens are 64 hex
+// chars and FCM registration tokens ~160-200 chars; 4 KiB is headroom.
+const maxNativePushTokenLen = 4 << 10
+
+type nativeTokenRequest struct {
+	Platform string `json:"platform"`
+	Token    string `json:"token"`
+}
+
+// decodeNativeToken reads and validates a {platform, token} body, writing the
+// 4xx itself and returning ok=false on a bad request.
+func decodeNativeToken(w http.ResponseWriter, r *http.Request) (nativeTokenRequest, bool) {
+	var req nativeTokenRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxPushSubscriptionBodyBytes+maxNativePushTokenLen)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return req, false
+	}
+	if req.Platform != cloudstore.NativePushIOS && req.Platform != cloudstore.NativePushAndroid {
+		http.Error(w, "invalid platform", http.StatusBadRequest)
+		return req, false
+	}
+	if req.Token == "" || len(req.Token) > maxNativePushTokenLen {
+		http.Error(w, "token too large or missing", http.StatusBadRequest)
+		return req, false
+	}
+	return req, true
+}
+
+// PostNativeToken registers (or refreshes) an APNs/FCM device token for the
+// caller's session account (med-erq1.1). The token is never logged — only its
+// fingerprint.
+func (a *PushAPI) PostNativeToken(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	req, ok := decodeNativeToken(w, r)
+	if !ok {
+		return
+	}
+	if err := a.store.UpsertNativePushToken(r.Context(), session.AccountID, req.Platform, req.Token, time.Now().UTC()); err != nil {
+		slog.Error("native push: upsert token", "platform", req.Platform, "token_fp", endpointFingerprint(req.Token), "error", err)
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteNativeToken removes one of the caller's account's device tokens.
+func (a *PushAPI) DeleteNativeToken(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	req, ok := decodeNativeToken(w, r)
+	if !ok {
+		return
+	}
+	if err := a.store.DeleteNativePushToken(r.Context(), session.AccountID, req.Platform, req.Token); err != nil {
+		slog.Error("native push: delete token", "platform", req.Platform, "token_fp", endpointFingerprint(req.Token), "error", err)
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type subscriptionRequest struct {

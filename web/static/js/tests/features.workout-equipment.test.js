@@ -598,6 +598,26 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(window.safeAlert).toHaveBeenCalledTimes(1);
     });
 
+    it('save reads a comma between digits as a decimal mark and keeps ", " / ";" / space as separators', async () => {
+        const { window, document } = env;
+        window.apiCall = vi.fn(async () => null);
+        window.safeAlert = vi.fn();
+
+        const saved = async (text) => {
+            window.apiCall.mockClear();
+            document.getElementById('add-workout-equipment-btn').click();
+            document.getElementById('workout-equipment-name').value = 'Hex DBs';
+            document.getElementById('workout-equipment-loads').value = text;
+            await window.WorkoutEquipment.save();
+            return window.apiCall.mock.calls[0][2].loads_kg;
+        };
+
+        expect(await saved('10, 12,5, 15')).toEqual([10, 12.5, 15]);
+        expect(await saved('10; 12,5;15')).toEqual([10, 12.5, 15]);
+        expect(await saved('10 12.5 15')).toEqual([10, 12.5, 15]);
+        expect(await saved('10, 12.5, 15')).toEqual([10, 12.5, 15]);
+    });
+
     it('save rejects a non-numeric loads token without calling the API', async () => {
         const { window, document } = env;
         window.apiCall = vi.fn();

@@ -415,7 +415,7 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q, ok := a.assertHeaders(w, r)
-	if !ok || !a.verifyAssertion(w, r, q, nil) {
+	if !ok || !trialGranted(w, q) || !a.verifyAssertion(w, r, q, nil) {
 		return
 	}
 	keyID, bucket := q.keyID, q.install.BucketID
@@ -609,8 +609,10 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		// Pass is the trial pass of an earlier install on this device (bd
 		// med-o7zq.26, from the iOS Keychain): the key rejoins that bucket.
 		Pass string `json:"pass"`
+		// Trial false (bd med-ta2n.25): key the install for feedback only.
+		Trial *bool `json:"trial"`
 	}
-	if json.Unmarshal(raw, &req) != nil || req.KeyID == "" || (req.DeviceToken == "" && req.Pass == "") {
+	if json.Unmarshal(raw, &req) != nil || req.KeyID == "" || (!noTrial(req.Trial) && req.DeviceToken == "" && req.Pass == "") {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
@@ -631,9 +633,18 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	// Idempotent re-enroll: the key is already granted, no DeviceCheck call.
+	// Idempotent re-enroll: the key is already granted (or only feedback is
+	// asked for), no DeviceCheck call. A feedback-only key asking for the
+	// trial goes through the grant gate (upgrade).
 	if in, err := a.store.AttestInstall(ctx, req.KeyID); err == nil {
-		a.enrolled(ctx, w, in.KeyID, in.Used, "")
+		switch {
+		case in.Granted || noTrial(req.Trial):
+			a.enrolled(ctx, w, in, "")
+		case req.Pass != "":
+			a.rejoin(w, r, *in, req.Pass, true)
+		default:
+			a.upgrade(w, r, in, req.DeviceToken, nil, "")
+		}
 		return
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		slog.Error("attest enroll lookup failed", "error", err)
@@ -645,9 +656,14 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
 		return
 	}
-	install := cloudstore.AttestInstall{KeyID: req.KeyID, PublicKey: der, Env: env, CreatedAt: time.Now().UTC()}
+	install := cloudstore.AttestInstall{KeyID: req.KeyID, Kind: cloudstore.AttestKindIOS, PublicKey: der, Env: env, CreatedAt: time.Now().UTC()}
+	if noTrial(req.Trial) {
+		a.keyed(w, r, install)
+		return
+	}
+	install.Granted = true
 	if req.Pass != "" {
-		a.rejoin(w, r, install, req.Pass)
+		a.rejoin(w, r, install, req.Pass, false)
 		return
 	}
 	a.grantMu.Lock()
@@ -674,7 +690,7 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
 		// A concurrent enroll of the same key won the insert.
 		if in, lerr := a.store.AttestInstall(ctx, req.KeyID); lerr == nil {
-			a.enrolled(ctx, w, in.KeyID, in.Used, "")
+			a.enrolled(ctx, w, in, "")
 			return
 		}
 		slog.Error("attest enroll insert failed", "error", err)
@@ -692,7 +708,7 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("attest enroll granted", "env", env, "second_grant", bit0)
-	a.enrolled(ctx, w, install.KeyID, 0, pass)
+	a.enrolled(ctx, w, &install, pass)
 }
 
 // enrollAndroid enrolls an Android Keystore P-256 key (bd med-nt9p.32.8.3):
@@ -717,6 +733,7 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 		IntegrityToken string `json:"integrity_token"`
 		Challenge      string `json:"challenge"`
 		Pass           string `json:"pass"`
+		Trial          *bool  `json:"trial"` // false: feedback only (bd med-ta2n.25)
 	}
 	if json.Unmarshal(raw, &req) != nil || req.KeyID == "" || req.PublicKey == "" || req.IntegrityToken == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
@@ -762,9 +779,17 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 		defer a.grantMu.Unlock()
 	}
 	// Idempotent re-enroll: the key id is derived from the key, so a row with
-	// it is this key's.
+	// it is this key's. A feedback-only key asking for the trial goes through
+	// the grant gate (upgrade).
 	if in, err := a.store.AttestInstall(ctx, req.KeyID); err == nil {
-		a.enrolled(ctx, w, in.KeyID, in.Used, "")
+		switch {
+		case in.Granted || noTrial(req.Trial):
+			a.enrolled(ctx, w, in, "")
+		case req.Pass != "":
+			a.rejoin(w, r, *in, req.Pass, true)
+		default:
+			a.upgrade(w, r, in, "", vd.DeviceRecall, req.IntegrityToken)
+		}
 		return
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		slog.Error("attest enroll lookup failed", "error", err)
@@ -775,8 +800,13 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 	// (UNRECOGNIZED_VERSION) is visible in the row.
 	verdict := vd.AppRecognitionVerdict
 	install := cloudstore.AttestInstall{KeyID: req.KeyID, Kind: cloudstore.AttestKindAndroid, PublicKey: der, Env: verdict, CreatedAt: time.Now().UTC()}
+	if noTrial(req.Trial) {
+		a.keyed(w, r, install)
+		return
+	}
+	install.Granted = true
 	if req.Pass != "" {
-		a.rejoin(w, r, install, req.Pass)
+		a.rejoin(w, r, install, req.Pass, false)
 		return
 	}
 	if a.cfg.AndroidRecall {
@@ -787,7 +817,7 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 	install.PassHash = hash
 	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
 		if in, lerr := a.store.AttestInstall(ctx, req.KeyID); lerr == nil {
-			a.enrolled(ctx, w, in.KeyID, in.Used, "")
+			a.enrolled(ctx, w, in, "")
 			return
 		}
 		slog.Error("attest enroll insert failed", "error", err)
@@ -795,7 +825,7 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 		return
 	}
 	slog.Info("attest enroll granted", "kind", cloudstore.AttestKindAndroid, "env", verdict)
-	a.enrolled(ctx, w, install.KeyID, 0, pass)
+	a.enrolled(ctx, w, &install, pass)
 }
 
 // enrollAndroidRecall is the pass-less Android grant with device recall on
@@ -823,7 +853,7 @@ func (a *AttestAPI) enrollAndroidRecall(w http.ResponseWriter, r *http.Request, 
 	install.PassHash = hash
 	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
 		if in, lerr := a.store.AttestInstall(ctx, install.KeyID); lerr == nil {
-			a.enrolled(ctx, w, in.KeyID, in.Used, "")
+			a.enrolled(ctx, w, in, "")
 			return
 		}
 		slog.Error("attest enroll insert failed", "error", err)
@@ -843,7 +873,7 @@ func (a *AttestAPI) enrollAndroidRecall(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	slog.Info("attest enroll granted", "kind", cloudstore.AttestKindAndroid, "env", install.Env, "second_grant", recall.First)
-	a.enrolled(ctx, w, install.KeyID, 0, pass)
+	a.enrolled(ctx, w, &install, pass)
 }
 
 // rejoin binds a freshly attested key to the bucket its trial pass names (bd
@@ -851,8 +881,10 @@ func (a *AttestAPI) enrollAndroidRecall(w http.ResponseWriter, r *http.Request, 
 // and DeviceCheck is not asked. A pass that opens no bucket is refused like
 // any other invalid attest input (the per-IP limit applies; each try costs a
 // genuine attestation); the client drops it and enrolls without one.
+// known: the key is already stored (feedback-only, bd med-ta2n.25) and moves
+// to the pass's bucket; its own empty bucket stays, inert.
 // SECURITY: the pass is never logged.
-func (a *AttestAPI) rejoin(w http.ResponseWriter, r *http.Request, install cloudstore.AttestInstall, pass string) {
+func (a *AttestAPI) rejoin(w http.ResponseWriter, r *http.Request, install cloudstore.AttestInstall, pass string, known bool) {
 	ctx := r.Context()
 	bucket, err := a.passBucket(ctx, pass)
 	if err != nil {
@@ -865,9 +897,16 @@ func (a *AttestAPI) rejoin(w http.ResponseWriter, r *http.Request, install cloud
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "trial_pass_invalid"})
 		return
 	}
-	install.BucketID = bucket
-	err = a.store.InsertAttestInstall(ctx, install)
+	if known {
+		err = a.store.MoveAttestInstall(ctx, install.KeyID, bucket)
+	} else {
+		install.BucketID = bucket
+		err = a.store.InsertAttestInstall(ctx, install)
+	}
 	in, lerr := a.store.AttestInstall(ctx, install.KeyID)
+	if known && err != nil {
+		lerr = errors.Join(err, lerr)
+	}
 	// err with a readable row: a concurrent enroll of the same key won the insert.
 	if lerr != nil {
 		slog.Error("attest enroll rejoin failed", "error", errors.Join(err, lerr))
@@ -875,7 +914,118 @@ func (a *AttestAPI) rejoin(w http.ResponseWriter, r *http.Request, install cloud
 		return
 	}
 	slog.Info("attest enroll rejoined", "env", install.Env)
-	a.enrolled(ctx, w, in.KeyID, in.Used, "")
+	a.enrolled(ctx, w, in, "")
+}
+
+// noTrial is the enroll body's "trial": false (bd med-ta2n.25); absent or true
+// is the trial enroll every older client sends.
+func noTrial(trial *bool) bool { return trial != nil && !*trial }
+
+// keyed stores a freshly attested key WITHOUT a trial grant (bd med-ta2n.25,
+// enroll "trial": false): its own bucket with granted = 0 and no pass, no
+// DeviceCheck / Play recall read or write. The key signs feedback; chat, food
+// and voice answer trial_not_granted until an upgrade (see upgrade).
+func (a *AttestAPI) keyed(w http.ResponseWriter, r *http.Request, install cloudstore.AttestInstall) {
+	ctx := r.Context()
+	install.Granted = false
+	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
+		// A concurrent enroll of the same key won the insert.
+		if in, lerr := a.store.AttestInstall(ctx, install.KeyID); lerr == nil {
+			a.enrolled(ctx, w, in, "")
+			return
+		}
+		slog.Error("attest enroll insert failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	slog.Info("attest enroll keyed", "kind", install.Kind, "trial", false)
+	a.enrolled(ctx, w, &install, "")
+}
+
+// upgrade runs the trial grant gate on a known feedback-only key (bd
+// med-ta2n.25): the same DeviceCheck bits (iOS, deviceToken) or Play recall
+// (Android with recall on; off, no gate — as a fresh recall-off enroll) as a
+// fresh enroll, then grants the key's own bucket with a new pass. Refused →
+// 403 trial_already_used and the row stays (the key keeps signing feedback).
+// A failed bit write revokes the grant again. The caller holds a.grantMu for
+// an Android recall-on enroll; every other kind takes it here.
+// Reach: Android re-enrolls the same Keystore key with a new integrity token.
+// Apple attests a key once, so the iOS shell's attest.enroll on an attested
+// key mints a NEW key (ios/App/Attest.swift): an iOS upgrade arrives as a
+// fresh key on the ordinary grant path, and this branch serves only a client
+// replaying a key's attestation over a new challenge (tests).
+// SECURITY: the tokens and the pass are never logged.
+func (a *AttestAPI) upgrade(w http.ResponseWriter, r *http.Request, in *cloudstore.AttestInstall, deviceToken string, recall *playintegrity.DeviceRecall, integrityToken string) {
+	ctx := r.Context()
+	android := in.Kind == cloudstore.AttestKindAndroid
+	if !android || !a.cfg.AndroidRecall {
+		a.grantMu.Lock()
+		defer a.grantMu.Unlock()
+		// A concurrent upgrade of this key may have granted it meanwhile.
+		fresh, err := a.store.AttestInstall(ctx, in.KeyID)
+		if err != nil {
+			slog.Error("attest enroll lookup failed", "error", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+			return
+		}
+		if fresh.Granted {
+			a.enrolled(ctx, w, fresh, "")
+			return
+		}
+	}
+	var write func() error
+	second := false
+	switch {
+	case android && !a.cfg.AndroidRecall:
+	case android:
+		if recall == nil {
+			slog.Warn("device recall is on in env but not in the Play Integrity verdict: enable Device recall in Play Console (Protected with Play → Play Integrity API → Manage → Change responses)")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+			return
+		}
+		if recall.First && recall.Second {
+			slog.Info("attest enroll refused: device already had its trial", "kind", in.Kind)
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "trial_already_used"})
+			return
+		}
+		second = recall.First
+		write = func() error {
+			return a.android.SetDeviceRecall(ctx, integrityToken, playintegrity.DeviceRecall{First: true, Second: recall.First})
+		}
+	default:
+		bit0, bit1, _, err := a.cfg.AppAttest.QueryBits(ctx, deviceToken)
+		if err != nil {
+			slog.Warn("attest enroll devicecheck query failed", "error", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+			return
+		}
+		if bit0 && bit1 {
+			slog.Info("attest enroll refused: device already had its trial")
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "trial_already_used"})
+			return
+		}
+		second = bit0
+		write = func() error { return a.cfg.AppAttest.UpdateBits(ctx, deviceToken, true, bit0 || bit1) }
+	}
+	pass, hash := newTrialPass(in.BucketID)
+	if err := a.store.SetAttestBucketGrant(ctx, in.BucketID, hash); err != nil {
+		slog.Error("attest enroll grant failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	if write != nil {
+		if err := write(); err != nil {
+			slog.Warn("attest enroll upgrade: device bit write failed", "kind", in.Kind, "reason", err)
+			if derr := a.store.SetAttestBucketGrant(context.WithoutCancel(ctx), in.BucketID, nil); derr != nil {
+				slog.Error("attest enroll rollback failed", "error", derr)
+			}
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+			return
+		}
+	}
+	slog.Info("attest enroll granted", "kind", in.Kind, "env", in.Env, "second_grant", second, "upgrade", true)
+	in.Granted = true
+	a.enrolled(ctx, w, in, pass)
 }
 
 // trialPassBytes is the trial pass secret's size (256 bits of crypto/rand).
@@ -916,20 +1066,25 @@ func (a *AttestAPI) passBucket(ctx context.Context, pass string) (string, error)
 	return pass[:i], nil
 }
 
-// enrolled answers a granted key. pass is set only for a fresh bucket.
-// With anonymous voice on it also carries the bucket's voice seconds left and
-// the voice limits (bd med-o7zq.28), so Settings shows the minutes before any
-// call — a rejoin included.
-func (a *AttestAPI) enrolled(ctx context.Context, w http.ResponseWriter, keyID string, used int, pass string) {
-	remaining := max(a.cfg.Lifetime-used, 0)
+// enrolled answers an enrolled key. pass is set only for a freshly granted
+// bucket. granted (bd med-ta2n.25) is the client's only signal whether the key
+// carries a trial; a feedback-only key answers remaining 0 and no voice
+// fields. With anonymous voice on a granted key also carries the bucket's
+// voice seconds left and the voice limits (bd med-o7zq.28), so Settings shows
+// the minutes before any call — a rejoin included.
+func (a *AttestAPI) enrolled(ctx context.Context, w http.ResponseWriter, in *cloudstore.AttestInstall, pass string) {
+	remaining := 0
+	if in.Granted {
+		remaining = max(a.cfg.Lifetime-in.Used, 0)
+	}
 	w.Header().Set("X-Trial-Remaining", strconv.Itoa(remaining))
 	a.setNextChallenge(w)
-	resp := map[string]any{"remaining": remaining, "daily": a.cfg.Daily}
+	resp := map[string]any{"remaining": remaining, "daily": a.cfg.Daily, "granted": in.Granted}
 	if pass != "" {
 		resp["pass"] = pass
 	}
-	if a.voiceOn() {
-		if life, day, err := a.store.AttestVoiceUsage(ctx, keyID, time.Now()); err != nil {
+	if a.voiceOn() && in.Granted {
+		if life, day, err := a.store.AttestVoiceUsage(ctx, in.KeyID, time.Now()); err != nil {
 			// The grant stands; Settings just shows the minutes after a call.
 			slog.Warn("attest enroll voice usage lookup failed", "error", err)
 		} else {
@@ -962,7 +1117,7 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q, ok := a.assertHeaders(w, r)
-	if !ok {
+	if !ok || !trialGranted(w, q) {
 		return
 	}
 	extendTrialDeadlines(w)
@@ -1087,6 +1242,17 @@ func (a *AttestAPI) assertHeaders(w http.ResponseWriter, r *http.Request) (*atte
 	return q, true
 }
 
+// trialGranted refuses a feedback-only install (bd med-ta2n.25, enrolled with
+// "trial": false) on the budgeted routes — chat, food, voice start — before
+// any budget is touched. submitFeedback does not call it: that is the point.
+func trialGranted(w http.ResponseWriter, q *attested) bool {
+	if q.install.Granted {
+		return true
+	}
+	writeJSON(w, http.StatusForbidden, map[string]string{"error": "trial_not_granted"})
+	return false
+}
+
 // verifyAssertion checks the assertion over clientDataHash =
 // SHA256(challenge || SHA256(pathAndQuery || "\n" || body)) — this
 // single-use challenge, this exact request URI (query included) and this
@@ -1125,7 +1291,7 @@ func (a *AttestAPI) foodLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q, ok := a.assertHeaders(w, r)
-	if !ok || !a.verifyAssertion(w, r, q, nil) {
+	if !ok || !trialGranted(w, q) || !a.verifyAssertion(w, r, q, nil) {
 		return
 	}
 	now := time.Now().UTC()

@@ -53,8 +53,10 @@ async function paintCloudPush(toggleBtn, on) {
     const card = doc?.getElementById('cloud-push-card');
     if (!np || !note || !card) return;
     try {
-        await np.renderNote(note);
+        // Undecided: the card's Enable is the one-tap path, so the note is for denied only.
         const denied = (await np.state()) === 'denied';
+        if (denied) await np.renderNote(note);
+        else note.replaceChildren();
         card.hidden = denied && !!note.firstChild;
         chip?.classList.toggle('wg-chip--warn', denied);
     } catch (e) { /* the card still offers Enable */ }
@@ -991,7 +993,9 @@ async function refreshLocalNotifyState() {
         chip.classList.toggle('wg-chip--warn', tone === 'error');
     }
     try {
-        await state.ownerDocument?.defaultView?.NotifyPermission?.renderNote(note);
+        // Undecided: Enable above is the one-tap path, so the note is for denied only.
+        if (permission === 'denied') await state.ownerDocument?.defaultView?.NotifyPermission?.renderNote(note);
+        else note?.replaceChildren();
     } catch (e) { /* the card still says what is wrong */ }
     if (card) card.hidden = permission === 'denied' && !!note?.firstChild;
 }

@@ -459,6 +459,9 @@ function _todayTrackersFromPastDay(swrCaches) {
 }
 
 async function _todayRender(foodKey, settled) {
+    // loadToday's post-await continuations and the repaint tick can outlive the
+    // page (jsdom teardown removes `document`): bail instead of throwing.
+    if (typeof document === 'undefined') return { rendered: false };
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
     const { bootstrap, swrCaches, latestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);

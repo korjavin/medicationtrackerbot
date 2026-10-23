@@ -161,7 +161,12 @@ export const PRIVACY_MANIFEST = [
     activationNote: 'you grant notification permission',
     byo: 'n/a',
     evidence: ['internal/cloudserver/push.go:215', 'internal/cloudserver/relay.go:88', 'internal/cloudserver/relay.go:384'],
-    code: { go: ['internal/cloudserver/relay.go', 'internal/cloudserver/push.go'], hosts: [] },
+    // bd med-erq1.2: nativepush.go fans the same content-free wakes out to the
+    // app shells via APNs/FCM; its own row + copy land with med-erq1.6.
+    code: {
+      go: ['internal/cloudserver/relay.go', 'internal/cloudserver/push.go', 'internal/cloudserver/nativepush.go'],
+      hosts: ['api.push.apple.com', 'api.sandbox.push.apple.com', 'fcm.googleapis.com'],
+    },
     docSignal: 'Reminder timing',
     userCopy: {
       category: 'visible',

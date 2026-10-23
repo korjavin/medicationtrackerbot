@@ -82,6 +82,84 @@ func TestMigration029BackfillsBuckets(t *testing.T) {
 	}
 }
 
+// Migration 033 (bd med-ta2n.25): every bucket from before it reads granted;
+// a feedback-only bucket is granted and revoked by SetAttestBucketGrant; the
+// rollback drops feedback-only installs (an old server would treat them as
+// trials) and keeps the granted ones.
+func TestMigration033Granted(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	d, err := storedb.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatal(err)
+	}
+	goose.SetBaseFS(migrationsFS)
+	goose.SetLogger(goose.NopLogger())
+	if err := goose.UpTo(d.DB, "migrations", 31); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO attest_buckets (bucket_id, pass_hash, used, created_at) VALUES ('old', x'09', 2, 1)`,
+		`INSERT INTO attest_installs (key_id, public_key, counter, used, env, created_at, last_seen_at, bucket_id) VALUES ('old', x'01', 1, 0, 'production', 1, 1, 'old')`,
+	} {
+		if _, err := d.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, err := r.AttestInstall(ctx, "old"); err != nil || !in.Granted || in.Used != 2 {
+		t.Fatalf("pre-033 bucket: %+v %v", in, err)
+	}
+	if err := r.InsertAttestInstall(ctx, AttestInstall{KeyID: "fb", PublicKey: []byte{1}, Env: "production", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if in, _ := r.AttestInstall(ctx, "fb"); in.Granted {
+		t.Fatal("feedback-only insert granted")
+	}
+	if err := r.SetAttestBucketGrant(ctx, "fb", []byte{7}); err != nil {
+		t.Fatal(err)
+	}
+	if in, _ := r.AttestInstall(ctx, "fb"); !in.Granted {
+		t.Fatal("grant not stored")
+	}
+	if err := r.SetAttestBucketGrant(ctx, "fb", nil); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := r.AttestBucketPassHash(ctx, "fb"); h != nil {
+		t.Fatalf("revoke kept the pass hash: %x", h)
+	}
+	if err := r.InsertAttestInstall(ctx, AttestInstall{KeyID: "fb2", PublicKey: []byte{1}, Env: "production", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.MoveAttestInstall(ctx, "fb2", "old"); err != nil {
+		t.Fatal(err)
+	}
+	if in, _ := r.AttestInstall(ctx, "fb2"); in.BucketID != "old" || !in.Granted {
+		t.Fatalf("moved install: %+v", in)
+	}
+	if err := r.MoveAttestInstall(ctx, "fb2", "nope"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("move to an unknown bucket: %v", err)
+	}
+	if err := goose.DownTo(d.DB, "migrations", 31); err != nil {
+		t.Fatal(err)
+	}
+	var keys string
+	if err := d.QueryRowContext(ctx, `SELECT group_concat(key_id, ',') FROM (SELECT key_id FROM attest_installs ORDER BY key_id)`).Scan(&keys); err != nil || keys != "fb2,old" {
+		t.Fatalf("installs after rollback: %q %v", keys, err)
+	}
+	var buckets int
+	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM attest_buckets`).Scan(&buckets); err != nil || buckets != 1 {
+		t.Fatalf("buckets after rollback: %d %v", buckets, err)
+	}
+}
+
 // bd med-o7zq.26: an install that joins a bucket spends the bucket's
 // counters; a rolled-back founding install takes its bucket with it.
 func TestAttestBucketShared(t *testing.T) {

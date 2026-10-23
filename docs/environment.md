@@ -77,6 +77,20 @@ CLOUD_INTERNAL_WEBHOOK_BASE=...     # Optional. Internal docker-network origin t
 # generated server-side at invite provisioning (backfilled for pre-existing
 # accounts at startup). No VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY to set.
 VAPID_SUBJECT=mailto:you@example.com  # Optional. Operator contact identifier (RFC 8292), never user data. Default: mailto:noreply@<CLOUD_BASE_DOMAIN>. Apple endpoints automatically get https://<CLOUD_BASE_DOMAIN> instead.
+# Native push for the app shells (bd med-erq1.2) — all OPTIONAL. The Telegram inbox wake and the dry-queue
+# warning also go to the iOS/Android shells' registered device tokens via APNs / FCM HTTP v1, as a fixed,
+# content-free notification ("Open the app to …" + a kind tag; never account data). Each platform is
+# independent: all its vars unset = that platform off and its tokens skipped, the server starts exactly as
+# before. A partial or unparseable set logs an error naming the vars (never values) and leaves that platform
+# off — never a startup failure. Startup logs `native push ios=<bool> android=<bool>`. Dead tokens (APNs 410 /
+# BadDeviceToken, FCM UNREGISTERED) are disabled automatically.
+APNS_KEY_P8=...                    # Secret. The APNs auth key (.p8, PKCS#8 EC P-256) CONTENT: the PEM inline (multi-line, or with literal \n escapes) or base64 of the PEM. Never committed
+APNS_KEY_ID=ABC123DEFG             # Key id of that APNs key (Apple Developer → Keys)
+APNS_TEAM_ID=ABCDE12345            # Apple team id that owns the key (the JWT iss)
+APNS_BUNDLE_ID=com.example.app     # iOS app bundle id, sent as apns-topic
+APNS_SANDBOX=0                     # 1/true = api.sandbox.push.apple.com (Xcode-run builds with the development aps-environment); default production api.push.apple.com (TestFlight + App Store)
+FCM_PROJECT_ID=my-firebase-project # Firebase project id of the Android app (POST /v1/projects/<id>/messages:send)
+FCM_SERVICE_ACCOUNT_JSON=...       # Secret. Google service-account key JSON CONTENT (raw JSON or base64 of it) with the Firebase Cloud Messaging API permission; its token_uri (default oauth2.googleapis.com) mints the bearer. Never committed
 REQUEST_INVITE_EMAIL=hello@example.com # Optional. Sets the "request an invite" contact address shown on the base-domain landing page (with a working mailto: link). Unset = no contact line (landing page byte-identical to today). HTML-escaped, so no format validation.
 IOS_TEAM_ID=ABCDE12345            # Optional, pairs with IOS_BUNDLE_ID. Apple Team ID of the iOS app. Both set = GET /.well-known/apple-app-site-association is served (application/json: webcredentials apps ["<TEAM>.<bundle>"], so passkeys work in the iOS shell, plus applinks for the invite landing path /i/* as a universal link) on the base domain and every subdomain, identical content. Either unset = route not served (404).
 IOS_BUNDLE_ID=com.example.app      # Optional, see IOS_TEAM_ID.

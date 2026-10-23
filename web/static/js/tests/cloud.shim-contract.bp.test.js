@@ -266,4 +266,28 @@ describe('cloud shim contract — BP flows (features/bp.js over web/domain/bp.js
         const listRes = await window.apiCall('/api/bp?days=60');
         expect(listRes).toHaveLength(0);
     });
+
+    // bd med-lapj: the app was killed after the delete landed but before its
+    // journal entry was dropped, so every next boot replayed it and the domain
+    // remove() alerted "reading not found". A repeat delete is a silent success.
+    it('a boot replay of an already-landed delete is a silent no-op that clears the journal', async () => {
+        const { window, document } = env;
+        await submitBPReading(window, document, { daysAgo: 1, systolic: 118, diastolic: 76 });
+        await submitBPReading(window, document, { daysAgo: 2, systolic: 122, diastolic: 80 });
+        const [gone, kept] = cache.get('bp').readingsRes.map((r) => r.id);
+        expect(await window._deleteBPApi(gone)).toBe(true);
+
+        window.safeAlert = vi.fn();
+        window.localStorage.setItem('wg-pending-deletes', JSON.stringify([
+            { id: 'stale', fn: '_deleteBPApi', arg: gone, at: 1, ttl: 5000 },
+        ]));
+        await window.replayPendingDeletes();
+
+        expect(window.safeAlert).not.toHaveBeenCalled();
+        expect(window.localStorage.getItem('wg-pending-deletes')).toBeNull();
+        expect((await window.apiCall('/api/bp?days=60')).map((r) => r.id)).toEqual([kept]);
+        // Same contract for the sibling record types that answer not_found.
+        expect(await window.apiCall('/api/weight/weight_missing', 'DELETE')).toBe(true);
+        expect(window.safeAlert).not.toHaveBeenCalled();
+    });
 });
