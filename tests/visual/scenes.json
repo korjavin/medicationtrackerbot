@@ -36,6 +36,8 @@
       ] },
     { "name": "meds-schedule", "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }],
       "ready": ["#med-schedule-tab.active", "#med-list > *"] },
+    { "name": "meds-editor-add-time", "steps": [{ "tab": "meds" }, { "click": "#add-btn" }, { "click": "#add-time-btn" }],
+      "ready": ["#med-modal #time-inputs .time-row.is-unset:nth-child(2) .wg-sun"] },
     { "name": "workouts-plans", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"groups\"]" }],
       "ready": ["#workout-groups-tab.active", "#workout-groups-list > *"] },
     { "name": "workouts-stats", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"stats\"]" }, { "click": ".wg-workouts-stats__view [data-view=\"load\"]" }],
