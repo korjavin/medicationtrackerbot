@@ -410,6 +410,9 @@ describe('Settings → Integrations section', () => {
             const row = document.getElementById('integrations-telegram-row');
             expect(row.hidden).toBe(false);
             expect(row.querySelector('[data-settings-summary="telegram"]').textContent).toBe('Needs sync');
+            window.SettingsIntegrations.syncTelegramRow(); // every Settings summary refresh runs it
+            expect(row.hidden).toBe(false);
+            expect(row.querySelector('[data-settings-summary="telegram"]').textContent).toBe('Needs sync');
 
             const page = window.SettingsView.openSettingsPage('telegram');
             const mount = page.el.querySelector('#telegram-settings-mount');

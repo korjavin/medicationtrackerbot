@@ -603,7 +603,7 @@
         const state = mount ? mount.dataset.tgState : '';
         if (row) row.hidden = !state || state === 'disabled';
         const desc = document.querySelector('[data-settings-summary="telegram"]');
-        if (desc) desc.textContent = state === 'linked' ? 'Linked' : 'Not linked';
+        if (desc) desc.textContent = { linked: 'Linked', 'needs-sync': 'Needs sync' }[state] || 'Not linked';
     }
 
     // Local mode (bd med-ta2n.18): Telegram is a sync feature. The row shows
@@ -680,12 +680,11 @@
 
     function mountLocalTelegram() {
         const mount = document.getElementById('telegram-settings-mount');
-        const row = document.getElementById('integrations-telegram-row');
-        if (!mount || !row || !window.WGOfferCard) return;
+        if (!mount || !window.WGOfferCard) return;
+        // The 'needs-sync' stamp is what syncTelegramRow (also run by every
+        // Settings summary refresh) reads: row shown, "Needs sync".
         if (mount.dataset.tgState !== 'needs-sync') renderTelegramOffer(mount);
-        row.hidden = false;
-        const desc = row.querySelector('[data-settings-summary="telegram"]');
-        if (desc) desc.textContent = 'Needs sync';
+        syncTelegramRow();
     }
 
     function readDOMIntoPayload() {
