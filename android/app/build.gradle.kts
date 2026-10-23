@@ -17,7 +17,13 @@ val baseDomain = providers.environmentVariable("CLOUD_BASE_DOMAIN").orNull?.trim
 // repo variable, never committed. Unset (forks, QA) builds an app whose trial is unsupported.
 val playCloudProjectNumber = providers.environmentVariable("ANDROID_PLAY_CLOUD_PROJECT_NUMBER").orNull?.trim()
     ?.takeIf { Regex("[0-9]{1,19}").matches(it) } ?: ""
-val versionCodeEnv = providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
+// Native push (bd med-erq1.5, Push.kt): the Firebase app's public identifiers from the FIREBASE_*
+// repo variables (owner bead med-erq1.7), never a committed google-services.json (it names the
+// package). Any of the four unset: FIREBASE_APP_ID is empty and the app has no FCM at all.
+val firebase = listOf("FIREBASE_APP_ID", "FIREBASE_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_SENDER_ID")
+    .associateWith { providers.environmentVariable(it).orNull?.trim()?.takeIf { v -> Regex("[A-Za-z0-9:._-]{1,128}").matches(v) } ?: "" }
+    .let { m -> if (m.values.any { it.isEmpty() }) m.mapValues { "" } else m }
+val versionCodeEnv =providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
 val uploadKeystore = providers.environmentVariable("ANDROID_UPLOAD_KEYSTORE").orNull
 // CI decodes the stable debug key here; unset (PRs, local) keeps the default debug key.
 val debugKeystore = providers.environmentVariable("ANDROID_DEBUG_KEYSTORE").orNull?.takeIf { it.isNotBlank() }
@@ -35,6 +41,7 @@ android {
         versionName = "0.1.$versionCodeEnv"
         buildConfigField("String", "BASE_DOMAIN", "\"$baseDomain\"")
         buildConfigField("String", "PLAY_CLOUD_PROJECT_NUMBER", "\"$playCloudProjectNumber\"")
+        firebase.forEach { (k, v) -> buildConfigField("String", k, "\"$v\"") }
         // The invite App Link's host (AndroidManifest.xml, bd med-ta2n.12.1). Unset (forks) gets a
         // reserved name that never resolves, so the filter matches no real link.
         manifestPlaceholders["baseDomain"] = baseDomain.ifEmpty { "unconfigured.invalid" }
@@ -123,5 +130,9 @@ dependencies {
     // Play Install Referrer (bd med-ta2n.12.1, contract med-ta2n.7 §4): the invite a Play install
     // came from, read once on a true first install.
     implementation("com.android.installreferrer:installreferrer:2.2")
+    // Native push (bd med-erq1.5): FCM only, initialized by hand from BuildConfig (Push.kt) —
+    // no google-services plugin, no analytics.
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
 }

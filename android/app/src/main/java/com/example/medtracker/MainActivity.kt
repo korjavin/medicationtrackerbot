@@ -150,6 +150,21 @@ class MainActivity : Activity() {
     /** The account → local leave stash (bd med-o7zq.36.3): the same class, its own no-backup dir. */
     private val leave by lazy { Move(File(noBackupFilesDir, "leave")) }
 
+    private var resumed = false
+    /** Push.allowed at the last check: its false -> true edge fires the page's 'token' event. */
+    private var pushAllowed = false
+
+    /**
+     * Native push (bd med-erq1.5, Push.kt): document event wg:native-push {kind} on the account
+     * page. A wake ('inbox-wake', 'dry-queue') goes in only while this activity is in front; false
+     * tells Push to post the notification instead. 'token' whenever an account page is open.
+     */
+    fun pushEvent(kind: String): Boolean {
+        if (local || !showingAccount || (kind != "token" && !resumed)) return false
+        web.evaluateJavascript("document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:${JSONObject.quote(kind)}}}))", null)
+        return true
+    }
+
     private val back = OnBackInvokedCallback { web.goBack() }
     private var backRegistered = false
 
@@ -167,6 +182,8 @@ class MainActivity : Activity() {
         window.isNavigationBarContrastEnforced = false // the band shows the page colour, not a scrim
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         setContentView(buildUi())
+        Push.live = java.lang.ref.WeakReference(this)
+        pushAllowed = Push.allowed(this)
         holdSplash()
         publishShortcut()
 
@@ -293,8 +310,14 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         outbound = false
         notifications.onResume()
+        // Notifications newly allowed (the reminders Enable, or system Settings): push.token now
+        // answers, so the page registers again (bd med-erq1.5).
+        val allowed = Push.allowed(this)
+        if (allowed && !pushAllowed) pushEvent("token")
+        pushAllowed = allowed
         // Once per launch or return from the background; the prompt's own pause/resume asks nothing.
         lock.activate(local)?.let { authenticate(it) }
     }
@@ -302,6 +325,7 @@ class MainActivity : Activity() {
     /** Chromium writes cookies only every ~30 s: a kill soon after sign-in would lose the session (bd med-nt9p.45). */
     override fun onPause() {
         super.onPause()
+        resumed = false
         notifications.onPause()
         CookieManager.getInstance().flush()
     }
@@ -372,6 +396,7 @@ class MainActivity : Activity() {
     /** [path] is a ReminderPath.sanitize result ("/?…"). */
     private fun pathUrl(path: String) = vaultHost?.let { "https://$it$path" }
     override fun onDestroy() {
+        if (Push.live?.get() === this) Push.live = null
         if (screenOffRegistered) unregisterReceiver(screenOff)
         health.close()
         attest.close()
@@ -788,6 +813,11 @@ class MainActivity : Activity() {
                 answer(true)
             }
             // F1's Paste (Android only): WebView has no clipboard-read permission UI. Text only, else null.
+            // Native push (bd med-erq1.5, account mode only): {platform, token} or null; Diag gets a fingerprint.
+            "push.token" -> Push.token(this) { t ->
+                if (t != null) diag("shell push token ${Push.fingerprint(t)}")
+                if (!isDestroyed && !local) runCatching { answer(t?.let { JSONObject().put("platform", "android").put("token", it) } ?: JSONObject.NULL) }
+            }
             "clipboard.read" -> answer(
                 getSystemService(ClipboardManager::class.java).primaryClip?.takeIf { it.itemCount > 0 }
                     ?.getItemAt(0)?.text?.toString()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL

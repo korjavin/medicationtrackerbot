@@ -38,6 +38,7 @@ account the signed AAB is kept as a run artifact but not uploaded to Play.
 |------|-------|
 | `ANDROID_PACKAGE` | the Play app's package name (Play Console app record, bd med-nt9p.1) |
 | `ANDROID_PLAY_CLOUD_PROJECT_NUMBER` | the Google Cloud project number linked to the app for Play Integrity ([Play Integrity setup](#play-integrity-setup-owner)); becomes `BuildConfig.PLAY_CLOUD_PROJECT_NUMBER`. Unset (forks, QA): the local-mode free trial reports unsupported and its Settings row stays hidden |
+| `FIREBASE_APP_ID`, `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_SENDER_ID` | native push ([below](#native-push-fcm-bd-med-erq15)): from the Firebase Android app's `google-services.json` — `client[0].client_info.mobilesdk_app_id`, `client[0].api_key[0].current_key`, `project_info.project_id`, `project_info.project_number`. The JSON itself is never committed (it names the package). Any of the four unset: the app has no FCM (`push.token` answers null). Variables or secrets of these names both work |
 **Secrets:**
 
 | Name | How to get it |
@@ -438,6 +439,39 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
   page schedules its own.
 - **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
   says iPhone/iOS Settings.
+
+### Native push (FCM) (bd med-erq1.5)
+
+The relay's content-free wakes (`inbox-wake`, `dry-queue`;
+`internal/cloudserver/nativepush.go`) reach the shell over FCM, twin of the
+iOS APNs bead med-erq1.4 ([`Push.kt`](../android/app/src/main/java/com/example/medtracker/Push.kt)).
+Reminders stay local notifications (above).
+
+- **Config:** no `google-services.json`, no google-services plugin: `App`
+  initializes Firebase from `BuildConfig.FIREBASE_*` (the four repo
+  variables in [Owner setup](#owner-setup-github--settings--secrets-and-variables--actions)).
+  Unset — forks, PRs without them, android-qa — means no FirebaseApp at all
+  and `push.token` answers null. Auto-init is off: no token exists until an
+  account page asks.
+- **`push.token {}`** (account mode only; local mode answers
+  `unsupported`) → `{platform: "android", token}`, or null without Firebase,
+  without the notification grant, or when FCM fails. Diag logs a 4-byte
+  SHA-256 fingerprint, never the token.
+- **Page event** `wg:native-push {kind}` on `document`: `token` on
+  `onNewToken` and when notifications become allowed (the page registers
+  again); a wake kind only while the activity is in front, on an account
+  page. The page drains the inbox / refills the horizon (web med-erq1.3).
+- **Otherwise a notification:** the server sends a notification block with
+  the fixed text, which the system shows while the app is in the background
+  or killed (Reminders channel, the reminders' icon). A message that reaches
+  `PushService` with the app not in front posts the same fixed text itself
+  (one entry per kind). Tap opens the app home. No WorkManager drain: only
+  the unlocked page has the key.
+- **QA:** `android-qa` scenario `push-wake` (claims the invite: dispatch it
+  alone) checks the op gates, null without Firebase, and a fake message via
+  the debug-only `QaPush` receiver in front (page event, no notification) and
+  in the background (the notification). A real FCM delivery is an owner
+  device check after med-erq1.7.
 
 ### Health Connect import (bd med-nt9p.8, med-nt9p.9)
 
