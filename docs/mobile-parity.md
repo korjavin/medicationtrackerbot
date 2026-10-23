@@ -16,7 +16,7 @@ Lifted 2026-10-23: token budget allowed a parallel iOS track. iOS work resumed (
 - **Installed-shell build** = the latest TestFlight build/SHA, tracked on `med-w6gx`; it is what the compatibility review item below protects.
 - **New Android-only bridge op** goes in `PLATFORM_ONLY` with a reason starting `pending-ios:` (genuine platform differences keep their normal reason). Don't change the test code.
 - **Review item for every PR touching web/native contracts:** the installed iOS shell must keep working (account mode loads fresh web code; bundled local mode is pinned to the shell release). Web must feature-detect the new op/field, gate the rollout, or record a release blocker on `med-w6gx`.
-- **Resume** (`med-w6gx.26` runs it for the hold range): (a) `pending-ios:` entries in the parity test; (b) Android beads closed since the catch-up baseline + their PRs (final contracts); (c) `git log <baseline>..master -- android/ web/` for shell-gated web changes; (d) `bd list --label pending-ios` (deferred: `med-y5xx`, `med-y5xx.13`, `med-o7zq.47`, `med-ta2n.26`, `med-erq1.4`) then `bd undefer`, file iOS beads, refresh the feature matrix, run iOS smoke + upgrade checks before claiming parity.
+- **Resume** (`med-w6gx.26` runs it for the hold range): (a) `pending-ios:` entries in the parity test; (b) Android beads closed since the catch-up baseline + their PRs (final contracts); (c) `git log <baseline>..master -- android/ web/` for shell-gated web changes; (d) `bd list --label pending-ios --status deferred` (now only `med-erq1.4`) then `bd undefer`, file iOS beads, refresh the feature matrix, run iOS smoke + upgrade checks before claiming parity.
 
 ## Feature matrix
 
@@ -49,7 +49,7 @@ Audited 2026-10-22 against the iOS hold baseline (bd med-nt9p.51): every iOS-shi
 | Status/navigation band colour sampled in paint order (sheet backdrops) | ✓ `Shell.pageJS` (med-o7zq.44) | ✓ `chrome.js` → `chrome` op | parity |
 | Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1 #1240, med-ta2n.12 #1251) | parity; Android owner device check med-ta2n.12.2 open |
 | `clipboard.read` (F1 Paste) | n/a (`navigator.clipboard` from the tap) | ✓ | Android-only: WebView has no clipboard-read prompt |
-| `base.post` (local-mode invite request + feedback POST through the shell) | pending (med-ta2n.26, iOS hold) | ✓ (med-ta2n.27) | pending-ios: contract med-ta2n.24 §A |
+| `base.post` (local-mode invite request + feedback POST through the shell) | pending (med-ta2n.26) | ✓ (med-ta2n.27) | pending-ios: contract med-ta2n.24 §A |
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |
@@ -63,4 +63,4 @@ Audited 2026-10-22 against the iOS hold baseline (bd med-nt9p.51): every iOS-shi
 | Back gesture exits app | n/a | ✓ | Android-only: back-exit |
 | Store packaging, reviewer access, device verification | open: med-w6gx.8, .13, .14, .15 | open: med-nt9p.11, .13; reviewer runbook ✓ med-nt9p.12 | n/a: per-store owner work |
 | e2e flow QA scenarios | partial: local-mode flows (`ios.yml` `qa`, med-w6gx.23.x) | ✓ (`android/qa`: first-run, invite-link, native-*, lock, backup, move-ops, delete-account, not-found, load-error) | partial: iOS account flows are owner device checks ([ios.md](ios.md#owner-device-checklist-account-flows-need-a-passkey)); med-w6gx.23 |
-| Visual QA scene driver + compare against master | ✓ (Simulator, med-y5xx.1–.4) | ✓ (`android-qa` `local-visual` + `tests/visual/compare.sh`, med-y5xx.9) | parity; iOS epic deferred (hold) |
+| Visual QA scene driver + compare against master | ✓ (Simulator, med-y5xx.1–.4) | ✓ (`android-qa` `local-visual` + `tests/visual/compare.sh`, med-y5xx.9) | parity |
