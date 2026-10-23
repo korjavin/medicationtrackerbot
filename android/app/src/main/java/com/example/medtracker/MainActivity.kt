@@ -291,6 +291,16 @@ class MainActivity : Activity() {
         }.onFailure { diag("shell referrer ${it.javaClass.simpleName}") }
     }
 
+    /**
+     * The page's visibility follows the activity's (bd med-nt9p.59): a WebView left running fires
+     * no visibilitychange on Home and return, so the page's on-foreground work (the Health Connect
+     * import, health-import.js) never ran unless the app lock had detached the WebView meanwhile.
+     */
+    override fun onStart() {
+        super.onStart()
+        if (::web.isInitialized) web.onResume()
+    }
+
     override fun onResume() {
         super.onResume()
         outbound = false
@@ -316,6 +326,7 @@ class MainActivity : Activity() {
      */
     override fun onStop() {
         super.onStop()
+        if (::web.isInitialized) web.onPause() // see onStart
         if (!getSystemService(PowerManager::class.java).isInteractive || !(outbound || prompting)) {
             lock.background()
             applyLock()

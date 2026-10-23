@@ -7,12 +7,15 @@
 // results.health: every wait's outcome, the page's visibility events and its [health] console
 // lines, the wg.health.* localStorage; the shell's "health …" diag lines are in diag.xml.
 const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE'];
-const FIRST = [157, 97];
-const SECOND = [163, 103];
 
 export default async function healthConnect(ctx) {
   const { shell, pkg, sleep } = ctx;
-  const r = (ctx.results.health = { console: [] });
+  // Fresh values per attempt: Health Connect keeps the first attempt's readings, and a retry's
+  // switch-on scan would pick them up and pass for the wrong reason.
+  const sys = 150 + Math.floor(Math.random() * 40);
+  const FIRST = [sys, 90 + Math.floor(Math.random() * 10)];
+  const SECOND = [sys + 1, FIRST[1] + 1];
+  const r = (ctx.results.health = { console: [], readings: [FIRST, SECOND] });
 
   await shell(`pm clear ${pkg}`);
   for (const p of READS) await shell(`pm grant ${pkg} android.permission.health.READ_${p}`);
@@ -82,6 +85,8 @@ export default async function healthConnect(ctx) {
       await write(SECOND);
       r.foreground = await waitFor(SECOND);
       r.afterForeground = await state();
+      // The shell pauses the WebView on stop (MainActivity.onStart/onStop): the page saw it.
+      if (r.foreground && !r.afterForeground.vis.some((v) => v.endsWith('visible'))) throw new Error('no visibilitychange to visible');
       if (r.foreground) return;
       // Evidence only: does the switch-on rescan see it?
       await toggle();

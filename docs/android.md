@@ -458,7 +458,18 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   session's own app over its window, each only when its permission is granted.
   Note: `energy` is *total* calories, iOS reads *active* energy.
 - **Foreground only:** reads run only when the page asks (unlock, return to
-  the app); no background reads, no background permission.
+  the app); no background reads, no background permission. "Return to the app"
+  is the page's `visibilitychange`, which a running WebView fires only when
+  paused: `MainActivity.onStop`/`onStart` call `web.onPause()`/`onResume()`
+  (bd med-nt9p.59 — before that a reading saved by another app arrived only
+  with the app lock on, a cold start, or the switch-on rescan).
+- **Diagnostics:** every `health.query` adds one line to the Copy diagnostics
+  log — `health <kind> <scan|changes|expired-scan> read=<n> records=<n>
+  more=<b>`, or `health <kind> denied`, or the op's error.
+- **QA:** android-qa `health-connect` writes a BP through the debug-only
+  `QaHealthWrite` activity (src/debug, `WRITE_BLOOD_PRESSURE` in the debug
+  manifest only), switches the import on, writes a second one over the app
+  and asserts it arrives on the return.
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health
   Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
   `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy
