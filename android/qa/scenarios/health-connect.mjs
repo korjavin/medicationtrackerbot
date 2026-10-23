@@ -31,8 +31,11 @@ export default async function healthConnect(ctx) {
     return p;
   });
 
-  // "Another app" saves a reading: the writer opens over the app, writes, finishes.
+  // "Another app" saves a reading: Home (MainActivity stops — the writer alone is open too briefly
+  // for that), then the writer opens over the app's task, writes and finishes, so the app returns.
   const write = async ([sys, dia]) => {
+    await shell('input keyevent KEYCODE_HOME');
+    await sleep(3000);
     await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --ei sys ${sys} --ei dia ${dia}`);
     const end = Date.now() + 20_000;
     while (Date.now() < end) {
