@@ -166,6 +166,11 @@ func TestFCMSender(t *testing.T) {
 			if json.Unmarshal(raw, &body) != nil || m.Android["priority"] != "high" || m.Data["kind"] != nativeKindDryQueue || m.Notification["body"] != nativeWakeBody[nativeKindDryQueue] {
 				t.Errorf("payload = %s", raw)
 			}
+			if m.Token == "misrouted" { // a bare 404 with no FcmError: config, not token
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error":{"code":404,"status":"NOT_FOUND"}}`))
+				return
+			}
 			if m.Token == "dead" {
 				w.WriteHeader(http.StatusNotFound)
 				w.Write([]byte(`{"error":{"code":404,"status":"NOT_FOUND","details":[{"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError","errorCode":"UNREGISTERED"}]}}`))
@@ -188,6 +193,9 @@ func TestFCMSender(t *testing.T) {
 	}
 	if gone, err := s.Send(ctx, "dead", nativeKindDryQueue); !gone || err != nil {
 		t.Fatalf("Send(dead) = %v, %v; want gone", gone, err)
+	}
+	if gone, err := s.Send(ctx, "misrouted", nativeKindDryQueue); gone || err == nil {
+		t.Fatalf("Send(misrouted) = %v, %v; want an error, token kept", gone, err)
 	}
 	if mints != 1 {
 		t.Fatalf("access token minted %d times, want 1 (cached)", mints)
@@ -221,6 +229,14 @@ func TestNativePushSendersFromEnv(t *testing.T) {
 	apns, ok := got[cloudstore.NativePushIOS].(*APNsSender)
 	if !ok || apns.BaseURL != apnsSandboxURL || len(got) != 1 {
 		t.Fatalf("senders = %v, want only a sandbox APNs sender", got)
+	}
+
+	// ES256 is P-256 only: a P-384 key would panic at signing, so it is refused.
+	k384, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	der384, _ := x509.MarshalPKCS8PrivateKey(k384)
+	t.Setenv("APNS_KEY_P8", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der384})))
+	if _, ok := NativePushSendersFromEnv()[cloudstore.NativePushIOS]; ok {
+		t.Fatal("a P-384 APNS_KEY_P8 was accepted")
 	}
 
 	// A PEM pasted inline with flattened "\n" escapes also parses.

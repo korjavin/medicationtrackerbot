@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -281,9 +282,8 @@ func (s *FCMSender) Send(ctx context.Context, token, kind string) (bool, error) 
 			return true, nil
 		}
 	}
-	if status == http.StatusNotFound {
-		return true, nil
-	}
+	// A bare 404 (wrong FCM_PROJECT_ID, say) is a config error, not a dead
+	// token: only the explicit UNREGISTERED code above disables one.
 	if status == http.StatusUnauthorized {
 		s.mu.Lock()
 		s.access = "" // re-mint on the next send
@@ -339,8 +339,8 @@ func apnsFromEnv() (*APNsSender, error) {
 	}
 	// .env files often flatten the PEM's newlines into literal "\n".
 	key, err := appattest.ParsePrivateKeyPEM(bytes.ReplaceAll(pem, []byte(`\n`), []byte("\n")))
-	if err != nil {
-		return nil, errors.New("APNS_KEY_P8 is not a PKCS#8 EC key")
+	if err != nil || key.Curve != elliptic.P256() {
+		return nil, errors.New("APNS_KEY_P8 is not a PKCS#8 EC P-256 key")
 	}
 	base := apnsProductionURL
 	if sandbox != "" {
