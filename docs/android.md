@@ -469,6 +469,11 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   type → no samples, no error. A night and a workout recorded by a fitness
   app → the sleep day and the workout appear (sleep ~3 h after waking, once
   settled); updating from a .8 build shows one dialog for the new types.
+  A reading missing from the app: open Health Connect → Data and access →
+  Vitals → Blood pressure; it must be listed with its source app. If not, the
+  source (e.g. Fit → Settings → "Sync Fit with Health Connect") never synced
+  it; that sync is batched, not immediate. The Settings row's "Checked …" time
+  moves on every app open, so it shows whether the rescan ran.
 
 ### Device check (CI debug APK)
 
