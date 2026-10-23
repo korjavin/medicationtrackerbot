@@ -764,10 +764,10 @@ describe('schedule history — medsched-* on every schedule/policy edit (bd med-
     const edit = (schedule, policy = 'flexible') => ({
         name: 'Metformin', dosage: '500mg', schedule, tz_shift_policy: policy
     });
-    let env;
+    let env = null;
 
     afterEach(() => {
-        env.cleanup();
+        if (env) env.cleanup();
         env = null;
     });
 
