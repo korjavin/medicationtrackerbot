@@ -142,7 +142,7 @@ class MainActivity : Activity() {
     private var screenOffRegistered = false
 
     /** window.Health's health.* ops (bd med-nt9p.8). */
-    private val health by lazy { HealthConnect(this) }
+    private val health by lazy { HealthConnect(this, ::diag) }
     /** window.Attest's attest.* ops, local mode only (bd med-nt9p.32.8.4). */
     private val attest by lazy { Attest(this) }
     /** The local → cloud move's stash (bd med-nt9p.32.17): no-backup app storage, see Move.kt. */
