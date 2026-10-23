@@ -63,7 +63,7 @@ func TestInviteAPI_Contract(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal invite response: %v", err)
 	}
-	want := regexp.MustCompile(`^https://` + regexp.QuoteMeta(got.Subdomain) + `\.localhost/#claim=[0-9a-f]{64}$`)
+	want := regexp.MustCompile(`^https://localhost/i/` + regexp.QuoteMeta(got.Subdomain) + `#[0-9a-f]{64}$`)
 	if !want.MatchString(got.ClaimURL) {
 		t.Errorf("claim_url = %q, want match %s", got.ClaimURL, want)
 	}

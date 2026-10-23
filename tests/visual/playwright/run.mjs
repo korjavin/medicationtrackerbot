@@ -120,10 +120,11 @@ async function startCloud() {
   throw new Error('cmd/cloud did not start listening');
 }
 
-// `cloud admin invite` against the same DB; its claim URL is https://<sub>.localhost/#claim=<t>.
+// `cloud admin invite` against the same DB; its claim URL is the landing form
+// https://localhost/i/<sub>#<t> (bd med-ta2n.16).
 function mintInvite() {
   const text = execFileSync(process.env.CLOUD_BIN, ['admin', 'invite'], { env: cloudEnv, encoding: 'utf8' });
-  const m = /https:\/\/([a-z0-9-]+)\.localhost\/#claim=([a-f0-9]+)/.exec(text);
+  const m = /https:\/\/localhost\/i\/([a-z0-9-]+)#([a-f0-9]+)/.exec(text);
   if (!m) throw new Error(`no claim URL in: ${text.slice(0, 200)}`);
   return { sub: m[1], origin: `http://${m[1]}.localhost:${PORT}`, token: m[2] };
 }

@@ -21,11 +21,8 @@ func TestProvision_InviteClaimSingleUse(t *testing.T) {
 	if inv.Account.Subdomain == "" || inv.Token == "" {
 		t.Fatalf("expected non-empty subdomain and token, got %+v", inv)
 	}
-	if got := inv.LandingURL("app.example.com"); got != "https://app.example.com/i/"+inv.Account.Subdomain+"#"+inv.Token {
-		t.Fatalf("unexpected landing URL: %s", got)
-	}
-	if inv.ClaimURL("app.example.com") != "https://"+inv.Account.Subdomain+".app.example.com/#claim="+inv.Token {
-		t.Fatalf("unexpected claim URL: %s", inv.ClaimURL("app.example.com"))
+	if got := inv.ClaimURL("app.example.com"); got != "https://app.example.com/i/"+inv.Account.Subdomain+"#"+inv.Token {
+		t.Fatalf("unexpected claim URL: %s", got)
 	}
 
 	tokenHash := sha256Sum(inv.Token)

@@ -344,8 +344,12 @@ SSH:
 ./cloud admin invite      # run 4 times: 1 sacrificial + 3 for the reviewer
 ```
 
-Each run prints `subdomain:`, `expires:` and `claim URL:`. Note each link's
-subdomain and expiry somewhere private.
+Each run prints `subdomain:`, `expires:` and `claim URL:`. The claim URL is
+the invite landing link `https://<base>/i/<sub>#<token>` (bd med-ta2n.16): it
+opens the installed app as a universal link, or the landing page, whose
+"Continue in the browser" goes to the old claim form
+`https://<sub>.<base>/#claim=<token>` (still valid, just no longer printed).
+Note each link's subdomain and expiry somewhere private.
 
 1. **Dry run, sacrificial link (#0):** claim it end-to-end on your own device:
    open the link, create the passkey, save the kit, see the empty Today
@@ -353,7 +357,7 @@ subdomain and expiry somewhere private.
    proves the claim path on prod without spending a reviewer link.
 2. **Check the 3 reviewer links without spending them:** for each one,
    `POST https://<sub>.<base>/api/webauthn/register/begin` with
-   `{"claim_token":"<token from the #claim= fragment>"}` returns `200`
+   `{"claim_token":"<token, the part after #>"}` returns `200`
    (the token is valid and unclaimed; begin does not consume it). `403` means
    expired or wrong; `409 already_claimed` means it was used.
 3. Put the 3 links in the ASC notes (below) as **A** (main), **B** (account
