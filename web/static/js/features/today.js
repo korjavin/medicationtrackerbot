@@ -461,7 +461,8 @@
     //   in-progress tz-transition card.
     //
     // Kit rules: one sun-filled control (.wg-btn--primary) per view — the
-    // soonest Next-up action, else the goal card's "Set goal"; status only via
+    // soonest Next-up action, else the goal card's "Set goal" — except while a
+    // tz plan awaits Apply/Cancel, when that Apply is the one; status only via
     // WGChip states; no inline style except the --p / --n custom properties
     // the track and meters read; icons are <i class="wg-ico" data-icon>
     // hydrated by WGIcons once the tree is built.
@@ -764,7 +765,7 @@
     // Returns { node, hasPrimary }. startHere: the W3 block is showing, so the
     // empty "Nothing scheduled" card (its Add medication / Create plan are rows
     // there) steps aside — W3 has no Next up until something is scheduled.
-    function renderNextUp(state, h, nowMs, startHere) {
+    function renderNextUp(state, h, nowMs, startHere, allowPrimary) {
         const medsOn = on(state && state.nextMed);
         const workoutsOn = on(state && state.nextWorkout);
         if (!medsOn && !workoutsOn) return { node: null, hasPrimary: false };
@@ -788,7 +789,7 @@
         if (items.length === 0) {
             const actions = [];
             // O2: "Add medication" is the empty Today's one sun (bd med-ckm5.3).
-            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', variant: 'primary', onClick: h.onAddMedication });
+            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', variant: allowPrimary ? 'primary' : undefined, onClick: h.onAddMedication });
             if (workoutsOn) actions.push({ label: 'Create plan', icon: 'dumbbell', onClick: h.onCreatePlan });
             const card = el('div', 'wg-card wg-card--flush');
             card.appendChild(typeof createEmptyState === 'function'
@@ -800,14 +801,14 @@
                 })
                 : el('p', 'wg-hint', 'Nothing scheduled'));
             section.appendChild(card);
-            return { node: section, hasPrimary: medsOn };
+            return { node: section, hasPrimary: medsOn && allowPrimary };
         }
 
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
         const todayCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
         if (todayCount > 0) head.appendChild(el('span', 'wg-meta', `${todayCount} today`));
 
-        const primaryIdx = items.findIndex((it) => it.kind === 'med'
+        const primaryIdx = !allowPrimary ? -1 : items.findIndex((it) => it.kind === 'med'
             || (it.kind === 'workout' && workoutAction(it.value) !== 'view'));
         const list = el('div', 'wg-list');
         items.forEach((it, i) => list.appendChild(renderNextUpRow(it, i === primaryIdx, h, nowMs)));
@@ -3328,14 +3329,16 @@
         // (bd med-26gl). Mounts nothing when no plan awaits a decision.
         const tzBanner = typeof window !== 'undefined' && window.TZPlanBanner
             && typeof window.TZPlanBanner.mountCard === 'function' ? window.TZPlanBanner : null;
-        if (tzBanner) { tzBanner.mountCard(root, 'top'); }
+        // While it awaits a decision its Apply is the view's one sun (bd
+        // med-tugv): Next up, Start here and the goal card all go secondary.
+        const tzSun = !!(tzBanner && tzBanner.mountCard(root, 'top'));
 
         const startKeys = startHereKeys(state && state.startHere);
-        const next = renderNextUp(state, h, nowMs, startKeys.length > 0);
+        const next = renderNextUp(state, h, nowMs, startKeys.length > 0, !tzSun);
         if (next.node) { root.appendChild(next.node); }
 
         // W3: below Next up, above everything else (bd med-ta2n.3).
-        const startSun = startKeys.length > 0 && !next.hasPrimary;
+        const startSun = startKeys.length > 0 && !next.hasPrimary && !tzSun;
         if (startKeys.length) { root.appendChild(renderStartHere(state.startHere, startKeys, startSun, h)); }
 
         // W4: below Next up, above the tiles (bd med-ta2n.4).
@@ -3365,7 +3368,7 @@
         if (trackersCard) { root.appendChild(trackersCard); }
         syncTrackerSheet(state && state.trackers, nowMs);
 
-        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary && !startSun, offline);
+        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary && !startSun && !tzSun, offline);
         if (goal.node) { root.appendChild(goal.node); }
 
         const macros = renderMacrosCard(state, h);

@@ -117,6 +117,34 @@ describe('Today v2 — Next up', () => {
     beforeEach(() => { env = loadRenderEnv(); root = env.document.getElementById('today-content'); });
     afterEach(() => { env.cleanup(); });
 
+    it('a tz plan awaiting Apply/Cancel owns the only sun; Next up drops to secondary, and returns after', () => {
+        let awaiting = true;
+        env.window.TZPlanBanner = {
+            mountCard(parent, slot) {
+                if (!awaiting || slot !== 'top') return null;
+                const card = env.document.createElement('section');
+                card.setAttribute('data-section', 'tz-plan');
+                const apply = env.document.createElement('button');
+                apply.className = 'wg-btn wg-btn--primary';
+                apply.setAttribute('data-action', 'tz-plan-apply');
+                card.appendChild(apply);
+                parent.appendChild(card);
+                return card;
+            }
+        };
+        const s = busyState();
+        env.render(s, root, { now: NOW });
+        const only = primaries(root);
+        expect(only).toHaveLength(1);
+        expect(only[0].getAttribute('data-action')).toBe('tz-plan-apply');
+        expect(root.querySelector('[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(false);
+
+        awaiting = false;
+        env.render(s, root, { now: NOW });
+        expect(primaries(root)).toHaveLength(1);
+        expect(root.querySelector('[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(true);
+    });
+
     it('missed dose, then the due workout, then later meds — with exactly one sun action', () => {
         const s = busyState();
         s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
