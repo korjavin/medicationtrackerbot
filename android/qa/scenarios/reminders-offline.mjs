@@ -171,13 +171,18 @@ async function lockedTap(ctx, out) {
       await shell(`run-as ${pkg} sed -i -e '${UNLOCK_SED}' -e 's#</map>#<boolean name="${LOCK_KEY}" value="true" /></map>#' shared_prefs/shell.xml`);
       out.prefs = (await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)).match(/<boolean name="wgLocal\w+" value="\w+" \/>/g);
       await shell('settings put secure immersive_mode_confirmations confirmed'); // its notice took the focus in the earlier runs
-      out.setPin = await shell(`locksettings set-pin ${PIN}`);
-      ctx.log('locked: lock pref + PIN set', out.prefs, out.setPin);
+      ctx.log('locked: lock pref set', out.prefs);
       await waitNotification(ctx, out, 'Medication time', out);
       ctx.log('locked: posted');
     });
     await ctx.step('local, locked: the tap asks for the unlock first, then opens the take sheet', async () => {
-      await tapNotification(ctx, /.*Medication time.*/, 'local');
+      // From the PIN on, shell commands go through the adb CLI: Playwright's device.shell never
+      // answered after `locksettings set-pin` (run 39972318600), and Playwright calls are bounded.
+      out.setPin = await adbShell(`locksettings set-pin ${PIN}`);
+      await adbShell('cmd statusbar expand-notifications');
+      await sleep(1500);
+      ctx.log('locked: PIN set, shade open', out.setPin);
+      await bounded(ctx.device.tap({ text: /.*Medication time.*/ }), 30_000, 'the notification tap');
       await sleep(6000);
       out.focusAfterTap = await focus();
       ctx.log('locked: focus after the tap', out.focusAfterTap);
@@ -187,12 +192,12 @@ async function lockedTap(ctx, out) {
       out.focusAfterCancel = await focus();
       ctx.log('locked: focus after Back', out.focusAfterCancel);
       await bounded(ctx.waitFor({ text: 'Unlock' }, 30_000), 60_000, 'the lock screen');
-      await ctx.stableShot('locked-after-tap');
-      await shell(`locksettings clear --old ${PIN}`);
-      await ctx.device.tap({ text: 'Unlock' });
+      await bounded(ctx.shot('locked-after-tap'), 30_000, 'the lock screen shot');
+      await adbShell(`locksettings clear --old ${PIN}`);
+      await bounded(ctx.device.tap({ text: 'Unlock' }), 30_000, 'the Unlock tap');
       ctx.log('locked: Unlock tapped');
       await bounded(ctx.localPage((p) => waitSheet(p, out.name, out)), 150_000, 'the take sheet after the unlock');
-      await ctx.stableShot('local-take-sheet');
+      await bounded(ctx.stableShot('local-take-sheet'), 60_000, 'the take sheet shot');
     });
   } catch (e) {
     ctx.log('locked: failed; logcat tail\n', (await adb(['logcat', '-d', '-t', '80', 'chromium:I', 'MainActivity:*', 'ActivityTaskManager:I', '*:S'])));
