@@ -256,8 +256,10 @@ func (s *FCMSender) Send(ctx context.Context, token, kind string) (bool, error) 
 		return false, err
 	}
 	body, _ := json.Marshal(map[string]any{"message": map[string]any{
-		"token":        token,
-		"android":      map[string]string{"priority": "high", "collapse_key": kind},
+		"token": token,
+		// tag: one shade entry per kind, a repeated wake replaces the last one (the Android
+		// shell's own fallback notification uses the same tag, Push.kt).
+		"android":      map[string]any{"priority": "high", "collapse_key": kind, "notification": map[string]string{"tag": kind}},
 		"notification": map[string]string{"title": nativeWakeTitle, "body": nativeWakeBody[kind]},
 		"data":         map[string]string{"kind": kind},
 	}})

@@ -155,15 +155,19 @@ func TestFCMSender(t *testing.T) {
 			}
 			var body struct {
 				Message struct {
-					Token        string            `json:"token"`
-					Android      map[string]string `json:"android"`
+					Token   string `json:"token"`
+					Android struct {
+						Priority     string            `json:"priority"`
+						CollapseKey  string            `json:"collapse_key"`
+						Notification map[string]string `json:"notification"`
+					} `json:"android"`
 					Notification map[string]string `json:"notification"`
 					Data         map[string]string `json:"data"`
 				} `json:"message"`
 			}
 			raw, _ := io.ReadAll(r.Body)
 			m := &body.Message
-			if json.Unmarshal(raw, &body) != nil || m.Android["priority"] != "high" || m.Data["kind"] != nativeKindDryQueue || m.Notification["body"] != nativeWakeBody[nativeKindDryQueue] {
+			if json.Unmarshal(raw, &body) != nil || m.Android.Priority != "high" || m.Android.CollapseKey != nativeKindDryQueue || m.Android.Notification["tag"] != nativeKindDryQueue || m.Data["kind"] != nativeKindDryQueue || m.Notification["body"] != nativeWakeBody[nativeKindDryQueue] {
 				t.Errorf("payload = %s", raw)
 			}
 			if m.Token == "misrouted" { // a bare 404 with no FcmError: config, not token
