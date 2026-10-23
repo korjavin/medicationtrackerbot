@@ -254,6 +254,16 @@
             window.apiCall = (endpoint, method, ...rest) => (endpoint === '/api/protection/kit-nudge' && !method
                 ? Promise.resolve(status)
                 : call(endpoint, method, ...rest));
+        } else if (step.tzPlan) {
+            // A pending timezone plan (bd med-26gl: its card sits at the top of
+            // Today): the seed has none, so answer the plan read with step.tzPlan
+            // and refresh the banner, which reloads Today. The stub stays for the run.
+            const result = step.tzPlan;
+            const call = window.apiCall;
+            window.apiCall = (endpoint, method, ...rest) => (endpoint === '/api/tz-plan/current' && method === 'GET'
+                ? Promise.resolve(result)
+                : call(endpoint, method, ...rest));
+            await window.TZPlanBanner.refresh();
         } else if (step.startHere) {
             // W3 "Start here" (bd med-ta2n.3): the seed has a record in every
             // module, so replace it once with the fixture minus step.startHere.drop
