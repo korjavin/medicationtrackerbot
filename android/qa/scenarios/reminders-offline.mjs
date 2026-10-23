@@ -119,7 +119,7 @@ export default async function remindersOffline(ctx) {
     // 45-min job timeout, even past bounded waits. Follow-up bead: dismiss the immersive notice
     // (`settings put secure immersive_mode_confirmations confirmed`) and find the stall.
   } finally {
-    await shell('svc power stayon false');
+    await adb(['shell', 'svc power stayon false']); // the reboot step closed ctx.shell's device
   }
 }
 
@@ -248,7 +248,8 @@ async function rebootLocked(ctx, page, out) {
     if (out.userAfterUnlock !== 'RUNNING_UNLOCKED') throw new Error(`the PIN did not unlock: ${out.userAfterUnlock}`);
     await sleep(5000); // BOOT_COMPLETED re-arms: it must not post the reminder again
     out.afterUnlock = Number(await adbShell(`dumpsys notification --noredact | grep -c "${med.name}"`)) || 0;
-    out.alarmAfterUnlock = await adbShell(`dumpsys alarm | grep -c ${pkg}`);
+    out.alarmAfterUnlock = await adbShell('dumpsys alarm | grep -c "Notifications.Fire"');
+    out.unlockLog = (await adbShell('logcat -d -s Notifications:*')).split('\n').slice(-3);
     if (out.afterUnlock !== out.notificationLines) throw new Error(`${out.afterUnlock} "${med.name}" notification lines after the unlock, ${out.notificationLines} at the post: posted twice or gone`);
     if (!(Number(out.alarmAfterUnlock) > 0)) throw new Error('no alarm armed for the next reminder');
   } finally {

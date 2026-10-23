@@ -265,35 +265,29 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         /**
          * (Re)arms the one alarm at the next unposted row — in the past after a
          * reboot, so missed rows post at once. Returns how many rows are still
-         * to come; 0 without both grants (posting would fail; [Rearm] retries).
+         * to come; 0 without both grants (nothing armed without notifications; [Rearm] retries).
          */
         private fun arm(c: Context): Int {
             val pi = PendingIntent.getBroadcast(c, 0, Intent(c, Fire::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             alarms(c).cancel(pi)
-            val p = permission(c)
-            val unlocked = c.getSystemService(UserManager::class.java).isUserUnlocked
             val rows = rows(c)
             val now = System.currentTimeMillis() / 1000
             val floor = maxOf(store(c).getLong(POSTED, 0), now - STALE)
             val due = (0 until rows.length()).mapNotNull { rows.optJSONObject(it)?.optLong("fireAtUnix") }.filter { it > floor }
             val next = due.minOrNull()
-            // No text, only counts and times: the only trace of a locked-boot arm (bd med-nt9p.57).
-            Log.i("Notifications", "arm permission=$p rows=${rows.length()} next=$next now=$now unlocked=$unlocked")
-            // Before the first unlock AlarmManager refuses exact alarms even with the grant
-            // (canScheduleExactAlarms() false, set throws; API 34). A locked boot arms an inexact
-            // allow-while-idle alarm instead — no grant needed, late by at most ~3/4 of the lead, at
-            // once when already due — and BOOT_COMPLETED re-arms it exact after the unlock.
-            if (p != "granted" && unlocked || next == null) return 0
+            if (!notifying(c) || next == null) return 0
+            // Exact when AlarmManager allows it. After a reboot it refuses exact alarms for a while
+            // even with the grant — before the first unlock and at BOOT_COMPLETED (API 34 emulator,
+            // bd med-nt9p.57) — and without the grant always: then an inexact allow-while-idle alarm,
+            // which needs no grant, is late by at most ~3/4 of the lead and fires at once when due.
             // An instant, not a wall-clock time: a time-zone change does not move it.
-            val armed = runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi) }
-                .recoverCatching {
-                    if (unlocked) throw it
-                    alarms(c).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi)
-                    Log.i("Notifications", "arm inexact (locked boot)")
-                }
-                .onFailure { Log.w("Notifications", "arm failed: $it") }.isSuccess
-            return if (armed) due.count { it > now } else 0
+            val exact = runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi) }.isSuccess
+            if (!exact) alarms(c).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi)
+            // No text, only counts and times: the only trace of a locked-boot arm.
+            Log.i("Notifications", "arm ${if (exact) "exact" else "inexact"} next=$next now=$now rows=${rows.length()} " +
+                "unlocked=${c.getSystemService(UserManager::class.java).isUserUnlocked}")
+            return if (permission(c) == "granted") due.count { it > now } else 0
         }
 
         private fun post(c: Context, host: String, id: Int, row: JSONObject) {

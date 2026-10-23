@@ -389,9 +389,10 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
   posts every row now due and arms the next. Doze rate-limits allow-while-idle
   alarms per app, so same-time reminders share one wake and a late wake still
   posts what it missed (rows missed by over an hour, e.g. while the phone was
-  off, are dropped). Without both grants it stores the rows and arms nothing;
-  granting *Alarms & reminders* later arms them, as do a reboot and an app
-  update (alarms survive neither). Notifications post on the high-importance
+  off, are dropped). Without notifications it stores the rows and arms
+  nothing; without *Alarms & reminders* the alarm is inexact (see Direct
+  Boot below) and `schedule` still answers 0. Granting either later re-arms,
+  as do a reboot and an app update (alarms survive neither). Notifications post on the high-importance
   **Reminders** channel; switching that channel off counts as `denied`, and
   Enable opens its settings.
 - **Before the first unlock (Direct Boot, bd med-nt9p.57):** the `Fire` and
@@ -399,11 +400,13 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
   `LOCKED_BOOT_COMPLETED`, so after a reboot (e.g. an overnight OTA) the
   alarm is armed while the phone is still locked and reminders post on time
   instead of at the first unlock (or never, past the one-hour stale cut).
-  Before the unlock AlarmManager refuses exact alarms even with the grant
-  (`canScheduleExactAlarms()` is false, `setExactAndAllowWhileIdle` throws —
-  seen on the API 34 emulator), so a locked boot arms an inexact
-  `setAndAllowWhileIdle` alarm: late by at most ~¾ of the time left to the
-  slot, at once when already due. `BOOT_COMPLETED` re-arms it exact.
+  After a reboot AlarmManager refuses exact alarms for a while even with the
+  grant (`canScheduleExactAlarms()` false, `setExactAndAllowWhileIdle`
+  throws — before the unlock and still at `BOOT_COMPLETED` on the API 34
+  emulator), so `arm()` falls back to an inexact `setAndAllowWhileIdle`
+  alarm whenever exact is refused: late by at most ~¾ of the time left to
+  the slot, at once when already due. The next arm (each post, each app
+  open) tries exact again.
   For that the `reminders` prefs file — and only it — lives in
   **device-protected** storage (`createDeviceProtectedStorageContext()`);
   the account host prefs, lock, invite slot, Health Connect anchors and all
