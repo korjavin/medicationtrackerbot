@@ -128,12 +128,23 @@ export default async function smoke(ctx) {
 /** DocumentsUI's create-document confirm button: the shell sends every download straight to it. */
 const PICKER_SAVE = /^(SAVE|Save)$/;
 
+/**
+ * BACK out of the picker. Its filename field can hold the keyboard, and then a BACK only hides
+ * the IME: press again while Save is still on screen (at most 3 BACKs).
+ */
+async function closePicker(ctx) {
+  for (let i = 0; i < 3; i++) {
+    await ctx.shell('input keyevent KEYCODE_BACK');
+    await ctx.sleep(1000);
+    if (!(await ctx.waitFor({ text: PICKER_SAVE }, 1_000).then(() => true, () => false))) return;
+  }
+}
+
 async function exportBackup(ctx, page, r) {
   const { shell, sleep } = ctx;
   const e = (r.export = {});
   const dismiss = async () => {
-    await shell('input keyevent KEYCODE_BACK');
-    await sleep(1000);
+    await closePicker(ctx);
     await shell(`run-as ${ctx.pkg} rm -rf cache/downloads`).catch(() => {});
   };
   // Export backup opens the passphrase sheet; Backup ready's Save to device hands the file to
@@ -266,8 +277,7 @@ export async function claimAccount(ctx, page) {
     });
     await ctx.shot('kit-file-picker');
     await ctx.step('dismiss the picker and Done', async () => {
-      await shell('input keyevent KEYCODE_BACK');
-      await sleep(1000);
+      await closePicker(ctx);
       await page.click('#kit-done');
     });
   }

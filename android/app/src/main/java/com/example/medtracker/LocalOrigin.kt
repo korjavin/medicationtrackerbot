@@ -27,6 +27,16 @@ object LocalOrigin {
         "move.stash",
         // The account → local leave stash (bd med-o7zq.36.3, second Move dir): the local origin picks it up.
         "leave.take", "leave.clear",
+        // Local mode's invite request + attested feedback through the shell (BasePost.kt, bd med-ta2n.27).
+        "base.post",
+    )
+
+    /**
+     * base.post's paths (contract med-ta2n.24 A2): exact match, no query, no normalization. Twin of
+     * iOS LocalOrigin.basePostPaths; the trial chat/food/voice paths stay page fetch.
+     */
+    val BASE_POST_PATHS = setOf(
+        "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
     )
 
     /**

@@ -364,7 +364,7 @@ client-computed horizon — the twin of iOS
 [`ios/App/Notifications.swift`](../ios/App/Notifications.swift)). No web or
 server change, no FCM. The page (`web/cloud/js/reminders.js`) sends the same
 replace-all list it sends on iOS — at most 64 rows `{fireAtUnix, title, body,
-section}`, the last one the "Open the app to keep reminders running" notice.
+section, url}`, the last one the "Open the app to keep reminders running" notice.
 
 - **Ops:** `notifications.permission` / `requestPermission` → `granted`
   only when **both** grants exist, else `default` (or `denied` once the
@@ -391,9 +391,18 @@ section}`, the last one the "Open the app to keep reminders running" notice.
   update (alarms survive neither). Notifications post on the high-importance
   **Reminders** channel; switching that channel off counts as `denied`, and
   Enable opens its settings.
-- **Tap** opens the reminder's section (`/?tab=<section>`, stable ids), in the
-  open page or by loading the account on it. Switching account clears the
-  previous account's alarms; the newly opened page schedules its own.
+- **Tap** (bd med-nt9p.52, twin of iOS med-w6gx.20) opens the row's `url`
+  (`reminderDeeplink`: `/?action=medication_confirm&ids=…&scheduled=…` for a
+  dose → its take sheet, else `/?tab=<section>`).
+  [`ReminderPath.kt`](../android/app/src/main/java/com/example/medtracker/ReminderPath.kt)
+  allowlists it like `sw.js reminderOpenUrl`: a same-origin `/?…` path, keys
+  `tab`/`action`/`ids`/`scheduled` only, URL-query-safe characters, else
+  `/?tab=today`; a row without `url` (older web build) opens
+  `/?tab=<section>`. An open page gets `history.replaceState` +
+  `window.handleDeepLinks()`; otherwise the vault loads on the path. A tap
+  under the lock opens after unlock; another vault's tap is ignored.
+  Switching account clears the previous account's alarms; the newly opened
+  page schedules its own.
 - **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
   says iPhone/iOS Settings.
 
@@ -1123,6 +1132,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | `leave.clear {back?}` | deletes the leave stash, replies `true`; with `back: true` (the page's pickup was cancelled, bd med-o7zq.42) and an account remembered by `account.leave {then: "local"}` (`leaveHost`), replies `{back: true}` and reopens that account |
   | `lock.status` | `{on, available}`: the lock's state, and whether the phone has a screen lock ([Lock](#local-mode-lock-bd-med-nt9p329)) |
   | `lock.set {on}` | the phone's own check, then the choice; `true` once applied, `false` when refused or cancelled |
+  | `base.post {path, body, headers?}` | local mode's invite request and attested feedback, POSTed by the shell (contract med-ta2n.24 §A, bd med-ta2n.27, [`BasePost.kt`](../android/app/src/main/java/com/example/medtracker/BasePost.kt)) — the shell's only native egress, so the local CSP never needs the base host. `path` exactly one of `LocalOrigin.BASE_POST_PATHS` (`/api/attest/challenge`, `/api/attest/enroll`, `/api/attest/feedback`, `/api/invite-requests`), sent to `https://` + `BuildConfig.BASE_DOMAIN`; `body` a string sent as its UTF-8 bytes verbatim (the attest assertion binds it), ≤ 5 MiB; `headers` only `X-Attest-Key-Id` / `X-Attest-Challenge` / `X-Attest-Assertion` (≤ 8 KiB). The shell adds `Content-Type`/`Accept: application/json`, follows no redirect, keeps no cache or cookies, bounds the call at 30 s off the main thread and logs nothing. Replies `{status, headers, body}` for any HTTP status (headers: only `X-Attest-Challenge`, `X-Trial-Remaining`, `Retry-After`; body ≤ 64 KiB). Errors: `no base`, `invalid path`, `invalid body`, `body too large`, `invalid headers`, `network`, `response too large`. Only a user tap or the page's outbox drain calls it, so a cold start stays zero-egress. Tests: `BasePostTest.kt` (loopback server) |
 
   The `attest.*` ops are local-only too
   ([Free trial](#local-mode-free-trial-bd-med-nt9p3284)). Account-only — the
@@ -1232,8 +1242,8 @@ account has its passkey, and cloud mode never shows or checks it.
    offline, `wg-local-vault` on `<html>`, no network requests in
    `chrome://inspect`.
 2. Add a med, kill and reopen: still there, no first run.
-3. Settings → Reminders → Allow → a reminder fires; its tap opens Meds in
-   local mode.
+3. Settings → Reminders → Allow → a reminder fires; a dose reminder's tap opens
+   that dose's take sheet in local mode.
 4. Save a BYOK key in Settings → AI & integrations: the page reloads once
    and the provider host is in the document CSP (`chrome://inspect`).
 5. Settings → *Sync & backup*: the chip says *Unprotected*, the page shows
