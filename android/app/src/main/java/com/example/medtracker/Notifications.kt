@@ -272,14 +272,19 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             alarms(c).cancel(pi)
             val p = permission(c)
+            val unlocked = c.getSystemService(UserManager::class.java).isUserUnlocked
             val rows = rows(c)
             val now = System.currentTimeMillis() / 1000
             val floor = maxOf(store(c).getLong(POSTED, 0), now - STALE)
             val due = (0 until rows.length()).mapNotNull { rows.optJSONObject(it)?.optLong("fireAtUnix") }.filter { it > floor }
             val next = due.minOrNull()
             // No text, only counts and times: the only trace of a locked-boot arm (bd med-nt9p.57).
-            Log.i("Notifications", "arm permission=$p rows=${rows.length()} next=$next now=$now unlocked=${c.getSystemService(UserManager::class.java).isUserUnlocked}")
-            if (p != "granted" || next == null) return 0
+            Log.i("Notifications", "arm permission=$p notifying=${notifying(c)} exact=${alarms(c).canScheduleExactAlarms()} " +
+                "rows=${rows.length()} next=$next now=$now unlocked=$unlocked")
+            // Before the first unlock the grant checks answer "no" even with both grants (seen on the
+            // API 34 emulator), so a locked boot arms anyway: without the exact-alarm grant the call
+            // throws (caught below), without notifications the post is dropped. BOOT_COMPLETED re-checks.
+            if (p != "granted" && unlocked || next == null) return 0
             // An instant, not a wall-clock time: a time-zone change does not move it.
             val armed = runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi) }
                 .onFailure { Log.w("Notifications", "arm failed", it) }.isSuccess
