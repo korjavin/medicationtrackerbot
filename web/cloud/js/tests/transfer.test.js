@@ -354,6 +354,16 @@ describe('Add a device — AD3 approve with the match code (protocol v2)', () =>
     expect(server.slot.state).toBe('approved');
   });
 
+  it('a code that ends after Approve never says "nobody joined" — the device may have enrolled', async () => {
+    await mountApprove();
+    app.querySelector('#transfer-approve').click();
+    await until(() => text().includes('Finishing on your new device'));
+    await vi.advanceTimersByTimeAsync(600000);
+
+    await until(() => text().includes("couldn't tell if the new device joined"));
+    expect(text()).not.toContain('Nobody joined');
+  });
+
   it('an enrolled device that cannot prove the approved key is flagged, not celebrated', async () => {
     await mountApprove();
     app.querySelector('#transfer-approve').click();

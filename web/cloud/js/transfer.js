@@ -203,8 +203,7 @@ export function renderAddDevice(mount, ctx, onExit) {
       if (remainingMs <= 0) {
         // The server expires the slot itself; deleting it is belt and braces.
         if (flow.live) deleteSlot(flow.slotId).catch(() => {});
-        finish();
-        renderExpired();
+        endWithoutResult(true);
         return;
       }
       // ponytail: no time meter — the cloud JS bans .style writes, and the
@@ -251,9 +250,7 @@ export function renderAddDevice(mount, ctx, onExit) {
     if (!flow.live) return;
     if (res.status === 404) {
       // Gone server-side: expired, swept, or its approving passkey revoked.
-      finish();
-      if (Date.now() >= flow.expiresAt) renderExpired();
-      else renderStopped('ended');
+      endWithoutResult(Date.now() >= flow.expiresAt);
       return;
     }
     if (!res.ok) return;
@@ -445,6 +442,17 @@ export function renderAddDevice(mount, ctx, onExit) {
     bindCancel();
   }
 
+  // The slot ended without us seeing `enrolled`. Before an approve nobody can
+  // have joined; after one, a device may have enrolled just before the end,
+  // so never say "nobody joined" then.
+  function endWithoutResult(expired) {
+    const approveSent = Boolean(flow.s && flow.s.approveSent);
+    finish();
+    if (approveSent) renderUnconfirmed(true);
+    else if (expired) renderExpired();
+    else renderStopped('ended');
+  }
+
   // Bad proof, a changed receiver, or a state we didn't cause: end the slot
   // and say so. Nothing has been released before approval.
   async function abort() {
@@ -557,12 +565,15 @@ export function renderAddDevice(mount, ctx, onExit) {
   }
 
   // Enrolled, but the device didn't prove it holds the approved key.
-  function renderUnconfirmed() {
+  // unknown: the code ended after Approve before we saw the device finish.
+  function renderUnconfirmed(unknown) {
     renderEnd({
-      icon: 'alert', tone: 'danger',
-      title: "We couldn't confirm the new device",
-      lede: "A device joined with this code but didn't prove it is the one you approved. Remove any device you don't recognise in Devices & connectors.",
-      chip: { tone: 'danger', icon: 'alert', text: 'Check your devices' },
+      icon: 'alert', tone: unknown ? 'warn' : 'danger',
+      title: unknown ? "We couldn't tell if the new device joined" : "We couldn't confirm the new device",
+      lede: unknown
+        ? "The code ended after you approved it. Check Devices & connectors and remove any device you don't recognise."
+        : "A device joined with this code but didn't prove it is the one you approved. Remove any device you don't recognise in Devices & connectors.",
+      chip: { tone: unknown ? 'warn' : 'danger', icon: 'alert', text: 'Check your devices' },
       actions: [{ id: 'transfer-done', label: 'Back to devices', primary: true, onClick: onExit }],
     });
   }
