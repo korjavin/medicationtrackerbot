@@ -17,7 +17,8 @@ const MODAL = 'med-confirm-modal';
 
 export default async function remindersOffline(ctx) {
   const { shell, pkg, sleep } = ctx;
-  const r = (ctx.results.reminders = {});
+  const r = (ctx.results.reminders ||= {}); // a retry adds to the first attempt's findings
+  r.attempts = (r.attempts || 0) + 1;
   await shell('svc power stayon true'); // no screen-off keyguard over the shade while a PIN is set
   // Undo local-smoke's pm grant / appops (and a retry's grants), so Enable meets both system screens.
   await shell(`pm revoke ${pkg} android.permission.POST_NOTIFICATIONS`).catch(() => {});
@@ -25,8 +26,8 @@ export default async function remindersOffline(ctx) {
   await shell(`appops set ${pkg} SCHEDULE_EXACT_ALARM default`);
   try {
     let page = await ctx.step('open the account', () => openVault(ctx, r));
-    r.console = [];
-    page.on('console', (m) => { if (r.console.length < 40 && /remind|notif|settings|error/i.test(m.text())) r.console.push(m.text().slice(0, 200)); });
+    r.console ||= [];
+    page.on('console', (m) => { if (r.console.length < 60 && !/stub response/.test(m.text())) r.console.push(m.text().slice(0, 200)); });
 
     await ctx.step('Settings → Notifications → Enable → both system grants → granted', async () => {
       await page.locator('[data-nav-to="settings"]:visible').first().click();
@@ -37,7 +38,7 @@ export default async function remindersOffline(ctx) {
       await toggle.waitFor({ state: 'visible', timeout: 15_000 });
       await page.waitForFunction(() => !document.getElementById('cloud-push-toggle').disabled, null, { timeout: 15_000 });
       await ctx.stableShot('settings-notifications-off');
-      await toggle.click();
+      await page.evaluate(() => document.getElementById('cloud-push-toggle').click()); // a locator click timed out on attempt 2
       r.permission = await grantBoth(ctx);
       try {
         await page.waitForFunction(() => document.getElementById('cloud-push-toggle').dataset.subscribed === '1', null, { timeout: 60_000 });
