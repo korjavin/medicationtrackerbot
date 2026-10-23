@@ -480,3 +480,4 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-matchcode--wait{color:var(--wg-fg-4);min-width:240px}
 .wg-qr--lg{width:184px;height:184px}
 .wg-shell__icon--ok{background:var(--wg-ok-bg);border-color:var(--wg-ok-line);color:var(--wg-ok-fg)}
+.wg-row__lead--warn{background:var(--wg-warn-bg);color:var(--wg-warn-fg)}.wg-row__lead--stale{background:var(--wg-stale-bg);color:var(--wg-stale-fg);border:1px dashed var(--wg-stale-line)}
