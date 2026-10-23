@@ -543,7 +543,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // no scheduled slot, so scheduled_at == taken_at and it gets a random id.
   async function logPast(medicationId, takenAtMs) {
     const meds = await loadMeds();
-    const med = meds.find((m) => m.recordId === medicationId);
+    const med = meds.find((m) => sameMed(m.recordId, medicationId));
     if (!med) throw notFound('medication not found');
 
     const nowMs = now();

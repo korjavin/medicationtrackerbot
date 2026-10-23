@@ -524,6 +524,20 @@ describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0].status).toBe('TAKEN');
         expect((await domain.listWindow())[0].medication_name).toBe('Metformin');
+
+        // logPast finds the med by String id.
+        await expect(domain.logPast(1, SLOT_MS - 86400_000)).resolves.toBeDefined();
+
+        // Reminder horizon: the next-day slot is a medication entry (med found by
+        // String id); the TAKEN slot just logged is not nagged again.
+        const horizon = (intakes) => computeReminderHorizon({
+            medications: [{ ...med(), recordId: '1' }],
+            intakes,
+            timeZone: TZ,
+            now: SLOT_MS - 3600_000
+        }).filter((e) => e.kind === 'medication' && e.fireAtUnix === SLOT_MS / 1000);
+        expect(horizon([])).toHaveLength(1);
+        expect(horizon(await records.listRaw('intake'))).toHaveLength(0);
     });
 
     it('a deleteFutureIntakes tombstone keeps the slot deleted once it comes due', async () => {

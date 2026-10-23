@@ -55,7 +55,7 @@ function normalizeTzShiftPolicy(raw) {
 function lastTakenAtMs(medId, intakes) {
   let max = null;
   for (const i of intakes) {
-    if (i.deleted || i.medication_id !== medId || i.status !== 'TAKEN' || !i.taken_at) continue;
+    if (i.deleted || String(i.medication_id) !== String(medId) || i.status !== 'TAKEN' || !i.taken_at) continue;
     const t = Date.parse(i.taken_at);
     if (max === null || t > max) max = t;
   }

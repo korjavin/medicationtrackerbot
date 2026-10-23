@@ -244,7 +244,7 @@ export function createMedicationsDomain({
   // matching the server's *bool-nil guard.
   async function update(id, input) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const existing = all.find((m) => m.recordId === id && !m.deleted);
+    const existing = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
     if (!existing) throw notFound('medication not found');
 
     const name = (input && input.name ? String(input.name) : '').trim();
@@ -289,7 +289,7 @@ export function createMedicationsDomain({
   // hard-deleted, and only if no intake (of any status) references them.
   async function remove(id) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const med = all.find((m) => m.recordId === id && !m.deleted);
+    const med = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
     if (!med) throw notFound('medication not found');
     if (!med.archived) {
       const err = new Error('Cannot delete active medication. Archive it first.');
@@ -322,7 +322,7 @@ export function createMedicationsDomain({
 
   async function get(id) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const med = all.find((m) => m.recordId === id && !m.deleted);
+    const med = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
     if (!med) return null;
     const intakes = await records.list(INTAKE_RECORD_TYPE);
     return toResponse(med, intakes);
