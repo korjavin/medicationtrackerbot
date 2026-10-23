@@ -165,6 +165,10 @@ describe('aiClient json_schema memory (bd med-kl85)', () => {
       "Unsupported value: 'temperature' does not support 0.2 with this model when response_format is set",
       'Trial model rejected response_format',
       'response_format json_schema: unsupported constraint minLength',
+      'response_format json_schema minLength is not supported',
+      'response_format is not supported for minLength',
+      'This model does not support json_schema minLength',
+      'unsupported response_format pattern',
     ]) expect(isResponseFormatUnsupported(asErr(msg)), msg).toBe(false);
   });
 
@@ -201,6 +205,7 @@ describe('aiClient json_schema memory (bd med-kl85)', () => {
   it.each([
     "Invalid schema for response_format: unsupported keyword 'minLength'",
     'response_format json_schema: unsupported constraint minLength',
+    'response_format json_schema minLength is not supported',
   ])('a schema-contents error retries fenced once but is never remembered: %s', async (message) => {
     const store = memStore();
     global.fetch

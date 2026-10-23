@@ -135,12 +135,16 @@ function isResponseFormatRejection(err) {
 // Anything about schema contents ("Invalid schema for response_format:
 // unsupported keyword 'minLength'", additionalProperties, required, ...) or
 // another parameter (temperature) is ambiguous — retried once, never stored.
-// Positive match is phrase-level: the unsupported thing must BE the
-// response_format / json_schema, not something mentioned near it.
+// Positive match is a closed grammar: the unsupported thing must BE the
+// response_format / json_schema type, optionally "with this model", then the
+// phrase ends. Any other intervening text (a keyword, a constraint) is
+// ambiguous and stays retry-only.
+const FMT = `['"]?(?:response_format|json_schema)['"]?(?: (?:of type |type )?['"]?json_schema['"]?)?(?: type)?`;
+const MODEL_TAIL = `(?: (?:with|for|on|by) (?:this|the) model)?\\s*(?:[.,;!)]|$)`;
 const UNSUPPORTED_FORMAT_PATTERNS = [
-  /(?:does not|doesn't|do not) support (?:the )?['"]?(?:response_format|json_schema)/i,
-  /(?:response_format|json_schema)[^.:;]{0,40}\b(?:(?:is|are) )?not supported/i,
-  /unsupported (?:value: )?['"]?(?:response_format|json_schema)/i,
+  new RegExp(`(?:does not|doesn't|do not) support (?:the )?${FMT}${MODEL_TAIL}`, 'i'),
+  new RegExp(`${FMT} (?:(?:is|are) )?not supported${MODEL_TAIL}`, 'i'),
+  new RegExp(`unsupported (?:value: )?${FMT}${MODEL_TAIL}`, 'i'),
 ];
 export function isResponseFormatUnsupported(err) {
   const msg = String((err && err.message) || '');
