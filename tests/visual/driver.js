@@ -207,8 +207,26 @@
             // the card reads with step.trial as the trial status. Scenes using
             // it run last, since the stub stays for the rest of the run.
             const status = step.trial;
-            if (window.CloudVault && window.CloudVault.trial) window.CloudVault.trial.status = async () => status;
+            if (window.CloudVault && window.CloudVault.trial) {
+                window.CloudVault.trial.status = async () => status;
+            } else if (!document.querySelector('meta[name="medtracker-trial-ai"]')) {
+                // Account mode (the cloud pass): the server advertises the
+                // operator trial with this flag only when it has a trial key,
+                // and the visual cloud server has none.
+                const meta = document.createElement('meta');
+                meta.name = 'medtracker-trial-ai';
+                meta.content = '1';
+                document.head.appendChild(meta);
+            }
             window.SettingsIntegrations.trialOffer = async () => status.on !== true;
+        } else if (step.noAIKey) {
+            // The seed vault has its own OpenAI key, which hides the Settings
+            // trial offer: answer the integrations read with that key blank.
+            // The vault itself keeps the key.
+            const call = window.apiCall;
+            window.apiCall = (endpoint, method, ...rest) => (endpoint === '/api/settings/integrations' && (!method || method === 'GET')
+                ? call(endpoint, method, ...rest).then((p) => (p && p.openai ? { ...p, openai: { ...p.openai, api_key: '' } } : p))
+                : call(endpoint, method, ...rest));
         } else if (step.kitNudge) {
             // The Emergency Kit nudge (bd med-ta2n.15) waits 2 days after
             // sign-in, and the cloud pass signs in fresh: answer the card's
