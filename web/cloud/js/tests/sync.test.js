@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -1818,6 +1818,183 @@ describe('write-error retry budget wedges a doomed batch, resetLocalSync un-wedg
     // The local mirror now matches the server snapshot, not the pre-reset state.
     expect((await listRecords(ctx, 'note')).map((r) => r.recordId)).toEqual([]);
     expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+  });
+});
+
+// med-wi09.5 — the server's writer gate answers 426 to a too-old build. That is
+// "reload", not "reset": pushes pause, pulls continue, the queue is kept (and
+// exports), nothing spends the write-error budget, and the reloaded build
+// re-posts the queued write unchanged.
+describe('a 426 from the writer gate asks for a reload, never wedges (med-wi09.5)', () => {
+  let ctx;
+
+  const seed = async ({ records = [], meta = { localLastSeq: 0 } } = {}) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+        for (const r of records) {
+          tx.objectStore('records').put(r);
+          tx.objectStore('pending').put({ recordId: r.recordId, recordType: r.recordType });
+        }
+        for (const [k, v] of Object.entries(meta)) tx.objectStore('sync_meta').put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const queued = { recordId: 'note-q', recordType: 'note', clientTs: 5, deleted: false, text: 'queued offline' };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('pauses pushes, keeps pulling, keeps + exports the queue, shows the reload hint; the reload re-posts it unchanged', async () => {
+    await seed({ records: [queued] });
+    let opsPosts = 0;
+    let opsGets = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        opsPosts++;
+        return new Response('update required', { status: 426 });
+      }
+      if (u.startsWith('/api/sync/ops?')) {
+        opsGets++;
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    // More opens than the write-error budget: a 426 must never wedge.
+    for (let i = 0; i < 5; i++) await pullOnOpen(ctx);
+
+    expect(opsPosts).toBe(1); // paused after the first refusal this page load
+    expect(opsGets).toBe(5); // pulls keep running
+    const status = await getSyncStatus(ctx);
+    expect(status.updateRequired).toBe(true);
+    expect(status.wedged).toBe(false);
+    expect(status.writeError).toBeNull();
+    expect(status.offline).toBe(false);
+    expect(status.pendingCount).toBe(1);
+    const line = await describeSyncStatus(ctx);
+    expect(line).toContain('Update required — reload to keep syncing');
+    expect(line).not.toMatch(/reset local sync/i);
+    // Settings → Export reads the raw store, which still holds the queued row.
+    expect((await readAllRawRecords(ctx)).map((r) => r.recordId)).toContain('note-q');
+
+    // Reload: a fresh module (the new build) re-posts the queue as-is.
+    vi.resetModules();
+    const reloaded = await import('../sync.js');
+    let posted = null;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        posted = JSON.parse(init.body).ops;
+        return new Response(JSON.stringify({ assigned: [1] }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    await reloaded.pullOnOpen(ctx);
+    expect(posted).toHaveLength(1);
+    expect(posted[0].record_type_tag).toBe('note:note-q');
+    const plain = await decryptRecord({
+      kData: ctx.kData, accountId, recordType: 'note', recordId: 'note-q', seq: 1,
+      nonce: fromBase64(posted[0].nonce), ct: fromBase64(posted[0].ct),
+    });
+    const { recordType: _t, ...wire } = queued;
+    expect(JSON.parse(new TextDecoder().decode(plain))).toEqual(wire);
+    const after = await reloaded.getSyncStatus(ctx);
+    expect(after.pendingCount).toBe(0);
+    expect(after.updateRequired).toBe(false);
+  });
+
+  it('a write that hits 426 fires the update-required surface once', async () => {
+    await seed();
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('document', new EventTarget());
+    vi.stubGlobal('navigator', { onLine: true });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') return new Response('', { status: 426 });
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    let surfaced = 0;
+    const teardown = startReconnectAutoDrain(ctx, { onUpdateRequired: () => { surfaced++; } });
+    try {
+      await writeRecord(ctx, 'note', { recordId: 'note-w', clientTs: 1, deleted: false, text: 'x' });
+      expect(await flushConfirmed(ctx)).toBe(false);
+      await writeRecord(ctx, 'note', { recordId: 'note-w2', clientTs: 2, deleted: false, text: 'y' });
+      await flushConfirmed(ctx);
+      expect(surfaced).toBe(1);
+      expect((await getSyncStatus(ctx)).pendingCount).toBe(2);
+    } finally {
+      teardown();
+    }
+  });
+
+  it('a forced import snapshot waits for the reload once the gate answered, keeping its marker', async () => {
+    await seed({ records: [queued] });
+    let posts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (init?.method === 'POST') {
+        posts++;
+        return new Response('', { status: 426 });
+      }
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    await flushConfirmed(ctx); // the ordinary op push learns the gate
+    expect(posts).toBe(1);
+    expect(await forceSnapshot(ctx)).toBe('retrying');
+    await pullOnOpen(ctx); // a reconnect drain must not re-post the bump either
+    expect(posts).toBe(1);
+    const status = await getSyncStatus(ctx);
+    expect(status.snapshotError).toBeNull();
+    expect(status.updateRequired).toBe(true);
+  });
+
+  it('a 426 on the snapshot POST records no snapshot error', async () => {
+    await seed({ meta: { localLastSeq: 500, lastSnapshotSeq: 0 } });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') return new Response('', { status: 426 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    await pullOnOpen(ctx);
+    const status = await getSyncStatus(ctx);
+    expect(status.updateRequired).toBe(true);
+    expect(status.snapshotError).toBeNull();
+    expect(await describeSyncStatus(ctx)).not.toContain('Vault too large to sync');
+  });
+
+  it('other permanent 4xx keep today\'s write-error behaviour', async () => {
+    await seed({ records: [queued] });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') return new Response('', { status: 400 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    for (let i = 0; i < 3; i++) await flushConfirmed(ctx);
+    const status = await getSyncStatus(ctx);
+    expect(status.updateRequired).toBe(false);
+    expect(status.wedged).toBe(true);
+    expect(await describeSyncStatus(ctx)).toMatch(/reset local sync/i);
   });
 });
 
