@@ -216,6 +216,30 @@ export const PRIVACY_MANIFEST = [
     },
   },
   {
+    // med-r1j2.1: the add-a-device hand-off (protocol v2) sends a coarse
+    // platform label so the origin can say "<platform> wants to join"; it is
+    // kept on the enrolled credential for the devices list. Enum only — no
+    // device name, model or user agent.
+    id: 'device-platform-label',
+    feature: 'Device platform label',
+    boundary: 'carve-out',
+    data: 'Whether a device you added with a code is a web browser, an Android phone or an iPhone (`web` / `android` / `ios`) — never its name, model or browser',
+    destination: 'The operator, stored with that device\'s passkey record',
+    operatorVisibility: 'metadata',
+    retention: 'Until you remove that device; the hand-off slot carrying it is deleted within ten minutes',
+    activation: 'user-initiated',
+    activationNote: 'only when you add a device with a code from another device',
+    byo: 'n/a',
+    evidence: ['internal/cloudserver/transfer.go:41', 'internal/cloudserver/device.go:47'],
+    code: { go: [], hosts: [] },
+    docSignal: 'Device platform label',
+    userCopy: {
+      category: 'visible',
+      title: 'What kind of device you added',
+      detail: 'When you add a device with a code, the operator records whether it is a web browser, an Android phone or an iPhone, so your devices list can tell them apart. Nothing more specific — no device name, model or browser version.',
+    },
+  },
+  {
     id: 'sync-metadata',
     feature: 'Sync cadence, blob sizes, IPs',
     boundary: 'carve-out',
