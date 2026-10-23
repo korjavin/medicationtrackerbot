@@ -75,10 +75,10 @@ jobs:
           xcodegen generate
           xcodebuild -version
 
-      - name: Check first-run link parsing, local-origin routing, the local lock, reminder paths, the diagnostics log and base.post
+      - name: Check first-run link parsing, local-origin routing, the local lock, reminder paths, the diagnostics log, base.post and the push wake
         working-directory: ios
         run: |
-          swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
+          swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift App/Push.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
           "$RUNNER_TEMP/accounturl-check"
 
       # build-for-testing: the app plus the MedTrackerUITests bundle (bd
@@ -181,6 +181,10 @@ jobs:
           security cms -D -i "$PROFILE" > "$RUNNER_TEMP/profile.plist"
           UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
           NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          # Native push (bd med-erq1.4): the profile's aps-environment, empty
+          # while the App ID has no Push capability (owner bead med-erq1.7).
+          APS="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$RUNNER_TEMP/profile.plist" 2>/dev/null || true)"
+          echo "IOS_APS_ENV=$APS" >> "$GITHUB_ENV"
           # Xcode 16+ reads the first directory, older Xcode the second.
           for d in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
             mkdir -p "$d"
@@ -197,6 +201,15 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          # Native push (bd med-erq1.4): aps-environment only when the profile
+          # carries it — signing an entitlement the profile lacks fails the
+          # archive. Without it the app runs, push.token just answers null.
+          if [ -n "$IOS_APS_ENV" ]; then
+            /usr/libexec/PlistBuddy -c "Add :aps-environment string $IOS_APS_ENV" App/MedTracker.entitlements
+            echo "aps-environment $IOS_APS_ENV"
+          else
+            echo "::notice::The App Store profile has no Push capability: built without aps-environment, push.token answers null (owner bead med-erq1.7)"
+          fi
           # The archive gets no Apple account at all, so it cannot create a
           # certificate or profile; it signs with the imported identity only.
           xcodebuild archive -project MedTracker.xcodeproj -scheme MedTracker \

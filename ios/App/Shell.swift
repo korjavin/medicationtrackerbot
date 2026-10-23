@@ -280,6 +280,47 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     func didBecomeActive() {
         let setting = UserDefaults.standard.bool(forKey: LocalLock.settingKey)
         if let attempt = lock.activate(local: local, setting: setting) { authenticate(attempt) }
+        // Notifications newly allowed (the reminders Enable's system prompt, or
+        // iOS Settings): the token arrives and the page hears 'token' (bd med-erq1.4).
+        Task { await registerPush() }
+    }
+
+    // MARK: native push (bd med-erq1.4, Push.swift; twin of Android med-erq1.5)
+
+    /// The APNs device token (hex), from QuickAction's didRegister. Memory
+    /// only: iOS hands it over again on every registration.
+    private var pushToken: String?
+
+    /// Account mode with notifications allowed: ask iOS for the token. Local
+    /// mode never registers (checked again after the await). Returns whether it asked.
+    @discardableResult
+    func registerPush() async -> Bool {
+        guard !local, await Notifications.shared.permission() == "granted", !local else { return false }
+        UIApplication.shared.registerForRemoteNotifications()
+        return true
+    }
+
+    /// didRegisterForRemoteNotificationsWithDeviceToken: a first or changed
+    /// token tells the page to register it again.
+    func pushRegistered(_ token: String) {
+        guard token != pushToken else { return }
+        pushToken = token
+        diag("shell push token \(Push.fingerprint(token))")
+        pushEvent("token")
+    }
+
+    /// Document event wg:native-push {kind} on this account's page whose vault
+    /// is unlocked; `done` gets whether the page took it, exactly once: a page
+    /// that does not answer within Push.answer counts as not taking it.
+    func pushEvent(_ kind: String, done: @escaping (Bool) -> Void = { _ in }) {
+        guard !local, showingAccount, loadError == nil, let js = Push.event(kind) else { return done(false) }
+        var pending: ((Bool) -> Void)? = done
+        let finish = { (took: Bool) in
+            pending?(took)
+            pending = nil
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Push.answer) { finish(false) }
+        webView.evaluateJavaScript(js) { result, _ in finish(result as? Bool == true) }
     }
 
     /// The lock screen's Unlock button.
@@ -578,6 +619,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         case "move.clear" where !local:
             move.clear()
             replyHandler(true, nil)
+        // Native push (bd med-erq1.4, account mode only): {platform, token}, or
+        // null without the notification grant or before APNs answered — the
+        // 'token' event follows once it does.
+        case "push.token" where !local:
+            Task {
+                let asked = await registerPush()
+                guard asked, !local, let t = pushToken else { return replyHandler(NSNull(), nil) }
+                replyHandler(["platform": "ios", "token": t], nil)
+            }
         // The account → local move (bd med-o7zq.36), the reverse of move.*: the
         // account page stashes its vault v1 JSON before account.leave {then:
         // "local"}; the local page takes it and clears it once restored. Same

@@ -486,7 +486,9 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     const wakes = [];
     return {
       wakes,
-      fire: (kind) => wakes.forEach((fn) => fn(kind)),
+      // Whether some listener took the kind: native/push-token.js turns that
+      // into the event's preventDefault, the shell's receipt (bd med-erq1.4).
+      fire: (kind) => wakes.map((fn) => fn(kind)).includes(true),
       install: (window) => {
         window.NativePush = { isSupported: () => true, token: async () => ({ platform: 'android', token: 't' }), onWake: (fn) => wakes.push(fn) };
       },
@@ -502,22 +504,22 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     expect(drains).toBe(1); // the boot-time drain
     const base = boot.recomputes();
 
-    np.fire('inbox-wake');
+    expect(np.fire('inbox-wake')).toBe(true);
     await flush();
     expect(drains).toBe(2);
     expect(boot.recomputes()).toBe(base + 1); // afterApply, as for the SW wake
     expect(boot.acks).toEqual([]); // no ack port on the native path
 
-    np.fire('dry-queue');
+    expect(np.fire('dry-queue')).toBe(true);
     await flush();
     expect(drains).toBe(2); // a refill nudge is not a drain
     expect(boot.recomputes()).toBe(base + 2);
 
-    np.fire('token');
+    expect(np.fire('token')).toBe(true);
     await flush();
     expect(boot.tokenRegisters()).toBe(2);
 
-    np.fire('something-else');
+    expect(np.fire('something-else')).toBe(false); // not taken: the shell's fallback shows
     await flush();
     expect(drains).toBe(2);
     expect(boot.recomputes()).toBe(base + 2);

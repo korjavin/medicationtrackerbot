@@ -60,6 +60,9 @@ targets:
         # App/Attest.swift); the App ID has the capability and the App Store
         # profile carries it.
         com.apple.developer.devicecheck.appattest-environment: production
+        # No aps-environment here (native push, bd med-erq1.4): the archive step
+        # in ios.yml adds it only when the App Store profile carries Push (owner
+        # bead med-erq1.7), so a profile without it still signs.
     info:
       path: App/Info.plist
       properties:
@@ -81,6 +84,8 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Portrait-only is legal for iPad only with full screen (App Store 90474).
         UIRequiresFullScreen: true
+        # Native push's content-available wake (bd med-erq1.4, App.swift QuickAction).
+        UIBackgroundModes: [remote-notification]
         ITSAppUsesNonExemptEncryption: false
         # Home Screen quick action (bd med-w6gx.24, App.swift QuickAction).
         UIApplicationShortcutItems:

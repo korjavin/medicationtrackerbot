@@ -665,13 +665,17 @@ window.MedTrackerCloudReady = (async function boot() {
                 .then(({ registerNativePushTokenWithRetry }) => registerNativePushTokenWithRetry())
                 .catch((e) => console.error('[cloud-boot] native push token register failed', e));
             registerToken();
+            // true = taken: the shell then shows no fallback notification (bd med-erq1.4).
             window.NativePush.onWake((kind) => {
-                if (kind === 'token') registerToken();
-                else if (kind === 'dry-queue') {
-                    import('/js/reminders.js')
-                        .then(({ recomputeAndPush }) => recomputeAndPush(ctx))
-                        .catch((e) => console.error('[cloud-boot] dry-queue reminder recompute failed', e));
+                if (kind === 'token') {
+                    registerToken();
+                    return true;
                 }
+                if (kind !== 'dry-queue') return false;
+                import('/js/reminders.js')
+                    .then(({ recomputeAndPush }) => recomputeAndPush(ctx))
+                    .catch((e) => console.error('[cloud-boot] dry-queue reminder recompute failed', e));
+                return true;
             });
         }
 
@@ -756,9 +760,15 @@ window.MedTrackerCloudReady = (async function boot() {
                     });
                 }
                 // The app shells' APNs/FCM inbox-wake (bd med-erq1.3): the same
-                // drain. No ack port — the shell decides on its own whether to
-                // show its fallback notification.
-                if (nativePush) window.NativePush.onWake((kind) => { if (kind === 'inbox-wake') wakeDrain(); });
+                // drain. Returning true is the receipt (the event's
+                // preventDefault): the iOS shell then shows no fallback alert.
+                if (nativePush) {
+                    window.NativePush.onWake((kind) => {
+                        if (kind !== 'inbox-wake') return false;
+                        wakeDrain();
+                        return true;
+                    });
+                }
 
                 // ...and subscribe to the server's content-free SSE wake (bd
                 // med-j0tc): the same instant drain as the push above, but with

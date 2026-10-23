@@ -18,8 +18,6 @@ const ANDROID = path.join(ANDROID_DIR, fs.readdirSync(ANDROID_DIR, { recursive: 
 const PLATFORM_ONLY = {
     chrome: 'Android system bars',
     'clipboard.read': 'Android: WebView has no clipboard-read permission UI; iOS and the web read navigator.clipboard from the tap',
-    // Account-mode op on both shells once the iOS twin lands; drop this entry with med-erq1.4.
-    'push.token': 'Android FCM shipped first (med-erq1.5); the iOS APNs twin is deferred, med-erq1.4',
 };
 
 // { op: group } from `<name> = [ ... ]` (Swift) or `<name> = setOf( ... )` (Kotlin).
