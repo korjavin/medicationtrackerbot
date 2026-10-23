@@ -406,6 +406,10 @@ describe('app.js medication, history and intake flows', () => {
       expect(pendingRow.dataset.occIds).toBe('101');
       expect(pendingRow.textContent).toContain('Magnesium');
       expect(pendingRow.textContent).not.toContain('Aspirin');
+
+      // Let refreshMedsAfterMutation's floating loadMeds().then() settle
+      // before the window closes.
+      await new Promise((resolve) => setTimeout(resolve, 50));
     } finally {
       cleanup();
     }
