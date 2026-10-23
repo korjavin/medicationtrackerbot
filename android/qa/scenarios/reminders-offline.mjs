@@ -1,17 +1,23 @@
 // Reminders and offline on the emulator (bd med-nt9p.55), so the phone keeps only what an emulator
-// cannot show (real-OEM doze, reboot, Google Password Manager, Play referrer, Health Connect data):
+// cannot show (real-OEM doze, Google Password Manager, Play referrer, Health Connect data):
 // 1. Settings → Notifications → Enable walks both system grants through UiAutomator (the
 //    POST_NOTIFICATIONS prompt, then Alarms & reminders) → 'granted'.
 // 2. A med due in ~2 min → the app process killed → the notification is posted anyway.
 // 3. Its tap opens that dose's take sheet (bd med-nt9p.52: row url → ReminderPath → handleDeepLinks).
 // 4. Offline cold start: airplane mode, force-stop, relaunch → the account renders from the SW.
+// 5. Last (bd med-nt9p.57; the reboot kills the UiAutomator driver): rows moved back to credential-
+//    encrypted prefs migrate to device-protected storage on the next start; then a med due in ~4 min,
+//    a PIN, reboot → posted while still locked; the PIN unlocks → no second post, an alarm armed.
 // The locked tap (local mode's app lock) is not covered yet: see the ponytail note at its place.
 // In `all` it runs after smoke and reopens smoke's account; dispatched alone it claims the invite.
 // "Killed" is HOME + am kill (+ kill -9), not am force-stop: Android drops a force-stopped app's alarms.
 // results.reminders = { permission: 'ui' | 'pm-grant/appops fallback: …', … } in qa-summary.json.
+import { execFile } from 'node:child_process';
 import { claimAccount, waitForVault } from './smoke.mjs';
 
 const MODAL = 'med-confirm-modal';
+// Device-protected storage (bd med-nt9p.57); run-as starts in the credential-encrypted data dir.
+const DE_ROWS = `/data/user_de/0/${process.env.QA_PKG || 'com.example.medtracker'}/shared_prefs/reminders.xml`;
 
 export default async function remindersOffline(ctx) {
   const { shell, pkg, sleep } = ctx;
@@ -103,6 +109,9 @@ export default async function remindersOffline(ctx) {
       }
     });
 
+    await ctx.step('upgrade moves the rows to device-protected storage; after a reboot a reminder posts before the first unlock', () =>
+      rebootLocked(ctx, page, (r.reboot = {})));
+
     // ponytail: no locked-tap step (the local-mode app lock + a reminder tap while locked). Turning the
     // lock on needs the system credential screen. In runs 39924844133 / 39930468307, `locksettings
     // set-pin` + lock.set left the focus on the ImmersiveModeConfirmation window, so the PIN keys
@@ -110,7 +119,7 @@ export default async function remindersOffline(ctx) {
     // 45-min job timeout, even past bounded waits. Follow-up bead: dismiss the immersive notice
     // (`settings put secure immersive_mode_confirmations confirmed`) and find the stall.
   } finally {
-    await shell('svc power stayon false');
+    await adb(['shell', 'svc power stayon false']); // the reboot step closed ctx.shell's device
   }
 }
 
@@ -175,21 +184,99 @@ async function grantBoth(ctx, out) {
   return notes.length ? `pm-grant/appops fallback: ${notes.join('; ')}` : 'ui';
 }
 
-/** A daily med at the next whole minute ≥ 90 s ahead (device zone), and its row in the shell's store. */
-async function addDueMed(ctx, page, out) {
+/**
+ * The upgrade migration, then the last step (the reboot closes Playwright's AndroidDevice, so it
+ * runs on the adb CLI and nothing may follow it). bd med-nt9p.57: the receivers are direct-boot aware and the rows
+ * live in device-protected storage, so a reminder due after a reboot posts before the first unlock.
+ */
+async function rebootLocked(ctx, page, out) {
+  const { shell, pkg, sleep } = ctx;
+  // Upgrade path first (the current Play build kept the rows in credential-encrypted prefs): move the
+  // file back there with the app dead; the next process moves it to device-protected storage again.
+  // postedThrough tells the migrated file from a fresh schedule (schedule() never writes it).
+  await killApp(ctx);
+  const before = await shell(`run-as ${pkg} cat ${DE_ROWS}`);
+  const posted = (before.match(/name="postedThrough" value="(\d+)"/) || [])[1];
+  if (!posted) throw new Error(`no postedThrough in the stored rows: ${before.slice(0, 300)}`);
+  await shell(`run-as ${pkg} mv ${DE_ROWS} shared_prefs/reminders.xml`);
+  await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
+  const end = Date.now() + 90_000;
+  for (;;) {
+    const de = await shell(`run-as ${pkg} cat ${DE_ROWS}`).catch(() => '');
+    const ce = await shell(`run-as ${pkg} ls shared_prefs`).catch(() => '');
+    if (de.includes(`name="postedThrough" value="${posted}"`) && !ce.includes('reminders.xml')) break;
+    if (Date.now() > end) throw new Error(`not migrated: de=${de.slice(0, 200)} ce=${ce}`);
+    await sleep(2000);
+  }
+  out.migrated = true;
+
+  page = await ctx.attachPage();
+  if (!page) throw new Error('no WebView page after the migration launch');
+  await waitForVault(page);
+  const med = await addDueMed(ctx, page, out, 240_000); // past the reboot (~1–2 min on the CI emulator)
+  // From here the adb CLI: the reboot closes Playwright's AndroidDevice, ctx.shell included.
+  const adbShell = (cmd) => adb(['shell', cmd]);
+  const user = async () => ((await adbShell('dumpsys user')).match(/State: (\w+)/) || [])[1] || 'unknown';
+  await adbShell('locksettings set-pin 1234');
+  try {
+    await adb(['reboot']);
+    await sleep(20_000);
+    for (const stop = Date.now() + 240_000; ; await sleep(3000)) {
+      if ((await adbShell('getprop sys.boot_completed')) === '1') break;
+      if (Date.now() > stop) throw new Error('the emulator did not come back from the reboot');
+    }
+    out.userAtBoot = await user();
+    await sleep(10_000); // LOCKED_BOOT_COMPLETED → Rearm
+    out.armLog = (await adbShell('logcat -d -s Notifications:*')).split('\n').slice(-6);
+    out.alarmAtBoot = (await adbShell(`dumpsys alarm | grep -A2 ${pkg}`)).split('\n').slice(0, 12);
+    if (out.userAtBoot !== 'RUNNING_LOCKED') throw new Error(`not locked after the reboot: ${out.userAtBoot}`);
+    // The reboot emptied the shade. Locked, the alarm is inexact (≤ ~3/4 of the lead late): 6 min.
+    await waitNotification({ ...ctx, shell: adbShell }, med, med.name, out, 0, 6);
+    out.postLog = (await adbShell('logcat -d -s Notifications:*')).split('\n').slice(-4);
+    out.userAtPost = await user();
+    if (out.userAtPost !== 'RUNNING_LOCKED') throw new Error(`posted only after the unlock: ${out.userAtPost}`);
+    // The first unlock: the bouncer takes the PIN as key input.
+    for (let i = 0; i < 5 && (await user()) !== 'RUNNING_UNLOCKED'; i++) {
+      await adbShell('input keyevent KEYCODE_WAKEUP');
+      await adbShell('wm dismiss-keyguard');
+      await sleep(1500);
+      await adbShell('input text 1234');
+      await adbShell('input keyevent KEYCODE_ENTER');
+      await sleep(5000);
+    }
+    out.userAfterUnlock = await user();
+    if (out.userAfterUnlock !== 'RUNNING_UNLOCKED') throw new Error(`the PIN did not unlock: ${out.userAfterUnlock}`);
+    await sleep(5000); // BOOT_COMPLETED re-arms: it must not post the reminder again
+    out.afterUnlock = Number(await adbShell(`dumpsys notification --noredact | grep -c "${med.name}"`)) || 0;
+    out.alarmAfterUnlock = await adbShell('dumpsys alarm | grep -c "Notifications.Fire"');
+    out.unlockLog = (await adbShell('logcat -d -s Notifications:*')).split('\n').slice(-3);
+    if (out.afterUnlock !== out.notificationLines) throw new Error(`${out.afterUnlock} "${med.name}" notification lines after the unlock, ${out.notificationLines} at the post: posted twice or gone`);
+    if (!(Number(out.alarmAfterUnlock) > 0)) throw new Error('no alarm armed for the next reminder');
+  } finally {
+    await adbShell('locksettings clear --old 1234');
+  }
+}
+
+/** The adb CLI's stdout, trimmed; '' on failure (device offline mid-reboot, grep -c's exit 1). */
+async function adb(args) {
+  return new Promise((resolve) => execFile('adb', args, { timeout: 60_000 }, (_e, stdout) => resolve(String(stdout || '').trim())));
+}
+
+/** A daily med at the next whole minute ≥ `lead` ms ahead (device zone), and its row in the shell's store. */
+async function addDueMed(ctx, page, out, lead = 90_000) {
   const name = `QA Reminder ${Date.now() % 1_000_000}`;
-  const due = await page.evaluate(async (n) => {
-    const slot = Math.ceil((Date.now() + 90_000) / 60_000) * 60_000;
+  const due = await page.evaluate(async ([n, lead]) => {
+    const slot = Math.ceil((Date.now() + lead) / 60_000) * 60_000;
     const d = new Date(slot);
     const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     await window.apiCall('/api/medications', 'POST', { name: n, dosage: '5mg', schedule: JSON.stringify({ type: 'daily', times: [hhmm] }) });
     return { slotUnix: slot / 1000, hhmm };
-  }, name);
+  }, [name, lead]);
   Object.assign(out, { name, ...due });
   // The reminder recompute is debounced (2 s): poll the shell's stored rows for this slot.
   const end = Date.now() + 30_000;
   for (;;) {
-    const rows = await ctx.shell(`run-as ${ctx.pkg} cat shared_prefs/reminders.xml`).catch(() => '');
+    const rows = await ctx.shell(`run-as ${ctx.pkg} cat ${DE_ROWS}`).catch(() => '');
     if (rows.includes(String(due.slotUnix)) && rows.includes('medication_confirm')) break;
     if (Date.now() > end) throw new Error(`no stored row at ${due.slotUnix} (${due.hhmm}): ${rows.slice(0, 300)}`);
     await ctx.sleep(1000);
@@ -211,15 +298,18 @@ async function killApp(ctx) {
   if (await shell(`pidof ${pkg}`).catch(() => '')) throw new Error('the app process is still alive');
 }
 
-/** Polls the notification service for `text` until the slot + 3 min. */
-async function waitNotification(ctx, med, text, out) {
+/**
+ * Polls the notification service for `text` until the slot + 3 min; returns its dumpsys line count once
+ * posted. `before`: the count before the post (default now — the slot is still ahead, ≥ 90 s at add).
+ */
+async function waitNotification(ctx, med, text, out, before, lateMin = 3) {
   const count = async () => Number((await ctx.shell(`dumpsys notification --noredact | grep -c "${text}"`).catch(() => '0')) || 0);
-  const before = (out.notificationsBefore = await count()); // the slot is still ahead (≥ 90 s at add)
-  const end = med.slotUnix * 1000 + 180_000;
+  out.notificationsBefore = before ??= await count();
+  const end = med.slotUnix * 1000 + lateMin * 60_000;
   for (;;) {
     const n = await count();
-    if (n > before) break;
-    if (Date.now() > end) throw new Error(`no "${text}" notification by ${med.hhmm} + 3 min`);
+    if (n > before) { out.notificationLines = n; break; }
+    if (Date.now() > end) throw new Error(`no "${text}" notification by ${med.hhmm} + ${lateMin} min`);
     await ctx.sleep(5000);
   }
   out.postedLateS = Math.round(Date.now() / 1000 - med.slotUnix);
