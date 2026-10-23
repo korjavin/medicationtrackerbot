@@ -201,6 +201,24 @@
                 ui.email.value = 'name@example.com';
                 ui.send.click();
             }
+        } else if (step.localFeedback) {
+            // Settings → Send feedback in local mode (bd med-ta2n.20) mounts
+            // only where the shell has App Attest and base.post, which no QA
+            // pass has: answer both for this document and run the app's own
+            // mount. Nothing leaves the page until a Send, which no scene taps.
+            const native = window.LocalNotifications && window.LocalNotifications.__native;
+            if (!native) throw new Error('localFeedback: no shell bridge');
+            const has = native.has;
+            native.has = (op) => (op === 'base.post' ? Promise.resolve(true) : has(op));
+            window.Attest = {
+                isSupported: () => true,
+                status: async () => ({ supported: true, base: 'app.example.com', attested: false }),
+            };
+            const policy = await import('/js/local-policy.js');
+            if (!(await policy.mountLocalFeedback({ win: window }))) throw new Error('localFeedback: not mounted');
+            // The row sits in the last Settings slot: bring it on screen.
+            const row = document.getElementById('feedback-launcher');
+            if (row) row.scrollIntoView({ block: 'center' });
         } else if (step.trial) {
             // The AI-trial card (kit A1) has no natural state on CI either (no
             // App Attest, and the seed vault has its own OpenAI key): stub what

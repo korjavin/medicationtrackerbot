@@ -838,8 +838,8 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'On-device mode (iPhone and Android apps) — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); and, through the app shell rather than the page, an invite request or feedback you send (the invite-request row)',
-    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls. Telegram is a sync feature; local mode offers it and routes to Turn on sync',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below); and, through the app shell rather than the page, an invite request or feedback you send (the invite-request and local-feedback rows)',
+    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on, and our server for an invite request or feedback you send, which the app shell posts (never the page). The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls. Telegram is a sync feature; local mode offers it and routes to Turn on sync',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
@@ -851,7 +851,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request (the app itself sends it, not the page). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key and sharing need a cloud account. Telegram needs sync: the app offers it and routes to Turn on sync.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls) or send an invite request or feedback (the app itself sends them, not the page). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key and sharing need a cloud account. Telegram needs sync: the app offers it and routes to Turn on sync.',
     },
   },
   {
@@ -931,6 +931,33 @@ export const PRIVACY_MANIFEST = [
       category: 'visible',
       title: 'On-device mode: free trial voice calls, if you turn them on',
       detail: 'If you turn on the free trial in on-device mode, voice calls run on the operator\'s ElevenLabs account: your voice audio and its transcript go to it, and the agent\'s answers are written by the operator\'s AI provider account through our server, which receives each turn and the health data the agent reads from this phone to answer you. You get a limited number of free minutes of calls on this phone, with a daily limit (the operator sets both); each call uses its full length limit when it starts. Our server keeps no call content — only how many seconds of calls this phone\'s anonymous trial has used. With the trial off, the app calls neither our server nor ElevenLabs.',
+    },
+  },
+  {
+    // bd med-ta2n.19 (server: POST /api/attest/feedback) + med-ta2n.20 (client:
+    // local-policy.js swaps feedback-submit.js's transport for the attest
+    // client). Same age recipient and feedback_queue as the cloud 'feedback'
+    // row; the row's account_id is 'attest:' + the bucket id. The shell
+    // POSTs it (bridge op base.post, med-ta2n.24); the CSP is unchanged and
+    // the local-egress row names this send.
+    id: 'local-feedback',
+    mode: 'local',
+    feature: 'On-device mode (iPhone and Android apps) — feedback you send',
+    boundary: 'carve-out',
+    data: 'What you type plus any screenshot or voice note, age-encrypted on the phone to the developer\'s key; the app version; your install\'s attestation key id',
+    destination: 'The operator\'s server (stores the ciphertext blindly), then the developer offline',
+    operatorVisibility: 'ciphertext',
+    retention: 'Until the developer drains the queue',
+    activation: 'user-initiated',
+    activationNote: 'when you tap Send in Settings → Send feedback; the first send on an install without a key enrolls one — the app check only; it does not use or spend the free trial',
+    byo: 'n/a',
+    evidence: ['web/cloud/js/feedback-submit.js:195', 'web/cloud/js/local-policy.js:486', 'web/cloud/js/local-policy.js:516', 'web/cloud/js/local-boot.js:85', 'internal/cloudserver/attest.go:331'],
+    code: { go: ['internal/cloudserver/attest.go'], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'visible',
+      title: 'On-device mode: feedback you send',
+      detail: 'Feedback you send from the on-device app is encrypted on this phone to the developer\'s key and goes through our server, which stores it without being able to read it; the developer can, including any screenshot or voice note you attach. It carries no account, but it is signed with this app install\'s anonymous key (the same app check as the free trial), so the operator can tell two messages came from the same install. The app version travels unencrypted. Nothing else from your log leaves the phone.',
     },
   },
   {

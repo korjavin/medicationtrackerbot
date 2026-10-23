@@ -2869,3 +2869,349 @@ describe('Kit nudge status (cloud router, real store, fake clock)', () => {
         expect(await localRecordsPort().list('protection')).toEqual([]);
     });
 });
+
+// bd med-ta2n.20 — feedback in local mode: the cloud's launcher and outbox,
+// sealed to the recipient from the attest challenge JSON and drained to the
+// attested POST /api/attest/feedback (server: med-ta2n.19), every request sent
+// by the shell (bridge op base.post, med-ta2n.24 §A/§B3) — never a page fetch.
+// Only a Send asks our server anything; the key it enrolls is feedback-only
+// (trial: false, med-ta2n.25).
+describe('local-only mode feedback (med-ta2n.20)', () => {
+    const TRIAL_BASE = 'trial-base.example.test';
+    const AGE_VENDOR = fileURLToPath(new URL('../../vendor/age.min.js', import.meta.url));
+    const FORWARDED = ['X-Attest-Challenge', 'X-Trial-Remaining', 'Retry-After'];
+    let typage;
+    let identity;
+    let recipientKey;
+    let env;
+    let fetched; // what reached our base, through the shell
+    let pageFetched; // window.fetch: must never see our base
+    let bridge;
+    let reply;
+
+    beforeAll(async () => {
+        const { pathToFileURL } = await import('node:url');
+        const { setLoader } = await import('../../../cloud/js/feedback-submit.js');
+        setLoader(() => import(pathToFileURL(AGE_VENDOR).href));
+        typage = await import(pathToFileURL(AGE_VENDOR).href);
+        identity = await typage.generateIdentity();
+        recipientKey = await typage.identityToRecipient(identity);
+    });
+
+    // base.post → { status, headers, body }: the shell's reply shape (§A5).
+    async function shellReply(res) {
+        const headers = {};
+        for (const name of FORWARDED) {
+            const v = res.headers.get(name);
+            if (v !== null) headers[name] = v;
+        }
+        return { status: res.status, headers, body: await res.text() };
+    }
+
+    async function boot(attest, { ops = ['base.post'] } = {}) {
+        await deleteDb();
+        fetched = [];
+        pageFetched = [];
+        reply = {
+            challenge: () => new Response(JSON.stringify({ challenge: 'c1', expires_in: 300, feedback_recipient: recipientKey }), { status: 200 }),
+            enroll: () => new Response(JSON.stringify({ remaining: 0, daily: 50, granted: false }), { status: 200, headers: { 'X-Attest-Challenge': 'c2' } }),
+            feedback: () => new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c3' } }),
+        };
+        const recorder = vi.fn(async (url, init = {}) => {
+            pageFetched.push(String(url));
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        // feedback-ui.js reads the page through the globals, as in the app.
+        vi.stubGlobal('document', env.document);
+        vi.stubGlobal('window', env.window);
+        bridge = vi.fn(async (op, args) => {
+            if (op === 'setEgressHosts') return { changed: false };
+            if (op !== 'base.post') return null;
+            fetched.push({ url: `https://${TRIAL_BASE}${args.path}`, headers: args.headers, body: args.body });
+            const answer = { '/api/attest/challenge': reply.challenge, '/api/attest/enroll': reply.enroll, '/api/attest/feedback': reply.feedback }[args.path];
+            if (!answer) throw new Error('invalid path');
+            return shellReply(await answer()); // an answer that throws is the op's error string
+        });
+        const notifications = {
+            isSupported: () => false,
+            __native: { platform: 'ios', call: bridge, has: vi.fn(async (op) => ops.includes(op)) },
+        };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        if (attest) env.window.Attest = attest;
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+        toasts = [];
+        if (!env.window.SyncManager) env.window.SyncManager = {};
+        env.window.SyncManager.showToast = (message) => { toasts.push(message); };
+    }
+    let toasts;
+    const SENT_TOAST = 'Thanks — feedback sent';
+    const QUEUED_TOAST = 'Feedback saved on this phone. It will be sent when our server can be reached.';
+    const outbox = async () => (await import('../../../cloud/js/feedback-submit.js')).getAllFeedbackItems();
+
+    const freshInstall = () => ({
+        isSupported: () => true,
+        status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: false })),
+        enroll: vi.fn(async () => ({ keyId: 'key-1', attestation: 'QQ==', deviceToken: 'RA==' })),
+        assert: vi.fn(async (challenge, digest) => ({ keyId: 'key-1', assertion: `sig:${challenge}:${digest}` })),
+        setPass: vi.fn(async () => null),
+    });
+
+    afterEach(async () => {
+        const { __resetDrainForTest } = await import('../../../cloud/js/feedback-submit.js');
+        __resetDrainForTest();
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    const toBase = () => fetched;
+    const paths = () => fetched.map(({ url }) => new URL(url).pathname);
+    const pageHitBase = () => pageFetched.some((u) => /^https?:/.test(u) && new URL(u).hostname === TRIAL_BASE);
+
+    async function compose(text) {
+        const row = await vi.waitFor(() => {
+            const el = env.document.getElementById('feedback-launcher');
+            expect(el).not.toBeNull();
+            return el;
+        });
+        expect(row.closest('[data-settings-slot="feedback"]')).not.toBeNull();
+        row.click();
+        const modal = env.document.getElementById('feedback-modal');
+        const textarea = modal.querySelector('textarea');
+        textarea.value = text;
+        textarea.dispatchEvent(new env.window.Event('input'));
+        return modal;
+    }
+    const send = (modal) => modal.querySelector('[data-feedback-choice="send"]').click();
+
+    it('mounts the row with no request; Send enrolls feedback-only, seals to the challenge recipient and the shell POSTs it signed', async () => {
+        const { createHash } = await import('node:crypto');
+        await boot(freshInstall());
+        await vi.waitFor(() => expect(env.document.getElementById('feedback-launcher')).not.toBeNull());
+        expect(toBase()).toEqual([]);
+
+        const modal = await compose('the scale page froze');
+        expect(modal.querySelector('.wg-local-only').textContent).toBe('Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.');
+        expect(toBase()).toEqual([]);
+        send(modal);
+
+        const post = await vi.waitFor(() => {
+            const p = fetched.find(({ url }) => url === `https://${TRIAL_BASE}/api/attest/feedback`);
+            expect(p).toBeTruthy();
+            return p;
+        });
+        // "sent" only once the server took it.
+        await vi.waitFor(() => expect(env.document.getElementById('feedback-modal')).toBeNull());
+        expect(toasts).toContain(SENT_TOAST);
+        expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback']);
+        expect(env.window.Attest.enroll).toHaveBeenCalledTimes(1);
+        // The enroll asks for no trial grant (it never spends the trial).
+        const enroll = JSON.parse(fetched[1].body);
+        expect(enroll).toMatchObject({ key_id: 'key-1', trial: false });
+        // Signed over the exact body, with the challenge the enroll handed on;
+        // the shell gets the three X-Attest-* headers and nothing else.
+        const digest = createHash('sha256').update(`/api/attest/feedback\n${post.body}`).digest('base64');
+        expect(post.headers).toEqual({
+            'X-Attest-Key-Id': 'key-1', 'X-Attest-Challenge': 'c2', 'X-Attest-Assertion': `sig:c2:${digest}`,
+        });
+        const body = JSON.parse(post.body);
+        expect(Object.keys(body).sort()).toEqual(['app_version', 'ciphertext', 'client_id', 'kind']);
+        const d = new typage.Decrypter();
+        d.addIdentity(identity);
+        const plain = JSON.parse(new TextDecoder().decode(await d.decrypt(fromB64(body.ciphertext))));
+        expect(plain).toMatchObject({ v: 1, text: 'the scale page froze', attachments: [] });
+        // Never the cloud route, never a page fetch to our base; the outbox drains empty.
+        expect(pageFetched.some((u) => u.endsWith('/api/feedback'))).toBe(false);
+        expect(pageHitBase()).toBe(false);
+        await vi.waitFor(async () => expect(await outbox()).toEqual([]));
+        // The memo keeps the reply's granted: a feedback-only key.
+        expect(JSON.parse(env.window.localStorage.getItem('wg:local-feedback'))).toMatchObject({ keyed: true, granted: false });
+    });
+
+    it('a 401 install_unknown on the POST re-enrolls once and re-signs', async () => {
+        await boot(freshInstall());
+        let first = true;
+        reply.feedback = () => {
+            if (first) {
+                first = false;
+                return new Response(JSON.stringify({ error: 'install_unknown' }), { status: 401 });
+            }
+            return new Response(null, { status: 204 });
+        };
+        send(await compose('again'));
+        await vi.waitFor(() => expect(toasts).toContain(SENT_TOAST));
+        expect(paths()).toEqual([
+            '/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback',
+            '/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback',
+        ]);
+        expect(JSON.parse(fetched[4].body)).toMatchObject({ trial: false });
+    });
+
+    // iOS (Attest.swift): an attested key can't be re-attested, so turning the
+    // trial on after a feedback-only enroll mints a NEW key. Refused
+    // trial_already_used, it has already replaced the feedback key: the next
+    // Send meets install_unknown and must re-enroll feedback-only.
+    it('iOS: trial on after feedback mints a new key; refused, the next Send re-enrolls {trial:false}', async () => {
+        let n = 0;
+        let current = '';
+        const known = new Set();
+        const attest = {
+            ...freshInstall(),
+            enroll: vi.fn(async () => { current = `key-${++n}`; return { keyId: current, attestation: 'QQ==', deviceToken: 'RA==' }; }),
+            assert: vi.fn(async (challenge) => ({ keyId: current, assertion: `sig:${challenge}` })),
+        };
+        await boot(attest);
+        reply.enroll = () => {
+            const trialOff = JSON.parse(fetched.at(-1).body).trial === false;
+            if (!trialOff) return new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 });
+            known.add(JSON.parse(fetched.at(-1).body).key_id);
+            return new Response(JSON.stringify({ remaining: 0, daily: 50, granted: false }), { status: 200, headers: { 'X-Attest-Challenge': 'c2' } });
+        };
+        reply.feedback = () => (known.has(fetched.at(-1).headers['X-Attest-Key-Id'])
+            ? new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c3' } })
+            : new Response(JSON.stringify({ error: 'install_unknown' }), { status: 401 }));
+        const enrollBodies = () => fetched.filter(({ url }) => url.endsWith('/api/attest/enroll')).map(({ body }) => JSON.parse(body));
+
+        send(await compose('one'));
+        await vi.waitFor(() => expect(toasts).toContain(SENT_TOAST));
+        expect(enrollBodies()).toEqual([expect.objectContaining({ key_id: 'key-1', trial: false })]);
+
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: true });
+        await env.window.CloudVault.trial.apply();
+        try {
+            // The trial enroll: a new key, no trial:false, refused.
+            await vi.waitFor(() => expect(enrollBodies()).toHaveLength(2));
+            expect(enrollBodies()[1].key_id).toBe('key-2');
+            expect(enrollBodies()[1]).not.toHaveProperty('trial');
+
+            toasts = [];
+            send(await compose('two'));
+            await vi.waitFor(() => expect(toasts).toContain(SENT_TOAST));
+            expect(enrollBodies()).toHaveLength(3);
+            expect(enrollBodies()[2]).toMatchObject({ key_id: 'key-3', trial: false });
+            const posts = fetched.filter(({ url }) => url.endsWith('/api/attest/feedback'));
+            expect(posts.map(({ headers }) => headers['X-Attest-Key-Id'])).toEqual(['key-1', 'key-2', 'key-3']);
+        } finally {
+            await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: false });
+            await env.window.CloudVault.trial.apply();
+        }
+    });
+
+    it('an enroll the server refuses keeps the sheet and the text; nothing is queued or sent', async () => {
+        await boot(freshInstall());
+        reply.enroll = () => new Response(JSON.stringify({ error: 'trial_unavailable' }), { status: 503 });
+        const modal = await compose('hello');
+        send(modal);
+        await vi.waitFor(() => expect(modal.querySelector('[data-feedback-error]').textContent)
+            .toBe('Feedback is not available from device-only mode right now. Your message was not sent.'));
+        expect(env.document.getElementById('feedback-modal')).toBe(modal);
+        expect(modal.querySelector('textarea').value).toBe('hello');
+        expect(modal.querySelector('[data-feedback-choice="send"]').disabled).toBe(false);
+        expect(paths()).not.toContain('/api/attest/feedback');
+        expect(await outbox()).toEqual([]);
+    });
+
+    it('a server with feedback off says so and enrolls nothing', async () => {
+        await boot(freshInstall());
+        reply.challenge = () => new Response(JSON.stringify({ challenge: 'c1', expires_in: 300, feedback_recipient: '' }), { status: 200 });
+        const modal = await compose('hello');
+        send(modal);
+        await vi.waitFor(() => expect(modal.querySelector('[data-feedback-error]').textContent)
+            .toBe('Feedback is not available from device-only mode right now. Your message was not sent.'));
+        expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+        expect(paths()).toEqual(['/api/attest/challenge']);
+    });
+
+    for (const [what, answer] of [
+        ['a 503', () => new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 })],
+        ['the op\'s "network" error', () => { throw new Error('network'); }],
+    ]) {
+        it(`${what} on the POST: the sheet closes saying "saved", never "sent"; the item stays queued`, async () => {
+            await boot(freshInstall());
+            reply.feedback = answer;
+            const modal = await compose('later please');
+            send(modal);
+            await vi.waitFor(() => expect(env.document.getElementById('feedback-modal')).toBeNull());
+            expect(toasts).toContain(QUEUED_TOAST);
+            expect(toasts).not.toContain(SENT_TOAST);
+            expect((await outbox()).length).toBe(1);
+        });
+    }
+
+    for (const [what, answer] of [
+        ['the server refuses for good', () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 })],
+        ['the shell refuses as too large', () => { throw new Error('body too large'); }],
+    ]) it(`a POST ${what} keeps the sheet and the text and says it was not sent`, async () => {
+        await boot(freshInstall());
+        reply.feedback = answer;
+        const modal = await compose('hello');
+        send(modal);
+        await vi.waitFor(() => expect(modal.querySelector('[data-feedback-error]').textContent)
+            .toBe('Our server did not accept this feedback. Your message was not sent.'));
+        expect(env.document.getElementById('feedback-modal')).toBe(modal);
+        expect(modal.querySelector('textarea').value).toBe('hello');
+        expect(toasts).not.toContain(SENT_TOAST);
+        expect(toasts).not.toContain(QUEUED_TOAST);
+        expect(await outbox()).toEqual([]);
+    });
+
+    it('a Close while the challenge is pending cancels the Send: nothing is sealed, queued or posted', async () => {
+        await boot(freshInstall());
+        let answer;
+        reply.challenge = () => new Promise((resolve) => {
+            answer = () => resolve(new Response(JSON.stringify({ challenge: 'c1', expires_in: 300, feedback_recipient: recipientKey }), { status: 200 }));
+        });
+        const modal = await compose('never mind');
+        send(modal);
+        await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+        modal.querySelector('[data-feedback-choice="cancel"]').click();
+        expect(env.document.getElementById('feedback-modal')).toBeNull();
+        answer();
+        await vi.waitFor(() => expect(paths()).toContain('/api/attest/enroll'));
+        await new Promise((r) => setTimeout(r, 50));
+        expect(paths()).not.toContain('/api/attest/feedback');
+        expect(await outbox()).toEqual([]);
+        expect(toasts).not.toContain(SENT_TOAST);
+        expect(toasts).not.toContain(QUEUED_TOAST);
+    });
+
+    it('a queued item refused later is told once, on the next sheet', async () => {
+        await boot(freshInstall());
+        reply.feedback = () => new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+        send(await compose('first'));
+        await vi.waitFor(() => expect(toasts).toContain(QUEUED_TOAST));
+        // The server refuses it for good now: the drain drops the item.
+        reply.feedback = () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
+        const { drainFeedbackOutbox } = await import('../../../cloud/js/feedback-submit.js');
+        await drainFeedbackOutbox();
+        expect(await outbox()).toEqual([]);
+        const again = await compose('second');
+        expect(again.querySelector('[data-feedback-error]').textContent)
+            .toBe('Earlier feedback from this iPhone could not be delivered: our server did not accept it. Please send it again.');
+        again.querySelector('[data-feedback-choice="cancel"]').click();
+        expect((await compose('third')).querySelector('[data-feedback-error]').textContent).toBe('');
+    });
+
+    for (const [where, attest, ops] of [
+        ['no window.Attest (the web, an old shell)', () => null, ['base.post']],
+        ['App Attest unsupported (the Simulator)', () => ({ ...freshInstall(), status: vi.fn(async () => ({ supported: false, base: TRIAL_BASE, attested: false })) }), ['base.post']],
+        ['a shell without base.post', freshInstall, []],
+    ]) {
+        it(`${where}: nothing mounts and nothing is asked`, async () => {
+            await boot(attest(), { ops });
+            await new Promise((r) => setTimeout(r, 20));
+            expect(env.document.getElementById('feedback-launcher')).toBeNull();
+            expect(toBase()).toEqual([]);
+            expect(pageHitBase()).toBe(false);
+        });
+    }
+});
+
+function fromB64(s) {
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}

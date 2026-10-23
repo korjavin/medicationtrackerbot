@@ -1,6 +1,7 @@
-// feedback-ui.js — cloud-mode-only "Send feedback" capture UI (bd med-dni.2).
+// feedback-ui.js — the "Send feedback" capture UI (bd med-dni.2), in cloud
+// mode and, since bd med-ta2n.20, in local mode where the shell has App Attest.
 //
-// mountFeedbackLauncher(ctx) adds a "Send feedback" row as the last group of the
+// mountFeedbackLauncher(ctx, win) adds a "Send feedback" row as the last group of the
 // Settings home (post-unlock). Tapping it opens an <mt-modal> where anyone can compose
 // anonymous feedback: free text, an attached image (via the shared
 // MediaCapture.pickPhoto abstraction), and a recorded voice message (via the
@@ -9,29 +10,37 @@
 // feedback is anonymous) — and hands it to enqueueFeedback(); the encrypt +
 // durable retry + POST behind that seam is med-dni.3.
 //
-// Mounted only when a recipient meta is configured — the gate lives in
-// cloud-boot.js (getFeedbackRecipient() !== ''). No window.* global: cloud-boot
-// dynamically imports this module and calls the export directly (CLAUDE.md
-// rule 4 avoided). Device capture routes through window.MediaCapture
+// Who mounts it: cloud-boot.js when a recipient meta is configured
+// (getFeedbackRecipient() !== ''); local-policy.js mountLocalFeedback where
+// window.Attest reports support, passing its window and a transport that
+// learns the recipient on Send. In local mode the sheet says "sent" only once
+// the server took the item, and stays open with the reason when it can't go.
+// No window.* global: both dynamically import this module and call the
+// export directly (CLAUDE.md rule 4 avoided). Device capture routes through window.MediaCapture
 // (CLAUDE.md rule 10); visuals use wg-* classes + tokens only (rule 3).
-import { enqueueFeedback } from './feedback-submit.js';
+import { enqueueFeedback, takeFeedbackNotice } from './feedback-submit.js';
 
 const LAUNCHER_ID = 'feedback-launcher';
 
+// The page: the window mountFeedbackLauncher was handed (local-policy.js
+// passes its own), else the global one (cloud-boot.js).
+let pageWin = null;
+const w = () => pageWin || globalThis.window;
+
 function canRecordAudio() {
-    return !!(window.MediaCapture && typeof window.MediaCapture.recordAudio === 'function');
+    return !!(w().MediaCapture && typeof w().MediaCapture.recordAudio === 'function');
 }
 
 function toast(message) {
-    if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
-        window.SyncManager.showToast(message, 'success');
+    if (w().SyncManager && typeof w().SyncManager.showToast === 'function') {
+        w().SyncManager.showToast(message, 'success');
     }
 }
 
 // Build + show the compose modal. A fresh modal per open (like trial-consent);
 // removed on every exit path, releasing the mic if a recording is in flight.
 function openFeedbackModal() {
-    const doc = document;
+    const doc = w().document;
 
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop wg-sheet-backdrop';
@@ -44,7 +53,7 @@ function openFeedbackModal() {
 
     const grab = doc.createElement('div');
     grab.className = 'wg-sheet__grab';
-    const { el: header, buttons: [cancelBtn] } = window.WGSheet.header({
+    const { el: header, buttons: [cancelBtn] } = w().WGSheet.header({
         eyebrow: 'Feedback',
         title: 'Send feedback',
         actions: [{ label: 'Close', icon: 'x', attrs: { 'data-feedback-choice': 'cancel' } }],
@@ -86,6 +95,22 @@ function openFeedbackModal() {
     chip.setAttribute('data-feedback-chip', '');
     body.appendChild(chip);
 
+    // Local mode (bd med-ta2n.20): where it goes. .wg-local-only hides it in cloud.
+    const localNote = doc.createElement('p');
+    localNote.className = 'wg-feedback-modal__chip wg-local-only';
+    localNote.textContent = 'Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.';
+    body.appendChild(localNote);
+
+    // Why a send could not go out (local mode: no server key for this install,
+    // feedback off on the server, offline before the recipient was known, the
+    // server refused it) — or, on open, that an earlier one was refused.
+    const error = doc.createElement('p');
+    error.className = 'wg-feedback-modal__error';
+    error.setAttribute('data-feedback-error', '');
+    error.setAttribute('role', 'alert');
+    error.textContent = takeFeedbackNotice();
+    body.appendChild(error);
+
     const foot = doc.createElement('div');
     foot.className = 'wg-sheet__foot';
     const sendBtn = doc.createElement('button');
@@ -120,9 +145,9 @@ function openFeedbackModal() {
     textarea.addEventListener('input', refreshSend);
 
     imageBtn.addEventListener('click', async () => {
-        if (!(window.MediaCapture && typeof window.MediaCapture.pickPhoto === 'function')) return;
+        if (!(w().MediaCapture && typeof w().MediaCapture.pickPhoto === 'function')) return;
         try {
-            const blob = await window.MediaCapture.pickPhoto({ capture: false });
+            const blob = await w().MediaCapture.pickPhoto({ capture: false });
             if (blob) { imageBlob = blob; chips(); refreshSend(); }
         } catch (_) { /* user cancelled or unavailable — leave state as-is */ }
     });
@@ -152,7 +177,7 @@ function openFeedbackModal() {
             starting = true;
             recordBtn.disabled = true;
             try {
-                const handle = await window.MediaCapture.recordAudio();
+                const handle = await w().MediaCapture.recordAudio();
                 // The modal may have been dismissed (cancel/escape/send) while
                 // getUserMedia was still resolving. settle() couldn't cancel a
                 // handle that didn't exist yet, so release the mic here — else
@@ -183,11 +208,12 @@ function openFeedbackModal() {
             try { audioHandle.cancel(); } catch (_) { /* ignore */ }
             audioHandle = null;
         }
-        window.ModalManager.close(modal.id);
-        window.ModalManager.register(modal.id, null);
+        w().ModalManager.close(modal.id);
+        w().ModalManager.register(modal.id, null);
         if (modal.parentNode) modal.parentNode.removeChild(modal);
         if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
         if (action === 'send') toast('Thanks — feedback sent');
+        if (action === 'queued') toast('Feedback saved on this phone. It will be sent when our server can be reached.');
     }
 
     async function send() {
@@ -223,10 +249,32 @@ function openFeedbackModal() {
         if (settled) return;
         // Anonymous: text + attachments only, no account id / PII (decided).
         const bundle = { text: textarea.value.trim(), attachments };
+        error.textContent = '';
+        let outcome;
         try {
-            await enqueueFeedback(bundle);
-        } catch (_) { /* med-dni.3 owns delivery reliability; UI is optimistic */ }
-        settle('send');
+            // Local mode awaits the server (a challenge, maybe an enroll):
+            // a Close in the meantime cancels the send.
+            outcome = await enqueueFeedback(bundle, { shouldAbort: () => settled });
+        } catch (e) {
+            // A refusal the user can read (local mode): keep the sheet and
+            // what they wrote, say why. Anything else stays optimistic
+            // (med-dni.3 owns delivery reliability).
+            if (e && e.userMessage && !settled) {
+                error.textContent = e.userMessage;
+                sending = false;
+                refreshSend();
+                return;
+            }
+        }
+        if (outcome === 'dropped' && !settled) {
+            error.textContent = 'Our server did not accept this feedback. Your message was not sent.';
+            sending = false;
+            refreshSend();
+            return;
+        }
+        // Cloud (undefined) stays optimistic; local says "sent" only once the
+        // server took it.
+        settle(outcome === 'queued' ? 'queued' : 'send');
     }
 
     function onKeydown(e) {
@@ -241,8 +289,8 @@ function openFeedbackModal() {
     doc.body.appendChild(backdrop);
     doc.body.appendChild(modal);
     // On the ModalManager stack so Back / Esc dismiss it like any sheet.
-    window.ModalManager.register(modal.id, () => settle('cancel'));
-    window.ModalManager.open(modal.id);
+    w().ModalManager.register(modal.id, () => settle('cancel'));
+    w().ModalManager.open(modal.id);
     try { textarea.focus(); } catch (_) { /* ignore */ }
 
     return modal;
@@ -252,7 +300,10 @@ function openFeedbackModal() {
 // (med-xso6.23, kit S1). Dedupe by id; wait for <body> if the document is still
 // parsing (the #settings-view container is static in index.html, so it exists
 // once the body is ready).
-export async function mountFeedbackLauncher(ctx) {
+export async function mountFeedbackLauncher(ctx, win) {
+    if (win) pageWin = win;
+    const document = w().document;
+    if (!document) return null; // the page went away before the mount ran
     if (!document.body) {
         await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
     }
@@ -297,6 +348,6 @@ export async function mountFeedbackLauncher(ctx) {
     // Kit S6 slot ⑥ (bd med-ckm5.6).
     (settingsView.querySelector('[data-settings-slot="feedback"]')
         || settingsView.querySelector('.wg-settings-home') || settingsView).appendChild(group);
-    if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(group);
+    if (w().WGIcons && typeof w().WGIcons.hydrate === 'function') w().WGIcons.hydrate(group);
     return btn;
 }

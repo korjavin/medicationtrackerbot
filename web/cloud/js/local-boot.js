@@ -80,6 +80,10 @@ window.MedTrackerCloudReady = (async function boot() {
         policy.startLocalHealthImport({ ctx: LOCAL_CTX, records, win: window });
         policy.mountLocalLockRow({ win: window })
             .catch((e) => console.error('[local] app lock row failed', e));
+        // Settings → Send feedback (bd med-ta2n.20), where the shell has App
+        // Attest; best-effort, like cloud-boot.js's.
+        policy.mountLocalFeedback({ win: window })
+            .catch((e) => console.error('[local] feedback launcher failed', e));
         const realApiCallDirect = window.apiCallDirect;
         window.apiCallDirect = (endpoint, method, body, opts) => (
             endpoint.startsWith('/api/')

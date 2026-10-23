@@ -9,10 +9,11 @@
 // route can reuse it. createLocalTrial puts aiclient's trial transport
 // (setTrialTransport) and the Settings state on top.
 //
-// Only ever installed when the user turned the trial on (local-policy.js
-// registerLocalEgress): off, nothing here runs and nothing reaches our server.
-// The same switch covers the operator's food database (foodGet, bd
-// med-o7zq.20) and trial voice calls (voiceStart, bd med-o7zq.23).
+// The trial is only ever installed when the user turned it on (local-policy.js
+// registerLocalEgress): off, none of it runs. The same switch covers the
+// operator's food database (foodGet, bd med-o7zq.20) and trial voice calls
+// (voiceStart, bd med-o7zq.23). The one other caller of the attest client is
+// a feedback send the user taps (bd med-ta2n.20, local-policy.js).
 
 const STATE_KEY = 'wg:local-trial';
 
@@ -31,7 +32,9 @@ async function errorCode(res) {
   }
 }
 
-// createAttestClient({ attest, base, fetchImpl, onResponse })
+// createAttestClient({ attest, base, fetchImpl, onResponse, enrollTrial })
+//   enrollTrial()                    → false: enroll asks for a feedback-only key
+//                                      (`trial: false`, bd med-ta2n.25), no grant
 //   enroll()                         → Response of POST /api/attest/enroll
 //                                      (or of the challenge fetch, when that failed)
 //   post(pathAndQuery, body, signal) → Response of the signed POST
@@ -44,10 +47,16 @@ async function errorCode(res) {
 // single-use: the next one rides on the last response (X-Attest-Challenge),
 // so the steady state is one round trip per request.
 export function createAttestClient({
-  attest, base, fetchImpl, onResponse = () => {}, subtle = globalThis.crypto.subtle,
+  attest, base, fetchImpl, onResponse = () => {}, enrollTrial = () => true, subtle = globalThis.crypto.subtle,
 }) {
   const origin = `https://${base}`;
   let challenge = '';
+  // The challenge JSON's feedback_recipient (bd med-ta2n.19): null until one
+  // was read, '' when the server has feedback off (or predates the field).
+  let recipient = null;
+  const readRecipient = (body) => {
+    recipient = typeof body?.feedback_recipient === 'string' ? body.feedback_recipient : '';
+  };
 
   async function send(pathAndQuery, init) {
     const res = await fetchImpl(origin + pathAndQuery, { method: 'POST', ...init });
@@ -69,7 +78,21 @@ export function createAttestClient({
     challenge = '';
     if (!res.ok) return { res };
     const body = await res.json();
+    readRecipient(body);
     return { challenge: body.challenge };
+  }
+
+  // The feedback recipient (local feedback, bd med-ta2n.20): the last
+  // challenge's, else one challenge fetch — whose challenge the next signed
+  // request then uses. null when the server could not be asked.
+  async function feedbackRecipient() {
+    if (recipient !== null) return recipient;
+    const res = await send('/api/attest/challenge', {});
+    if (!res.ok) return null;
+    const body = await res.json();
+    readRecipient(body);
+    if (typeof body.challenge === 'string') challenge = body.challenge;
+    return recipient;
   }
 
   // Single-flight: the boot-time enroll and a request's install_unknown /
@@ -106,6 +129,7 @@ export function createAttestClient({
         // Android (Attest.kt): Play Integrity instead; its reply has no attestation/deviceToken, so both drop out.
         ...(reply.kind === 'android' ? { kind: 'android', public_key: reply.publicKey, integrity_token: reply.integrityToken } : {}),
         ...(pass ? { pass } : {}),
+        ...(enrollTrial() ? {} : { trial: false }),
       }),
     });
     if (res.ok) {
@@ -179,6 +203,7 @@ export function createAttestClient({
 
   return {
     enroll,
+    feedbackRecipient,
     post: (pathAndQuery, body, signal) => request('POST', pathAndQuery, body, signal),
     // An empty body: the digest is SHA256(pathAndQuery ‖ "\n") (attest.go food routes).
     get: (pathAndQuery, signal) => request('GET', pathAndQuery, '', signal),
@@ -225,6 +250,12 @@ function readState(storage) {
   }
 }
 
+// The trial memo says the server granted this install a key: `used: false` is
+// only ever written by a successful enroll (createLocalTrial enroll).
+export function trialKeyGranted(storage) {
+  return readState(storage)?.used === false;
+}
+
 function writeState(storage, patch) {
   const next = { ...(readState(storage) || {}), ...patch };
   try { storage.setItem(STATE_KEY, JSON.stringify(next)); } catch { /* storage blocked: Settings just shows less */ }
@@ -237,22 +268,23 @@ function writeState(storage, patch) {
 // enroll body, trial_already_used, the voice start body). That memo is a per-device convenience
 // (localStorage): the server's counters are the truth, a lost memo only
 // hides the count until the next request.
-export function createLocalTrial({ attest, base, fetchImpl, storage }) {
-  const client = createAttestClient({
-    attest,
-    base,
-    fetchImpl,
-    async onResponse(res) {
-      const remaining = res.headers.get('X-Trial-Remaining');
-      if (remaining !== null && remaining !== '') writeState(storage, { remaining: Number(remaining) });
-      if (res.ok) return;
-      const { code, scope } = await errorCode(res);
-      if (code === 'trial_already_used') writeState(storage, { used: true });
-      if (code === 'trial_budget_exhausted' && scope === 'install') writeState(storage, { remaining: 0 });
-    },
-  });
+//
+// `client`: an attest client shared with another attest-gated route (local
+// feedback, local-policy.js) so one install never runs two enrollments; its
+// owner forwards every response to the returned onResponse.
+export function createLocalTrial({ attest, base, fetchImpl, storage, client: shared }) {
+  async function onResponse(res) {
+    const remaining = res.headers.get('X-Trial-Remaining');
+    if (remaining !== null && remaining !== '') writeState(storage, { remaining: Number(remaining) });
+    if (res.ok) return;
+    const { code, scope } = await errorCode(res);
+    if (code === 'trial_already_used') writeState(storage, { used: true });
+    if (code === 'trial_budget_exhausted' && scope === 'install') writeState(storage, { remaining: 0 });
+  }
+  const client = shared || createAttestClient({ attest, base, fetchImpl, onResponse });
   return {
     base,
+    onResponse,
     // aiclient (setTrialTransport): the account route's path, re-pointed at
     // the attest route with the same ?vision=1 flag.
     post(trialPath, init = {}) {
@@ -307,7 +339,8 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
         const voice = typeof body.voice_remaining_seconds === 'number'
           ? { voiceRemaining: body.voice_remaining_seconds, voiceDailyRemaining: body.voice_daily_remaining_seconds, ...voiceLimits(body) }
           : {};
-        writeState(storage, { daily: body.daily, used: false, ...voice });
+        // A feedback-only key (granted false) is no trial grant.
+        if (body.granted !== false) writeState(storage, { daily: body.daily, used: false, ...voice });
       }
       return res;
     },
