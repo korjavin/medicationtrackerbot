@@ -45,9 +45,8 @@ final class FlowQACeremonyExitTests: XCTestCase {
         XCTAssertTrue(leave.waitForExistence(timeout: 60), "local.leave {url} did not open the claim page (no web exit bar)")
         XCTAssertFalse(app.buttons["Not your account? Use another invite"].exists, "the old native bar is still there")
         shot("ceremony-exit", "bar")
-        leave.tap()
         let confirm = app.webViews.buttons["Use another invite"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "\"Not your account?\" opened no confirm")
+        XCTAssertTrue(QA.tapUntil(leave, shows: confirm), "\"Not your account?\" opened no confirm")
         shot("ceremony-exit", "confirm")
         confirm.tap()
         XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60),
