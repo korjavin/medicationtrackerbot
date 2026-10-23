@@ -135,12 +135,18 @@ function isResponseFormatRejection(err) {
 // Anything about schema contents ("Invalid schema for response_format:
 // unsupported keyword 'minLength'", additionalProperties, required, ...) or
 // another parameter (temperature) is ambiguous — retried once, never stored.
+// Positive match is phrase-level: the unsupported thing must BE the
+// response_format / json_schema, not something mentioned near it.
+const UNSUPPORTED_FORMAT_PATTERNS = [
+  /(?:does not|doesn't|do not) support (?:the )?['"]?(?:response_format|json_schema)/i,
+  /(?:response_format|json_schema)[^.:;]{0,40}\b(?:(?:is|are) )?not supported/i,
+  /unsupported (?:value: )?['"]?(?:response_format|json_schema)/i,
+];
 export function isResponseFormatUnsupported(err) {
   const msg = String((err && err.message) || '');
   return !!(err && err.apiError)
-    && /unsupported|not supported|does not support/i.test(msg)
-    && /response_format|json_schema/i.test(msg)
-    && !/invalid|keyword|propert|field|required|temperature/i.test(msg);
+    && UNSUPPORTED_FORMAT_PATTERNS.some((re) => re.test(msg))
+    && !/invalid schema|keyword|propert|field|required|constraint|temperature/i.test(msg);
 }
 
 // Trial memory is session-only (module-level, shared by every client
@@ -512,7 +518,8 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
     try {
       return await post(strictBody);
     } catch (err) {
-      if (!isResponseFormatRejection(err)) throw err;
+      // A capability message naming only json_schema still earns the retry.
+      if (!isResponseFormatRejection(err) && !isResponseFormatUnsupported(err)) throw err;
       if (useTrial) {
         if (err.code === 'response_format_unsupported') trialNoJSONSchema.add(trialKey);
       } else if (identity && isResponseFormatUnsupported(err)) {

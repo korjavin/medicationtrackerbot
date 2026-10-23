@@ -156,12 +156,15 @@ describe('aiClient json_schema memory (bd med-kl85)', () => {
       'response_format json_schema is not supported',
       'unsupported response_format type',
       'model does not support response_format',
+      'json_schema not supported',
+      "Invalid parameter: 'response_format' of type 'json_schema' is not supported with this model.",
     ]) expect(isResponseFormatUnsupported(asErr(msg)), msg).toBe(true);
     for (const msg of [
       "Invalid schema for response_format: unsupported keyword 'minLength'",
       "Invalid schema for response_format 'parsed_meal': In context=(), 'additionalProperties' is required to be supplied and to be false",
       "Unsupported value: 'temperature' does not support 0.2 with this model when response_format is set",
       'Trial model rejected response_format',
+      'response_format json_schema: unsupported constraint minLength',
     ]) expect(isResponseFormatUnsupported(asErr(msg)), msg).toBe(false);
   });
 
@@ -195,15 +198,29 @@ describe('aiClient json_schema memory (bd med-kl85)', () => {
     expect(sentBody(0).response_format.json_schema.name).toBe('workout_sheet');
   });
 
-  it('a schema-contents error retries fenced once but is never remembered', async () => {
+  it.each([
+    "Invalid schema for response_format: unsupported keyword 'minLength'",
+    'response_format json_schema: unsupported constraint minLength',
+  ])('a schema-contents error retries fenced once but is never remembered: %s', async (message) => {
     const store = memStore();
     global.fetch
-      .mockResolvedValueOnce(rejection("Invalid schema for response_format: unsupported keyword 'minLength'"))
+      .mockResolvedValueOnce(rejection(message))
       .mockResolvedValueOnce(chatResponse({ items: [] }));
     await createAIClient({ settingsDomain: liveSettings(A), deviceStore: store }).parseWorkoutSheetImage(photoFile(), PLAN);
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(sentBody(1).response_format).toBeUndefined();
     expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it('a capability error naming only json_schema still retries fenced and is remembered', async () => {
+    const store = memStore();
+    global.fetch
+      .mockResolvedValueOnce(rejection('json_schema not supported'))
+      .mockResolvedValueOnce(chatResponse({ items: [] }));
+    await createAIClient({ settingsDomain: liveSettings(A), deviceStore: store }).parseWorkoutSheetImage(photoFile(), PLAN);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(sentBody(1).response_format).toBeUndefined();
+    expect(store.set).toHaveBeenCalledTimes(1);
   });
 
   it('a late rejection from a replaced config never overwrites the newer slot', async () => {
