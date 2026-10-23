@@ -49,12 +49,11 @@ Audited 2026-10-22 against the iOS hold baseline (bd med-nt9p.51): every iOS-shi
 | Status/navigation band colour sampled in paint order (sheet backdrops) | ✓ `Shell.pageJS` (med-o7zq.44) | ✓ `chrome.js` → `chrome` op | parity |
 | Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1 #1240, med-ta2n.12 #1251) | parity; Android owner device check med-ta2n.12.2 open |
 | `clipboard.read` (F1 Paste) | n/a (`navigator.clipboard` from the tap) | ✓ | Android-only: WebView has no clipboard-read prompt |
-| `base.post` (local-mode invite request + feedback POST through the shell) | pending (med-ta2n.26) | ✓ (med-ta2n.27) | pending-ios: contract med-ta2n.24 §A |
+| `base.post` (local-mode invite request + feedback POST through the shell) | ✓ (med-ta2n.26) | ✓ (med-ta2n.27, med-nt9p.53, med-nt9p.54) | parity: contract med-ta2n.24 §A; allowlist identity in the parity test |
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |
 | Late `history.back()` across a mode/account switch: off-origin reload guard | pending-ios (med-o7zq.47) | ✓ (#1251) | Android-first |
-| `base.post` (local-mode POST to the shell's own base, four allowlisted paths) | pending-ios (med-ta2n.26) | in flight: med-ta2n.27 (#1270) | Android-first |
 | Native push (`push.token`, remote wake) | pending-ios (med-erq1.4) | open: med-erq1.5 | neither shipped |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
 | `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ (error screen, launcher shortcut) | parity (med-w6gx.24, med-nt9p.22) |

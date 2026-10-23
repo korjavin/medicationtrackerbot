@@ -973,7 +973,28 @@ mode, gated on the bridge platform being `ios` or `android`
   `assert`, `setPass` — the anonymous trial's pass in the Keychain,
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not iCloud-synced, so a
   reinstall rejoins the same trial budget (bd med-o7zq.26); entitlement `com.apple.developer.devicecheck.appattest-environment`,
-  checked on the signed archive in `ios.yml`) exist only there, `notifications.*` and `health.*` serve both modes.
+  checked on the signed archive in `ios.yml`) and `base.post` exist only there, `notifications.*` and `health.*` serve both modes.
+  `base.post {path, body, headers?}` (contract med-ta2n.24 §A, bd med-ta2n.26,
+  [`BasePost.swift`](../ios/App/BasePost.swift); twin of Android `BasePost.kt`)
+  is local mode's invite request and attested feedback, POSTed by the shell —
+  its only native egress, so the local CSP never needs the base host. `path`
+  exactly one of `LocalOrigin.basePostPaths` (`/api/attest/challenge`,
+  `/api/attest/enroll`, `/api/attest/feedback`, `/api/invite-requests`), sent
+  to `https://` + `WGBaseDomain`; `body` a string sent as its UTF-8 bytes
+  verbatim (the attest assertion binds it), ≤ 5 MiB; `headers` only
+  `X-Attest-Key-Id` / `X-Attest-Challenge` / `X-Attest-Assertion` (≤ 8 KiB, no
+  line break). The shell adds `Content-Type`/`Accept: application/json`, follows
+  no redirect, uses an ephemeral per-call `URLSession` (no cache, cookies or
+  pooled socket, so no silent POST replay), answers `network` at the 30 s
+  whole-call deadline exactly once, and logs nothing. Replies `{status, headers,
+  body}` for any HTTP status (headers: only `X-Attest-Challenge`,
+  `X-Trial-Remaining`, `Retry-After`; body ≤ 64 KiB). Errors: `no base`,
+  `invalid path`, `invalid body`, `body too large`, `invalid headers`,
+  `network`, `response too large`. A call still running when the lock comes up
+  or local mode is left answers `locked` / `unsupported: base.post` instead of
+  the server's reply (WebKit requires every reply; Android drops it). Only a
+  user tap or the page's outbox drain calls it, so a cold start stays
+  zero-egress. Tests: `ios/Tests/main.swift` (loopback server).
   The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell
   keeps `limitsNavigationsToAppBoundDomains` on in both modes.
 - **Backup flag:** WebKit excludes a new origin's data dir from backup for its
