@@ -159,7 +159,12 @@ async function lockedTap(ctx, out) {
   const focus = async () => (await adbShell('dumpsys window | grep mCurrentFocus')).replace(/\s+/g, ' ');
   try {
     await ctx.step('local mode: a med due in ~2 min is scheduled on the device', async () => {
-      await addDueMed(ctx, await ctx.launchLocal('today'), out);
+      // Bounded and logged: run 39965589495 hung silently right after the offline step.
+      ctx.log('locked: launching local');
+      const p = await bounded(ctx.launchLocal('today'), 180_000, 'local launch');
+      ctx.log('locked: local up', p.url());
+      await bounded(addDueMed(ctx, p, out), 90_000, 'local med');
+      ctx.log('locked: med scheduled', out.hhmm);
     });
     await ctx.step('local, app lock on: app killed → the reminder is posted', async () => {
       await killApp(ctx);
@@ -167,28 +172,36 @@ async function lockedTap(ctx, out) {
       out.prefs = (await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)).match(/<boolean name="wgLocal\w+" value="\w+" \/>/g);
       await shell('settings put secure immersive_mode_confirmations confirmed'); // its notice took the focus in the earlier runs
       out.setPin = await shell(`locksettings set-pin ${PIN}`);
+      ctx.log('locked: lock pref + PIN set', out.prefs, out.setPin);
       await waitNotification(ctx, out, 'Medication time', out);
+      ctx.log('locked: posted');
     });
     await ctx.step('local, locked: the tap asks for the unlock first, then opens the take sheet', async () => {
       await tapNotification(ctx, /.*Medication time.*/, 'local');
       await sleep(6000);
       out.focusAfterTap = await focus();
+      ctx.log('locked: focus after the tap', out.focusAfterTap);
       if (!out.focusAfterTap || /MainActivity/.test(out.focusAfterTap)) throw new Error(`no system check over the app: ${out.focusAfterTap}`);
       await adbShell('input keyevent KEYCODE_BACK'); // cancel: the plain lock screen, no re-prompt
       await sleep(3000);
       out.focusAfterCancel = await focus();
-      await ctx.waitFor({ text: 'Unlock' }, 30_000);
+      ctx.log('locked: focus after Back', out.focusAfterCancel);
+      await bounded(ctx.waitFor({ text: 'Unlock' }, 30_000), 60_000, 'the lock screen');
       await ctx.stableShot('locked-after-tap');
       await shell(`locksettings clear --old ${PIN}`);
       await ctx.device.tap({ text: 'Unlock' });
-      await ctx.localPage((p) => waitSheet(p, out.name, out));
+      ctx.log('locked: Unlock tapped');
+      await bounded(ctx.localPage((p) => waitSheet(p, out.name, out)), 150_000, 'the take sheet after the unlock');
       await ctx.stableShot('local-take-sheet');
     });
+  } catch (e) {
+    ctx.log('locked: failed; logcat tail\n', (await adb(['logcat', '-d', '-t', '80', 'chromium:I', 'MainActivity:*', 'ActivityTaskManager:I', '*:S'])));
+    throw e;
   } finally {
     await adbShell(`locksettings clear --old ${PIN}`);
-    // Back to the account for the reboot step, as openVault does for a retry.
-    await shell(`am force-stop ${pkg}`);
-    await shell(`run-as ${pkg} sed -i -e '${UNLOCK_SED}' -e 's/"wgLocalMode" value="true"/"wgLocalMode" value="false"/' shared_prefs/shell.xml`);
+    // Back to the account for the reboot step, as openVault does for a retry. The adb CLI: a wedged driver must not hang here.
+    await adbShell(`am force-stop ${pkg}`);
+    await adbShell(`run-as ${pkg} sed -i -e '${UNLOCK_SED}' -e 's/"wgLocalMode" value="true"/"wgLocalMode" value="false"/' shared_prefs/shell.xml`);
   }
 }
 
@@ -302,6 +315,13 @@ async function rebootLocked(ctx, page, out) {
   } finally {
     await adbShell('locksettings clear --old 1234');
   }
+}
+
+/** `promise`, or a throw after `ms`. */
+function bounded(promise, ms, what) {
+  let t;
+  return Promise.race([promise, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`${what}: no answer in ${ms / 1000} s`)), ms); })])
+    .finally(() => clearTimeout(t));
 }
 
 /** The adb CLI's stdout, trimmed; '' on failure (device offline mid-reboot, grep -c's exit 1). */
