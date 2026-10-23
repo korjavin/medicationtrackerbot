@@ -206,7 +206,8 @@
             slot.setAttribute('data-firstrun-notify-note', '');
             med.after(slot);
             med.addEventListener('click', function () {
-                if (med.getAttribute('aria-pressed') === 'true') window.NotifyPermission.renderNote(slot);
+                // askNow: picking Medications is the context to ask in (med-1ikf).
+                if (med.getAttribute('aria-pressed') === 'true') window.NotifyPermission.renderNote(slot, { askNow: true });
                 else slot.replaceChildren();
             });
         }

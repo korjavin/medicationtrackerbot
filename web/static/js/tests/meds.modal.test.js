@@ -229,6 +229,29 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(document.querySelector('#med-notify-note [data-notify-denied]')).not.toBeNull();
     });
 
+    // med-1ikf: after "Not now" the note's button is the one tap to the system
+    // prompt (iOS Settings has no Notifications toggle before the app asked).
+    it('undecided after Not now: the note offers Allow notifications, which asks and clears it', async () => {
+        const { document, window } = env;
+        const permission = vi.fn(async () => 'default');
+        const requestPermission = vi.fn(async () => { permission.mockResolvedValue('granted'); return 'granted'; });
+        window.LocalNotifications = { isSupported: () => true, permission, requestPermission, copy: { os: 'iOS' } };
+        window.localStorage.setItem('wg.notifyPermission.asked', '1');
+
+        window.showAddModal();
+        await flush();
+        const allow = document.querySelector('#med-notify-note [data-notify-allow]');
+        expect(allow).not.toBeNull();
+        expect(allow.textContent).toBe('Allow notifications');
+        expect(document.querySelector('#med-notify-note [data-notify-open-settings]')).toBeNull();
+
+        allow.click();
+        expect(requestPermission).toHaveBeenCalledTimes(1);
+        await flush();
+        await flush();
+        expect(document.getElementById('med-notify-note').children).toHaveLength(0);
+    });
+
     it('Track stock reveals the stepper; the stepper never steps below zero', () => {
         const { document, window } = env;
         window.showAddModal();

@@ -11,9 +11,11 @@
 //                     only when this call newly granted it. Called by
 //                     web/cloud/js/reminders.js when a write-triggered schedule
 //                     has items for this device — never at launch.
-//   renderNote(el)  → fills el with the "Reminders won't fire" warn note when
-//                     the permission is denied, or still 'default' after "Not
-//                     now"; empties it otherwise. Shared by the med editor's
+//   renderNote(el, {askNow}) → fills el with the "Reminders won't fire" warn
+//                     note when the permission is denied, or still 'default'
+//                     after "Not now" (or askNow); empties it otherwise. While
+//                     undecided the note's button is the one-tap system prompt
+//                     (med-1ikf); denied offers the OS settings path. Shared by the med editor's
 //                     Times section, the first-run features screen and
 //                     Settings → Reminders & notifications (S8, med-ckm5.8).
 (function () {
@@ -196,7 +198,9 @@
         return typeof window.nativeHas === 'function' ? window.nativeHas(op) : Promise.resolve(false);
     }
 
-    async function buildNote() {
+    // undecided: still 'default' after "Not now" — the system prompt can still
+    // be shown, and iOS Settings has no Notifications toggle until it was.
+    async function buildNote(slot, undecided) {
         var ln = shell();
         var copy = (ln && ln.copy) || {};
         var android = copy.os === 'Android';
@@ -208,7 +212,17 @@
         text.append(el('b', null, 'Reminders won’t fire.'),
             ' Notifications are off for Med Tracker' + (android ? ', or Alarms & reminders isn’t allowed.' : '.'));
         body.appendChild(text);
-        if (ln && await nativeHas(OPEN_SETTINGS_OP)) {
+        if (undecided) {
+            // One tap to the system prompt (med-1ikf); request() starts inside the click.
+            var allow = el('button', 'wg-btn wg-btn--sm', 'Allow notifications');
+            allow.type = 'button';
+            allow.setAttribute('data-notify-allow', '');
+            allow.addEventListener('click', function () {
+                markAsked();
+                request().then(function () { return renderNote(slot); }, function () { return renderNote(slot); });
+            });
+            body.appendChild(allow);
+        } else if (ln && await nativeHas(OPEN_SETTINGS_OP)) {
             var open = el('button', 'wg-btn wg-btn--sm', 'Open ' + (copy.os || 'iOS') + ' Settings');
             open.type = 'button';
             open.setAttribute('data-notify-open-settings', '');
@@ -228,11 +242,14 @@
         return note;
     }
 
-    async function renderNote(slot) {
+    // opts.askNow: the caller is itself the context (first-run Medications
+    // pick), so an undecided permission gets the one-tap Allow even if this
+    // device was never asked.
+    async function renderNote(slot, opts) {
         if (!slot) return;
         var s = await state();
-        var show = s === 'denied' || (s === 'default' && asked());
-        var note = show ? await buildNote() : null;
+        var show = s === 'denied' || (s === 'default' && (asked() || !!(opts && opts.askNow)));
+        var note = show ? await buildNote(slot, s === 'default') : null;
         slot.replaceChildren.apply(slot, note ? [note] : []);
     }
 
