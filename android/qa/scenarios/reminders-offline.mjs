@@ -230,7 +230,9 @@ async function rebootLocked(ctx, page, out) {
     out.armLog = (await adbShell('logcat -d -s Notifications:*')).split('\n').slice(-6);
     out.alarmAtBoot = (await adbShell(`dumpsys alarm | grep -A2 ${pkg}`)).split('\n').slice(0, 12);
     if (out.userAtBoot !== 'RUNNING_LOCKED') throw new Error(`not locked after the reboot: ${out.userAtBoot}`);
-    await waitNotification({ ...ctx, shell: adbShell }, med, med.name, out, 0); // the reboot emptied the shade
+    // The reboot emptied the shade. Locked, the alarm is inexact (≤ ~3/4 of the lead late): 6 min.
+    await waitNotification({ ...ctx, shell: adbShell }, med, med.name, out, 0, 6);
+    out.postLog = (await adbShell('logcat -d -s Notifications:*')).split('\n').slice(-4);
     out.userAtPost = await user();
     if (out.userAtPost !== 'RUNNING_LOCKED') throw new Error(`posted only after the unlock: ${out.userAtPost}`);
     // The first unlock: the bouncer takes the PIN as key input.
@@ -299,14 +301,14 @@ async function killApp(ctx) {
  * Polls the notification service for `text` until the slot + 3 min; returns its dumpsys line count once
  * posted. `before`: the count before the post (default now — the slot is still ahead, ≥ 90 s at add).
  */
-async function waitNotification(ctx, med, text, out, before) {
+async function waitNotification(ctx, med, text, out, before, lateMin = 3) {
   const count = async () => Number((await ctx.shell(`dumpsys notification --noredact | grep -c "${text}"`).catch(() => '0')) || 0);
   out.notificationsBefore = before ??= await count();
-  const end = med.slotUnix * 1000 + 180_000;
+  const end = med.slotUnix * 1000 + lateMin * 60_000;
   for (;;) {
     const n = await count();
     if (n > before) { out.notificationLines = n; break; }
-    if (Date.now() > end) throw new Error(`no "${text}" notification by ${med.hhmm} + 3 min`);
+    if (Date.now() > end) throw new Error(`no "${text}" notification by ${med.hhmm} + ${lateMin} min`);
     await ctx.sleep(5000);
   }
   out.postedLateS = Math.round(Date.now() / 1000 - med.slotUnix);

@@ -399,6 +399,11 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
   `LOCKED_BOOT_COMPLETED`, so after a reboot (e.g. an overnight OTA) the
   alarm is armed while the phone is still locked and reminders post on time
   instead of at the first unlock (or never, past the one-hour stale cut).
+  Before the unlock AlarmManager refuses exact alarms even with the grant
+  (`canScheduleExactAlarms()` is false, `setExactAndAllowWhileIdle` throws —
+  seen on the API 34 emulator), so a locked boot arms an inexact
+  `setAndAllowWhileIdle` alarm: late by at most ~¾ of the time left to the
+  slot, at once when already due. `BOOT_COMPLETED` re-arms it exact.
   For that the `reminders` prefs file — and only it — lives in
   **device-protected** storage (`createDeviceProtectedStorageContext()`);
   the account host prefs, lock, invite slot, Health Connect anchors and all

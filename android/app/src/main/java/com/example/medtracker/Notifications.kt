@@ -279,15 +279,20 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
             val due = (0 until rows.length()).mapNotNull { rows.optJSONObject(it)?.optLong("fireAtUnix") }.filter { it > floor }
             val next = due.minOrNull()
             // No text, only counts and times: the only trace of a locked-boot arm (bd med-nt9p.57).
-            Log.i("Notifications", "arm permission=$p notifying=${notifying(c)} exact=${alarms(c).canScheduleExactAlarms()} " +
-                "rows=${rows.length()} next=$next now=$now unlocked=$unlocked")
-            // Before the first unlock the grant checks answer "no" even with both grants (seen on the
-            // API 34 emulator), so a locked boot arms anyway: without the exact-alarm grant the call
-            // throws (caught below), without notifications the post is dropped. BOOT_COMPLETED re-checks.
+            Log.i("Notifications", "arm permission=$p rows=${rows.length()} next=$next now=$now unlocked=$unlocked")
+            // Before the first unlock AlarmManager refuses exact alarms even with the grant
+            // (canScheduleExactAlarms() false, set throws; API 34). A locked boot arms an inexact
+            // allow-while-idle alarm instead — no grant needed, late by at most ~3/4 of the lead, at
+            // once when already due — and BOOT_COMPLETED re-arms it exact after the unlock.
             if (p != "granted" && unlocked || next == null) return 0
             // An instant, not a wall-clock time: a time-zone change does not move it.
             val armed = runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi) }
-                .onFailure { Log.w("Notifications", "arm failed", it) }.isSuccess
+                .recoverCatching {
+                    if (unlocked) throw it
+                    alarms(c).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi)
+                    Log.i("Notifications", "arm inexact (locked boot)")
+                }
+                .onFailure { Log.w("Notifications", "arm failed: $it") }.isSuccess
             return if (armed) due.count { it > now } else 0
         }
 
