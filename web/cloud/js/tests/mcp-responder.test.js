@@ -1999,6 +1999,9 @@ describe('cloud MCP response_example conformance', () => {
       case 'trackers.history': return { params: { days: 2 }, path_params: { id: ids.trackerID } };
       case 'food.products.search': return { params: { q: 'oat' } };
       case 'medications.intake.update': return { params: { updates: [] } };
+      // An unknown occId is a per-id failure, not an error — the envelope
+      // shape is what is checked.
+      case 'medications.doses.act': return { params: { action: 'take', occ_ids: ['intake-none-0'] } };
       default: return {};
     }
   }

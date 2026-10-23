@@ -73,7 +73,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const postCalled = new Promise((r) => { postCalledSignal = r; });
         const pending = deferred();
         window.apiCall = vi.fn(async (url, method) => {
-            if (method === 'POST' && url === '/api/medications/confirm-schedule') {
+            if (method === 'POST' && url === '/api/doses/act') {
                 postCalledSignal();
                 return pending.promise;
             }
@@ -124,7 +124,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const postCalled = new Promise((r) => { postCalledSignal = r; });
         const pending = deferred();
         window.apiCall = vi.fn(async (url, method) => {
-            if (method === 'POST' && url === '/api/medications/confirm-schedule') {
+            if (method === 'POST' && url === '/api/doses/act') {
                 postCalledSignal();
                 return pending.promise;
             }
@@ -183,7 +183,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const postCalled = new Promise((r) => { postCalledSignal = r; });
         const pending = deferred();
         window.apiCall = vi.fn(async (url, method) => {
-            if (method === 'POST' && url === '/api/medications/skip') {
+            if (method === 'POST' && url === '/api/doses/act') {
                 postCalledSignal();
                 return pending.promise;
             }
@@ -246,7 +246,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const postCalled = new Promise((r) => { postCalledSignal = r; });
         const pending = deferred();
         window.apiCall = vi.fn(async (url, method) => {
-            if (method === 'POST' && url === '/api/intakes/update') {
+            if (method === 'POST' && url === '/api/doses/act') {
                 postCalledSignal();
                 return pending.promise;
             }

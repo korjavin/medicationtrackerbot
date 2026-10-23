@@ -648,66 +648,80 @@ async function _rollbackOptimistic(handles) {
     for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
 }
 
+// The sheet's explicit occIds (bd med-wi09.2), index-aligned with its meds:
+// the row's own id when the opener had one, else the slot's deterministic id
+// `intake-<medId>-<slotUnix>` (the record-id convention the projection's
+// forecast rows carry as occId) — an exact dose, never a guess.
+function _medConfirmOccId(idx) {
+    const ids = window.PushModalState.getMedConfirmIds();
+    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
+    if (intakeIds[idx] != null) return intakeIds[idx];
+    const slotSec = Math.floor(Date.parse(window.PushModalState.getMedConfirmScheduled()) / 1000);
+    return Number.isFinite(slotSec) && ids[idx] != null ? `intake-${ids[idx]}-${slotSec}` : null;
+}
+
+function _medConfirmOccIds(indices) {
+    return indices.map(_medConfirmOccId).filter((id) => id != null);
+}
+
+// POST /api/doses/act — {updated, unchanged, failed, failures}. Returns true
+// when every id applied; false otherwise (a falsy res means apiCall already
+// surfaced the error; per-id failures are toasted here).
+async function _actOnDoses(action, occIds, takenAt) {
+    const body = { action, occ_ids: occIds };
+    if (takenAt) body.taken_at = takenAt;
+    const res = await apiCall('/api/doses/act', 'POST', body);
+    if (!res || typeof res !== 'object') return false;
+    if (Number(res.failed) > 0) {
+        safeToast(_describeIntakeUpdateFailures(res.failures), 'error');
+        return false;
+    }
+    return true;
+}
+
 async function confirmSelectedMedications() {
     const checks = document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]');
     const selectedIndices = Array.from(checks).map(c => parseInt(c.dataset.index, 10));
     const ids = window.PushModalState.getMedConfirmIds();
-    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
     const selectedIds = selectedIndices.map(idx => Number(ids[idx]));
-    const selectedIntakeIds = selectedIndices
-        .map(idx => intakeIds[idx])
-        .filter(id => id != null);
+    const occIds = _medConfirmOccIds(selectedIndices);
+    const scheduled = window.PushModalState.getMedConfirmScheduled();
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        const body = {
-            scheduled_at: window.PushModalState.getMedConfirmScheduled(),
-            medication_ids: selectedIds
-        };
-        if (selectedIntakeIds.length > 0) {
-            body.intake_ids = selectedIntakeIds;
+        if (occIds.length === 0) {
+            closeMedicationConfirmModal();
+            return;
         }
-        // A reminder-tap sheet lists only the meds the reminder named, so a
-        // slot-mate missing from it was not "unchecked" — never revert it.
-        if (window.PushModalState.getMedConfirmAdditive()) body.additive = true;
         // "Time taken" row: sent only when the user picked a time; otherwise
         // the domain stamps now.
         const timeInput = document.getElementById('med-confirm-datetime');
         const pickedMs = timeInput && timeInput.dataset.edited ? new Date(timeInput.value).getTime() : NaN;
-        if (Number.isFinite(pickedMs)) {
-            body.taken_at = new Date(pickedMs).toISOString();
-        }
+        const pickedIso = Number.isFinite(pickedMs) ? new Date(pickedMs).toISOString() : undefined;
 
-        // Optimistic: flip the matched intake_log entries to TAKEN in every
-        // cached `history_*` payload and clear `next_intake` so the meds
-        // History list + Today's next-intake tile repaint before the POST
-        // resolves. Mutator runs against each enumerated cache key so users
-        // see the green check immediately instead of after the round-trip.
-        const takenAt = body.taken_at || new Date().toISOString();
+        // Optimistic: flip exactly the acted rows to TAKEN in every cached
+        // `history_*` payload, clear `next_intake` and the due rows, so the
+        // meds History list + Today repaint before the POST resolves.
+        const takenAt = pickedIso || new Date().toISOString();
         const handles = await _applyOptimisticHistoryFlip((log) => {
             if (!log || typeof log !== 'object') return log;
-            const isSelectedIntake = selectedIntakeIds.indexOf(log.id) !== -1;
-            const isSelectedMed = selectedIds.indexOf(log.medication_id) !== -1
-                && log.status === 'PENDING'
-                && log.scheduled_at === body.scheduled_at;
-            if (isSelectedIntake || isSelectedMed) {
+            if (occIds.indexOf(log.id) !== -1 && log.status === 'PENDING') {
                 return { ...log, status: 'TAKEN', taken_at: takenAt, _optimistic: true };
             }
             return log;
         });
-        handles.push(await _applyOptimisticNextIntakeClear(body.scheduled_at, selectedIds));
-        handles.push(await _applyOptimisticDueClear((row) => selectedIntakeIds.indexOf(row.occId) !== -1
-            || (selectedIds.indexOf(row.medId) !== -1 && row.plannedAt === body.scheduled_at)));
+        handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedIds));
+        handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
 
-        let res;
+        let ok;
         try {
-            res = await apiCall('/api/medications/confirm-schedule', 'POST', body);
+            ok = await _actOnDoses('take', occIds, pickedIso);
         } catch (e) {
             await _rollbackOptimistic(handles);
             throw e;
         }
 
-        if (res) {
+        if (ok) {
             await _commitOptimistic(handles);
             safeToast("Confirmed!", 'info');
             if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
@@ -731,83 +745,43 @@ async function skipSelectedMedications() {
 
     const btn = document.getElementById('med-confirm-skip-btn');
     await withSubmit(btn, async () => {
-        let hasErrors = false;
         const ids = window.PushModalState.getMedConfirmIds();
-        const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
         const scheduled = window.PushModalState.getMedConfirmScheduled();
         const selectedMedIds = selectedIndices
             .map(idx => Number(ids[idx]))
             .filter(id => Number.isFinite(id));
-
-        // Resolve intake_ids up-front (from PushModalState or via /api/history
-        // fallback for push-notification entries) so we can apply the optimistic
-        // SKIPPED flip in one pass before issuing the skip POSTs.
-        const resolvedIntakeIds = [];
-        const skipRequests = [];
-        for (const idx of selectedIndices) {
-            const medId = Number(ids[idx]);
-            let intakeId = intakeIds[idx];
-
-            if (!intakeId) {
-                const pendingLogs = await apiCall(`/api/history?days=1`);
-                if (pendingLogs && pendingLogs.length > 0) {
-                    const scheduledTime = new Date(scheduled).getTime();
-                    const log = pendingLogs.find(l =>
-                        l.medication_id === medId &&
-                        l.status === 'PENDING' &&
-                        Math.abs(new Date(l.scheduled_at).getTime() - scheduledTime) < 60000
-                    );
-                    if (log) {
-                        intakeId = log.id;
-                    }
-                }
-            }
-
-            if (intakeId) {
-                resolvedIntakeIds.push(intakeId);
-                skipRequests.push(intakeId);
-            } else {
-                hasErrors = true;
-            }
-        }
+        // Explicit occIds (bd med-wi09.2) — no nearest-PENDING lookup.
+        const occIds = _medConfirmOccIds(selectedIndices);
 
         const handles = await _applyOptimisticHistoryFlip((log) => {
             if (!log || typeof log !== 'object') return log;
-            if (resolvedIntakeIds.indexOf(log.id) !== -1) {
+            if (occIds.indexOf(log.id) !== -1) {
                 return { ...log, status: 'SKIPPED', _optimistic: true };
             }
             return log;
         });
         handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedMedIds));
-        handles.push(await _applyOptimisticDueClear((row) => resolvedIntakeIds.indexOf(row.occId) !== -1));
+        handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
 
+        let ok;
         try {
-            for (const intakeId of skipRequests) {
-                const res = await apiCall('/api/medications/skip', 'POST', { intake_id: intakeId });
-                if (!res) {
-                    hasErrors = true;
-                }
-            }
+            ok = occIds.length > 0 && await _actOnDoses('skip', occIds);
         } catch (e) {
             await _rollbackOptimistic(handles);
             throw e;
         }
 
-        if (hasErrors) {
-            await _rollbackOptimistic(handles);
-        } else {
+        if (ok) {
             await _commitOptimistic(handles);
             // SKIPPED is a scored adherence outcome (floor + denominator change),
             // so evict the gamification rings/journey like the confirm/log-past paths.
             if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
+            safeToast("Skipped!", 'info');
+        } else {
+            await _rollbackOptimistic(handles);
         }
 
         refreshMedsAfterMutation();
-        if (!hasErrors) {
-            safeToast("Skipped!", 'info');
-        } else {
-            safeToast("Error skipping some medications.", 'error');
-        }
         closeMedicationConfirmModal();
     });
 }
@@ -820,14 +794,13 @@ async function skipSelectedMedications() {
 // bogus "Updated!".
 function _describeIntakeUpdateFailures(failures) {
     const list = Array.isArray(failures) ? failures : [];
-    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
     const names = window.PushModalState.getMedConfirmNames();
     const labels = [];
     for (const f of list) {
-        const id = f && f.id != null ? Number(f.id) : null;
+        const id = f && f.id != null ? String(f.id) : null;
         let label = null;
         if (id != null) {
-            const idx = intakeIds.findIndex((iid) => Number(iid) === id);
+            const idx = names.findIndex((_, i) => String(_medConfirmOccId(i)) === id);
             if (idx !== -1 && names[idx]) label = names[idx];
         }
         labels.push(label || ('intake ' + (id != null ? id : '?')));
@@ -855,32 +828,13 @@ async function updateIntakeHistory() {
     const timeInput = document.getElementById('med-confirm-datetime');
     const takenAt = new Date(timeInput.value).toISOString();
 
-    const updates = [];
+    // Edit sheet (bd med-wi09.2): a still-checked dose gets its time edited, an
+    // unchecked one is an explicit undo of THAT dose — only rows listed here.
     const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
+    const editIds = selectedIndices.map((idx) => intakeIds[idx]).filter((id) => id != null);
+    const undoIds = unselectedIndices.map((idx) => intakeIds[idx]).filter((id) => id != null);
 
-    // For selected items (TAKEN)
-    selectedIndices.forEach(idx => {
-        if (intakeIds[idx]) {
-            updates.push({
-                id: intakeIds[idx],
-                status: 'TAKEN',
-                taken_at: takenAt
-            });
-        }
-    });
-
-    // For unselected items (PENDING - Reverting)
-    unselectedIndices.forEach(idx => {
-        if (intakeIds[idx]) {
-            updates.push({
-                id: intakeIds[idx],
-                status: 'PENDING',
-                taken_at: '' // Backend handles null/empty
-            });
-        }
-    });
-
-    if (updates.length === 0) {
+    if (editIds.length === 0 && undoIds.length === 0) {
         closeMedicationConfirmModal();
         return;
     }
@@ -889,55 +843,33 @@ async function updateIntakeHistory() {
     await withSubmit(btn, async () => {
         // Optimistic: apply each TAKEN/PENDING flip across cached history payloads
         // so the History list reflects the user's choice before the round-trip.
-        const updatesById = new Map();
-        for (const u of updates) updatesById.set(u.id, u);
         const handles = await _applyOptimisticHistoryFlip((log) => {
             if (!log || typeof log !== 'object') return log;
-            const upd = updatesById.get(log.id);
-            if (!upd) return log;
-            const next = { ...log, status: upd.status, _optimistic: true };
-            if (upd.status === 'TAKEN') {
-                next.taken_at = upd.taken_at;
-            } else {
-                next.taken_at = null;
-            }
-            return next;
+            if (editIds.indexOf(log.id) !== -1) return { ...log, status: 'TAKEN', taken_at: takenAt, _optimistic: true };
+            if (undoIds.indexOf(log.id) !== -1) return { ...log, status: 'PENDING', taken_at: null, _optimistic: true };
+            return log;
         });
 
-        let res;
+        // Any failed id rolls the whole flip back and names the med(s) that
+        // did not persist (_actOnDoses toasts); refreshMedsAfterMutation then
+        // repaints authoritative state either way.
+        let ok = true;
         try {
-            res = await apiCall('/api/intakes/update', 'POST', { updates });
+            if (editIds.length) ok = await _actOnDoses('edit_time', editIds, takenAt);
+            if (ok && undoIds.length) ok = await _actOnDoses('undo', undoIds);
         } catch (e) {
             await _rollbackOptimistic(handles);
             throw e;
         }
 
-        // Interpret the structured response from handleUpdateIntake:
-        // `{ updated, failed, failures:[{id, reason}] }`. A legacy empty-body
-        // 200 (apiCall coerces it to `true` during a rolling deploy) and a body
-        // with `failed === 0` both mean every update persisted. `failed > 0`
-        // means at least one revert/confirm did not stick — we must NOT show
-        // "Updated!" and must roll the optimistic flip back so the affected rows
-        // repaint to their true server status instead of silently lying.
-        const isObjRes = res && typeof res === 'object';
-        const failed = isObjRes ? (Number(res.failed) || 0) : 0;
-        if (res === true || (isObjRes && failed === 0)) {
+        if (ok) {
             await _commitOptimistic(handles);
             safeToast("Updated!", 'info');
             if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
-            refreshMedsAfterMutation();
-        } else if (isObjRes && failed > 0) {
-            // Partial/total failure: roll back the optimistic flip, name the
-            // medication(s) that did not persist, then refresh from the server
-            // so the list shows authoritative status (not the rolled-back guess).
-            await _rollbackOptimistic(handles);
-            safeToast(_describeIntakeUpdateFailures(res.failures), 'error');
-            refreshMedsAfterMutation();
         } else {
-            // res is falsy (null = apiCall handled an error internally) — roll
-            // back without claiming success.
             await _rollbackOptimistic(handles);
         }
+        refreshMedsAfterMutation();
         closeMedicationConfirmModal();
     });
 }

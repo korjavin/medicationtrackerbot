@@ -193,8 +193,9 @@ function _buildMedsBucket(label, { tone, action, rows }) {
 }
 
 // Opens the take sheet for one dose slot, preselecting the bucket's meds.
-// Missed rows carry their intake ids (confirm by id); upcoming slots confirm
-// by scheduled_at (web/domain/medintake.js confirmSchedule).
+// Missed rows carry their occIds; an upcoming slot's occId is its
+// deterministic slot id, derived by the take sheet (meds-history.js
+// _medConfirmOccId) — POST /api/doses/act either way.
 function _openBucketTake(meds, scheduledAt, intakeIds) {
     showMedicationConfirmModal(meds.map((m) => m.id), meds.map((m) => m.name), scheduledAt, 'confirm', intakeIds || []);
 }
@@ -1537,16 +1538,15 @@ function _buildMedConfirmChoice(index, name, med, mode) {
     return btn;
 }
 
-// opts.additive: the reminder-tap sheet (app.js handlePushAction, med-9d1a) —
-// its confirm only marks pending doses taken, never reverts a slot-mate.
-function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = [], opts = {}) {
+// Every confirm acts only on the sheet's own checked doses by explicit occId
+// (bd med-wi09.2); an unchecked or absent slot-mate is never touched.
+function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {
     window.PushModalState.openMedConfirm({
         ids,
         names,
         scheduled: scheduledAt,
         mode,
         intakeIds,
-        additive: !!(opts && opts.additive),
     });
 
     window.ModalManager.medConfirm.open();

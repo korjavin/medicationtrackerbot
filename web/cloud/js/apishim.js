@@ -835,6 +835,28 @@ export function createApiRouter(ctx, {
         toMs: isoParam('to', nowMs + 7 * 24 * 3600_000),
       });
     }
+    // Explicit dose actions on explicit occIds (bd med-wi09.2): take / skip /
+    // undo / edit_time. Per-day bulk is the same route with many ids.
+    if (path === '/api/doses/act' && method === 'POST') {
+      const res = await intake.act({
+        occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
+        action: body && body.action,
+        takenAt: body && body.taken_at,
+      }).catch((err) => {
+        if (err && err.code === 'bad_request') err.status = 400;
+        throw err;
+      });
+      // Same rule as confirm-schedule below: stop the relay's re-fire chain
+      // for a slot only once nothing there is left PENDING.
+      if (body.action === 'take' || body.action === 'skip') {
+        for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
+          const slotRows = await intake.listWindow({ fromMs: slotMs, toMs: slotMs });
+          if (!slotRows.some((row) => row.status === 'PENDING')) cancelMedRefire(slotMs);
+        }
+      }
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/inventory/low' && method === 'GET') return medications.listLowStock();
     if (path === '/api/history' && method === 'GET') {
       return intake.history({ days: intParam(params, 'days', 3), medId: intParam(params, 'med_id', 0) });
@@ -854,7 +876,6 @@ export function createApiRouter(ctx, {
           medicationIds: (body && body.medication_ids) || [],
           intakeIds: (body && body.intake_ids) || [],
           takenAt: body && body.taken_at,
-          additive: !!(body && body.additive === true),
         }),
       };
       const action = intakeActions[path];

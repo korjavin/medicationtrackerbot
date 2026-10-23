@@ -769,10 +769,9 @@ function handlePushAction(action, params) {
             // A cloud reminder deeplink carries ids only (bd med-9d1a — names
             // are PII and the vault has them): resolve them here, dropping meds
             // deleted or archived since the reminder was scheduled, and those
-            // already logged for this slot. Its confirm is ADDITIVE: the sheet
-            // lists only the reminder's meds, so a slot-mate taken before the
-            // tap is absent without having been unchecked and must never be
-            // reverted (medintake.js confirmSchedule).
+            // already logged for this slot. Its confirm acts only on the
+            // listed meds' exact slot ids (POST /api/doses/act), so a slot-mate
+            // absent from the sheet is never touched.
             const fromReminder = ids.length > 0 && !names.length;
             if (fromReminder) {
                 const live = await resolvePushMedications(ids);
@@ -792,7 +791,7 @@ function handlePushAction(action, params) {
                     names = due.map((m) => m.name);
                 }
             }
-            showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds, { additive: fromReminder });
+            showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
         }, 500);
     } else if (action === 'workout_start') {
         // Coerce to Number — cached workout_next.session.id is numeric, and
