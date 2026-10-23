@@ -470,6 +470,35 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    it('act matches a string med recordId against a numeric intake medication_id — take + undo move stock once (med-wi09.15)', async () => {
+        const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
+        const occId = `intake-7-${Date.parse(slotIso) / 1000}`;
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ recordId: '7', name: 'Metformin', inventory_count: 5 })],
+                intake: [seedIntake({ recordId: 'legacy-7', medication_id: 7, scheduled_at: slotIso })]
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        const stock = async () => (await window.apiCall('/api/medications'))[0].inventory_count;
+        const status = async () => (await window.apiCall('/api/history?days=2')).map((h) => [h.id, h.status]);
+        try {
+            // The slot occId resolves to the stored row — no forecast twin.
+            expect(await act(window, { action: 'take', occ_ids: [occId] })).toMatchObject({ updated: 1, failed: 0 });
+            expect(await status()).toEqual([['legacy-7', 'TAKEN']]);
+            expect(await stock()).toBe(4);
+            expect(await act(window, { action: 'take', occ_ids: [occId] })).toMatchObject({ updated: 0, unchanged: 1 });
+            expect(await stock()).toBe(4);
+
+            expect(await act(window, { action: 'undo', occ_ids: ['legacy-7'] })).toMatchObject({ updated: 1, failed: 0 });
+            expect(await status()).toEqual([['legacy-7', 'PENDING']]);
+            expect(await stock()).toBe(5);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('confirm-schedule by intake_id only (no scheduled_at) sends no cancel-refire POST', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {

@@ -408,7 +408,9 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // untracked inventory_count (or a missing medication) is a silent no-op.
   async function adjustInventory(medId, delta) {
     const meds = await records.list(MEDICATION_RECORD_TYPE);
-    const med = meds.find((m) => m.recordId === medId && !m.deleted);
+    // String(): an intake's medication_id may be number vs string against the
+    // med's recordId (med-wi09.15) — a strict miss silently skips the stock move.
+    const med = meds.find((m) => String(m.recordId) === String(medId) && !m.deleted);
     if (!med || med.inventory_count === null || med.inventory_count === undefined) return;
     await records.put(MEDICATION_RECORD_TYPE, {
       ...med,
@@ -611,7 +613,9 @@ export function createIntakeDomain({ records, now, timeZone }) {
       tzPlan: await loadActiveTzPlan(),
     });
     for (const t of targets) {
-      if (Math.floor(t.scheduledAtMs / 1000) === sec) slots.set(t.medicationId, t);
+      // Keyed by String(id): a med's recordId and an intake's medication_id
+      // can be number vs string (bd med-wi09.15).
+      if (Math.floor(t.scheduledAtMs / 1000) === sec) slots.set(String(t.medicationId), t);
     }
     return slots;
   }
@@ -644,20 +648,21 @@ export function createIntakeDomain({ records, now, timeZone }) {
     const forecastSlots = await forecastAt(scheduledAtMs, nowMs);
     for (const medId of medicationIds) {
       const intakes = await loadIntakes();
-      const intake = intakes.find((i) => i.medication_id === medId
+      const intake = intakes.find((i) => String(i.medication_id) === String(medId)
         && Date.parse(i.scheduled_at) === scheduledAtMs);
       if (intake && intake.status === 'PENDING') {
         await putIntake({
           ...intake, clientTs: nowMs, status: 'TAKEN', taken_at: takenIso,
         });
         await adjustInventory(medId, -1);
-      } else if (!intake && forecastSlots.has(medId)) {
+      } else if (!intake && forecastSlots.has(String(medId))) {
         // A future slot is not materialized yet (doses materialize once due):
         // confirm-or-create, exactly as triggerNextIntake does, so taking an
         // upcoming dose early is not a silent no-op (Meds → Schedule "Take N",
         // Today's Take). Same deterministic slot id, so the later floored
         // materialization of this slot loses to this real write.
-        const plannedMs = forecastSlots.get(medId).scheduledAtMs;
+        const target = forecastSlots.get(String(medId));
+        const plannedMs = target.scheduledAtMs;
         await putIntake({
           recordId: slotId(medId, plannedMs),
           clientTs: nowMs,
@@ -667,7 +672,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
           taken_at: takenIso,
           status: 'TAKEN',
           snoozed_until: null,
-          source: forecastSlots.get(medId).source === 'tz_step' ? 'tz_step' : 'schedule',
+          source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
         });
         await adjustInventory(medId, -1);
       }
@@ -711,18 +716,20 @@ export function createIntakeDomain({ records, now, timeZone }) {
 
     for (const occId of [...new Set(occIds)]) {
       const intakes = await loadIntakes();
-      let intake = intakes.find((i) => i.recordId === occId) || null;
+      // Ids compare as String() throughout: a med's recordId and an intake's
+      // medication_id (or a JSON occId) can be number vs string (med-wi09.15).
+      let intake = intakes.find((i) => String(i.recordId) === String(occId)) || null;
       let slot = null;
       if (!intake) {
         const m = /^intake-(.+)-(\d+)$/.exec(String(occId));
         const med = m && (await loadMeds()).find((x) => String(x.recordId) === m[1]);
         if (m && med && !tombstoned.has(String(occId))) {
           const sec = Number(m[2]);
-          intake = intakes.find((i) => i.medication_id === med.recordId
+          intake = intakes.find((i) => String(i.medication_id) === String(med.recordId)
             && Math.floor(Date.parse(i.scheduled_at) / 1000) === sec) || null;
           if (!intake) {
             if (!forecasts.has(sec)) forecasts.set(sec, await forecastAt(sec * 1000, nowMs));
-            const t = forecasts.get(sec).get(med.recordId);
+            const t = forecasts.get(sec).get(String(med.recordId));
             if (t) slot = { med, ms: t.scheduledAtMs, source: t.source === 'tz_step' ? 'tz_step' : 'schedule' };
           }
         }
@@ -889,7 +896,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
     let nextMeds = [];
     for (const r of rows) {
       if (r.state !== 'upcoming') continue;
-      const med = meds.find((m) => m.recordId === r.medId);
+      const med = meds.find((m) => String(m.recordId) === String(r.medId));
       // An archived med's stored PENDING row (e.g. an undo after archiving)
       // is history, not a dose to offer — the forecast already skips it.
       if (!med || med.archived) continue;
@@ -926,13 +933,14 @@ export function createIntakeDomain({ records, now, timeZone }) {
     const nowMs = now();
     const { meds, rows } = await project({ fromMs: nowMs, toMs: nowMs + days * DAY_MS });
 
-    const byId = new Map(meds.map((m) => [m.recordId, m]));
+    const byId = new Map(meds.map((m) => [String(m.recordId), m]));
     const today = localDateTimeParts(nowMs, timeZone);
     const todayUtc = Date.UTC(today.year, today.month - 1, today.day);
 
     const out = [];
     for (const r of rows) {
-      if (r.state !== 'upcoming' || !byId.has(r.medId) || byId.get(r.medId).archived) continue;
+      const med = byId.get(String(r.medId));
+      if (r.state !== 'upcoming' || !med || med.archived) continue;
       const [y, mo, d] = r.localDate.split('-').map(Number);
       const row = {
         medication_id: r.medId,
