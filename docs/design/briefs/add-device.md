@@ -73,3 +73,16 @@ states apart.
 1. AD3: a single **Approve** under "Does your new device show this code?" is enough.
 2. AD9 Join and erase is a **D1 dialog** (destructive), not a sheet.
 3. AD10 is a quiet secondary link under the W5 invite entry (and on the AD8 browser path).
+
+## Follow-up (2026-10-23, Archie msg 3532) — next pass
+
+- Draw **AD10 · none**: no synced passkey found on this device → /unlock's existing fallback,
+  offering "Add this device from another device" (the QR flow).
+- **AD12** (med-r1j2.9) origin in background: a `.wg-notif` "Approve the new device?" /
+  "<platform> is waiting · code expires in N min"; tapping it opens AD3.
+- **AD13** (med-r1j2.10) in-app Scan on the joining device, with camera denied: the AD8 · no code
+  layout (the typed field) plus an "Allow camera in Settings" ghost link.
+- Typed code (Archie msg 3536): the full secret, 28 letters, letters only, in 3-letter groups
+  wrapped to two lines in `.wg-code` and in the input; paste accepts it with or without
+  separators, in any case. Redraw AD2 / AD8 · no code / AD8 · desktop with a real-length sample
+  (no digits: "7PM" becomes letters).
