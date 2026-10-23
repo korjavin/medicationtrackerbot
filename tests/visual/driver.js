@@ -250,6 +250,11 @@
             dt.items.add(new File([step.text || '{}'], step.name || 'backup.json', { type: 'application/json' }));
             input.files = dt.files;
             input.dispatchEvent(new Event('change', { bubbles: true }));
+        } else if (step.scroll) {
+            // Bring a below-the-fold element into view (the W1 footnote, bd
+            // med-ta2n.28, sits under the sticky foot).
+            await until(() => firstVisible(step.scroll), STEP_MS, `scroll ${step.scroll}`);
+            firstVisible(step.scroll).scrollIntoView({ block: 'end' });
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }
