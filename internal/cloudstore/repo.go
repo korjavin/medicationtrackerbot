@@ -845,12 +845,28 @@ func (r *Repo) ListEnvelopes(ctx context.Context, accountID string) ([]Envelope,
 // ECDH public key, which the origin posts only later at reveal. No ciphertext
 // is stored until approve. enrollmentTokenHash is a non-null placeholder that
 // the claim replaces. approvingCredentialID is the origin session's credential,
-// so revoking it kills the slot (DeleteCredentialWithEnvelope).
+// so revoking it kills the slot (DeleteCredentialWithEnvelope). The insert is
+// conditional on that credential still existing — in the same statement, so a
+// revocation committing after the request passed RequireSession cannot be
+// followed by a slot its cascade never saw (ErrSourceCredentialRevoked).
 func (r *Repo) CreateTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash, commit, approvingCredentialID []byte, createdAt, expiresAt time.Time) error {
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, state, commit_hash, approving_credential_id) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt), commit, approvingCredentialID)
-	return err
+	result, err := r.db.ExecContext(ctx,
+		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, state, commit_hash, approving_credential_id)
+		 SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?
+		 WHERE EXISTS (SELECT 1 FROM credentials WHERE id = ? AND account_id = ?)`,
+		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt), commit, approvingCredentialID,
+		approvingCredentialID, accountID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrSourceCredentialRevoked
+	}
+	return nil
 }
 
 // GetTransferSlot returns accountID's unexpired slot. Scoped to accountID (the
@@ -883,11 +899,15 @@ func (r *Repo) GetTransferSlot(ctx context.Context, slotID, accountID string, no
 // next, setting the given columns, in a single UPDATE guarded by the from-state
 // — so two concurrent transitions cannot both succeed and a set column (n_pub,
 // o_pub, ...) is written exactly once, which is the server-side immutability
-// the protocol relies on. Returns ErrTransferSlotInvalid if the slot is gone
-// and ErrTransferSlotState if it is in any other state.
-func (r *Repo) advanceTransferSlot(ctx context.Context, slotID, accountID, from, to string, now time.Time, set string, args ...any) error {
-	query := `UPDATE transfer_slots SET state = ?, ` + set + ` WHERE id = ? AND account_id = ? AND state = ? AND expires_at_unix > ?`
-	all := append(append([]any{to}, args...), slotID, accountID, from, storedb.TimeToUnix(now))
+// the protocol relies on. guard (optional) is an extra WHERE clause checked in
+// the same statement. Returns ErrTransferSlotInvalid if the slot is gone,
+// ErrTransferSlotState if it is in any other state, and
+// ErrSourceCredentialRevoked if only the guard failed.
+func (r *Repo) advanceTransferSlot(ctx context.Context, slotID, accountID, from, to string, now time.Time, set string, setArgs []any, guard string, guardArgs ...any) error {
+	query := `UPDATE transfer_slots SET state = ?, ` + set + ` WHERE id = ? AND account_id = ? AND state = ? AND expires_at_unix > ?` + guard
+	all := append([]any{to}, setArgs...)
+	all = append(all, slotID, accountID, from, storedb.TimeToUnix(now))
+	all = append(all, guardArgs...)
 	result, err := r.db.ExecContext(ctx, query, all...)
 	if err != nil {
 		return err
@@ -899,8 +919,12 @@ func (r *Repo) advanceTransferSlot(ctx context.Context, slotID, accountID, from,
 	if n == 1 {
 		return nil
 	}
-	if _, err := r.GetTransferSlot(ctx, slotID, accountID, now); err != nil {
+	slot, err := r.GetTransferSlot(ctx, slotID, accountID, now)
+	if err != nil {
 		return err
+	}
+	if slot.State == from && guard != "" {
+		return ErrSourceCredentialRevoked
 	}
 	return ErrTransferSlotState
 }
@@ -911,22 +935,29 @@ func (r *Repo) advanceTransferSlot(ctx context.Context, slotID, accountID, from,
 // approved poll and its passkey registration.
 func (r *Repo) ClaimTransferSlot(ctx context.Context, slotID, accountID string, claimTokenHash, nPub, macN []byte, platform string, now time.Time) error {
 	return r.advanceTransferSlot(ctx, slotID, accountID, TransferSlotPending, TransferSlotClaimed, now,
-		`enrollment_token_hash = ?, n_pub = ?, mac_n = ?, platform = ?, fetched = 1`, claimTokenHash, nPub, macN, platform)
+		`enrollment_token_hash = ?, n_pub = ?, mac_n = ?, platform = ?, fetched = 1`, []any{claimTokenHash, nPub, macN, platform}, "")
 }
 
 // RevealTransferSlot moves a claimed slot to revealed, storing the origin's
 // ephemeral public key and TK-keyed MAC. Nothing secret is released here.
 func (r *Repo) RevealTransferSlot(ctx context.Context, slotID, accountID string, oPub, macO []byte, now time.Time) error {
 	return r.advanceTransferSlot(ctx, slotID, accountID, TransferSlotClaimed, TransferSlotRevealed, now,
-		`o_pub = ?, mac_o = ?`, oPub, macO)
+		`o_pub = ?, mac_o = ?`, []any{oPub, macO}, "")
 }
 
 // ApproveTransferSlot moves a revealed slot to approved, storing the DEK
 // ciphertext (wrapped under a key only the claimed receiver can derive) and the
-// credential that approved it.
+// credential that approved it. Both the slot's current approving credential
+// (the opener's) and the new one must still exist, checked in the same UPDATE:
+// a revocation of either that commits mid-request either deleted the slot
+// already or makes this fail with ErrSourceCredentialRevoked — it can never
+// leave an approved slot tagged with a revoked credential.
 func (r *Repo) ApproveTransferSlot(ctx context.Context, slotID, accountID string, ct, approvingCredentialID []byte, now time.Time) error {
 	return r.advanceTransferSlot(ctx, slotID, accountID, TransferSlotRevealed, TransferSlotApproved, now,
-		`ct = ?, approving_credential_id = ?`, ct, approvingCredentialID)
+		`ct = ?, approving_credential_id = ?`, []any{ct, approvingCredentialID},
+		` AND EXISTS (SELECT 1 FROM credentials c WHERE c.id = transfer_slots.approving_credential_id AND c.account_id = transfer_slots.account_id)
+		  AND EXISTS (SELECT 1 FROM credentials c WHERE c.id = ? AND c.account_id = transfer_slots.account_id)`,
+		approvingCredentialID)
 }
 
 // DeleteTransferSlot invalidates a slot server-side, scoped to accountID.
@@ -957,12 +988,15 @@ func (r *Repo) DeleteTransferSlot(ctx context.Context, slotID, accountID string)
 // unexpired transfer slot for accountID — the only state whose token
 // authorizes a registration (a claimed-but-unapproved slot's token is inert).
 // Checked at register/begin so a bad token fails before the WebAuthn ceremony
-// starts; the atomic consume happens at RedeemTransferToken.
-func (r *Repo) ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error) {
+// starts; the atomic consume happens at RedeemTransferToken. A v2 transfer
+// slot (commit_hash set) additionally requires the new device's key
+// confirmation (hasConfN) — the origin's final check depends on it; recovery
+// slots and pre-v2 rows have no commit and need none.
+func (r *Repo) ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, hasConfN bool, now time.Time) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND state = 'approved' AND expires_at_unix > ?`,
-		accountID, tokenHash, storedb.TimeToUnix(now)).Scan(&count)
+		`SELECT COUNT(*) FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND state = 'approved' AND expires_at_unix > ? AND (commit_hash IS NULL OR ?)`,
+		accountID, tokenHash, storedb.TimeToUnix(now), hasConfN).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -981,8 +1015,8 @@ func (r *Repo) ValidEnrollmentToken(ctx context.Context, accountID string, token
 func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenHash, confN []byte, cred Credential, env Envelope, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		result, err := tx.ExecContext(ctx,
-			`UPDATE transfer_slots SET state = 'enrolled', ct = ?, conf_n = ? WHERE account_id = ? AND enrollment_token_hash = ? AND state = 'approved' AND expires_at_unix > ?`,
-			[]byte{}, confN, accountID, tokenHash, storedb.TimeToUnix(now))
+			`UPDATE transfer_slots SET state = 'enrolled', ct = ?, conf_n = ? WHERE account_id = ? AND enrollment_token_hash = ? AND state = 'approved' AND expires_at_unix > ? AND (commit_hash IS NULL OR ?)`,
+			[]byte{}, confN, accountID, tokenHash, storedb.TimeToUnix(now), len(confN) > 0)
 		if err != nil {
 			return err
 		}

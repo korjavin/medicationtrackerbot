@@ -384,8 +384,12 @@ func TestTransferV2_DuplicateFinishRejected(t *testing.T) {
 	session := registerAndGetSession(t, h, host, invite)
 	_, token := driveToApproved(t, h, host, session)
 
-	optsA, cookieA, codeA := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token})
-	optsB, cookieB, codeB := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token})
+	// A v2 slot's token needs the key confirmation (the origin's final check).
+	if _, _, code := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token}); code != http.StatusForbidden {
+		t.Fatalf("register/begin without conf_n on a v2 slot = %d, want 403", code)
+	}
+	optsA, cookieA, codeA := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token, ConfN: testConfN})
+	optsB, cookieB, codeB := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token, ConfN: testConfN})
 	if codeA != http.StatusOK || codeB != http.StatusOK {
 		t.Fatalf("begin = %d / %d", codeA, codeB)
 	}
@@ -394,8 +398,69 @@ func TestTransferV2_DuplicateFinishRejected(t *testing.T) {
 	respB := virtualwebauthn.CreateAttestationResponse(rp, virtualwebauthn.NewAuthenticator(), virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2), *optsB)
 	wantCode(t, "first finish", finishRegistration(t, h, host, cookieA, respA), http.StatusOK)
 	wantCode(t, "second finish", finishRegistration(t, h, host, cookieB, respB), http.StatusConflict)
-	if _, _, code := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token}); code != http.StatusForbidden {
+	if _, _, code := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token, ConfN: testConfN}); code != http.StatusForbidden {
 		t.Fatalf("begin after redeem = %d, want 403", code)
+	}
+}
+
+// Redeem itself refuses a v2 slot without conf_n, not just register/begin.
+func TestTransferV2_RedeemRequiresConfN(t *testing.T) {
+	h, store, account, invite := newTestTransferHandlerWithStore(t)
+	host := account.Subdomain + ".localhost"
+	session := registerAndGetSession(t, h, host, invite)
+	_, token := driveToApproved(t, h, host, session)
+	hash, _ := hashHexToken(token)
+	cred := cloudstore.Credential{ID: []byte("no-conf-cred"), AccountID: account.ID, PublicKey: []byte("pk"), CreatedAt: time.Now().UTC()}
+	env := cloudstore.Envelope{AccountID: account.ID, CredentialRef: "bm8tY29uZi1jcmVk", V: 1, Nonce: []byte("n"), CT: []byte("c")}
+	if err := store.RedeemTransferToken(t.Context(), account.ID, hash, nil, cred, env, time.Now().UTC()); !errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
+		t.Fatalf("redeem without conf_n = %v, want ErrTransferSlotInvalid", err)
+	}
+}
+
+// Argus P1: credential liveness is checked in the same statement as the
+// create / approve, so a revocation that commits after RequireSession passed
+// cannot leave a live slot tagged with (or approved by) a revoked credential.
+func TestTransferV2_RevokedCredentialCannotCreateOrApprove(t *testing.T) {
+	store, db := setupStoreWithDB(t)
+	account, invite := setupInvite(t, store)
+	mux := http.NewServeMux()
+	NewWebAuthnAPI(store, testSessionSecret).RegisterRoutes(mux)
+	NewTransferAPI(store, testSessionSecret).RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	host := account.Subdomain + ".localhost"
+	first := registerAndGetSession(t, h, host, invite)
+	second := enrollSecondDevice(t, h, host, first)
+	_, firstCred, _ := VerifySessionToken(first.Value, testSessionSecret)
+	_, secondCred, _ := VerifySessionToken(second.Value, testSessionSecret)
+	ctx, now := t.Context(), time.Now().UTC()
+
+	if err := store.CreateTransferSlot(ctx, "ghost-slot", account.ID, []byte("placeholder-hash-32-bytes-xxxxxx"), testCommit, []byte("revoked-cred"), now, now.Add(time.Minute)); !errors.Is(err, cloudstore.ErrSourceCredentialRevoked) {
+		t.Fatalf("create by a missing credential = %v, want ErrSourceCredentialRevoked", err)
+	}
+
+	revealedBy := func(session *http.Cookie) string {
+		slotID := createSlot(t, h, host, session)
+		mustClaimToken(t, claimSlot(t, h, host, slotID))
+		wantCode(t, "reveal", revealSlot(t, h, host, slotID, session), http.StatusNoContent)
+		return slotID
+	}
+	// Approve naming a credential that is gone (revoked after the handler's check).
+	slotA := revealedBy(first)
+	if err := store.ApproveTransferSlot(ctx, slotA, account.ID, testCT, []byte("revoked-cred"), now); !errors.Is(err, cloudstore.ErrSourceCredentialRevoked) {
+		t.Fatalf("approve naming a missing credential = %v, want ErrSourceCredentialRevoked", err)
+	}
+	// Approve of a slot whose opener is gone, re-tagging to a live credential.
+	slotB := revealedBy(second)
+	// Delete the opener's credential row directly — the state a revocation that
+	// commits between the handler's checks and this UPDATE would leave.
+	if _, err := db.ExecContext(ctx, `DELETE FROM credentials WHERE id = ?`, secondCred); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApproveTransferSlot(ctx, slotB, account.ID, testCT, firstCred, now); !errors.Is(err, cloudstore.ErrSourceCredentialRevoked) {
+		t.Fatalf("approve of a revoked opener's slot = %v, want ErrSourceCredentialRevoked", err)
+	}
+	if slot, err := store.GetTransferSlot(ctx, slotB, account.ID, now); err != nil || slot.State != "revealed" {
+		t.Fatalf("slot must stay unapproved: %+v %v", slot, err)
 	}
 }
 
@@ -469,7 +534,7 @@ func TestTransferV2_RevokeKillsApproversUnfinishedSlots(t *testing.T) {
 	wantCode(t, "reveal", revealSlot(t, h, host, revealed, second), http.StatusNoContent)
 	approved, _ := driveToApproved(t, h, host, second)
 	enrolled, token := driveToApproved(t, h, host, second)
-	wantCode(t, "enroll third", enrollViaToken(t, h, host, token, nil), http.StatusOK)
+	wantCode(t, "enroll third", enrollViaToken(t, h, host, token, testConfN), http.StatusOK)
 	firstsOwn := createSlot(t, h, host, first)
 
 	_, secondCred, _ := VerifySessionToken(second.Value, testSessionSecret)

@@ -151,6 +151,10 @@ func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 
 	expiresAt := now.Add(transferSlotTTL)
 	if err := a.store.CreateTransferSlot(r.Context(), slotID, session.AccountID, tokenHash, req.Commit, session.CredentialID, now, expiresAt); err != nil {
+		if errors.Is(err, cloudstore.ErrSourceCredentialRevoked) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
@@ -294,6 +298,8 @@ func writeTransition(w http.ResponseWriter, err error) {
 		http.Error(w, "transfer slot not found", http.StatusNotFound)
 	case errors.Is(err, cloudstore.ErrTransferSlotState):
 		http.Error(w, "transfer slot is not in the required state", http.StatusConflict)
+	case errors.Is(err, cloudstore.ErrSourceCredentialRevoked):
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	case err != nil:
 		http.Error(w, "server error", http.StatusInternalServerError)
 	default:

@@ -37,7 +37,7 @@ func logCeremonyFailure(ceremony, accountID string, err error) {
 // ceremonies need.
 type webauthnStore interface {
 	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
-	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error)
+	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, hasConfN bool, now time.Time) (bool, error)
 	RedeemTransferToken(ctx context.Context, accountID string, tokenHash, confN []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
 	AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential, env cloudstore.Envelope) error
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
@@ -335,7 +335,7 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid or expired enrollment token", http.StatusForbidden)
 			return
 		}
-		ok, err := a.store.ValidEnrollmentToken(r.Context(), account.ID, hash, time.Now().UTC())
+		ok, err := a.store.ValidEnrollmentToken(r.Context(), account.ID, hash, len(req.ConfN) > 0, time.Now().UTC())
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
