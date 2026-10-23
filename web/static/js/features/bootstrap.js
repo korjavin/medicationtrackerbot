@@ -15,32 +15,17 @@ if (window.CacheKeys && window.DataStore && typeof window.CacheKeys.registerAll 
     window.CacheKeys.registerAll(window.DataStore);
 }
 
-// Detect and optionally sync the user's browser timezone to the server.
-// Called after successful auth so that the bootstrap payload (with stored TZ) is available.
+// Detect the device timezone and offer to switch to it. Whether to ask is the
+// domain's call (web/domain/tzplan.js shouldPromptSuggestion: stored tz,
+// synced dismissal, active transition plan) — no local heuristic here.
 async function maybeUpdateTimezone() {
     try {
         const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (!detectedTz) return;
 
-        // Read stored timezone + dismissal decision from the cached settings bundle.
-        // The dismissal is server-shared (user_settings.dismissed_tz_suggestion) so that
-        // dismissing the prompt in one browser silences other clients until the detected
-        // TZ changes or the user explicitly updates settings. The cached bundle is the
-        // normalized (camelCase) shape; accept the raw server snake_case as a fallback
-        // so a bundle written by an older client still suppresses the prompt.
-        let storedTz = '';
-        let dismissedTz = '';
-        if (window.DataStore) {
-            const cached = await window.DataStore.getCached('settings_bundle');
-            if (cached) {
-                if (cached.timezone) storedTz = cached.timezone;
-                const dismissed = cached.dismissedTzSuggestion || cached.dismissed_tz_suggestion;
-                if (dismissed) dismissedTz = dismissed;
-            }
-        }
-
-        if (detectedTz === storedTz) return;
-        if (detectedTz === dismissedTz) return;
+        const decision = await apiCall(`/api/tz-suggestion/should-prompt?detected_tz=${encodeURIComponent(detectedTz)}`);
+        if (!decision || !decision.prompt) return;
+        const storedTz = decision.current_tz || '';
 
         const message = storedTz
             ? `You appear to be in ${detectedTz} (currently set to ${storedTz}). Change your timezone and adjust notifications?`
@@ -48,31 +33,8 @@ async function maybeUpdateTimezone() {
 
         const confirmed = await safeConfirm(message);
         if (!confirmed) {
-            // Persist the dismissal server-side so other browsers skip the same prompt.
-            // Best-effort: swallow errors so a transient network failure does not surface.
-            try {
-                await apiCall('/api/tz-suggestion/dismiss', 'POST', { detected_tz: detectedTz });
-            } catch (e) {
-                console.warn('Failed to record TZ dismissal:', e);
-            }
-            // Mirror the dismissal into the cached settings_bundle so the same browser
-            // suppresses the prompt on reload even if the server write was silently
-            // dropped (apiCall returns null on offline/5xx without throwing). When the
-            // next bootstrap succeeds it will overwrite this with the authoritative
-            // server value, which should match.
-            try {
-                if (window.DataStore) {
-                    const cached = await window.DataStore.getCached('settings_bundle');
-                    if (cached && cached.dismissedTzSuggestion !== detectedTz) {
-                        await window.DataStore.setCached('settings_bundle', {
-                            ...cached,
-                            dismissedTzSuggestion: detectedTz,
-                        });
-                    }
-                }
-            } catch (e) {
-                console.warn('Failed to mirror TZ dismissal to cache:', e);
-            }
+            // The dismissal is a synced settings field, so other devices skip it too.
+            await apiCall('/api/tz-suggestion/dismiss', 'POST', { detected_tz: detectedTz });
             return;
         }
 

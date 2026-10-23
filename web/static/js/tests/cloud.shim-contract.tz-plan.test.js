@@ -125,6 +125,51 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         // Rejected renders nothing.
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
     });
+
+    // bd med-gjsp — declining the plan declines the move: it records the
+    // dismissal so the next boot in new_tz does not re-prompt.
+    it('reject records dismissed_tz_suggestion = plan.new_tz; another zone still prompts', async () => {
+        const { window } = env;
+        const ask = (tz) => window.apiCall(`/api/tz-suggestion/should-prompt?detected_tz=${encodeURIComponent(tz)}`);
+
+        // Pending plan already targets Tokyo → no prompt.
+        expect((await ask('Asia/Tokyo')).prompt).toBe(false);
+
+        await window.apiCall('/api/tz-plan/tzplan-current/reject', 'POST');
+
+        const settings = await window.apiCall('/api/settings');
+        expect(settings.timezone).toBe('America/New_York');
+        expect(settings.dismissed_tz_suggestion).toBe('Asia/Tokyo');
+        expect((await ask('Asia/Tokyo')).prompt).toBe(false);
+        expect(await ask('Europe/Paris')).toEqual({ prompt: true, reason: '', current_tz: 'America/New_York' });
+        expect((await ask('America/New_York')).prompt).toBe(false);
+    });
+});
+
+describe('cloud shim contract — POST /api/settings returns the planner result (bd med-gjsp)', () => {
+    let env;
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    it('no gradual-shift medication: applies immediately → { changed: true, planCreated: false }', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: { settings: [{ recordId: 'settings', clientTs: Date.now(), deleted: false, timezone: 'Europe/Berlin' }] }
+        });
+        const res = await env.window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+        expect(res).toEqual({ changed: true, planCreated: false });
+        expect((await env.window.apiCall('/api/settings')).timezone).toBe('Asia/Tokyo');
+    });
+
+    it('same zone → { changed: false, planCreated: false }', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: { settings: [{ recordId: 'settings', clientTs: Date.now(), deleted: false, timezone: 'Asia/Tokyo' }] }
+        });
+        const res = await env.window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+        expect(res).toEqual({ changed: false, planCreated: false });
+    });
 });
 
 // bd med-gut.3 — an APPROVED plan used to vanish from the UI while its steps

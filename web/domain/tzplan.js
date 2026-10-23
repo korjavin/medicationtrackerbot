@@ -431,7 +431,7 @@ export function createTzPlanDomain({ records, now, timeZone }) {
     if (plan && (plan.status === 'PENDING_APPROVAL' || plan.status === 'APPROVED') && plan.new_tz === detectedTz) {
       return { prompt: false, reason: 'active transition plan already targets this timezone' };
     }
-    return { prompt: true, reason: '' };
+    return { prompt: true, reason: '', current_tz: general.timezone || '' };
   }
 
   // Ported from tzsuggestion.Service.RecordDismissal.
@@ -510,6 +510,9 @@ export function createTzPlanDomain({ records, now, timeZone }) {
     const nowMs = now();
     await putPlanRecord({ ...plan, clientTs: nowMs, status: 'REJECTED' });
     await settings.setTimezone(plan.old_tz);
+    // Declining the plan declines the move: without this the next boot in
+    // new_tz re-prompts (stored tz is still old_tz).
+    await settings.setDismissedTzSuggestion(plan.new_tz);
     return { status: 'rejected' };
   }
 

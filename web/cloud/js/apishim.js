@@ -596,6 +596,8 @@ export function createApiRouter(ctx, {
             && typeof targetWindow.TZPlanBanner.refresh === 'function') {
           targetWindow.TZPlanBanner.refresh();
         }
+        // The caller (bootstrap's tz prompt) reacts to the planner outcome.
+        return { changed: res.changed, planCreated: res.planCreated };
       }
       return true;
     }
@@ -902,6 +904,9 @@ export function createApiRouter(ctx, {
         scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
       }
+    }
+    if (path === '/api/tz-suggestion/should-prompt' && method === 'GET') {
+      return tzplan.shouldPromptSuggestion(params.get('detected_tz') || '');
     }
     if (path === '/api/tz-suggestion/dismiss' && method === 'POST') return tzplan.recordDismissal(body && body.detected_tz);
 
