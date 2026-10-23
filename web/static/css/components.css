@@ -601,6 +601,12 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
     background: var(--wg-bg-stage);
 }
 
+/* W1 footnote links (bd med-ta2n.28): .wg-link has no padding, so give the
+   row a tappable height. */
+.wg-firstrun-links .wg-link {
+    min-height: 44px;
+}
+
 .wg-firstrun-overlay__body {
     display: flex;
     flex-direction: column;
