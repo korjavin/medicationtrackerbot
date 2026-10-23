@@ -159,6 +159,8 @@ type relayStore interface {
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
 	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback, tgMedIDs string, supersedesMessageID int64) error
 	ScrubSentPushIdentity(ctx context.Context, before time.Time) (int64, error)
+	ListNativePushTokens(ctx context.Context, accountID string) ([]cloudstore.NativePushToken, error)
+	DisableNativePushToken(ctx context.Context, platform, token string) error
 }
 
 // Relay is the blind push-firing loop: it never decrypts or composes a
@@ -192,6 +194,11 @@ type Relay struct {
 	// never coalesced.
 	broker *InboxBroker
 
+	// native maps a token platform (cloudstore.NativePushIOS/Android) to its
+	// APNs/FCM sender (bd med-erq1.2). A platform with no sender configured is
+	// absent, and its tokens are skipped.
+	native map[string]NativePushSender
+
 	// now/after are time.Now/time.AfterFunc, injectable so trailing-wake
 	// timing tests don't sleep through the real 10s cooldown.
 	now   func() time.Time
@@ -223,6 +230,10 @@ func NewRelay(store relayStore, sender PushSender, tg TelegramSender, dryQueueWa
 // setter (rather than a NewRelay param) so the ~15 existing call sites don't
 // churn; unset leaves WakeInbox push-only, exactly as before.
 func (rl *Relay) SetEventBroker(b *InboxBroker) { rl.broker = b }
+
+// SetNativePush wires the APNs/FCM senders the inbox wake and the dry-queue
+// warning fan out to after Web Push. Unset (or empty) = Web Push only.
+func (rl *Relay) SetNativePush(senders map[string]NativePushSender) { rl.native = senders }
 
 // Run ticks until ctx is cancelled. Call it in its own goroutine, passing the
 // same context the HTTP server shuts down on, so the relay stops with it.
@@ -431,6 +442,7 @@ func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 				rl.send(ctx, sub, keys, staleSyncWarningPayload)
 			}
 		}
+		rl.sendNative(ctx, accountID, nativeKindDryQueue)
 		if err := rl.store.MarkStaleSyncWarned(ctx, accountID, now); err != nil {
 			slog.Error("push relay: mark stale-sync warned", "accountID", accountID, "error", err)
 		}
@@ -461,6 +473,14 @@ func (rl *Relay) WakeInbox(ctx context.Context, accountID string) {
 		rl.scheduleTrailingWake(accountID)
 		return
 	}
+	// Both channels inside the one claimed window, so a burst coalesces on the
+	// phone shells exactly as it does for Web Push (bd med-erq1.2).
+	rl.wakeWebPush(ctx, accountID)
+	rl.sendNative(ctx, accountID, nativeKindInboxWake)
+}
+
+// wakeWebPush is WakeInbox's Web Push half.
+func (rl *Relay) wakeWebPush(ctx context.Context, accountID string) {
 	subs, err := rl.store.List(ctx, accountID)
 	if err != nil {
 		slog.Error("push relay: list subscriptions for inbox wake", "accountID", accountID, "error", err)
@@ -487,6 +507,45 @@ func (rl *Relay) WakeInbox(ctx context.Context, accountID string) {
 		}
 	}
 	slog.Info("inbox: push wake result", "accountID", accountID, "sent", sent, "failed", failed)
+}
+
+// sendNative fans the content-free wake `kind` out to the account's APNs/FCM
+// tokens, disabling any the provider reports dead. Tokens are bearer-like
+// device ids, so logs carry only their fingerprint.
+func (rl *Relay) sendNative(ctx context.Context, accountID, kind string) {
+	if len(rl.native) == 0 {
+		return
+	}
+	toks, err := rl.store.ListNativePushTokens(ctx, accountID)
+	if err != nil {
+		slog.Error("push relay: list native push tokens", "accountID", accountID, "error", err)
+		return
+	}
+	var sent, failed int
+	for _, t := range toks {
+		s := rl.native[t.Platform]
+		if s == nil {
+			continue // that platform's sender is not configured
+		}
+		sendCtx, cancel := context.WithTimeout(ctx, relaySendTimeout)
+		gone, err := s.Send(sendCtx, t.Token, kind)
+		cancel()
+		switch {
+		case err != nil:
+			failed++
+			slog.Error("push relay: native send failed", "platform", t.Platform, "token_fp", endpointFingerprint(t.Token), "error", err)
+		case gone:
+			failed++
+			if err := rl.store.DisableNativePushToken(ctx, t.Platform, t.Token); err != nil {
+				slog.Error("push relay: disable native push token", "platform", t.Platform, "token_fp", endpointFingerprint(t.Token), "error", err)
+			}
+		default:
+			sent++
+		}
+	}
+	if sent+failed > 0 {
+		slog.Info("push relay: native wake result", "kind", kind, "accountID", accountID, "sent", sent, "failed", failed)
+	}
 }
 
 // scheduleTrailingWake arranges one coalesced push wake at the cooldown

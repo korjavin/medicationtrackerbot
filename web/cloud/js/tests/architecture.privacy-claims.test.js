@@ -221,6 +221,9 @@ const HOST_EXEMPT = {
   // (WebViewAssetLoader's fixed asset host). attest.go only compares a
   // request's Origin header to it for CORS; nothing is ever sent there.
   'appassets.androidplatform.net': 'an inbound CORS origin, never an outbound destination',
+  // bd med-erq1.2: nativepush.go's FCM OAuth2 scope string. It is an
+  // identifier inside the signed assertion; the token goes to oauth2.googleapis.com.
+  'www.googleapis.com': 'an OAuth2 scope identifier, never fetched',
 };
 
 function stripGoComments(src) {

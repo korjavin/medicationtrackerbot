@@ -176,12 +176,25 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 		t.Fatalf("ListOps (other): %v", err)
 	}
 
+	// bd med-erq1.2: the dry account's phone shell gets the same warning over
+	// native push; the silent account's token gets nothing.
+	for acct, tok := range map[string]string{account.ID: "ios-dry", other.ID: "ios-other"} {
+		if err := store.UpsertNativePushToken(ctx, acct, cloudstore.NativePushIOS, tok, time.Now().UTC()); err != nil {
+			t.Fatalf("UpsertNativePushToken: %v", err)
+		}
+	}
+	native := &fakeNativeSender{}
+
 	sender := &fakeSender{goneFor: map[string]bool{}}
 	relay := NewRelay(store, sender, nil, 120*time.Hour)
+	relay.SetNativePush(map[string]NativePushSender{cloudstore.NativePushIOS: native})
 	relay.StaleSyncSweep(ctx)
 
 	if len(sender.sent) != 1 || sender.sent[0].endpoint != "https://push.example/ok" {
 		t.Fatalf("expected exactly 1 warning send, to the dry account, got %d: %+v", len(sender.sent), sender.sent)
+	}
+	if len(native.sent) != 1 || native.sent[0] != "ios-dry/dry-queue" {
+		t.Fatalf("native sends = %v, want [ios-dry/dry-queue]", native.sent)
 	}
 	var payload struct {
 		Kind  string `json:"kind"`
@@ -255,6 +268,65 @@ func TestRelay_WakeInboxCoalescesABurst(t *testing.T) {
 	relay.WakeInbox(ctx, accountA.ID)
 	if len(sender.sent) != 3 {
 		t.Fatalf("sends after the cooldown lapsed = %d, want 3", len(sender.sent))
+	}
+}
+
+// fakeNativeSender records "<token>/<kind>" per send and reports the tokens in
+// gone as dead, like an APNs 410 / FCM UNREGISTERED.
+type fakeNativeSender struct {
+	sent []string
+	gone map[string]bool
+}
+
+func (f *fakeNativeSender) Send(ctx context.Context, token, kind string) (bool, error) {
+	f.sent = append(f.sent, token+"/"+kind)
+	return f.gone[token], nil
+}
+
+// TestRelay_WakeInboxFansOutToNativeTokens (bd med-erq1.2): the inbox wake
+// reaches every native token of a configured platform inside the same
+// coalescing window as Web Push — even with no Web Push subscription at all —
+// skips a platform with no sender, and disables a token reported dead.
+func TestRelay_WakeInboxFansOutToNativeTokens(t *testing.T) {
+	store := setupStore(t)
+	account, _ := setupInvite(t, store)
+	ctx := context.Background()
+	for _, tk := range []struct{ platform, token string }{
+		{cloudstore.NativePushIOS, "ios-1"},
+		{cloudstore.NativePushIOS, "ios-dead"},
+		{cloudstore.NativePushAndroid, "android-1"},
+	} {
+		if err := store.UpsertNativePushToken(ctx, account.ID, tk.platform, tk.token, time.Now().UTC()); err != nil {
+			t.Fatalf("UpsertNativePushToken: %v", err)
+		}
+	}
+
+	ios := &fakeNativeSender{gone: map[string]bool{"ios-dead": true}}
+	relay := NewRelay(store, &fakeSender{}, nil, 0)
+	relay.after = func(time.Duration, func()) {}
+	relay.SetNativePush(map[string]NativePushSender{cloudstore.NativePushIOS: ios}) // android unconfigured
+	relay.WakeInbox(ctx, account.ID)
+	relay.WakeInbox(ctx, account.ID) // inside the cooldown: coalesced
+
+	if len(ios.sent) != 2 {
+		t.Fatalf("ios sends = %v, want ios-1 and ios-dead once each", ios.sent)
+	}
+	for _, s := range ios.sent {
+		if !strings.HasSuffix(s, "/inbox-wake") {
+			t.Fatalf("kind in %q, want inbox-wake", s)
+		}
+	}
+	toks, err := store.ListNativePushTokens(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("ListNativePushTokens: %v", err)
+	}
+	for _, tk := range toks {
+		if tk.Token == "ios-dead" {
+			t.Fatal("dead token still enabled")
+		}
+	}
+	if len(toks) != 2 {
+		t.Fatalf("enabled tokens = %+v, want ios-1 and android-1", toks)
 	}
 }
 
