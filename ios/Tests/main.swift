@@ -239,7 +239,7 @@ for kind in ["", "Inbox-wake", "inbox-wake'", "x');alert(1);('"] { precondition(
 precondition(Push.hex(Data([0x00, 0x0a, 0xff])) == "000aff")
 let fp = Push.fingerprint("abcdef0123456789")
 precondition(fp.count == 8 && fp != Push.fingerprint("abcdef012345678a"), fp)
-precondition(Push.grace > 0 && Push.grace < 30) // under iOS's background budget
+precondition(Push.answer > 0 && Push.grace > 0 && Push.answer + Push.grace < 30) // under iOS's background budget
 print("Push: ok")
 
 // Move (bd med-o7zq.35): the stash file's lifecycle.

@@ -16,8 +16,11 @@ import Foundation
 enum Push {
     /// The server's wake kinds (nativepush.go); 'token' is the shell's own.
     static let kinds: Set<String> = ["inbox-wake", "dry-queue", "token"]
+    /// How long the page has to answer the wake script (Shell.pushEvent); no
+    /// answer = not taken, so the alert shows.
+    static let answer: TimeInterval = 5
     /// A background wake's grace before its completion: a live unlocked page
-    /// drains meanwhile; well under iOS's 30 s budget.
+    /// drains meanwhile. answer + grace stays well under iOS's 30 s budget.
     static let grace: TimeInterval = 10
 
     /// The device token as APNs wants it: lowercase hex.

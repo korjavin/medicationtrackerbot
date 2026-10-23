@@ -310,10 +310,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
 
     /// Document event wg:native-push {kind} on this account's page whose vault
-    /// is unlocked; `done` gets whether the page took it.
+    /// is unlocked; `done` gets whether the page took it, exactly once: a page
+    /// that does not answer within Push.answer counts as not taking it.
     func pushEvent(_ kind: String, done: @escaping (Bool) -> Void = { _ in }) {
         guard !local, showingAccount, loadError == nil, let js = Push.event(kind) else { return done(false) }
-        webView.evaluateJavaScript(js) { result, _ in done(result as? Bool == true) }
+        var pending: ((Bool) -> Void)? = done
+        let finish = { (took: Bool) in
+            pending?(took)
+            pending = nil
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Push.answer) { finish(false) }
+        webView.evaluateJavaScript(js) { result, _ in finish(result as? Bool == true) }
     }
 
     /// The lock screen's Unlock button.
