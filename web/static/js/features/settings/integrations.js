@@ -667,8 +667,11 @@
         eyebrow.className = 'wg-eyebrow';
         eyebrow.textContent = 'Telegram';
         head.appendChild(eyebrow);
+        const section = document.createElement('div');
+        section.className = 'wg-section';
+        section.append(head, card);
         mount.textContent = '';
-        mount.append(head, card);
+        mount.appendChild(section);
         mount.dataset.tgState = 'needs-sync';
         // Same target as W5's link: the deployment's base landing.
         Promise.resolve().then(() => window.InviteSheet && window.InviteSheet.base()).then((base) => {
