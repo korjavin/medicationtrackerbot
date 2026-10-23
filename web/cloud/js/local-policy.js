@@ -566,7 +566,7 @@ async function registerLocalEgressNow({ settings, win }) {
     // install, or one whose only key is feedback-only (granted false), which
     // the server upgrades (bd med-ta2n.25; on iOS the shell attests a new
     // key). Never again after a trial_already_used.
-    const state = localTrial.state();
+    const state = localTrial?.state();
     const memo = readFeedbackMemo(win);
     const hasTrialKey = memo.granted === true || trialKeyGranted(win.localStorage);
     if (trialOn && !hasTrialKey && state?.used !== true && (memo.keyed === true || (!attest.attested && !state))) {
