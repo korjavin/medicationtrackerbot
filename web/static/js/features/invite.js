@@ -13,6 +13,8 @@
 //                     + note → /api/invite-requests, POSTed by the shell
 //                     (bridge op base.post).
 //   canRequest()      → whether the shell has base.post (W5's button gate).
+//   openAccount()     the W5 "Open my account" page (bd med-r1j2.5, AD10);
+//                     parseAddress(raw, base) its strict address check.
 //   parse(raw, base?) → {claimUrl, sub} | null. Accepts the landing link
 //                     https://<base>/i/<sub>#<token>, the scheme link
 //                     medtracker://i/<sub>#<token>, the claim link
@@ -815,5 +817,119 @@
         return { email: email, note: noteInput, send: send };
     }
 
-    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending, base: shellBase, request: request, canRequest: canRequest };
+    // ---- Path 0 "Open my account" (bd med-r1j2.5, AD10) ------------------
+    // A passkey that syncs (iCloud Keychain, Google Password Manager) already
+    // opens the account on this device through plain /unlock. The W5 entry
+    // pushes this page: one address field, then the shell opens
+    // https://<sub>.<base>/unlock (local.leave {url}). No move.stash, no record
+    // read or written: the local vault stays as it is, nothing is merged or
+    // erased. /unlock's own no-passkey state points at the QR flow (AD10 · none).
+    //
+    // parseAddress(raw, base) → 'https://<sub>.<base>/unlock' | null. Strict:
+    // a base is required; <sub>.<base> or an https URL on it (any path, which
+    // is dropped); userinfo, a port, other schemes, lookalike suffixes and
+    // external hosts are refused (parseAccount's host gate).
+    function parseAddress(raw, base) {
+        base = String(base || '').toLowerCase();
+        if (!base) return null;
+        var account = parseAccount(raw == null ? '' : raw, base);
+        return account ? 'https://' + account.sub + '.' + base + '/unlock' : null;
+    }
+
+    function openAccount() {
+        if (document.getElementById('open-account-input') || !window.WGPage) return null;
+        var device = words().device;
+        var body = document.createDocumentFragment();
+        var intro = el('div', 'wg-vstack');
+        intro.append(
+            el('h1', 'wg-shell__title wg-shell__title--md', 'Open your account on this ' + device),
+            el('p', 'wg-shell__lede', 'If your passkey syncs to this ' + device + ' (iCloud Keychain, Google Password Manager or another passkey manager), it can open your account here.'));
+        var field = el('div', 'wg-field');
+        var label = el('label', 'wg-label', 'Account address');
+        label.htmlFor = 'open-account-input';
+        var input = el('input', 'wg-input');
+        input.id = 'open-account-input';
+        input.type = 'url';
+        input.autocomplete = 'off';
+        input.setAttribute('autocapitalize', 'off');
+        input.setAttribute('spellcheck', 'false');
+        var hint = el('p', 'wg-hint', 'On your other device: Settings → Devices & connectors. A link to it works too.');
+        var error = errorLine();
+        field.append(label, input, hint, error);
+        var info = note('info', 'info', null, 'Nothing on this ' + device + ' changes until you choose what to do with its records.');
+        info.el.setAttribute('role', 'note'); // static copy, not an announcement
+        body.append(intro, field, info.el);
+
+        var foot = el('footer', 'wg-pagefoot');
+        var go = button('wg-btn wg-btn--primary wg-btn--lg', 'Unlock with passkey', 'key', 'open-account');
+        go.disabled = true;
+        foot.appendChild(go);
+
+        var base = '';
+        var busy = false;
+        function showError(message) {
+            field.classList.toggle('wg-field--error', !!message);
+            error.replaceChildren();
+            if (message) {
+                var i = el('i', 'wg-ico wg-ico--sm');
+                i.dataset.icon = 'alert';
+                error.append(i, message);
+                if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(error);
+            }
+            error.hidden = !message;
+        }
+        function badAddress() {
+            return base ? 'Not a full address. It ends in .' + base : 'This app cannot open an account address yet.';
+        }
+        // The sun stays off until the address parses; the error waits for a
+        // blur or an Enter, so typing isn't shouted at.
+        input.addEventListener('input', function () {
+            var ok = !!parseAddress(input.value, base);
+            go.disabled = !ok || busy;
+            if (ok) showError('');
+        });
+        input.addEventListener('change', function () {
+            if (input.value.trim() && !parseAddress(input.value, base)) showError(badAddress());
+        });
+
+        async function submit() {
+            if (busy) return;
+            var url = parseAddress(input.value, base);
+            if (!url) { showError(input.value.trim() ? badAddress() : ''); return; }
+            if (window.navigator.onLine === false) { showError(OFFLINE); return; }
+            var n = native();
+            busy = true;
+            go.disabled = true;
+            try {
+                // local.leave {url} is honoured by a v3 shell only (invite.pending listed).
+                if (!n || (await within(n.has('invite.pending'), false)) !== true) {
+                    showError('Update Med Tracker to open your account here.');
+                    return;
+                }
+                await n.call('local.leave', { url: url });
+                // The shell is opening the account; nothing left to do here.
+            } catch (e) {
+                var msg = (e && e.message) || String(e || '');
+                showError(/invalid url/.test(msg) ? badAddress() : 'Your account could not be opened: ' + (msg || 'unknown error') + '.');
+            } finally {
+                busy = false;
+                go.disabled = !parseAddress(input.value, base);
+            }
+        }
+        go.addEventListener('click', submit);
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); submit(); }
+        });
+
+        var page = window.WGPage.push({ title: 'Open my account', back: 'Sync & backup', body: body });
+        page.el.appendChild(foot);
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(foot);
+        shellBase().then(function (b) {
+            base = String(b || '').toLowerCase();
+            go.disabled = !parseAddress(input.value, base) || busy;
+        });
+        return page;
+    }
+
+    window.InviteSheet = { open: open, parse: parse, offer: offer, boot: boot, pending: pending, base: shellBase, request: request, canRequest: canRequest, parseAddress: parseAddress, openAccount: openAccount };
 })();

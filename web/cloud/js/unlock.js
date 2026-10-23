@@ -31,6 +31,7 @@ const UNLOCK_CEREMONY_COPY = {
   hint: 'Choose your passkey to open your vault.',
   failed: "Couldn't unlock with your passkey. Tap Unlock with passkey to try again.",
 };
+const NO_PASSKEY_HINT = 'No passkey for this account on this device? Add this device from one that can already open your account: there, go to Settings → Devices & connectors → Add a device.';
 
 export async function runUnlockFlow() {
   const app = document.getElementById('app');
@@ -58,7 +59,7 @@ export async function runUnlockFlow() {
   renderLocked(app);
 }
 
-function renderLocked(app, errorText) {
+function renderLocked(app, errorText, noPasskey) {
   // A friend on another subdomain/instance who taps the sender's link lands
   // here (cold unlock shell) with the plan/gym fragment intact. They still
   // get it via paste: point them at their own app's Import. Keep it
@@ -81,9 +82,21 @@ function renderLocked(app, errorText) {
     p.textContent = errorText;
     app.querySelector('section').appendChild(p);
   }
+  // AD10 · none (bd med-r1j2.5): the system sheet found no passkey (or was
+  // cancelled — the browser can't tell us which), so point at the QR flow.
+  if (noPasskey) {
+    const p = document.createElement('p');
+    p.id = 'unlock-no-passkey';
+    p.textContent = NO_PASSKEY_HINT;
+    app.querySelector('section').appendChild(p);
+  }
   app.querySelector('#unlock-button').addEventListener('click', () => {
-    passkeyCeremony(app, UNLOCK_CEREMONY_COPY, () => coldUnlock(app))
-      .catch((err) => renderLocked(app, err.message || String(err)));
+    // Read before passkeyCeremony swaps the browser error for copy.failed (Android).
+    let notAllowed = false;
+    passkeyCeremony(app, UNLOCK_CEREMONY_COPY, () => coldUnlock(app).catch((e) => {
+      notAllowed = e?.name === 'NotAllowedError';
+      throw e;
+    })).catch((err) => renderLocked(app, err.message || String(err), notAllowed));
   });
   if (carriesSharePlan) {
     const copyBtn = app.querySelector('#share-plan-copy-button');
