@@ -653,7 +653,10 @@ changes for it.
   the primary/raised/ghost button styles and an `AccentColor` asset set to
   sun (bd med-ckm5.13).
 - **Navigation:** the account host and the base domain load in the app; every
-  other link (and `mailto:`/`tel:`) opens in Safari or its own app.
+  other link (and `mailto:`/`tel:`) opens in Safari or its own app. A
+  back/forward navigation to a page outside the current mode or account (a
+  late `history.back()` after a mode or account switch) is cancelled, never
+  opened in Safari (bd med-o7zq.47).
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   load-error screen (N4, bd med-ckm5.15: "Can't reach your account" with Try
   again / Switch account; a bare 404 "We can't find this account" with Use
@@ -855,7 +858,9 @@ a Web Push subscription.
   `reminderOpenUrl` (root, keys tab/action/ids/scheduled, no fragment; else
   `/?tab=today`); a reminder without a url (older page or build) maps its
   `section`. The open app gets `history.replaceState` + `handleDeepLinks()`,
-  a cold start loads the path.
+  a cold start loads the path. A page without the router (e.g. `/unlock`)
+  is left untouched and the path loads instead (bd med-w6gx.27, the Android
+  #1273 contract).
 - **Not in v1:** Confirm/Snooze buttons on the notification; a cold start onto
   a locked vault lands on Today after unlock (`/unlock` drops the query).
 
