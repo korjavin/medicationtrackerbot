@@ -81,7 +81,8 @@ enum BasePost {
         var out: [String: String] = [:]
         for (k, v) in map {
             guard requestHeaders.contains(k), let s = v as? String,
-                  s.utf8.count <= maxHeader, !s.contains("\r"), !s.contains("\n") else { return nil }
+                  // Scalars, not Characters: "\r\n" is one Character, so contains("\r") misses it.
+                  s.utf8.count <= maxHeader, !s.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }) else { return nil }
             out[k] = s
         }
         return out
