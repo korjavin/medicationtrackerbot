@@ -495,7 +495,7 @@ export function computeReminderHorizon({
   trackers = [], trackerLogs = [],
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
-  const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
+  const medById = new Map(meds.map((m) => [String(m.recordId ?? m.id), m])); // String keys: med-wi09.16
   const entries = [];
 
   // The med rows are the occurrence projection's upcoming set over the next
@@ -509,7 +509,7 @@ export function computeReminderHorizon({
     medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
   // medById holds live, unarchived meds only: a stored future row of a deleted
   // or archived med is history, not a nag.
-  }).filter((r) => r.state === 'upcoming' && medById.has(r.medId))
+  }).filter((r) => r.state === 'upcoming' && medById.has(String(r.medId)))
     .map((r) => ({ medicationId: r.medId, medName: r.name, scheduledAtMs: Date.parse(r.plannedAt) }));
   // A dose the user already confirmed early (via trigger-next-intake) or
   // skipped must not resurface as a "Time to take" push. Mirrors the server
@@ -523,14 +523,14 @@ export function computeReminderHorizon({
   for (const intake of intakes) {
     if (intake.deleted) continue;
     if (intake.status === 'TAKEN' || intake.status === 'SKIPPED') {
-      const list = handledByMed.get(intake.medication_id) || [];
+      const list = handledByMed.get(String(intake.medication_id)) || [];
       list.push(Date.parse(intake.scheduled_at));
-      handledByMed.set(intake.medication_id, list);
+      handledByMed.set(String(intake.medication_id), list);
     }
   }
   // The ±band is suppression only (it avoids a nag) — actions never guess.
   const isHandled = (t, med) => {
-    const handled = handledByMed.get(t.medicationId);
+    const handled = handledByMed.get(String(t.medicationId));
     if (!handled) return false;
     // bandMs === 0 (as_needed / unparseable) collapses to exact-slot equality.
     const bandMs = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
@@ -538,7 +538,7 @@ export function computeReminderHorizon({
   };
   const bySlot = new Map();
   for (const t of targets) {
-    const med = medById.get(t.medicationId);
+    const med = medById.get(String(t.medicationId));
     if (isHandled(t, med)) continue;
     const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };
     slot.names.push(med ? medDisplayName(med) : t.medName);

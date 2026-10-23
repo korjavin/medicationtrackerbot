@@ -500,6 +500,46 @@ describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
         expect(applyIncoming(bodyA, bodyB)).toBe(bodyA);
     });
 
+    // bd med-wi09.16 — a string med recordId against numeric intake ids (imported
+    // vault) must still match: no duplicate slot, no missing name.
+    it('string med recordId vs numeric intake medication_id: no duplicate, name resolved', async () => {
+        const records = createInMemoryRecordsPort({
+            medication: [{ ...med(), recordId: '1' }],
+            intake: [{
+                recordId: SLOT_ID,
+                clientTs: Date.UTC(2026, 7, 16, 7, 0),
+                deleted: false,
+                medication_id: 1,
+                scheduled_at: new Date(SLOT_MS).toISOString(),
+                taken_at: null,
+                status: 'PENDING',
+                snoozed_until: null,
+                source: 'schedule'
+            }]
+        });
+        const domain = domainOver(records, () => NOW);
+        expect(await domain.materializeDueDoses()).toEqual([]);
+        await domainOver(records, () => SLOT_MS - 3600_000).triggerNextIntake();
+        const rows = await records.list('intake');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].status).toBe('TAKEN');
+        expect((await domain.listWindow())[0].medication_name).toBe('Metformin');
+
+        // logPast finds the med by String id.
+        await expect(domain.logPast(1, SLOT_MS - 86400_000)).resolves.toBeDefined();
+
+        // Reminder horizon: the next-day slot is a medication entry (med found by
+        // String id); the TAKEN slot just logged is not nagged again.
+        const horizon = (intakes) => computeReminderHorizon({
+            medications: [{ ...med(), recordId: '1' }],
+            intakes,
+            timeZone: TZ,
+            now: SLOT_MS - 3600_000
+        }).filter((e) => e.kind === 'medication' && e.fireAtUnix === SLOT_MS / 1000);
+        expect(horizon([])).toHaveLength(1);
+        expect(horizon(await records.listRaw('intake'))).toHaveLength(0);
+    });
+
     it('a deleteFutureIntakes tombstone keeps the slot deleted once it comes due', async () => {
         const records = createInMemoryRecordsPort({
             medication: [med()],

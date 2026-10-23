@@ -77,7 +77,7 @@ function assertNoDuplicate(all, name, dosage, excludeId) {
 function lastTakenAtFor(medId, intakes) {
   let max = null;
   for (const i of intakes) {
-    if (i.deleted || i.medication_id !== medId || i.status !== 'TAKEN' || !i.taken_at) continue;
+    if (i.deleted || String(i.medication_id) !== String(medId) || i.status !== 'TAKEN' || !i.taken_at) continue;
     if (max === null || Date.parse(i.taken_at) > Date.parse(max)) max = i.taken_at;
   }
   return max;
@@ -194,7 +194,7 @@ export function createMedicationsDomain({
   async function cancelPendingIntakesForMedication(medId) {
     const intakes = await records.list(INTAKE_RECORD_TYPE);
     for (const intake of intakes) {
-      if (!intake.deleted && intake.medication_id === medId && intake.status === 'PENDING') {
+      if (!intake.deleted && String(intake.medication_id) === String(medId) && intake.status === 'PENDING') {
         await records.del(INTAKE_RECORD_TYPE, intake.recordId);
       }
     }
@@ -244,7 +244,7 @@ export function createMedicationsDomain({
   // matching the server's *bool-nil guard.
   async function update(id, input) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const existing = all.find((m) => m.recordId === id && !m.deleted);
+    const existing = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
     if (!existing) throw notFound('medication not found');
 
     const name = (input && input.name ? String(input.name) : '').trim();
@@ -289,7 +289,7 @@ export function createMedicationsDomain({
   // hard-deleted, and only if no intake (of any status) references them.
   async function remove(id) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const med = all.find((m) => m.recordId === id && !m.deleted);
+    const med = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
     if (!med) throw notFound('medication not found');
     if (!med.archived) {
       const err = new Error('Cannot delete active medication. Archive it first.');
@@ -298,7 +298,7 @@ export function createMedicationsDomain({
     }
 
     const intakes = await records.list(INTAKE_RECORD_TYPE);
-    const hasHistory = intakes.some((i) => !i.deleted && i.medication_id === id);
+    const hasHistory = intakes.some((i) => !i.deleted && String(i.medication_id) === String(id));
     if (hasHistory) {
       const err = new Error('Cannot delete medication with intake history');
       err.code = 'has_intake_history';
@@ -322,7 +322,7 @@ export function createMedicationsDomain({
 
   async function get(id) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const med = all.find((m) => m.recordId === id && !m.deleted);
+    const med = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
     if (!med) return null;
     const intakes = await records.list(INTAKE_RECORD_TYPE);
     return toResponse(med, intakes);
@@ -338,7 +338,7 @@ export function createMedicationsDomain({
       throw err;
     }
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const med = all.find((m) => m.recordId === medId && !m.deleted);
+    const med = all.find((m) => String(m.recordId) === String(medId) && !m.deleted);
     if (!med) throw notFound('medication not found');
 
     const nowMs = now();
@@ -363,7 +363,7 @@ export function createMedicationsDomain({
   async function listRestocks(medId) {
     const all = await records.list(RESTOCK_RECORD_TYPE);
     return all
-      .filter((r) => !r.deleted && r.medication_id === medId)
+      .filter((r) => !r.deleted && String(r.medication_id) === String(medId))
       .sort((a, b) => Date.parse(b.restocked_at) - Date.parse(a.restocked_at))
       .map(toRestockResponse);
   }
