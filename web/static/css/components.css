@@ -525,13 +525,14 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 
 /* tracker editor (TR2): the reminder time field sits inline in its setting row */
 .wg-trkedit__time{width:auto}
-/* ===== v2.2 extension: add a device (med-r1j2) — the kit's verbatim, minus .wg-matchcode--wait, the
-   .wg-row__lead tones and the .wg-code--wrap / .wg-input--code rules (styles.css carries the app's
-   .wg-code--wrap; the typed-code input lands with the /claim screen). App delta: .wg-qr>svg fills the
-   tile (the kit draws a "QR" placeholder). ===== */
+/* ===== v2.2 extension: add a device (med-r1j2) — the kit's verbatim, minus the .wg-row__lead tones
+   and .wg-code--wrap (styles.css carries the app's). App delta: .wg-qr>svg fills the tile (the kit
+   draws a "QR" placeholder). ===== */
 .wg-matchcode{display:flex;justify-content:center;gap:20px;padding:18px 12px;border-radius:var(--wg-r-lg);background:var(--wg-inset);box-shadow:var(--wg-sh-inset);border:1px solid var(--wg-line-dark);font:500 44px/1 var(--wg-font-mono);letter-spacing:.14em;font-variant-numeric:tabular-nums;color:var(--wg-fg-1)}
 .wg-matchcode>span{white-space:nowrap;margin-right:-.14em}
 .wg-matchcode--sm{font-size:28px;padding:12px;gap:14px}
+.wg-matchcode--wait{color:var(--wg-fg-4);min-width:240px}
+.wg-input--code{height:auto;min-height:0;padding:10px 14px;font:500 var(--wg-fs-lg)/1.5 var(--wg-font-mono);letter-spacing:.04em;word-spacing:.25em;text-transform:uppercase;resize:none}
 .wg-qr--lg{width:184px;height:184px}
 .wg-qr>svg{width:100%;height:100%}
 .wg-shell__icon--ok{background:var(--wg-ok-bg);border-color:var(--wg-ok-line);color:var(--wg-ok-fg)}
