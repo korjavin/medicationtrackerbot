@@ -519,7 +519,7 @@ describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
         });
         const domain = domainOver(records, () => NOW);
         expect(await domain.materializeDueDoses()).toEqual([]);
-        await domain.triggerNextIntake();
+        await domainOver(records, () => SLOT_MS - 3600_000).triggerNextIntake();
         const rows = await records.list('intake');
         expect(rows).toHaveLength(1);
         expect(rows[0].status).toBe('TAKEN');
