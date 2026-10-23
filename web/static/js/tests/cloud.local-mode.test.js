@@ -3052,6 +3052,56 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         expect(JSON.parse(fetched[4].body)).toMatchObject({ trial: false });
     });
 
+    // iOS (Attest.swift): an attested key can't be re-attested, so turning the
+    // trial on after a feedback-only enroll mints a NEW key. Refused
+    // trial_already_used, it has already replaced the feedback key: the next
+    // Send meets install_unknown and must re-enroll feedback-only.
+    it('iOS: trial on after feedback mints a new key; refused, the next Send re-enrolls {trial:false}', async () => {
+        let n = 0;
+        let current = '';
+        const known = new Set();
+        const attest = {
+            ...freshInstall(),
+            enroll: vi.fn(async () => { current = `key-${++n}`; return { keyId: current, attestation: 'QQ==', deviceToken: 'RA==' }; }),
+            assert: vi.fn(async (challenge) => ({ keyId: current, assertion: `sig:${challenge}` })),
+        };
+        await boot(attest);
+        reply.enroll = () => {
+            const trialOff = JSON.parse(fetched.at(-1).body).trial === false;
+            if (!trialOff) return new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 });
+            known.add(JSON.parse(fetched.at(-1).body).key_id);
+            return new Response(JSON.stringify({ remaining: 0, daily: 50, granted: false }), { status: 200, headers: { 'X-Attest-Challenge': 'c2' } });
+        };
+        reply.feedback = () => (known.has(fetched.at(-1).headers['X-Attest-Key-Id'])
+            ? new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c3' } })
+            : new Response(JSON.stringify({ error: 'install_unknown' }), { status: 401 }));
+        const enrollBodies = () => fetched.filter(({ url }) => url.endsWith('/api/attest/enroll')).map(({ body }) => JSON.parse(body));
+
+        send(await compose('one'));
+        await vi.waitFor(() => expect(toasts).toContain(SENT_TOAST));
+        expect(enrollBodies()).toEqual([expect.objectContaining({ key_id: 'key-1', trial: false })]);
+
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: true });
+        await env.window.CloudVault.trial.apply();
+        try {
+            // The trial enroll: a new key, no trial:false, refused.
+            await vi.waitFor(() => expect(enrollBodies()).toHaveLength(2));
+            expect(enrollBodies()[1].key_id).toBe('key-2');
+            expect(enrollBodies()[1]).not.toHaveProperty('trial');
+
+            toasts = [];
+            send(await compose('two'));
+            await vi.waitFor(() => expect(toasts).toContain(SENT_TOAST));
+            expect(enrollBodies()).toHaveLength(3);
+            expect(enrollBodies()[2]).toMatchObject({ key_id: 'key-3', trial: false });
+            const posts = fetched.filter(({ url }) => url.endsWith('/api/attest/feedback'));
+            expect(posts.map(({ headers }) => headers['X-Attest-Key-Id'])).toEqual(['key-1', 'key-2', 'key-3']);
+        } finally {
+            await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: false });
+            await env.window.CloudVault.trial.apply();
+        }
+    });
+
     it('an enroll the server refuses keeps the sheet and the text; nothing is queued or sent', async () => {
         await boot(freshInstall());
         reply.enroll = () => new Response(JSON.stringify({ error: 'trial_unavailable' }), { status: 503 });
