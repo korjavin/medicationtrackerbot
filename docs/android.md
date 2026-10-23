@@ -43,7 +43,7 @@ account the signed AAB is kept as a run artifact but not uploaded to Play.
 
 | Name | How to get it |
 |------|---------------|
-| `CLOUD_BASE_DOMAIN` | the deployment's base domain — the same value as the `CLOUD_BASE_DOMAIN` *variable*, kept as a secret here so it never shows in the logs. The shell accepts only accounts one label under it; without it the app builds but its first run says no service is configured |
+| `CLOUD_BASE_DOMAIN` | the deployment's base domain — the same value as the `CLOUD_BASE_DOMAIN` *variable*, kept as a secret here so it never shows in the logs. The shell accepts only accounts one label under it; without it the app builds but has no service configured |
 | `ANDROID_DEBUG_KEYSTORE_BASE64` | the stable debug key for master-push and dispatch APKs (below). PR runs never get it (its fingerprint is trusted by production asset links), so a PR APK is signed with a throwaway key — it installs, but passkeys won't bind to it; same for every run until this secret exists |
 | `ANDROID_UPLOAD_KEYSTORE_BASE64` | the Play **upload** keystore (below), `base64 -w0 upload.jks` |
 | `ANDROID_UPLOAD_KEYSTORE_PASSWORD` | that keystore's store password |
@@ -667,8 +667,8 @@ the same way.
   launch with `--es wgQAScene <name>`, wait for `#wg-qa-ready`, run the
   scene's `native` steps on the device (`tap` = a real touch on the DOM id,
   `type` = `adb input text`, `clear`, `tapButton` / `waitFor` = UiAutomator
-  text, `keyboard` = the IME is up); native-only scenes (`native-*`) open
-  first run. Artifact `visual/android/<scene>.png` (full device) +
+  text, `keyboard` = the IME is up); native-only scenes (`native-*`) are
+  iOS's and skipped. Artifact `visual/android/<scene>.png` (full device) +
   `visual/android/<scene>.json` (the ready node's report: probes, `failed`). Dark,
   font scale and landscape are the dispatch inputs, applied to every scene.
   As on iOS only lost ready content fails a scene (one retry each, from
@@ -1085,7 +1085,7 @@ and `<device-transfer>`) and the same list in
 
 | In the backup set | Why |
 |---|---|
-| `app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.leveldb` (+ `.blob`) | the "Only on this device" records (dir names from the spike's `run-as` listing) |
+| `app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.leveldb` (+ `.blob`) | the local-mode records (dir names from the spike's `run-as` listing) |
 | `shared_prefs/wg_trial.xml` | the Android trial pass + counter (bd med-nt9p.32.8.4): Keystore keys never restore, so a reinstall rejoins its trial bucket only through this file |
 
 Everything else is **out**: every account origin's WebView data (decrypted
@@ -1309,11 +1309,9 @@ Optional and **off by default** — the twin of iOS `LocalLock.swift`
 encryption; reminders on the lock screen still show. Local mode only: an
 account has its passkey, and cloud mode never shows or checks it.
 
-- **Turning it on/off:** the intro's *Lock with fingerprint or face* switch
-  row (shown when the phone has a screen lock, or the lock is already on; the
-  full "fingerprint, face or screen lock" wording is the system prompt's), and **Settings → App lock** in the app (`local-policy.js`
+- **Turning it on/off:** **Settings → App lock** in the app (`local-policy.js`
   `mountLocalLockRow`, Android shell only; iOS keeps its toggle in iPhone
-  Settings). Either way the change applies only after the phone's own check
+  Settings). The change applies only after the phone's own check
   (framework `BiometricPrompt`, `BIOMETRIC_WEAK | DEVICE_CREDENTIAL`, no new
   dependency); turning on needs a screen lock. Stored as the `shell` pref
   `wgLocalLock`: absent on every install before it, so an upgrade never
@@ -1371,7 +1369,7 @@ account has its passkey, and cloud mode never shows or checks it.
    the file fallback: *Sync & backup* → *Save a backup* → *Save to device* → file picker →
    *Switch account* → claim → Restore the file
    ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
-10. Lock (a phone with a screen lock): intro switch on → *Start* asks for the
+10. Lock (a phone with a screen lock): Settings → App lock on asks for the
     fingerprint/PIN; Home and back → one prompt, cancel → lock screen, no
     loop; *Unlock* opens it. App switcher shows no data. Settings → App lock
     off asks once more. A reminder tap while locked opens its section after
@@ -1457,35 +1455,10 @@ now* and offers *How to get an invite* — the request-an-invite sheet when the
 shell has `base.post` (bd med-ta2n.14, .27), else the service landing page
 `https://<BuildConfig.BASE_DOMAIN>/`, the build's own address, never committed.
 
-> **Pending (bd med-ta2n.12):** the QA scenarios in this section and the
-> results table were recorded against the pre-v3 flow (Move row, native first
-> run, *Only on this device* → *Start*). The scenario scripts still drive that
-> flow until the Android bead's QA rewrite lands, so treat the step lists as
-> history; the current flow is the P3 description above.
-
-**Emulator proof, seamless** — QA scenario `local-to-cloud-seamless` (not in
-`all`: it claims the run's one invite, which `smoke` takes there; no retry).
-`pm clear` → local mode seeded with the golden vault → Settings home → *Move
-to a cloud account* → *Continue* → first run with the hint → the stash is
-read back (`run-as … cat no_backup/move/vault.json`, plain JSON) and checked
-against `tests/fixtures/vault-v1.json` (`format`/`version`, every data
-section) and the store's counts → *Only on this device* shows the pending-move
-note, *Back* keeps the stash → the runner's invite, claimed with the soft
-authenticator (`smoke`'s `claimAccount`) → **without** Backup & import the
-pickup's toast shows (no *Not uploaded yet*, no *Records not moved*) → the
-stash is gone and the account's per-list counts are at least the local
-store's (the `GATED` lists of `local-to-cloud`) → Switch account → *Only on
-this device* → *Start* → the local counts are unchanged.
-`results.localToCloudSeamless` has the counts and whether the replace confirm
-showed (`pickupConfirm`).
-
-**Emulator proof, file fallback** — QA scenario `local-to-cloud` (same
-invite rule): Sync & backup → Save a backup → *Backup ready* → Save to
-device → the gzipped file under `cache/downloads/` checked against the
-fixture → *Save to device* through DocumentsUI → *Switch account* → claim →
-Restore via the system picker
-(or injected bytes; `results.localToCloud.restorePicker`) → account ⊇ local →
-back to local, unchanged.
+**Emulator proof** — QA scenarios `local-to-cloud-seamless` (the P3 invite
+path) and `local-to-cloud` (the file fallback); each script's header lists
+its steps. Neither is in `all`: each claims the run's one invite, which
+`smoke` takes there; no retry.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=local-to-cloud-seamless
@@ -1494,8 +1467,6 @@ gh workflow run android-qa.yml --ref <branch> -f scenario=local-to-cloud
 
 | Run | Result |
 |---|---|
-| `local-to-cloud-seamless`, emulator API 34 (runs `39335690786`, `39345504891`) | PASS, 14 steps: the row → first run with the hint, stash = plain vault v1 (fixture shape, counts = store), intro note + *Back* keeps the stash, claim (soft authenticator), pickup with **no** confirm on the empty account and no Backup & import, the toast, stash gone, account ⊇ local (`workouts.sessions` 1 → 2, the planned session), local unchanged after *Only on this device* → *Start*. The onboarding *Skip all* step times out (the pickup reloads the page under it; best-effort, not gated) |
-| `local-to-cloud`, emulator API 34 (run `39273862148`) | PASS, 16 steps: export 4.5 KB vault v1 (fixture shape, counts = store), saved to Downloads, *I have an invite* → first run, claim, Restore via the **system picker** (no injection), uploaded (no *Not uploaded yet*), account ⊇ local (`workouts.sessions` 1 → 2: the account materialized today's planned session), local unchanged after *Only on this device* → *Start* |
 | Owner phone | pending — release gate `med-nt9p.32.7`, check 9 below |
 
 ### Local mode: free trial (bd med-nt9p.32.8.4)

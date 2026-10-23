@@ -243,7 +243,10 @@ const MAX_FORECAST_DAYS = 30;
 export function projectOccurrences({
   medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
 } = {}) {
-  const medById = new Map(medications.map((m) => [m.recordId ?? m.id, m]));
+  // Keyed by String(id): a vault can hold a med's recordId and an intake's
+  // medication_id as number vs string (inbox-apply.js compares the same way);
+  // a strict miss here blanks the row's name/dosage (bd med-wi09.15).
+  const medById = new Map(medications.map((m) => [String(m.recordId ?? m.id), m]));
   const stepByKey = new Map();
   if (tzPlan && tzPlan.status === 'APPROVED' && Array.isArray(tzPlan.steps)) {
     for (const s of tzPlan.steps) stepByKey.set(`${s.medicationId}-${s.scheduledAtMs}`, s);
@@ -257,7 +260,7 @@ export function projectOccurrences({
   }
 
   function row({ occId, medId, plannedMs, plannedAt, source, state }) {
-    const med = medById.get(medId);
+    const med = medById.get(String(medId));
     const p = localDateTimeParts(plannedMs, timeZone);
     const out = {
       occId,
@@ -310,7 +313,7 @@ export function projectOccurrences({
     for (const t of targets) {
       if (t.scheduledAtMs < fromMs || t.scheduledAtMs > toMs) continue;
       const id = slotId(t.medicationId, t.scheduledAtMs);
-      if (occupied.has(id) || !medById.has(t.medicationId)) continue;
+      if (occupied.has(id) || !medById.has(String(t.medicationId))) continue;
       out.push(row({
         occId: id,
         medId: t.medicationId,

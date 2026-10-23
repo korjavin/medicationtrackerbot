@@ -1,7 +1,8 @@
 // TZ Transition Plan card.
 //
 // Surfaces an in-flight timezone-change plan as the kit T2 time-zone card on
-// the Today screen, below the sleep/steps tiles. Stays absent from the
+// the Today screen: right under the call row while it awaits Apply / Cancel,
+// below the sleep/steps tiles once in progress. Stays absent from the
 // DOM entirely when no plan is in flight, so users who never travel never see
 // it. Two modes, one card builder:
 //
@@ -272,10 +273,15 @@
         }
     }
 
-    function mountCard(root) {
+    // `slot` lets Today mount the card in two places (bd med-26gl): 'top'
+    // takes only the actionable card (Apply / Cancel must be on screen, not
+    // below the fold), 'bottom' only the in-progress one. No slot mounts
+    // either. mountedKey is state-derived, so calling once per slot is safe.
+    function mountCard(root, slot) {
         if (!root) return null;
         mountedKey = renderKey(cached.plan, cached.steps);
         if (!mountedKey) return null;
+        if (slot && (slot === 'top') !== actionable(cached.plan)) return null;
         const card = buildCard(cached.plan, cached.steps);
         root.appendChild(card);
         return card;

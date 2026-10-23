@@ -216,7 +216,7 @@ class MainActivity : Activity() {
     /**
      * N6 splash → web hand-off: the platform splash (wg_screen, the mark tile) stays while the
      * first frame is held, until the page posts its first chrome sample or commits a visible frame,
-     * or a native screen (first run, error, lock) shows — then the mark fades out over 180 ms onto
+     * or a native screen (error, lock) shows — then the mark fades out over 180 ms onto
      * the same colour. ponytail: capped at [SPLASH_MAX_MS], so a page that never reports still shows.
      */
     private fun holdSplash() {
@@ -1074,7 +1074,7 @@ class MainActivity : Activity() {
     }
 
     /**
-     * The intro's Start and Settings → App lock (lock.set): turning the lock on, or off while it
+     * Settings → App lock (lock.set): turning the lock on, or off while it
      * is on, applies only after the phone confirmed its owner. null, or why not.
      */
     private fun setLock(on: Boolean, done: (String?) -> Unit) {

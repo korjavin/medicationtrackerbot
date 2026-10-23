@@ -3,7 +3,7 @@ package com.example.medtracker
 import java.net.URI
 
 /**
- * What the first-run screen accepts (bd med-nt9p.5, twin of ios/App/AccountURL.swift):
+ * The account links the shell parses (bd med-nt9p.5, twin of ios/App/AccountURL.swift):
  * an invite/claim link, a device hand-off link, a bare account address, or the
  * Emergency Kit QR (origin, account id and recovery code on separate lines —
  * only the first line is read, the code is never touched). JVM only, so the

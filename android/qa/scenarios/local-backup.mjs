@@ -4,7 +4,7 @@
 // local marker is back AND nothing of the account origin, Local Storage or any prefs file but
 // wg_trial.xml is in the backup set or the restored data dir.
 // Local data comes from the bundled local app (bd med-nt9p.32.4, the debug-only wgLocalMode launch
-// extra, persisted like the first-run Start). Not in `all`: it ends with pm clear.
+// extra, persisted like a fresh install's local mode). Not in `all`: it ends with pm clear.
 
 const MARK = `qa-backup-${Date.now()}`;
 const LOCAL_DIR = 'https_appassets.androidplatform.net_0.indexeddb.leveldb';

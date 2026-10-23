@@ -5,6 +5,9 @@
 // network — same pattern as cloud.shim-contract.bp.test.js. Divergences here
 // are contract bugs in the JS domain layer, not test bugs; the original
 // (network-mocked) features.meds.test.js keeps running unshimmed.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
@@ -704,5 +707,39 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         expect(entries.map((e) => e.fireAtUnix)).toEqual(upcomingSlots);
         expect(entries[0].medicationIds).toEqual([2]);
         expect(entries.map((e) => e.fireAtUnix)).not.toContain(at(20) / 1000);
+    });
+
+    // bd med-wi09.15 — Today's Next up and its take sheet named every missed
+    // dose "Medication": the projection's name lookup was strict while the
+    // sheet/Schedule match ids as strings. An imported vault can hold a med's
+    // recordId as a string while its intakes carry a number (inbox-apply.js).
+    it('missed doses carry real medicine names on Today, whatever the id type', async () => {
+        env.cleanup();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    med('7', 'Atorvastatin', { type: 'daily', times: ['08:00'] }),
+                    med(8, 'Metformin', { type: 'daily', times: ['08:00'] })
+                ],
+                intake: [intake(slotId(7, at(8)), 7, at(8)), intake(slotId(8, at(8)), 8, at(8))]
+            },
+            now: () => NOW,
+            timeZone: TZ
+        });
+        const due = (await call(range(NOW - 24 * HOUR, NOW))).filter((d) => d.state === 'due');
+        expect(due.map((d) => [d.name, d.dosage])).toEqual([['Atorvastatin', '10mg'], ['Metformin', '10mg']]);
+
+        const todayJs = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features/today.js');
+        env.window.eval(fs.readFileSync(todayJs, 'utf8'));
+        const features = { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false };
+        const medications = await call('/api/medications');
+        const missed = (rows) => env.window.TodayDashboard
+            .aggregateToday({ features, medications, intake_history: rows }, {}, NOW).missedDoses.value;
+        expect(missed(due)).toEqual([{
+            scheduledAt: iso(at(8)), names: ['Atorvastatin', 'Metformin'], ids: [7, 8], intakeIds: [slotId(7, at(8)), slotId(8, at(8))]
+        }]);
+        // Rows cached by the buggy build (name '') still resolve from the
+        // cached medications list — the offline doses_due_24h path.
+        expect(missed(due.map((d) => ({ ...d, name: '' })))[0].names).toEqual(['Atorvastatin', 'Metformin']);
     });
 });

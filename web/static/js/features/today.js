@@ -211,6 +211,13 @@
         if (!enabled) return cell(null, 'meds', 'disabled');
         const rows = bootstrap && bootstrap.intake_history;
         if (!Array.isArray(rows)) return cell(null, 'meds', 'missing');
+        // Names from the cached medications list by String(id), like the take
+        // sheet and Schedule resolve dosage; the row's own name is only the
+        // fallback — rows cached while the projection missed the med carry ''
+        // (bd med-wi09.15).
+        const medName = new Map((Array.isArray(bootstrap.medications) ? bootstrap.medications : [])
+            .filter((m) => m && typeof m.name === 'string' && m.name)
+            .map((m) => [String(m.id), m.name]));
         const isDue = (r) => r.state === 'due'
             || (r.state === 'snoozed' && !(Date.parse(r.snoozedUntil) > nowMs));
         const bySlot = new Map();
@@ -220,7 +227,7 @@
             if (!Number.isFinite(at)) continue;
             let g = bySlot.get(at);
             if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [] }; bySlot.set(at, g); }
-            g.names.push(r.name || 'Medication');
+            g.names.push(medName.get(String(r.medId)) || r.name || 'Medication');
             g.ids.push(r.medId);
             g.intakeIds.push(r.occId);
         }
@@ -455,12 +462,14 @@
     // ---- Rendering (kit v2, screens-today.html T1/T3–T6, med-xso6.13) ------
     //
     // renderToday(state, root, handlers) fills `root` top to bottom:
-    //   call row (Call agent · Log · Doctor brief) → Next up list → vitals
-    //   strip (BP · Weight · Fuel) → Trackers card → Goal Line track → macros card →
-    //   sleep / steps tiles → tz-transition card.
+    //   call row (Call agent · Log · Doctor brief) → pending tz-plan card
+    //   (Apply / Cancel) → Next up list → vitals strip (BP · Weight · Fuel) →
+    //   Trackers card → Goal Line track → macros card → sleep / steps tiles →
+    //   in-progress tz-transition card.
     //
     // Kit rules: one sun-filled control (.wg-btn--primary) per view — the
-    // soonest Next-up action, else the goal card's "Set goal"; status only via
+    // soonest Next-up action, else the goal card's "Set goal" — except while a
+    // tz plan awaits Apply/Cancel, when that Apply is the one; status only via
     // WGChip states; no inline style except the --p / --n custom properties
     // the track and meters read; icons are <i class="wg-ico" data-icon>
     // hydrated by WGIcons once the tree is built.
@@ -763,7 +772,7 @@
     // Returns { node, hasPrimary }. startHere: the W3 block is showing, so the
     // empty "Nothing scheduled" card (its Add medication / Create plan are rows
     // there) steps aside — W3 has no Next up until something is scheduled.
-    function renderNextUp(state, h, nowMs, startHere) {
+    function renderNextUp(state, h, nowMs, startHere, allowPrimary) {
         const medsOn = on(state && state.nextMed);
         const workoutsOn = on(state && state.nextWorkout);
         if (!medsOn && !workoutsOn) return { node: null, hasPrimary: false };
@@ -787,7 +796,7 @@
         if (items.length === 0) {
             const actions = [];
             // O2: "Add medication" is the empty Today's one sun (bd med-ckm5.3).
-            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', variant: 'primary', onClick: h.onAddMedication });
+            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', variant: allowPrimary ? 'primary' : undefined, onClick: h.onAddMedication });
             if (workoutsOn) actions.push({ label: 'Create plan', icon: 'dumbbell', onClick: h.onCreatePlan });
             const card = el('div', 'wg-card wg-card--flush');
             card.appendChild(typeof createEmptyState === 'function'
@@ -799,14 +808,14 @@
                 })
                 : el('p', 'wg-hint', 'Nothing scheduled'));
             section.appendChild(card);
-            return { node: section, hasPrimary: medsOn };
+            return { node: section, hasPrimary: medsOn && allowPrimary };
         }
 
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
         const todayCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
         if (todayCount > 0) head.appendChild(el('span', 'wg-meta', `${todayCount} today`));
 
-        const primaryIdx = items.findIndex((it) => it.kind === 'med'
+        const primaryIdx = !allowPrimary ? -1 : items.findIndex((it) => it.kind === 'med'
             || (it.kind === 'workout' && workoutAction(it.value) !== 'view'));
         const list = el('div', 'wg-list');
         items.forEach((it, i) => list.appendChild(renderNextUpRow(it, i === primaryIdx, h, nowMs)));
@@ -3322,12 +3331,21 @@
             root.appendChild(callRow);
         }
 
+        // TZ-transition plan card (kit T2 tz card), actionable mode: first
+        // under the call row so Apply / Cancel is never below the fold
+        // (bd med-26gl). Mounts nothing when no plan awaits a decision.
+        const tzBanner = typeof window !== 'undefined' && window.TZPlanBanner
+            && typeof window.TZPlanBanner.mountCard === 'function' ? window.TZPlanBanner : null;
+        // While it awaits a decision its Apply is the view's one sun (bd
+        // med-tugv): Next up, Start here and the goal card all go secondary.
+        const tzSun = !!(tzBanner && tzBanner.mountCard(root, 'top'));
+
         const startKeys = startHereKeys(state && state.startHere);
-        const next = renderNextUp(state, h, nowMs, startKeys.length > 0);
+        const next = renderNextUp(state, h, nowMs, startKeys.length > 0, !tzSun);
         if (next.node) { root.appendChild(next.node); }
 
         // W3: below Next up, above everything else (bd med-ta2n.3).
-        const startSun = startKeys.length > 0 && !next.hasPrimary;
+        const startSun = startKeys.length > 0 && !next.hasPrimary && !tzSun;
         if (startKeys.length) { root.appendChild(renderStartHere(state.startHere, startKeys, startSun, h)); }
 
         // W4: below Next up, above the tiles (bd med-ta2n.4).
@@ -3357,7 +3375,7 @@
         if (trackersCard) { root.appendChild(trackersCard); }
         syncTrackerSheet(state && state.trackers, nowMs);
 
-        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary && !startSun, offline);
+        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary && !startSun && !tzSun, offline);
         if (goal.node) { root.appendChild(goal.node); }
 
         const macros = renderMacrosCard(state, h);
@@ -3374,12 +3392,8 @@
             root.appendChild(grid);
         }
 
-        // TZ-transition plan card (kit T2 tz card). Mounts nothing
-        // when no plan is in flight.
-        if (typeof window !== 'undefined' && window.TZPlanBanner
-            && typeof window.TZPlanBanner.mountCard === 'function') {
-            window.TZPlanBanner.mountCard(root);
-        }
+        // TZ-transition plan card, in-progress (read-only) mode only.
+        if (tzBanner) { tzBanner.mountCard(root, 'bottom'); }
 
         // Nothing tracked (only the call bar, if any) → every feature is off.
         if (!anyFeature && !goal.node && !(trackersCard && trackersCard.querySelector('.wg-trk'))) {
