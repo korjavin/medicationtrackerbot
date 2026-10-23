@@ -1394,7 +1394,7 @@ async function findFoodNudgeDay() {
     const threshold = target > 0 ? target * 0.4 : FOOD_NUDGE_FALLBACK_KCAL;
     const dismissed = new Set(readFoodNudgeDismissed());
     const candidates = statuses
-        .filter((s) => s && typeof s.date === 'string' && s.incomplete !== true && !dismissed.has(s.date))
+        .filter((s) => s && typeof s.date === 'string' && s.incomplete !== true && !s.before_first_log && !dismissed.has(s.date))
         .sort((a, b) => (a.date < b.date ? 1 : -1));
     for (const s of candidates) {
         // Per-day stats bucket by the account timezone, same as the statuses.

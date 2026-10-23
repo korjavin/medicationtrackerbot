@@ -172,9 +172,9 @@ describe('food domain — incomplete-day flag (med-0sgs.1)', () => {
         await food.setDayIncomplete('2026-07-01', true); // outside the window
 
         expect(await food.dayStatuses({ date: '2026-07-10', days: 3 })).toEqual([
-            { date: '2026-07-08', incomplete: true },
-            { date: '2026-07-09', incomplete: false },
-            { date: '2026-07-10', incomplete: false },
+            { date: '2026-07-08', incomplete: true, before_first_log: true },
+            { date: '2026-07-09', incomplete: false, before_first_log: true },
+            { date: '2026-07-10', incomplete: false, before_first_log: true },
         ]);
         expect([...await food.incompleteDays({ from: '2026-07-01', to: '2026-07-07' })]).toEqual(['2026-07-01']);
         expect([...await food.incompleteDays({ date: '2026-07-10', days: 3 })]).toEqual(['2026-07-08']);

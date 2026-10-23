@@ -640,10 +640,20 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   async function dayStatuses({ date, days = 1 } = {}) {
     const { start, endExclusive } = dayWindow(date, days);
     const flagged = await incompleteDays({ date, days });
+    // Days before the first food log ever (or with no logs at all) predate
+    // tracking, so they carry before_first_log and the UI never nudges them.
+    let first = Infinity;
+    for (const r of await records.list(LOG_RECORD_TYPE)) {
+      const ms = r.deleted ? NaN : logInstantMs(r);
+      if (ms < first) first = ms;
+    }
+    const firstKey = first === Infinity ? '' : localDateKey(first, timeZone);
     const out = [];
     for (let ms = start; ms < endExclusive; ms = dayStartMs(ms + DAY_MS + DAY_MS / 2, timeZone)) {
       const key = localDateKey(ms, timeZone);
-      out.push({ date: key, incomplete: flagged.has(key) });
+      const row = { date: key, incomplete: flagged.has(key) };
+      if (!firstKey || key < firstKey) row.before_first_log = true;
+      out.push(row);
     }
     return out;
   }
