@@ -339,6 +339,31 @@ describe('firstrun W1 module picker', () => {
         } finally { cleanup(); }
     });
 
+    // med-1ikf: picking Medications is the context to ask in — an undecided
+    // permission gets the one-tap Allow, which runs the browser's prompt.
+    it('Medications picked + permission undecided offers Allow notifications in place', async () => {
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), notifyPermission: 'default' });
+        try {
+            const ask = vi.fn(async () => { window.Notification.permission = 'denied'; return 'denied'; });
+            window.requestNotificationPermissionNormalized = ask;
+            window.WGFirstRun.mount();
+            pick(document, 'medication');
+            await flush();
+            const slot = document.querySelector('[data-firstrun-notify-note]');
+            const allow = slot.querySelector('[data-notify-allow]');
+            expect(allow).not.toBeNull();
+            expect(allow.textContent).toBe('Allow notifications');
+
+            allow.click();
+            expect(ask).toHaveBeenCalledTimes(1);
+            await flush();
+            await flush();
+            // Denied at the prompt: the note stays, now pointing at the browser settings.
+            expect(slot.querySelector('[data-notify-allow]')).toBeNull();
+            expect(slot.textContent).toContain('Allow notifications for this site in your browser settings.');
+        } finally { cleanup(); }
+    });
+
     it('Medications picked + notifications granted shows no note', async () => {
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), notifyPermission: 'granted' });
         try {
