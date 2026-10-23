@@ -23,7 +23,7 @@ Self-hosted health-tracking PWA (meds, BP, weight, workouts, sleep, food, diary)
 13. **No native browser dialogs** — never `alert()`/`confirm()`/`prompt()`; use `safeAlert`/`safeConfirm`/`safePrompt`/`safeChoose` (or `safeToast`) from `core/utils.js`, also loaded by the passkey shell. Enforced by `architecture.no-native-dialogs.test.js`, no allowlist. See [docs/frontend.md → In-Page Dialogs](docs/frontend.md#in-page-dialogs).
 14. **App UI copy is English only**; a bead with non-English strings means render the intent in English.
 15. **Compatibility-risky PRs get a dedicated breakage review before merge** — anything touching stored-data shape, sync, auth/crypto, deletions, the SW or the vault format is reviewed against existing users and older clients. Importer/derived-writer checklist: [docs/cloud-mode.md → Sync protocol](docs/cloud-mode.md#importers-and-derived-writers--checklist).
-16. **Native-shell changes (`ios/`, `android/`) ship with a twin bead or `parity:n/a`**; op parity enforced by `architecture.native-bridge-parity.test.js`; cross-session notes are `for:<platform>` beads — see [docs/mobile-parity.md](docs/mobile-parity.md) (suspended for iOS during the hold — see docs/mobile-parity.md).
+16. **Native-shell changes (`ios/`, `android/`) ship with a twin bead or `parity:n/a`**; op parity enforced by `architecture.native-bridge-parity.test.js`; cross-session notes are `for:<platform>` beads — see [docs/mobile-parity.md](docs/mobile-parity.md).
 
 ## Build
 

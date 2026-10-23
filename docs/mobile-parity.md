@@ -4,20 +4,19 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 
 ## Rules
 
-1. **Twins only for user-visible behaviour and bridge ops.** A change to either shell that the user can see, or that adds/removes a bridge op, gets a twin bead for the other platform. Anything else (build, CI, signing, store listing, OS integrations) is labelled `parity:n/a` with a one-line reason. *Suspended for iOS twins during the hold below.*
+1. **Twins only for user-visible behaviour and bridge ops.** A change to either shell that the user can see, or that adds/removes a bridge op, gets a twin bead for the other platform. Anything else (build, CI, signing, store listing, OS integrations) is labelled `parity:n/a` with a one-line reason.
 2. **Bridge-op parity is enforced.** `web/static/js/tests/architecture.native-bridge-parity.test.js` diffs the op lists in `ios/App/LocalOrigin.swift` and `android/.../LocalOrigin.kt`; a one-platform op must be in its `PLATFORM_ONLY` map with a reason.
 3. **Cross-session notes are beads.** File a `for:ios` / `for:android` task (P3, parent = the receiving epic, title `Q: …` or `FYI: …`). The receiver closes it with the answer or converts it into a twin. If the peer session is live, also SendMessage it.
 
-## iOS feature hold (from 2026-10-22)
+## iOS feature hold (2026-10-22 → 2026-10-23, lifted)
 
-iOS feature work and the iOS visual-testing epic (`med-y5xx`) are paused; Android + web bugfixes and App Store submission (`med-w6gx`) continue. The iOS backlog is rebuilt at resume, not filed as twins now.
+Lifted 2026-10-23: token budget allowed a parallel iOS track. iOS work resumed (epic `med-w6gx` incl. catch-up audit `med-w6gx.26`, `med-y5xx` visual testing, `med-ta2n.26`, `med-o7zq.47`); rule 1 (twins) applies again for new work. Only `med-erq1.4` stays deferred (waits on server push `med-erq1.1`–`.3`). The bullets below remain for the catch-up.
 
-- **No iOS twin beads** for Android shell changes (rule 1). `parity:n/a` still applies to non-user-visible work.
 - **Catch-up baseline** = master `1ff23578ba4d3101db256ea4cd3c5f412f39f80c` (last TestFlight upload, 2026-10-20). Fixed: a later TestFlight build does not move it; advance it only after the intervening range is audited and banked.
 - **Installed-shell build** = the latest TestFlight build/SHA, tracked on `med-w6gx`; it is what the compatibility review item below protects.
 - **New Android-only bridge op** goes in `PLATFORM_ONLY` with a reason starting `pending-ios:` (genuine platform differences keep their normal reason). Don't change the test code.
 - **Review item for every PR touching web/native contracts:** the installed iOS shell must keep working (account mode loads fresh web code; bundled local mode is pinned to the shell release). Web must feature-detect the new op/field, gate the rollout, or record a release blocker on `med-w6gx`.
-- **Resume:** (a) `pending-ios:` entries in the parity test; (b) Android beads closed since the catch-up baseline + their PRs (final contracts); (c) `git log <baseline>..master -- android/ web/` for shell-gated web changes; (d) `bd list --label pending-ios` (deferred: `med-y5xx`, `med-y5xx.13`, `med-o7zq.47`, `med-ta2n.26`, `med-erq1.4`) then `bd undefer`, file iOS beads, refresh the feature matrix, run iOS smoke + upgrade checks before claiming parity.
+- **Resume** (`med-w6gx.26` runs it for the hold range): (a) `pending-ios:` entries in the parity test; (b) Android beads closed since the catch-up baseline + their PRs (final contracts); (c) `git log <baseline>..master -- android/ web/` for shell-gated web changes; (d) `bd list --label pending-ios` (deferred: `med-y5xx`, `med-y5xx.13`, `med-o7zq.47`, `med-ta2n.26`, `med-erq1.4`) then `bd undefer`, file iOS beads, refresh the feature matrix, run iOS smoke + upgrade checks before claiming parity.
 
 ## Feature matrix
 
