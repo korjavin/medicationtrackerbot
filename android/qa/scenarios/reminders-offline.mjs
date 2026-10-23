@@ -12,6 +12,7 @@
 // In `all` it runs after smoke and reopens smoke's account; dispatched alone it claims the invite.
 // "Killed" is HOME + am kill (+ kill -9), not am force-stop: Android drops a force-stopped app's alarms.
 // results.reminders = { permission: 'ui' | 'pm-grant/appops fallback: …', … } in qa-summary.json.
+import { execFile } from 'node:child_process';
 import { claimAccount, waitForVault } from './smoke.mjs';
 
 const MODAL = 'med-confirm-modal';
@@ -184,13 +185,12 @@ async function grantBoth(ctx, out) {
 }
 
 /**
- * After the first unlock, then the last step (shell only: the reboot ends Playwright's UiAutomator
- * driver, so nothing may follow it). bd med-nt9p.57: the receivers are direct-boot aware and the rows
+ * The upgrade migration, then the last step (the reboot closes Playwright's AndroidDevice, so it
+ * runs on the adb CLI and nothing may follow it). bd med-nt9p.57: the receivers are direct-boot aware and the rows
  * live in device-protected storage, so a reminder due after a reboot posts before the first unlock.
  */
 async function rebootLocked(ctx, page, out) {
   const { shell, pkg, sleep } = ctx;
-  const user = async () => ((await shell('dumpsys user').catch(() => '')).match(/State: (\w+)/) || [])[1] || 'unknown';
   // Upgrade path first (the current Play build kept the rows in credential-encrypted prefs): move the
   // file back there with the app dead; the next process moves it to device-protected storage again.
   // postedThrough tells the migrated file from a fresh schedule (schedule() never writes it).
@@ -214,38 +214,46 @@ async function rebootLocked(ctx, page, out) {
   if (!page) throw new Error('no WebView page after the migration launch');
   await waitForVault(page);
   const med = await addDueMed(ctx, page, out, 240_000); // past the reboot (~1–2 min on the CI emulator)
-  await shell('locksettings set-pin 1234');
+  // From here the adb CLI: the reboot closes Playwright's AndroidDevice, ctx.shell included.
+  const adbShell = (cmd) => adb(['shell', cmd]);
+  const user = async () => ((await adbShell('dumpsys user')).match(/State: (\w+)/) || [])[1] || 'unknown';
+  await adbShell('locksettings set-pin 1234');
   try {
-    await shell('reboot').catch(() => {}); // run.sh rooted adbd; the connection drops mid-command
+    await adb(['reboot']);
     await sleep(20_000);
     for (const stop = Date.now() + 240_000; ; await sleep(3000)) {
-      if ((await shell('getprop sys.boot_completed').catch(() => '')) === '1') break;
+      if ((await adbShell('getprop sys.boot_completed')) === '1') break;
       if (Date.now() > stop) throw new Error('the emulator did not come back from the reboot');
     }
     out.userAtBoot = await user();
     if (out.userAtBoot !== 'RUNNING_LOCKED') throw new Error(`not locked after the reboot: ${out.userAtBoot}`);
-    await waitNotification(ctx, med, med.name, out, 0); // the reboot emptied the shade
+    await waitNotification({ ...ctx, shell: adbShell }, med, med.name, out, 0); // the reboot emptied the shade
     out.userAtPost = await user();
     if (out.userAtPost !== 'RUNNING_LOCKED') throw new Error(`posted only after the unlock: ${out.userAtPost}`);
     // The first unlock: the bouncer takes the PIN as key input.
     for (let i = 0; i < 5 && (await user()) !== 'RUNNING_UNLOCKED'; i++) {
-      await shell('input keyevent KEYCODE_WAKEUP');
-      await shell('wm dismiss-keyguard');
+      await adbShell('input keyevent KEYCODE_WAKEUP');
+      await adbShell('wm dismiss-keyguard');
       await sleep(1500);
-      await shell('input text 1234');
-      await shell('input keyevent KEYCODE_ENTER');
+      await adbShell('input text 1234');
+      await adbShell('input keyevent KEYCODE_ENTER');
       await sleep(5000);
     }
     out.userAfterUnlock = await user();
     if (out.userAfterUnlock !== 'RUNNING_UNLOCKED') throw new Error(`the PIN did not unlock: ${out.userAfterUnlock}`);
     await sleep(5000); // BOOT_COMPLETED re-arms: it must not post the reminder again
-    out.afterUnlock = Number((await shell(`dumpsys notification --noredact | grep -c "${med.name}"`).catch(() => '0')) || 0);
-    out.alarmAfterUnlock = (await shell(`dumpsys alarm | grep -c ${pkg}`).catch(() => '0')).trim();
+    out.afterUnlock = Number(await adbShell(`dumpsys notification --noredact | grep -c "${med.name}"`)) || 0;
+    out.alarmAfterUnlock = await adbShell(`dumpsys alarm | grep -c ${pkg}`);
     if (out.afterUnlock !== out.notificationLines) throw new Error(`${out.afterUnlock} "${med.name}" notification lines after the unlock, ${out.notificationLines} at the post: posted twice or gone`);
-    if (out.alarmAfterUnlock === '0') throw new Error('no alarm armed for the next reminder');
+    if (!(Number(out.alarmAfterUnlock) > 0)) throw new Error('no alarm armed for the next reminder');
   } finally {
-    await shell('locksettings clear --old 1234').catch(() => {});
+    await adbShell('locksettings clear --old 1234');
   }
+}
+
+/** The adb CLI's stdout, trimmed; '' on failure (device offline mid-reboot, grep -c's exit 1). */
+async function adb(args) {
+  return new Promise((resolve) => execFile('adb', args, { timeout: 60_000 }, (_e, stdout) => resolve(String(stdout || '').trim())));
 }
 
 /** A daily med at the next whole minute ≥ `lead` ms ahead (device zone), and its row in the shell's store. */
