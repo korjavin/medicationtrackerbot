@@ -266,3 +266,67 @@ func TestPutSchedule_DeliveryValidation(t *testing.T) {
 		t.Fatalf("stored med ids = %+v, want one row with tg_med_ids 2,9", due)
 	}
 }
+
+// TestNativeTokens_Routes guards POST/DELETE /api/push/native-tokens
+// (med-erq1.1): session required, platform allowlist + token cap, 204 on
+// success, and the row lands under (and leaves) the session's account.
+func TestNativeTokens_Routes(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	call := func(method string, cookie *http.Cookie, body string) int {
+		r := httptest.NewRequest(method, "/api/push/native-tokens", strings.NewReader(body))
+		r.Host = host
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	valid := `{"platform":"ios","token":"abc123"}`
+
+	if code := call(http.MethodPost, nil, valid); code != http.StatusUnauthorized {
+		t.Errorf("POST without session = %d, want 401", code)
+	}
+	if code := call(http.MethodDelete, nil, valid); code != http.StatusUnauthorized {
+		t.Errorf("DELETE without session = %d, want 401", code)
+	}
+
+	bad := map[string]string{
+		"unknown platform": `{"platform":"webos","token":"abc"}`,
+		"missing token":    `{"platform":"android","token":""}`,
+		"oversize token":   `{"platform":"android","token":"` + strings.Repeat("x", maxNativePushTokenLen+1) + `"}`,
+		"not json":         `nope`,
+	}
+	for name, body := range bad {
+		if code := call(http.MethodPost, session, body); code != http.StatusBadRequest {
+			t.Errorf("POST %s = %d, want 400", name, code)
+		}
+	}
+
+	if code := call(http.MethodPost, session, valid); code != http.StatusNoContent {
+		t.Fatalf("POST valid = %d, want 204", code)
+	}
+	got, err := store.ListNativePushTokens(t.Context(), account.ID)
+	if err != nil || len(got) != 1 || got[0].Platform != "ios" || got[0].Token != "abc123" {
+		t.Fatalf("stored tokens = %+v (err %v), want ios abc123", got, err)
+	}
+
+	if code := call(http.MethodDelete, session, valid); code != http.StatusNoContent {
+		t.Fatalf("DELETE valid = %d, want 204", code)
+	}
+	if got, _ := store.ListNativePushTokens(t.Context(), account.ID); len(got) != 0 {
+		t.Fatalf("after DELETE, tokens = %+v, want none", got)
+	}
+}

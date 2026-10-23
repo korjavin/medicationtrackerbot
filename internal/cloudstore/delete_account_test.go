@@ -56,6 +56,8 @@ func seedAllAccountTables(t *testing.T, r *Repo, accountID string) {
 			[]any{accountID, 1}},
 		{`INSERT INTO push_subscriptions (account_id, endpoint, p256dh, auth, created_at_unix) VALUES (?,?,?,?,?)`,
 			[]any{accountID, "https://push/" + accountID, "p", "a", now}},
+		{`INSERT INTO native_push_tokens (account_id, platform, token, created_at_unix, last_seen_unix) VALUES (?,?,?,?,?)`,
+			[]any{accountID, "ios", "tok-" + accountID, now, now}},
 		{`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct) VALUES (?,?,?)`,
 			[]any{accountID, now, []byte("c")}},
 		{`INSERT INTO mcp_remote (account_id, token, relay_url, pairing_id, pairing_key, created_at_unix) VALUES (?,?,?,?,?,?)`,
