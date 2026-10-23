@@ -57,11 +57,12 @@ describe('app.js form submissions and push modal behavior', () => {
       await window.confirmSelectedMedications();
 
       expect(apiCallSpy).toHaveBeenCalledTimes(1);
-      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/medications/confirm-schedule');
+      // No stored row → the slot's deterministic occId (bd med-wi09.2).
+      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/doses/act');
       expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
       expect(apiCallSpy.mock.calls[0][2]).toEqual({
-        scheduled_at: '2026-02-27T10:00:00Z',
-        medication_ids: [10]
+        action: 'take',
+        occ_ids: [`intake-10-${Date.parse('2026-02-27T10:00:00Z') / 1000}`]
       });
       expect(loadMedsSpy).toHaveBeenCalledTimes(1);
       expect(loadHistorySpy).toHaveBeenCalledTimes(1);
@@ -72,7 +73,7 @@ describe('app.js form submissions and push modal behavior', () => {
     }
   });
 
-  it('confirmSelectedMedications includes intake_ids in POST body when provided via push notification', async () => {
+  it('confirmSelectedMedications takes the opener\'s intake ids as occIds, checked rows only', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -94,13 +95,9 @@ describe('app.js form submissions and push modal behavior', () => {
       await window.confirmSelectedMedications();
 
       expect(apiCallSpy).toHaveBeenCalledTimes(1);
-      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/medications/confirm-schedule');
+      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/doses/act');
       expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
-      expect(apiCallSpy.mock.calls[0][2]).toEqual({
-        scheduled_at: '2026-02-27T10:00:00Z',
-        medication_ids: [10],
-        intake_ids: [100]
-      });
+      expect(apiCallSpy.mock.calls[0][2]).toEqual({ action: 'take', occ_ids: [100] });
     } finally {
       cleanup();
     }
@@ -111,7 +108,7 @@ describe('app.js form submissions and push modal behavior', () => {
 
     try {
       const apiCallSpy = vi.fn(async (path, method, body) => {
-        if (path === '/api/medications/skip') return { ok: true, body };
+        if (path === '/api/doses/act') return { updated: 1, unchanged: 0, failed: 0, failures: [] };
         return { ok: true };
       });
       const loadMedsSpy = vi.fn();
@@ -131,9 +128,9 @@ describe('app.js form submissions and push modal behavior', () => {
       await window.skipSelectedMedications();
 
       expect(apiCallSpy).toHaveBeenCalledTimes(1);
-      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/medications/skip');
+      expect(apiCallSpy.mock.calls[0][0]).toBe('/api/doses/act');
       expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
-      expect(apiCallSpy.mock.calls[0][2]).toEqual({ intake_id: 100 });
+      expect(apiCallSpy.mock.calls[0][2]).toEqual({ action: 'skip', occ_ids: [100] });
       expect(loadMedsSpy).toHaveBeenCalledTimes(1);
       expect(loadHistorySpy).toHaveBeenCalledTimes(1);
       expect(alertSpy).toHaveBeenCalledTimes(1);

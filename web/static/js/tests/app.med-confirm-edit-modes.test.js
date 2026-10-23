@@ -105,7 +105,7 @@ describe('app.js medication confirm edit/log modes', () => {
     }
   });
 
-  it('confirmSelectedMedications calls API with empty array when nothing is selected to allow reverting, and surfaces API errors', async () => {
+  it('confirmSelectedMedications with nothing selected changes nothing (unchecking is never an undo), and surfaces API errors', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     // Mock loadMeds and loadHistory to avoid DOM errors in tests
@@ -118,12 +118,9 @@ describe('app.js medication confirm edit/log modes', () => {
       document.querySelectorAll('.med-confirm-check').forEach((checkbox) => {
         checkbox.setAttribute('aria-pressed', 'false');
       });
-      window.apiCall = vi.fn().mockResolvedValue({ status: "ok" });
+      window.apiCall = vi.fn().mockResolvedValue({ updated: 0, unchanged: 0, failed: 0, failures: [] });
       await window.confirmSelectedMedications();
-      expect(window.apiCall).toHaveBeenCalledWith('/api/medications/confirm-schedule', 'POST', {
-        scheduled_at: '2026-02-28T10:00:00Z',
-        medication_ids: []
-      });
+      expect(window.apiCall).not.toHaveBeenCalled();
       expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(true);
 
       window.safeAlert = vi.fn();
@@ -160,20 +157,9 @@ describe('app.js medication confirm edit/log modes', () => {
 
       window.apiCall = vi.fn().mockResolvedValue({ ok: true });
       await window.updateIntakeHistory();
-      expect(window.apiCall).toHaveBeenCalledWith('/api/intakes/update', 'POST', {
-        updates: [
-          {
-            id: 100,
-            status: 'TAKEN',
-            taken_at: new Date('2026-02-28T11:45').toISOString()
-          },
-          {
-            id: 200,
-            status: 'PENDING',
-            taken_at: ''
-          }
-        ]
-      });
+      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST',
+        { action: 'edit_time', occ_ids: [100], taken_at: new Date('2026-02-28T11:45').toISOString() });
+      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST', { action: 'undo', occ_ids: [200] });
       expect(window.safeAlert).toHaveBeenCalledWith('Updated!');
       expect(window.loadMeds).toHaveBeenCalled();
       expect(window.loadHistory).toHaveBeenCalled();

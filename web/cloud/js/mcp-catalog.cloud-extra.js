@@ -212,6 +212,49 @@ export const CLOUD_EXTRA = [
       }],
     },
   },
+  // The occurrence projection + explicit dose actions (bd med-wi09.1/.2),
+  // served by apishim.js over web/domain/medintake.js.
+  {
+    id: 'medications.doses.list',
+    topic: 'medications',
+    method: 'GET',
+    path: '/api/doses',
+    risk: 'read',
+    description: 'Every medication dose in a time window with its state — stored doses plus the forecast of not-yet-recorded future slots. Each row\'s occId is what medications.doses.act takes. A due dose stays due until acted on; there is no missed state.',
+    response_summary: 'Array of {occId, medId, name, dosage, plannedAt, tz, localDate, localTime, source (schedule|tz_step|manual), state (upcoming|due|snoozed|taken|skipped), takenAt?, snoozedUntil?}, ascending by plannedAt.',
+    params_schema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'RFC3339 window start; default 24 hours ago.' },
+        to: { type: 'string', description: 'RFC3339 window end; default 7 days ahead.' },
+      },
+    },
+    response_example: [{
+      occId: 'intake-3-1761202800', medId: 3, name: 'Metformin', dosage: '500 mg', plannedAt: '2026-10-23T07:00:00.000Z', tz: 'Europe/Berlin', localDate: '2026-10-23', localTime: '09:00', source: 'schedule', state: 'due',
+    }],
+  },
+  {
+    id: 'medications.doses.act',
+    topic: 'medications',
+    method: 'POST',
+    path: '/api/doses/act',
+    risk: 'write',
+    description: 'Act on exact doses by occId (from medications.doses.list or medications.history ids); nothing else is touched. take: pending or not-yet-recorded → taken (−1 stock). skip: pending or not-yet-recorded → skipped. undo: taken/skipped → pending (+1 stock if it was taken). edit_time: change taken_at of a taken dose. A dose already in the target state is counted unchanged, so repeating a bulk take is safe.',
+    response_summary: 'Object {updated, unchanged, failed, failures: [{id, reason (not_found|not_pending|not_taken)}], doses: [the written intake rows]}. Check failed > 0.',
+    required: ['occ_ids', 'action'],
+    body_schema: {
+      type: 'object',
+      required: ['occ_ids', 'action'],
+      properties: {
+        occ_ids: { type: 'array', items: { type: ['string', 'integer'] }, description: 'Exact dose occIds.' },
+        action: { type: 'string', enum: ['take', 'skip', 'undo', 'edit_time'] },
+        taken_at: { type: 'string', description: 'RFC3339; take: when it was taken (default now); edit_time: required.' },
+      },
+    },
+    response_example: {
+      updated: 1, unchanged: 0, failed: 0, failures: [], doses: [{ id: 'intake-3-1761202800', medication_id: 3, scheduled_at: '2026-10-23T07:00:00.000Z', status: 'TAKEN', source: 'schedule', taken_at: '2026-10-23T07:04:00.000Z' }],
+    },
+  },
   // Doctor-visit brief (med-5k6t). Cloud-only for the same reason as the two
   // analyses above: /api/brief is served by apishim.js's createApiRouter over
   // web/domain/brief.js, and the legacy Go server has no handler for it. In the

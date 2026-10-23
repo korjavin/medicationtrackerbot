@@ -5,12 +5,17 @@
 // network — same pattern as cloud.shim-contract.bp.test.js. Divergences here
 // are contract bugs in the JS domain layer, not test bugs; the original
 // (network-mocked) features.meds.test.js keeps running unshimmed.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { createApiRouter } from '../../../cloud/js/apishim.js';
 import { createIntakeDomain } from '../../../domain/medintake.js';
+import { createMedicationsDomain } from '../../../domain/medications.js';
+import { sortByEffective } from '../../../domain/medschedule.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
 
 // Fake rxnorm port (Task 8: "warning alert (fake rxnorm port)") — the real
@@ -497,6 +502,46 @@ describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
         expect(applyIncoming(bodyA, bodyB)).toBe(bodyA);
     });
 
+    // bd med-wi09.16 — a string med recordId against numeric intake ids (imported
+    // vault) must still match: no duplicate slot, no missing name.
+    it('string med recordId vs numeric intake medication_id: no duplicate, name resolved', async () => {
+        const records = createInMemoryRecordsPort({
+            medication: [{ ...med(), recordId: '1' }],
+            intake: [{
+                recordId: SLOT_ID,
+                clientTs: Date.UTC(2026, 7, 16, 7, 0),
+                deleted: false,
+                medication_id: 1,
+                scheduled_at: new Date(SLOT_MS).toISOString(),
+                taken_at: null,
+                status: 'PENDING',
+                snoozed_until: null,
+                source: 'schedule'
+            }]
+        });
+        const domain = domainOver(records, () => NOW);
+        expect(await domain.materializeDueDoses()).toEqual([]);
+        await domainOver(records, () => SLOT_MS - 3600_000).triggerNextIntake();
+        const rows = await records.list('intake');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].status).toBe('TAKEN');
+        expect((await domain.listWindow())[0].medication_name).toBe('Metformin');
+
+        // logPast finds the med by String id.
+        await expect(domain.logPast(1, SLOT_MS - 86400_000)).resolves.toBeDefined();
+
+        // Reminder horizon: the next-day slot is a medication entry (med found by
+        // String id); the TAKEN slot just logged is not nagged again.
+        const horizon = (intakes) => computeReminderHorizon({
+            medications: [{ ...med(), recordId: '1' }],
+            intakes,
+            timeZone: TZ,
+            now: SLOT_MS - 3600_000
+        }).filter((e) => e.kind === 'medication' && e.fireAtUnix === SLOT_MS / 1000);
+        expect(horizon([])).toHaveLength(1);
+        expect(horizon(await records.listRaw('intake'))).toHaveLength(0);
+    });
+
     it('a deleteFutureIntakes tombstone keeps the slot deleted once it comes due', async () => {
         const records = createInMemoryRecordsPort({
             medication: [med()],
@@ -704,5 +749,131 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         expect(entries.map((e) => e.fireAtUnix)).toEqual(upcomingSlots);
         expect(entries[0].medicationIds).toEqual([2]);
         expect(entries.map((e) => e.fireAtUnix)).not.toContain(at(20) / 1000);
+    });
+
+    // bd med-wi09.15 — Today's Next up and its take sheet named every missed
+    // dose "Medication": the projection's name lookup was strict while the
+    // sheet/Schedule match ids as strings. An imported vault can hold a med's
+    // recordId as a string while its intakes carry a number (inbox-apply.js).
+    it('missed doses carry real medicine names on Today, whatever the id type', async () => {
+        env.cleanup();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    med('7', 'Atorvastatin', { type: 'daily', times: ['08:00'] }),
+                    med(8, 'Metformin', { type: 'daily', times: ['08:00'] })
+                ],
+                intake: [intake(slotId(7, at(8)), 7, at(8)), intake(slotId(8, at(8)), 8, at(8))]
+            },
+            now: () => NOW,
+            timeZone: TZ
+        });
+        const due = (await call(range(NOW - 24 * HOUR, NOW))).filter((d) => d.state === 'due');
+        expect(due.map((d) => [d.name, d.dosage])).toEqual([['Atorvastatin', '10mg'], ['Metformin', '10mg']]);
+
+        const todayJs = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features/today.js');
+        env.window.eval(fs.readFileSync(todayJs, 'utf8'));
+        const features = { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false };
+        const medications = await call('/api/medications');
+        const missed = (rows) => env.window.TodayDashboard
+            .aggregateToday({ features, medications, intake_history: rows }, {}, NOW).missedDoses.value;
+        expect(missed(due)).toEqual([{
+            scheduledAt: iso(at(8)), names: ['Atorvastatin', 'Metformin'], ids: [7, 8], intakeIds: [slotId(7, at(8)), slotId(8, at(8))]
+        }]);
+        // Rows cached by the buggy build (name '') still resolve from the
+        // cached medications list — the offline doses_due_24h path.
+        expect(missed(due.map((d) => ({ ...d, name: '' })))[0].names).toEqual(['Atorvastatin', 'Metformin']);
+    });
+});
+
+// bd med-wi09.9 — schedule history: one immutable medsched-* row per change,
+// so the planner can regenerate the past. Nothing reads it yet.
+describe('schedule history — medsched-* on every schedule/policy edit (bd med-wi09.9)', () => {
+    const DAILY = (t) => JSON.stringify({ type: 'daily', times: [t] });
+    const legacyMed = () => ({
+        recordId: 7,
+        clientTs: 1,
+        deleted: false,
+        name: 'Metformin',
+        dosage: '500mg',
+        schedule: DAILY('08:00'),
+        archived: false,
+        tz_shift_policy: 'flexible',
+        created_at: '2026-01-01T00:00:00.000Z'
+    });
+    const edit = (schedule, policy = 'flexible') => ({
+        name: 'Metformin', dosage: '500mg', schedule, tz_shift_policy: policy
+    });
+    let env = null;
+
+    afterEach(() => {
+        if (env) env.cleanup();
+        env = null;
+    });
+
+    it('create writes the base generation; schedule and policy edits each add one; other edits add none', async () => {
+        // Each write a minute apart, so the effective order is the edit order.
+        let t = Date.parse('2026-07-01T09:00:00Z');
+        env = loadCloudShimFrontendEnv({ now: () => (t += 60_000) });
+        const { id } = await env.window.apiCall('/api/medications', 'POST', edit(DAILY('08:00')));
+        let hist = await env.records.list('medsched');
+        expect(hist).toHaveLength(1);
+        expect(hist[0].recordId).toMatch(new RegExp(`^medsched-${id}-\\d+-base$`));
+        expect(hist[0]).toMatchObject({ medication_id: id, schedule: DAILY('08:00'), tz_shift_policy: 'flexible' });
+
+        await env.window.apiCall(`/api/medications/${id}`, 'POST', { ...edit(DAILY('08:00')), dosage: '850mg' });
+        expect(await env.records.list('medsched')).toHaveLength(1);
+
+        await env.window.apiCall(`/api/medications/${id}`, 'POST', { ...edit(DAILY('09:00')), dosage: '850mg' });
+        await env.window.apiCall(`/api/medications/${id}`, 'POST', { ...edit(DAILY('09:00'), 'strict'), dosage: '850mg' });
+        hist = sortByEffective(await env.records.list('medsched'), 'from');
+        expect(hist.map((h) => [h.schedule, h.tz_shift_policy])).toEqual([
+            [DAILY('08:00'), 'flexible'], [DAILY('09:00'), 'flexible'], [DAILY('09:00'), 'strict']
+        ]);
+        expect(hist.every((h) => String(h.medication_id) === String(id))).toBe(true);
+    });
+
+    it('the first edit of a med that predates history backfills its old generation at the clientTs floor', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { medication: [legacyMed()] } });
+        await env.window.apiCall('/api/medications/7', 'POST', edit(DAILY('10:00')));
+        const [base, change] = sortByEffective(await env.records.list('medsched'), 'from');
+        expect(base).toMatchObject({
+            recordId: `medsched-7-${Date.parse('2026-01-01T00:00:00Z') / 1000}-base`,
+            clientTs: 0,
+            schedule: DAILY('08:00'),
+            from: '2026-01-01T00:00:00.000Z'
+        });
+        expect(change.schedule).toBe(DAILY('10:00'));
+        expect(change.clientTs).toBeGreaterThan(0);
+    });
+
+    it('two devices editing in the same second both persist and order the same everywhere', async () => {
+        const NOW = Date.parse('2026-07-01T09:00:00.000Z');
+        const device = () => {
+            const records = createInMemoryRecordsPort({ medication: [legacyMed()] });
+            return { records, meds: createMedicationsDomain({ records, now: () => NOW, timeZone: 'UTC' }) };
+        };
+        const a = device();
+        const b = device();
+        await a.meds.update(7, edit(DAILY('10:00')));
+        await b.meds.update(7, edit(DAILY('11:00')));
+        const rowsA = await a.records.list('medsched');
+        const rowsB = await b.records.list('medsched');
+        // Union by recordId, the way sync merges them: the shared base row
+        // collapses, both edits survive under their own ids.
+        const union = (x, y) => [...new Map([...x, ...y].map((r) => [r.recordId, r])).values()];
+        const ab = sortByEffective(union(rowsA, rowsB), 'from');
+        const ba = sortByEffective(union(rowsB, rowsA), 'from');
+        expect(ab).toHaveLength(3);
+        expect(ab.map((r) => r.recordId)).toEqual(ba.map((r) => r.recordId));
+        expect(ab.slice(1).map((r) => r.schedule).sort()).toEqual([DAILY('10:00'), DAILY('11:00')]);
+    });
+
+    it('deleting an archived med drops its history', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { medication: [{ ...legacyMed(), archived: true }] } });
+        await env.window.apiCall('/api/medications/7', 'POST', { ...edit(DAILY('10:00')), archived: true });
+        expect(await env.records.list('medsched')).toHaveLength(2);
+        await env.window.apiCall('/api/medications/7', 'DELETE');
+        expect(await env.records.list('medsched')).toHaveLength(0);
     });
 });

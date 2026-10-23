@@ -42,6 +42,9 @@ type deviceListItem struct {
 	CredentialID   string     `json:"credential_id"`
 	CreatedAt      time.Time  `json:"created_at"`
 	LastAssertedAt *time.Time `json:"last_asserted_at,omitempty"`
+	// Platform (web|android|ios) is set only for devices enrolled through a
+	// v2 transfer; omitted otherwise, so older rows render unchanged.
+	Platform string `json:"platform,omitempty"`
 	// Envelope carries nonce+ct+mac (not just mac) so the client can recompute
 	// and verify the audit tag (docs/cloud-crypto.md envelope-audit MAC).
 	Envelope *envelopeWire `json:"envelope,omitempty"`
@@ -70,6 +73,7 @@ func (a *DeviceAPI) ListDevices(w http.ResponseWriter, r *http.Request) {
 			CredentialID:   base64.RawURLEncoding.EncodeToString(c.ID),
 			CreatedAt:      c.CreatedAt,
 			LastAssertedAt: c.LastAssertedAt,
+			Platform:       c.Platform,
 		}
 		env, err := a.store.GetEnvelope(r.Context(), session.AccountID, item.CredentialID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

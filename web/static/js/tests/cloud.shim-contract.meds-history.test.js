@@ -316,6 +316,189 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    // bd med-wi09.2 — explicit dose actions on explicit occIds. Two meds share
+    // a past slot: intake-a (Metformin) and intake-b (Aspirin).
+    const slotEnv = (statusA, statusB) => {
+        const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
+        const row = (recordId, medication_id, status) => seedIntake({
+            recordId, medication_id, scheduled_at: slotIso, status, taken_at: status === 'TAKEN' ? slotIso : null
+        });
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    seedMedication({ recordId: 1, name: 'Metformin', inventory_count: 5 }),
+                    seedMedication({ recordId: 2, name: 'Aspirin', inventory_count: 5 })
+                ],
+                intake: [row('intake-a', 1, statusA), row('intake-b', 2, statusB)]
+            }
+        });
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        return slotIso;
+    };
+    const act = (window, body) => window.apiCall('/api/doses/act', 'POST', body);
+
+    it('a partial sheet never flips a TAKEN slot-mate — confirm-schedule is additive, act touches only its ids', async () => {
+        const slotIso = slotEnv('PENDING', 'TAKEN');
+        const { window } = env;
+        try {
+            // The old revert pass un-took every TAKEN slot-mate absent from the list.
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: [1] });
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 4, stockB: 5 });
+
+            await act(window, { action: 'undo', occ_ids: ['intake-a'] });
+            await act(window, { action: 'take', occ_ids: ['intake-a'] });
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 4, stockB: 5 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('a bulk take of N ids is idempotent on repeat (no second decrement, taken_at kept)', async () => {
+        slotEnv('PENDING', 'PENDING');
+        const { window } = env;
+        try {
+            const takenAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+            const first = await act(window, { action: 'take', occ_ids: ['intake-a', 'intake-b'], taken_at: takenAt });
+            expect(first).toMatchObject({ updated: 2, unchanged: 0, failed: 0, failures: [] });
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 4, stockB: 4 });
+
+            const again = await act(window, { action: 'take', occ_ids: ['intake-a', 'intake-b'] });
+            expect(again).toMatchObject({ updated: 0, unchanged: 2, failed: 0 });
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 4, stockB: 4 });
+            const history = await window.apiCall('/api/history?days=2');
+            expect(history.every((h) => Date.parse(h.taken_at) === Date.parse(takenAt))).toBe(true);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('undo restores PENDING and stock (+1 only for a TAKEN dose); skip and take refuse a resolved dose', async () => {
+        slotEnv('TAKEN', 'SKIPPED');
+        const { window } = env;
+        try {
+            const refused = await act(window, { action: 'take', occ_ids: ['intake-b'] });
+            expect(refused).toMatchObject({ updated: 0, failed: 1, failures: [{ id: 'intake-b', reason: 'not_pending' }] });
+
+            const res = await act(window, { action: 'undo', occ_ids: ['intake-a', 'intake-b'] });
+            expect(res).toMatchObject({ updated: 2, failed: 0 });
+            expect(await stateOf(window)).toEqual({ a: 'PENDING', b: 'PENDING', stockA: 6, stockB: 5 });
+            const history = await window.apiCall('/api/history?days=2');
+            expect(history.some((h) => h.taken_at)).toBe(false);
+
+            // Undo of a pending dose is a no-op.
+            expect(await act(window, { action: 'undo', occ_ids: ['intake-a'] })).toMatchObject({ updated: 0, unchanged: 1 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('edit_time moves taken_at of a TAKEN dose only, with no stock change', async () => {
+        slotEnv('TAKEN', 'PENDING');
+        const { window } = env;
+        try {
+            const takenAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+            const res = await act(window, { action: 'edit_time', occ_ids: ['intake-a', 'intake-b'], taken_at: takenAt });
+            expect(res).toMatchObject({ updated: 1, failed: 1, failures: [{ id: 'intake-b', reason: 'not_taken' }] });
+            const history = await window.apiCall('/api/history?days=2');
+            expect(Date.parse(history.find((h) => h.id === 'intake-a').taken_at)).toBe(Date.parse(takenAt));
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'PENDING', stockA: 5, stockB: 5 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('take / skip of a forecast occId creates that exact slot once; an id that is no real slot fails', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({
+                    recordId: 1,
+                    inventory_count: 5,
+                    schedule: JSON.stringify({ type: 'daily', times: ['00:00', '06:00', '12:00', '18:00'] })
+                })]
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const doses = await window.apiCall(`/api/doses?from=${new Date(Date.now() + 60 * 1000).toISOString()}`);
+            const [first, second] = doses.filter((d) => d.state === 'upcoming');
+            expect(first.occId).toBe(`intake-1-${Date.parse(first.plannedAt) / 1000}`);
+
+            expect(await act(window, { action: 'take', occ_ids: [first.occId] })).toMatchObject({ updated: 1, failed: 0 });
+            expect(await act(window, { action: 'take', occ_ids: [first.occId] })).toMatchObject({ updated: 0, unchanged: 1 });
+            expect(await act(window, { action: 'skip', occ_ids: [second.occId] })).toMatchObject({ updated: 1, failed: 0 });
+            const meds = await window.apiCall('/api/medications');
+            expect(meds[0].inventory_count).toBe(4);
+            const after = await window.apiCall(`/api/doses?from=${new Date(Date.now() + 60 * 1000).toISOString()}`);
+            expect(after.find((d) => d.occId === first.occId).state).toBe('taken');
+            expect(after.find((d) => d.occId === second.occId).state).toBe('skipped');
+
+            const bogus = `intake-1-${Date.parse(first.plannedAt) / 1000 + 420}`;
+            expect(await act(window, { action: 'take', occ_ids: [bogus, 'nope'] })).toMatchObject({
+                updated: 0,
+                failed: 2,
+                failures: [{ id: bogus, reason: 'not_found' }, { id: 'nope', reason: 'not_found' }]
+            });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('a dose stored under a non-bare id (vault-imported tz_step) is not re-offered as a forecast, and act resolves it by slot', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({
+                    recordId: 1,
+                    inventory_count: 5,
+                    schedule: JSON.stringify({ type: 'daily', times: ['00:00', '06:00', '12:00', '18:00'] })
+                })]
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const from = new Date(Date.now() + 60 * 1000).toISOString();
+            const slot = (await window.apiCall(`/api/doses?from=${from}`)).find((d) => d.state === 'upcoming');
+            await env.records.put('intake', seedIntake({
+                recordId: `${slot.occId}-tz_step`, medication_id: 1, scheduled_at: slot.plannedAt, status: 'SKIPPED', source: 'tz_step'
+            }));
+            const rows = (await window.apiCall(`/api/doses?from=${from}`)).filter((d) => d.plannedAt === slot.plannedAt);
+            expect(rows.map((d) => [d.occId, d.state])).toEqual([[`${slot.occId}-tz_step`, 'skipped']]);
+            expect(await act(window, { action: 'undo', occ_ids: [slot.occId] })).toMatchObject({ updated: 1, failed: 0 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('act matches a string med recordId against a numeric intake medication_id — take + undo move stock once (med-wi09.15)', async () => {
+        const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
+        const occId = `intake-7-${Date.parse(slotIso) / 1000}`;
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ recordId: '7', name: 'Metformin', inventory_count: 5 })],
+                intake: [seedIntake({ recordId: 'legacy-7', medication_id: 7, scheduled_at: slotIso })]
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        const stock = async () => (await window.apiCall('/api/medications'))[0].inventory_count;
+        const status = async () => (await window.apiCall('/api/history?days=2')).map((h) => [h.id, h.status]);
+        try {
+            // The slot occId resolves to the stored row — no forecast twin.
+            expect(await act(window, { action: 'take', occ_ids: [occId] })).toMatchObject({ updated: 1, failed: 0 });
+            expect(await status()).toEqual([['legacy-7', 'TAKEN']]);
+            expect(await stock()).toBe(4);
+            expect(await act(window, { action: 'take', occ_ids: [occId] })).toMatchObject({ updated: 0, unchanged: 1 });
+            expect(await stock()).toBe(4);
+
+            expect(await act(window, { action: 'undo', occ_ids: ['legacy-7'] })).toMatchObject({ updated: 1, failed: 0 });
+            expect(await status()).toEqual([['legacy-7', 'PENDING']]);
+            expect(await stock()).toBe(5);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('confirm-schedule by intake_id only (no scheduled_at) sends no cancel-refire POST', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {
