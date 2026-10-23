@@ -39,6 +39,11 @@
 //     medintake.js look up by exact recordId); every older plan lands on a
 //     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
 //     those readers and re-merged on export.
+//   - history (bd med-wi09.9): `tztransition-<sec>-<rand>` rides in
+//     tz.transitions, `medsched-<medId>-<sec>-<rand>` in medications.schedules,
+//     both keeping their recordId as `id` (append-only, no singleton) and
+//     exported in effective order (instant, recordId). Older files omit both
+//     keys; older clients ignore them.
 //   - intake + workoutsession (and Apple Health bp/weight/miband/sleep -hk-) tombstones at
 //     deterministic slot ids are suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
@@ -66,6 +71,7 @@ import { calculateBPCategory } from './bp.js';
 import { compareChain, isHealthWeight, weightTrendChain } from './weight.js';
 import { healthImportRecordId, healthNumericId } from './healthsource.js';
 import { FIRSTRUN_RECORD_TYPE, FIRSTRUN_RECORD_ID } from './settings.js';
+import { sortByEffective } from './medschedule.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
@@ -84,7 +90,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'sleep', 'daystats', 'hrsample', 'spo2sample', 'stresssample',
   'note',
   'tracker', 'trackerlog',
-  'tzplan', 'tzhistory',
+  'tzplan', 'tzhistory', 'tztransition', 'medsched',
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
   'gamificationmilestone', 'gamificationweek',
@@ -97,7 +103,9 @@ export const VAULT_MANAGED_TYPES = new Set([
 const NON_CONTENT_TYPES = new Set([
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'apitokens',
   'medreminderpref', 'bpreminderpref', 'weightreminderpref', 'weightunitpref',
-  'tzplan', 'tzhistory', 'activelocation',
+  // History rows (bd med-wi09.9) are bookkeeping of a medication / zone, not
+  // something the user logged: they never count as content.
+  'tzplan', 'tzhistory', 'tztransition', 'medsched', 'activelocation',
   'gamificationtargets', 'gamificationmode', 'protection',
 ]);
 export const USER_CONTENT_TYPES = new Set([...VAULT_MANAGED_TYPES].filter((t) => !NON_CONTENT_TYPES.has(t)));
@@ -359,6 +367,10 @@ export function recordsToVault(records, { now, includeSecrets = true, backupAt }
     restocks: sortBy(pick('restock'), (r) => r.restocked_at)
       .map((r) => stripMeta(r)),
   };
+  // Schedule history (bd med-wi09.9), effective order. Omitted when empty so a
+  // history-free store exports byte-identical to an older client.
+  const medscheds = sortByEffective(pick('medsched'), 'from');
+  if (medscheds.length > 0) medications.schedules = medscheds.map((r) => ({ id: r.recordId, ...stripMeta(r) }));
 
   // --- bp ---
   const bpGoal = singleton('bpgoal', 'bpgoal');
@@ -475,6 +487,11 @@ export function recordsToVault(records, { now, includeSecrets = true, backupAt }
     history: sortBy(pick('tzhistory'), (r) => r.changed_at).map((r) => stripMeta(r)),
     transition_plans: sortBy(pick('tzplan'), (r) => r.created_at).map(planToVault),
   };
+  // Zone-change history (bd med-wi09.9), effective order; omitted when empty.
+  const transitions = sortByEffective(pick('tztransition'), 'switch_at');
+  if (transitions.length > 0) {
+    tz.transitions = transitions.map((r) => ({ id: r.recordId, ...stripMeta(r), steps: stepsToVault(r.steps) }));
+  }
 
   // --- settings ---
   const featuresRec = singleton('features', 'features');
@@ -633,7 +650,14 @@ function planToVault(rec) {
   out.plan_hash = rec.plan_hash || '';
   out.inputs_json = rec.inputs_json || '';
   if (rec.user_action) out.user_action = rec.user_action;
-  out.steps = (Array.isArray(rec.steps) ? rec.steps : []).map((s) => ({
+  out.steps = stepsToVault(rec.steps);
+  return out;
+}
+
+// Plan steps (tzplan and tztransition bodies): camelCase + ms in the record,
+// the snake_case RFC3339 wire form in the file.
+function stepsToVault(steps) {
+  return (Array.isArray(steps) ? steps : []).map((s) => ({
     medication_id: s.medicationId,
     med_name: s.medName,
     step_number: s.stepNumber,
@@ -641,7 +665,28 @@ function planToVault(rec) {
     scheduled_at: toRFC3339(s.scheduledAtMs),
     note: s.note,
   }));
-  return out;
+}
+
+function stepsFromVault(steps) {
+  return (Array.isArray(steps) ? steps : []).map((s) => ({
+    medicationId: s.medication_id,
+    medName: s.med_name,
+    stepNumber: s.step_number,
+    totalSteps: s.total_steps,
+    scheduledAtMs: Date.parse(s.scheduled_at),
+    note: s.note,
+  }));
+}
+
+// History rows (bd med-wi09.9) keep their recordId as `id`. The record store
+// is keyed by recordId alone, so a file id outside the type's prefix (e.g.
+// `settings`) would overwrite another type's row — fail before the wipe.
+function historyFromVault(type, row, push) {
+  const { id, ...body } = row || {};
+  if (typeof id !== 'string' || !id.startsWith(`${type}-`)) {
+    throw new Error(`Corrupt backup: ${type} entry has no usable id ${JSON.stringify(id)}`);
+  }
+  push(type, id, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -708,6 +753,7 @@ export function vaultToRecords(vault, { now } = {}) {
     push('intake', recordId, { ...it });
   }
   for (const r of meds.restocks || []) push('restock', mintNum(), { ...r });
+  for (const s of meds.schedules || []) historyFromVault('medsched', s, push);
 
   // --- bp ---
   const bp = data.bp || {};
@@ -863,6 +909,9 @@ export function vaultToRecords(vault, { now } = {}) {
     const recordId = i === currentIdx ? 'tzplan-current' : `tzplanhistory-${planIdx += 1}`;
     push('tzplan', recordId, planFromVault(p));
   });
+  for (const t of tz.transitions || []) {
+    historyFromVault('tztransition', { ...t, steps: stepsFromVault(t && t.steps) }, push);
+  }
 
   // --- settings ---
   const settings = data.settings || {};
@@ -986,14 +1035,7 @@ function planFromVault(plan) {
     new_tz: plan.new_tz,
     status: plan.status,
     created_at: plan.created_at,
-    steps: (Array.isArray(plan.steps) ? plan.steps : []).map((s) => ({
-      medicationId: s.medication_id,
-      medName: s.med_name,
-      stepNumber: s.step_number,
-      totalSteps: s.total_steps,
-      scheduledAtMs: Date.parse(s.scheduled_at),
-      note: s.note,
-    })),
+    steps: stepsFromVault(plan.steps),
   };
   if (plan.approved_at) body.approved_at = plan.approved_at;
   if (plan.notified_at) body.notified_at = plan.notified_at;

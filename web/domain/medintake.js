@@ -44,6 +44,10 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
+// Med ids compare as strings: a med recordId and an intake medication_id can be
+// number vs string in imported vaults (med-wi09.15/.16).
+const sameMed = (a, b) => String(a) === String(b);
+
 function slotId(medId, scheduledAtMs) {
   return `intake-${medId}-${Math.floor(scheduledAtMs / 1000)}`;
 }
@@ -443,10 +447,10 @@ export function createIntakeDomain({ records, now, timeZone }) {
       const id = slotId(target.medicationId, target.scheduledAtMs);
       if (intakes.some((i) => i.recordId === id)) continue;
 
-      const med = meds.find((m) => m.recordId === target.medicationId);
+      const med = meds.find((m) => sameMed(m.recordId, target.medicationId));
       const bandMs = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
       if (bandMs > 0) {
-        const near = intakes.some((i) => i.medication_id === target.medicationId
+        const near = intakes.some((i) => sameMed(i.medication_id, target.medicationId)
           && (i.status === 'PENDING' || i.status === 'TAKEN')
           && Math.abs(Date.parse(i.scheduled_at) - target.scheduledAtMs) <= bandMs);
         if (near) continue;
@@ -539,7 +543,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // no scheduled slot, so scheduled_at == taken_at and it gets a random id.
   async function logPast(medicationId, takenAtMs) {
     const meds = await loadMeds();
-    const med = meds.find((m) => m.recordId === medicationId);
+    const med = meds.find((m) => sameMed(m.recordId, medicationId));
     if (!med) throw notFound('medication not found');
 
     const nowMs = now();
@@ -827,7 +831,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
     let clusterEarliestMs = null;
     let cluster = [];
     for (const t of targets) {
-      const existing = intakes.find((i) => i.medication_id === t.medicationId
+      const existing = intakes.find((i) => sameMed(i.medication_id, t.medicationId)
         && Date.parse(i.scheduled_at) === t.scheduledAtMs);
       if (existing && (existing.status === 'TAKEN' || existing.status === 'SKIPPED')) continue;
       if (clusterEarliestMs === null || t.scheduledAtMs < clusterEarliestMs) {
@@ -844,10 +848,10 @@ export function createIntakeDomain({ records, now, timeZone }) {
     let confirmedCount = 0;
 
     for (const target of cluster) {
-      const med = meds.find((m) => m.recordId === target.medicationId);
+      const med = meds.find((m) => sameMed(m.recordId, target.medicationId));
       if (med) medNames.push(med.name);
 
-      const existing = intakes.find((i) => i.medication_id === target.medicationId
+      const existing = intakes.find((i) => sameMed(i.medication_id, target.medicationId)
         && Date.parse(i.scheduled_at) === target.scheduledAtMs);
 
       if (existing && existing.status === 'PENDING') {
@@ -969,7 +973,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
     const fromMs = days > 0 ? nowMs - days * DAY_MS : -Infinity;
     const { rows } = await project({ fromMs, forecast: false });
     return rows
-      .filter((r) => (medId ? r.medId === medId : true))
+      .filter((r) => (medId ? sameMed(r.medId, medId) : true))
       .reverse()
       .slice(0, 100)
       .map(historyResponse);
@@ -985,7 +989,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // taken_at (see logPast), so foldAdherence must keep it out of delay math.
   async function listWindow({ fromMs = 0, toMs = Infinity } = {}) {
     const [intakes, meds] = await Promise.all([loadIntakes(), loadMeds()]);
-    const byId = new Map(meds.map((m) => [m.recordId, m]));
+    const byId = new Map(meds.map((m) => [String(m.recordId), m]));
     return intakes
       .filter((i) => {
         const ms = Date.parse(i.scheduled_at);
@@ -993,7 +997,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
       })
       .sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at))
       .map((i) => {
-        const med = byId.get(i.medication_id);
+        const med = byId.get(String(i.medication_id));
         const row = {
           medication_name: med ? med.name : '',
           dosage: med ? med.dosage : '',

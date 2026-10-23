@@ -112,6 +112,8 @@
     --wg-track-eyebrow: 0.14em;
     --wg-warn-fg: #FFD870;
     --wg-warn-line: rgba(251, 189, 13, 0.34);
+    /* The /claim screens (bd med-r1j2.3): .wg-facts icons. */
+    --wg-mint: #9CE4CC;
 }
 
 body {
@@ -231,12 +233,19 @@ a.wg-btn {
    viewport-tall so the .wg-shell column scrolls and the footer docks at the
    bottom; capped on desktop so the column does not stretch across it.
    Two classes: components.css loads after this file and its .wg-app sets
-   height: 100%, which would otherwise win. */
-.wg-app.invite-page {
+   height: 100%, which would otherwise win. The /claim screens (AD5-AD7,
+   med-r1j2.3) use the same frame. */
+.wg-app.invite-page,
+.wg-app.claim-page {
   height: 100vh;
   height: 100dvh;
   max-width: 32rem;
   margin: 0 auto;
+}
+
+/* The kit's .wg-error is display:flex; an empty one would still take a gap. */
+.claim-page .wg-error:empty {
+  display: none;
 }
 
 /* Pure white, not --wg-paper: this is the QR code's quiet zone, and its

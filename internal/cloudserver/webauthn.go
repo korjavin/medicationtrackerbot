@@ -37,8 +37,8 @@ func logCeremonyFailure(ceremony, accountID string, err error) {
 // ceremonies need.
 type webauthnStore interface {
 	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
-	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error)
-	RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
+	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, hasConfN bool, now time.Time) (bool, error)
+	RedeemTransferToken(ctx context.Context, accountID string, tokenHash, confN []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
 	AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential, env cloudstore.Envelope) error
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
@@ -155,6 +155,9 @@ type registerChallenge struct {
 	// exists — otherwise a device revoked mid-ceremony could finish within the
 	// challenge TTL and mint a fresh credential, defeating its own revocation.
 	sessionCredentialID []byte
+	// confN is the new device's key confirmation (transfer protocol v2), stored
+	// on the slot at redeem for the origin's final poll; gateEnrollment only.
+	confN []byte
 }
 
 // loginChallenge is what challengeStore holds between LoginBegin and
@@ -273,11 +276,14 @@ func schemeForHost(host string) string {
 type registerBeginRequest struct {
 	ClaimToken      string `json:"claim_token,omitempty"`
 	EnrollmentToken string `json:"enrollment_token,omitempty"`
+	// ConfN = HMAC(K_conf, "n-confirm"‖T) from a v2 transfer; the server only
+	// relays it to the origin, which verifies it. Absent for recovery.
+	ConfN []byte `json:"conf_n,omitempty"`
 }
 
 // RegisterBegin starts a registration ceremony, gated one of three ways: a
 // signup claim token (first credential on a fresh account), an enrollment
-// token from a claimed device-transfer slot (adding a second device), or
+// token from an approved device-transfer or recovery slot (adding a device), or
 // plain session auth (an already-unlocked device enrolling an additional
 // local passkey).
 func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
@@ -325,11 +331,11 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 		gate, tokenHash = gateClaim, hash
 	case req.EnrollmentToken != "":
 		hash, valid := hashHexToken(req.EnrollmentToken)
-		if !valid {
+		if !valid || (len(req.ConfN) != 0 && len(req.ConfN) != transferMACLen) {
 			http.Error(w, "invalid or expired enrollment token", http.StatusForbidden)
 			return
 		}
-		ok, err := a.store.ValidEnrollmentToken(r.Context(), account.ID, hash, time.Now().UTC())
+		ok, err := a.store.ValidEnrollmentToken(r.Context(), account.ID, hash, len(req.ConfN) > 0, time.Now().UTC())
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -387,6 +393,7 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 		gate:                gate,
 		tokenHash:           tokenHash,
 		sessionCredentialID: sessionCredentialID,
+		confN:               req.ConfN,
 	})
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
@@ -493,7 +500,7 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case gateEnrollment:
-		if err := a.store.RedeemTransferToken(r.Context(), account.ID, challenge.tokenHash, credRow, envRow, now); err != nil {
+		if err := a.store.RedeemTransferToken(r.Context(), account.ID, challenge.tokenHash, challenge.confN, credRow, envRow, now); err != nil {
 			if errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
 				http.Error(w, "enrollment token already used or expired", http.StatusConflict)
 				return

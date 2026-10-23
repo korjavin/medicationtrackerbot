@@ -13,6 +13,30 @@ import { offsetMsAt } from './bp.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LOW_STOCK_THRESHOLD_DAYS = 7;
 
+// History records (bd med-wi09.9): what the planner needs to regenerate the
+// past — `tztransition` (written by tzplan.js) and `medsched` (written by
+// medications.js). One immutable record per change, never an array on a
+// singleton: LWW on a singleton keeps one device's copy and drops the other's
+// entries. The id carries the effective second plus a random suffix, so two
+// devices changing the same thing in the same second both persist.
+export function historyRecordId(prefix, fromMs, suffix) {
+  const tail = suffix || Math.random().toString(36).slice(2, 10).padEnd(8, '0');
+  return `${prefix}-${Math.floor(fromMs / 1000)}-${tail}`;
+}
+
+// Effective order of history rows: (instant of row[key], recordId). Every
+// device sorts the same set the same way, same-second edits included. Live
+// rows only.
+export function sortByEffective(rows, key) {
+  return rows.filter((r) => r && !r.deleted).sort((a, b) => {
+    const d = Date.parse(a[key]) - Date.parse(b[key]);
+    if (d) return d;
+    const ia = String(a.recordId);
+    const ib = String(b.recordId);
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
+  });
+}
+
 // Ported from internal/store/medication/repo.go:73 (ValidSchedule). Legacy
 // "HH:MM" strings are daily with one dose; anything else must be the JSON
 // ScheduleConfig shape. Returns null on parse failure (caller skips the med).
