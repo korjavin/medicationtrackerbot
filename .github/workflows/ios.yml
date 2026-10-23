@@ -431,12 +431,17 @@ jobs:
           mkdir -p "$out"
           [ -d build/qa.xcresult ] || { echo "## iOS flow QA: no result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           xcrun xcresulttool export attachments --path build/qa.xcresult --output-path "$raw" || true
-          # Same manifest mapping as the visual job: <flow>-<step>.png only.
+          # Same manifest mapping as the visual job: <flow>-<step>.png, plus
+          # a failed test's UI hierarchy (the first exported) as <Class>-<test>-hierarchy.txt
+          # (bd med-w6gx.29: a flake left only screenshots to go on).
           if [ -f "$raw/manifest.json" ]; then
-            jq -r '.[].attachments[] | "\(.exportedFileName)\t\(.suggestedHumanReadableName)"' "$raw/manifest.json" |
-              while IFS=$'\t' read -r file name; do
+            jq -r '.[] | (.testIdentifier // "unknown" | gsub("[^A-Za-z0-9]+"; "-")) as $t | .attachments[] | "\(.exportedFileName)\t\(.suggestedHumanReadableName)\t\($t)"' "$raw/manifest.json" |
+              while IFS=$'\t' read -r file name test; do
                 name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
-                case "$name" in *.png) cp "$raw/$file" "$out/$name" ;; esac
+                case "$name" in
+                  *.png) cp "$raw/$file" "$out/$name" ;;
+                  "App UI hierarchy"*) [ -e "$out/$test-hierarchy.txt" ] || cp "$raw/$file" "$out/$test-hierarchy.txt" ;;
+                esac
               done
           fi
           ls -l "$out"

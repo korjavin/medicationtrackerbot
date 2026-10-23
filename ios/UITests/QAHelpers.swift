@@ -30,6 +30,21 @@ enum QA {
             && app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Meds'")).firstMatch.exists // "Meds 1": a due-dose badge
     }
 
+    /// Taps `button` until `target` shows, at most three taps (bd med-w6gx.29):
+    /// on the CI Simulator a tap on a web button now and then never reaches
+    /// the page (run 39944639601: the Meds tab tap left Today up for 20 s), so
+    /// one tap and one wait is a flake. Only retaps while `target` is absent,
+    /// and `button` must be idempotent (a tab, a sheet opener).
+    @discardableResult
+    static func tapUntil(_ button: XCUIElement, shows target: XCUIElement, timeout: TimeInterval = 10) -> Bool {
+        for _ in 0..<3 {
+            if target.exists { return true }
+            if button.waitForExistence(timeout: 5) { button.tap() }
+            if target.waitForExistence(timeout: timeout) { return true }
+        }
+        return target.exists
+    }
+
     /// The web's F1 "Have an invite?" sheet (web/static/js/features/invite.js):
     /// where local home?invite=1 lands with no pending invite (bd med-ta2n.17).
     /// Its "Scan QR" button is F1's own (W1's footer has a "Have an invite?" too).

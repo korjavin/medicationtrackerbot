@@ -37,8 +37,8 @@ final class FlowQAStashTests: XCTestCase {
         app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
         app.launch()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
-        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
-        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move")
+        XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: webText(app, contains: Self.firstMed(fixture))), // "Meds 1" with a dose due
+                      "the records are gone after the move")
         shot(flow, "records-kept")
         XCTAssertNotNil(Self.stashData("move"), "a relaunch in local mode dropped the move stash")
 
@@ -91,8 +91,8 @@ final class FlowQAStashTests: XCTestCase {
         let skip = app.webViews.buttons.matching(NSPredicate(format: "label IN {'Skip', 'Skip all'}")).firstMatch // W1 picker "Skip" (med-ta2n.1)
         if skip.waitForExistence(timeout: 10) { skip.tap() }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar after the pickup")
-        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
-        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "Meds lists no fixture medication after the pickup")
+        XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: webText(app, contains: Self.firstMed(fixture))), // "Meds 1" with a dose due
+                      "Meds lists no fixture medication after the pickup")
         shot(flow, "meds")
         XCTAssertNil(Self.stashData("leave"), "the pickup kept leave/vault.json")
 
@@ -112,8 +112,8 @@ final class FlowQAStashTests: XCTestCase {
         shot(flow, "cancelled")
         XCTAssertFalse(webText(app, "Records not copied").exists, "a dialog followed Cancel")
         XCTAssertNil(Self.stashData("leave"), "Cancel kept leave/vault.json")
-        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
-        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the cancelled pickup")
+        XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: webText(app, contains: Self.firstMed(fixture))), // "Meds 1" with a dose due
+                      "the records are gone after the cancelled pickup")
         app.terminate()
     }
 
