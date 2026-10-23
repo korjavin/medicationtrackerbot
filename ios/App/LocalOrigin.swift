@@ -32,7 +32,8 @@ enum LocalOrigin {
         "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
     ]
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
-    static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash"]
+    static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash",
+                             "push.token"] // native push (bd med-erq1.4, Push.swift): never in local mode
     /// Every other op the shell answers, in both modes.
     static let sharedOps = ["ping", "shell.ops", "diag.append", "health.authorize", "health.query",
                             "notifications.permission", "notifications.requestPermission",

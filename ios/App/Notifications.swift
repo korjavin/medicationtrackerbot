@@ -65,7 +65,7 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    private func permission() async -> String {
+    func permission() async -> String {
         switch await center.notificationSettings().authorizationStatus {
         case .authorized, .provisional, .ephemeral: return "granted"
         case .denied: return "denied"
@@ -127,12 +127,21 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     // the main actor and complete there.
 
     /// A reminder due while the app is open still shows, like a Web Push does.
+    /// A native push wake (bd med-erq1.4, Push.swift) goes to the page instead
+    /// and shows only when no unlocked page took it — the SW's rule (sw.js).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        Task { @MainActor in completionHandler([.banner, .list, .sound]) }
+        let show: UNNotificationPresentationOptions = [.banner, .list, .sound]
+        let kind = notification.request.trigger is UNPushNotificationTrigger
+            ? notification.request.content.userInfo["kind"] as? String : nil
+        Task { @MainActor in
+            guard let kind, let shell = Shell.current else { return completionHandler(show) }
+            shell.pushEvent(kind) { took in completionHandler(took ? [] : show) }
+        }
     }
 
     /// A tap opens the reminder's url (bd med-w6gx.20): a dose's take sheet, else its section.
+    /// A native push's alert has no url and no vault: Today (ReminderPath.fallback).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo

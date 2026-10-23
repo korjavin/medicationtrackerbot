@@ -259,7 +259,7 @@ struct LoadErrorView: View {
 /// The Home Screen quick action "Copy diagnostics" (bd med-w6gx.24, twin of
 /// Android's launcher shortcut; UIApplicationShortcutItems in project.yml):
 /// a cold launch hands it to the scene configuration, a running app to the
-/// scene delegate.
+/// scene delegate. Also the app delegate's remote-notification calls (native push).
 @MainActor
 final class QuickAction: NSObject, UIApplicationDelegate, UIWindowSceneDelegate {
     static let copyType = "copy-diagnostics"
@@ -281,6 +281,34 @@ final class QuickAction: NSObject, UIApplicationDelegate, UIWindowSceneDelegate 
 
     private static func copyDiagnostics() {
         if let shell = Shell.current { shell.copyDiagnostics() } else { Shell.copyOnLaunch = true }
+    }
+
+    // MARK: native push (bd med-erq1.4, Push.swift) — the app delegate's share
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Shell.current?.pushRegistered(Push.hex(deviceToken))
+    }
+
+    /// No aps-environment entitlement (a profile without Push), the Simulator, no network.
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        let e = error as NSError
+        Shell.current?.diag("shell push register failed \(e.domain) \(e.code)")
+    }
+
+    /// content-available (UIBackgroundModes remote-notification). In front,
+    /// willPresent (Notifications.swift) owns the wake. In the background the
+    /// system already showed the alert, the fallback: a live unlocked page gets
+    /// the wake and a grace to drain; otherwise this completes at once.
+    /// Completion-handler variant, not async: see Notifications.swift (bd med-w6gx.19).
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        guard application.applicationState != .active, let kind = userInfo["kind"] as? String, let shell = Shell.current else {
+            return completionHandler(.noData)
+        }
+        shell.pushEvent(kind) { took in
+            guard took else { return completionHandler(.noData) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Push.grace) { completionHandler(.newData) }
+        }
     }
 }
 

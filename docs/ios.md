@@ -865,6 +865,38 @@ a Web Push subscription.
 - **Not in v1:** Confirm/Snooze buttons on the notification; a cold start onto
   a locked vault lands on Today after unlock (`/unlock` drops the query).
 
+### Native push (APNs) (bd med-erq1.4)
+
+The relay's content-free wakes (`inbox-wake`, `dry-queue`;
+`internal/cloudserver/nativepush.go`) reach the shell over APNs, twin of
+Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15);
+[`Push.swift`](../ios/App/Push.swift)). Reminders stay local notifications (above).
+
+- **Entitlement:** `aps-environment` is not in `project.yml`. The TestFlight
+  archive step adds the App Store profile's own value when the profile
+  carries Push (owner bead med-erq1.7: Push capability on the App ID, then a
+  regenerated `IOS_APPSTORE_PROFILE_BASE64`); without it the archive still
+  signs, registration fails (Diag `shell push register failed`) and
+  `push.token` answers null. `UIBackgroundModes: remote-notification` is
+  always on.
+- **`push.token {}`** (account mode only; local mode answers `unsupported`)
+  → `{platform: "ios", token}` (hex), or null without the notification grant
+  or before APNs answered. Each call (and each return to the app with the grant)
+  asks iOS to register; the token arriving, first or changed, fires the page's
+  `token` event, so the page registers it. Diag logs a 4-byte SHA-256
+  fingerprint, never the token.
+- **Page event** `wg:native-push {kind}` on `document`, only on the account's
+  page whose vault is unlocked (`MedTrackerCloud.ctx`). In front,
+  `willPresent` hands the wake to the page and shows the alert only when no
+  page took it (the SW's rule). In the background the system already showed
+  the server's fixed alert; `content-available` also hands a live page the
+  wake, with a 10 s grace before completing. Tap: Today, like a reminder
+  without a url. The shell reads `kind` only.
+- **Check:** `Tests/main.swift` (op gates, the event script, token encoding);
+  a real delivery is an owner device check after med-erq1.7: a Telegram
+  message to the bot with the app in the background shows "Open the app to
+  record what you sent" within seconds, and the record appears on open.
+
 ### Device check (TestFlight)
 
 1. Fresh install → local mode, the web W1 picker → *Have an invite?* → paste

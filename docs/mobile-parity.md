@@ -59,7 +59,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |
 | Late `history.back()` across a mode/account switch: off-origin reload guard | ✓ back/forward off the current mode/account cancelled before commit, never Safari (med-o7zq.47, #1280) | ✓ reload after an off-origin commit (#1251) | parity (divergent mechanism: iOS refuses before commit) |
-| Native push (`push.token`, remote wake) | pending-ios (med-erq1.4) | ✓ FCM, inert until the owner's Firebase config (med-erq1.5, med-erq1.7) | pending: Android first; `push.token` in the parity test's PLATFORM_ONLY until med-erq1.4 |
+| Native push (`push.token`, remote wake) | ✓ APNs, inert until the App Store profile carries Push (med-erq1.4, med-erq1.7) | ✓ FCM, inert until the owner's Firebase config (med-erq1.5, med-erq1.7) | parity (account mode only; device check after med-erq1.7) |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
 | `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ (error screen, launcher shortcut) | parity (med-w6gx.24, med-nt9p.22) |
 | Passkey ceremony serialisation + discoverable gets + PRF-probe retry | n/a (ASAuthorization) | ✓ (med-nt9p.19 #1110, #1116; shell-gated web fix in flight) | Android-only: WebView WebAuthn quirks |

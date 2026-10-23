@@ -1,5 +1,5 @@
-// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath, Move, Diag and BasePost, run by .github/workflows/ios.yml:
-//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift Tests/main.swift -o <bin> && <bin>
+// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath, Move, Diag, BasePost and Push, run by .github/workflows/ios.yml:
+//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift App/Push.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -225,7 +225,22 @@ precondition(localOps.contains("lock.status") && localOps.contains("lock.set"))
 precondition(!accountOps.contains("lock.status") && !accountOps.contains("lock.set"))
 // base.post (bd med-ta2n.26): local only; an account page gets "unsupported: base.post".
 precondition(localOps.contains("base.post") && !accountOps.contains("base.post"))
+// push.token (bd med-erq1.4): account only; local mode never reports a token.
+precondition(accountOps.contains("push.token") && !localOps.contains("push.token"))
 print("LocalOrigin.ops: ok")
+
+// Push (bd med-erq1.4): the page event, the token encoding, the Diag fingerprint.
+for kind in ["inbox-wake", "dry-queue", "token"] {
+    let js = Push.event(kind)!
+    precondition(js.contains("new CustomEvent('wg:native-push',{detail:{kind:'\(kind)'}})"), js)
+    precondition(js.contains("window.MedTrackerCloud&&window.MedTrackerCloud.ctx"), js) // unlocked pages only
+}
+for kind in ["", "Inbox-wake", "inbox-wake'", "x');alert(1);('"] { precondition(Push.event(kind) == nil, kind) }
+precondition(Push.hex(Data([0x00, 0x0a, 0xff])) == "000aff")
+let fp = Push.fingerprint("abcdef0123456789")
+precondition(fp.count == 8 && fp != Push.fingerprint("abcdef012345678a"), fp)
+precondition(Push.grace > 0 && Push.grace < 30) // under iOS's background budget
+print("Push: ok")
 
 // Move (bd med-o7zq.35): the stash file's lifecycle.
 let moveDir = FileManager.default.temporaryDirectory.appendingPathComponent("wg-move-\(UUID().uuidString)")
