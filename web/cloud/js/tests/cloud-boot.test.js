@@ -304,7 +304,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
         },
         'push.js': {
           ensurePushSubscription: async () => ({}),
-          registerNativePushToken: async () => { tokenRegisters += 1; return true; },
+          registerNativePushTokenWithRetry: async () => { tokenRegisters += 1; return true; },
         },
         'mcp-responder.js': { refreshResponder: () => {} },
         'inbox.js': {

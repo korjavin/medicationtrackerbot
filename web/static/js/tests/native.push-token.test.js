@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
-import { registerNativePushToken, dropNativePushToken } from '../../../cloud/js/push.js';
+import { registerNativePushToken, registerNativePushTokenWithRetry, dropNativePushToken } from '../../../cloud/js/push.js';
 
 // push.js pulls these in at module load; none is on the native-token path.
 vi.mock('../../../cloud/js/crypto.js', () => ({ encryptPushPayload: vi.fn(), toBase64: vi.fn() }));
@@ -154,5 +154,28 @@ describe('push.js native token registration (real capability)', () => {
         expect(err).toBeInstanceOf(Error);
         expect(err.message).toContain('500');
         expect(err.message).not.toContain(TOKEN);
+    });
+
+    it('a failed POST retries once on the next online event, then not again', async () => {
+        globalThis.NativePush = load({ shell: 'ios' }).w.NativePush;
+        const win = new EventTarget();
+        globalThis.addEventListener = win.addEventListener.bind(win);
+        globalThis.removeEventListener = win.removeEventListener.bind(win);
+        let status = 500;
+        let n = 0;
+        globalThis.fetch = vi.fn(async () => { n++; return { ok: status < 300, status }; });
+        try {
+            await expect(registerNativePushTokenWithRetry()).rejects.toThrow('500');
+            expect(n).toBe(1);
+            status = 204;
+            win.dispatchEvent(new Event('online'));
+            await vi.waitFor(() => expect(n).toBe(2));
+            win.dispatchEvent(new Event('online'));
+            await Promise.resolve();
+            expect(n).toBe(2);
+        } finally {
+            delete globalThis.addEventListener;
+            delete globalThis.removeEventListener;
+        }
     });
 });

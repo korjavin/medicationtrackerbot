@@ -412,8 +412,10 @@ window.MedTrackerCloudReady = (async function boot() {
         // bridge must not hold the user in the account.
         async dropNativePushToken() {
             try {
-                const { dropNativePushToken } = await import('/js/push.js');
-                await Promise.race([dropNativePushToken(), new Promise((r) => setTimeout(r, 3000))]);
+                await Promise.race([
+                    import('/js/push.js').then(({ dropNativePushToken }) => dropNativePushToken()),
+                    new Promise((r) => setTimeout(r, 3000)),
+                ]);
             } catch (e) {
                 console.warn('[cloud-boot] native push token delete failed', e);
             }
@@ -660,7 +662,7 @@ window.MedTrackerCloudReady = (async function boot() {
         try { nativePush = window.NativePush?.isSupported?.() === true; } catch { /* native/ stub */ }
         if (nativePush) {
             const registerToken = () => import('/js/push.js')
-                .then(({ registerNativePushToken }) => registerNativePushToken())
+                .then(({ registerNativePushTokenWithRetry }) => registerNativePushTokenWithRetry())
                 .catch((e) => console.error('[cloud-boot] native push token register failed', e));
             registerToken();
             window.NativePush.onWake((kind) => {

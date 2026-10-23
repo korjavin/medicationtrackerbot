@@ -150,6 +150,30 @@ export async function registerNativePushToken() {
   return true;
 }
 
+// Failed POST (offline, 401): retry once on the next `online` or the page
+// becoming visible, whichever fires first. Not a retry loop; unlock and the
+// shell's 'token' event still re-register on their own.
+let retryArmed = false;
+export async function registerNativePushTokenWithRetry() {
+  try {
+    return await registerNativePushToken();
+  } catch (e) {
+    if (!retryArmed) {
+      retryArmed = true;
+      const go = () => {
+        if (globalThis.document?.visibilityState === 'hidden') return;
+        globalThis.removeEventListener('online', go);
+        globalThis.document?.removeEventListener('visibilitychange', go);
+        retryArmed = false;
+        registerNativePushToken().catch((err) => console.warn('[push] native token retry failed', err));
+      };
+      globalThis.addEventListener('online', go);
+      globalThis.document?.addEventListener('visibilitychange', go);
+    }
+    throw e;
+  }
+}
+
 // Leaving the account on this device: the relay must stop waking it for this
 // account. Best-effort: the caller leaves either way.
 export async function dropNativePushToken() {
