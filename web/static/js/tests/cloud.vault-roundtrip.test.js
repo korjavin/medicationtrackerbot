@@ -229,6 +229,12 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       delete d.trackers;
       // So is the W4 nudge state (med-ta2n.4).
       delete d.protection;
+      // And the intake merge fields (med-wi09.11); a snoozed_at row's snooze
+      // is cloud-only state too.
+      for (const i of d.medications.intakes) {
+        if ('snoozed_at' in i) i.snoozed_until = null;
+        for (const k of ['rev', 'acted_at', 'via', 'tz', 'snoozed_at']) delete i[k];
+      }
       // And the schedule / zone history (med-wi09.9).
       delete d.medications.schedules;
       delete d.tz.transitions;
