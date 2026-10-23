@@ -13,6 +13,11 @@ const (
 	NativePushAndroid = "android"
 )
 
+// MaxNativePushTokensPerAccount caps an account's token rows: one per
+// installed shell, so a handful is plenty; past it, the least recently seen
+// rows are pruned on upsert.
+const MaxNativePushTokensPerAccount = 10
+
 // NativePushToken is one APNs (ios) / FCM (android) device token registered by
 // an account's app shell (med-erq1.1).
 type NativePushToken struct {
@@ -27,12 +32,20 @@ type NativePushToken struct {
 // UpsertNativePushToken registers a device token for accountID, or refreshes
 // it: last_seen moves, a disabled token re-enables, and a token previously
 // registered by another account moves to this one (same device, new account).
+// The account then keeps only its MaxNativePushTokensPerAccount most recently
+// seen tokens (bd med-erq1.2: rows were otherwise unbounded).
 func (r *Repo) UpsertNativePushToken(ctx context.Context, accountID, platform, token string, now time.Time) error {
 	ts := storedb.TimeToUnix(now)
-	_, err := r.db.ExecContext(ctx,
+	if _, err := r.db.ExecContext(ctx,
 		`INSERT INTO native_push_tokens (account_id, platform, token, created_at_unix, last_seen_unix, disabled) VALUES (?, ?, ?, ?, ?, 0)
 		 ON CONFLICT(platform, token) DO UPDATE SET account_id = excluded.account_id, last_seen_unix = excluded.last_seen_unix, disabled = 0`,
-		accountID, platform, token, ts, ts)
+		accountID, platform, token, ts, ts); err != nil {
+		return err
+	}
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM native_push_tokens WHERE account_id = ? AND rowid NOT IN
+		   (SELECT rowid FROM native_push_tokens WHERE account_id = ? ORDER BY last_seen_unix DESC, rowid DESC LIMIT ?)`,
+		accountID, accountID, MaxNativePushTokensPerAccount)
 	return err
 }
 

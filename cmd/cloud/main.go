@@ -383,6 +383,9 @@ func main() {
 	}
 	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
 	relay.SetEventBroker(inboxBroker)
+	// APNs/FCM wake senders for the app shells (bd med-erq1.2). APNS_*/FCM_*
+	// unset = that platform off, logged once; never a startup failure.
+	relay.SetNativePush(cloudserver.NativePushSendersFromEnv())
 	if tgAPI != nil {
 		// Wake the account's devices the instant a Telegram event is sealed
 		// (bd med-5fo), so a "⏳ Queued" reply becomes "✅ Recorded" without
