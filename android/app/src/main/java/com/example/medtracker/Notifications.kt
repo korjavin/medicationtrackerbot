@@ -10,8 +10,10 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.UserManager
 import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,8 +27,8 @@ import org.json.JSONObject
  * replace-all: every app open and every reminder-affecting edit sends the
  * full, already-capped list (the page appends the "Open the app…" notice).
  *
- * The rows persist in app-private storage, plaintext like iOS's pending
- * requests. One exact alarm (AlarmManager.setExactAndAllowWhileIdle) is armed
+ * The rows persist in app-private, device-protected storage ([store]),
+ * plaintext like iOS's pending requests. One exact alarm (AlarmManager.setExactAndAllowWhileIdle) is armed
  * at a time, for the next row: when it fires, [Fire] posts every row now due
  * and arms the next. Doze rate-limits allow-while-idle alarms per app, so one
  * alarm per instant (several meds at 08:00 are one wake) and a late wake still
@@ -156,11 +158,16 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         }
     }
 
-    /** Boot, app update and the exact-alarm grant clear or allow alarms: arm again from the stored rows. */
+    /**
+     * Boot, app update and the exact-alarm grant clear or allow alarms: arm again from the stored rows.
+     * Direct-boot aware: LOCKED_BOOT_COMPLETED arms before the first unlock; BOOT_COMPLETED after it
+     * re-arms the same alarm (a no-op). A tap on a reminder posted while locked asks for the unlock
+     * first — MainActivity (WebView, vault) is not direct-boot aware.
+     */
     class Rearm : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED,
+                Intent.ACTION_LOCKED_BOOT_COMPLETED, Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED,
                 AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> arm(context)
             }
         }
@@ -184,7 +191,24 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         /** Rows missed by more than this (the phone was off) are dropped, not posted late. */
         private const val STALE = 3600L
 
-        private fun store(c: Context) = c.getSharedPreferences("reminders", Context.MODE_PRIVATE)
+        private const val PREFS = "reminders"
+        private var migrated = false
+
+        /**
+         * Device-protected storage (bd med-nt9p.57): [Rearm] runs at LOCKED_BOOT_COMPLETED and
+         * [Fire] posts while the phone is still locked after a reboot, before credential-encrypted
+         * storage opens. Only this file lives there — the schedule the shade shows anyway; never
+         * vault data, keys or other prefs. Once per process after the first unlock, an install from
+         * before moves its credential-encrypted file over (deleting it there); with nothing left to
+         * move that is a no-op, and a failed move retries on the next call.
+         */
+        private fun store(c: Context): SharedPreferences {
+            val de = c.createDeviceProtectedStorageContext()
+            if (!migrated && c.getSystemService(UserManager::class.java).isUserUnlocked) {
+                migrated = de.moveSharedPreferencesFrom(c, PREFS)
+            }
+            return de.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        }
         private fun manager(c: Context) = c.getSystemService(NotificationManager::class.java)
         private fun alarms(c: Context) = c.getSystemService(AlarmManager::class.java)
         private fun rows(c: Context) = runCatching { JSONArray(store(c).getString(ROWS, "[]")) }.getOrDefault(JSONArray())

@@ -394,6 +394,28 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
   update (alarms survive neither). Notifications post on the high-importance
   **Reminders** channel; switching that channel off counts as `denied`, and
   Enable opens its settings.
+- **Before the first unlock (Direct Boot, bd med-nt9p.57):** the `Fire` and
+  `Rearm` receivers are `directBootAware` and `Rearm` also takes
+  `LOCKED_BOOT_COMPLETED`, so after a reboot (e.g. an overnight OTA) the
+  alarm is armed while the phone is still locked and reminders post on time
+  instead of at the first unlock (or never, past the one-hour stale cut).
+  For that the `reminders` prefs file — and only it — lives in
+  **device-protected** storage (`createDeviceProtectedStorageContext()`);
+  the account host prefs, lock, invite slot, Health Connect anchors and all
+  WebView/vault data stay credential-encrypted. Upgrade: the first
+  `store()` call after an unlock moves an existing credential-encrypted
+  `reminders.xml` over with `moveSharedPreferencesFrom` (deleting it there);
+  once moved it is a no-op, and a failed move retries. A tap on a reminder
+  posted while locked asks for the unlock first (`MainActivity` is not
+  direct-boot aware — the WebView and the vault need it), then opens as
+  below. Backup rules are include-only on credential-encrypted domains, so
+  the device-protected file is never backed up.
+  **Privacy:** the schedule rows (account host, title, body — medication
+  names at *Detailed* — and the `url` with medication ids) are readable on a
+  rebooted, still-locked phone by anyone who can read app storage below the
+  OS (root, forensic tools) — not by someone merely holding it. That is the
+  same text the posted notification puts on the lock screen anyway; no
+  vault data or keys are in it.
 - **Tap** (bd med-nt9p.52, twin of iOS med-w6gx.20) opens the row's `url`
   (`reminderDeeplink`: `/?action=medication_confirm&ids=…&scheduled=…` for a
   dose → its take sheet, else `/?tab=<section>`).
