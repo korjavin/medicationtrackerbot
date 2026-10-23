@@ -161,17 +161,38 @@ export const PRIVACY_MANIFEST = [
     activationNote: 'you grant notification permission',
     byo: 'n/a',
     evidence: ['internal/cloudserver/push.go:215', 'internal/cloudserver/relay.go:88', 'internal/cloudserver/relay.go:384'],
-    // bd med-erq1.2: nativepush.go fans the same content-free wakes out to the
-    // app shells via APNs/FCM; its own row + copy land with med-erq1.6.
     code: {
-      go: ['internal/cloudserver/relay.go', 'internal/cloudserver/push.go', 'internal/cloudserver/nativepush.go'],
-      hosts: ['api.push.apple.com', 'api.sandbox.push.apple.com', 'fcm.googleapis.com'],
+      go: ['internal/cloudserver/relay.go', 'internal/cloudserver/push.go'],
+      hosts: [],
     },
     docSignal: 'Reminder timing',
     userCopy: {
       category: 'visible',
       title: 'When your reminders fire',
       detail: 'A reminder is a blind alarm clock: the server knows a reminder is due at a time, but its content stays sealed. Your push subscription endpoint also tells the operator which browser vendor you use, and that vendor sees the ciphertext and its timing. Sending your bot a message also fires a wake push carrying no text at all, so an open tab records it immediately — that timing reaches your push vendor too.',
+    },
+  },
+  {
+    id: 'native-push',
+    feature: 'Native app push wake',
+    boundary: 'carve-out',
+    data: 'A push token for this phone (a stable per-install identifier issued by Apple or Google), stored next to your account; the fact that the operator pushed a content-free wake to it at a given time',
+    destination: 'The operator\'s relay, then Apple (APNs) or Google (FCM)',
+    operatorVisibility: 'metadata',
+    retention: 'Until you leave the account, switch account, or the platform reports the token dead',
+    activation: 'opt-in',
+    activationNote: 'when you allow notifications in the iPhone or Android app with an account; the iPhone app does not register yet',
+    byo: 'n/a',
+    evidence: ['internal/cloudserver/relay.go:461', 'internal/cloudserver/nativepush.go:45'],
+    code: {
+      go: ['internal/cloudserver/nativepush.go'],
+      hosts: ['api.push.apple.com', 'api.sandbox.push.apple.com', 'fcm.googleapis.com', 'oauth2.googleapis.com'],
+    },
+    docSignal: 'Native push token',
+    userCopy: {
+      category: 'visible',
+      title: 'Wake-ups for the phone app',
+      detail: 'The phone app can be woken by a notification whose text is a fixed line ("Open the app to record what you sent" or "Open the app to keep reminders running"), never your data. The operator stores your phone\'s push token and knows when a wake was sent; Apple or Google see only that a notification went to your phone. Today only the Android app registers; the iPhone app does not yet.',
     },
   },
   {
