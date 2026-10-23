@@ -271,8 +271,22 @@
         } else if (step.scroll) {
             // Bring a below-the-fold element into view (the W1 footnote, bd
             // med-ta2n.28, sits under the sticky foot).
+            // scrollIntoView moved the page under the fixed overlay on WebKit
+            // 390 (the 16e shot showed Today): scroll the element's own
+            // scroller to its end and wait until it holds still with the
+            // element inside the viewport.
             await until(() => firstVisible(step.scroll), STEP_MS, `scroll ${step.scroll}`);
-            firstVisible(step.scroll).scrollIntoView({ block: 'end' });
+            const target = firstVisible(step.scroll);
+            let box = target.parentElement;
+            while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+            box = box || document.scrollingElement;
+            let last = -1;
+            await until(() => {
+                box.scrollTop = box.scrollHeight;
+                const settled = box.scrollTop === last && target.getBoundingClientRect().bottom <= window.innerHeight;
+                last = box.scrollTop;
+                return settled;
+            }, STEP_MS, `scroll ${step.scroll} into view`);
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }
