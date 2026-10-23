@@ -302,6 +302,7 @@ class MainActivity : Activity() {
     /** Chromium writes cookies only every ~30 s: a kill soon after sign-in would lose the session (bd med-nt9p.45). */
     override fun onPause() {
         super.onPause()
+        notifications.onPause()
         CookieManager.getInstance().flush()
     }
 

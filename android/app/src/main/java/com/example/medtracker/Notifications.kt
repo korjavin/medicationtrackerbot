@@ -36,7 +36,7 @@ import org.json.JSONObject
 class Notifications(private val activity: Activity, private val host: () -> String?) {
     private val waiting = mutableListOf<(String) -> Unit>()
     private var stage = 0
-    private var awaitingResume = false
+    private val back = ReturnGate()
     /** openSettings: the first step opens the settings screen even with notifications allowed. */
     private var settings = false
 
@@ -110,8 +110,7 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
     }
 
     private fun open(intent: Intent) {
-        awaitingResume = runCatching { activity.startActivity(intent) }.isSuccess
-        if (!awaitingResume) step()
+        if (runCatching { activity.startActivity(intent) }.isSuccess) back.opened() else step()
     }
 
     /** MainActivity.onRequestPermissionsResult: true when it was this one's. */
@@ -121,11 +120,15 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         return true
     }
 
-    /** MainActivity.onResume: the user came back from a settings screen. */
+    /** MainActivity.onPause: a settings screen this opened may be covering the app now. */
+    fun onPause() = back.paused()
+
+    /**
+     * MainActivity.onResume: the user came back from a settings screen. Not the resume right after
+     * the permission dialog, which may already have opened Alarms & reminders (bd med-nt9p.56).
+     */
     fun onResume() {
-        if (!awaitingResume) return
-        awaitingResume = false
-        if (waiting.isNotEmpty()) step()
+        if (back.resumed() && waiting.isNotEmpty()) step()
     }
 
     /** The alarm: posts the rows now due, then arms the next. Not exported — only our alarm reaches it. */

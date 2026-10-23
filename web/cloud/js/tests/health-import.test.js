@@ -362,7 +362,7 @@ describe('Apple Health import', () => {
             expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout']);
             expect(records.rows.has(`bp-hk-${U1}`)).toBe(true);
             expect(afterImport).toHaveBeenCalledTimes(1);
-            expect(desc()).toMatch(/^Last imported .* · 1 reading so far$/);
+            expect(desc()).toMatch(/^Checked .* · 1 reading so far \(last new .*\)$/);
             expect(healthStatusText(storage)).toBe(desc());
 
             // Off and on again is the manual rescan: it starts from no anchor.

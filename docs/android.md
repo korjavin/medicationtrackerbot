@@ -378,7 +378,10 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
   `POST_NOTIFICATIONS` prompt (or the app's notification settings once it was
   refused), then *Alarms & reminders* (`ACTION_REQUEST_SCHEDULE_EXACT_ALARM`;
   `SCHEDULE_EXACT_ALARM` is off by default for new installs on Android 14+).
-  The reply waits until the user is back from each screen. `USE_EXACT_ALARM`
+  The reply waits until the user is back from each screen: a resume counts
+  only after a pause that followed the open (`ReturnGate`, bd med-nt9p.56),
+  so the resume right after the permission dialog never answers for the
+  Alarms page it just opened. `USE_EXACT_ALARM`
   is not used (Play keeps it for alarm and calendar apps).
 - **Schedule** cancels the previous alarms, stores the rows in app-private
   storage (plaintext, like iOS's pending requests; capped at 200) and arms
@@ -481,6 +484,11 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   type → no samples, no error. A night and a workout recorded by a fitness
   app → the sleep day and the workout appear (sleep ~3 h after waking, once
   settled); updating from a .8 build shows one dialog for the new types.
+  A reading missing from the app: open Health Connect → Data and access →
+  Vitals → Blood pressure; it must be listed with its source app. If not, the
+  source (e.g. Fit → Settings → "Sync Fit with Health Connect") never synced
+  it; that sync is batched, not immediate. The Settings row's "Checked …" time
+  moves on every app open, so it shows whether the rescan ran.
 
 ### Device check (CI debug APK)
 
@@ -510,7 +518,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -700,6 +708,26 @@ from the warm cache. The Back steps record PASS/FAIL and the press counts
 (`results.smoke.backPressesToCloseSheet`, `backPressesToLeave`, and `backTrail`: the page path after each Back on Today) without
 stopping the scenario.
 
+**`reminders-offline`** (bd med-nt9p.55; in `all` right after `smoke`, whose
+account it reopens; dispatched alone it claims the invite): the grants
+local-smoke gave are revoked first, then Settings → *Reminders &
+notifications* → *Enable* walks both system screens through UiAutomator
+(the `POST_NOTIFICATIONS` prompt's *Allow*, then the *Allow setting alarms
+and reminders* switch and Back; a screen that never shows falls back to `pm
+grant` / `appops` and says so in `results.reminders.permission`) → the page
+reads *On* and `permission()` `granted` (bd med-nt9p.56 was this step) → a
+daily med due at the next whole minute ≥ 90 s ahead, its row in the shell's
+store → HOME + `am kill` (+ `kill -9`), **not** `am force-stop`, which drops
+the app's alarms → the notification is posted with no app process → its tap
+opens the take sheet for that dose (`med-confirm-modal` naming the med) →
+offline cold start: airplane mode + wifi/data off, force-stop, relaunch → the
+app renders from the Service Worker (`navigator.onLine` false, SW-controlled,
+no N4), network restored. Shots: `reminders-offline-*` (system screens, the
+shade, the take sheet, the offline start). Not covered yet: a reminder tap
+under local mode's app lock (the lock exists in local mode only). Turning the
+lock on needs the system credential screen, which the harness could not
+drive (see the ponytail note in the scenario).
+
 **Agent how-to.**
 
 ```bash
@@ -821,7 +849,7 @@ and before any *Clear storage*, and paste it into the bead.
    it back on B, unlocked with **no** passkey prompt (warm unlock). *Run
    checks*: `idb.markerFromEarlierLaunch: true`, `keyFromEarlierRun: true`,
    `keyUsable: true`, `serviceWorker.controlled: true`.
-7. **Offline (3).** Airplane mode on, kill, reopen. Expect the app to render
+7. **Offline (3).** *Emulator-covered: android-qa `reminders-offline`.* Airplane mode on, kill, reopen. Expect the app to render
    from the Service Worker, not a WebView error page; *Run checks*:
    `online: false`, `controlled: true`. Airplane mode off.
 8. **APK update (4).** Dispatch the workflow again (new run = new
@@ -1255,7 +1283,9 @@ account has its passkey, and cloud mode never shows or checks it.
    `chrome://inspect`.
 2. Add a med, kill and reopen: still there, no first run.
 3. Settings → Reminders → Allow → a reminder fires; a dose reminder's tap opens
-   that dose's take sheet in local mode.
+   that dose's take sheet in local mode. *Emulator-covered: android-qa
+   `reminders-offline` (both system grants, the app killed, the tap; on an
+   account). The phone keeps real-OEM doze and reboot.*
 4. Save a BYOK key in Settings → AI & integrations: the page reloads once
    and the provider host is in the document CSP (`chrome://inspect`).
 5. Settings → *Sync & backup*: the chip says *Unprotected*, the page shows

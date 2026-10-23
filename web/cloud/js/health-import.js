@@ -158,7 +158,9 @@ export function healthStatusText(storage = globalThis.localStorage, health = glo
     const last = readJSON(storage, LAST_KEY, {});
     if (!last.checkedAt) return 'Importing…';
     if (!last.total) return `Checked ${formatWhen(last.checkedAt)} · nothing yet. Check access in ${(health && health.accessHint) || 'Settings → Health → Data Access & Devices'}.`;
-    return `Last imported ${formatWhen(last.addedAt || last.checkedAt)} · ${last.total} reading${last.total === 1 ? '' : 's'} so far`;
+    const n = `${last.total} reading${last.total === 1 ? '' : 's'} so far`;
+    const added = last.addedAt ? ` (last new ${formatWhen(last.addedAt)})` : '';
+    return `Checked ${formatWhen(last.checkedAt)} · ${n}${added}`;
 }
 
 // startHealthImport(ctx): mount the Settings row, run once now and again on
