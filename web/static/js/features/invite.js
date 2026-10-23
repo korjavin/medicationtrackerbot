@@ -871,6 +871,7 @@
         var busy = false;
         function showError(message) {
             field.classList.toggle('wg-field--error', !!message);
+            hint.hidden = !!message; // AD10 · invalid: the error takes the hint's place
             error.replaceChildren();
             if (message) {
                 var i = el('i', 'wg-ico wg-ico--sm');
