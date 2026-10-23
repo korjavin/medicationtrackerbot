@@ -404,7 +404,7 @@ function renderApproved(app, ctx, errorText) {
   const facts = el('ul', 'wg-facts');
   for (const [ico, title, line] of [
     ['key', 'A new passkey, just for this device', 'Your other passkeys keep working.'],
-    ['shield', 'Nothing is stored until it exists', 'This device keeps the key only once its passkey is set up.'],
+    ['shield', 'Nothing is stored until it exists', 'Nothing is saved on this device until its passkey exists.'],
   ]) {
     const li = el('li');
     const span = el('span');
