@@ -1074,7 +1074,7 @@ class MainActivity : Activity() {
     }
 
     /**
-     * The intro's Start and Settings → App lock (lock.set): turning the lock on, or off while it
+     * Settings → App lock (lock.set): turning the lock on, or off while it
      * is on, applies only after the phone confirmed its owner. null, or why not.
      */
     private fun setLock(on: Boolean, done: (String?) -> Unit) {
