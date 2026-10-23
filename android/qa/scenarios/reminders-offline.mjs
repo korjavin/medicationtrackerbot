@@ -115,7 +115,8 @@ export default async function remindersOffline(ctx) {
           window.__qaLock = window.LocalNotifications.__native.call('lock.set', { on: true }).then((v) => ({ v }), (e) => ({ e: String(e?.message || e) }));
         });
         await enterPin(ctx, 'lock-on-pin'); // the credential screen is FLAG_SECURE: the shot is black
-        loc.focusAfterPin = await focus(ctx);
+        loc.focusAfterPin = await bounded(focus(ctx), 20_000, 'dumpsys window');
+        ctx.log('lock on: focus after the PIN', loc.focusAfterPin);
         // Bounded: a reply that never comes hung run 39919389324 until the job timeout.
         loc.lockSet = await bounded(p.evaluate(() => window.__qaLock), 20_000, 'lock.set reply');
         loc.status = await bounded(p.evaluate(() => window.LocalNotifications.__native.call('lock.status')), 10_000, 'lock.status');
@@ -287,7 +288,11 @@ const focus = async (ctx) => (await ctx.shell('dumpsys window | grep mCurrentFoc
 async function enterPin(ctx, shotName) {
   await ctx.sleep(4000);
   await ctx.shot(shotName);
-  await ctx.shell(`input text ${PIN}`);
-  await ctx.shell('input keyevent KEYCODE_ENTER');
+  // Bounded and logged: run 39924844133 hung right after this shot.
+  ctx.log('pin: focus', await bounded(focus(ctx), 20_000, 'dumpsys window'));
+  await bounded(ctx.shell(`input keyevent ${[...PIN].map((d) => `KEYCODE_${d}`).join(' ')}`), 20_000, 'PIN keys');
+  ctx.log('pin: typed');
+  await bounded(ctx.shell('input keyevent KEYCODE_ENTER'), 20_000, 'PIN enter');
+  ctx.log('pin: entered');
   await ctx.sleep(3000);
 }
