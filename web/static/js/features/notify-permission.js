@@ -82,6 +82,21 @@
         });
     }
 
+    // A grant outside a schedule run: re-run this device's schedule now (the
+    // shell dropped the earlier one), as Settings' Enable does — local-only
+    // mode via local-policy.js's reschedule event, cloud via reminders.js.
+    function rearm() {
+        if (document.documentElement.classList.contains('wg-local-vault')) {
+            document.dispatchEvent(new CustomEvent('wg:local-reminders-reschedule'));
+            return;
+        }
+        var ctx = window.MedTrackerCloud && window.MedTrackerCloud.ctx;
+        if (!ctx) return;
+        import('/js/reminders.js')
+            .then(function (m) { return m.recomputeAndPush(ctx); })
+            .catch(function (e) { console.error('[notify-permission] reschedule failed', e); });
+    }
+
     function el(tag, className, text) {
         var node = document.createElement(tag);
         if (className) node.className = className;
@@ -219,7 +234,10 @@
             allow.setAttribute('data-notify-allow', '');
             allow.addEventListener('click', function () {
                 markAsked();
-                request().then(function () { return renderNote(slot); }, function () { return renderNote(slot); });
+                request().then(function (p) {
+                    if (p === 'granted') rearm();
+                    return renderNote(slot);
+                }, function () { return renderNote(slot); });
             });
             body.appendChild(allow);
         } else if (ln && await nativeHas(OPEN_SETTINGS_OP)) {

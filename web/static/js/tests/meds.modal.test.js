@@ -237,6 +237,9 @@ describe('Medication editor page (kit M5–M6)', () => {
         const requestPermission = vi.fn(async () => { permission.mockResolvedValue('granted'); return 'granted'; });
         window.LocalNotifications = { isSupported: () => true, permission, requestPermission, copy: { os: 'iOS' } };
         window.localStorage.setItem('wg.notifyPermission.asked', '1');
+        window.document.documentElement.classList.add('wg-local-vault');
+        const rescheduled = vi.fn();
+        document.addEventListener('wg:local-reminders-reschedule', rescheduled);
 
         window.showAddModal();
         await flush();
@@ -250,6 +253,9 @@ describe('Medication editor page (kit M5–M6)', () => {
         await flush();
         await flush();
         expect(document.getElementById('med-notify-note').children).toHaveLength(0);
+        // The grant re-runs this device's schedule (the shell dropped the earlier one).
+        expect(rescheduled).toHaveBeenCalledTimes(1);
+        window.document.documentElement.classList.remove('wg-local-vault');
     });
 
     it('Track stock reveals the stepper; the stepper never steps below zero', () => {
