@@ -23,7 +23,7 @@ val playCloudProjectNumber = providers.environmentVariable("ANDROID_PLAY_CLOUD_P
 val firebase = listOf("FIREBASE_APP_ID", "FIREBASE_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_SENDER_ID")
     .associateWith { providers.environmentVariable(it).orNull?.trim()?.takeIf { v -> Regex("[A-Za-z0-9:._-]{1,128}").matches(v) } ?: "" }
     .let { m -> if (m.values.any { it.isEmpty() }) m.mapValues { "" } else m }
-val versionCodeEnv =providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
+val versionCodeEnv = providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
 val uploadKeystore = providers.environmentVariable("ANDROID_UPLOAD_KEYSTORE").orNull
 // CI decodes the stable debug key here; unset (PRs, local) keeps the default debug key.
 val debugKeystore = providers.environmentVariable("ANDROID_DEBUG_KEYSTORE").orNull?.takeIf { it.isNotBlank() }

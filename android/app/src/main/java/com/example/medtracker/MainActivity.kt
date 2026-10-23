@@ -156,13 +156,16 @@ class MainActivity : Activity() {
 
     /**
      * Native push (bd med-erq1.5, Push.kt): document event wg:native-push {kind} on the account
-     * page. A wake ('inbox-wake', 'dry-queue') goes in only while this activity is in front; false
-     * tells Push to post the notification instead. 'token' whenever an account page is open.
+     * page whose vault is unlocked (cloud-boot's MedTrackerCloud.ctx; /unlock and a failed load have
+     * none). A wake ('inbox-wake', 'dry-queue') goes in only while this activity is in front;
+     * done(false) tells Push to post the notification instead. 'token' whenever such a page is open.
      */
-    fun pushEvent(kind: String): Boolean {
-        if (local || !showingAccount || (kind != "token" && !resumed)) return false
-        web.evaluateJavascript("document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:${JSONObject.quote(kind)}}}))", null)
-        return true
+    fun pushEvent(kind: String, done: (Boolean) -> Unit = {}) {
+        if (local || !showingAccount || loadFailed || (kind != "token" && !resumed)) return done(false)
+        web.evaluateJavascript(
+            "(function(){if(!(window.MedTrackerCloud&&window.MedTrackerCloud.ctx))return false;" +
+                "document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:${JSONObject.quote(kind)}}}));return true})()"
+        ) { done(it == "true") }
     }
 
     private val back = OnBackInvokedCallback { web.goBack() }

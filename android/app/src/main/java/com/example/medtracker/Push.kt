@@ -34,8 +34,6 @@ object Push {
         "inbox-wake" to "Open the app to record what you sent",
         "dry-queue" to "Open the app to keep reminders running",
     )
-    /** One shade entry per kind (the server's collapse_key), outside the reminder ids (Notifications.kt). */
-    private val ID = mapOf("inbox-wake" to 2_000_001, "dry-queue" to 2_000_002)
 
     val configured get() = BuildConfig.FIREBASE_APP_ID.isNotEmpty()
 
@@ -77,17 +75,25 @@ object Push {
      */
     fun deliver(c: Context, kind: String) {
         val body = BODY[kind] ?: return
-        if (live?.get()?.pushEvent(kind) == true) return
+        val a = live?.get() ?: return notify(c, kind, body)
+        a.pushEvent(kind) { delivered -> if (!delivered) notify(c, kind, body) }
+    }
+
+    /**
+     * Tag = kind, id 0: the same shade slot as the server's notification block (android.notification.tag
+     * in nativepush.go), so a repeated wake replaces the last one whichever side posted it.
+     */
+    private fun notify(c: Context, kind: String, body: String) {
         Notifications.channel(c)
         // Tap: the launcher entry, which opens the vault's home (Today).
         val tap = Intent(c, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        c.getSystemService(NotificationManager::class.java).notify(ID.getValue(kind), Notification.Builder(c, Notifications.CHANNEL)
+        c.getSystemService(NotificationManager::class.java).notify(kind, 0, Notification.Builder(c, Notifications.CHANNEL)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle("Med Tracker")
             .setContentText(body)
             .setAutoCancel(true)
-            .setContentIntent(PendingIntent.getActivity(c, ID.getValue(kind), tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            .setContentIntent(PendingIntent.getActivity(c, 0, tap,PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .build())
     }
 

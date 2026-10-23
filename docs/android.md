@@ -460,12 +460,14 @@ Reminders stay local notifications (above).
 - **Page event** `wg:native-push {kind}` on `document`: `token` on
   `onNewToken` and when notifications become allowed (the page registers
   again); a wake kind only while the activity is in front, on an account
-  page. The page drains the inbox / refills the horizon (web med-erq1.3).
+  page whose vault is unlocked (/unlock or a failed load: the notification
+  instead). The page drains the inbox / refills the horizon (web med-erq1.3).
 - **Otherwise a notification:** the server sends a notification block with
   the fixed text, which the system shows while the app is in the background
   or killed (Reminders channel, the reminders' icon). A message that reaches
   `PushService` with the app not in front posts the same fixed text itself
-  (one entry per kind). Tap opens the app home. No WorkManager drain: only
+  (tag = kind, the same tag the server sets: one shade entry per kind). Tap
+  opens the app home. No WorkManager drain: only
   the unlocked page has the key.
 - **QA:** `android-qa` scenario `push-wake` (claims the invite: dispatch it
   alone) checks the op gates, null without Firebase, and a fake message via
