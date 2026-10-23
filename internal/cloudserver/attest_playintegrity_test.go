@@ -584,3 +584,82 @@ func TestAttestConfigFromEnvAndroidRecall(t *testing.T) {
 		t.Fatalf("configured, recall on: %+v %v", cfg.AndroidRecall, err)
 	}
 }
+
+// enrollAndroidWith enrolls k on a fresh challenge with a token shaped by mut
+// and extra body fields (e.g. "trial": false).
+func (e *androidEnv) enrollAndroidWith(k *ecdsa.PrivateKey, mut func(p map[string]map[string]any), extra map[string]any) *httptest.ResponseRecorder {
+	c := e.challenge()
+	req := map[string]any{
+		"kind": "android", "key_id": androidKeyID(e.t, k), "challenge": c,
+		"public_key": base64.StdEncoding.EncodeToString(androidDER(e.t, k)), "integrity_token": androidToken(e.t, k, c, mut),
+	}
+	for f, v := range extra {
+		req[f] = v
+	}
+	body, _ := json.Marshal(req)
+	return e.do("localhost", attestEnrollPath, string(body), nil)
+}
+
+// bd med-ta2n.25, the Android twin: trial:false never reads or writes device
+// recall (flag on and off); the upgrade runs the recall gate on the same row.
+func TestAttestEnrollAndroidFeedbackOnly(t *testing.T) {
+	ctx := context.Background()
+	both := map[string]any{"bitFirst": true, "bitSecond": true}
+	for _, recallOn := range []bool{false, true} {
+		e := newAndroidEnv(t, 3)
+		e.attest.cfg.AndroidRecall = recallOn
+		e.attest.SetFeedback(NewFeedbackAPI(e.store, "s", attestFeedbackRecipient))
+		// Recall absent from the verdict: a trial enroll with the flag on would
+		// fail closed; trial:false does not look.
+		k := attestKey(t)
+		got := readEnroll(t, e.enrollAndroidWith(k, nil, feedbackOnly))
+		if *got.Granted || got.Remaining != 0 || got.Pass != "" || len(e.g.recallWrites()) != 0 {
+			t.Fatalf("recall %v: feedback-only enroll %+v writes %d", recallOn, got, len(e.g.recallWrites()))
+		}
+		wantErr(t, e.androidChat(k, 1, e.challenge()), http.StatusForbidden, "trial_not_granted")
+		wantErr(t, e.androidFood(k, 1, e.challenge(), attestFoodSearch+"?q=oats"), http.StatusForbidden, "trial_not_granted")
+		raw := func(chal string, counter uint32, body string) *httptest.ResponseRecorder {
+			r, _ := base64.StdEncoding.DecodeString(chal)
+			rh := sha256.Sum256([]byte(attestFeedbackPath + "\n" + body))
+			cdh := sha256.Sum256(append(r, rh[:]...))
+			return e.do("localhost", attestFeedbackPath, body, map[string]string{
+				"X-Attest-Key-Id": androidKeyID(t, k), "X-Attest-Challenge": chal,
+				"X-Attest-Assertion": androidAssertion(t, k, counter, cdh[:]),
+			})
+		}
+		if rec := raw(e.challenge(), 1, feedbackBody("a1")); rec.Code != http.StatusNoContent {
+			t.Fatalf("recall %v: feedback %d %s", recallOn, rec.Code, rec.Body.String())
+		}
+
+		// Upgrade the same key (trial absent): recall on → the gate and one
+		// write; off → granted with no write, as a fresh recall-off enroll.
+		got = readEnroll(t, e.enrollAndroidWith(k, withRecall(map[string]any{}), nil))
+		wantWrites := 0
+		if recallOn {
+			wantWrites = 1
+		}
+		if !*got.Granted || got.Pass == "" || got.Remaining != 3 || len(e.g.recallWrites()) != wantWrites {
+			t.Fatalf("recall %v: upgrade %+v writes %d", recallOn, got, len(e.g.recallWrites()))
+		}
+		if rec := e.androidChat(k, 2, e.challenge()); rec.Code != http.StatusOK {
+			t.Fatalf("recall %v: chat after upgrade %d %s", recallOn, rec.Code, rec.Body.String())
+		}
+		if !recallOn {
+			continue
+		}
+		// Both bits held: the upgrade is refused, the row stays, feedback works.
+		k2 := attestKey(t)
+		readEnroll(t, e.enrollAndroidWith(k2, withRecall(both), feedbackOnly))
+		wantErr(t, e.enrollAndroidWith(k2, withRecall(both), nil), http.StatusForbidden, "trial_already_used")
+		if in, err := e.store.AttestInstall(ctx, androidKeyID(t, k2)); err != nil || in.Granted {
+			t.Fatalf("refused upgrade: %+v %v", in, err)
+		}
+		k = k2
+		if rec := raw(e.challenge(), 1, feedbackBody("a2")); rec.Code != http.StatusNoContent {
+			t.Fatalf("feedback after refused upgrade: %d %s", rec.Code, rec.Body.String())
+		}
+		if n := len(e.g.recallWrites()); n != 1 {
+			t.Fatalf("refused upgrade wrote recall: %d", n)
+		}
+	}
+}

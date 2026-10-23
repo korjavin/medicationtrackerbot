@@ -487,7 +487,7 @@ describe('cloud shim contract — incomplete-day flag (med-0sgs.1)', () => {
         await window.apiCall(`/api/food/days/${today}`, 'PUT', { incomplete: true });
 
         expect(await window.apiCall(`/api/food/days?date=${today}&days=2`)).toEqual([
-            { date: yesterday, incomplete: true },
+            { date: yesterday, incomplete: true, before_first_log: true },
             { date: today, incomplete: true },
         ]);
         expect((await window.apiCall(`/api/food/log?date=${today}&days=1`)).map((g) => g.incomplete)).toEqual([true]);
@@ -623,6 +623,15 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
         await openFood(window, document, today);
         expect(nudge(document).classList.contains('hidden')).toBe(true);
         expect(document.getElementById('food-incomplete-toggle').checked).toBe(false);
+    });
+
+    it('does not nudge on a brand-new account (no log before yesterday) (med-djdk)', async () => {
+        const { window, document } = env;
+        await openFood(window, document, today);
+        expect(nudge(document).classList.contains('hidden')).toBe(true);
+        await logOn(window, today, 500);
+        await openFood(window, document, today);
+        expect(nudge(document).classList.contains('hidden')).toBe(true);
     });
 
     it('nudges about a suspiciously low day (< 800 kcal without a target), not a full one', async () => {
