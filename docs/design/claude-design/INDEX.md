@@ -17,6 +17,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 ## Kit rules (from `ui_kits/app-v2/README.md`)
 
 1. One sun-filled control per view; selection = raised teal + sun text; `.wg-seg--accent` only for a mode switch in a sheet.
+   - (2026-10-23, med-tugv) When a card awaits a decision (Today's tz-plan card, T2), its confirm action is the view's one primary; everything else drops to secondary until the decision is made.
 2. Forms: Cancel/Save in sheet header / page bar. Flows: primary in `.wg-sheet__foot`, docked above the keyboard (`.wg-scrim--kb`).
 3. Tap row = edit; `.wg-swipe` reveals Edit/Delete; overflow menu is the pointer/keyboard fallback. Row deletes undo from a toast; record/account deletes go through `.wg-dialog`.
 4. Status only via ok / warn / danger / stale / pending tokens. No emoji. Negative stock = "Out · N over".
