@@ -137,7 +137,7 @@ function appVersion() {
 // calling. Resolves to:
 //   undefined   cloud: queued, and the UI's "sent" is optimistic — delivery is
 //               the drain loop's job (Task 3).
-//   'cancelled' shouldAbort() turned true while the recipient was awaited
+//   'cancelled' shouldAbort() turned true while the recipient was awaited or the seal ran
 //               (local: a challenge and maybe an enroll); nothing was sealed.
 //   'sent' | 'queued' | 'dropped'  local: the first drain's outcome for it,
 //               so the sheet never says "sent" before the server took it.
@@ -153,6 +153,8 @@ export async function enqueueFeedback(bundle, { shouldAbort } = {}) {
   };
   try {
     const ciphertext = await encryptToRecipient(serializeFeedback(bundle, meta), recipient);
+    // A Close while the age module loaded or the seal ran: nothing is kept.
+    if (shouldAbort && shouldAbort()) return 'cancelled';
     await putFeedbackItem({
       client_id: meta.client_id,
       kind: meta.kind,
