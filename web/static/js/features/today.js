@@ -201,13 +201,21 @@
     // counts (app-nav.js countDueDoses). The projection owns the rule; this
     // only groups. One group per slot (oldest first). `missing` = nothing
     // cached yet.
+    // The cached rows were projected at fetch time, but snoozed → due is a
+    // function of the clock alone: Today stays open (and may be offline) past
+    // a snooze deadline with no record change to trigger a refetch, so the
+    // payload is re-projected at render time — a snoozed row whose
+    // snoozedUntil has passed is due, exactly as projectOccurrences would now
+    // say. (upcoming → due cannot happen here: the window ends at fetch time.)
     function missedDosesCell(bootstrap, nowMs, enabled) {
         if (!enabled) return cell(null, 'meds', 'disabled');
         const rows = bootstrap && bootstrap.intake_history;
         if (!Array.isArray(rows)) return cell(null, 'meds', 'missing');
+        const isDue = (r) => r.state === 'due'
+            || (r.state === 'snoozed' && !(Date.parse(r.snoozedUntil) > nowMs));
         const bySlot = new Map();
         for (const r of rows) {
-            if (!r || r.state !== 'due') continue;
+            if (!r || !isDue(r)) continue;
             const at = Date.parse(r.plannedAt);
             if (!Number.isFinite(at)) continue;
             let g = bySlot.get(at);

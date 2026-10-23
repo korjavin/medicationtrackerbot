@@ -376,7 +376,9 @@ describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintak
         const call = routerWith({
             medication: [seedMed()],
             intake: [{
-                recordId: 'intake-1-x',
+                // The real deterministic slot id: the projection matches a
+                // stored row to its forecast slot by exact id (bd med-wi09.1).
+                recordId: `intake-1-${Date.UTC(2026, 7, 16, 23, 0) / 1000}`,
                 clientTs: NOW,
                 deleted: false,
                 medication_id: 1,

@@ -380,7 +380,7 @@ describe('Today v2 — Next up', () => {
                 dose('i1', 'm1', 'Allopurinol', at(8, 20), 'due'),
                 dose('i2', 'm2', 'Candecor', at(8, 20), 'due'),
                 dose('i3', 'm1', 'Allopurinol', at(12, 0), 'taken'),
-                dose('i4', 'm2', 'Candecor', at(13, 0), 'snoozed'),
+                { ...dose('i4', 'm2', 'Candecor', at(13, 0), 'snoozed'), snoozedUntil: at(14, 30) },
                 dose('i5', 'm3', 'Metformin', at(15, 30), 'upcoming')
             ]
         };
@@ -395,6 +395,24 @@ describe('Today v2 — Next up', () => {
         expect(missedRow.querySelector('.wg-row__title').textContent).toBe('2 medications');
         missedRow.querySelector('[data-action="log-missed"]').click();
         expect(env.window.showMedicationConfirmModal).toHaveBeenCalledWith(['m1', 'm2'], ['Allopurinol', 'Candecor'], at(8, 20), 'confirm', ['i1', 'i2']);
+    });
+
+    // snoozed → due is clock-only: Today left open past the snooze deadline,
+    // with no record change and no refetch, must surface the dose (the Meds
+    // badge re-counts at that deadline too).
+    it('a cached snoozed dose becomes missed once its snooze lapses, with no refetch', () => {
+        const bootstrap = {
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
+            medications: [{ id: 'm2', name: 'Candecor' }],
+            intake_history: [{
+                occId: 'i4', medId: 'm2', name: 'Candecor', plannedAt: at(13, 0), state: 'snoozed', snoozedUntil: at(14, 30)
+            }]
+        };
+        expect(env.aggregate(bootstrap, {}, NOW).missedDoses.value).toEqual([]);
+        const later = new Date(2026, 3, 20, 14, 31);
+        expect(env.aggregate(bootstrap, {}, later).missedDoses.value).toEqual([
+            { scheduledAt: at(13, 0), names: ['Candecor'], ids: ['m2'], intakeIds: ['i4'] }
+        ]);
     });
 
     it('a dose that just came due is a Take with the sun, not Missed, and never doubles with next_intake', () => {
