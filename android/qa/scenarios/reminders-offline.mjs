@@ -19,6 +19,7 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 const MODAL = 'med-confirm-modal';
 const PIN = '1234';
 const LOCK_KEY = 'wgLocalLock'; // LocalLock.KEY in the "shell" prefs
+const UNLOCK_SED = `s#<boolean name="${LOCK_KEY}" value="[a-z]*" />##`; // the element only: it may share </map>'s line
 // Device-protected storage (bd med-nt9p.57); run-as starts in the credential-encrypted data dir.
 const DE_ROWS = `/data/user_de/0/${process.env.QA_PKG || 'com.example.medtracker'}/shared_prefs/reminders.xml`;
 
@@ -162,7 +163,7 @@ async function lockedTap(ctx, out) {
     });
     await ctx.step('local, app lock on: app killed → the reminder is posted', async () => {
       await killApp(ctx);
-      await shell(`run-as ${pkg} sed -i -e '/"${LOCK_KEY}"/d' -e 's#</map>#<boolean name="${LOCK_KEY}" value="true" /></map>#' shared_prefs/shell.xml`);
+      await shell(`run-as ${pkg} sed -i -e '${UNLOCK_SED}' -e 's#</map>#<boolean name="${LOCK_KEY}" value="true" /></map>#' shared_prefs/shell.xml`);
       out.prefs = (await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)).match(/<boolean name="wgLocal\w+" value="\w+" \/>/g);
       await shell('settings put secure immersive_mode_confirmations confirmed'); // its notice took the focus in the earlier runs
       out.setPin = await shell(`locksettings set-pin ${PIN}`);
@@ -187,7 +188,7 @@ async function lockedTap(ctx, out) {
     await adbShell(`locksettings clear --old ${PIN}`);
     // Back to the account for the reboot step, as openVault does for a retry.
     await shell(`am force-stop ${pkg}`);
-    await shell(`run-as ${pkg} sed -i -e '/"${LOCK_KEY}"/d' -e 's/"wgLocalMode" value="true"/"wgLocalMode" value="false"/' shared_prefs/shell.xml`);
+    await shell(`run-as ${pkg} sed -i -e '${UNLOCK_SED}' -e 's/"wgLocalMode" value="true"/"wgLocalMode" value="false"/' shared_prefs/shell.xml`);
   }
 }
 
