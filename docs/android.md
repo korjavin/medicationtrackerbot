@@ -705,12 +705,11 @@ the app's alarms → the notification is posted with no app process → its tap
 opens the take sheet for that dose (`med-confirm-modal` naming the med) →
 offline cold start: airplane mode + wifi/data off, force-stop, relaunch → the
 app renders from the Service Worker (`navigator.onLine` false, SW-controlled,
-no N4), network restored → local mode (scene `today`) with a throwaway
-screen-lock PIN (`locksettings`) and the app lock turned on through
-`lock.set` (the lock exists in local mode only) → the same reminder with the
-app killed → its tap asks for the PIN first, the take sheet opens after the
-unlock → PIN cleared, lock off. Shots: `reminders-offline-*` (system
-screens, shade, both take sheets, offline start, the locked tap).
+no N4), network restored. Shots: `reminders-offline-*` (system screens, the
+shade, the take sheet, the offline start). Not covered yet: a reminder tap
+under local mode's app lock (the lock exists in local mode only). Turning the
+lock on needs the system credential screen, which the harness could not
+drive (see the ponytail note in the scenario).
 
 **Agent how-to.**
 
@@ -1268,8 +1267,8 @@ account has its passkey, and cloud mode never shows or checks it.
 2. Add a med, kill and reopen: still there, no first run.
 3. Settings → Reminders → Allow → a reminder fires; a dose reminder's tap opens
    that dose's take sheet in local mode. *Emulator-covered: android-qa
-   `reminders-offline` (both system grants, the app killed, the tap; account
-   and local mode). The phone keeps real-OEM doze and reboot.*
+   `reminders-offline` (both system grants, the app killed, the tap; on an
+   account). The phone keeps real-OEM doze and reboot.*
 4. Save a BYOK key in Settings → AI & integrations: the page reloads once
    and the provider host is in the document CSP (`chrome://inspect`).
 5. Settings → *Sync & backup*: the chip says *Unprotected*, the page shows
@@ -1289,8 +1288,7 @@ account has its passkey, and cloud mode never shows or checks it.
     fingerprint/PIN; Home and back → one prompt, cancel → lock screen, no
     loop; *Unlock* opens it. App switcher shows no data. Settings → App lock
     off asks once more. A reminder tap while locked opens its section after
-    the unlock. *(The locked reminder tap is emulator-covered: android-qa
-    `reminders-offline`, with a PIN.)*
+    the unlock.
 
 ### Moving to a cloud account (bd med-nt9p.32.10)
 
