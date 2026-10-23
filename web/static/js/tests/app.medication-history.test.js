@@ -467,12 +467,10 @@ describe('app.js medication, history and intake flows', () => {
       const checks = document.querySelectorAll('.med-confirm-check');
       checks[1].setAttribute('aria-pressed', 'false');
 
-      // Server reports the revert did NOT persist.
-      window.apiCall = vi.fn().mockResolvedValue({
-        updated: 0,
-        failed: 1,
-        failures: [{ id: 101, reason: 'no_row_matched' }],
-      });
+      // The time edit persists; the explicit undo of 101 does NOT.
+      window.apiCall = vi.fn(async (_endpoint, _method, body) => (body.action === 'undo'
+        ? { updated: 0, unchanged: 0, failed: 1, failures: [{ id: 101, reason: 'not_found' }] }
+        : { updated: 1, unchanged: 0, failed: 0, failures: [] }));
 
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
       const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
@@ -481,17 +479,12 @@ describe('app.js medication, history and intake flows', () => {
 
       await window.updateIntakeHistory();
 
-      // POST carried both the TAKEN re-confirm and the PENDING revert.
-      expect(window.apiCall).toHaveBeenCalledWith(
-        '/api/intakes/update',
-        'POST',
-        expect.objectContaining({
-          updates: expect.arrayContaining([
-            expect.objectContaining({ id: 101, status: 'PENDING' }),
-            expect.objectContaining({ id: 100, status: 'TAKEN' }),
-          ]),
-        })
-      );
+      // Explicit actions on explicit ids (bd med-wi09.2): the checked dose
+      // gets its time edited, the unchecked one an undo.
+      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST',
+        expect.objectContaining({ action: 'edit_time', occ_ids: [100] }));
+      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST',
+        { action: 'undo', occ_ids: [101] });
 
       // Optimistic flip rolled back, never committed.
       expect(rollbackSpy).toHaveBeenCalled();
@@ -517,7 +510,7 @@ describe('app.js medication, history and intake flows', () => {
       const checks = document.querySelectorAll('.med-confirm-check');
       checks[1].setAttribute('aria-pressed', 'false');
 
-      window.apiCall = vi.fn().mockResolvedValue({ updated: 1, failed: 0, failures: [] });
+      window.apiCall = vi.fn().mockResolvedValue({ updated: 1, unchanged: 0, failed: 0, failures: [] });
 
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
       const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
@@ -526,6 +519,7 @@ describe('app.js medication, history and intake flows', () => {
 
       await window.updateIntakeHistory();
 
+      expect(window.apiCall).toHaveBeenCalledTimes(2);
       expect(commitSpy).toHaveBeenCalled();
       expect(rollbackSpy).not.toHaveBeenCalled();
       const messages = safeAlertSpy.mock.calls.map((c) => c[0]);
@@ -536,7 +530,7 @@ describe('app.js medication, history and intake flows', () => {
     }
   });
 
-  it('clicking the edit-modal action button reverts via /api/intakes/update, not confirm-schedule', async () => {
+  it('clicking the edit-modal action button undoes that dose explicitly, never a take', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -548,9 +542,9 @@ describe('app.js medication, history and intake flows', () => {
       checks[0].setAttribute('aria-pressed', 'false');
 
       const endpoints = [];
-      window.apiCall = vi.fn(async (endpoint) => {
-        endpoints.push(endpoint);
-        if (endpoint === '/api/intakes/update') return { updated: 1, failed: 0, failures: [] };
+      window.apiCall = vi.fn(async (endpoint, _method, body) => {
+        endpoints.push(endpoint === '/api/doses/act' ? `act:${body.action}` : endpoint);
+        if (endpoint === '/api/doses/act') return { updated: 1, unchanged: 0, failed: 0, failures: [] };
         return true;
       });
       vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
@@ -569,8 +563,7 @@ describe('app.js medication, history and intake flows', () => {
       await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(endpoints).toContain('/api/intakes/update');
-      expect(endpoints).not.toContain('/api/medications/confirm-schedule');
+      expect(endpoints).toEqual(['act:undo']);
     } finally {
       cleanup();
     }
@@ -596,28 +589,32 @@ describe('app.js medication, history and intake flows', () => {
         { id: 101, medication_id: 2, status: 'TAKEN', taken_at: takenAt, scheduled_at: scheduledAt }
       ];
 
-      // Stateful apiCall: /api/intakes/update mutates serverLogs and reports
-      // per-update outcomes (the new handler contract); /api/history echoes the
-      // current serverLogs so the post-mutation refresh repaints authoritative
-      // state. Everything else (e.g. /api/medications/next-intake) clears.
+      // Stateful apiCall: /api/doses/act mutates serverLogs and reports
+      // per-id outcomes; /api/history echoes the current serverLogs so the
+      // post-mutation refresh repaints authoritative state. Everything else
+      // (e.g. /api/medications/next-intake) clears.
       window.apiCall = vi.fn(async (endpoint, _method, body) => {
         if (endpoint.startsWith('/api/history')) {
           return serverLogs.map((l) => ({ ...l }));
         }
-        if (endpoint === '/api/intakes/update') {
+        if (endpoint === '/api/doses/act') {
           let updated = 0;
           const failures = [];
-          for (const u of (body && body.updates) || []) {
-            const row = serverLogs.find((l) => l.id === u.id);
+          for (const id of body.occ_ids) {
+            const row = serverLogs.find((l) => l.id === id);
             if (!row) {
-              failures.push({ id: u.id, reason: 'not_found_or_forbidden' });
+              failures.push({ id, reason: 'not_found' });
               continue;
             }
-            row.status = u.status;
-            row.taken_at = u.status === 'TAKEN' ? u.taken_at : null;
+            if (body.action === 'undo') {
+              row.status = 'PENDING';
+              row.taken_at = null;
+            } else if (body.action === 'edit_time') {
+              row.taken_at = body.taken_at;
+            }
             updated += 1;
           }
-          return { updated, failed: failures.length, failures };
+          return { updated, unchanged: 0, failed: failures.length, failures };
         }
         return null;
       });
@@ -697,7 +694,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('confirmSelectedMedications POSTs confirm-schedule, commits and shows "Confirmed!"', async () => {
+  it('confirmSelectedMedications takes exactly the sheet\'s occIds, commits and shows "Confirmed!"', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       const scheduled = new Date().toISOString();
@@ -705,7 +702,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
       // Both rows are checked by default → both meds confirmed.
       expect(document.querySelectorAll('.med-confirm-check[aria-pressed="true"]').length).toBe(2);
 
-      window.apiCall = vi.fn().mockResolvedValue({ status: 'ok' });
+      window.apiCall = vi.fn().mockResolvedValue({ updated: 2, unchanged: 0, failed: 0, failures: [] });
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
       const commitSpy = vi.spyOn(window, '_commitOptimistic');
       const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
@@ -714,15 +711,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
 
       await window.confirmSelectedMedications();
 
-      expect(window.apiCall).toHaveBeenCalledWith(
-        '/api/medications/confirm-schedule',
-        'POST',
-        expect.objectContaining({
-          scheduled_at: scheduled,
-          medication_ids: [1, 2],
-          intake_ids: [100, 101]
-        })
-      );
+      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST', { action: 'take', occ_ids: [100, 101] });
       expect(commitSpy).toHaveBeenCalled();
       expect(rollbackSpy).not.toHaveBeenCalled();
       expect(safeAlertSpy.mock.calls.map((c) => c[0])).toContain('Confirmed!');
@@ -780,7 +769,25 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
     }
   });
 
-  it('skipSelectedMedications POSTs /api/medications/skip per intake and shows "Skipped!"', async () => {
+  it('confirmSelectedMedications derives the exact slot occId for a med with no stored row (Schedule "Take N")', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const scheduled = '2026-10-23T18:00:00.000Z';
+      window.showMedicationConfirmModal([3], ['Aspirin'], scheduled, 'confirm');
+      window.apiCall = vi.fn().mockResolvedValue({ updated: 1, unchanged: 0, failed: 0, failures: [] });
+      vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
+      vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+
+      await window.confirmSelectedMedications();
+
+      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST',
+        { action: 'take', occ_ids: [`intake-3-${Date.parse(scheduled) / 1000}`] });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('skipSelectedMedications skips exactly the sheet\'s occIds in one POST and shows "Skipped!"', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date().toISOString(), 'confirm', [100, 101]);
@@ -788,7 +795,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
       const endpoints = [];
       window.apiCall = vi.fn(async (endpoint, _method, body) => {
         endpoints.push([endpoint, body]);
-        return { ok: true };
+        return { updated: 2, unchanged: 0, failed: 0, failures: [] };
       });
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
       const commitSpy = vi.spyOn(window, '_commitOptimistic');
@@ -796,8 +803,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
 
       await window.skipSelectedMedications();
 
-      const skipCalls = endpoints.filter(([e]) => e === '/api/medications/skip');
-      expect(skipCalls.map(([, b]) => b.intake_id).sort()).toEqual([100, 101]);
+      expect(endpoints).toEqual([['/api/doses/act', { action: 'skip', occ_ids: [100, 101] }]]);
       expect(commitSpy).toHaveBeenCalled();
       expect(safeAlertSpy.mock.calls.map((c) => c[0])).toContain('Skipped!');
       expect(refreshSpy).toHaveBeenCalled();
@@ -806,13 +812,13 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
     }
   });
 
-  it('skipSelectedMedications rolls back and reports an error when a skip POST fails', async () => {
+  it('skipSelectedMedications rolls back and reports an error when a skip fails', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       window.showMedicationConfirmModal([1], ['Aspirin'], new Date().toISOString(), 'confirm', [100]);
 
       window.apiCall = vi.fn(async (endpoint) => {
-        if (endpoint === '/api/medications/skip') return null; // server rejected the skip
+        if (endpoint === '/api/doses/act') return { updated: 0, unchanged: 0, failed: 1, failures: [{ id: 100, reason: 'not_pending' }] };
         return [];
       });
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
@@ -828,7 +834,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
       expect(rollbackSpy).toHaveBeenCalled();
       expect(commitSpy).not.toHaveBeenCalled();
       const messages = safeAlertSpy.mock.calls.map((c) => c[0]);
-      expect(messages).toContain('Error skipping some medications.');
+      expect(messages).toContain("Couldn't update: Aspirin. Please try again.");
       expect(messages).not.toContain('Skipped!');
     } finally {
       cleanup();

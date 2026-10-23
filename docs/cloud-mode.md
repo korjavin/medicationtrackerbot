@@ -756,14 +756,15 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   and **`workouts.miband.gps`** (cloud vaults carry no GPS tracks — `vaultToRecords` drops
   `workouts.miband[].gps` on import, so the op could only ever return an empty track; see
   [docs/vault-format.md](vault-format.md)). That leaves **97 generated ops, every one of them
-  dispatchable**. The responder then serves **110**: `web/cloud/js/mcp-responder.js` merges
-  `[...GENERATED, ...CLOUD_EXTRA]`, and `mcp-catalog.cloud-extra.js` adds thirteen ops that exist
+  dispatchable**. The responder then serves **114**: `web/cloud/js/mcp-responder.js` merges
+  `[...GENERATED, ...CLOUD_EXTRA]`, and `mcp-catalog.cloud-extra.js` adds seventeen ops that exist
   only here (the two composite analyses, `health.brief`, `workouts.progression_preview`,
-  `workouts.plans.export` / `workouts.plans.import`, and
+  `medications.doses.list` / `medications.doses.act` (the occurrence projection and explicit
+  dose actions on occIds), `workouts.plans.export` / `workouts.plans.import`, and
   `workouts.equipment.list` / `workouts.equipment.create` / `workouts.equipment.update` /
   `workouts.equipment.delete`, `workouts.locations.list` / `workouts.locations.active.get` /
-  `workouts.locations.set_active`). So "97" is the
-  count of the generated file; "110" is what `mcp_help` lists. The same module also applies
+  `workouts.locations.set_active` / `workouts.locations.export` / `workouts.locations.import`).
+  So "97" is the count of the generated file; "114" is what `mcp_help` lists. The same module also applies
   `CLOUD_EXTRA_PARAMS` — params that exist only in the cloud router, merged over the generated
   catalog entries. It is applied as a copy, so no id is
   ever duplicated and the drift-guarded generated module is never mutated in place.
