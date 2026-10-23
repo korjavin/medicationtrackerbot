@@ -26,13 +26,18 @@
 // shape (medication_id, step_number, scheduled_at) — see toStepsResponse.
 import {
   parseSchedule, planDoses, targetInWindow, nominalIntervalHours, minDoseIntervalMs, maxDoseIntervalMs,
-  localDateTimeParts,
+  localDateTimeParts, historyRecordId,
 } from './medschedule.js';
 import { offsetMsAt } from './bp.js';
 import { createSettingsDomain } from './settings.js';
 
 const TZPLAN_RECORD_TYPE = 'tzplan';
 const TZPLAN_RECORD_ID = 'tzplan-current';
+// History (bd med-wi09.9): one immutable tztransition-<switchSec>-<rand> per
+// zone change — old_tz, new_tz, switch_at (ISO), steps (the plan's, [] for a
+// flexible-only change), boundary (null until the lineage bead fills it).
+// tzplan-current stays the banner's handle; nothing reads these yet.
+export const TZTRANSITION_RECORD_TYPE = 'tztransition';
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
 
@@ -418,6 +423,19 @@ export function createTzPlanDomain({ records, now, timeZone }) {
   async function putPlanRecord(rec) {
     await records.put(TZPLAN_RECORD_TYPE, rec);
   }
+  // A user action (POST /api/settings, Apply), so a real now() stamp.
+  async function recordTransition(oldTz, newTz, nowMs, steps) {
+    await records.put(TZTRANSITION_RECORD_TYPE, {
+      recordId: historyRecordId(TZTRANSITION_RECORD_TYPE, nowMs),
+      clientTs: nowMs,
+      deleted: false,
+      old_tz: oldTz,
+      new_tz: newTz,
+      switch_at: new Date(nowMs).toISOString(),
+      steps: Array.isArray(steps) ? steps.map((s) => ({ ...s })) : [],
+      boundary: null,
+    });
+  }
 
   // Ported from tzsuggestion.Service.ShouldPrompt.
   async function shouldPromptSuggestion(detectedTz) {
@@ -465,6 +483,7 @@ export function createTzPlanDomain({ records, now, timeZone }) {
 
     if (steps.length === 0) {
       await settings.setTimezone(newTz);
+      await recordTransition(oldTz, newTz, nowMs, []);
       return { changed: true, planCreated: false };
     }
 
@@ -499,6 +518,7 @@ export function createTzPlanDomain({ records, now, timeZone }) {
       ...plan, clientTs: nowMs, status: 'APPROVED', approved_at: new Date(nowMs).toISOString(),
     });
     await settings.setTimezone(plan.new_tz);
+    await recordTransition(plan.old_tz, plan.new_tz, nowMs, plan.steps);
     return { status: 'approved' };
   }
 

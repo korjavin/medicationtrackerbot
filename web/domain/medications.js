@@ -19,11 +19,31 @@
 // Intake records (owned by web/domain's Task 3 intake state machine) are
 // only *read* here, to compute last_taken_at and to cancel pending intakes
 // on archive — this module never writes intake status.
-import { getDaysOfStockRemaining, listLowOnStock } from './medschedule.js';
+import { getDaysOfStockRemaining, listLowOnStock, historyRecordId } from './medschedule.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
 const RESTOCK_RECORD_TYPE = 'restock';
+// History (bd med-wi09.9): one immutable medsched-<medId>-<fromSec>-<rand> per
+// schedule/policy change — medication_id, schedule, tz_shift_policy, from
+// (ISO). The generation a med was created with lives at the `base` suffix
+// (from = created_at): written on create, and backfilled at the clientTs floor
+// on the first edit of a med that predates history (CLAUDE.md rule 12), so
+// the edit's old generation is never lost. Nothing reads these yet.
+export const MEDSCHED_RECORD_TYPE = 'medsched';
+
+function medschedRecord(medId, { schedule, tz_shift_policy: policy }, fromIso, clientTs, suffix) {
+  const fromMs = Date.parse(fromIso);
+  return {
+    recordId: historyRecordId(`${MEDSCHED_RECORD_TYPE}-${medId}`, Number.isFinite(fromMs) ? fromMs : 0, suffix),
+    clientTs,
+    deleted: false,
+    medication_id: medId,
+    schedule: schedule || '',
+    tz_shift_policy: policy || 'flexible',
+    from: Number.isFinite(fromMs) ? fromIso : new Date(0).toISOString(),
+  };
+}
 
 const VALID_TZ_POLICIES = new Set(['flexible', 'medium', 'strict']);
 const DEFAULT_LOW_STOCK_THRESHOLD_DAYS = 7;
@@ -230,6 +250,7 @@ export function createMedicationsDomain({
       created_at: new Date(nowMs).toISOString(),
     };
     await records.put(MEDICATION_RECORD_TYPE, record);
+    await records.put(MEDSCHED_RECORD_TYPE, medschedRecord(record.recordId, record, record.created_at, nowMs, 'base'));
 
     const warning = await computeWarning(rxcui);
     return { id: record.recordId, status: 'created', warning };
@@ -280,6 +301,12 @@ export function createMedicationsDomain({
       updated.supplement = !!input.supplement;
     }
     await records.put(MEDICATION_RECORD_TYPE, updated);
+    if ((existing.schedule || '') !== schedule || (existing.tz_shift_policy || 'flexible') !== tzShiftPolicy) {
+      // Floored backfill of the pre-history generation (no-op when the base
+      // row already exists), then the edit itself at a real stamp.
+      await records.putIfAbsent(MEDSCHED_RECORD_TYPE, medschedRecord(existing.recordId, existing, existing.created_at, 0, 'base'));
+      await records.put(MEDSCHED_RECORD_TYPE, medschedRecord(existing.recordId, updated, new Date(nowMs).toISOString(), nowMs));
+    }
 
     const warning = archived ? '' : await computeWarning(rxcui);
     return { status: 'updated', warning };
@@ -306,6 +333,10 @@ export function createMedicationsDomain({
     }
 
     await records.del(MEDICATION_RECORD_TYPE, id);
+    // Its schedule history goes with it: nothing dangles in an export.
+    for (const h of await records.list(MEDSCHED_RECORD_TYPE)) {
+      if (!h.deleted && String(h.medication_id) === String(id)) await records.del(MEDSCHED_RECORD_TYPE, h.recordId);
+    }
   }
 
   // list mirrors handleList's `?archived=true` query flag and
