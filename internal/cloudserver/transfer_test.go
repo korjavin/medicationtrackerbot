@@ -2,6 +2,8 @@ package cloudserver
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -72,9 +74,21 @@ func transferReq(t *testing.T, h http.Handler, method, host, path string, body a
 	return rec
 }
 
+// newSlotID derives a slot id the way the origin does: a fresh 16-byte TK,
+// slot = base64url(SHA-256(TK))[:22].
+func newSlotID(t *testing.T) string {
+	t.Helper()
+	tk := make([]byte, 16)
+	if _, err := rand.Read(tk); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(tk)
+	return base64.RawURLEncoding.EncodeToString(sum[:])[:transferSlotIDLen]
+}
+
 func createSlot(t *testing.T, h http.Handler, host string, session *http.Cookie) string {
 	t.Helper()
-	rec := transferReq(t, h, http.MethodPost, host, "/api/transfer", createTransferRequest{Commit: testCommit}, session, "")
+	rec := transferReq(t, h, http.MethodPost, host, "/api/transfer", createTransferRequest{SlotID: newSlotID(t), Commit: testCommit}, session, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/transfer status = %d, body %q", rec.Code, rec.Body.String())
 	}
@@ -296,7 +310,12 @@ func TestTransferV2_RejectsMalformedValues(t *testing.T) {
 	session := registerAndGetSession(t, h, host, invite)
 	slotID := createSlot(t, h, host, session)
 
-	wantCode(t, "short commit", transferReq(t, h, http.MethodPost, host, "/api/transfer", createTransferRequest{Commit: []byte("x")}, session, ""), http.StatusBadRequest)
+	wantCode(t, "short commit", transferReq(t, h, http.MethodPost, host, "/api/transfer", createTransferRequest{SlotID: newSlotID(t), Commit: []byte("x")}, session, ""), http.StatusBadRequest)
+	for name, id := range map[string]string{"missing slot_id": "", "short slot_id": "abc", "non-base64url slot_id": "aaaaaaaaaaaaaaaaaaaa.="} {
+		wantCode(t, name, transferReq(t, h, http.MethodPost, host, "/api/transfer", createTransferRequest{SlotID: id, Commit: testCommit}, session, ""), http.StatusBadRequest)
+	}
+	// A reused transfer key derives the same id: refused, never merged into the live slot.
+	wantCode(t, "reused slot_id", transferReq(t, h, http.MethodPost, host, "/api/transfer", createTransferRequest{SlotID: slotID, Commit: testCommit}, session, ""), http.StatusConflict)
 	for name, body := range map[string]claimTransferRequest{
 		"short n_pub":      {NPub: testNPub[:10], Platform: "web", MacN: testMacN},
 		"missing mac":      {NPub: testNPub, Platform: "web"},

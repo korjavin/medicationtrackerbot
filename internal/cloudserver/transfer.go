@@ -85,7 +85,8 @@ func (a *TransferAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/transfer/{slot_id}/approve", session(a.ApproveTransfer))
 	// Answers both sides: the origin session sees the claim fields, the new
 	// device polls unauthenticated (it has no session yet). Not rate-limited:
-	// both sides poll every 2 s and the slot id is 128 random bits.
+	// both sides poll every 2 s and the slot id is 132 bits of SHA-256 over a
+	// 128-bit random TK.
 	mux.HandleFunc("GET /api/transfer/{slot_id}", a.GetTransfer)
 	mux.Handle("DELETE /api/transfer/{slot_id}", session(a.DeleteTransfer))
 }
@@ -95,7 +96,27 @@ func writeTransferUpgrade(w http.ResponseWriter) {
 }
 
 type createTransferRequest struct {
+	// SlotID is derived by the origin: base64url(SHA-256(TK))[:22]. The typed
+	// fallback code carries only TK, and the new device re-derives the id; the
+	// server stores the id and never sees TK.
+	SlotID string `json:"slot_id"`
 	Commit []byte `json:"commit"`
+}
+
+// transferSlotIDLen is the derived slot id's length: 22 base64url characters
+// (132 bits of SHA-256(TK)).
+const transferSlotIDLen = 22
+
+func validTransferSlotID(id string) bool {
+	if len(id) != transferSlotIDLen {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 type createTransferResponse struct {
@@ -125,10 +146,11 @@ func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 		writeTransferUpgrade(w)
 		return
 	}
-	if len(req.Commit) != transferCommitLen {
-		http.Error(w, "invalid commit", http.StatusBadRequest)
+	if len(req.Commit) != transferCommitLen || !validTransferSlotID(req.SlotID) {
+		http.Error(w, "invalid commit or slot_id", http.StatusBadRequest)
 		return
 	}
+	slotID := req.SlotID
 
 	now := time.Now().UTC()
 	if _, err := a.store.SweepExpiredTransferSlots(r.Context(), now); err != nil {
@@ -136,11 +158,6 @@ func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slotID, err := randomToken(16)
-	if err != nil {
-		http.Error(w, "server error", http.StatusInternalServerError)
-		return
-	}
 	// Non-null placeholder for the NOT NULL column, never returned; the claim
 	// replaces it with the claimant's token hash.
 	_, tokenHash, err := NewClaimToken()
@@ -153,6 +170,11 @@ func (a *TransferAPI) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.CreateTransferSlot(r.Context(), slotID, session.AccountID, tokenHash, req.Commit, session.CredentialID, now, expiresAt); err != nil {
 		if errors.Is(err, cloudstore.ErrSourceCredentialRevoked) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if errors.Is(err, cloudstore.ErrTransferSlotExists) {
+			// Only a reused transfer key gets here; the client must mint a new one.
+			http.Error(w, "slot_id already in use — generate a new code", http.StatusConflict)
 			return
 		}
 		http.Error(w, "server error", http.StatusInternalServerError)

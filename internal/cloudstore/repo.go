@@ -49,6 +49,11 @@ var ErrTransferSlotInvalid = errors.New("cloudstore: invalid or expired transfer
 // an approve before reveal, ...).
 var ErrTransferSlotState = errors.New("cloudstore: transfer slot is not in the required state")
 
+// ErrTransferSlotExists is returned by CreateTransferSlot when the
+// client-derived slot id (a hash of the transfer key) is already taken — a
+// client reusing a transfer key.
+var ErrTransferSlotExists = errors.New("cloudstore: transfer slot id already exists")
+
 // Transfer-slot states (protocol v2, docs/cloud-crypto.md "Path B"):
 // pending -> claimed -> revealed -> approved -> enrolled. Deletion (Deny,
 // Cancel, revoke, expiry) is valid from every state.
@@ -841,7 +846,9 @@ func (r *Repo) ListEnvelopes(ctx context.Context, accountID string) ([]Envelope,
 }
 
 // CreateTransferSlot inserts a new pending device-transfer slot (protocol v2,
-// docs/cloud-crypto.md "Path B"): commit is SHA-256 of the origin's ephemeral
+// docs/cloud-crypto.md "Path B"). id is derived by the origin from the
+// transfer key (base64url(SHA-256(TK))[:22]); the server stores the id, never
+// TK. commit is SHA-256 of the origin's ephemeral
 // ECDH public key, which the origin posts only later at reveal. No ciphertext
 // is stored until approve. enrollmentTokenHash is a non-null placeholder that
 // the claim replaces. approvingCredentialID is the origin session's credential,
@@ -857,6 +864,10 @@ func (r *Repo) CreateTransferSlot(ctx context.Context, id, accountID string, enr
 		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt), commit, approvingCredentialID,
 		approvingCredentialID, accountID)
 	if err != nil {
+		var sqlErr *sqlite.Error
+		if errors.As(err, &sqlErr) && (sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY) {
+			return ErrTransferSlotExists
+		}
 		return err
 	}
 	n, err := result.RowsAffected()
