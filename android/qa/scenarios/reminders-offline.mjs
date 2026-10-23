@@ -226,6 +226,9 @@ async function rebootLocked(ctx, page, out) {
       if (Date.now() > stop) throw new Error('the emulator did not come back from the reboot');
     }
     out.userAtBoot = await user();
+    await sleep(10_000); // LOCKED_BOOT_COMPLETED → Rearm
+    out.armLog = (await adbShell('logcat -d -s Notifications:*')).split('\n').slice(-6);
+    out.alarmAtBoot = (await adbShell(`dumpsys alarm | grep -A2 ${pkg}`)).split('\n').slice(0, 12);
     if (out.userAtBoot !== 'RUNNING_LOCKED') throw new Error(`not locked after the reboot: ${out.userAtBoot}`);
     await waitNotification({ ...ctx, shell: adbShell }, med, med.name, out, 0); // the reboot emptied the shade
     out.userAtPost = await user();

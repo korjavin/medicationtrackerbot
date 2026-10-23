@@ -15,6 +15,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.UserManager
 import android.provider.Settings
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -153,6 +154,7 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
                 id = id % 1_000_000 + 1
                 last = maxOf(last, at)
             }
+            Log.i("Notifications", "fire posted through=$last of ${rows.length()} rows")
             s.edit().putLong(POSTED, last).putInt(NEXT_ID, id).commit()
             arm(context)
         }
@@ -269,14 +271,18 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
             val pi = PendingIntent.getBroadcast(c, 0, Intent(c, Fire::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             alarms(c).cancel(pi)
-            if (permission(c) != "granted") return 0
+            val p = permission(c)
             val rows = rows(c)
             val now = System.currentTimeMillis() / 1000
             val floor = maxOf(store(c).getLong(POSTED, 0), now - STALE)
             val due = (0 until rows.length()).mapNotNull { rows.optJSONObject(it)?.optLong("fireAtUnix") }.filter { it > floor }
-            val next = due.minOrNull() ?: return 0
+            val next = due.minOrNull()
+            // No text, only counts and times: the only trace of a locked-boot arm (bd med-nt9p.57).
+            Log.i("Notifications", "arm permission=$p rows=${rows.length()} next=$next now=$now unlocked=${c.getSystemService(UserManager::class.java).isUserUnlocked}")
+            if (p != "granted" || next == null) return 0
             // An instant, not a wall-clock time: a time-zone change does not move it.
-            val armed = runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi) }.isSuccess
+            val armed = runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi) }
+                .onFailure { Log.w("Notifications", "arm failed", it) }.isSuccess
             return if (armed) due.count { it > now } else 0
         }
 
