@@ -114,9 +114,11 @@ export default async function remindersOffline(ctx) {
         await p.evaluate(() => {
           window.__qaLock = window.LocalNotifications.__native.call('lock.set', { on: true }).then((v) => ({ v }), (e) => ({ e: String(e?.message || e) }));
         });
-        await enterPin(ctx, 'lock-on-pin');
-        loc.lockSet = await p.evaluate(() => window.__qaLock);
-        loc.status = await p.evaluate(() => window.LocalNotifications.__native.call('lock.status'));
+        await enterPin(ctx, 'lock-on-pin'); // the credential screen is FLAG_SECURE: the shot is black
+        loc.focusAfterPin = await focus(ctx);
+        // Bounded: a reply that never comes hung run 39919389324 until the job timeout.
+        loc.lockSet = await bounded(p.evaluate(() => window.__qaLock), 20_000, 'lock.set reply');
+        loc.status = await bounded(p.evaluate(() => window.LocalNotifications.__native.call('lock.status')), 10_000, 'lock.status');
         if (!loc.status?.on) throw new Error(`lock not on: ${JSON.stringify(loc)}`);
         return p;
       });
@@ -128,17 +130,18 @@ export default async function remindersOffline(ctx) {
       await ctx.step('local, locked: the tap asks for the unlock first, then opens the take sheet', async () => {
         await tapNotification(ctx, /.*Medication time.*/, 'local');
         await sleep(6000);
-        loc.focusBeforeUnlock = (await shell('dumpsys window | grep mCurrentFocus')).trim();
+        loc.focusBeforeUnlock = await focus(ctx);
         await ctx.stableShot('locked-after-tap');
         if (/MainActivity/.test(loc.focusBeforeUnlock)) throw new Error(`no unlock prompt over the app: ${loc.focusBeforeUnlock}`);
         await enterPin(ctx, 'locked-pin');
-        page = await ctx.localPage((p) => waitSheet(p, med2.name, loc));
+        loc.focusAfterUnlock = await focus(ctx);
+        page = await bounded(ctx.localPage((p) => waitSheet(p, med2.name, loc)), 120_000, 'the take sheet after the unlock');
         await ctx.stableShot('local-take-sheet');
       });
     } finally {
       await shell(`locksettings clear --old ${PIN}`).catch(() => {});
       // Without a screen lock the check passes, so the lock goes off with no prompt.
-      await ctx.page?.evaluate(() => window.LocalNotifications.__native.call('lock.set', { on: false })).catch(() => {});
+      await bounded(ctx.page?.evaluate(() => window.LocalNotifications.__native.call('lock.set', { on: false })), 15_000, 'lock off').catch(() => {});
     }
   } finally {
     await shell('svc power stayon false');
@@ -270,6 +273,15 @@ async function waitSheet(page, name, out) {
   await page.waitForFunction(([id, n]) => window.ModalManager?._isVisible(id) && document.getElementById(id).innerText.includes(n), [MODAL, name], { timeout: 60_000 });
   out.sheetUrl = await page.evaluate(() => location.pathname + location.search);
 }
+
+/** `promise`, or a throw after `ms`: nothing in the lock part may hang the job. */
+function bounded(promise, ms, what) {
+  let t;
+  return Promise.race([Promise.resolve(promise), new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`${what}: no answer in ${ms / 1000} s`)), ms); })])
+    .finally(() => clearTimeout(t));
+}
+
+const focus = async (ctx) => (await ctx.shell('dumpsys window | grep mCurrentFocus')).trim();
 
 /** The system credential screen (BiometricPrompt with the screen-lock fallback): the PIN and Enter. */
 async function enterPin(ctx, shotName) {
