@@ -38,7 +38,7 @@ async function maybeUpdateTimezone() {
             return;
         }
 
-        await apiCall('/api/settings', 'POST', { timezone: detectedTz });
+        const result = await apiCall('/api/settings', 'POST', { timezone: detectedTz });
         // Clear the cached settings_bundle so that any tab loaded during this same
         // startup (e.g. workout history) reads the updated timezone from the server
         // rather than the now-stale cached value.  This race is now hot: bootstrap
@@ -49,6 +49,12 @@ async function maybeUpdateTimezone() {
         // switch, polling tick) re-fetch with the updated timezone.
         if (window.DataStore?.invalidateKey) {
             await window.DataStore.invalidateKey('settings_bundle');
+        }
+        // A medium/strict medication staged a transition plan instead of moving
+        // the clock: land on Today, where its Apply / Cancel card sits first
+        // (bd med-26gl). A zone applied immediately navigates nowhere.
+        if (result && result.planCreated && typeof window.switchTab === 'function') {
+            window.switchTab('today');
         }
     } catch (e) {
         // Timezone detection is best-effort; never block the app

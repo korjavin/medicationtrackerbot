@@ -145,6 +145,11 @@
     { "name": "today-kit-nudge", "cloudOnly": true,
       "steps": [{ "kitNudge": { "records": 64, "kitSaved": false, "lastShownAt": null, "lastShownRecordCount": 0, "optedOut": false, "nudge": true } }, { "tab": "today" }],
       "ready": ["#today-content [data-section=\"kit-nudge\"] [data-action=\"kit-save\"]"] },
+    { "name": "today-tz-plan",
+      "steps": [{ "tab": "settings" }, { "tzPlan": { "plan": { "id": 1, "status": "PENDING_APPROVAL", "old_tz": "Europe/Berlin", "new_tz": "America/New_York", "created_at": "2026-01-15T08:00:00Z" }, "steps": [
+        { "step_number": 1, "medication_id": 1, "scheduled_at": "2099-01-16T09:00:00Z", "note": "Shift 1h later: 09:00 → 10:00" },
+        { "step_number": 2, "medication_id": 1, "scheduled_at": "2099-01-17T09:00:00Z", "note": "Shift 1h later: 10:00 → 11:00" } ] } }, { "tab": "today" }],
+      "ready": ["#today-content [data-section=\"tz-plan\"] .wg-btn--primary"] },
     { "name": "today-start-here", "localOnly": true,
       "steps": [{ "startHere": { "drop": ["medications", "bp", "food", "workouts"], "picked": ["medication", "bp", "weight", "food"] } }, { "tab": "today" }],
       "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] }
