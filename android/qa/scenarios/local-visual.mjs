@@ -26,8 +26,8 @@ export default async function localVisual(ctx) {
   for (const scene of scenes) {
     if (scene.platform && scene.platform !== 'android') continue; // iOS-only native scenes (SwiftUI states)
     if (scene.cloudOnly) continue; // needs a cloud account; the local passes skip it, as iOS and Playwright do
-    // The shared native-only scenes are N1/N2 (the native first run): gone on Android (bd med-ta2n.12),
-    // still iOS's until med-ta2n.17. N3/N4 shots are native-screens / native-lock's.
+    // Android has no native-only scene (no native first run, bd med-ta2n.12); its N3/N4 shots are
+    // native-screens / native-lock's.
     if (scene.nativeOnly ?? scene.name.startsWith('native-')) continue;
     const s = (r[scene.name] = {});
     for (let attempt = 1; attempt <= 2; attempt++) {

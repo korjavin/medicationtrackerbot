@@ -216,7 +216,7 @@ class MainActivity : Activity() {
     /**
      * N6 splash → web hand-off: the platform splash (wg_screen, the mark tile) stays while the
      * first frame is held, until the page posts its first chrome sample or commits a visible frame,
-     * or a native screen (first run, error, lock) shows — then the mark fades out over 180 ms onto
+     * or a native screen (error, lock) shows — then the mark fades out over 180 ms onto
      * the same colour. ponytail: capped at [SPLASH_MAX_MS], so a page that never reports still shows.
      */
     private fun holdSplash() {

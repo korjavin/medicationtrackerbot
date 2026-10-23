@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Auto Backup (bd med-nt9p.32.5, owner decision b; docs/android.md → Local mode backup).
-     An <include> list backs up ONLY what it names: the "Only on this device" origin's IndexedDB
+     An <include> list backs up ONLY what it names: the local-mode origin's IndexedDB
      and the trial-pass prefs file. Everything else stays out by construction: every account
      origin's WebView data (decrypted records, warm-unlock key), Local Storage (one leveldb shared
      by all origins), and every other prefs file (shell = account host, diag = PII log, reminders,

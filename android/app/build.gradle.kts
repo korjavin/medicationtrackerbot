@@ -10,7 +10,7 @@ val appPackage = providers.environmentVariable("ANDROID_PACKAGE").orNull?.takeIf
     ?: "com.example.medtracker"
 // The deployment's base domain is never committed either (owner rule 4): CI
 // passes the CLOUD_BASE_DOMAIN repo variable, masked. Unset (forks) builds an
-// app whose first run says it has no service configured.
+// app with no service configured.
 val baseDomain = providers.environmentVariable("CLOUD_BASE_DOMAIN").orNull?.trim()?.lowercase()
     ?.takeIf { Regex("[a-z0-9-]+(\\.[a-z0-9-]+)+").matches(it) } ?: ""
 // The Play Integrity cloud project (bd med-nt9p.32.8.4): the ANDROID_PLAY_CLOUD_PROJECT_NUMBER
