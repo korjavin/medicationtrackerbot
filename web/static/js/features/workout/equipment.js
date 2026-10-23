@@ -733,7 +733,7 @@ function _buildEquipmentShapePayload() {
     if (kind === 'fixed') {
         const loads = _parseEquipmentLoads(document.getElementById('workout-equipment-loads').value);
         if (!loads || loads.length === 0) {
-            safeAlert('Fixed loads must be positive numbers separated by spaces or ';' (or use the generator).');
+            safeAlert('Fixed loads must be positive numbers separated by spaces or semicolons (or use the generator).');
             return null;
         }
         const fixedPayload = { kind: 'fixed', name, loads_kg: loads };
