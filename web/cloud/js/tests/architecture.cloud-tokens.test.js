@@ -38,7 +38,9 @@ const SHELL_KIT_ROOTS = ['.wg-dialog', '.wg-btn', '.wg-choice', '.wg-field', '.w
     '.wg-shell__title', '.wg-shell__lede', '.wg-disc', '.wg-row__lead', '.wg-setting__', '.wg-kv', '.wg-qr',
     '.wg-hint', '.wg-chip', '.wg-note',
     // The invite landing (bd med-ta2n.10) is a kit shell screen.
-    '.wg-app', '.wg-shell', '.wg-mark', '.wg-olist'];
+    '.wg-app', '.wg-shell', '.wg-mark', '.wg-olist',
+    // The /claim screens (bd med-r1j2.3, AD5-AD7).
+    '.wg-matchcode', '.wg-facts', '.wg-label', '.wg-error'];
 
 // The :root blocks hold gradients full of parens but no braces, so a
 // non-greedy match to the first '}' is a correct extraction here.

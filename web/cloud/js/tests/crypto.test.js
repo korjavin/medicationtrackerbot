@@ -30,8 +30,60 @@ import {
   fromBase64,
   fromBase64Url,
   unwrapEnvelope,
-  wrapEnvelope
+  wrapEnvelope,
+  encodeTransferCode,
+  decodeTransferCode,
+  generateTransferKey,
+  generateTransferKeyPair,
+  deriveTransferKeys,
+  transferSlotId,
 } from '../crypto.js';
+
+// Path B v2 typed code + key agreement (med-r1j2.2). The full device-to-device
+// round-trip lives in transfer.test.js.
+describe('transfer protocol v2 helpers', () => {
+  it('typed code: 28 letters in 3-letter groups, any case and separators, same 16 bytes back', () => {
+    for (let i = 0; i < 20; i++) {
+      const tk = generateTransferKey();
+      const code = encodeTransferCode(tk);
+      expect(code).toMatch(/^([A-Z]{3} ){9}[A-Z]$/);
+      expect(decodeTransferCode(code.toLowerCase().replace(/ /g, '-'))).toEqual(tk);
+    }
+    expect(encodeTransferCode(new Uint8Array(16))).toBe('AAA AAA AAA AAA AAA AAA AAA AAA AAA A');
+    const max = new Uint8Array(16).fill(255);
+    expect(decodeTransferCode(encodeTransferCode(max))).toEqual(max);
+  });
+
+  it('typed code rejects wrong length, digits, and values past 2^128', () => {
+    expect(() => decodeTransferCode('ABC')).toThrow();
+    expect(() => decodeTransferCode('ABC DEF GHI JKL MNO PQR STU VWX YZ1 A')).toThrow();
+    expect(() => decodeTransferCode('Z'.repeat(28))).toThrow();
+  });
+
+  it('slot id is 22 base64url characters of SHA-256(TK)', async () => {
+    expect(await transferSlotId(new Uint8Array(16))).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+
+  it('both sides derive the same 6-digit code from compressed public keys', async () => {
+    const o = await generateTransferKeyPair();
+    const n = await generateTransferKeyPair();
+    expect(o.pub).toHaveLength(33);
+    const t = new Uint8Array([1, 2, 3]);
+    const a = await deriveTransferKeys(o.privateKey, n.pub, t);
+    const b = await deriveTransferKeys(n.privateKey, o.pub, t);
+    expect(a.sas).toMatch(/^\d{6}$/);
+    expect(a.sas).toBe(b.sas);
+    expect(a.kWrap).toEqual(b.kWrap);
+  });
+
+  it('rejects a public key that is not on the curve', async () => {
+    const o = await generateTransferKeyPair();
+    const bad = new Uint8Array(33);
+    bad[0] = 2;
+    bad.fill(255, 1); // x >= p
+    await expect(deriveTransferKeys(o.privateKey, bad, new Uint8Array(1))).rejects.toThrow();
+  });
+});
 
 const accountId = 'amber-falcon-8k3q9x';
 const credentialId = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
