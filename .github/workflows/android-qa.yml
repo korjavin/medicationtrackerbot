@@ -110,9 +110,12 @@ jobs:
           nohup "$RUNNER_TEMP/cloud" > "$RUNNER_TEMP/cloud.log" 2>&1 &
           for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
           inv="$("$RUNNER_TEMP/cloud" admin invite)"
-          claim="$(grep -oE 'https://[^[:space:]]+#claim=[a-f0-9]+' <<<"$inv" | head -1)"
-          host="${claim#https://}"; host="${host%%/*}"
-          [ -n "$claim" ] || { echo "no claim URL in: $inv"; exit 1; }
+          # admin invite prints the landing form https://<base>/i/<sub>#<token>
+          # (bd med-ta2n.16); the scenarios drive the claim form the landing hands off to.
+          landing="$(grep -oE 'https://[^[:space:]/]+/i/[a-z0-9-]+#[a-f0-9]+' <<<"$inv" | head -1)"
+          [ -n "$landing" ] || { echo "no claim URL in: $inv"; exit 1; }
+          rest="${landing#https://}"; sub="${rest#*/i/}"; sub="${sub%%#*}"
+          host="$sub.${rest%%/*}"; claim="https://$host/#claim=${landing##*#}"
           sudo -b nohup "$RUNNER_TEMP/tlsfront" -ca "$RUNNER_TEMP/ca.pem" "$host" > "$RUNNER_TEMP/tlsfront.log" 2>&1
           for i in $(seq 1 30); do [ -s "$RUNNER_TEMP/ca.pem" ] && break; sleep 1; done
           curl -sS --fail -o /dev/null --cacert "$RUNNER_TEMP/ca.pem" --resolve "$host:443:127.0.0.1" "https://$host/unlock"

@@ -825,12 +825,12 @@ func TestManagerOnboarding(t *testing.T) {
 		if err != nil || len(accounts) != 1 {
 			t.Fatalf("ListAccounts = (%d, %v), want 1", len(accounts), err)
 		}
-		want := "https://" + accounts[0].Subdomain + ".localhost/#claim="
+		want := "https://localhost/i/" + accounts[0].Subdomain + "#"
 		sent, edits, _ := f.snapshot()
 		if len(sent) != 3 || !strings.Contains(sent[2], `"chat_id":77`) || !strings.Contains(sent[2], want) {
 			t.Fatalf("DM missing claim URL %q: %v", want, sent)
 		}
-		if len(edits) != 1 || !strings.Contains(edits[0], "link sent") || strings.Contains(edits[0], "#claim=") {
+		if len(edits) != 1 || !strings.Contains(edits[0], "link sent") || strings.Contains(edits[0], "localhost/i/") {
 			t.Fatalf("admin edit = %v", edits)
 		}
 		if f.request(t, 1).Status != "done" {
@@ -856,7 +856,7 @@ func TestManagerOnboarding(t *testing.T) {
 		f.tg.mu.Unlock()
 		f.tap(t, 1, "a", inviteAdmin, f.request(t, 1).AdminMessageID)
 		_, edits, _ := f.snapshot()
-		if len(edits) != 1 || !strings.Contains(edits[0], "FAILED") || !strings.Contains(edits[0], "#claim=") {
+		if len(edits) != 1 || !strings.Contains(edits[0], "FAILED") || !strings.Contains(edits[0], "localhost/i/") {
 			t.Fatalf("admin edit = %v", edits)
 		}
 	})
@@ -961,7 +961,7 @@ func TestManagerOnboarding(t *testing.T) {
 			t.Fatalf("minted %d accounts, want 1 (expired invites swept, one fresh mint)", n)
 		}
 		sent, _, _ := f.snapshot()
-		if !strings.Contains(sent[len(sent)-1], "#claim=") {
+		if !strings.Contains(sent[len(sent)-1], "localhost/i/") {
 			t.Fatalf("DM missing a fresh claim URL: %v", sent)
 		}
 	})
@@ -1051,7 +1051,7 @@ func TestManagerOnboarding(t *testing.T) {
 		if !strings.Contains(sent[len(sent)-1], `"chat_id":77`) || !strings.Contains(sent[len(sent)-1], "passkey") {
 			t.Fatalf("user not told they already have an account: %v", sent)
 		}
-		if len(edits) != 1 || !strings.Contains(edits[0], "already have an account") || strings.Contains(edits[0], "#claim=") {
+		if len(edits) != 1 || !strings.Contains(edits[0], "already have an account") || strings.Contains(edits[0], "localhost/i/") {
 			t.Fatalf("admin edit = %v", edits)
 		}
 		if s := f.request(t, 1).Status; s != "declined" {

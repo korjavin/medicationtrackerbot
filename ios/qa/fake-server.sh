@@ -19,9 +19,12 @@ export CLOUD_BASE_DOMAIN=qa.test SESSION_SECRET="$(openssl rand -base64 48)" CLO
 nohup "$RUNNER_TEMP/cloud" > "$RUNNER_TEMP/cloud.log" 2>&1 &
 for _ in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
 inv="$("$RUNNER_TEMP/cloud" admin invite)"
-claim="$(grep -oE 'https://[^[:space:]]+#claim=[a-f0-9]+' <<<"$inv" | head -1)"
-[ -n "$claim" ] || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::no claim URL in: $inv"; exit 1; }
-host="${claim#https://}"; host="${host%%/*}"
+# admin invite prints the landing form https://<base>/i/<sub>#<token> (bd
+# med-ta2n.16); the UI tests drive the claim form the landing hands off to.
+landing="$(grep -oE 'https://[^[:space:]/]+/i/[a-z0-9-]+#[a-f0-9]+' <<<"$inv" | head -1)"
+[ -n "$landing" ] || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::no claim URL in: $inv"; exit 1; }
+rest="${landing#https://}"; sub="${rest#*/i/}"; sub="${sub%%#*}"
+host="$sub.${rest%%/*}"; claim="https://$host/#claim=${landing##*#}"
 echo "QA_CLAIM_URL=$claim" >> "$GITHUB_ENV"
 
 # :443 needs root (AccountURL.parse rejects ports). nobody./stale./down. are

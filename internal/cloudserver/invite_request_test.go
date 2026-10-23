@@ -144,12 +144,12 @@ func TestInviteRequest_EmailApprove(t *testing.T) {
 	}
 	accounts, _ := f.store.ListAccounts(t.Context())
 	mails := f.mails()
-	want := "https://" + accounts[0].Subdomain + ".localhost/#claim="
+	want := "https://localhost/i/" + accounts[0].Subdomain + "#"
 	if len(mails) != 1 || mails[0].to != "ada@example.com" || !strings.Contains(mails[0].body, want) || !strings.Contains(mails[0].body, "expires in 14 days") {
 		t.Fatalf("mails = %+v, want one to ada@example.com carrying %s", mails, want)
 	}
 	_, edits, answered := f.snapshot()
-	if len(edits) != 1 || !strings.Contains(edits[0], "invite emailed to ada@example.com") || !strings.Contains(edits[0], `"inline_keyboard":[]`) || strings.Contains(edits[0], "#claim=") {
+	if len(edits) != 1 || !strings.Contains(edits[0], "invite emailed to ada@example.com") || !strings.Contains(edits[0], `"inline_keyboard":[]`) || strings.Contains(edits[0], "localhost/i/") {
 		t.Fatalf("admin edit = %v", edits)
 	}
 	if len(answered) != 1 || !strings.Contains(answered[0], "Approved") {
@@ -256,7 +256,7 @@ func TestInviteRequest_SendFailureShowsLink(t *testing.T) {
 	accounts, _ := f.store.ListAccounts(t.Context())
 	_, edits, _ := f.snapshot()
 	if f.request(t, 1).Status != "done" || len(edits) != 1 || !strings.Contains(edits[0], "FAILED") ||
-		!strings.Contains(edits[0], "https://"+accounts[0].Subdomain+".localhost/#claim=") || strings.Contains(edits[0], "refused") {
+		!strings.Contains(edits[0], "https://localhost/i/"+accounts[0].Subdomain+"#") || strings.Contains(edits[0], "refused") {
 		t.Fatalf("failure edit = %v", edits)
 	}
 }
