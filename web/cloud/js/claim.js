@@ -225,7 +225,10 @@ async function claim(app, { slot, tk }) {
   };
   renderConnecting(app, cancel);
 
-  const first = await fetch(slotPath);
+  // No cookie: a browser that already holds a session for this account would
+  // otherwise get the origin's view (no commit). Later polls carry the claim
+  // token, which the server reads as the receiver either way.
+  const first = await fetch(slotPath, { credentials: 'omit' });
   if (flow.stopped) return;
   if (first.status === 410 || first.status === 404) return renderEnded(app, 'Stopped');
   if (!first.ok) throw new Error('slot fetch failed');
@@ -240,6 +243,8 @@ async function claim(app, { slot, tk }) {
   flow.keyPair = await generateTransferKeyPair();
   flow.fields = { accountId: accountSub, slot, platform, commit, nPub: flow.keyPair.pub };
   const macN = await transferClaimMac(tk, flow.fields);
+  // Cancelled while the key was being made: never claim the single-use slot.
+  if (flow.stopped) return;
   const res = await fetch(`${slotPath}/claim`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
