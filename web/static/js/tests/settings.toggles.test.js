@@ -1647,10 +1647,11 @@ describe('Settings → Invite a friend (cloud mode)', () => {
         }
     });
 
-    // med-nyjw: the row lives on the pushed Devices page, a WGPage at the same
-    // z-index as the sheet, so the sheet must come after the page in the DOM
-    // or it opens behind it and the tap looks dead.
-    it('tapping the row on the Devices page opens the sheet above that page', async () => {
+    // med-bu2y: the row is on the Settings home list, not buried in the
+    // Devices page. med-nyjw: the sheet shares --z-modal with pushed pages, so
+    // it must be the last modal in the DOM or it opens behind and the tap
+    // looks dead.
+    it('tapping the home row opens the sheet on top of every page', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
@@ -1660,9 +1661,12 @@ describe('Settings → Invite a friend (cloud mode)', () => {
             });
 
             await window.loadSettings();
-            const page = window.SettingsView.openSettingsPage('devices');
-            const row = page.el.querySelector('#settings-invite-btn');
+            const row = document.querySelector('.wg-settings-home #settings-invite-btn');
             expect(row).not.toBeNull();
+            expect(row.classList.contains('wg-settings-hidden')).toBe(false);
+            expect(document.querySelector('[data-settings-page="devices"] #settings-invite-btn')).toBeNull();
+            // A pushed page is still up when the row is tapped.
+            const page = window.SettingsView.openSettingsPage('devices');
 
             row.click();
 
@@ -1671,6 +1675,9 @@ describe('Settings → Invite a friend (cloud mode)', () => {
             expect(window.fetch).toHaveBeenCalledWith('/api/invite', { method: 'POST' });
             expect(document.getElementById('invite-claim-url').textContent).toBe(CLAIM_URL);
             expect(page.el.compareDocumentPosition(modal) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+            const modals = Array.from(document.body.querySelectorAll(':scope > mt-modal'));
+            expect(modals[modals.length - 1]).toBe(modal);
+            expect(window.ModalManager._stack[window.ModalManager._stack.length - 1]).toBe('invite-modal');
             expect(row.disabled).toBe(false);
         } finally {
             delete window.__MEDTRACKER_CLOUD__;

@@ -562,7 +562,14 @@
                     </button>
                     <button type="button" class="wg-setting" data-settings-open="devices">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Devices &amp; connectors</span><span class="wg-setting__desc" data-settings-summary="devices">Devices, Claude connector, invites</span></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Devices &amp; connectors</span><span class="wg-setting__desc" data-settings-summary="devices">Devices, Claude connector</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <!-- Cloud-only, revealed by settings.js; on the home list, not
+                         inside Devices, so it can be found (med-bu2y). -->
+                    <button type="button" id="settings-invite-btn" class="wg-setting wg-settings-cloud-invite wg-settings-hidden">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="user"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Invite a friend</span><span class="wg-setting__desc">A personal account for someone you know · up to 100 a month</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                     <!-- Local mode opens this page from the slot-① card instead. -->
@@ -1131,16 +1138,6 @@
                     <button type="button" id="settings-emergency-kit-row" class="wg-setting wg-setting--danger">
                         <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="key"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Emergency Kit</span><span class="wg-setting__desc">Regenerate if you lost the printed copy</span></span>
-                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                    </button>
-                </div>
-            </section>
-
-            <section class="wg-settings-cloud-invite wg-settings-hidden">
-                <div class="wg-list">
-                    <button type="button" id="settings-invite-btn" class="wg-setting">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="user"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Invite a friend</span><span class="wg-setting__desc">A personal account for someone you know · up to 100 a month</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                 </div>
