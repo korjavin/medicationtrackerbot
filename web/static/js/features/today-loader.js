@@ -113,8 +113,10 @@ window.healthOverviewCacheKey = healthOverviewCacheKey;
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so
 // future tag invalidations can evict the entry.
-// Next up's missed-dose source: GET /api/history?days=1 (the Meds badge's read).
-const TODAY_HISTORY_KEY = 'history_1_';
+// Next up's missed-dose source: the occurrence projection over the last 24h
+// (GET /api/doses — the Meds badge's read). Its own key: rows cached under the
+// old `history_1_` key carry the stored-intake shape, not projection rows.
+const TODAY_HISTORY_KEY = 'doses_due_24h';
 
 function todayFetchSpecs(foodKey) {
     return {
@@ -128,11 +130,13 @@ function todayFetchSpecs(foodKey) {
             tags: ['history', 'medications'],
             fetch: fetchNextIntakePayload
         },
-        // Same key family (and row shape) as Meds → History's 1-day view.
         [TODAY_HISTORY_KEY]: {
             feature: 'medication',
             tags: ['history', 'medications'],
-            fetch: () => apiCall('/api/history?days=1')
+            fetch: () => {
+                const nowMs = Date.now();
+                return apiCall(`/api/doses?from=${new Date(nowMs - 24 * 60 * 60 * 1000).toISOString()}&to=${new Date(nowMs).toISOString()}`);
+            }
         },
         bp: {
             feature: 'bp',

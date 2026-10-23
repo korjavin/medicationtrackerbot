@@ -174,8 +174,8 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         ];
         window.DataStore.loadSWR = vi.fn(async (options) => { await options.onFresh(meds); });
         window.apiCall = vi.fn(async (endpoint) => {
-            if (typeof endpoint === 'string' && endpoint.startsWith('/api/history')) {
-                return [{ id: 'intake-7-x', medication_id: 7, scheduled_at: missedAt.toISOString(), status: 'PENDING', snoozed_until: null }];
+            if (typeof endpoint === 'string' && endpoint.startsWith('/api/doses')) {
+                return [{ occId: 'intake-7-x', medId: 7, name: 'Losartan', plannedAt: missedAt.toISOString(), state: 'due' }];
             }
             if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) return null;
             return [];

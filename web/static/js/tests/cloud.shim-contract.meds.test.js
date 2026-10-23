@@ -11,6 +11,7 @@ import {
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { createApiRouter } from '../../../cloud/js/apishim.js';
 import { createIntakeDomain } from '../../../domain/medintake.js';
+import { computeReminderHorizon } from '../../../domain/reminders.js';
 
 // Fake rxnorm port (Task 8: "warning alert (fake rxnorm port)") — the real
 // browser impl does live RxNav fetches (Task 6); tests substitute a
@@ -375,7 +376,9 @@ describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintak
         const call = routerWith({
             medication: [seedMed()],
             intake: [{
-                recordId: 'intake-1-x',
+                // The real deterministic slot id: the projection matches a
+                // stored row to its forecast slot by exact id (bd med-wi09.1).
+                recordId: `intake-1-${Date.UTC(2026, 7, 16, 23, 0) / 1000}`,
                 clientTs: NOW,
                 deleted: false,
                 medication_id: 1,
@@ -551,5 +554,155 @@ describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
         const row = (await records.list('intake'))[0];
         expect(row.status).toBe('TAKEN');
         expect(row.clientTs).toBe(confirmed.clientTs);
+    });
+});
+
+// bd med-wi09.1 — one occurrence projection. Every reader of "which doses
+// exist and what state are they in" reads GET /api/doses' projection, so on one
+// vault state they cannot disagree. The fixture carries every case the old
+// readers split on: a stuck past PENDING, a snoozed row, a tombstone, a tz_step
+// and a manual log.
+describe('one occurrence projection — every reader agrees (bd med-wi09.1)', () => {
+    const TZ = 'UTC';
+    const NOW = Date.UTC(2026, 7, 16, 12, 0); // 12:00 UTC, Aug 16
+    const HOUR = 3600_000;
+    const at = (h, day = 16) => Date.UTC(2026, 7, day, h, 0);
+    const iso = (ms) => new Date(ms).toISOString();
+    const slotId = (medId, ms) => `intake-${medId}-${ms / 1000}`;
+    const med = (recordId, name, schedule) => ({
+        recordId,
+        clientTs: 1,
+        deleted: false,
+        name,
+        dosage: '10mg',
+        schedule: JSON.stringify(schedule),
+        archived: false,
+        start_date: null,
+        end_date: null,
+        inventory_count: null,
+        tz_shift_policy: 'strict',
+        created_at: '2026-01-01T00:00:00.000Z'
+    });
+    const intake = (recordId, medId, ms, extra = {}) => ({
+        recordId,
+        clientTs: 1,
+        deleted: false,
+        medication_id: medId,
+        scheduled_at: iso(ms),
+        taken_at: null,
+        status: 'PENDING',
+        snoozed_until: null,
+        source: 'schedule',
+        ...extra
+    });
+    const STEP_NOTE = 'Losartan: step 1/1 — 09:00 old / 14:00 new';
+    const seedRecords = () => ({
+        medication: [
+            med(1, 'Metformin', { type: 'daily', times: ['08:00', '20:00'] }),
+            med(2, 'Losartan', { type: 'daily', times: ['09:00'] }),
+            med(3, 'Ibuprofen', { type: 'as_needed' })
+        ],
+        intake: [
+            // Stuck past PENDING: the 08:00 dose nobody acted on.
+            intake(slotId(1, at(8)), 1, at(8)),
+            // Snoozed past its slot, snooze still running.
+            intake(slotId(2, at(9)), 2, at(9), { snoozed_until: iso(NOW + 5 * 60_000) }),
+            // Tombstone: tonight's Metformin was deleted on purpose.
+            intake(slotId(1, at(20)), 1, at(20), { deleted: true }),
+            // Manual log of an as-needed med.
+            intake(`intake-manual-${at(10)}-1`, 3, at(10), { status: 'TAKEN', taken_at: iso(at(10)) })
+        ],
+        // tz_step: an approved plan moves today's Losartan to 14:00.
+        tzplan: [{
+            recordId: 'tzplan-current',
+            clientTs: 1,
+            deleted: false,
+            old_tz: 'UTC',
+            new_tz: 'Asia/Dubai',
+            status: 'APPROVED',
+            created_at: '2026-08-15T00:00:00.000Z',
+            steps: [{
+                medicationId: 2, medName: 'Losartan', stepNumber: 1, totalSteps: 1, scheduledAtMs: at(14), note: STEP_NOTE
+            }]
+        }]
+    });
+
+    let env;
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv({ seedRecords: seedRecords(), now: () => NOW, timeZone: TZ });
+    });
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+    const call = (path) => env.window.apiCall(path);
+    const range = (fromMs, toMs) => `/api/doses?from=${iso(fromMs)}&to=${iso(toMs)}`;
+
+    it('GET /api/doses: stored rows as-is ∪ future forecast, tombstone hidden, no missed state', async () => {
+        const doses = await call(range(NOW - 24 * HOUR, NOW + 24 * HOUR));
+
+        expect(doses.map((d) => [d.occId, d.medId, d.plannedAt, d.source, d.state])).toEqual([
+            [slotId(1, at(8)), 1, iso(at(8)), 'schedule', 'due'],
+            [slotId(2, at(9)), 2, iso(at(9)), 'schedule', 'snoozed'],
+            [`intake-manual-${at(10)}-1`, 3, iso(at(10)), 'manual', 'taken'],
+            [slotId(2, at(14)), 2, iso(at(14)), 'tz_step', 'upcoming'],
+            // 20:00 Metformin is tombstoned → absent.
+            [slotId(1, at(8, 17)), 1, iso(at(8, 17)), 'schedule', 'upcoming'],
+            [slotId(2, at(9, 17)), 2, iso(at(9, 17)), 'schedule', 'upcoming']
+        ]);
+        expect(doses[0]).toMatchObject({
+            name: 'Metformin', dosage: '10mg', tz: 'UTC', localDate: '2026-08-16', localTime: '08:00'
+        });
+        expect(doses[1].snoozedUntil).toBe(iso(NOW + 5 * 60_000));
+        expect(doses[2].takenAt).toBe(iso(at(10)));
+        expect(doses[3].stepNote).toBe(STEP_NOTE);
+    });
+
+    it('next-intake, upcoming, the badge, history and the reminder horizon read the same rows', async () => {
+        const week = await call(range(NOW - 24 * HOUR, NOW + 7 * 24 * HOUR));
+        const upcomingRows = week.filter((d) => d.state === 'upcoming');
+
+        // Home next-intake: the earliest upcoming cluster — the tz_step, since
+        // the tombstoned 20:00 is not offered.
+        const next = await call('/api/medications/next-intake');
+        expect(next).toEqual({
+            scheduled_at: upcomingRows[0].plannedAt, medication_ids: [2], medication_names: ['Losartan']
+        });
+
+        // Schedule tab upcoming: exactly the projection's upcoming rows.
+        const upcoming = await call('/api/medications/upcoming?days=7');
+        expect(upcoming.map((u) => [u.medication_id, u.scheduled_at]))
+            .toEqual(upcomingRows.map((d) => [d.medId, d.plannedAt]));
+        expect(upcoming[0]).toMatchObject({ source: 'tz_step', step_number: 1, total_steps: 1, note: STEP_NOTE });
+
+        // Meds badge: its own request, its own counter — the stuck PENDING only
+        // (snoozed is not due; the manual log is taken).
+        const badgeRows = await call(env.window.AppNav.dueDosesPath(NOW));
+        expect(env.window.AppNav.countDueDoses(badgeRows)).toBe(1);
+        expect(badgeRows.filter((d) => d.state === 'due').map((d) => d.occId))
+            .toEqual(week.filter((d) => d.state === 'due').map((d) => d.occId));
+
+        // History: the projection's stored half, legacy wire shape, newest first.
+        const history = await call('/api/history?days=1');
+        expect(history.map((h) => [h.id, h.status, h.source])).toEqual([
+            [`intake-manual-${at(10)}-1`, 'TAKEN', 'schedule'],
+            [slotId(2, at(9)), 'PENDING', 'schedule'],
+            [slotId(1, at(8)), 'PENDING', 'schedule']
+        ]);
+        expect(history[1].snoozed_until).toBe(iso(NOW + 5 * 60_000));
+
+        // Reminder horizon: one push per upcoming instant, same instants.
+        const records = env.records;
+        const entries = computeReminderHorizon({
+            medications: await records.list('medication'),
+            intakes: await records.listRaw('intake'),
+            tzPlan: (await records.list('tzplan'))[0],
+            timeZone: TZ,
+            now: NOW
+        }).filter((e) => e.kind === 'medication');
+        const upcomingSlots = [...new Set(upcomingRows.map((d) => Date.parse(d.plannedAt) / 1000))];
+        expect(entries.map((e) => e.fireAtUnix)).toEqual(upcomingSlots);
+        expect(entries[0].medicationIds).toEqual([2]);
+        expect(entries.map((e) => e.fireAtUnix)).not.toContain(at(20) / 1000);
     });
 });

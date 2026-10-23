@@ -368,19 +368,20 @@ describe('Today v2 — Next up', () => {
         expect(stage).toMatch(/padding:\s*\S+ \S+ var\(--wg-tabbar-reserved\);/);
     });
 
-    // Missed = intake state (PENDING past slot, not snoozed ahead) from the
-    // cached 24h history — the Meds badge's rule — never cache timing.
-    it('missed rows come from PENDING history; taken, snoozed and future intakes are not missed', () => {
+    // Missed = the occurrence projection's `due` rows (cached 24h GET
+    // /api/doses) — the Meds badge's read — never cache timing.
+    it('missed rows are the projection\'s due rows; taken, snoozed and upcoming doses are not missed', () => {
+        const dose = (occId, medId, name, plannedAt, state) => ({ occId, medId, name, plannedAt, state });
         const bootstrap = {
             features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
             medications: [{ id: 'm1', name: 'Allopurinol' }, { id: 'm2', name: 'Candecor' }, { id: 'm3', name: 'Metformin' }],
             next_intake: { scheduled_at: at(15, 30), medication_names: ['Metformin'], medication_ids: ['m3'] },
             intake_history: [
-                { id: 'i1', medication_id: 'm1', scheduled_at: at(8, 20), status: 'PENDING' },
-                { id: 'i2', medication_id: 'm2', scheduled_at: at(8, 20), status: 'PENDING' },
-                { id: 'i3', medication_id: 'm1', scheduled_at: at(12, 0), status: 'TAKEN' },
-                { id: 'i4', medication_id: 'm2', scheduled_at: at(13, 0), status: 'PENDING', snoozed_until: at(14, 30) },
-                { id: 'i5', medication_id: 'm3', scheduled_at: at(15, 30), status: 'PENDING' }
+                dose('i1', 'm1', 'Allopurinol', at(8, 20), 'due'),
+                dose('i2', 'm2', 'Candecor', at(8, 20), 'due'),
+                dose('i3', 'm1', 'Allopurinol', at(12, 0), 'taken'),
+                { ...dose('i4', 'm2', 'Candecor', at(13, 0), 'snoozed'), snoozedUntil: at(14, 30) },
+                dose('i5', 'm3', 'Metformin', at(15, 30), 'upcoming')
             ]
         };
         const state = env.aggregate(bootstrap, {}, NOW);
@@ -396,13 +397,31 @@ describe('Today v2 — Next up', () => {
         expect(env.window.showMedicationConfirmModal).toHaveBeenCalledWith(['m1', 'm2'], ['Allopurinol', 'Candecor'], at(8, 20), 'confirm', ['i1', 'i2']);
     });
 
+    // snoozed → due is clock-only: Today left open past the snooze deadline,
+    // with no record change and no refetch, must surface the dose (the Meds
+    // badge re-counts at that deadline too).
+    it('a cached snoozed dose becomes missed once its snooze lapses, with no refetch', () => {
+        const bootstrap = {
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
+            medications: [{ id: 'm2', name: 'Candecor' }],
+            intake_history: [{
+                occId: 'i4', medId: 'm2', name: 'Candecor', plannedAt: at(13, 0), state: 'snoozed', snoozedUntil: at(14, 30)
+            }]
+        };
+        expect(env.aggregate(bootstrap, {}, NOW).missedDoses.value).toEqual([]);
+        const later = new Date(2026, 3, 20, 14, 31);
+        expect(env.aggregate(bootstrap, {}, later).missedDoses.value).toEqual([
+            { scheduledAt: at(13, 0), names: ['Candecor'], ids: ['m2'], intakeIds: ['i4'] }
+        ]);
+    });
+
     it('a dose that just came due is a Take with the sun, not Missed, and never doubles with next_intake', () => {
         const bootstrap = {
             features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
             medications: [{ id: 'm1', name: 'Allopurinol' }, { id: 'm3', name: 'Metformin' }],
             // still the just-passed slot inside its SWR window
             next_intake: { scheduled_at: at(13, 58), medication_names: ['Allopurinol'], medication_ids: ['m1'] },
-            intake_history: [{ id: 'i1', medication_id: 'm1', scheduled_at: at(13, 58), status: 'PENDING' }]
+            intake_history: [{ occId: 'i1', medId: 'm1', name: 'Allopurinol', plannedAt: at(13, 58), state: 'due' }]
         };
         env.render(env.aggregate(bootstrap, {}, NOW), root, { now: NOW });
         expect(nextKinds(root)).toEqual(['med']);
@@ -414,7 +433,7 @@ describe('Today v2 — Next up', () => {
         const bootstrap = {
             features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
             next_intake: { scheduled_at: at(8, 20), medication_names: ['Allopurinol'], medication_ids: ['m1'] },
-            intake_history: [{ id: 'i1', medication_id: 'm1', scheduled_at: at(8, 20), status: 'TAKEN' }]
+            intake_history: [{ occId: 'i1', medId: 'm1', name: 'Allopurinol', plannedAt: at(8, 20), state: 'taken' }]
         };
         env.render(env.aggregate(bootstrap, {}, NOW), root, { now: NOW });
         expect(nextKinds(root)).toEqual([]);

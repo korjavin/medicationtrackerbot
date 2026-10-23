@@ -598,6 +598,18 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
     }, ['medications', 'history']);
 }
 
+// Today's Next up reads the occurrence projection's due rows (today-loader's
+// `doses_due_24h`, GET /api/doses), not a history_* payload — drop the rows a
+// confirm/skip resolves so its Missed line clears before the POST returns.
+async function _applyOptimisticDueClear(isResolved) {
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
+        return { commit: async () => {}, rollback: async () => {} };
+    }
+    return window.DataStore.applyOptimistic('doses_due_24h', (prev) => (Array.isArray(prev)
+        ? prev.filter((row) => !(row && isResolved(row)))
+        : prev), ['history']);
+}
+
 // Prepend a freshly-synthesised log into every cached `history_*` payload
 // whose filter (range + medId) would include it. Used by confirmLogPast where
 // no prior log row exists. `medId` matches the per-med filter; the "0" / "all"
@@ -684,6 +696,8 @@ async function confirmSelectedMedications() {
             return log;
         });
         handles.push(await _applyOptimisticNextIntakeClear(body.scheduled_at, selectedIds));
+        handles.push(await _applyOptimisticDueClear((row) => selectedIntakeIds.indexOf(row.occId) !== -1
+            || (selectedIds.indexOf(row.medId) !== -1 && row.plannedAt === body.scheduled_at)));
 
         let res;
         try {
@@ -765,6 +779,7 @@ async function skipSelectedMedications() {
             return log;
         });
         handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedMedIds));
+        handles.push(await _applyOptimisticDueClear((row) => resolvedIntakeIds.indexOf(row.occId) !== -1));
 
         try {
             for (const intakeId of skipRequests) {

@@ -213,6 +213,129 @@ export function adherencePct(counts, empty = null) {
   return total > 0 ? (taken / total) * 100 : empty;
 }
 
+// ---------------------------------------------------------------------------
+// The occurrence projection (bd med-wi09.1) — the ONE answer to "which doses
+// exist in [fromMs, toMs] and what state is each in". Every reader that used
+// to re-predict around the stored PENDING rows with its own rule (Home's
+// next-intake, the Schedule tab's upcoming + missed buckets, the Meds badge,
+// Today's Next up, the reminder horizon) reads this instead, so they cannot
+// disagree about the same vault state.
+//
+// Union of:
+//   (a) every non-deleted stored intake row in range, as-is: TAKEN/SKIPPED as
+//       recorded; PENDING → snoozed while snoozed_until is ahead, upcoming while
+//       its slot is ahead, else due; an `intake-manual-*` row is source manual.
+//   (b) the current forecast (forecastDosesWithTzPlan), future instants only,
+//       for every slot with no stored row at its exact deterministic id. A
+//       tombstoned id is hidden — that dose was dropped on purpose.
+// No `missed` state and no threshold (epic med-wi09): a due dose stays due
+// until the user acts; "overdue" is a label the UI may put on it.
+// ponytail: the forecast half is future-only — a past slot with no stored row
+// (the ≤60 s before the materializer's next sweep, or a day the app was never
+// opened) is not shown. Phase 2 (med-wi09.12) regenerates the past from the cut.
+//
+// Inputs are raw records: `medications` live (deleted filtered by the caller),
+// `intakes` RAW with tombstones (recordsPort.listRaw). `forecast: false` skips
+// (b) — the history view reads stored rows only. Rows sorted by
+// (plannedAt, medId); stored rows keep their stored ISO strings verbatim.
+const MAX_FORECAST_DAYS = 30;
+
+export function projectOccurrences({
+  medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
+} = {}) {
+  const medById = new Map(medications.map((m) => [m.recordId ?? m.id, m]));
+  const stepByKey = new Map();
+  if (tzPlan && tzPlan.status === 'APPROVED' && Array.isArray(tzPlan.steps)) {
+    for (const s of tzPlan.steps) stepByKey.set(`${s.medicationId}-${s.scheduledAtMs}`, s);
+  }
+  const occupied = new Set(intakes.map((i) => String(i.recordId)));
+
+  function row({ occId, medId, plannedMs, plannedAt, source, state }) {
+    const med = medById.get(medId);
+    const p = localDateTimeParts(plannedMs, timeZone);
+    const out = {
+      occId,
+      medId,
+      name: med ? med.name : '',
+      dosage: med ? (med.dosage || '') : '',
+      plannedAt,
+      tz: timeZone,
+      localDate: `${p.year}-${pad2(p.month)}-${pad2(p.day)}`,
+      localTime: `${pad2(p.hour)}:${pad2(p.minute)}`,
+      source,
+      state,
+    };
+    if (source === 'tz_step') {
+      const step = stepByKey.get(`${medId}-${plannedMs}`);
+      if (step) {
+        out.stepNumber = step.stepNumber;
+        out.totalSteps = step.totalSteps;
+        if (step.note) out.stepNote = step.note;
+      }
+    }
+    return out;
+  }
+
+  const out = [];
+  for (const i of intakes) {
+    if (i.deleted) continue;
+    const ms = Date.parse(i.scheduled_at);
+    if (!(ms >= fromMs && ms <= toMs)) continue;
+    let state;
+    if (i.status === 'TAKEN') state = 'taken';
+    else if (i.status === 'SKIPPED') state = 'skipped';
+    else if (i.snoozed_until && Date.parse(i.snoozed_until) > nowMs) state = 'snoozed';
+    else state = ms > nowMs ? 'upcoming' : 'due';
+    let source = i.source === 'tz_step' ? 'tz_step' : 'schedule';
+    if (typeof i.recordId === 'string' && i.recordId.startsWith(MANUAL_ID_PREFIX)) source = 'manual';
+    const r = row({
+      occId: i.recordId, medId: i.medication_id, plannedMs: ms, plannedAt: i.scheduled_at, source, state,
+    });
+    if (i.taken_at) r.takenAt = i.taken_at;
+    if (i.snoozed_until) r.snoozedUntil = i.snoozed_until;
+    out.push(r);
+  }
+
+  if (forecast && toMs > nowMs) {
+    const days = Math.min(MAX_FORECAST_DAYS, Math.ceil((Math.min(toMs, nowMs + MAX_FORECAST_DAYS * DAY_MS) - nowMs) / DAY_MS));
+    const targets = forecastDosesWithTzPlan({
+      medications: medications.map((m) => ({ ...m, id: m.recordId ?? m.id })), timeZone, now: nowMs, days, tzPlan,
+    });
+    for (const t of targets) {
+      if (t.scheduledAtMs < fromMs || t.scheduledAtMs > toMs) continue;
+      const id = slotId(t.medicationId, t.scheduledAtMs);
+      if (occupied.has(id) || !medById.has(t.medicationId)) continue;
+      out.push(row({
+        occId: id,
+        medId: t.medicationId,
+        plannedMs: t.scheduledAtMs,
+        plannedAt: new Date(t.scheduledAtMs).toISOString(),
+        source: t.source === 'tz_step' ? 'tz_step' : 'schedule',
+        state: 'upcoming',
+      }));
+    }
+  }
+
+  return out.sort((a, b) => (Date.parse(a.plannedAt) - Date.parse(b.plannedAt))
+    || String(a.medId).localeCompare(String(b.medId), undefined, { numeric: true }));
+}
+
+// The stored intake wire shape (toResponse) read back off a stored projection
+// row — the inverse of projectOccurrences' state mapping, so /api/history is a
+// view over the projection rather than a second reading of the records.
+function historyResponse(r) {
+  const resp = {
+    id: r.occId,
+    medication_id: r.medId,
+    scheduled_at: r.plannedAt,
+    status: r.state === 'taken' ? 'TAKEN' : r.state === 'skipped' ? 'SKIPPED' : 'PENDING',
+    source: r.source === 'tz_step' ? 'tz_step' : 'schedule',
+  };
+  if (r.takenAt) resp.taken_at = r.takenAt;
+  if (r.snoozedUntil) resp.snoozed_until = r.snoozedUntil;
+  return resp;
+}
+
 // createIntakeDomain builds the intake state-machine API over the injected
 // ports:
 //   records — { list(type), put(type, record), putIfAbsent(type, record),
@@ -250,6 +373,26 @@ export function createIntakeDomain({ records, now, timeZone }) {
 
   async function putIntake(intake) {
     await records.put(INTAKE_RECORD_TYPE, intake);
+  }
+
+  // projectOccurrences over the current vault. RAW intakes (tombstones hide
+  // their forecast slot); a port without listRaw (pure-domain test doubles)
+  // degrades to live rows only.
+  async function project({ fromMs, toMs, forecast = true } = {}) {
+    const [meds, intakes, tzPlan] = await Promise.all([
+      loadMeds(),
+      records.listRaw ? records.listRaw(INTAKE_RECORD_TYPE) : records.list(INTAKE_RECORD_TYPE),
+      loadActiveTzPlan(),
+    ]);
+    const rows = projectOccurrences({
+      medications: meds, intakes, tzPlan, timeZone, nowMs: now(), fromMs, toMs, forecast,
+    });
+    return { meds, rows };
+  }
+
+  // GET /api/doses — the projection itself.
+  async function occurrences({ fromMs, toMs } = {}) {
+    return (await project({ fromMs, toMs })).rows;
   }
 
   // Best-effort, matching the server's DecrementInventory calls: a null/
@@ -642,31 +785,23 @@ export function createIntakeDomain({ records, now, timeZone }) {
   }
 
   // Ported from computeNextIntakeData: nearest not-yet-handled dose cluster
-  // (±10min) in the next 12h. Returns null (204-equivalent) when none.
+  // (±10min) in the next 12h. Returns null (204-equivalent) when none. A view
+  // over the projection's upcoming rows (bd med-wi09.1).
   async function nextIntake() {
-    const meds = await loadMeds();
-    const intakes = await loadIntakes();
     const nowMs = now();
-    const tzPlan = await loadActiveTzPlan();
-
-    const targets = planDosesWithTzPlan({
-      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: NEXT_INTAKE_FORECAST_MS, tzPlan,
-    });
+    const { meds, rows } = await project({ fromMs: nowMs, toMs: nowMs + NEXT_INTAKE_FORECAST_MS });
 
     let nextTimeMs = null;
     let nextMeds = [];
-    for (const t of targets) {
-      const existing = intakes.find((i) => i.medication_id === t.medicationId
-        && Date.parse(i.scheduled_at) === t.scheduledAtMs);
-      if (existing && (existing.status === 'TAKEN' || existing.status === 'SKIPPED')) continue;
-
-      const med = meds.find((m) => m.recordId === t.medicationId);
+    for (const r of rows) {
+      if (r.state !== 'upcoming') continue;
+      const med = meds.find((m) => m.recordId === r.medId);
       if (!med) continue;
-
-      if (nextTimeMs === null || t.scheduledAtMs < nextTimeMs) {
-        nextTimeMs = t.scheduledAtMs;
+      const ms = Date.parse(r.plannedAt);
+      if (nextTimeMs === null || ms < nextTimeMs) {
+        nextTimeMs = ms;
         nextMeds = [med];
-      } else if (Math.abs(t.scheduledAtMs - nextTimeMs) <= CLUSTER_WINDOW_MS) {
+      } else if (Math.abs(ms - nextTimeMs) <= CLUSTER_WINDOW_MS && !nextMeds.includes(med)) {
         nextMeds.push(med);
       }
     }
@@ -689,45 +824,34 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // the naive device-local bucketing this replaces is exactly the bug.
   // tz-plan step rows also carry step_number/total_steps/note so the UI can
   // label them and show buildNote's explanation (bd med-gut.2).
+  // A view over the projection's upcoming rows (bd med-wi09.1), wire shape
+  // unchanged.
   async function upcomingDoses({ days = UPCOMING_FORECAST_DAYS } = {}) {
-    const meds = await loadMeds();
-    const intakes = await loadIntakes();
     const nowMs = now();
-    const tzPlan = await loadActiveTzPlan();
-
-    const targets = forecastDosesWithTzPlan({
-      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, days, tzPlan,
-    });
+    const { meds, rows } = await project({ fromMs: nowMs, toMs: nowMs + days * DAY_MS });
 
     const byId = new Map(meds.map((m) => [m.recordId, m]));
     const today = localDateTimeParts(nowMs, timeZone);
     const todayUtc = Date.UTC(today.year, today.month - 1, today.day);
 
     const out = [];
-    for (const t of targets) {
-      const med = byId.get(t.medicationId);
-      if (!med) continue;
-      // Same already-handled filter as nextIntake: a confirmed or skipped slot
-      // is not "upcoming" any more.
-      const existing = intakes.find((i) => i.medication_id === t.medicationId
-        && Date.parse(i.scheduled_at) === t.scheduledAtMs);
-      if (existing && (existing.status === 'TAKEN' || existing.status === 'SKIPPED')) continue;
-
-      const p = localDateTimeParts(t.scheduledAtMs, timeZone);
+    for (const r of rows) {
+      if (r.state !== 'upcoming' || !byId.has(r.medId)) continue;
+      const [y, mo, d] = r.localDate.split('-').map(Number);
       const row = {
-        medication_id: t.medicationId,
-        med_name: med.name,
-        dosage: med.dosage || '',
-        scheduled_at: new Date(t.scheduledAtMs).toISOString(),
-        local_date: `${p.year}-${pad2(p.month)}-${pad2(p.day)}`,
-        local_time: `${pad2(p.hour)}:${pad2(p.minute)}`,
-        day_offset: Math.round((Date.UTC(p.year, p.month - 1, p.day) - todayUtc) / DAY_MS),
-        source: t.source === 'tz_step' ? 'tz_step' : 'schedule',
+        medication_id: r.medId,
+        med_name: r.name,
+        dosage: r.dosage,
+        scheduled_at: new Date(Date.parse(r.plannedAt)).toISOString(),
+        local_date: r.localDate,
+        local_time: r.localTime,
+        day_offset: Math.round((Date.UTC(y, mo - 1, d) - todayUtc) / DAY_MS),
+        source: r.source === 'tz_step' ? 'tz_step' : 'schedule',
       };
-      if (t.source === 'tz_step') {
-        row.step_number = t.stepNumber;
-        row.total_steps = t.totalSteps;
-        if (t.note) row.note = t.note;
+      if (r.source === 'tz_step') {
+        row.step_number = r.stepNumber;
+        row.total_steps = r.totalSteps;
+        if (r.stepNote) row.note = r.stepNote;
       }
       out.push(row);
     }
@@ -735,17 +859,16 @@ export function createIntakeDomain({ records, now, timeZone }) {
   }
 
   // Ported from handleListHistory (GET /api/history?days&med_id):
-  // newest-first, same row shape, capped at 100.
+  // newest-first, same row shape, capped at 100. The projection's stored half.
   async function history({ days = 3, medId = 0 } = {}) {
-    const intakes = await loadIntakes();
     const nowMs = now();
-    const since = days > 0 ? nowMs - days * 24 * 60 * 60 * 1000 : null;
-    return intakes
-      .filter((i) => (medId ? i.medication_id === medId : true))
-      .filter((i) => (since === null ? true : Date.parse(i.scheduled_at) >= since))
-      .sort((a, b) => Date.parse(b.scheduled_at) - Date.parse(a.scheduled_at))
+    const fromMs = days > 0 ? nowMs - days * DAY_MS : -Infinity;
+    const { rows } = await project({ fromMs, forecast: false });
+    return rows
+      .filter((r) => (medId ? r.medId === medId : true))
+      .reverse()
       .slice(0, 100)
-      .map(toResponse);
+      .map(historyResponse);
   }
 
   // Uncapped, windowed intake log for composite analysis — mirrors the Go
@@ -791,6 +914,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
     deleteFutureIntakes,
     triggerNextIntake,
     nextIntake,
+    occurrences,
     upcomingDoses,
     history,
     listWindow,
