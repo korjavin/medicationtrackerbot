@@ -56,6 +56,22 @@
           "note": "pharmacy refill",
           "restocked_at": "2026-07-01T10:00:00Z"
         }
+      ],
+      "schedules": [
+        {
+          "id": "medsched-1-1780300800-base",
+          "medication_id": 1,
+          "schedule": "{\"type\":\"daily\",\"times\":[\"08:00\"]}",
+          "tz_shift_policy": "flexible",
+          "from": "2026-06-01T08:00:00Z"
+        },
+        {
+          "id": "medsched-1-1781980200-k3v9q2xa",
+          "medication_id": 1,
+          "schedule": "{\"type\":\"daily\",\"times\":[\"09:00\"]}",
+          "tz_shift_policy": "flexible",
+          "from": "2026-06-20T18:30:00Z"
+        }
       ]
     },
     "bp": {
@@ -557,6 +573,33 @@
               "note": "shift to target"
             }
           ]
+        }
+      ],
+      "transitions": [
+        {
+          "id": "tztransition-1777636800-p7c2m4ws",
+          "old_tz": "Europe/London",
+          "new_tz": "America/New_York",
+          "switch_at": "2026-05-01T12:00:00Z",
+          "steps": [],
+          "boundary": null
+        },
+        {
+          "id": "tztransition-1777714200-b8n1x6te",
+          "old_tz": "America/New_York",
+          "new_tz": "Europe/Berlin",
+          "switch_at": "2026-05-02T09:30:00Z",
+          "steps": [
+            {
+              "medication_id": 1,
+              "med_name": "Lisinopril",
+              "step_number": 1,
+              "total_steps": 1,
+              "scheduled_at": "2026-05-03T08:00:00Z",
+              "note": "shift 1h later"
+            }
+          ],
+          "boundary": null
         }
       ]
     },

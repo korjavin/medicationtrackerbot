@@ -39,16 +39,50 @@ var ErrClaimInvalid = errors.New("cloudstore: invalid or expired claim token")
 // claim token there would let a fresh passkey be enrolled onto a live account.
 var ErrAlreadyClaimed = errors.New("cloudstore: account already claimed")
 
-// ErrTransferSlotInvalid is returned by ClaimTransferSlot when the slot does
-// not exist, was already fetched, or has expired. Callers must not
-// distinguish these cases in responses (all map to 410 Gone).
-var ErrTransferSlotInvalid = errors.New("cloudstore: invalid, expired, or already-claimed transfer slot")
+// ErrTransferSlotInvalid is returned by the transfer-slot methods when the
+// slot does not exist (never created, deleted, redeemed) or has expired.
+// Callers must not distinguish these cases in responses.
+var ErrTransferSlotInvalid = errors.New("cloudstore: invalid or expired transfer slot")
 
-// Transfer-slot states reported by TransferSlotStatus.
+// ErrTransferSlotState is returned by a transfer-slot transition when the slot
+// exists but is not in the state the transition starts from (a second claim,
+// an approve before reveal, ...).
+var ErrTransferSlotState = errors.New("cloudstore: transfer slot is not in the required state")
+
+// ErrTransferSlotExists is returned by CreateTransferSlot when the
+// client-derived slot id (a hash of the transfer key) is already taken — a
+// client reusing a transfer key.
+var ErrTransferSlotExists = errors.New("cloudstore: transfer slot id already exists")
+
+// Transfer-slot states (protocol v2, docs/cloud-crypto.md "Path B"):
+// pending -> claimed -> revealed -> approved -> enrolled. Deletion (Deny,
+// Cancel, revoke, expiry) is valid from every state.
 const (
-	TransferSlotPending = "pending"
-	TransferSlotClaimed = "claimed"
+	TransferSlotPending  = "pending"
+	TransferSlotClaimed  = "claimed"
+	TransferSlotRevealed = "revealed"
+	TransferSlotApproved = "approved"
+	TransferSlotEnrolled = "enrolled"
 )
+
+// TransferSlot is one device-transfer slot. Every byte field is a value the
+// server relays but cannot use (public keys, MACs under keys it never sees,
+// AEAD ciphertext); it validates states and immutability only.
+type TransferSlot struct {
+	ID                  string
+	AccountID           string
+	State               string
+	EnrollmentTokenHash []byte
+	Commit              []byte
+	NPub                []byte
+	MacN                []byte
+	Platform            string
+	OPub                []byte
+	MacO                []byte
+	CT                  []byte
+	ConfN               []byte
+	ExpiresAt           time.Time
+}
 
 // ErrShareLinkExists is returned by CreateShareLink when the generated id
 // collides with an existing share_links primary key. The HTTP layer retries
@@ -108,6 +142,9 @@ type Credential struct {
 	BackupState    bool
 	CreatedAt      time.Time
 	LastAssertedAt *time.Time
+	// Platform is the coarse label (web|android|ios) of a device enrolled
+	// through a v2 transfer; empty for every other credential.
+	Platform string
 }
 
 // Envelope is one row in the envelopes table — opaque ciphertext keyed by
@@ -640,7 +677,7 @@ func (r *Repo) AddCredential(ctx context.Context, cred Credential) error {
 // CredentialsByAccount returns every credential registered for an account.
 func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Credential, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, last_asserted_at_unix FROM credentials WHERE account_id = ?`,
+		`SELECT id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, last_asserted_at_unix, platform FROM credentials WHERE account_id = ?`,
 		accountID)
 	if err != nil {
 		return nil, err
@@ -654,10 +691,12 @@ func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Cr
 			signCount      int64
 			createdUnix    int64
 			lastAssertedAt sql.NullInt64
+			platform       sql.NullString
 		)
-		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &c.BackupEligible, &c.BackupState, &createdUnix, &lastAssertedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &c.BackupEligible, &c.BackupState, &createdUnix, &lastAssertedAt, &platform); err != nil {
 			return nil, err
 		}
+		c.Platform = platform.String
 		c.SignCount = uint32(signCount)
 		c.CreatedAt = storedb.UnixToTime(createdUnix)
 		c.LastAssertedAt = storedb.NullableUnixToTimePtr(lastAssertedAt)
@@ -734,6 +773,13 @@ func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID strin
 				return err
 			}
 		}
+		// A revoked device must not be able to finish a hand-off it started or
+		// approved: kill its unfinished transfer slots in the same tx.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM transfer_slots WHERE account_id = ? AND approving_credential_id = ? AND state != 'enrolled'`,
+			accountID, credentialID); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM envelopes WHERE account_id = ? AND credential_ref = ?`, accountID, credRef)
 		return err
 	})
@@ -799,46 +845,140 @@ func (r *Repo) ListEnvelopes(ctx context.Context, accountID string) ([]Envelope,
 	return envelopes, rows.Err()
 }
 
-// CreateTransferSlot inserts a new device-transfer slot: ct is the DEK
-// encrypted client-side under the transfer key (TK), which never reaches the
-// server. enrollmentTokenHash gates the eventual passkey registration on the
-// new device (see ClaimTransferSlot + the register/begin|finish gate).
-func (r *Repo) CreateTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash, ct []byte, createdAt, expiresAt time.Time) error {
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, accountID, enrollmentTokenHash, ct, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
-	return err
+// CreateTransferSlot inserts a new pending device-transfer slot (protocol v2,
+// docs/cloud-crypto.md "Path B"). id is derived by the origin from the
+// transfer key (base64url(SHA-256(TK))[:22]); the server stores the id, never
+// TK. commit is SHA-256 of the origin's ephemeral
+// ECDH public key, which the origin posts only later at reveal. No ciphertext
+// is stored until approve. enrollmentTokenHash is a non-null placeholder that
+// the claim replaces. approvingCredentialID is the origin session's credential,
+// so revoking it kills the slot (DeleteCredentialWithEnvelope). The insert is
+// conditional on that credential still existing — in the same statement, so a
+// revocation committing after the request passed RequireSession cannot be
+// followed by a slot its cascade never saw (ErrSourceCredentialRevoked).
+func (r *Repo) CreateTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash, commit, approvingCredentialID []byte, createdAt, expiresAt time.Time) error {
+	result, err := r.db.ExecContext(ctx,
+		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, state, commit_hash, approving_credential_id)
+		 SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?
+		 WHERE EXISTS (SELECT 1 FROM credentials WHERE id = ? AND account_id = ?)`,
+		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt), commit, approvingCredentialID,
+		approvingCredentialID, accountID)
+	if err != nil {
+		var sqlErr *sqlite.Error
+		if errors.As(err, &sqlErr) && (sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY) {
+			return ErrTransferSlotExists
+		}
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrSourceCredentialRevoked
+	}
+	return nil
 }
 
-// TransferSlotStatus reports whether accountID's slot is still pending or has
-// already been claimed. Scoped to accountID on purpose: a slot id must never be
-// a status oracle for whoever holds the QR code, only for the device that
-// created it. An unknown, expired, or other-account slot is indistinguishable —
-// all three return ErrTransferSlotInvalid (med-tuv).
-func (r *Repo) TransferSlotStatus(ctx context.Context, slotID, accountID string, now time.Time) (string, error) {
-	var fetched int
+// GetTransferSlot returns accountID's unexpired slot. Scoped to accountID (the
+// request host's account) so a slot id is never readable on another
+// account's subdomain. Unknown, expired, deleted, and other-account slots all
+// return ErrTransferSlotInvalid.
+func (r *Repo) GetTransferSlot(ctx context.Context, slotID, accountID string, now time.Time) (*TransferSlot, error) {
+	var (
+		s           TransferSlot
+		platform    sql.NullString
+		expiresUnix int64
+	)
 	err := r.db.QueryRowContext(ctx,
-		`SELECT fetched FROM transfer_slots WHERE id = ? AND account_id = ? AND expires_at_unix > ?`,
-		slotID, accountID, storedb.TimeToUnix(now)).Scan(&fetched)
+		`SELECT id, account_id, state, enrollment_token_hash, commit_hash, n_pub, mac_n, platform, o_pub, mac_o, ct, conf_n, expires_at_unix
+		   FROM transfer_slots WHERE id = ? AND account_id = ? AND expires_at_unix > ?`,
+		slotID, accountID, storedb.TimeToUnix(now)).Scan(
+		&s.ID, &s.AccountID, &s.State, &s.EnrollmentTokenHash, &s.Commit, &s.NPub, &s.MacN, &platform, &s.OPub, &s.MacO, &s.CT, &s.ConfN, &expiresUnix)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrTransferSlotInvalid
+		return nil, ErrTransferSlotInvalid
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if fetched != 0 {
-		return TransferSlotClaimed, nil
+	s.Platform = platform.String
+	s.ExpiresAt = storedb.UnixToTime(expiresUnix)
+	return &s, nil
+}
+
+// advanceTransferSlot moves accountID's unexpired slot from one state to the
+// next, setting the given columns, in a single UPDATE guarded by the from-state
+// — so two concurrent transitions cannot both succeed and a set column (n_pub,
+// o_pub, ...) is written exactly once, which is the server-side immutability
+// the protocol relies on. guard (optional) is an extra WHERE clause checked in
+// the same statement. Returns ErrTransferSlotInvalid if the slot is gone,
+// ErrTransferSlotState if it is in any other state, and
+// ErrSourceCredentialRevoked if only the guard failed.
+func (r *Repo) advanceTransferSlot(ctx context.Context, slotID, accountID, from, to string, now time.Time, set string, setArgs []any, guard string, guardArgs ...any) error {
+	query := `UPDATE transfer_slots SET state = ?, ` + set + ` WHERE id = ? AND account_id = ? AND state = ? AND expires_at_unix > ?` + guard
+	all := append([]any{to}, setArgs...)
+	all = append(all, slotID, accountID, from, storedb.TimeToUnix(now))
+	all = append(all, guardArgs...)
+	result, err := r.db.ExecContext(ctx, query, all...)
+	if err != nil {
+		return err
 	}
-	return TransferSlotPending, nil
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 1 {
+		return nil
+	}
+	slot, err := r.GetTransferSlot(ctx, slotID, accountID, now)
+	if err != nil {
+		return err
+	}
+	if slot.State == from && guard != "" {
+		return ErrSourceCredentialRevoked
+	}
+	return ErrTransferSlotState
+}
+
+// ClaimTransferSlot moves a pending slot to claimed, storing the new device's
+// ephemeral public key, platform label and TK-keyed MAC (immutable from here)
+// plus the hash of the claim token that later authorizes the new device's
+// approved poll and its passkey registration.
+func (r *Repo) ClaimTransferSlot(ctx context.Context, slotID, accountID string, claimTokenHash, nPub, macN []byte, platform string, now time.Time) error {
+	return r.advanceTransferSlot(ctx, slotID, accountID, TransferSlotPending, TransferSlotClaimed, now,
+		`enrollment_token_hash = ?, n_pub = ?, mac_n = ?, platform = ?, fetched = 1`, []any{claimTokenHash, nPub, macN, platform}, "")
+}
+
+// RevealTransferSlot moves a claimed slot to revealed, storing the origin's
+// ephemeral public key and TK-keyed MAC. Nothing secret is released here.
+func (r *Repo) RevealTransferSlot(ctx context.Context, slotID, accountID string, oPub, macO []byte, now time.Time) error {
+	return r.advanceTransferSlot(ctx, slotID, accountID, TransferSlotClaimed, TransferSlotRevealed, now,
+		`o_pub = ?, mac_o = ?`, []any{oPub, macO}, "")
+}
+
+// ApproveTransferSlot moves a revealed slot to approved, storing the DEK
+// ciphertext (wrapped under a key only the claimed receiver can derive) and the
+// credential that approved it. Both the slot's current approving credential
+// (the opener's) and the new one must still exist, checked in the same UPDATE:
+// a revocation of either that commits mid-request either deleted the slot
+// already or makes this fail with ErrSourceCredentialRevoked — it can never
+// leave an approved slot tagged with a revoked credential.
+func (r *Repo) ApproveTransferSlot(ctx context.Context, slotID, accountID string, ct, approvingCredentialID []byte, now time.Time) error {
+	return r.advanceTransferSlot(ctx, slotID, accountID, TransferSlotRevealed, TransferSlotApproved, now,
+		`ct = ?, approving_credential_id = ?`, []any{ct, approvingCredentialID},
+		` AND EXISTS (SELECT 1 FROM credentials c WHERE c.id = transfer_slots.approving_credential_id AND c.account_id = transfer_slots.account_id)
+		  AND EXISTS (SELECT 1 FROM credentials c WHERE c.id = ? AND c.account_id = transfer_slots.account_id)`,
+		approvingCredentialID)
 }
 
 // DeleteTransferSlot invalidates a slot server-side, scoped to accountID.
 // Returns ErrTransferSlotInvalid when nothing matched, so a Cancel that
 // silently deleted nothing cannot report success.
 //
-// Deliberately deletes a FETCHED slot too: cancelling after someone has already
-// claimed the code cannot un-enroll their device (that is what Revoke is for),
-// but leaving the row behind serves no purpose either.
+// Valid from every state: before approve nothing has been released, so Deny /
+// Cancel is complete; after approve it drops the stored ciphertext and kills
+// the enrollment token; after enrollment it cannot un-enroll the device (that
+// is what Revoke is for), but leaving the row behind serves no purpose either.
 func (r *Repo) DeleteTransferSlot(ctx context.Context, slotID, accountID string) error {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM transfer_slots WHERE id = ? AND account_id = ?`, slotID, accountID)
@@ -855,65 +995,39 @@ func (r *Repo) DeleteTransferSlot(ctx context.Context, slotID, accountID string)
 	return nil
 }
 
-// ClaimTransferSlot atomically marks a transfer slot fetched — single use,
-// enforced by the UPDATE's WHERE clause plus a RowsAffected check rather than
-// a SELECT-then-UPDATE, so two concurrent claims can't both succeed. On
-// success it also rotates the slot's enrollment token to newTokenHash (the
-// fresh token that authorizes the new device's registration) and returns the
-// account id + ciphertext for the caller to hand back to the new device.
-// Returns ErrTransferSlotInvalid if the slot is unknown, already fetched, or
-// expired.
-func (r *Repo) ClaimTransferSlot(ctx context.Context, slotID string, newTokenHash []byte, now time.Time) (accountID string, ct []byte, err error) {
-	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
-		result, txErr := tx.ExecContext(ctx,
-			`UPDATE transfer_slots SET fetched = 1, enrollment_token_hash = ? WHERE id = ? AND fetched = 0 AND expires_at_unix > ?`,
-			newTokenHash, slotID, storedb.TimeToUnix(now))
-		if txErr != nil {
-			return txErr
-		}
-		n, txErr := result.RowsAffected()
-		if txErr != nil {
-			return txErr
-		}
-		if n == 0 {
-			return ErrTransferSlotInvalid
-		}
-		return tx.QueryRowContext(ctx, `SELECT account_id, ct FROM transfer_slots WHERE id = ?`, slotID).Scan(&accountID, &ct)
-	})
-	if err != nil {
-		return "", nil, err
-	}
-	return accountID, ct, nil
-}
-
-// ValidEnrollmentToken reports whether tokenHash matches the current,
-// claimed (fetched=1), unexpired transfer slot for accountID — the state a
-// slot is in after ClaimTransferSlot and before its enrollment token is
-// redeemed. Checked at register/begin so a bad token fails before the
-// WebAuthn ceremony starts; the atomic consume happens at RedeemTransferToken.
-func (r *Repo) ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error) {
+// ValidEnrollmentToken reports whether tokenHash matches an approved,
+// unexpired transfer slot for accountID — the only state whose token
+// authorizes a registration (a claimed-but-unapproved slot's token is inert).
+// Checked at register/begin so a bad token fails before the WebAuthn ceremony
+// starts; the atomic consume happens at RedeemTransferToken. A v2 transfer
+// slot (commit_hash set) additionally requires the new device's key
+// confirmation (hasConfN) — the origin's final check depends on it; recovery
+// slots and pre-v2 rows have no commit and need none.
+func (r *Repo) ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, hasConfN bool, now time.Time) (bool, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND fetched = 1 AND expires_at_unix > ?`,
-		accountID, tokenHash, storedb.TimeToUnix(now)).Scan(&count)
+		`SELECT COUNT(*) FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND state = 'approved' AND expires_at_unix > ? AND (commit_hash IS NULL OR ?)`,
+		accountID, tokenHash, storedb.TimeToUnix(now), hasConfN).Scan(&count)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
 }
 
-// RedeemTransferToken atomically consumes a claimed transfer slot's
-// enrollment token and persists the new device's credential + DEK envelope in
-// one transaction — mirroring ClaimAndAddCredential's rationale: a
-// mid-registration failure must not strand the slot half-consumed, nor leave
-// a credential with no envelope to unwrap its DEK from. Returns
-// ErrTransferSlotInvalid if the token doesn't match a claimed, unexpired slot
-// for accountID.
-func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred Credential, env Envelope, now time.Time) error {
+// RedeemTransferToken atomically consumes an approved transfer slot's
+// enrollment token (approved -> enrolled, ciphertext dropped, conf_n stored for
+// the origin's final poll) and persists the new device's credential (carrying
+// the slot's platform label) + DEK envelope in one transaction — mirroring
+// ClaimAndAddCredential's rationale: a mid-registration failure must not
+// strand the slot half-consumed, nor leave a credential with no envelope to
+// unwrap its DEK from. Returns ErrTransferSlotInvalid if the token doesn't
+// match an approved, unexpired slot for accountID (so a duplicate finish, or a
+// finish after DELETE/expiry, fails).
+func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenHash, confN []byte, cred Credential, env Envelope, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		result, err := tx.ExecContext(ctx,
-			`DELETE FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND fetched = 1 AND expires_at_unix > ?`,
-			accountID, tokenHash, storedb.TimeToUnix(now))
+			`UPDATE transfer_slots SET state = 'enrolled', ct = ?, conf_n = ? WHERE account_id = ? AND enrollment_token_hash = ? AND state = 'approved' AND expires_at_unix > ? AND (commit_hash IS NULL OR ?)`,
+			[]byte{}, confN, accountID, tokenHash, storedb.TimeToUnix(now), len(confN) > 0)
 		if err != nil {
 			return err
 		}
@@ -924,9 +1038,15 @@ func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenH
 		if n != 1 {
 			return ErrTransferSlotInvalid
 		}
+		var platform sql.NullString
+		if err := tx.QueryRowContext(ctx,
+			`SELECT platform FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND state = 'enrolled'`,
+			accountID, tokenHash).Scan(&platform); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, platform) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt), platform); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx,
@@ -969,14 +1089,13 @@ func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID
 // SweepExpiredTransferSlots deletes expired slots, called opportunistically on
 // every transfer API request rather than from a background job (ponytail: slot
 // volume is trivial; add a ticker only if that stops being true). It must NOT
-// delete claimed (fetched=1) slots on any other basis than expiry: a claimed
-// slot still holds the live enrollment token that ValidEnrollmentToken /
-// RedeemTransferToken need between ClaimTransferSlot and register/finish. Since
-// the sweep is global (not account-scoped) and runs on every account's
-// transfer/claim/recover request, deleting fetched slots eagerly would let one
-// account's request wipe another's in-progress enrollment. Redeemed slots are
-// deleted explicitly by RedeemTransferToken; unredeemed claimed slots expire
-// via their TTL and get reaped here on expiry.
+// delete slots on any other basis than expiry: an approved slot still holds
+// the live enrollment token that ValidEnrollmentToken / RedeemTransferToken
+// need until register/finish, and an enrolled slot holds the conf_n the
+// origin's final poll reads. Since the sweep is global (not account-scoped)
+// and runs on every account's transfer/claim/recover request, deleting slots
+// eagerly would let one account's request wipe another's in-progress
+// enrollment. Every slot, in any state, is reaped here once its TTL passes.
 func (r *Repo) SweepExpiredTransferSlots(ctx context.Context, now time.Time) (int, error) {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM transfer_slots WHERE expires_at_unix < ?`, storedb.TimeToUnix(now))
@@ -1160,8 +1279,10 @@ func (r *Repo) VerifyRecoveryAttempt(ctx context.Context, accountID string, veri
 // kinds, no second gate. ct is empty: recovery has no transfer ciphertext of
 // its own, the DEK comes from the "recovery" envelope instead.
 func (r *Repo) CreateClaimedTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash []byte, createdAt, expiresAt time.Time) error {
+	// state 'approved' is the only state ValidEnrollmentToken accepts; a
+	// recovery redemption is already the owner's approval.
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, fetched) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, fetched, state) VALUES (?, ?, ?, ?, ?, ?, 1, 'approved')`,
 		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
 	return err
 }

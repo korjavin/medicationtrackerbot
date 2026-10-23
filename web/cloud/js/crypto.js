@@ -221,6 +221,183 @@ export async function decryptTransferPayload(tk, packed, accountId) {
   return aesGcmDecrypt(tk, nonce, ct, aad);
 }
 
+// ---- Path B protocol v2 (epic med-r1j2; docs/cloud-crypto.md "Path B") ----
+// Shared by the origin screen (transfer.js) and the new device (/claim). The
+// server holds none of these values except slot id, commit, public keys, MACs
+// and ct, and validates no MAC. Framing is encodeFields (uint16-BE length ‖
+// bytes); every byte layout below is the wire contract between the two
+// devices, so changing one is a protocol version bump.
+
+export const TRANSFER_TK_BYTES = 16;
+// Typed fallback: TK as a big-endian base-26 number, 28 letters A–Z
+// (26^28 > 2^128), shown in 3-letter groups. Letters only, so it can't be
+// confused with the 6-digit match code.
+const TRANSFER_CODE_LETTERS = 28;
+const TWO_128 = 1n << 128n;
+
+function bytesToBigInt(bytes) {
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
+  return n;
+}
+
+function bigIntToBytes(n, length) {
+  const out = new Uint8Array(length);
+  for (let i = length - 1; i >= 0; i--) {
+    out[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
+  return out;
+}
+
+async function sha256(bytes) {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+}
+
+async function hmacSha256(key, data) {
+  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, data));
+}
+
+export function generateTransferKey() {
+  return crypto.getRandomValues(new Uint8Array(TRANSFER_TK_BYTES));
+}
+
+// slot = base64url(SHA-256(TK))[:22] — the server stores the id, never TK.
+export async function transferSlotId(tk) {
+  return toBase64Url(await sha256(tk)).slice(0, 22);
+}
+
+// 'KXR QDW BMT LPA ZRE HNV CUG YSF TJO W'
+export function encodeTransferCode(tk) {
+  let n = bytesToBigInt(tk);
+  let letters = '';
+  for (let i = 0; i < TRANSFER_CODE_LETTERS; i++) {
+    letters = String.fromCharCode(65 + Number(n % 26n)) + letters;
+    n /= 26n;
+  }
+  return letters.match(/.{1,3}/g).join(' ');
+}
+
+// Accepts the code with or without separators, in any case. Throws on
+// anything that isn't exactly 28 letters encoding a 16-byte TK.
+export function decodeTransferCode(str) {
+  const letters = String(str).replace(/[\s.\-·]/g, '').toUpperCase();
+  if (!/^[A-Z]{28}$/.test(letters)) throw new Error('invalid transfer code');
+  let n = 0n;
+  for (const ch of letters) n = n * 26n + BigInt(ch.charCodeAt(0) - 65);
+  if (n >= TWO_128) throw new Error('invalid transfer code');
+  return bigIntToBytes(n, TRANSFER_TK_BYTES);
+}
+
+// P-256 public keys travel compressed (33 bytes). WebCrypto exports raw keys
+// uncompressed, and compressed import isn't universal, so (de)compression is
+// done here; importKey on the uncompressed point still validates the curve.
+const P256_P = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
+const P256_B = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn;
+
+function modPow(base, exp, mod) {
+  let result = 1n;
+  base %= mod;
+  while (exp > 0n) {
+    if (exp & 1n) result = (result * base) % mod;
+    base = (base * base) % mod;
+    exp >>= 1n;
+  }
+  return result;
+}
+
+function decompressP256(pub) {
+  if (!(pub instanceof Uint8Array) || pub.length !== 33 || (pub[0] !== 2 && pub[0] !== 3)) {
+    throw new Error('invalid public key');
+  }
+  const x = bytesToBigInt(pub.subarray(1));
+  if (x >= P256_P) throw new Error('invalid public key');
+  const rhs = (((x * x * x - 3n * x + P256_B) % P256_P) + P256_P) % P256_P;
+  let y = modPow(rhs, (P256_P + 1n) / 4n, P256_P); // p ≡ 3 (mod 4)
+  if ((y * y) % P256_P !== rhs) throw new Error('invalid public key');
+  if (Number(y & 1n) !== (pub[0] & 1)) y = P256_P - y;
+  const out = new Uint8Array(65);
+  out[0] = 4;
+  out.set(pub.subarray(1), 1);
+  out.set(bigIntToBytes(y, 32), 33);
+  return out;
+}
+
+// Ephemeral ECDH P-256 key pair; privateKey is non-extractable.
+export async function generateTransferKeyPair() {
+  const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+  const pub = new Uint8Array(33);
+  pub[0] = 2 | (raw[64] & 1);
+  pub.set(raw.subarray(1, 33), 1);
+  return { privateKey: pair.privateKey, pub };
+}
+
+// commit = SHA-256(o_pub)
+export function transferCommit(oPub) {
+  return sha256(oPub);
+}
+
+// T = "wg-transfer-v2" ‖ accountId ‖ slot ‖ platform ‖ commit ‖ n_pub ‖ o_pub
+// (accountId = the account subdomain, the one name both devices know before
+// approval).
+export function transferTranscript({ accountId, slot, platform, commit, nPub, oPub }) {
+  return encodeFields('wg-transfer-v2', accountId, slot, platform, commit, nPub, oPub);
+}
+
+// mac_n = HMAC-SHA256(TK, "claim" ‖ accountId ‖ slot ‖ platform ‖ commit ‖ n_pub)
+export function transferClaimMac(tk, { accountId, slot, platform, commit, nPub }) {
+  return hmacSha256(tk, encodeFields('claim', accountId, slot, platform, commit, nPub));
+}
+
+// mac_o = HMAC-SHA256(TK, "reveal" ‖ T)
+export function transferRevealMac(tk, transcript) {
+  return hmacSha256(tk, encodeFields('reveal', transcript));
+}
+
+// Constant-time check of a received MAC against the expected one.
+export async function verifyTransferMac(expected, received) {
+  return received instanceof Uint8Array && timingSafeEqual(await expected, received);
+}
+
+// K = HKDF-Extract(salt = SHA-256(T), ECDH(priv, peer)); sas / K_wrap /
+// K_conf = HKDF-Expand(K, "sas" | "wrap" | "confirm"). WebCrypto's HKDF is
+// extract-then-expand, so each label is one HKDF call over the same ikm+salt.
+// sas = first 8 expanded bytes (big-endian) mod 10^6, zero-padded to 6 digits.
+export async function deriveTransferKeys(privateKey, peerPub, transcript) {
+  const peer = await crypto.subtle.importKey('raw', decompressP256(peerPub), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, privateKey, 256));
+  const salt = await sha256(transcript);
+  const [sasBytes, kWrap, kConf] = await Promise.all([
+    hkdf(shared, salt, utf8('sas'), 8),
+    hkdf(shared, salt, utf8('wrap')),
+    hkdf(shared, salt, utf8('confirm')),
+  ]);
+  const sas = String(bytesToBigInt(sasBytes) % 1000000n).padStart(6, '0');
+  return { sas, kWrap, kConf };
+}
+
+// ct = nonce(12) ‖ AES-256-GCM(K_wrap, DEK, aad = T)
+export async function wrapTransferDek(kWrap, dek, transcript) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await aesGcmEncrypt(kWrap, nonce, dek, transcript);
+  const packed = new Uint8Array(nonce.length + ct.length);
+  packed.set(nonce, 0);
+  packed.set(ct, nonce.length);
+  return packed;
+}
+
+// Throws (AEAD failure) on a tampered ct, a wrong key or a different T.
+export function unwrapTransferDek(kWrap, packed, transcript) {
+  return aesGcmDecrypt(kWrap, packed.slice(0, 12), packed.slice(12), transcript);
+}
+
+// conf_n = HMAC-SHA256(K_conf, "n-confirm" ‖ T)
+export function transferConfirmMac(kConf, transcript) {
+  return hmacSha256(kConf, encodeFields('n-confirm', transcript));
+}
+
 // Blind workout-share short link (bd med-1yi5): the sender's p1 token string
 // as UTF-8, AES-GCM under a fresh 16-byte key K, packed nonce ‖ ciphertext
 // exactly like the transfer payload above. AAD is the bare constant string

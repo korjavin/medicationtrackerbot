@@ -56,6 +56,35 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect('trackers' in recordsToVault(vaultToRecords(legacy, { now: NOW }), { now: NOW }).data).toBe(false);
   });
 
+  // bd med-wi09.9: history rows keep their recordId; a file without them (any
+  // older backup, the frozen bot export) imports none and re-exports without
+  // the keys; they never count as user content.
+  it('carries schedule and zone history by id; older files import without it (med-wi09.9)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const of = (type) => records.filter((r) => r.recordType === type);
+    expect(of('medsched').map((r) => r.recordId)).toEqual(fixture.data.medications.schedules.map((s) => s.id));
+    const [, approved] = of('tztransition');
+    expect(approved.recordId).toBe('tztransition-1777714200-b8n1x6te');
+    expect(approved.steps[0]).toMatchObject({ medicationId: 1, scheduledAtMs: Date.parse('2026-05-03T08:00:00Z') });
+
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.medications.schedules;
+    delete legacy.data.tz.transitions;
+    const legacyRecords = vaultToRecords(legacy, { now: NOW });
+    expect(legacyRecords.some((r) => r.recordType === 'medsched' || r.recordType === 'tztransition')).toBe(false);
+    const back = recordsToVault(legacyRecords, { now: NOW }).data;
+    expect('schedules' in back.medications).toBe(false);
+    expect('transitions' in back.tz).toBe(false);
+    expect(hasUserContent(of('medsched').concat(of('tztransition')))).toBe(false);
+    expect(vaultToRecords(botExport, { now: NOW }).some((r) => r.recordType === 'medsched')).toBe(false);
+
+    // The store is keyed by recordId alone: a foreign id would overwrite
+    // another type's row, so it fails before the destructive replace.
+    const bad = JSON.parse(JSON.stringify(fixture));
+    bad.data.tz.transitions[0].id = 'settings';
+    expect(() => vaultToRecords(bad, { now: NOW })).toThrow(/Corrupt backup/);
+  });
+
   // bd med-ta2n.4: a restored backup remembers its last backup and dismissals;
   // a file without the block leaves this device's state alone.
   it('carries the W4 protection state; an older file imports none and keeps the destination record', () => {
@@ -200,6 +229,9 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       delete d.trackers;
       // So is the W4 nudge state (med-ta2n.4).
       delete d.protection;
+      // And the schedule / zone history (med-wi09.9).
+      delete d.medications.schedules;
+      delete d.tz.transitions;
       // Gyms are cloud-only too (med-8j5w.1): the locations list, the
       // active-gym singleton and the per-session stamp.
       if (d.workouts) {
