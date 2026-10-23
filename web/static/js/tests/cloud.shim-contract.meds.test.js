@@ -500,6 +500,32 @@ describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
         expect(applyIncoming(bodyA, bodyB)).toBe(bodyA);
     });
 
+    // bd med-wi09.16 — a string med recordId against numeric intake ids (imported
+    // vault) must still match: no duplicate slot, no missing name.
+    it('string med recordId vs numeric intake medication_id: no duplicate, name resolved', async () => {
+        const records = createInMemoryRecordsPort({
+            medication: [{ ...med(), recordId: '1' }],
+            intake: [{
+                recordId: SLOT_ID,
+                clientTs: Date.UTC(2026, 7, 16, 7, 0),
+                deleted: false,
+                medication_id: 1,
+                scheduled_at: new Date(SLOT_MS).toISOString(),
+                taken_at: null,
+                status: 'PENDING',
+                snoozed_until: null,
+                source: 'schedule'
+            }]
+        });
+        const domain = domainOver(records, () => NOW);
+        expect(await domain.materializeDueDoses()).toEqual([]);
+        await domain.triggerNextIntake();
+        const rows = await records.list('intake');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].status).toBe('TAKEN');
+        expect((await domain.listWindow())[0].medication_name).toBe('Metformin');
+    });
+
     it('a deleteFutureIntakes tombstone keeps the slot deleted once it comes due', async () => {
         const records = createInMemoryRecordsPort({
             medication: [med()],
