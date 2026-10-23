@@ -155,16 +155,16 @@ class MainActivity : Activity() {
     private var pushAllowed = false
 
     /**
-     * Native push (bd med-erq1.5, Push.kt): document event wg:native-push {kind} on the account
-     * page whose vault is unlocked (cloud-boot's MedTrackerCloud.ctx; /unlock and a failed load have
-     * none). A wake ('inbox-wake', 'dry-queue') goes in only while this activity is in front;
-     * done(false) tells Push to post the notification instead. 'token' whenever such a page is open.
+     * Native push (bd med-erq1.5, Push.kt): cancelable document event wg:native-push {kind} on the
+     * account page. A wake ('inbox-wake', 'dry-queue') goes in only while this activity is in front;
+     * done(true) only when a listener cancelled it (NativePush.onWake's receipt, installed by
+     * cloud-boot after unlock; twin of iOS Push.swift, bd med-erq1.10), else Push posts the
+     * notification. 'token' whenever an account page is open; it has no fallback.
      */
     fun pushEvent(kind: String, done: (Boolean) -> Unit = {}) {
         if (local || !showingAccount || loadFailed || (kind != "token" && !resumed)) return done(false)
         web.evaluateJavascript(
-            "(function(){if(!(window.MedTrackerCloud&&window.MedTrackerCloud.ctx))return false;" +
-                "document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:${JSONObject.quote(kind)}}}));return true})()"
+            "!document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:${JSONObject.quote(kind)}},cancelable:true}))"
         ) { done(it == "true") }
     }
 
