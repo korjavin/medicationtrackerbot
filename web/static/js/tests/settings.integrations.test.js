@@ -362,6 +362,9 @@ describe('Settings → Integrations section', () => {
         expect(loadTelegramModule).toHaveBeenCalledTimes(1);
         expect(mountTelegram).toHaveBeenCalledTimes(1);
         expect(mountTelegram.mock.calls[0][0]).toBe(document.getElementById('telegram-settings-mount'));
+        // med-ta2n.18 regression: cloud never gets the local sync offer.
+        expect(document.querySelector('#telegram-settings-mount [data-offer-card]')).toBeNull();
+        expect(document.getElementById('integrations-telegram-row').hidden).toBe(true); // until telegram.js stamps a state
 
         // Repeated calls shouldn't trigger another mount
         await window.SettingsIntegrations.load();
@@ -373,19 +376,92 @@ describe('Settings → Integrations section', () => {
 
     // med-4mva: local mode has no Telegram server; mounting telegram.js there
     // fetched /api/telegram/status straight off the shell's origin (404).
-    it('does not mount Telegram in local mode', async () => {
-        const { window, document } = env;
-        document.documentElement.classList.add('wg-local-vault');
-        const loadTelegramModule = vi.fn(() => Promise.resolve({ mountTelegram: vi.fn() }));
-        window.SettingsIntegrations._setTelegramLoader(loadTelegramModule);
-        window.SettingsIntegrations._resetTelegramMounted();
-        window.apiCall = vi.fn(async () => ({}));
+    // med-ta2n.18: instead, the row says "Needs sync" and the page is a sync
+    // offer whose Turn on sync takes W5's branch (invite waiting → P3, else
+    // the Sync & backup page) — still with no telegram.js and no /api/telegram/*.
+    describe('local mode', () => {
+        let loadTelegramModule;
+        let fetchSpy;
+        beforeEach(() => {
+            const { window, document } = env;
+            document.documentElement.classList.add('wg-local-vault');
+            loadTelegramModule = vi.fn(() => Promise.resolve({ mountTelegram: vi.fn() }));
+            window.SettingsIntegrations._setTelegramLoader(loadTelegramModule);
+            window.SettingsIntegrations._resetTelegramMounted();
+            window.apiCall = vi.fn(async () => ({}));
+            fetchSpy = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+            window.fetch = fetchSpy;
+        });
+        afterEach(() => { env.document.documentElement.classList.remove('wg-local-vault'); });
 
-        await window.SettingsIntegrations.load();
-        await new Promise(r => setTimeout(r, 0));
+        const telegramRequests = () => [
+            ...env.window.apiCall.mock.calls.map(([u]) => String(u)),
+            ...fetchSpy.mock.calls.map(([u]) => String(u)),
+        ].filter((u) => u.includes('/api/telegram'));
 
-        expect(loadTelegramModule).not.toHaveBeenCalled();
-        expect(document.getElementById('integrations-telegram-row').hidden).toBe(true);
+        it('never mounts telegram.js; the row shows "Needs sync" and the page renders the offer', async () => {
+            const { window, document } = env;
+            window.InviteSheet = { pending: vi.fn(async () => null), base: vi.fn(async () => 'app.example.com'), offer: vi.fn() };
+            await window.SettingsIntegrations.load();
+            await window.SettingsIntegrations.load();
+            await new Promise(r => setTimeout(r, 0));
+
+            expect(loadTelegramModule).not.toHaveBeenCalled();
+            const row = document.getElementById('integrations-telegram-row');
+            expect(row.hidden).toBe(false);
+            expect(row.querySelector('[data-settings-summary="telegram"]').textContent).toBe('Needs sync');
+            window.SettingsIntegrations.syncTelegramRow(); // every Settings summary refresh runs it
+            expect(row.hidden).toBe(false);
+            expect(row.querySelector('[data-settings-summary="telegram"]').textContent).toBe('Needs sync');
+
+            const page = window.SettingsView.openSettingsPage('telegram');
+            const mount = page.el.querySelector('#telegram-settings-mount');
+            expect(mount.querySelectorAll('[data-offer-card]')).toHaveLength(1); // a second load() repaints nothing
+            expect(mount.querySelector('.wg-eyebrow').textContent).toBe('Telegram');
+            expect(mount.textContent).toMatch(/Do almost everything from your messenger/);
+            expect(mount.textContent).toMatch(/passes through Telegram and our relay as plain text/);
+            expect(mount.textContent).not.toMatch(/nothing leaves/i);
+            expect(mount.querySelectorAll('.wg-facts li')).toHaveLength(4);
+            const how = mount.querySelector('[data-action="telegram-invite-how"]');
+            expect(how.hidden).toBe(false);
+            expect(how.getAttribute('href')).toBe('https://app.example.com/');
+            page.close();
+            expect(telegramRequests()).toEqual([]);
+        });
+
+        it('Turn on sync opens the Sync & backup page when no invite is waiting', async () => {
+            const { window, document } = env;
+            window.InviteSheet = { pending: vi.fn(async () => null), base: vi.fn(async () => ''), offer: vi.fn() };
+            await window.SettingsIntegrations.load();
+            const page = window.SettingsView.openSettingsPage('telegram');
+            expect(page.el.querySelector('[data-action="telegram-invite-how"]').hidden).toBe(true); // no base
+            page.el.querySelector('[data-action="telegram-turn-on-sync"]').click();
+            await vi.waitFor(() => expect(document.querySelector('.wg-settings-pages [data-settings-page="backup"]')).toBeNull());
+            expect(document.getElementById('importexport-sync-group')).not.toBeNull();
+            expect(window.InviteSheet.offer).not.toHaveBeenCalled();
+            expect(telegramRequests()).toEqual([]);
+        });
+
+        it('Turn on sync opens P3 when an invite is waiting in the shell slot', async () => {
+            const { window } = env;
+            const invite = 'https://abc.app.example.com/#claim=0a1b2c';
+            window.InviteSheet = { pending: vi.fn(async () => invite), base: vi.fn(async () => ''), offer: vi.fn() };
+            await window.SettingsIntegrations.load();
+            const page = window.SettingsView.openSettingsPage('telegram');
+            page.el.querySelector('[data-action="telegram-turn-on-sync"]').click();
+            await vi.waitFor(() => expect(window.InviteSheet.offer).toHaveBeenCalledWith(invite, { kit: true }));
+            page.close();
+        });
+
+        it('the Notifications page hint routes to Turn on sync too', async () => {
+            const { window, document } = env;
+            window.InviteSheet = { pending: vi.fn(async () => null), base: vi.fn(async () => ''), offer: vi.fn() };
+            const hint = document.getElementById('local-notify-telegram-sync');
+            expect(hint.closest('.wg-local-only')).not.toBeNull(); // CSS-gated: local mode only
+            expect(hint.parentElement.textContent).toBe('Want reminders in Telegram too? Turn on sync.');
+            hint.click();
+            await vi.waitFor(() => expect(document.querySelector('.wg-settings-pages [data-settings-page="backup"]')).toBeNull());
+        });
     });
 
     it('hides the trial hints when no trial meta flags are injected (server mode / no trial envs)', async () => {

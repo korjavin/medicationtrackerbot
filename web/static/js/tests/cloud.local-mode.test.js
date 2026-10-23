@@ -943,6 +943,22 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(bridge).not.toHaveBeenCalledWith('invite.pending');
     });
 
+    // bd med-ta2n.18: Telegram is a sync feature — the row sells it and Turn
+    // on sync opens the W5 page; telegram.js never loads, nothing leaves.
+    it('Telegram row: "Needs sync", the offer page, Turn on sync → Sync & backup, with no request off the device', async () => {
+        const { window, document } = env;
+        await window.SettingsIntegrations.load();
+        const row = document.getElementById('integrations-telegram-row');
+        expect(row.hidden).toBe(false);
+        expect(row.textContent).toMatch(/Needs sync/);
+        const page = window.SettingsView.openSettingsPage('telegram');
+        expect(page.el.textContent).toMatch(/Do almost everything from your messenger/);
+        page.el.querySelector('[data-action="telegram-turn-on-sync"]').click();
+        await vi.waitFor(() => expect(document.querySelector('.wg-settings-pages [data-settings-page="backup"]')).toBeNull());
+        expect(fetched.filter((u) => u.includes('/api/telegram'))).toEqual([]);
+        expect(offDevice()).toEqual([]);
+    });
+
     // bd med-ta2n.6 — F1 "Have an invite?" (features/invite.js), opened by the
     // W1 footer's wg:invite-open. Paste reads window.Clipboard, Scan decodes
     // window.Barcode frames (both stubbed); a valid invite becomes the claim URL
