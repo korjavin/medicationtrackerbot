@@ -30,7 +30,8 @@ const (
 
 // transferTokenHeader carries the claim token on the new device's polls: only
 // the device that claimed the slot receives the ciphertext and the enrollment
-// token once the slot is approved.
+// token once the slot is approved. It is poller identification, not the
+// security boundary: ct is decryptable only with the claimant's n_priv.
 const transferTokenHeader = "X-Transfer-Token"
 
 // transferUpgradeMessage is what an older (protocol v1) client gets instead
@@ -187,7 +188,7 @@ type claimTransferRequest struct {
 
 type claimTransferResponse struct {
 	Status string `json:"status"`
-	// ClaimToken authenticates this device's polls (X-Transfer-Token). It is
+	// ClaimToken identifies this device's polls (X-Transfer-Token). It is
 	// the slot's enrollment token, inert until the owner approves: the
 	// approved poll hands it back as enrollment_token.
 	ClaimToken string `json:"claim_token"`

@@ -165,7 +165,7 @@ func wantCode(t *testing.T, what string, rec *httptest.ResponseRecorder, want in
 func driveToApproved(t *testing.T, h http.Handler, host string, session *http.Cookie) (string, string) {
 	t.Helper()
 	slotID := createSlot(t, h, host, session)
-	token := mustClaimToken(t,claimSlot(t, h, host, slotID))
+	token := mustClaimToken(t, claimSlot(t, h, host, slotID))
 	wantCode(t, "reveal", revealSlot(t, h, host, slotID, session), http.StatusNoContent)
 	wantCode(t, "approve", approveSlot(t, h, host, slotID, session), http.StatusNoContent)
 	return slotID, token
@@ -198,7 +198,7 @@ func TestTransferV2_FullLifecycle(t *testing.T) {
 		t.Fatalf("pending poll = %d %+v", code, poll)
 	}
 
-	token := mustClaimToken(t,claimSlot(t, h, host, slotID))
+	token := mustClaimToken(t, claimSlot(t, h, host, slotID))
 
 	code, origin := originSlot(t, h, host, slotID, session)
 	if code != http.StatusOK || origin.Status != "claimed" || origin.Platform != "android" ||
@@ -276,7 +276,7 @@ func TestTransferV2_IllegalTransitions(t *testing.T) {
 	wantCode(t, "reveal from pending", revealSlot(t, h, host, slotID, session), http.StatusConflict)
 	wantCode(t, "approve from pending", approveSlot(t, h, host, slotID, session), http.StatusConflict)
 
-	mustClaimToken(t,claimSlot(t, h, host, slotID))
+	mustClaimToken(t, claimSlot(t, h, host, slotID))
 	wantCode(t, "second claim", claimSlot(t, h, host, slotID), http.StatusConflict)
 	wantCode(t, "approve from claimed", approveSlot(t, h, host, slotID, session), http.StatusConflict)
 
@@ -323,7 +323,7 @@ func TestTransferV2_RejectsMalformedValues(t *testing.T) {
 	} {
 		wantCode(t, name, transferReq(t, h, http.MethodPost, host, "/api/transfer/"+slotID+"/claim", body, nil, ""), http.StatusBadRequest)
 	}
-	mustClaimToken(t,claimSlot(t, h, host, slotID))
+	mustClaimToken(t, claimSlot(t, h, host, slotID))
 	wantCode(t, "short o_pub", transferReq(t, h, http.MethodPost, host, "/api/transfer/"+slotID+"/reveal", revealTransferRequest{OPub: testOPub[:5], MacO: testMacO}, session, ""), http.StatusBadRequest)
 	wantCode(t, "reveal", revealSlot(t, h, host, slotID, session), http.StatusNoContent)
 	wantCode(t, "empty ct", transferReq(t, h, http.MethodPost, host, "/api/transfer/"+slotID+"/approve", approveTransferRequest{}, session, ""), http.StatusBadRequest)
@@ -350,7 +350,7 @@ func TestTransferV2_OldClientsGetUpgradeRequired(t *testing.T) {
 		t.Fatalf("v1 claim body = %q", v1Claim.Body.String())
 	}
 	// The v1 attempt consumed nothing: the real device can still claim.
-	mustClaimToken(t,claimSlot(t, h, host, slotID))
+	mustClaimToken(t, claimSlot(t, h, host, slotID))
 }
 
 // Deny / Cancel = DELETE, from every state. After it the poller gets 410 and a
@@ -361,7 +361,7 @@ func TestTransferV2_DeleteFromEveryState(t *testing.T) {
 
 	t.Run("after claim", func(t *testing.T) {
 		slotID := createSlot(t, h, host, session)
-		token := mustClaimToken(t,claimSlot(t, h, host, slotID))
+		token := mustClaimToken(t, claimSlot(t, h, host, slotID))
 		wantCode(t, "delete", transferReq(t, h, http.MethodDelete, host, "/api/transfer/"+slotID, nil, session, ""), http.StatusNoContent)
 		if code, _ := pollSlot(t, h, host, slotID, token); code != http.StatusGone {
 			t.Fatalf("poll after delete = %d, want 410", code)
@@ -483,6 +483,53 @@ func TestTransferV2_RevokedCredentialCannotCreateOrApprove(t *testing.T) {
 	}
 }
 
+// Release of ct + enrollment token is gated on state = approved, never on ct
+// being non-empty: ct holds an empty-blob placeholder before approve, so a
+// "ct present" check would be the wrong gate in both directions.
+func TestTransferV2_ReleaseGatedOnStateNotCT(t *testing.T) {
+	store, db := setupStoreWithDB(t)
+	account, invite := setupInvite(t, store)
+	mux := http.NewServeMux()
+	NewWebAuthnAPI(store, testSessionSecret).RegisterRoutes(mux)
+	NewTransferAPI(store, testSessionSecret).RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	host := account.Subdomain + ".localhost"
+	session := registerAndGetSession(t, h, host, invite)
+	setCT := func(slotID string, ct []byte) {
+		t.Helper()
+		if _, err := db.ExecContext(t.Context(), `UPDATE transfer_slots SET ct = ? WHERE id = ?`, ct, slotID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A non-empty ct in a pre-approve state releases nothing.
+	for _, reveal := range []bool{false, true} {
+		slotID := createSlot(t, h, host, session)
+		token := mustClaimToken(t, claimSlot(t, h, host, slotID))
+		if reveal {
+			wantCode(t, "reveal", revealSlot(t, h, host, slotID, session), http.StatusNoContent)
+		}
+		setCT(slotID, testCT)
+		if _, poll := pollSlot(t, h, host, slotID, token); poll.CT != nil || poll.EnrollmentToken != "" || poll.AccountID != "" {
+			t.Fatalf("%s slot with ct set leaked: %+v", poll.Status, poll)
+		}
+		if _, _, code := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token, ConfN: testConfN}); code != http.StatusForbidden {
+			t.Fatalf("register/begin on unapproved slot with ct set = %d, want 403", code)
+		}
+	}
+
+	// An approved slot whose ct is the empty placeholder still releases the
+	// enrollment token to the claimant: the gate is the state.
+	slotID, token := driveToApproved(t, h, host, session)
+	setCT(slotID, []byte{})
+	if _, poll := pollSlot(t, h, host, slotID, token); poll.Status != "approved" || poll.EnrollmentToken != token || poll.AccountID != account.ID {
+		t.Fatalf("approved slot with empty ct = %+v, want enrollment token released", poll)
+	}
+	if _, _, code := beginRegistrationWith(t, h, host, registerBeginRequest{EnrollmentToken: token, ConfN: testConfN}); code != http.StatusOK {
+		t.Fatalf("register/begin on approved slot with empty ct = %d, want 200", code)
+	}
+}
+
 // Expiry in any state behaves like DELETE.
 func TestTransferV2_ExpiryInEveryState(t *testing.T) {
 	h, store, account, invite := newTestTransferHandlerWithStore(t)
@@ -505,7 +552,9 @@ func TestTransferV2_ExpiryInEveryState(t *testing.T) {
 				t.Fatal(err)
 			}
 			steps := []func() error{
-				func() error { return store.ClaimTransferSlot(ctx, slotID, account.ID, tokenHash, testNPub, testMacN, "web", past) },
+				func() error {
+					return store.ClaimTransferSlot(ctx, slotID, account.ID, tokenHash, testNPub, testMacN, "web", past)
+				},
 				func() error { return store.RevealTransferSlot(ctx, slotID, account.ID, testOPub, testMacO, past) },
 				func() error { return store.ApproveTransferSlot(ctx, slotID, account.ID, testCT, credID, past) },
 			}
@@ -547,9 +596,9 @@ func TestTransferV2_RevokeKillsApproversUnfinishedSlots(t *testing.T) {
 
 	pending := createSlot(t, h, host, second)
 	claimed := createSlot(t, h, host, second)
-	mustClaimToken(t,claimSlot(t, h, host, claimed))
+	mustClaimToken(t, claimSlot(t, h, host, claimed))
 	revealed := createSlot(t, h, host, second)
-	mustClaimToken(t,claimSlot(t, h, host, revealed))
+	mustClaimToken(t, claimSlot(t, h, host, revealed))
 	wantCode(t, "reveal", revealSlot(t, h, host, revealed, second), http.StatusNoContent)
 	approved, _ := driveToApproved(t, h, host, second)
 	enrolled, token := driveToApproved(t, h, host, second)
@@ -595,5 +644,5 @@ func TestTransferV2_OtherAccountLearnsNothing(t *testing.T) {
 	}
 	wantCode(t, "claim on another account's host", claimSlot(t, h, attackerHost, victimSlot), http.StatusGone)
 	wantCode(t, "DELETE another account's slot (no oracle)", transferReq(t, h, http.MethodDelete, attackerHost, "/api/transfer/"+victimSlot, nil, attackerSession, ""), http.StatusNoContent)
-	mustClaimToken(t,claimSlot(t, h, victimHost, victimSlot))
+	mustClaimToken(t, claimSlot(t, h, victimHost, victimSlot))
 }

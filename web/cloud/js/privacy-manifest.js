@@ -230,7 +230,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'user-initiated',
     activationNote: 'only when you add a device with a code from another device',
     byo: 'n/a',
-    evidence: ['internal/cloudserver/transfer.go:41', 'internal/cloudserver/device.go:47'],
+    evidence: ['internal/cloudserver/transfer.go:42', 'internal/cloudserver/device.go:47'],
     code: { go: [], hosts: [] },
     docSignal: 'Device platform label',
     userCopy: {
