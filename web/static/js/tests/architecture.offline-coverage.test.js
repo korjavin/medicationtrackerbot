@@ -49,7 +49,7 @@ const ALLOWLIST = [
     },
     {
         file: 'bootstrap.js',
-        reason: 'post-auth init orchestrator; the only API call is a one-shot POST /api/settings to sync timezone, not a section data read',
+        reason: 'post-auth init orchestrator; its only API calls are the one-shot timezone prompt (GET /api/tz-suggestion/should-prompt, then POST /api/settings or the dismiss), not a section data read',
     },
     {
         file: 'deeplink-router.js',
