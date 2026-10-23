@@ -457,11 +457,14 @@ Reminders stay local notifications (above).
   `unsupported`) → `{platform: "android", token}`, or null without Firebase,
   without the notification grant, or when FCM fails. Diag logs a 4-byte
   SHA-256 fingerprint, never the token.
-- **Page event** `wg:native-push {kind}` on `document`: `token` on
+- **Page event** `wg:native-push {kind}` on `document`, cancelable: `token` on
   `onNewToken` and when notifications become allowed (the page registers
   again); a wake kind only while the activity is in front, on an account
-  page whose vault is unlocked (/unlock or a failed load: the notification
-  instead). The page drains the inbox / refills the horizon (web med-erq1.3).
+  page. A wake counts as taken only when the page cancelled it
+  (`NativePush.onWake`'s listener returned true; cloud-boot.js installs them
+  after unlock) — no listener (/unlock, a failed load or boot) means the
+  notification instead (bd med-erq1.10, twin of iOS #1307). The page drains
+  the inbox / refills the horizon (web med-erq1.3).
 - **Otherwise a notification:** the server sends a notification block with
   the fixed text, which the system shows while the app is in the background
   or killed (Reminders channel, the reminders' icon). A message that reaches
