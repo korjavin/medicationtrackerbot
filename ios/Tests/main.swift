@@ -1,5 +1,5 @@
-// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath, Move and Diag, run by .github/workflows/ios.yml:
-//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift Tests/main.swift -o <bin> && <bin>
+// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath, Move, Diag and BasePost, run by .github/workflows/ios.yml:
+//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -223,6 +223,8 @@ precondition(localOps.contains("leave.take") && localOps.contains("leave.clear")
 // Settings → App lock (bd med-o7zq.39): local mode only, as on Android.
 precondition(localOps.contains("lock.status") && localOps.contains("lock.set"))
 precondition(!accountOps.contains("lock.status") && !accountOps.contains("lock.set"))
+// base.post (bd med-ta2n.26): local only; an account page gets "unsupported: base.post".
+precondition(localOps.contains("base.post") && !accountOps.contains("base.post"))
 print("LocalOrigin.ops: ok")
 
 // Move (bd med-o7zq.35): the stash file's lifecycle.
@@ -266,3 +268,202 @@ let diagLines = diagLog.split(separator: "\n")
 precondition(diagLines.count == Diag.cap && diagLines.first == "T line 51 next" && diagLines.last == "T line \(Diag.cap + 50) next")
 precondition(Diag.append("", String(repeating: "x", count: 5000), base: base, time: "T").count == Diag.maxLine)
 print("Diag: ok")
+
+// BasePost (bd med-ta2n.26, contract med-ta2n.24 A7; twin of Android BasePostTest.kt):
+// against a scripted loopback HTTP/1.1 server on raw sockets. Plain http to
+// 127.0.0.1: a command-line tool has no ATS; the app only ever builds https://.
+signal(SIGPIPE, SIG_IGN)
+
+func loopbackSocket() -> (Int32, Int) {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+    var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+    precondition(withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, len) } } == 0)
+    precondition(withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) } } == 0)
+    return (fd, Int(UInt16(bigEndian: addr.sin_port)))
+}
+
+final class Loopback {
+    struct Request { let path: String; let headers: [String: String]; let body: Data }
+    private let lock = NSLock()
+    private var got: [Request] = []
+    private var script: (Int32, Request) -> Void = { c, _ in Loopback.write(c, Loopback.raw(200)) }
+    private let fd: Int32
+    let port: Int
+
+    var requests: [Request] { lock.lock(); defer { lock.unlock() }; return got }
+    var root: String { "http://127.0.0.1:\(port)" }
+    /// Answers each request: writes to the socket (or stalls); then the server closes it.
+    func respond(_ f: @escaping (Int32, Request) -> Void) { lock.lock(); script = f; lock.unlock() }
+
+    init() {
+        let s = loopbackSocket()
+        fd = s.0
+        port = s.1
+        precondition(listen(fd, 16) == 0)
+        Thread.detachNewThread { [self] in
+            while true {
+                let c = accept(fd, nil, nil)
+                if c < 0 { return }
+                Thread.detachNewThread { self.serve(c) }
+            }
+        }
+    }
+
+    private func serve(_ c: Int32) {
+        defer { close(c) }
+        var buf = Data()
+        var chunk = [UInt8](repeating: 0, count: 65_536)
+        let sep = Data("\r\n\r\n".utf8)
+        while buf.range(of: sep) == nil {
+            let n = read(c, &chunk, chunk.count)
+            if n <= 0 { return }
+            buf.append(contentsOf: chunk[0..<n])
+        }
+        let end = buf.range(of: sep)!
+        let lines = String(decoding: buf[..<end.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
+        var headers: [String: String] = [:]
+        for l in lines.dropFirst() {
+            guard let i = l.firstIndex(of: ":") else { continue }
+            headers[l[..<i].lowercased()] = l[l.index(after: i)...].trimmingCharacters(in: .whitespaces)
+        }
+        var body = Data(buf[end.upperBound...])
+        let want = Int(headers["content-length"] ?? "0") ?? 0
+        while body.count < want {
+            let n = read(c, &chunk, chunk.count)
+            if n <= 0 { break }
+            body.append(contentsOf: chunk[0..<n])
+        }
+        let req = Request(path: lines[0].split(separator: " ").dropFirst().first.map(String.init) ?? "", headers: headers, body: body)
+        lock.lock()
+        got.append(req)
+        let f = script
+        lock.unlock()
+        f(c, req)
+    }
+
+    static func raw(_ status: Int, _ headers: [String] = [], _ body: Data = Data()) -> Data {
+        Data((["HTTP/1.1 \(status) X"] + headers + ["Content-Length: \(body.count)", "Connection: close", "", ""]).joined(separator: "\r\n").utf8) + body
+    }
+
+    static func write(_ c: Int32, _ data: Data) {
+        data.withUnsafeBytes { p in
+            var off = 0
+            while off < data.count {
+                let n = Darwin.write(c, p.baseAddress! + off, data.count - off)
+                if n <= 0 { return }
+                off += n
+            }
+        }
+    }
+}
+
+/// One base.post call, waited for: the first answer, its latency, and how many answers
+/// arrived by `settle` seconds later (exactly once is the contract).
+func post(_ root: String, _ args: [String: Any], timeout: TimeInterval = BasePost.timeout,
+          settle: TimeInterval = 0) -> (reply: BasePost.Reply?, error: String?, answers: Int, took: TimeInterval) {
+    let lock = NSLock()
+    var answers: [(BasePost.Reply?, String?)] = []
+    let first = DispatchSemaphore(value: 0)
+    let start = Date()
+    BasePost.send(root: root, args: args, timeout: timeout) { r, e in
+        lock.lock()
+        answers.append((r, e))
+        lock.unlock()
+        first.signal()
+    }
+    precondition(first.wait(timeout: .now() + 60) == .success, "base.post never answered")
+    let took = Date().timeIntervalSince(start)
+    if settle > 0 { Thread.sleep(forTimeInterval: settle) }
+    lock.lock()
+    defer { lock.unlock() }
+    precondition((answers[0].0 == nil) != (answers[0].1 == nil), "a reply or an error, not both")
+    return (answers[0].0, answers[0].1, answers.count, took)
+}
+
+let server = Loopback()
+// Allowlist: exact string, no query, no normalization; nothing reaches the server.
+let badPaths: [Any?] = ["/api/attest/chat", "/api/invite-requests?x=1", "api/invite-requests", "/api/invite-requests/", nil, 7]
+for p in badPaths {
+    var args: [String: Any] = ["body": "{}"]
+    args["path"] = p
+    precondition(post(server.root, args).error == "invalid path", "\(String(describing: p))")
+}
+precondition(post(server.root, ["path": "/api/invite-requests"]).error == "invalid body")
+precondition(post(server.root, ["path": "/api/invite-requests", "body": 42]).error == "invalid body")
+precondition(post(server.root, ["path": "/api/attest/feedback", "body": String(repeating: "a", count: BasePost.maxBody + 1)]).error == "body too large")
+let badHeaders: [Any] = [
+    ["Cookie": "a=b"], ["Content-Type": "text/plain"], ["x-attest-key-id": "k"],
+    ["X-Attest-Key-Id": String(repeating: "a", count: 9 * 1024)], ["X-Attest-Key-Id": 1],
+    ["X-Attest-Key-Id": "a\r\nX-Evil: 1"], "X-Attest-Key-Id",
+]
+for h in badHeaders {
+    precondition(post(server.root, ["path": "/api/attest/feedback", "body": "{}", "headers": h]).error == "invalid headers", "\(h)")
+}
+precondition(server.requests.isEmpty)
+var noBase: String?
+BasePost.call(base: "", args: ["path": "/api/invite-requests", "body": "{}"]) { _, e in noBase = e }
+precondition(noBase == "no base")
+
+// Verbatim body (non-ASCII, an escape, a number form a re-serializer would change, trailing
+// spaces), the three response headers and not a fourth, shell-set Content-Type/Accept, no cookie.
+server.respond { c, _ in
+    Loopback.write(c, Loopback.raw(202, ["X-Attest-Challenge: c2", "X-Trial-Remaining: 3", "Retry-After: 5", "X-Other: no"], Data(#"{"ok":true}"#.utf8)))
+}
+let verbatim = "{\"text\":\"h\u{e9}llo \u{1F642}\",\"esc\":\"\\u00e9\",\"n\":1.50,\"x\":\"\u{2028}\"}  "
+let ok = post(server.root, ["path": "/api/attest/feedback", "body": verbatim, "headers": ["X-Attest-Key-Id": "kid", "X-Attest-Assertion": "sig"]])
+precondition(ok.reply?.status == 202 && ok.reply?.body == #"{"ok":true}"#, "\(String(describing: ok.error))")
+precondition(ok.reply?.headers == ["X-Attest-Challenge": "c2", "X-Trial-Remaining": "3", "Retry-After": "5"], "\(String(describing: ok.reply?.headers))")
+let received = server.requests
+precondition(received.count == 1 && received[0].path == "/api/attest/feedback")
+precondition(received[0].body == Data(verbatim.utf8)) // byte-equal, so the same SHA-256
+precondition(received[0].headers["x-attest-key-id"] == "kid" && received[0].headers["x-attest-assertion"] == "sig")
+precondition(received[0].headers["content-type"] == "application/json" && received[0].headers["accept"] == "application/json")
+precondition(received[0].headers["cookie"] == nil && received[0].headers["origin"] == nil)
+
+// A redirect is the reply, never followed.
+server.respond { c, _ in Loopback.write(c, Loopback.raw(302, ["Location: \(server.root)/elsewhere"])) }
+let redirect = post(server.root, ["path": "/api/invite-requests", "body": "{}"])
+precondition(redirect.reply?.status == 302, "\(String(describing: redirect.error))")
+Thread.sleep(forTimeInterval: 0.2)
+precondition(server.requests.count == 2 && server.requests[1].path == "/api/invite-requests")
+
+// Any HTTP status is a reply; 204 → "".
+server.respond { c, _ in Loopback.write(c, Loopback.raw(429, ["Retry-After: 60"], Data(#"{"error":"busy"}"#.utf8))) }
+let busy = post(server.root, ["path": "/api/invite-requests", "body": "{}"])
+precondition(busy.reply?.status == 429 && busy.reply?.body == #"{"error":"busy"}"# && busy.reply?.headers == ["Retry-After": "60"])
+server.respond { c, _ in Loopback.write(c, Data("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".utf8)) }
+let empty = post(server.root, ["path": "/api/attest/feedback", "body": "{}"])
+precondition(empty.reply?.status == 204 && empty.reply?.body == "")
+
+// Response cap.
+server.respond { c, _ in Loopback.write(c, Loopback.raw(200, [], Data(repeating: 0x61, count: BasePost.maxResponse + 1))) }
+precondition(post(server.root, ["path": "/api/attest/challenge", "body": "{}"]).error == "response too large")
+
+// The server took the whole POST and hung up without a status: "network", one request, no silent resend.
+let before = server.requests.count
+server.respond { _, _ in }
+precondition(post(server.root, ["path": "/api/invite-requests", "body": "{}"]).error == "network")
+Thread.sleep(forTimeInterval: 0.3)
+precondition(server.requests.count == before + 1, "\(server.requests.count - before) requests")
+
+// The whole-call deadline: a stalled server and a dripping one (each byte well inside any idle
+// timeout) both end as "network" on time, answered exactly once; the late outcome is dropped.
+server.respond { c, _ in Thread.sleep(forTimeInterval: 2); Loopback.write(c, Loopback.raw(200)) }
+let stalled = post(server.root, ["path": "/api/attest/enroll", "body": "{}"], timeout: 0.5, settle: 2.5)
+precondition(stalled.error == "network" && stalled.answers == 1 && stalled.took < 1.5, "\(stalled)")
+server.respond { c, _ in
+    Loopback.write(c, Data("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n".utf8))
+    for _ in 0..<50 { Loopback.write(c, Data("a".utf8)); Thread.sleep(forTimeInterval: 0.1) }
+}
+let drip = post(server.root, ["path": "/api/attest/enroll", "body": ""], timeout: 1)
+precondition(drip.error == "network" && drip.took < 3, "\(drip)")
+
+// Nothing listening: "network".
+let (closed, closedPort) = loopbackSocket()
+close(closed)
+precondition(post("http://127.0.0.1:\(closedPort)", ["path": "/api/attest/enroll", "body": "{}"]).error == "network")
+print("BasePost: ok")

@@ -605,6 +605,18 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             } else {
                 replyHandler(true, nil)
             }
+        // Local mode's invite request + attested feedback (BasePost.swift, contract
+        // med-ta2n.24 §A): the shell POSTs to its own base, off the main thread.
+        // WebKit requires every reply, so a call that outlives the lock or local
+        // mode answers that gate's error, never the server's reply (Android drops it).
+        case "base.post" where local:
+            BasePost.call(base: base, args: body["args"] as? [String: Any] ?? [:]) { reply, error in
+                Task { @MainActor [weak self] in
+                    guard let self, self.local else { return replyHandler(nil, "unsupported: base.post") }
+                    guard !self.concealed else { return replyHandler(nil, "locked") }
+                    replyHandler(reply?.json, error)
+                }
+            }
         // The anonymous trial AI (bd med-o7zq.16): local mode only — an account
         // has its own trial — and, like every op here, never while locked.
         case let op? where local && op.hasPrefix("attest."):
