@@ -28,7 +28,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 |---|---|---|---|
 | Account mode (cloud vault in WebView) | ✓ | ✓ | parity |
 | Local mode (bundled app, no account) | `WKURLSchemeHandler` (`wgapp://local`) | `appassets` + `files.js` / `chrome.js` | divergent: platform loader |
-| Local → cloud move (`move.stash` / `move.take` / `move.clear`, stash lifecycle, first-run hint) | ✓ (med-o7zq.35) | ✓ (med-nt9p.32.17) | parity |
+| Local → cloud move (`move.stash` / `move.take` / `move.clear`, stash lifecycle; since onboarding v3 started from the web P3 sheet) | ✓ (med-o7zq.35) | ✓ (med-nt9p.32.17) | parity |
 | Account → local leave (`leave.stash` / `leave.take` / `leave.clear`, Cancel returns to the account) | ✓ (med-o7zq.36.2, med-o7zq.42) | ✓ (med-o7zq.36.3, med-nt9p.43) | parity |
 | `local.reset` forgets the remembered leave host | ✓ (med-w6gx.28, #1280) | ✓ (med-nt9p.43, #1217) | parity |
 | Mode-switch restore: Replace / Merge / Cancel choice, silent pickup Cancel, orphan-intake guard | ✓ | ✓ | parity: shared web (med-o7zq.37, .38, .40, .41, .42) |

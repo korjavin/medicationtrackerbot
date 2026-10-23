@@ -565,11 +565,11 @@ branch (a PR run's APK has a throwaway key), install the debug APK, then with
 a test invite: claim it in the app and unlock with a Google Password Manager
 passkey; kill and reopen (back on the account, no first run); airplane mode,
 kill, reopen (renders from the Service Worker); open an external link (leaves
-the app); long-press the icon → *Switch account* (first run; reopening the
-same account finds its data); bad address → first run with "There is no
-account at …" (no error screen); paste an already-claimed or garbage
+the app); long-press the icon → *Switch account* (local mode with F1 open; reopening the
+same account finds its data); an unknown account → local mode with F1 open
+(no error screen); paste an already-claimed or garbage
 invite → "Not your account?" at the top of the page → confirm →
-first run → a valid invite claims (also after kill + relaunch while stuck).
+local mode with F1 open → a valid invite claims (also after kill + relaunch while stuck).
 
 ## Agent QA harness (emulator) (bd med-nt9p.23)
 
@@ -1093,8 +1093,8 @@ the local → cloud move stash (`no_backup/move/`, bd med-nt9p.32.17 — the
 platform never backs up `no_backup/` either). So
 a restore loses UI prefs and Health Connect anchors; the import re-reads from
 scratch on missing anchors, as after an iOS restore. The `wgLocalMode` flag
-lives in `shell` too, so a restored phone opens on first run: *Only on this
-device* → **Start** finds the restored records (Start never wipes the local
+lives in `shell` too, so a restored phone with no stored account opens local
+mode and finds the restored records (entering local mode never wipes the local
 origin). Never widen the rules to
 `app_webview` or `shared_prefs`.
 
@@ -1190,7 +1190,7 @@ CSP header (`connect-src 'self'`, no wildcard), `no-store`, the JS MIME, the
 
 ## Local mode: the shell (bd med-nt9p.32.4)
 
-Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
+Twin of iOS `Shell.swift` (bd med-o7zq.5, .9), in
 [`MainActivity.kt`](../android/app/src/main/java/com/example/medtracker/MainActivity.kt):
 
 - **Mode:** the `shell` SharedPreferences boolean `wgLocalMode`
@@ -1343,10 +1343,10 @@ account has its passkey, and cloud mode never shows or checks it.
 
 ### Device check (CI debug APK, local mode)
 
-1. Fresh install, airplane mode → *Only on this device* (top button) → read
-   the intro (*Back* returns to first run) → *Start*: the bundled app renders
-   offline, `wg-local-vault` on `<html>`, no network requests in
-   `chrome://inspect`.
+1. Fresh install, airplane mode → the bundled app opens straight into the
+   web W1 module picker (no native screen): it renders offline,
+   `wg-local-vault` on `<html>`, no network requests in `chrome://inspect`.
+   Pick modules (or *Skip*).
 2. Add a med, kill and reopen: still there, no first run.
 3. Settings → Reminders → Allow → a reminder fires; a dose reminder's tap opens
    that dose's take sheet in local mode. *Emulator-covered: android-qa
@@ -1357,13 +1357,14 @@ account has its passkey, and cloud mode never shows or checks it.
 5. Settings → *Sync & backup*: the chip says *Unprotected*, the page shows
    *Sync needs an invite for now* (the Move row is gone, bd med-ta2n.5).
 6. Erase → empty app, BYOK hosts gone from the CSP.
-7. Long-press → *Switch account* → a test account, then back to *Only on
-   this device*: both data sets intact; no reminder of the other vault fires.
+7. Claim a test account (invite link or F1), long-press → *Switch account*
+   (lands in local mode on F1): both data sets intact; no reminder of the other
+   vault fires.
 8. *How to get an invite* opens the service landing page in the browser.
 9. Settings → *Sync & backup* → *Paste* a test invite → *Turn on sync?* →
    *Turn on sync* → claim → the account shows the records
-   with no Restore, and the toast once → *Switch account* → *Only
-   on this device* → *Start*: the local records are intact. Once more with
+   with no Restore, and the toast once → *Switch account* (back in local
+   mode): the local records are intact. Once more with
    the file fallback: *Sync & backup* → *Save a backup* → *Save to device* → file picker →
    *Switch account* → claim → Restore the file
    ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
@@ -1404,8 +1405,8 @@ format v1, no server change.
    dialog; an empty one imports it silently (settings, keys); when the
    account's state is unknown (offline, failed pull) the stash is kept for
    the next open.
-4. The local records stay: *Switch account* → *Only on this device* →
-   *Start* opens them again. Nothing prompts to erase them.
+4. The local records stay: *Switch account* lands in local mode, which opens
+   them again. Nothing prompts to erase them.
 
 **With an invite (P3, bd med-ta2n.7).** On a v3 shell (`shell.ops` lists
 `invite.pending`) an invite that reaches the app lands in the pending slot and
@@ -1423,19 +1424,16 @@ nothing stashed, no op). The shell clears the slot after the leave. A slot
 older than 14 days (`receivedAt`) is cleared and ignored. **Older shells**:
 no `invite.pending` in `shell.ops` → the page never reads a slot and never
 sends `{url}` (a pre-v3 shell would ignore it and land on its native first
-run after the stash was written); the Move row and file steps stay.
+run after the stash was written); the file steps stay.
 
 **The stash** is one app-private file, `noBackupFilesDir/move/vault.json`
 (`Move.kt`): the vault v1 JSON in plain text, in the same app sandbox as the
 local origin's plaintext IndexedDB (no new exposure), never backed up
 (`no_backup/`), never sent anywhere, never logged. It is deleted after the
 import (`move.clear`), by `local.reset`, and whenever local mode is entered
-again — *Only on this device* → *Start* abandons the move (the next one
-stashes afresh). While a stash exists the local intro shows the warn note *A
-move to a cloud account is waiting.* and *Start and cancel the move* (N2 ·
-move); unlike iOS, which hides its one-tap *Continue on
-this iPhone*, Android keeps *Only on this device* reachable: it is the only
-way back to local mode, and *Back* on the intro keeps the stash. Op contract:
+again (Switch account, `X-Account-Gone`) — that abandons the move (the next
+one stashes afresh). There is no native screen that mentions a waiting move
+any more (N1/N2 were deleted, bd med-ta2n.12). Op contract:
 [Local mode: the shell](#local-mode-the-shell-bd-med-nt9p324) above.
 
 **Fallback: the file** (bd med-nt9p.32.10, the file-based Move iOS ships,
@@ -1446,18 +1444,21 @@ for shells without `move.stash` and when the stash is refused:
    passphrase is optional; without one the API keys are in plain text and the
    page asks first) → *Backup ready* → **Save to device** → the shell's *Save
    to device* (Downloads) or *Share*.
-2. The shell's **Switch account**: first run. (The page's *I have an invite*,
-   which sent `local.leave`, is gone since bd med-ckm5.7: one Move control.)
-3. Claim the invite; in the new account Settings → Backup & import → Restore
+2. The shell's **Switch account**: local mode with F1 open.
+3. Claim the invite (paste or scan it in F1); in the new account Settings → Backup & import → Restore
    → choose the file (an empty account skips the confirm).
 
 Accounts are **invite-only** ([architecture.md](architecture.md), no
-self-serve signup): the intro says *To move to an account later: Settings →
-Move to a cloud account. Accounts are invite-only.* and ends with the *How to
-get an invite* link — the service landing page
+self-serve signup): Settings → *Sync & backup* says *Sync needs an invite for
+now* and offers *How to get an invite* — the request-an-invite sheet when the
+shell has `base.post` (bd med-ta2n.14, .27), else the service landing page
 `https://<BuildConfig.BASE_DOMAIN>/`, the build's own address, never committed.
-The privacy policy has no contact e-mail (its contact is the issue tracker and
-in-app feedback), so the landing page is the invite contact for now.
+
+> **Pending (bd med-ta2n.12):** the QA scenarios in this section and the
+> results table were recorded against the pre-v3 flow (Move row, native first
+> run, *Only on this device* → *Start*). The scenario scripts still drive that
+> flow until the Android bead's QA rewrite lands, so treat the step lists as
+> history; the current flow is the P3 description above.
 
 **Emulator proof, seamless** — QA scenario `local-to-cloud-seamless` (not in
 `all`: it claims the run's one invite, which `smoke` takes there; no retry).
@@ -1562,7 +1563,7 @@ restricted"; add instructions). Suggested wording, with the links filled in
 privately:
 
 > Med Tracker is invite-only; accounts have no password. Open the app, paste
-> invite link A into the first-run screen and create a passkey on this device
+> invite link A into the "Have an invite?" sheet (or open the link on the phone) and create a passkey on this device
 > (Google Password Manager; a screen lock is required). The account starts
 > empty. Link B is for testing account deletion (Settings → Account &
 > privacy → Delete account); link C is a spare, for a new device or a
@@ -1574,8 +1575,8 @@ privately:
 Links expire 14 days after minting if unclaimed; mint just before
 submission.
 
-A reviewer without an invite can use **Only on this device** (no account,
-no passkey); its upgrade path to an account is
+A reviewer without an invite can use the app as it opens (local mode: no
+account, no passkey); its upgrade path to an account is
 [Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210).
 
 ## Friends: install the APK

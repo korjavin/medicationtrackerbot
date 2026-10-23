@@ -1,5 +1,9 @@
 # Feature Implementation Patterns
 
+## First run (onboarding v3)
+
+Open and use: an installed app (and a claimed account) shows the `WGFirstRun` overlay once, driven by `needs_first_run`. **W1** is a single module picker (*Skip* = everything on, *Continue with N*); a local-shell footer offers **F1** "Have an invite?" (paste or scan). **W2** (AI trial offer) follows only when Food was picked and a trial is on offer. Then Today carries **W3** "Start here" hints, and later **W4** (local mode) the protect-your-data card. Sync is a feature turned on from Settings → **Sync & backup** (W5) or by an invite link (**P3**); there is no native first-run choice screen. Full flow, state and paths: [onboarding-wizard.md](onboarding-wizard.md).
+
 ## Today Dashboard
 
 Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The home view on cold start — `features/bootstrap.js` opens Today after auth unless the user was active in another section within the last 30 minutes. Section views are reached via the five-tab bar (Today · Food · Meds · Train · Health, where Health switches between BP / Weight / Vitals), the app-bar gear (Settings) and Today route icon (Journey), card deep-links, or URL hash / messenger start param — see [frontend.md → Navigation](frontend.md#navigation).
