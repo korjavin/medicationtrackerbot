@@ -822,6 +822,19 @@ export function createApiRouter(ctx, {
     if (path === '/api/medications/upcoming' && method === 'GET') {
       return intake.upcomingDoses({ days: clampDays(params.get('days'), 7, 30) });
     }
+    // The one occurrence projection (bd med-wi09.1): every dose in [from, to]
+    // with its state. Defaults: the last 24 h through the next 7 days.
+    if (path === '/api/doses' && method === 'GET') {
+      const nowMs = now();
+      const isoParam = (name, fallback) => {
+        const ms = Date.parse(params.get(name) || '');
+        return Number.isFinite(ms) ? ms : fallback;
+      };
+      return intake.occurrences({
+        fromMs: isoParam('from', nowMs - 24 * 3600_000),
+        toMs: isoParam('to', nowMs + 7 * 24 * 3600_000),
+      });
+    }
     if (path === '/api/inventory/low' && method === 'GET') return medications.listLowStock();
     if (path === '/api/history' && method === 'GET') {
       return intake.history({ days: intParam(params, 'days', 3), medId: intParam(params, 'med_id', 0) });

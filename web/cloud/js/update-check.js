@@ -122,6 +122,16 @@ async function activateAndReload(registration, win) {
     });
 }
 
+// The "Update required" banner's Reload (med-wi09.5): the same SW dance, so the
+// reload lands on the current build instead of the old SW's cached shell.
+export async function reloadToLatest(win = window) {
+    let registration = null;
+    try {
+        registration = (await win.navigator?.serviceWorker?.getRegistration?.()) ?? null;
+    } catch { /* no SW — plain reload below */ }
+    return activateAndReload(registration, win);
+}
+
 // Latched when the user taps "Later" so a banner they dismissed does not
 // re-appear seconds later. The two triggers race: the build-ID poll shows the
 // banner immediately and kicks registration.update(), and when that install

@@ -12,7 +12,7 @@
 // Record type: medreminderpref — a singleton {enabled} toggle (default true,
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
-import { forecastDosesWithTzPlan } from './tzplan.js';
+import { projectOccurrences } from './medintake.js';
 import {
   minDoseIntervalMs, localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
@@ -498,14 +498,19 @@ export function computeReminderHorizon({
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
   const entries = [];
 
-  // A 7-day reminder horizon needs actual multi-day coverage, which
-  // planDosesWithTzPlan alone cannot give (its look-ahead is capped at "today
-  // + tomorrow" regardless of window duration) — forecastDosesWithTzPlan is
-  // the day-by-day walk that does, shared with medintake.js's upcomingDoses.
-  const medsShaped = meds.map((m) => ({ ...m, id: m.recordId ?? m.id }));
-  const targets = forecastDosesWithTzPlan({
-    medications: medsShaped, timeZone, now, days: FORECAST_DAYS, tzPlan,
-  });
+  // The med rows are the occurrence projection's upcoming set over the next
+  // FORECAST_DAYS (bd med-wi09.1) — the same rows Home's next-intake, the
+  // Schedule tab and GET /api/doses read, so a push can never name a dose the
+  // app does not show. The projection already hides a tombstoned slot (a dose
+  // deleted on purpose: deleteFutureIntakes, or medications.js's
+  // cancelPendingIntakesForMedication on archive — bd med-x7x2), which is why
+  // `intakes` must arrive RAW.
+  const targets = projectOccurrences({
+    medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
+  // medById holds live, unarchived meds only: a stored future row of a deleted
+  // or archived med is history, not a nag.
+  }).filter((r) => r.state === 'upcoming' && medById.has(r.medId))
+    .map((r) => ({ medicationId: r.medId, medName: r.name, scheduledAtMs: Date.parse(r.plannedAt) }));
   // A dose the user already confirmed early (via trigger-next-intake) or
   // skipped must not resurface as a "Time to take" push. Mirrors the server
   // scheduler's dedup, which skips a normal target already covered by a
@@ -523,22 +528,7 @@ export function computeReminderHorizon({
       handledByMed.set(intake.medication_id, list);
     }
   }
-  // A dose deleted on purpose leaves a TOMBSTONE at the deterministic
-  // `intake-<medId>-<slotUnix>` id, and the dose sweep never re-creates it
-  // (materializeDueDoses' putIfAbsent treats a tombstone as occupied, bd
-  // med-j2ku). medintake.js's in-app forecast readers (upcomingDoses /
-  // nextIntake / triggerNextIntake) still read live-only and do NOT yet honour
-  // the tombstone — a separate defect, not this horizon's.
-  // This horizon used to see live rows only, so it read that slot as "not
-  // materialized yet" and kept pushing "Time to take" for a dose the app no
-  // longer offers — and the Confirm on that push then found nothing to confirm
-  // (bd med-x7x2, the intake twin of the workout-session case below). Two
-  // writers tombstone a slot: deleteFutureIntakes (future PENDING only) and
-  // medications.js's cancelPendingIntakesForMedication on archive. The key IS
-  // the recordId, which is unique in the store, so a live row at that slot is
-  // simply not in this set — no live-wins tie-break needed. Manual log-past
-  // rows (`intake-manual-…`, random ids) never collide with a forecast target.
-  const deletedSlotIds = new Set(intakes.filter((i) => i.deleted).map((i) => String(i.recordId)));
+  // The ±band is suppression only (it avoids a nag) — actions never guess.
   const isHandled = (t, med) => {
     const handled = handledByMed.get(t.medicationId);
     if (!handled) return false;
@@ -548,7 +538,6 @@ export function computeReminderHorizon({
   };
   const bySlot = new Map();
   for (const t of targets) {
-    if (deletedSlotIds.has(`intake-${t.medicationId}-${Math.floor(t.scheduledAtMs / 1000)}`)) continue;
     const med = medById.get(t.medicationId);
     if (isHandled(t, med)) continue;
     const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };

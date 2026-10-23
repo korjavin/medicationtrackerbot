@@ -82,6 +82,23 @@ let offline = false;
 // 401 = server session expired — distinct from network-offline. Pending ops are
 // never dropped; the user re-runs the passkey ceremony to re-mint the session.
 let authExpired = false;
+// 426 = the server's writer gate (med-wi09.5): this build is too old to write.
+// Not a write error and not offline: pushes pause for the rest of this page
+// load, pulls keep running, 'pending' is kept untouched (and so still exports),
+// and nothing counts against WRITE_ERROR_BUDGET — a wedge's "reset local sync"
+// would discard exactly the queued writes. In-memory on purpose: a reload loads
+// the new build, which clears it and re-posts the queue unchanged.
+let updateRequired = false;
+let onUpdateRequired = null;
+function markUpdateRequired() {
+  offline = false;
+  if (updateRequired) return;
+  updateRequired = true;
+  if (onUpdateRequired) onUpdateRequired();
+}
+function isUpdateRequiredStatus(status) {
+  return status === 426;
+}
 
 // Serializes the record-store mutations that must not interleave:
 // replaceAllRecords() clears the whole store and re-lays a snapshot, while a
@@ -231,6 +248,8 @@ onCachedDbDropped(() => {
   recordsMemo.clear();
   recordsChangeCount++;
   bootstrapped = false;
+  // Harmless to clear mid-session: the next push re-learns it with one 426.
+  updateRequired = false;
 });
 
 async function putRecord(record) {
@@ -775,6 +794,10 @@ async function snapshotAt(ctx, snapshotSeq) {
     offline = false;
     return { ok: false, status: res.status };
   }
+  if (isUpdateRequiredStatus(res.status)) {
+    markUpdateRequired();
+    return { ok: false, status: res.status };
+  }
   if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
   authExpired = false;
@@ -815,6 +838,9 @@ async function maybeSnapshot(ctx) {
   // here (the flushPending-internal callers already return before reaching it).
   // resetLocalSync clears syncWedged, so compaction resumes after recovery.
   if (meta.syncWedged) return;
+  // Same reason under the writer gate: the store holds writes the server would
+  // not take as ops, and the gate refuses this build's snapshot POST anyway.
+  if (updateRequired) return;
   // A peer's import bump was pulled but its snapshot hasn't landed here yet (bd
   // med-eas.9): compacting now would publish this device's PRE-import vault at
   // or above the bump seq, and the server keeps the first snapshot at a seq —
@@ -895,8 +921,9 @@ export async function markForceSnapshotPending() {
 // 401/403/408/429 are transient (auth expiry / proxy timeout / rate-limit — a
 // reverse proxy in front of cmd/cloud can return these even though the Go server
 // didn't); mirrors the former web/static/js/sync.js isPermanentSyncError policy.
+// 426 is excluded too: the writer gate is cleared by a reload, never a reset.
 function isPermanentSyncStatus(status) {
-  return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
+  return status >= 400 && status < 500 && ![401, 403, 408, 426, 429].includes(status);
 }
 
 // 401 routes to the distinct auth-expired state (never permanent, never
@@ -926,6 +953,9 @@ function isAuthExpiredStatus(status) {
 async function tryForceSnapshot(ctx) {
   const meta = await readMeta();
   if (!meta.forceSnapshotPending || meta.localLastSeq === null) return;
+  // Writer gate hit this page load: pushes are paused, the marker waits for the
+  // reloaded build (pullOnOpen still skips the pull while it is set).
+  if (updateRequired) return;
   const kData = await getKData(ctx);
   const bumpBody = new TextEncoder().encode(
     JSON.stringify({ recordId: IMPORT_BUMP_RECORD_ID, clientTs: Date.now(), deleted: true }),
@@ -967,6 +997,10 @@ async function tryForceSnapshot(ctx) {
       offline = false;
       return; // marker stays set — retried after re-auth
     }
+    if (isUpdateRequiredStatus(res.status)) {
+      markUpdateRequired();
+      return; // marker stays set — retried by the reloaded build
+    }
     if (isPermanentSyncStatus(res.status)) {
       await writeMeta({ snapshotError: { status: res.status, at: Date.now() } });
       offline = false;
@@ -995,6 +1029,7 @@ async function tryForceSnapshot(ctx) {
   const snap = await snapshotAt(ctx, snapshotSeq);
   if (!snap.ok) {
     if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
+    if (isUpdateRequiredStatus(snap.status)) return; // snapshotAt flagged it; marker stays set
     if (isPermanentSyncStatus(snap.status)) {
       await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
       offline = false;
@@ -1067,6 +1102,8 @@ async function flushPendingUnlocked(ctx) {
   // user runs resetLocalSync. Writes still queue durably to 'pending' — nothing
   // is lost — but we no longer re-POST a batch the server will keep refusing.
   if ((await readMeta()).syncWedged) return false;
+  // Writer gate hit earlier this page load: re-posting gets the same 426.
+  if (updateRequired) return false;
   const kData = await getKData(ctx);
   // Convergence under concurrent writers. Each record's AAD binds account_seq
   // (docs' "Seq assignment vs AAD"), but the client can't know its assigned
@@ -1169,6 +1206,10 @@ async function flushPendingUnlocked(ctx) {
         authExpired = true;
         offline = false;
         return false; // pending kept intact — drained after re-auth
+      }
+      if (isUpdateRequiredStatus(res.status)) {
+        markUpdateRequired();
+        return false; // pending kept intact, no streak — re-posted after reload
       }
       if (isPermanentSyncStatus(res.status)) {
         // Count consecutive permanent failures against a budget: once it's spent
@@ -1325,11 +1366,14 @@ export function requestDrain(ctx, { wake = false } = {}) {
   return drainInFlight;
 }
 
-export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
+export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: onUpdate } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
   const surface = onAuthExpired ? () => onAuthExpired() : null;
   onDrainAuthExpired = surface;
+  // Fired once, the first time any push (drain or a write's inline flush) hits 426.
+  const surfaceUpdate = onUpdate ? () => onUpdate() : null;
+  onUpdateRequired = surfaceUpdate;
   const trigger = () => {
     clearTimeout(debounce);
     debounce = setTimeout(() => requestDrain(ctx), 250);
@@ -1343,6 +1387,7 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
     // No queued rerun or expiry surface outlives the teardown.
     drainRerun = false;
     if (onDrainAuthExpired === surface) onDrainAuthExpired = null;
+    if (onUpdateRequired === surfaceUpdate) onUpdateRequired = null;
     clearTimeout(debounce);
     window.removeEventListener('online', trigger);
     document.removeEventListener('visibilitychange', onVisible);
@@ -1626,6 +1671,7 @@ export async function getSyncStatus(ctx) {
     pendingCount,
     offline,
     authExpired,
+    updateRequired,
     integrityErrors: meta.integrityErrors,
     snapshotError: meta.snapshotError || null,
     writeError: meta.writeError || null,
@@ -1648,7 +1694,10 @@ export async function describeSyncStatus(ctx) {
     parts.push(status.writeError.status === 413 ? 'Vault is full — new entries are not syncing' : 'Server refused this device\'s writes');
   }
   if (status.snapshotError) parts.push('Vault too large to sync');
-  if (status.wedged) parts.push('Sync paused after repeated failures — reset local sync to recover');
+  // A reload is the fix under the writer gate; the reset hint would discard
+  // the very writes the reload re-posts, so it is never shown alongside.
+  if (status.updateRequired) parts.push('Update required — reload to keep syncing');
+  else if (status.wedged) parts.push('Sync paused after repeated failures — reset local sync to recover');
   // A skewed clock silently reorders edits across devices. Say so: the merge
   // guards below keep the common case correct, but the user should fix the clock.
   if (Math.abs(status.clockSkewMs) > CLOCK_SKEW_WARN_MS) {

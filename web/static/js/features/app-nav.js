@@ -12,8 +12,9 @@
 //     [data-nav-back] (pagebar Back), [data-health-seg] (segment strip).
 //   • Settings / Journey are pages: AppStore 'previousTab' records the tab
 //     they were opened from, and Back returns there (back-button.js).
-//   • The Meds tab badge: missed + overdue doses, i.e. materialized PENDING
-//     intakes already due (web/domain/medintake.js, GET /api/history?days=1).
+//   • The Meds tab badge: missed + overdue doses, i.e. the occurrence
+//     projection's `due` rows over the last 24h (GET /api/doses,
+//     web/domain/medintake.js projectOccurrences).
 //
 // Hooked into AppKernel.onTabSwitch (fired by app.js switchTab).
 
@@ -32,6 +33,7 @@ window.AppNav = (function () {
     // still returns there after a reload.
     const PAGE_ORIGIN_KEY = 'mt-page-origin';
     const BADGE_RECHECK_MAX_MS = 15 * 60 * 1000;
+    const DUE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
     let _state = { current: null, badgeSeq: 0, badgeTimer: null };
 
@@ -128,16 +130,19 @@ window.AppNav = (function () {
         });
     }
 
-    // Missed + overdue: intakes still PENDING whose slot has passed (and are
-    // not snoozed into the future). Pure — exported for tests.
-    // ponytail: rows come from the rolling 24h history window — a dose left
-    // PENDING for more than a day is history, not a nag; widen `days` if the
-    // owner wants older unresolved doses counted.
-    function countDueDoses(rows, nowMs) {
+    // Missed + overdue: the occurrence projection's `due` rows (GET /api/doses,
+    // web/domain/medintake.js projectOccurrences) — the projection owns the
+    // rule, this only counts. Pure — exported for tests.
+    // ponytail: rolling 24h window — a dose left due for more than a day is
+    // history, not a nag; widen DUE_WINDOW_MS if the owner wants older
+    // unresolved doses counted.
+    function countDueDoses(rows) {
         if (!Array.isArray(rows)) return 0;
-        return rows.filter((r) => r && r.status === 'PENDING'
-            && Date.parse(r.scheduled_at) <= nowMs
-            && !(r.snoozed_until && Date.parse(r.snoozed_until) > nowMs)).length;
+        return rows.filter((r) => r && r.state === 'due').length;
+    }
+
+    function dueDosesPath(nowMs) {
+        return `/api/doses?from=${new Date(nowMs - DUE_WINDOW_MS).toISOString()}&to=${new Date(nowMs).toISOString()}`;
     }
 
     async function refreshMedsBadge() {
@@ -150,27 +155,26 @@ window.AppNav = (function () {
             return;
         }
         let rows = null;
-        try { rows = await apiCall('/api/history?days=1'); } catch (_) { rows = null; }
+        const nowMs = Date.now();
+        try { rows = await apiCall(dueDosesPath(nowMs)); } catch (_) { rows = null; }
         // Offline / failed read keeps the last count; a newer refresh wins.
         if (seq !== _state.badgeSeq || !Array.isArray(rows)) return;
-        const nowMs = Date.now();
-        window.WGBottomNav.setBadge('meds', countDueDoses(rows, nowMs));
+        window.WGBottomNav.setBadge('meds', countDueDoses(rows));
         scheduleBadgeRecheck(rows, nowMs);
     }
 
     // Doses come due (and snoozes lapse) with no data event: re-count at the
-    // next such deadline, or every 15 min while visible to catch doses not yet
-    // materialized.
+    // next snooze deadline, or every 15 min while visible to catch doses
+    // coming due.
     function scheduleBadgeRecheck(rows, nowMs) {
         clearTimeout(_state.badgeTimer);
         _state.badgeTimer = null;
         if (document.hidden) return; // visibilitychange re-counts on return
         let next = nowMs + BADGE_RECHECK_MAX_MS;
         for (const r of rows) {
-            if (!r || r.status !== 'PENDING') continue;
-            for (const at of [Date.parse(r.scheduled_at), Date.parse(r.snoozed_until)]) {
-                if (at > nowMs && at < next) next = at;
-            }
+            if (!r || r.state !== 'snoozed') continue;
+            const at = Date.parse(r.snoozedUntil);
+            if (at > nowMs && at < next) next = at;
         }
         _state.badgeTimer = setTimeout(refreshMedsBadge, next - nowMs + 1000);
     }
@@ -227,6 +231,7 @@ window.AppNav = (function () {
         navSectionFor,
         syncChrome,
         countDueDoses,
+        dueDosesPath,
         refreshMedsBadge,
     };
 })();

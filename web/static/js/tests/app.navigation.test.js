@@ -227,20 +227,21 @@ describe('Navigation v2 — Meds badge', () => {
         try {
             const now = Date.now();
             const iso = (offsetMin) => new Date(now + offsetMin * 60_000).toISOString();
+            // Occurrence-projection rows (GET /api/doses): the projection owns
+            // the due rule, the badge only counts `due`.
             let rows = [
-                { id: 1, medication_id: 1, scheduled_at: iso(-300), status: 'PENDING' }, // missed
-                { id: 2, medication_id: 1, scheduled_at: iso(-10), status: 'PENDING' },  // overdue
-                { id: 3, medication_id: 2, scheduled_at: iso(-20), status: 'PENDING', snoozed_until: iso(30) },
-                { id: 4, medication_id: 2, scheduled_at: iso(120), status: 'PENDING' },  // not due yet
-                { id: 5, medication_id: 3, scheduled_at: iso(-60), status: 'TAKEN', taken_at: iso(-55) },
+                { occId: 1, medId: 1, plannedAt: iso(-300), state: 'due' }, // missed
+                { occId: 2, medId: 1, plannedAt: iso(-10), state: 'due' },  // overdue
+                { occId: 3, medId: 2, plannedAt: iso(-20), state: 'snoozed', snoozedUntil: iso(30) },
+                { occId: 5, medId: 3, plannedAt: iso(-60), state: 'taken', takenAt: iso(-55) },
             ];
-            window.apiCall = vi.fn(async (url) => (url === '/api/history?days=1' ? rows : null));
+            window.apiCall = vi.fn(async (url) => (String(url).startsWith('/api/doses?from=') ? rows : null));
             const badge = () => tab(document, 'meds').querySelector('.wg-tab__badge');
 
             window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
             await until(() => badge() && badge().textContent === '2');
 
-            rows = rows.map((r) => (r.id <= 2 ? { ...r, status: 'TAKEN', taken_at: iso(0) } : r));
+            rows = rows.map((r) => (r.occId <= 2 ? { ...r, state: 'taken', takenAt: iso(0) } : r));
             window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
             await until(() => badge() === null);
         } finally { cleanup(); }

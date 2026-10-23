@@ -558,8 +558,45 @@ window.MedTrackerCloudReady = (async function boot() {
         // Reconnect auto-drain: online / visibility-regain events re-run the
         // boot drain so queued offline edits sync without a write or reload;
         // a drain that settles auth-expired re-surfaces the banner above.
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired });
+        // med-wi09.5: the server's writer gate (426) refused this build's
+        // pushes. Queued writes stay put and still export; a reload loads the
+        // current build, which re-posts them. No reset hint — a reset would
+        // discard exactly those writes.
+        const surfaceUpdateRequired = () => (async () => {
+            if (!(await getSyncStatus(ctx)).updateRequired) return;
+            if (!document.body) await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+            if (document.getElementById('update-required-banner')) return;
+            const banner = document.createElement('div');
+            banner.id = 'update-required-banner';
+            banner.className = 'wg-banner wg-banner--warn';
+            banner.setAttribute('aria-live', 'polite');
+            if (window.WGIcons) {
+                const ico = document.createElement('i');
+                ico.className = 'wg-ico wg-ico--sm';
+                ico.appendChild(window.WGIcons.iconSvg('refresh'));
+                banner.appendChild(ico);
+            }
+            const text = document.createElement('span');
+            text.className = 'wg-banner__text';
+            text.textContent = 'Update required — reload to keep syncing.';
+            banner.appendChild(text);
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'wg-btn wg-btn--sm';
+            btn.textContent = 'Reload';
+            btn.addEventListener('click', () => {
+                btn.disabled = true;
+                import('/js/update-check.js')
+                    .then((m) => m.reloadToLatest(window))
+                    .catch(() => location.reload());
+            });
+            banner.appendChild(btn);
+            const host = document.getElementById('app-banners');
+            if (host) host.appendChild(banner); else document.body.prepend(banner);
+        })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired });
         surfaceAuthExpired();
+        surfaceUpdateRequired();
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
             // Cloud mode has no change-poll loop — this boot pullOnOpen is the
             // first sync trigger — so every shim-served tag must be evicted here or a

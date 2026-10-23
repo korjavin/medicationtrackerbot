@@ -63,7 +63,7 @@ class LocalLock(on: Boolean) {
     }
 
     /**
-     * The intro's or Settings' choice, after a successful check — which also unlocks a lock
+     * Settings' choice, after a successful check — which also unlocks a lock
      * still on from an earlier stay in local mode, so it may turn it off.
      */
     fun confirmed(on: Boolean) {

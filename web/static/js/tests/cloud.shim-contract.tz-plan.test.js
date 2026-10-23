@@ -163,6 +163,35 @@ describe('cloud shim contract — POST /api/settings returns the planner result 
         expect((await env.window.apiCall('/api/settings')).timezone).toBe('Asia/Tokyo');
     });
 
+    // bootstrap.js navigates to Today on planCreated: true (bd med-26gl).
+    it('strict-policy medication: stages a plan → { changed: false, planCreated: true }, clock unmoved', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                settings: [{ recordId: 'settings', clientTs: Date.now(), deleted: false, timezone: 'Europe/Berlin' }],
+                medication: [{
+                    recordId: 1,
+                    clientTs: Date.now(),
+                    deleted: false,
+                    name: 'Metformin',
+                    dosage: '500mg',
+                    schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+                    archived: false,
+                    start_date: null,
+                    end_date: null,
+                    tz_shift_policy: 'strict',
+                    created_at: '2026-01-01T00:00:00.000Z'
+                }]
+            }
+        });
+        env.window.reloadCurrentTab = vi.fn();
+        const res = await env.window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+        expect(res).toEqual({ changed: false, planCreated: true });
+        expect((await env.window.apiCall('/api/settings')).timezone).toBe('Europe/Berlin');
+        const { plan } = await env.window.apiCall('/api/tz-plan/current');
+        expect(plan.status).toBe('PENDING_APPROVAL');
+        expect(plan.new_tz).toBe('Asia/Tokyo');
+    });
+
     it('same zone → { changed: false, planCreated: false }', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: { settings: [{ recordId: 'settings', clientTs: Date.now(), deleted: false, timezone: 'Asia/Tokyo' }] }

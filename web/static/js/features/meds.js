@@ -100,11 +100,13 @@ let _medsUpcomingState = { doses: [], available: false, due: [] }; // module-sta
 
 async function loadUpcomingDoses() {
     const read = (path) => Promise.resolve().then(() => apiCall(path)).catch(() => null);
-    const [res, history] = await Promise.all([
+    const nowMs = Date.now();
+    const [res, doses] = await Promise.all([
         read(`/api/medications/upcoming?days=${MEDS_UPCOMING_DAYS}`),
-        // Missed + overdue doses: the same 24h window the Meds tab badge
-        // counts (features/app-nav.js countDueDoses).
-        read('/api/history?days=1'),
+        // Missed + overdue doses: the occurrence projection's `due` rows over
+        // the same 24h window the Meds tab badge counts (features/app-nav.js
+        // countDueDoses) — the projection owns the rule.
+        read(`/api/doses?from=${new Date(nowMs - 24 * 60 * 60 * 1000).toISOString()}&to=${new Date(nowMs).toISOString()}`),
     ]);
     // `available` separates "the forecast answered, and this med simply has
     // no upcoming dose" from "there is no forecast to consult" (offline /
@@ -112,11 +114,7 @@ async function loadUpcomingDoses() {
     // computation.
     _medsUpcomingState.available = Array.isArray(res);
     _medsUpcomingState.doses = Array.isArray(res) ? res : [];
-    const nowMs = Date.now();
-    _medsUpcomingState.due = (Array.isArray(history) ? history : []).filter((r) => r
-        && r.status === 'PENDING'
-        && Date.parse(r.scheduled_at) <= nowMs
-        && !(r.snoozed_until && Date.parse(r.snoozed_until) > nowMs));
+    _medsUpcomingState.due = (Array.isArray(doses) ? doses : []).filter((r) => r && r.state === 'due');
     return _medsUpcomingState.doses;
 }
 
@@ -324,19 +322,19 @@ function renderMeds() {
     // with a missed dose shows there, not again under its next dose.
     const medById = new Map(medications.map((m) => [String(m.id), m]));
     const missedBuckets = new Map(); // scheduled_at -> { at, entries, intakeIds }
-    (_medsUpcomingState.due || []).forEach((intake) => {
-        const med = medById.get(String(intake.medication_id));
-        const at = new Date(intake.scheduled_at);
+    (_medsUpcomingState.due || []).forEach((dose) => {
+        const med = medById.get(String(dose.medId));
+        const at = new Date(dose.plannedAt);
         if (!med || med.archived || Number.isNaN(at.getTime())) return;
         const schedule = window.MedicationUtils.parseMedicationSchedule(med.schedule);
         if ((schedule?.type || 'daily') === 'as_needed') return;
-        if (!missedBuckets.has(intake.scheduled_at)) {
-            missedBuckets.set(intake.scheduled_at, { at, entries: [], intakeIds: [] });
+        if (!missedBuckets.has(dose.plannedAt)) {
+            missedBuckets.set(dose.plannedAt, { at, entries: [], intakeIds: [] });
         }
-        const bucket = missedBuckets.get(intake.scheduled_at);
+        const bucket = missedBuckets.get(dose.plannedAt);
         if (bucket.entries.some((e) => e.med === med)) return;
         bucket.entries.push({ med, schedule });
-        if (intake.id !== undefined && intake.id !== null) bucket.intakeIds.push(intake.id);
+        if (dose.occId !== undefined && dose.occId !== null) bucket.intakeIds.push(dose.occId);
     });
     const missedMedIds = new Set();
     missedBuckets.forEach((b) => b.entries.forEach((e) => missedMedIds.add(e.med)));

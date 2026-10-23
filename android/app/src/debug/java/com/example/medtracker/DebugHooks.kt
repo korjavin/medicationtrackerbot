@@ -30,7 +30,7 @@ internal object DebugHooks {
 
     /**
      * Local-mode QA entry (bd med-nt9p.32.4): the launch extra `wgLocalMode`
-     * (`am start … --ez wgLocalMode true`) enters local mode as the first-run Start does
+     * (`am start … --ez wgLocalMode true`) enters local mode as a fresh install does
      * (persisted), so android-qa.yml gets the full app without a passkey. Same gate as
      * qaSoftAuthn: debug and the qa.test placeholder base only.
      */
