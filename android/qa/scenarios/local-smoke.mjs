@@ -160,6 +160,13 @@ export default async function localSmoke(ctx) {
     if (r.reminderDevice !== 'phone' || /iPhone|iOS/.test(r.reminderCopy) || !/phone|Android/.test(r.reminderCopy)) throw new Error(`reminder copy: ${r.reminderDevice} / ${r.reminderCopy}`);
   });
 
+  // bd med-ta2n.18: the Telegram row's local page is a sync offer (no telegram.js).
+  await ctx.step('Settings: Telegram offer page (needs sync)', async () => {
+    await page.evaluate(() => window.SettingsView.openSettingsPage('telegram'));
+    await page.locator('#telegram-settings-mount [data-action="telegram-turn-on-sync"]').waitFor({ timeout: 15_000 });
+    await ctx.stableShot('settings-telegram-offer');
+  });
+
   await ctx.step('zero egress: no request left the asset origin', async () => {
     if (r.networkRequests) throw new Error(`${r.networkRequests} request(s) off the asset origin: ${r.egress.slice(0, 10).join(', ')}`);
   });
