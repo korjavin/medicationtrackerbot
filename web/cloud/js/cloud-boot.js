@@ -408,11 +408,12 @@ window.MedTrackerCloudReady = (async function boot() {
         // Leaving the account on this device (here and invite.js Switch account,
         // bd med-erq1.3): the relay stops waking this phone for it. Best-effort,
         // never throws — after an account delete the session is gone and the
-        // server already cascaded the row.
+        // server already cascaded the row. Time-boxed: a stalled relay or
+        // bridge must not hold the user in the account.
         async dropNativePushToken() {
             try {
                 const { dropNativePushToken } = await import('/js/push.js');
-                await dropNativePushToken();
+                await Promise.race([dropNativePushToken(), new Promise((r) => setTimeout(r, 3000))]);
             } catch (e) {
                 console.warn('[cloud-boot] native push token delete failed', e);
             }
