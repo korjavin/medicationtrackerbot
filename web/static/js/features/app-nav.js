@@ -81,9 +81,10 @@ window.AppNav = (function () {
     }
 
     // Which section the tab bar should highlight while `tab` is showing:
-    // pages keep their origin tab lit.
+    // pages are not tabs, so none is lit (bd med-av5l); Back still returns to
+    // the origin tab via previousTab().
     function navSectionFor(tab) {
-        return isPage(tab) ? (previousTab() || null) : tab;
+        return isPage(tab) ? null : tab;
     }
 
     function rangeLabel(section) {

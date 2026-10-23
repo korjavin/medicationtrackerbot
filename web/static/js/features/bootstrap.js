@@ -97,7 +97,7 @@ async function maybeUpdateTimezone() {
 // Mount the Wandergeek tab bar (components/wg-bottom-nav.js) into #app once.
 // Idempotent — re-entry is a no-op. The bar registers with AppKernel so
 // subsequent switchTab() calls update the active tab; a page (Settings /
-// Journey) keeps its origin tab lit (AppNav.navSectionFor). Tapping a tab
+// Journey) lights no tab (AppNav.navSectionFor). Tapping a tab
 // calls switchTab with the tab's section — the Health tab resolves to the
 // remembered, still-enabled BP / Weight / Vitals segment (features/app-nav.js).
 // A tab whose whole feature set is off is filtered out before mount, so
