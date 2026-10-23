@@ -108,15 +108,10 @@ type createTransferRequest struct {
 const transferSlotIDLen = 22
 
 func validTransferSlotID(id string) bool {
-	if len(id) != transferSlotIDLen {
-		return false
-	}
-	for _, c := range id {
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
-			return false
-		}
-	}
-	return true
+	// Non-strict decoding accepts the truncated tail's leftover bits, so this
+	// is exactly an alphabet check.
+	_, err := base64.RawURLEncoding.DecodeString(id)
+	return len(id) == transferSlotIDLen && err == nil
 }
 
 type createTransferResponse struct {
