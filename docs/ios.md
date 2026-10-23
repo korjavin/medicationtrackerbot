@@ -744,8 +744,9 @@ changes for it.
   the leave stash and the slot, and reopen on the URL (`then` is ignored).
   `local.leave {url}` keeps the move stash for the new account;
   `account.leave {url}` drops it. A present `url` that is `null`, empty or not a string is "invalid url" (contract A3).
-  Without the key: `local.leave` (Settings → Backup → Move to a cloud account,
-  after its `move.stash`) replies true and reopens local home`?invite=1` —
+  Without the key: `local.leave` (no web caller since med-ta2n.5 deleted
+  Settings → Backup → Move to a cloud account; the P3 sheets always pass a url)
+  replies true and reopens local home`?invite=1` —
   still local, nothing else changes, the stash waits; `account.leave` with no
   args is Switch account (local mode, home`?invite=1`, `wgLeaveHost`
   removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set).

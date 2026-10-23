@@ -67,7 +67,7 @@ Catalog/key tooling: `cmd/genvapid` (VAPID keys for the push relay), `cmd/openfo
 | Feature behaviors | [docs/features.md](docs/features.md) |
 | Gamification — **MVP shipped** (`web/domain/gamification.js`, MCP ops, narrator); Phase-2 material in the doc is design-only | [docs/gamification.md](docs/gamification.md) |
 | Workout depth (per-set logging, history snapshots, 1RM/PR analysis, opt-in progression) — **implemented**, all four phases closed | [docs/workout-depth.md](docs/workout-depth.md) |
-| Cloud onboarding wizard — **implemented** (epic `med-4pz` closed; `WGFirstRun` mounts in cloud) | [docs/onboarding-wizard.md](docs/onboarding-wizard.md) |
+| Onboarding v3 (W1/W2 first run, F1/P3 invites, claim sign-in, kit offer) — **implemented** (epic `med-ta2n`; supersedes the `med-4pz` wizard) | [docs/onboarding-wizard.md](docs/onboarding-wizard.md) |
 | iOS visual testing runbook (label `ios-visual`, artifacts, probes, agent QA checklist, bead filing) | [docs/ios-visual-testing.md](docs/ios-visual-testing.md) |
 | Cloud mode per-subsystem + **generated privacy boundary table** (source `web/cloud/js/privacy-manifest.js`, regen `pnpm privacy:docs`, never hand-edit) | [docs/cloud-mode.md](docs/cloud-mode.md) |
 | Vault export/import format — **v1 implemented** | [docs/vault-format.md](docs/vault-format.md) |

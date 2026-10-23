@@ -1,287 +1,170 @@
-# Cloud onboarding wizard — design
+# Onboarding (v3) — open and use it
 
-Status: **design proposal** (bd `med-4pz.1`), except for the vault flag (`med-4pz.5`) and the claim→app seam
-(`med-8eh`) — both **implemented**, so `WGFirstRun` now mounts in cloud mode and the claim wizard delivers the
-user into the app. The screens still land via the sibling beads `med-4pz.2`, `med-4pz.3`, `med-4pz.4`.
+Status: **implemented** (epic `med-ta2n`; the Android shell's QA scenarios are the one open item, see
+[android.md](android.md)). Design source: [screens-onboarding-v3.html](design/claude-design/ui_kits/app-v2/screens-onboarding-v3.html)
+and the brief [onboarding-v3](design/briefs/onboarding-v3.md). It replaced the cloud-only wizard of epic `med-4pz`
+(welcome → features → integrations → done), the native first-run choice screen (kit N1), the native local intro (N2)
+and the Emergency Kit inside signup (the old O1 placement). The git history of this file holds the `med-4pz` design.
 
-## The headline: don't build a wizard, revive one
+## Principle
 
-The app **already has** an in-app, multi-step, first-run onboarding overlay. It ships in the real app today:
+The app works on first launch. No choice, no QR, no account. Cloud sync is a **feature you turn on**, not a mode you
+pick; the words *encryption, key, vault, passkey* stay out of onboarding ("Sign in with Face ID / your fingerprint").
+Risk talk (lose the phone, the Emergency Kit) comes later as a nudge, once there is something worth protecting.
 
-- `web/static/js/features/firstrun/index.js` — orchestrator: mounts a full-screen overlay, dispatches to a
-  **screen registry**, exposes `window.WGFirstRun = { mount, dismiss, isActive, state, screens }`
-- `web/static/js/features/firstrun/state.js` — step tracker (`sessionStorage`, key `wg-firstrun-step`)
-- `web/static/js/features/firstrun/screens/{welcome,permissions,integrations,done}.js` — the four screens
-- `web/static/css/components.css` (end of file) — `.wg-firstrun-overlay` / `__panel` / `__title` / `__body`
-- `web/static/js/features/auth-bootstrap.js:312-324` — reads top-level `needs_first_run` from
-  `/api/bootstrap` and calls `WGFirstRun.mount({ needs_first_run })` on every fresh bootstrap
+## The flow at a glance
 
-It was **dead in cloud mode for exactly one reason** — `bootstrapPayload()` hardcoded
-`needs_first_run: false`, and `POST /api/firstrun/complete` was a fake `STUBS` entry that acked without
-storing anything. `med-4pz.5` fixed both (see "The flag lives in the vault" below): the payload now computes
-the flag from the vault on every call, and the completion route is a real `shimCall` branch that writes it.
+| id | screen | where | owner bead |
+|---|---|---|---|
+| W1 | module picker (first run) | `WGFirstRun` overlay, web | `med-ta2n.1` (`.21`, `.28`) |
+| W2 | AI trial offer | `WGFirstRun` overlay, web | `med-ta2n.2` |
+| W3 | Today "Start here" hints | Today, web | `med-ta2n.3` |
+| W4 | protect-your-data card + sheet | Today, local mode | `med-ta2n.4` |
+| W5 | Settings → Sync & backup card and page; sign-in copy of the claim ceremony | Settings / `signup.js` | `med-ta2n.5`, `.8` |
+| F1 | "Have an invite?" sheet (paste or scan) | `features/invite.js` | `med-ta2n.6` |
+| P3 | "Turn on sync?" sheet (+ "Your invite is here", "Switch account?") | `features/invite.js` | `med-ta2n.7` |
+| L1–L3, expired | invite landing page | `web/cloud/invite.html` | `med-ta2n.10` |
+| — | Emergency Kit nudge after sync is on | Today, cloud | `med-ta2n.15` |
 
-So this design is **not** "build an onboarding wizard". It is:
+Every first-run screen is **web**. The shells draw nothing native for onboarding: with no stored account they enter
+local mode and the bundled app shows W1 ([ios.md](ios.md#the-shell-bd-med-w6gx3), [android.md](android.md)).
 
-1. ~~give cloud mode a vault-backed `first_run_complete` so `needs_first_run` can be true~~ — done (`med-4pz.5`),
-2. ~~route `POST /api/firstrun/complete` through the shim~~ — done (`med-4pz.5`),
-3. ~~delete the claim wizard's dead-end final screen and hand off into the app~~ — done (`med-8eh`),
-4. add three screens to the existing registry.
+## The trigger and the flag (unchanged from `med-4pz.5`)
 
-Step 3 fell out of the same ordering: `med-8eh` was a *consequence* of the vault flag, not a separate tweak —
-which is what that bead's own notes ask for.
+`WGFirstRun` (`web/static/js/features/firstrun/`: `index.js` orchestrator, `state.js` step tracker, `screens/features.js`
+= W1, `screens/trial.js` = W2) mounts when `/api/bootstrap` reports a top-level `needs_first_run: true`
+(`features/auth-bootstrap.js`). `bootstrapPayload()` in `apishim.js` computes it from the vault on every call and never
+caches; local mode takes the same path through the bundled app's shim.
 
-## The trigger
+- The flag lives on its own **`firstrun` vault singleton** (`web/domain/settings.js`, `setFirstRunComplete`), not the
+  general `settings` record: records are last-writer-wins per whole record, and a lagging device writing `timezone`
+  must not resurrect the overlay. Only `setFirstRunComplete` writes it, and only ever `true`. Vault restore with user
+  content stamps it at the `clientTs: 0` floor (`vaultToRecords`), so a restored install does not onboard again.
+- **Absent ⇒ needs onboarding.** Cloud vaults that predate the flag see the overlay once.
+- The record also carries `picked`, the W1 module picks in picker order (`diary` included), which W3 reads.
+- The in-flight step stays in `sessionStorage` (`wg-firstrun-step`; valid steps `features | trial`; a stored `welcome`
+  or `done` falls back to W1, a stored `integrations` resumes on W2). A power-cycle or another device restarts at W1
+  because the vault flag is still unset. Intentional.
+- `POST /api/firstrun/complete` (a real `shimCall` branch) writes the flag and the `picked` list.
 
-**Trigger: first `/api/bootstrap` after the claim wizard finishes**, i.e. the first time the real app boots
-with an unlocked vault whose `first_run_complete` is unset.
+## W1 — module picker
 
-No new dispatch code. The account subdomain already serves the full `web/static` app, and `cloud-boot.js`
-installs the `/api` shim ahead of every `web/static` script (`cloud-boot.js:130-159`), so the real app's
-`apiCall('/api/bootstrap')` already lands in `apishim.js:221`. Making `bootstrapPayload` compute
-`needs_first_run` from the vault is the entire hook. `auth-bootstrap.js` mounts the overlay for us.
+One screen, seven kit check choices (Medications, Blood pressure, Weight, Workouts, Sleep, Food, Diary), nothing
+preselected. *Continue with N* writes the picks; *Skip* = everything on. Rows map to the six feature flags (Sleep is the
+Vitals section, internal id `health`); **Diary has no flag** (the notes section has none): picking it drives the W3
+hints and keeps `health` on even without Sleep (`med-ta2n.21`). Continue/Skip write an **explicit boolean for all six
+flags**, sequentially (`DEFAULT_FEATURES` is all-on, so an unwritten flag would come back on). Picking Medications
+while notifications are off for the device shows the O3 "Reminders won't fire" note and asks in context.
 
-Explicitly **not** the hook: `web/cloud/js/app.js`'s router. That handles `/claim`, `/recover`, `/devices`
-and the claim-token branch — it is the *shell* entry, not the main-app boot path.
+The footer has the "not a medical device" footnote, the Privacy policy link and, in local mode, *How to get an invite*
+(the request sheet when the shell has `base.post`, else the base landing, else nothing; `med-ta2n.28`). In a v3 shell in
+local mode with no invite already waiting, the footer also shows **F1** "Have an invite?".
 
-## The flag lives in the vault, not localStorage — **implemented** (`med-4pz.5`)
+After W1, `finishPicker` stores the picks and either completes (POST above, overlay dismissed) or moves to W2.
 
-Per the bead: the flag must sync across devices. Cloud-mode settings are vault singleton records via the
-runtime-agnostic domain module `web/domain/settings.js` (`createSettingsDomain({ records, now, timeZone })`,
-line 72), encrypted at rest by the sync engine.
+## W2 — AI trial offer
 
-`first_run_complete` lives on its **own vault singleton** (`FIRSTRUN_RECORD_TYPE = 'firstrun'`), not on the
-general `settings` record. Records are last-writer-wins per *whole record*: a device that has not yet pulled
-the completion op, later writing the shared singleton for `timezone` or `dismissed_tz_suggestion`, would
-upload a newer record with the flag missing and re-open the overlay everywhere. Nothing but
-`setFirstRunComplete` writes the `firstrun` record, and it only ever writes `true`. No migration, no new HTTP
-route. The one other writer is vault restore (bd med-suu2): importing a backup with user content writes the
-same `true` at the `clientTs: 0` floor (`web/domain/vault.js` `vaultToRecords`), so a restored account or
-device-only install does not onboard again; a blank backup leaves the flag untouched.
+Shown **only when Food was picked and a trial is on offer** (`SettingsIntegrations.trialOffer()`: no own OpenAI key,
+none started, and an install that can start one — local: the shell's App Attest status; cloud: the operator's
+`medtracker-trial-ai` meta). One real example, *Try it free* (the consent sheet in place, then the Settings flow) and a
+full-width *Not now*. "Not now" completes first run and writes nothing; the Today "Try AI for free" card (own per-device
+dismiss, `med-6xb9`) is the one later appearance. Local mode: `anon` consent, `trial.apply()` (a reload when the CSP must
+admit our server; the overlay resumes on this step), `trial.enroll()`. Cloud: the `ai` TrialConsent is the whole opt-in.
 
-| concern | decision |
+This is the **one** trial question of onboarding. The claim wizard's trial step (`med-w6sx`, `TRIAL_CHOICE_KEY` carry-over)
+and the first-run BYO-key form are gone; the key form lives in Settings → AI & integrations.
+
+## W3, W4 — after first run
+
+- **W3 "Start here"** (`GET /api/today/start-here`, read-only): one hint per picked module with no live record, in W1
+  order; each runs the module's existing add flow and disappears with that module's first record. A vault in use that
+  predates v3 (no stored picks, has content) gets none. See [features.md](features.md).
+- **W4 "Protect your data"** (local mode only): the `protection` vault singleton `{lastBackupAt, nudgeDismissedAt[]}`
+  (carried in `data.protection`). Written only by deliberate actions (a confirmed backup Share, the card's × / Later) with
+  `now()` + `put` — never lazily created, so the derived-writer floor rule does not apply. Shown at 20 records or 7 days
+  since first run; × snoozes 14 days; the second dismissal stops it. Replaces the weekly backup toast. The Settings chip
+  reads the same status.
+
+## The local-first path (P1: installed from a store)
+
+1. Store install → shell enters local mode, no native screen → **W1** → (**W2**) → Today with **W3** hints.
+2. Notifications are asked in context (O3), not here.
+3. Later **W4** nudges to back up or turn on sync.
+4. Settings slot ① **Sync & backup** (**W5**): Backup first, then Sync — two facts, *Sync needs an invite for now* with
+   Paste / Scan (F1) and *How to get an invite*, or *An invite is waiting → Turn on sync* when the shell slot holds one.
+   The old Settings *Move to a cloud account* row is gone; the move runs from P3. Cloud mode keeps the S6 cloud card.
+
+*Sync needs an invite* is deliberate: registration is invite-only ([cloud-mode.md](cloud-mode.md#onboarding--invite--wizard--installed-pwa)).
+Requests go to our server (`med-ta2n.14`: in-app email form → admin approval in the manager bot → emailed invite).
+
+## Invite paths
+
+The invite is a single-use link (14 days, `CLOUD_CLAIM_TTL`) that claims one prepared account. Link forms, the landing
+page and the status API are in [cloud-mode.md → Onboarding](cloud-mode.md#onboarding--invite--wizard--installed-pwa);
+the token stays in the URL fragment end to end and never reaches the server.
+
+**P2 — link or QR, app not installed.** The landing page (`https://<base>/i/<sub>#<token>`) shows one platform button
+("Get the app for iPhone" / "…Android"), "Continue in the browser" (the PWA stays supported) and, on a desktop, a QR.
+- *Android*: the Play link carries the invite as the Install Referrer; on first launch the shell reads it **once** and files
+  it in its pending slot before entering local mode, so the web shows **"Your invite is here"** (P3 · Android: *Sign in
+  with fingerprint* / *Use without sync*) ahead of W1. This transit through Google Play is a privacy-manifest carve-out
+  (owner-accepted; the "Invite link → Get the app on Android" row of the generated table).
+- *iPhone*: no reliable automatic hand-off. The app starts local as in P1; the landing page's L3 "Installed? Tap to
+  continue" opens it (universal link, or `medtracker://i/<sub>#<token>` since Safari will not open a universal link to the
+  host it is already on). "Get the app" also copies the landing URL, which F1's Paste picks up.
+
+**P3 — invite arrives while the app is installed.** The shell captures it from any source (iOS universal link / scheme;
+Android app link / scheme / referrer) into **one pending-invite slot** (`{url, receivedAt}`; newest wins; ignored after 14
+days) and tells the page (home with `?invite=1`). The web reads it with bridge op `invite.pending` (one read per page,
+before W1) and routes by state:
+
+| state | sheet |
 |---|---|
-| authoritative "onboarding done?" | the `firstrun` vault singleton — syncs to every device |
-| in-flight step ("resume at step 3") | stays `sessionStorage` (`state.js`), unchanged |
+| local mode with records | **Turn on sync?** ("Your N records move to your account") |
+| local mode, no records | **Your invite is here** |
+| account mode | **Switch account?** (*Switch* = `account.leave {url}`, *Keep this account* = `invite.clear`) |
 
-**Absent ⇒ needs onboarding.** `needs_first_run = !first_run_complete`, so only an explicit `true`
-suppresses the overlay. A vault record cannot be backfilled the way a SQL migration backfills a
-column, and an absent record cannot mean two things at once. The accepted consequence: **cloud vaults that
-predate this change see the overlay once**, dismiss it, and never see it again.
+*Turn on sync* / *Sign in* is `CloudVault.moveToCloud({url})`: `move.stash` always, then `local.leave {url}` opens the
+claim page directly. The leave is gated on `navigator.onLine !== false`; offline shows an in-page error and sends nothing.
+**F1** (paste via `window.Clipboard`, scan via `window.Barcode`; Android registers `clipboard.read` because a WebView has no
+clipboard-read prompt) feeds the same sheet from the web side, with a text-field fallback. Older shells without
+`invite.pending` in `shell.ops` never get the slot read or a `{url}` sent. Bridge contract and parity:
+[mobile-parity.md](mobile-parity.md).
 
-Shape: the flag is read once per `bootstrapPayload()` and surfaced as a
-**top-level** `/api/bootstrap` field. It is
-deliberately *not* in the `GET /api/settings` body, whose shape is unchanged. `bootstrapPayload()` re-reads
-the vault on every call and never caches: `WGFirstRun`'s `_mounted` latch is module state lost on reload, so
-across reloads the payload reporting `false` is the only thing keeping the overlay closed. Contract covered by
-`web/static/js/tests/cloud.shim-contract.settings.test.js`.
+## The claim ceremony (W5 sign-in) and the Emergency Kit
 
-**Why the split.** The vault flag answers *"has this human ever been onboarded?"* — that must survive a new
-device. The step tracker answers *"where were they 30 seconds ago?"* — that must not. Syncing a half-finished
-step across devices would resume a wizard on a phone the user never started it on. The existing
-`state.js` comment already reasons this way; the same logic holds for cloud.
+The ceremony (`web/cloud/js/signup.js`, bd `med-ta2n.8`) is `sign in → (unsupported-authenticator) → [kit offer, only with
+&kit=1] → (telegram) → (install) → enterApp`. The first screen is **W5 · sign in** ("Sign in with Face ID" / "your
+fingerprint" / "this device" from the UA and shell, one privacy sentence, never the words passkey / vault / encrypt).
 
-**Resume after abandon** therefore falls out for free, and matches today's documented semantics: a mid-session
-kill resumes at the last visible step; a power-cycle (or a different device) wipes `sessionStorage` and
-restarts at `welcome`, because the vault flag is still unset. Intentional, not a bug.
+The Emergency Kit is an **offer**, not a gate, and only when the claim fragment carries `&kit=1` (appended by the web when
+sync was turned on from Settings; shells pass the fragment through untouched; `app.js` reads it next to `claim`). The offer
+mints the code, shows two facts, *Save kit* / *Print* and *Done*; Done POSTs `/api/loss-ack` and files `download | print`
+after a save, else `none`. Without the flag — the P3 path, a plain invite link, and an invite pasted into an older native
+first-run screen — there is no kit page and no recovery code is minted at signup; the wizard files `emergencykit`
+`how: 'none'` and the Settings Kit chip reminds (regenerate = `/devices?flow=emergency-kit`). The pre-v3 gate page
+(`renderEmergencyKit` without `offer`: "I saved it" unlocks Continue) stays for `/recover`'s forced rotation and the
+`/devices` regenerate flow. After sync is on, the Today **Emergency Kit nudge** (`med-ta2n.15`) repeats as the data grows,
+with *Don't remind me again*.
 
-## Step sequence
+`enterApp(ctx)` establishes the LDK warm cache **at the tail** (not right after `register/finish`, so abandoning at the kit
+offer cannot reload into an unlocked app with an unsaved code) and navigates to `/`; a storage-blocked browser is routed to
+`/unlock` instead. A P3 claim ends on Today with the pickup toast ("Sync is on · N records are on your account"). The
+claim wizard has one job: get a passkey (and, from Settings, offer the code); the web app's overlay and the shell's
+`wizard-step` markup remain two documents with two primitives.
 
-Existing registry order is `welcome → features → integrations → done` (`state.js`, `VALID_STEPS`).
-The bead asks for `intro → sections tour → feature picker → BYO keys → safety nudges`. Reconciled:
+## Owner decisions recorded (epic `med-ta2n`)
 
-| # | step | status | notes |
-|---|------|--------|-------|
-| 1 | `welcome` | **exists** | reuse. Owns "Skip all" (calls `skipAll()`). |
-| 2 | `sections` | **new** (`med-4pz.3`) | sections intro / tour |
-| 3 | `features` | **exists** | feature picker |
-| 4 | `integrations` | **exists** | BYO keys. `med-4pz.3` re-checks copy for cloud. |
-| 5 | `safety` | **new** (`med-4pz.4`) | Emergency Kit + second device |
-| 6 | `done` | **exists** | reuse; `POST /api/firstrun/complete` |
-
-The old `permissions` step was Capacitor-oriented (native OS permission prompts) and was removed with the
-Android shell — browsers surface permission prompts inline at first capability use. If cloud push wants an
-explicit opt-in step, it is a new step, not a revival of that one.
-
-Adding steps means extending the frozen `VALID_STEPS` array in `state.js:22` — it is the single source of
-truth for step validity and unknown names are silently rejected by `setStep`.
-
-### Per-step skip vs skip-all
-
-- **Skip-all** exists on `welcome` via the `skipAll()` helper (`index.js`), which POSTs
-  `/api/firstrun/complete` and dismisses. It sets the vault flag → never re-prompts on any device.
-  Exception (`med-js3k`): when the free AI trial is on offer (`SettingsIntegrations.trialOffer()`, and in
-  cloud mode no claim-wizard trial choice yet), it first lands on the `integrations` step's trial choice
-  (trial / own keys / skip); leaving that step completes the flow directly instead of walking to `done`.
-- **Per-step skip** is a "Skip" control on each new screen calling `advance(nextStep)` (`index.js:123`).
-  It moves on **without** setting the vault flag; the user still reaches `done`, which is what completes.
-
-Consequence worth stating plainly: skipping every step individually and skipping all have the same end state
-(`first_run_complete = true`), but per-step skip still walks the user past the safety nudges. That is the
-point — `med-4pz.4`'s Emergency Kit nudge is the one screen we want people to *see* even if they skip it.
-
-## The claim → onboarding seam — **implemented** (`med-8eh`)
-
-The claim wizard used to end at `renderDone`, a terminal screen ("the full app arrives with the next update")
-with no button and no redirect. It is gone. The sequence is now
-`sign in → (unsupported-authenticator) → [kit offer, only with &kit=1] → (telegram) → (trial) → (install) → enterApp`.
-
-Since bd `med-ta2n.8` (onboarding v3, design W5): the first screen is **W5 · sign in** ("Sign in with Face ID" /
-"your fingerprint" / "this device" from the UA and shell, one privacy sentence, never the words passkey / vault /
-encrypt). The Emergency Kit is an **offer**, not a gate, and only when the claim fragment carries `&kit=1`
-(`#claim=<token>&kit=1`, appended by the web when sync was turned on from Settings; shells pass the fragment
-through untouched; `app.js` reads it next to `claim`). The offer (W5 · kit) mints the code exactly like the O1
-page, shows two facts, Save kit / Print and Done; Done POSTs `/api/loss-ack` and files `download | print` after a
-save, else `none`. Without the flag — the P3 "Turn on sync?" path, a plain invite link, **and an invite pasted
-into an older native first-run screen** — there is no kit page and no recovery code is minted at signup; the
-wizard files `emergencykit` `how: 'none'` and the Settings Kit chip (bd `med-ckm5.6`) reminds (regenerate =
-`/devices?flow=emergency-kit`). That older-shell case is accepted (bd `med-ta2n.8` breakage review). The `&kit=1`
-producer is the web's "Turn on sync" path (bd `med-ta2n.7`). The O1 page
-(`renderEmergencyKit` without `offer`: "I saved it" unlocks Continue, `ack` at the user's own risk) stays for
-`/recover`'s forced rotation and the `/devices` regenerate flow. Kit record values are unchanged.
-
-`enterApp(ctx)` (`web/cloud/js/signup.js`) establishes the LDK warm cache with the ceremony's `{dek, accountId}`
-and then navigates `location.href = '/'`, exactly as `renderDeviceList`'s `onExit` already does
-(`app.js:38-40`). The app boots, `/api/bootstrap` reports `needs_first_run: true`, and `WGFirstRun` mounts on
-top of the real app.
-
-The cache is established **at the tail, not right after `register/finish`** (which is what `claim.js:167-173`
-does, because enrollment is its last step). Caching early would let a user who abandons at the Emergency Kit
-offer reload straight into the app having never saved a recovery code. (Without `&kit=1` there is no code to
-save at signup at all; the Settings Kit chip carries that.)
-
-`establishLdkCache` failure is swallowed and we navigate anyway: a storage-blocked browser lands on `/`,
-`cloud-boot`'s `warmUnlock` fails, and it is routed to `/unlock` to sign in with the passkey it just created.
-Degraded, not dead-ended.
-
-`recover.js` is unaffected — its `ctx.onKitSaved` override still short-circuits at `#kit-continue`, and its
-warm cache was already established by `enrollWithToken`.
-
-Onboarding therefore starts **after** the Emergency Kit, **inside** the real app — as the bead requires — and
-the claim wizard keeps exactly one job: get a passkey (and, entered from Settings, offer the recovery code). No duplicated step machinery: the
-claim wizard uses `wizard-step` (defined in `web/cloud/css/cloud.css:15`, **shell-only**, not loaded by
-`web/static`), and onboarding uses `.wg-firstrun-overlay` (end of `web/static/css/components.css`). Two different
-documents, two different primitives, no sharing needed. That is the correct boundary, not an accident.
-
-## Screen-by-screen inputs
-
-### `features` — feature picker (`med-4pz.2`)
-
-- write path: `POST /api/settings/features/:feature {enabled}` → shim `apishim.js:303-316` → `settings.setFeature`
-- toggles + defaults (`web/domain/settings.js:47-56`): `bp`, `weight`, `medication`, `workout`, `health`,
-  `gamification` default **enabled**; `food` and `weekly_digest` default **disabled**
-- ⚠️ `gamification` is in `DEFAULT_FEATURES` but has **no toggle** in the Settings Features UI
-  (`web/static/index.html:525-553`). The picker must decide: expose it, or match Settings and omit it.
-  Recommend **omit** — `docs/gamification.md` is still an unimplemented design proposal, so a picker row for
-  it promises a feature that does not exist.
-- the picker sells `food` and `weekly_digest` (the two off-by-default features). Everything else is already on;
-  showing six pre-checked boxes is noise.
-
-### `integrations` — BYO keys (`med-4pz.3`)
-
-- screen **exists** (`screens/integrations.js`), reusing `window.SettingsIntegrations.patch`
-- cloud stores these in the `integrations` vault singleton (`web/domain/settings.js:18-19`), masked to `'***'`
-  on read, mask-preserved on write (`:27-45,199-238`); unmasked values are read module-to-module by
-  `aiclient.js` / `fooddb.js`, never over an `/api` route
-- so the existing screen should already work in cloud mode unmodified. `med-4pz.3` **verifies** rather than rewrites.
-- **iOS device-only mode — trial first** (`med-o7zq.29`, **implemented**): where `window.CloudVault.trial`
-  (`web/cloud/js/local-policy.js`, local mode only) reports a status — i.e. the shell has App Attest, the same
-  gate as the Settings → AI & integrations trial row — the screen leads with *Try the free trial* (primary),
-  *Use my own keys* (the key form above) and *Skip for now*, plus a note that the choice can be switched any
-  time in Settings → AI & integrations. The trial tap is the Settings switch's flow: `TrialConsent.request('anon')`,
-  then `trial.apply()` (reloads when the CSP must admit our server; the overlay resumes on this step, sees the
-  trial on and finishes), then `trial.enroll()` — the grant or rejoin, sharing the boot-time enrollment while it
-  is in flight. Declining, `trial_already_used`, `trial_not_configured` or a network failure shows an English
-  message and leaves *Use my own keys* and *Skip for now* working. No App Attest (Simulator) → the key form.
-- **Cloud mode — trial first** (`med-oc8h`, **implemented**): where the operator configured a trial key
-  (`<meta name="medtracker-trial-ai" content="1">`, the same gate as Settings → Integrations `applyTrialHints`)
-  the screen shows the same three choices and switch note. The cloud trial has no on/off switch — `aiclient.js`
-  routes through the operator key whenever the user has no key of their own — but every trial transmission is
-  gated on the `ai` TrialConsent scope. So *Try the free trial* is exactly the Settings trial-AI row's *Allow*:
-  `TrialConsent.request('ai')` (the cloud disclosure, persisted to the `trialconsent` record), then done. The
-  `tg` and `voice` scopes are not asked here (Settings, or the dialog on first use). Declining or a failed
-  dialog shows an English message and leaves *Use my own keys* (today's key form) and *Skip for now* working.
-  No trial meta → today's key form unchanged.
-- **Cloud claim wizard — trial next to Telegram** (`med-w6sx`, **implemented**): the owner wanted the trial
-  beside Telegram setup, not only in the skippable overlay. `cmd/cloud` injects the same `medtracker-trial-ai`
-  meta into the passkey shell, and `signup.js renderTrialStep` (after Telegram, before install) offers
-  *Allow the free trial* / *Use my own keys* / *Skip*. It is the **one** trial question of the onboarding
-  (`med-nt9p.40` — it used to be followed by the app's consent dialog, so a "yes" was asked twice): it shows the
-  app's `ai` consent disclosure word for word (`trial-consent.js` `COPY.ai` + `ALTERNATIVE`;
-  `signup.install-step.test.js` pins the match), so *Allow* is the consent. The shell cannot write the
-  `trialconsent` vault record, so it stores `trial-allowed` in `localStorage['wg-onboarding-trial-choice']`.
-  `enterApp` opens the app in that same origin and browser storage next (`/claim`, `/unlock` and the app are all
-  on the account subdomain), where `WGFirstRun.mount` records the grant with `TrialConsent.grant('ai')` — no
-  dialog — and marks it `trial-asked`. `grant` never overwrites a decision the vault already holds (a later
-  answer, another device's); only a grant that cannot be read or stored falls back to the dialog. A legacy
-  `trial` value (a pre-`med-nt9p.40` shell that showed no disclosure) still gets the `TrialConsent.request('ai')`
-  dialog. Any recorded choice makes the overlay's AI step open on the key form instead of the trial choice; a
-  granted `ai` consent (read via `GET /api/settings/trial-consent`, so another device's grant counts) skips the
-  step. The wizard step is **not** shown in an iOS Safari tab: its install step ends in the Home Screen app, a
-  fresh storage container that cannot read the choice, so that app's overlay asks instead; nor where
-  `localStorage` is blocked, for the same reason. No choice on this
-  browser → the overlay's trial choice as above.
-- **After a skip — trial stays discoverable** (`med-6xb9`, **implemented**): `SettingsIntegrations.trialOffer()`
-  is true while no own OpenAI key is saved, a trial exists (local: `CloudVault.trial.status()` non-null; cloud:
-  the trial meta) and it is not on (local switch off; cloud `ai` consent not `true`). Then Today shows a
-  *Try AI for free* card (`today.js renderAITrialCard`, a `WGOfferCard`; hidden with Food off) whose *Try it* is
-  `SettingsIntegrations.startTrial()` — the local `anon` consent or `TrialConsent.request('ai')` — and its ×
-  retires it per device (`localStorage['wg.today.aiTrialDismissed']`, like the trackers empty state). In both
-  modes Settings → AI & integrations leads with the same card (`#integrations-trial`, med-ckm5.10): the offer
-  under the same condition, or the trial ON with its limits and *Turn off the trial*.
-
-### `safety` — Emergency Kit + second device (`med-4pz.4`)
-
-- the Kit was already shown during claim (`signup.js:175-233`); this step is a **nudge**, not a re-render.
-  Do not re-display the recovery code — it was shown once, deliberately.
-- "Add a second device" entry point from inside the app is Settings → Devices card
-  (`web/static/index.html:428-451`, `#settings-devices-link` → `/devices`), which is a cloud-shell route
-  (`app.js:30-41`) leading to `devices.js:78` → `transfer.js`. The nudge should link there rather than
-  reimplement transfer.
+| question | answer |
+|---|---|
+| store users cannot turn on sync without an invite | request-an-invite on our server (`med-ta2n.14`), not self-serve sign-up |
+| Android Play Install Referrer (single-use token transits Google Play) | accepted; privacy-manifest carve-out |
+| compat shim for old shells | none (no distribution yet); pre-v3 shells reject the landing form on their paste screen, and the landing's "Continue in the browser" still claims |
+| delete native first-run screens | confirmed; exits land in local mode with F1 open; QR scan via `window.Barcode` |
+| kit reminder | data-driven repeating nudge with "Don't remind me again" (`med-ta2n.15`) |
+| `ClaimURL` form | flipped to the landing form `https://<base>/i/<sub>#<token>` (`med-ta2n.16`); the old claim form stays valid |
 
 ## Settings re-run entry point
 
-Add a `wg-settings-row` ("Re-run onboarding") to the cloud-only Devices card
-(`web/static/index.html:428-451`), tagged `wg-settings-cloud-* wg-settings-hidden`, revealed by the existing
-cloud block in `web/static/js/features/settings.js:210-217`:
-
-```js
-if (window.__MEDTRACKER_CLOUD__) {
-    document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
-}
-```
-
-Handler: clear the vault flag, `WGFirstRun.state.clear()`, then
-`window.WGFirstRun.mount({ needs_first_run: true })` (`firstrun/index.js:184`) to reopen the overlay in place.
-No navigation, no reload.
-
-## Work breakdown
-
-| bead | work |
-|---|---|
-| `med-4pz.5` ✅ | vault flag: `first_run_complete` in `web/domain/settings.js`; `needs_first_run` computed in `bootstrapPayload`; `POST /api/firstrun/complete` routed as a real `shimCall` branch. `VALID_STEPS` deliberately **not** extended — that belongs with the screens that need it |
-| `med-8eh` ✅ | `renderDone` → `enterApp(ctx)`: warm the LDK cache, then navigate `location.href = '/'` |
-| `med-4pz.2` | `screens/features.js` |
-| `med-4pz.3` | `screens/sections.js`; verify `screens/integrations.js` under cloud |
-| `med-4pz.4` | `screens/safety.js`; verify `firstrun/permissions.js` under cloud push |
-| **new** (file it) | Settings "Re-run onboarding" row |
-
-The vault-flag bead **blocked all the others** — without it the overlay could not mount in cloud mode and no
-screen could be exercised end to end. It has landed, so the rest are unblocked.
-
-## Deliberately not doing
-
-- **No new wizard framework.** The registry + overlay + step tracker exist and are purpose-built for this.
-- **No migration or new HTTP route** for the flag — the `firstrun` singleton syncs through the ordinary oplog.
-- **No syncing of the in-flight step.** See the table above.
-- **No per-step plan files yet.** The parent epic `med-l3q` scopes the wizard steps themselves out of this
-  sprint; plan files written now would rot before `med-4pz.2/.3/.4` are scheduled. Write each plan when its
-  bead is picked up, against the code as it stands then.
-
-## Open questions for the owner
-
-1. **`gamification` in the feature picker** — omit (recommended, it is an unimplemented proposal) or expose?
-2. **`permissions` step in cloud** — keep it (self-gating on already-granted) or drop it from the cloud
-   sequence entirely? Needs `firstrun/permissions.js` read first; flagged as unverified above.
-3. **Sections tour depth** — a single "here's what's in the app" screen, or one screen per section? This design
-   assumes **one screen**; the bottom nav already names all eight sections.
+Settings still has a *Re-run onboarding* button (`#settings-rerun-onboarding`, `bindRerunOnboarding` in `settings.js`) that
+reopens the overlay at W1 in place; otherwise the overlay is once-only per vault.

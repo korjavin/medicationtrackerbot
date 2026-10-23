@@ -67,7 +67,7 @@ implemented.** Do not describe their contents as behavior.
 | Doc | Status |
 |---|---|
 | [cloud-key-rotation.md](cloud-key-rotation.md) | Compromised-device eviction via DEK/NK rotation. **Proposal.** Closes the gap named in [threat-model.md §7.3](security/threat-model.md#73-device-removal-is-not-compromise-recovery). |
-| [onboarding-wizard.md](onboarding-wizard.md) | A vault-backed first-run overlay. **Partially implemented** — see the status header for what has landed. |
+| [onboarding-wizard.md](onboarding-wizard.md) | Onboarding v3 (first-run overlay W1/W2, invite paths F1/P3, claim ceremony sign-in, Emergency Kit offer). **Implemented** (epic `med-ta2n`). |
 | [gamification.md](gamification.md) | HealthPoints / outcome-in-range scoring. **MVP shipped**; Phase-2 sections remain a proposal (see the status header). |
 | [workout-depth.md](workout-depth.md) | Per-set logging → est-1RM/PR → opt-in progression. **Implemented** (epic `med-qj4`, phases 1–4 closed); the doc is the design rationale. |
 

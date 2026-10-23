@@ -102,3 +102,6 @@ a{color:var(--wg-sun)}a:hover{color:var(--wg-sun-hi)}
 .kit-paste{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 18px;border-radius:22px;background:#0A84FF;color:#fff;font:600 15px -apple-system,system-ui,sans-serif}
 .kit-paste .wg-ico{width:16px;height:16px}
 .kit-desk>.wg-app{flex:1;height:auto;min-height:0}
+
+/* v2.2 presentation: add-device page */
+.kit-desk--1280{width:1280px;height:800px}.kit-col{width:100%;max-width:360px}.kit-center{align-items:center}
