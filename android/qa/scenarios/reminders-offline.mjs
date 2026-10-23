@@ -30,8 +30,8 @@ export default async function remindersOffline(ctx) {
     page.on('console', (m) => { if (r.console.length < 60 && !/stub response/.test(m.text())) r.console.push(m.text().slice(0, 200)); });
 
     await ctx.step('Settings → Notifications → Enable → both system grants → granted', async () => {
-      await page.locator('[data-nav-to="settings"]:visible').first().click();
-      // The row's own handler (a Playwright click on it timed out with the row on screen, run 39914887973).
+      // In-page clicks: Playwright locator clicks on the gear and the row timed out with them on screen (runs 39914887973, 39916962235).
+      await page.evaluate(() => [...document.querySelectorAll('[data-nav-to="settings"]')].find((b) => b.offsetParent)?.click());
       await sleep(1500);
       await page.evaluate(() => window.SettingsView.openSettingsPage('notifications'));
       const toggle = page.locator('#cloud-push-toggle');
@@ -39,7 +39,7 @@ export default async function remindersOffline(ctx) {
       await page.waitForFunction(() => !document.getElementById('cloud-push-toggle').disabled, null, { timeout: 15_000 });
       await ctx.stableShot('settings-notifications-off');
       await page.evaluate(() => document.getElementById('cloud-push-toggle').click()); // a locator click timed out on attempt 2
-      r.permission = await grantBoth(ctx);
+      r.permission = await grantBoth(ctx, r);
       try {
         await page.waitForFunction(() => document.getElementById('cloud-push-toggle').dataset.subscribed === '1', null, { timeout: 60_000 });
       } finally {
@@ -171,7 +171,7 @@ async function openVault(ctx, r) {
  * The system side of Enable: the POST_NOTIFICATIONS prompt's Allow, then the Alarms & reminders
  * switch and Back. A screen that does not show falls back to pm grant / appops; the return says which.
  */
-async function grantBoth(ctx) {
+async function grantBoth(ctx, out) {
   const { shell, pkg, device } = ctx;
   const seen = async (sel, ms) => device.wait(sel, { timeout: ms }).then(() => true, () => false);
   const notes = [];
@@ -187,6 +187,11 @@ async function grantBoth(ctx) {
   const alarms = { text: /.*Allow setting alarms and reminders.*/ };
   if (await seen(alarms, 20_000)) {
     await ctx.shot('system-alarms-page');
+    // bd med-nt9p.56: the page's Enable must still be waiting while Alarms & reminders is up.
+    out.whileAlarmsPage = await ctx.page.evaluate(() => {
+      const t = document.getElementById('cloud-push-toggle');
+      return { disabled: t.disabled, status: document.getElementById('cloud-push-status')?.textContent || '' };
+    }).catch((e) => `error ${e?.message}`);
     await device.tap(alarms);
     await ctx.sleep(1500);
     await ctx.shot('system-alarms-allowed');
