@@ -284,8 +284,9 @@ export function renderAddDevice(mount, ctx, onExit) {
       return;
     }
     if (view.status === 'claimed' || view.status === 'revealed') return; // waiting on the owner
-    if (view.status === 'approved' && s.approved) return; // waiting on the new device
-    if (view.status === 'enrolled' && s.approved) {
+    // approveSent: an approve whose response was lost still counts as ours.
+    if (view.status === 'approved' && s.approveSent) { markApproved(); return; } // waiting on the new device
+    if (view.status === 'enrolled' && s.approveSent) {
       const confN = bytesField(view.conf_n);
       const ok = confN && (await verifyTransferMac(transferConfirmMac(s.keys.kConf, s.transcript), confN));
       const platform = s.claim.platform;
@@ -388,6 +389,10 @@ export function renderAddDevice(mount, ctx, onExit) {
       const ct = await wrapTransferDek(s.keys.kWrap, s.dek, s.transcript);
       const body = { ct: toBase64(ct) };
       if (s.credentialId) body.approving_credential_id = toBase64Url(new Uint8Array(s.credentialId));
+      // An earlier attempt may have landed with its response lost: then
+      // `approved` (or a 409 on the retry) is our own doing, not a stranger's.
+      const retry = s.approveSent;
+      s.approveSent = true;
       let res;
       try {
         res = await fetch(`/api/transfer/${encodeURIComponent(flow.slotId)}/approve`, {
@@ -400,8 +405,10 @@ export function renderAddDevice(mount, ctx, onExit) {
       }
       if (!flow.live) return true;
       if (res && res.status === 409) {
-        // The slot left `revealed` without us: not the pairing the owner saw.
-        await abort();
+        // The slot left `revealed`: our lost first approve, or not the pairing
+        // the owner saw. The next poll still checks the frozen receiver.
+        if (retry) markApproved();
+        else await abort();
         return true;
       }
       if (!res || !res.ok) {
@@ -409,16 +416,20 @@ export function renderAddDevice(mount, ctx, onExit) {
         if (errorEl) errorEl.textContent = 'Could not approve. Check your connection and try again.';
         return false;
       }
-      s.approved = true;
-      s.dek = null;
-      renderApproved();
+      markApproved();
       return true;
     } finally {
       flow.approving = false;
     }
   }
 
-  function renderApproved() {
+  function markApproved() {
+    const s = flow.s;
+    if (s.approved) return;
+    s.approved = true;
+    s.dek = null;
+    const errorEl = mount.querySelector('#transfer-error');
+    if (errorEl) errorEl.textContent = '';
     const actions = mount.querySelectorAll('#transfer-approve, #transfer-deny');
     actions.forEach((el) => el.remove());
     const hint = document.createElement('p');

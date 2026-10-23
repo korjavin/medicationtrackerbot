@@ -108,6 +108,7 @@ function installFetch() {
     if (u === `/api/transfer/${id}/approve` && method === 'POST') {
       if (slot.state !== 'revealed') return json(409, {});
       Object.assign(slot, { state: 'approved', ct: fromBase64(body.ct), approver: body.approving_credential_id });
+      if (server.loseApproveResponse) throw new TypeError('network error');
       return json(204, {});
     }
     throw new Error(`unexpected fetch: ${method} ${u}`);
@@ -339,6 +340,18 @@ describe('Add a device — AD3 approve with the match code (protocol v2)', () =>
     expect(server.slot.state).toBe('deleted');
     expect(posted('/reveal')).toHaveLength(1);
     expect(posted('/approve')).toHaveLength(0);
+  });
+
+  it('an approve whose response was lost is reconciled from the next poll, not read as misuse', async () => {
+    server.loseApproveResponse = true;
+    await mountApprove();
+    app.querySelector('#transfer-approve').click();
+
+    await until(() => app.querySelector('#transfer-error').textContent);
+    expect(server.slot.state).toBe('approved');
+    await until(() => text().includes('Finishing on your new device'));
+    expect(text()).not.toContain('Someone else');
+    expect(server.slot.state).toBe('approved');
   });
 
   it('an enrolled device that cannot prove the approved key is flagged, not celebrated', async () => {
