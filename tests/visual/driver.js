@@ -263,7 +263,11 @@
             window.apiCall = (endpoint, method, ...rest) => (endpoint === '/api/tz-plan/current' && method === 'GET'
                 ? Promise.resolve(result)
                 : call(endpoint, method, ...rest));
-            await window.TZPlanBanner.refresh();
+            // refresh() reloads the current tab on a change; the scene's next
+            // tab step loads Today anyway, so skip that dangling reload.
+            const reload = window.reloadCurrentTab;
+            window.reloadCurrentTab = () => {};
+            try { await window.TZPlanBanner.refresh(); } finally { window.reloadCurrentTab = reload; }
         } else if (step.startHere) {
             // W3 "Start here" (bd med-ta2n.3): the seed has a record in every
             // module, so replace it once with the fixture minus step.startHere.drop
