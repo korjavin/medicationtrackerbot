@@ -27,7 +27,7 @@ import {
 } from '../../domain/paginate.js';
 import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
-import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
+import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues } from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -232,7 +232,7 @@ export function createApiRouter(ctx, {
     // operator-proxied trial path (POST /api/trial/openai), gated on an explicit
     // consent scope — `ai` for food, `tg` for the narrator. See
     // docs/cloud-mode.md → Privacy boundary (bd med-eas.80).
-    aiClient = createAIClient({ settingsDomain: settings });
+    aiClient = createAIClient({ settingsDomain: settings, deviceStore: deviceValues });
     foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
     workout = createWorkoutDomain({ records, now, timeZone });
     equipment = createEquipmentDomain({ records, now });

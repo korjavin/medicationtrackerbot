@@ -376,6 +376,10 @@ async function writeDeviceValue(key, value) {
   await withStore('device', 'readwrite', (store) => store.put(value, key));
 }
 
+// Port for other modules' device-local, never-synced values (aiclient's
+// "no json_schema" memory, bd med-kl85).
+export const deviceValues = { get: readDeviceValue, set: writeDeviceValue };
+
 async function deleteDeviceValue(key) {
   await withStore('device', 'readwrite', (store) => store.delete(key));
 }

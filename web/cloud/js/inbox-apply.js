@@ -38,7 +38,7 @@ import { materializing } from './materialize-gate.js';
 import { cancelMedRefire, rearmMedRefire } from './reminders.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
-import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
+import { recordsPort, ORIGIN_EXTERNAL, deviceValues } from './sync.js';
 import { minDoseIntervalMs } from '../../domain/medschedule.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
@@ -858,7 +858,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     const settings = createSettingsDomain({ records, now, timeZone });
     const foodDb = createFoodDbClient({ settingsDomain: settings });
     const food = createFoodDomain({ records, now, timeZone, foodDb });
-    return createFoodAIDomain({ aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now });
+    return createFoodAIDomain({ aiClient: createAIClient({ settingsDomain: settings, deviceStore: deviceValues }), foodDomain: food, now });
   })();
 
   // The /activity chain: settings → aiClient → activityAI. The parsed activity
@@ -866,7 +866,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // command bundle wires below. Tests inject activityAIOverride to stub the parse.
   const activityAI = activityAIOverride || (() => {
     const settings = createSettingsDomain({ records, now, timeZone });
-    return createActivityAIDomain({ aiClient: createAIClient({ settingsDomain: settings }) });
+    return createActivityAIDomain({ aiClient: createAIClient({ settingsDomain: settings, deviceStore: deviceValues }) });
   })();
 
   // The self-refining note port: the agent reads it into its prompt each turn
