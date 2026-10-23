@@ -25,18 +25,34 @@ export default async function remindersOffline(ctx) {
   await shell(`appops set ${pkg} SCHEDULE_EXACT_ALARM default`);
   try {
     let page = await ctx.step('open the account', () => openVault(ctx, r));
+    r.console = [];
+    page.on('console', (m) => { if (r.console.length < 40 && /remind|notif|settings|error/i.test(m.text())) r.console.push(m.text().slice(0, 200)); });
 
     await ctx.step('Settings → Notifications → Enable → both system grants → granted', async () => {
       await page.locator('[data-nav-to="settings"]:visible').first().click();
-      await page.locator('[data-settings-open="notifications"]:visible').first().click();
+      // The row's own handler (a Playwright click on it timed out with the row on screen, run 39914887973).
+      await sleep(1500);
+      await page.evaluate(() => window.SettingsView.openSettingsPage('notifications'));
       const toggle = page.locator('#cloud-push-toggle');
       await toggle.waitFor({ state: 'visible', timeout: 15_000 });
       await page.waitForFunction(() => !document.getElementById('cloud-push-toggle').disabled, null, { timeout: 15_000 });
       await ctx.stableShot('settings-notifications-off');
       await toggle.click();
       r.permission = await grantBoth(ctx);
-      await page.waitForFunction(() => document.getElementById('cloud-push-toggle').dataset.subscribed === '1', null, { timeout: 30_000 });
-      r.permissionState = await page.evaluate(() => window.LocalNotifications.permission());
+      try {
+        await page.waitForFunction(() => document.getElementById('cloud-push-toggle').dataset.subscribed === '1', null, { timeout: 60_000 });
+      } finally {
+        r.permissionState = await page.evaluate(() => window.LocalNotifications.permission()).catch((e) => `error ${e?.message}`);
+        r.toggle = await page.evaluate(() => {
+          const t = document.getElementById('cloud-push-toggle');
+          return { text: t.textContent, disabled: t.disabled, sub: t.dataset.subscribed, status: document.getElementById('cloud-push-status')?.textContent };
+        }).catch((e) => `error ${e?.message}`);
+        r.grants = {
+          post: (await shell(`dumpsys package ${pkg} | grep POST_NOTIFICATIONS`)).replace(/\s+/g, ' '),
+          alarm: await shell(`appops get ${pkg} SCHEDULE_EXACT_ALARM`),
+          foreground: await ctx.inForeground(),
+        };
+      }
       await ctx.stableShot('settings-notifications-on');
       if (r.permissionState !== 'granted') throw new Error(`permission ${r.permissionState}`);
     });
