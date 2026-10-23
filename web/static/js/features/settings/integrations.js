@@ -606,6 +606,88 @@
         if (desc) desc.textContent = state === 'linked' ? 'Linked' : 'Not linked';
     }
 
+    // Local mode (bd med-ta2n.18): Telegram is a sync feature. The row shows
+    // "Needs sync" and its page sells it, routing to Turn on sync. Nothing
+    // here touches telegram.js or /api/telegram/* (med-4mva). The privacy
+    // fact must stay true: messages pass through Telegram and our relay in
+    // the clear (privacy-manifest.js telegram-relay / telegram-inbound).
+    const TELEGRAM_FACTS = [
+        ['message', 'Text the bot to log.', ' "/bp 120 80", "two eggs and toast", a photo of your plate - it lands in your log.'],
+        ['bell', 'Reminders in the chat.', ' A dose reminder arrives in Telegram; one tap confirms it.'],
+        ['clock', 'Recorded when the app opens.', ' The bot answers "Queued" at once; your app records the message the next time it opens on any of your devices.'],
+        ['lock', 'Your records stay yours.', ' The server stores your log but can\'t read it. Telegram itself is not end-to-end encrypted: what you type to the bot passes through Telegram and our relay as plain text and is sealed the moment it reaches us. Reminders carry only the detail you choose.'],
+    ];
+
+    // Turn on sync: the shell slot's invite → P3 "Turn on sync?", else the W5
+    // Sync & backup page (the same branch W5's own button takes).
+    async function turnOnSync() {
+        const sheet = window.InviteSheet;
+        let invite = null;
+        try { invite = sheet ? await sheet.pending() : null; } catch (_) { invite = null; }
+        if (invite) {
+            sheet.offer(invite, { kit: true });
+            return 'offer';
+        }
+        window.SettingsView?.openSettingsPage('backup');
+        return 'page';
+    }
+
+    function renderTelegramOffer(mount) {
+        const facts = document.createElement('ul');
+        facts.className = 'wg-facts wg-facts--sm';
+        for (const [icon, title, text] of TELEGRAM_FACTS) {
+            const li = document.createElement('li');
+            const i = document.createElement('i');
+            i.className = 'wg-ico';
+            i.setAttribute('data-icon', icon);
+            const span = document.createElement('span');
+            const b = document.createElement('b');
+            b.textContent = title;
+            span.append(b, text);
+            li.append(i, span);
+            facts.appendChild(li);
+        }
+        const how = document.createElement('a');
+        how.className = 'wg-link';
+        how.target = '_blank';
+        how.rel = 'noopener';
+        how.hidden = true;
+        how.setAttribute('data-action', 'telegram-invite-how');
+        how.textContent = 'How to get an invite';
+        const card = window.WGOfferCard.create({
+            lead: 'message',
+            title: 'Do almost everything from your messenger',
+            body: [facts],
+            actions: [{ label: 'Turn on sync', icon: 'cloud-up', action: 'telegram-turn-on-sync', onClick: () => { turnOnSync(); } }],
+        });
+        card.appendChild(how);
+        const head = document.createElement('div');
+        head.className = 'wg-section__head';
+        const eyebrow = document.createElement('span');
+        eyebrow.className = 'wg-eyebrow';
+        eyebrow.textContent = 'Telegram';
+        head.appendChild(eyebrow);
+        mount.textContent = '';
+        mount.append(head, card);
+        mount.dataset.tgState = 'needs-sync';
+        // Same target as W5's link: the deployment's base landing.
+        Promise.resolve().then(() => window.InviteSheet && window.InviteSheet.base()).then((base) => {
+            if (!base) return;
+            how.href = `https://${base}/`;
+            how.hidden = false;
+        }).catch(() => {});
+    }
+
+    function mountLocalTelegram() {
+        const mount = document.getElementById('telegram-settings-mount');
+        const row = document.getElementById('integrations-telegram-row');
+        if (!mount || !row || !window.WGOfferCard) return;
+        if (mount.dataset.tgState !== 'needs-sync') renderTelegramOffer(mount);
+        row.hidden = false;
+        const desc = row.querySelector('[data-settings-summary="telegram"]');
+        if (desc) desc.textContent = 'Needs sync';
+    }
+
     function readDOMIntoPayload() {
         const out = {};
         for (const group of Object.keys(FIELD_IDS)) {
@@ -633,6 +715,8 @@
         if (section && (section.hasAttribute('hidden') || section.classList.contains('hidden'))) {
             return null;
         }
+        // Painted before the GET so a failed read still shows the offer.
+        if (document.documentElement.classList.contains('wg-local-vault')) mountLocalTelegram();
         try {
             const payload = await apiCall('/api/settings/integrations', 'GET');
             if (!payload) return null;
@@ -648,7 +732,8 @@
 
             // Local mode has no server to link Telegram through, and telegram.js
             // reads its status with a raw fetch the shim never sees (a 404 on
-            // the shell's origin, med-4mva): don't mount it; the row stays hidden.
+            // the shell's origin, med-4mva): don't mount it; mountLocalTelegram
+            // above shows the sync offer instead (med-ta2n.18).
             const tgMount = document.getElementById('telegram-settings-mount');
             const local = document.documentElement.classList.contains('wg-local-vault');
             if (tgMount && !_telegramMounted && !local) {
@@ -725,6 +810,12 @@
             loadBtn.addEventListener('click', () => { chooseModel(cfg); });
         }
         document.querySelectorAll('#settings-integrations .wg-secret').forEach(bindSecretField);
+        // Notifications page, local mode: "Want reminders in Telegram too?"
+        const tgSync = document.getElementById('local-notify-telegram-sync');
+        if (tgSync && !tgSync.dataset.integrationsBound) {
+            tgSync.dataset.integrationsBound = '1';
+            tgSync.addEventListener('click', () => { turnOnSync(); });
+        }
         document.querySelectorAll('#integrations-trial [data-own-key]').forEach((row) => {
             if (row.dataset.integrationsBound) return;
             row.dataset.integrationsBound = '1';
@@ -748,6 +839,7 @@
         save: saveIntegrations,
         trialOffer,
         startTrial,
+        turnOnSync,
         // Internals exposed for the integration test suite. Not used by app code.
         _applyPayloadToDOM: applyPayloadToDOM,
         _readDOMIntoPayload: readDOMIntoPayload,

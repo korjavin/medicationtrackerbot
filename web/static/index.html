@@ -602,6 +602,8 @@
                     <button id="local-notify-test" type="button" class="wg-btn wg-btn--block" hidden>Send test notification</button>
                 </div>
                 <div id="local-notify-note"></div>
+                <!-- bd med-ta2n.18: Telegram is a sync feature (integrations.js turnOnSync). -->
+                <p class="wg-hint">Want reminders in Telegram too? <button type="button" class="wg-link" id="local-notify-telegram-sync">Turn on sync</button>.</p>
             </section>
 
             <!-- Cloud mode (bd med-76c.1): settings.js bindCloudNotifications. -->
@@ -951,7 +953,7 @@
 
             <section id="settings-integrations" class="wg-settings-integrations">
                 <p class="wg-hint">Stored in your vault. Saved keys show as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
-                <p class="wg-hint wg-local-only">On this device, AI and food search reach only the providers you add here, and the free trial only if you turn it on. Voice and Telegram need a cloud account.</p>
+                <p class="wg-hint wg-local-only">On this device, AI, food search and voice calls reach only the providers you add here, or the free trial if you turn it on. Telegram needs sync.</p>
 
                 <!-- The free trial (kit A1, med-ckm5.10; integrations.js
                      renderTrialCard): one WGOfferCard for cloud's operator
@@ -1081,7 +1083,9 @@
                 </section>
 
                 <!-- Telegram is its own page. The row shows once telegram.js has
-                     rendered (Telegram enabled) — integrations.js syncTelegramRow. -->
+                     rendered (Telegram enabled) — integrations.js syncTelegramRow.
+                     Local mode: "Needs sync" and the page is an offer
+                     (integrations.js renderTelegramOffer, bd med-ta2n.18). -->
                 <div id="integrations-telegram-row" class="wg-list" hidden>
                     <button type="button" class="wg-setting" data-settings-open="telegram">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="message"></i></span>
