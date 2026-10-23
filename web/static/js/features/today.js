@@ -456,9 +456,10 @@
     // ---- Rendering (kit v2, screens-today.html T1/T3–T6, med-xso6.13) ------
     //
     // renderToday(state, root, handlers) fills `root` top to bottom:
-    //   call row (Call agent · Log · Doctor brief) → Next up list → vitals
-    //   strip (BP · Weight · Fuel) → Trackers card → Goal Line track → macros card →
-    //   sleep / steps tiles → tz-transition card.
+    //   call row (Call agent · Log · Doctor brief) → pending tz-plan card
+    //   (Apply / Cancel) → Next up list → vitals strip (BP · Weight · Fuel) →
+    //   Trackers card → Goal Line track → macros card → sleep / steps tiles →
+    //   in-progress tz-transition card.
     //
     // Kit rules: one sun-filled control (.wg-btn--primary) per view — the
     // soonest Next-up action, else the goal card's "Set goal"; status only via
@@ -3323,6 +3324,13 @@
             root.appendChild(callRow);
         }
 
+        // TZ-transition plan card (kit T2 tz card), actionable mode: first
+        // under the call row so Apply / Cancel is never below the fold
+        // (bd med-26gl). Mounts nothing when no plan awaits a decision.
+        const tzBanner = typeof window !== 'undefined' && window.TZPlanBanner
+            && typeof window.TZPlanBanner.mountCard === 'function' ? window.TZPlanBanner : null;
+        if (tzBanner) { tzBanner.mountCard(root, 'top'); }
+
         const startKeys = startHereKeys(state && state.startHere);
         const next = renderNextUp(state, h, nowMs, startKeys.length > 0);
         if (next.node) { root.appendChild(next.node); }
@@ -3375,12 +3383,8 @@
             root.appendChild(grid);
         }
 
-        // TZ-transition plan card (kit T2 tz card). Mounts nothing
-        // when no plan is in flight.
-        if (typeof window !== 'undefined' && window.TZPlanBanner
-            && typeof window.TZPlanBanner.mountCard === 'function') {
-            window.TZPlanBanner.mountCard(root);
-        }
+        // TZ-transition plan card, in-progress (read-only) mode only.
+        if (tzBanner) { tzBanner.mountCard(root, 'bottom'); }
 
         // Nothing tracked (only the call bar, if any) → every feature is off.
         if (!anyFeature && !goal.node && !(trackersCard && trackersCard.querySelector('.wg-trk'))) {

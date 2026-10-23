@@ -1,8 +1,9 @@
 // Today v2 layout (kit screens-today.html T1/T2, med-xso6.13).
 //
 // The Today stack emits (top → bottom):
-//   call row → Next up → vitals strip (BP · Weight · Fuel) → Goal Line →
-//   macros card → sleep / steps tiles
+//   call row → pending tz-plan card → Next up → vitals strip (BP · Weight ·
+//   Fuel) → Goal Line → macros card → sleep / steps tiles → in-progress
+//   tz-plan card
 //
 // These tests pin the order, the tile anatomy (value + class chip + age as
 // separate signals) and where each tap routes.
@@ -225,6 +226,38 @@ describe('Today v2 — layout', () => {
             root.querySelector(`[data-section="${s}"]`).click();
         }
         expect(onDeeplink.mock.calls.map((c) => c[0])).toEqual(['bp', 'weight', 'food', 'food', 'health', 'health']);
+    });
+
+    // bd med-26gl — a plan awaiting Apply / Cancel sits right under the call
+    // row; one already in progress keeps the bottom slot. Real banner module,
+    // fed through its own GET /api/tz-plan/current read.
+    describe('tz-plan card position', () => {
+        async function renderWithPlan(status) {
+            const win = env.window;
+            win.reloadCurrentTab = vi.fn();
+            win.eval(fs.readFileSync(path.join(REPO_ROOT, 'web/static/js/features/tz-plan-banner.js'), 'utf8'));
+            const future = new Date(Date.now() + 3600_000).toISOString();
+            win.apiCall = async () => (status ? {
+                plan: { id: 'tzplan-current', status, old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', created_at: new Date().toISOString() },
+                steps: [{ medication_id: 1, step_number: 1, scheduled_at: future, note: 'Metformin: step 1/1' }],
+            } : { plan: null, steps: [] });
+            await win.TZPlanBanner.refresh();
+            env.render(presentState(), root, { now: NOW, onDoctorBrief: vi.fn() });
+            return Array.from(root.children).map((n) => n.getAttribute('data-section'));
+        }
+
+        it.each(['PENDING_APPROVAL', 'NOTIFIED'])('%s: first card under the call row, above Next up', async (status) => {
+            expect(await renderWithPlan(status)).toEqual(['callbar', 'tz-plan', 'next-up', 'vitals', 'macros', 'sleep-steps']);
+            expect(root.querySelector('[data-section="tz-plan"] .wg-card__foot button')).not.toBeNull();
+        });
+
+        it('APPROVED (in progress): stays at the bottom', async () => {
+            expect(await renderWithPlan('APPROVED')).toEqual(['callbar', 'next-up', 'vitals', 'macros', 'sleep-steps', 'tz-plan']);
+        });
+
+        it.each(['COMPLETED', 'REJECTED', null])('%s: no card', async (status) => {
+            expect(await renderWithPlan(status)).toEqual(['callbar', 'next-up', 'vitals', 'macros', 'sleep-steps']);
+        });
     });
 
     it('sets no inline style beyond the --p / --n custom properties', () => {

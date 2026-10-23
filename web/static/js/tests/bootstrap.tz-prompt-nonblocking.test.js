@@ -174,6 +174,43 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         expect(dismissCalls).toHaveLength(0);
     });
 
+    // bd med-26gl — a staged plan's Apply / Cancel card must be on screen.
+    async function acceptWithSettingsResult(window, document, settingsResult) {
+        forceDetectedTimezone(window, 'America/Chicago');
+        window.apiCall = vi.fn(async (endpoint) => {
+            if (String(endpoint).startsWith(SHOULD_PROMPT)) return { prompt: true, reason: '', current_tz: 'Europe/Berlin' };
+            if (endpoint === '/api/settings') return settingsResult;
+            return { status: 'ok' };
+        });
+        const invalidated = signal();
+        window.DataStore.invalidateKey = vi.fn(async () => { invalidated.fire(); });
+        stubBootstrapFetch(window);
+        stubBootstrapGlobals(window);
+        const modalShown = watchConfirmModal(window);
+
+        runBootstrap(window);
+        await modalShown.wait;
+        // Boot's own switchTab already ran; count only what the accept adds.
+        window.switchTab.mockClear();
+        document.querySelector('mt-modal.mt-confirm-modal .mt-confirm-modal__confirm').click();
+        await invalidated.wait;
+        await idle();
+    }
+
+    it('accept that stages a plan (planCreated: true) switches to Today', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        await acceptWithSettingsResult(window, document, { changed: false, planCreated: true });
+        expect(window.switchTab.mock.calls).toEqual([['today']]);
+    });
+
+    it('accept applied immediately (planCreated: false) navigates nowhere', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        await acceptWithSettingsResult(window, document, { changed: true, planCreated: false });
+        expect(window.switchTab).not.toHaveBeenCalled();
+    });
+
     it('cancel POSTs /api/tz-suggestion/dismiss with detected_tz', async () => {
         allowConsoleNoise();
         const { window, document } = env;
