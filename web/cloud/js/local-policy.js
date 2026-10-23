@@ -505,6 +505,9 @@ export const LOCAL_PROTECTION = {
 // handed to the shell, which the new account picks up. This origin keeps
 // its data.
 export const LOCAL_VAULT = {
+  // The W5 "Request an invite" sheet (features/invite.js, a classic script)
+  // posts through this when the shell has base.post.
+  shellPost,
   async hasUserContent() {
     return hasUserContent(await readAllLocalRecords());
   },
@@ -646,3 +649,39 @@ export const LOCAL_VAULT = {
     win.location.replace('/');
   },
 };
+
+// The base-host routes the shell POSTs for the page (bridge op base.post, bd
+// med-ta2n.24 §A: an invite request, feedback, and the attest enroll they
+// need). The local CSP never lists our base domain for these; the trial's
+// chat/food/voice keep window.fetch under the trial-on CSP. One list, the
+// shells' basePostPaths / BASE_POST_PATHS.
+export const BASE_POST_PATHS = Object.freeze([
+  '/api/attest/challenge',
+  '/api/attest/enroll',
+  '/api/attest/feedback',
+  '/api/invite-requests',
+]);
+const BASE_POST_HEADERS = ['X-Attest-Key-Id', 'X-Attest-Challenge', 'X-Attest-Assertion'];
+
+// shellPost(native) → a fetch-shaped (url, init) => Response over base.post:
+// the path comes from the url (its host is the shell's own, never ours to
+// pick), the body string and the X-Attest-* headers go verbatim. An op error
+// ("network", "invalid path", …) rejects with a TypeError, as fetch does on a
+// network failure; every HTTP status — 429, 404, 5xx — is a Response.
+export function shellPost(native) {
+  return async (url, init = {}) => {
+    // Drop any scheme://host, then the query and fragment.
+    const path = String(url).replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').split(/[?#]/)[0];
+    const given = new Headers(init.headers || {});
+    const headers = {};
+    for (const name of BASE_POST_HEADERS) if (given.has(name)) headers[name] = given.get(name);
+    let reply;
+    try {
+      reply = await native.call('base.post', { path, body: typeof init.body === 'string' ? init.body : '', headers });
+    } catch (e) {
+      throw new TypeError(String((e && e.message) || e));
+    }
+    const status = reply && reply.status;
+    return new Response([204, 205, 304].includes(status) ? null : (reply.body || ''), { status, headers: reply.headers || {} });
+  };
+}

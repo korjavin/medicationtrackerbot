@@ -187,6 +187,20 @@
             // seeded records → "Turn on sync?"; account mode → "Switch account?".
             // Nothing leaves until a tap.
             window.InviteSheet.offer(step.offer);
+        } else if (step.inviteRequest) {
+            // The W5 "Request an invite" sheet (bd med-ta2n.14). Its button
+            // needs the shell's base.post op, which no QA pass has: open it
+            // directly with a placeholder base and a stub POST, so nothing
+            // leaves the page.
+            // inviteRequest: "sent" fills an email and sends (stub 202).
+            const ui = window.InviteSheet.request({
+                base: 'app.example.com',
+                post: async () => new Response('{"status":"sent"}', { status: 202 }),
+            });
+            if (ui && step.inviteRequest === 'sent') {
+                ui.email.value = 'name@example.com';
+                ui.send.click();
+            }
         } else if (step.trial) {
             // The AI-trial card (kit A1) has no natural state on CI either (no
             // App Attest, and the seed vault has its own OpenAI key): stub what

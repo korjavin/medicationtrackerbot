@@ -433,8 +433,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// subject is the App Attest key id, so it lives here and only here.
 		// The invite landing's status read (med-ta2n.9) is token-free and
 		// account-less too; base domain only (refused on account hosts below).
+		// The invite request form (med-ta2n.14) has no account yet either.
 		if strings.HasPrefix(r.URL.Path, "/api/s/") || strings.HasPrefix(r.URL.Path, inviteStatusPathPrefix) ||
-			r.URL.Path == voiceLLMCompletionsPath || strings.HasPrefix(r.URL.Path, attestPathPrefix) {
+			r.URL.Path == voiceLLMCompletionsPath || strings.HasPrefix(r.URL.Path, attestPathPrefix) ||
+			r.URL.Path == inviteRequestsPath {
 			if h.api == nil {
 				http.NotFound(w, r)
 				return
@@ -502,8 +504,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		// Base-domain only: an account host must not answer the anonymous trial
-		// or the invite landing's status read.
-		if h.api == nil || strings.HasPrefix(r.URL.Path, attestPathPrefix) || strings.HasPrefix(r.URL.Path, inviteStatusPathPrefix) {
+		// or the invite landing's status read, or the invite request form.
+		if h.api == nil || strings.HasPrefix(r.URL.Path, attestPathPrefix) || strings.HasPrefix(r.URL.Path, inviteStatusPathPrefix) ||
+			r.URL.Path == inviteRequestsPath {
 			http.NotFound(w, r)
 			return
 		}

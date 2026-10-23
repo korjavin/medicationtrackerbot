@@ -1150,19 +1150,25 @@ async function paintSyncSection() {
         const f1 = (action) => document.dispatchEvent(new window.CustomEvent('wg:invite-open', { detail: { kit: true, action } }));
         document.getElementById('settings-sync-paste')?.addEventListener('click', () => f1('paste'));
         document.getElementById('settings-sync-scan')?.addEventListener('click', () => f1('scan'));
+        // bd med-ta2n.14: the email request sheet (InviteSheet.request).
+        document.getElementById('settings-sync-request')?.addEventListener('click', () => sheet.request());
         document.getElementById('settings-sync-turn-on')?.addEventListener('click', () => {
             if (_syncInvite) sheet.offer(_syncInvite, { kit: true });
         });
     }
-    const [invite, base] = await Promise.all([
+    const [invite, base, canRequest] = await Promise.all([
         Promise.resolve().then(() => sheet.pending()).catch(() => null),
         Promise.resolve().then(() => sheet.base()).catch(() => ''),
+        // The shell POSTs the request (base.post); without the op, no button.
+        Promise.resolve().then(() => sheet.canRequest && sheet.canRequest()).catch(() => false),
     ]);
     _syncInvite = invite || null;
     none.hidden = !!_syncInvite;
     waiting.hidden = !_syncInvite;
     how.hidden = !base;
     if (base) how.href = `https://${base}/`;
+    const request = document.getElementById('settings-sync-request');
+    if (request) request.hidden = canRequest !== true;
 }
 
 // Load settings (BP reminders status, etc.)
