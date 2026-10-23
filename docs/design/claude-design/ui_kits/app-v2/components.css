@@ -481,3 +481,6 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-qr--lg{width:184px;height:184px}
 .wg-shell__icon--ok{background:var(--wg-ok-bg);border-color:var(--wg-ok-line);color:var(--wg-ok-fg)}
 .wg-row__lead--warn{background:var(--wg-warn-bg);color:var(--wg-warn-fg)}.wg-row__lead--stale{background:var(--wg-stale-bg);color:var(--wg-stale-fg);border:1px dashed var(--wg-stale-line)}
+/* typed secret — full-length code wraps; textarea input in the same mono */
+.wg-code--wrap{height:auto;min-height:48px;padding:10px 6px 10px 14px;align-items:flex-start}.wg-code--wrap>span{white-space:normal;overflow:visible;line-height:1.6;letter-spacing:.04em;word-spacing:.25em}
+.wg-input--code{height:auto;min-height:0;padding:10px 14px;font:500 var(--wg-fs-lg)/1.5 var(--wg-font-mono);letter-spacing:.04em;word-spacing:.25em;text-transform:uppercase;resize:none}
