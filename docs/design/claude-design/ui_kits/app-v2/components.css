@@ -471,3 +471,12 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-dialog__confirm .wg-label b{font:600 var(--wg-fs-xs) var(--wg-font-mono);letter-spacing:.06em;color:var(--wg-fg-1)}
 .wg-dialog .wg-choices{margin-top:2px}
 .wg-card__foot--pad{margin-top:0;padding:12px 14px 14px}
+
+/* ===== v2.2 extension (2026-10-24): add a device (med-r1j2) ===== */
+/* matching code — 6 digits as 3+3 mono groups, identical on both devices; never the only state signal */
+.wg-matchcode{display:flex;justify-content:center;gap:20px;padding:18px 12px;border-radius:var(--wg-r-lg);background:var(--wg-inset);box-shadow:var(--wg-sh-inset);border:1px solid var(--wg-line-dark);font:500 44px/1 var(--wg-font-mono);letter-spacing:.14em;font-variant-numeric:tabular-nums;color:var(--wg-fg-1)}
+.wg-matchcode>span{white-space:nowrap;margin-right:-.14em}
+.wg-matchcode--sm{font-size:28px;padding:12px;gap:14px}
+.wg-matchcode--wait{color:var(--wg-fg-4);min-width:240px}
+.wg-qr--lg{width:184px;height:184px}
+.wg-shell__icon--ok{background:var(--wg-ok-bg);border-color:var(--wg-ok-line);color:var(--wg-ok-fg)}
