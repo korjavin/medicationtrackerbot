@@ -60,6 +60,20 @@ async function paintCloudPush(toggleBtn, on) {
     } catch (e) { /* the card still offers Enable */ }
 }
 
+// The app shells' APNs/FCM wake channel (bd med-erq1.3, native/push-token.js):
+// "on" once the shell has a device token for the relay to wake. Hidden on the
+// web and on a page without the capability.
+async function paintNativeWake(doc) {
+    const line = doc?.getElementById('cloud-push-wake');
+    if (!line) return;
+    let on = null;
+    try {
+        if (window.NativePush?.isSupported?.() === true) on = !!(await window.NativePush.token());
+    } catch (e) { /* native/ stub: leave the line hidden */ }
+    line.hidden = on === null;
+    if (on !== null) line.textContent = on ? 'Wake-ups: on' : 'Wake-ups: off (allow notifications)';
+}
+
 // status is passed only on the initial bind. After a deliberate Disable click
 // the granted-but-unsubscribed state is exactly what the user asked for, and
 // warning about it there would stomp the "Notifications disabled" confirmation.
@@ -69,6 +83,7 @@ async function refreshCloudPushToggleState(toggleBtn, status) {
             // iOS app shell: "subscribed" is the iOS notification permission.
             const granted = (await window.LocalNotifications.permission()) === 'granted';
             paintCloudPush(toggleBtn, granted);
+            await paintNativeWake(toggleBtn.ownerDocument);
             return;
         }
         const { getSubscription } = await loadCloudPushModule();

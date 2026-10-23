@@ -285,6 +285,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     // 2s scheduler — which, on the boot + drain paths, must stay at zero.
     let recomputes = 0;
     let debounced = 0;
+    let tokenRegisters = 0;
     await runBoot({
       setupWindow,
       modules: {
@@ -301,7 +302,10 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
           scheduleReminderRecompute: () => { debounced += 1; },
           recomputeAndPush: async () => { recomputes += 1; },
         },
-        'push.js': { ensurePushSubscription: async () => ({}) },
+        'push.js': {
+          ensurePushSubscription: async () => ({}),
+          registerNativePushToken: async () => { tokenRegisters += 1; return true; },
+        },
         'mcp-responder.js': { refreshResponder: () => {} },
         'inbox.js': {
           ensureInboxKey: async () => {},
@@ -328,6 +332,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
       syncDrains,
       recomputes: () => recomputes,
       debounced: () => debounced,
+      tokenRegisters: () => tokenRegisters,
       dispatch: (data) => handlers.forEach((h) => h({ data, ports: [port] })),
     };
   }
@@ -471,6 +476,66 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     expect(boot.syncDrains[0].c).toBe(boot.streamCtx());
     expect(boot.syncDrains[0].opts).toEqual({ wake: true }); // never retries a stranded import
     expect(boot.recomputes()).toBe(1); // a sync wake is not an inbox drain
+  });
+
+  // bd med-erq1.3: the app shells' APNs/FCM wake channel. A shell-like
+  // NativePush (registered impl) gets its token registered on unlock, and its
+  // wakes take the same paths as the SW's: inbox-wake drains (no ack port),
+  // dry-queue refills the horizon, token re-registers.
+  function nativePush() {
+    const wakes = [];
+    return {
+      wakes,
+      fire: (kind) => wakes.forEach((fn) => fn(kind)),
+      install: (window) => {
+        window.NativePush = { isSupported: () => true, token: async () => ({ platform: 'android', token: 't' }), onWake: (fn) => wakes.push(fn) };
+      },
+    };
+  }
+
+  it('native shell: registers the token once on unlock and routes each wake kind', async () => {
+    const np = nativePush();
+    let drains = 0;
+    const boot = await bootInbox({ drainInbox: async () => { drains += 1; return { applied: 1 }; } }, np.install);
+    await flush();
+    expect(boot.tokenRegisters()).toBe(1);
+    expect(drains).toBe(1); // the boot-time drain
+    const base = boot.recomputes();
+
+    np.fire('inbox-wake');
+    await flush();
+    expect(drains).toBe(2);
+    expect(boot.recomputes()).toBe(base + 1); // afterApply, as for the SW wake
+    expect(boot.acks).toEqual([]); // no ack port on the native path
+
+    np.fire('dry-queue');
+    await flush();
+    expect(drains).toBe(2); // a refill nudge is not a drain
+    expect(boot.recomputes()).toBe(base + 2);
+
+    np.fire('token');
+    await flush();
+    expect(boot.tokenRegisters()).toBe(2);
+
+    np.fire('something-else');
+    await flush();
+    expect(drains).toBe(2);
+    expect(boot.recomputes()).toBe(base + 2);
+    expect(boot.tokenRegisters()).toBe(2);
+  });
+
+  // The plain web page: the native/ stub (throws before/without an impl), the
+  // web impl (false), or no native/ at all. onWake is absent, so subscribing
+  // to it would throw the boot block.
+  it.each([
+    ['stub', { isSupported: () => { throw new Error('NotImplementedError'); } }],
+    ['web impl', { isSupported: () => false }],
+    ['absent', undefined],
+  ])('web (%s): no token request and no native wake listener', async (_name, np) => {
+    let drains = 0;
+    const boot = await bootInbox({ drainInbox: async () => { drains += 1; return { applied: 0 }; } }, (window) => { window.NativePush = np; });
+    expect(boot.tokenRegisters()).toBe(0);
+    expect(drains).toBe(1); // the inbox block still ran to its initial drain
   });
 
   it('still subscribes to the SSE wake when ensureInboxKey rejects', async () => {

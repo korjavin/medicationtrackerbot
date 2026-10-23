@@ -577,6 +577,30 @@ describe('cloud Notifications controls inside the iOS app (LocalNotifications)',
             cleanup();
         }
     });
+    // bd med-erq1.3: the card's Wake-ups line reads the shell's APNs/FCM token
+    // (NativePush); hidden on the web (the harness's native/ has no impl).
+    it.each([
+        [{ platform: 'android', token: 't' }, 'Wake-ups: on'],
+        [null, 'Wake-ups: off (allow notifications)'],
+        ['web', null],
+    ])('Wake-ups line for token %j', async (token, text) => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            shellLocal(window, { permission: 'granted' });
+            if (token !== 'web') window.NativePush = { isSupported: () => true, token: vi.fn(async () => token) };
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+            await vi.waitFor(() => expect(document.getElementById('cloud-push-toggle').dataset.subscribed).toBe('1'));
+            const line = document.getElementById('cloud-push-wake');
+            if (text) await vi.waitFor(() => expect(line.textContent).toBe(text));
+            expect(line.hidden).toBe(!text);
+        } finally {
+            cleanup();
+        }
+    });
+
     it.each([[undefined, 'iPhone'], [{ device: 'phone' }, 'phone']])('Settings device words follow the shell copy %j', async (copy, word) => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();

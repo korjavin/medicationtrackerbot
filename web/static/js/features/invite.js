@@ -544,6 +544,10 @@
             return;
         }
         if (window.navigator.onLine === false) { window.safeToast(OFFLINE, 'error'); return; }
+        // The relay stops waking this phone for the account it leaves (bd med-erq1.3).
+        if (window.CloudVault && typeof window.CloudVault.dropNativePushToken === 'function') {
+            await window.CloudVault.dropNativePushToken();
+        }
         try {
             await n.call('account.leave', { url: url });
         } catch (e) {

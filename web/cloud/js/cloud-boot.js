@@ -405,6 +405,18 @@ window.MedTrackerCloudReady = (async function boot() {
             const { getUnopenableCount } = await import('/js/inbox.js');
             return getUnopenableCount();
         },
+        // Leaving the account on this device (here and invite.js Switch account,
+        // bd med-erq1.3): the relay stops waking this phone for it. Best-effort,
+        // never throws — after an account delete the session is gone and the
+        // server already cascaded the row.
+        async dropNativePushToken() {
+            try {
+                const { dropNativePushToken } = await import('/js/push.js');
+                await dropNativePushToken();
+            } catch (e) {
+                console.warn('[cloud-boot] native push token delete failed', e);
+            }
+        },
         // The iOS and Android apps' way out of the account (bd med-o7zq.30/.32/.33/.34,
         // Android bd med-nt9p.32.13/.15):
         // the shell forgets the account host. After a delete (no opts) it shows
@@ -419,6 +431,7 @@ window.MedTrackerCloudReady = (async function boot() {
         async leaveAccount(opts) {
             const native = window.LocalNotifications && window.LocalNotifications.__native;
             if (!native || (native.platform !== 'ios' && native.platform !== 'android')) throw new Error('Open the app on your iPhone to use it without an account.');
+            await window.CloudVault.dropNativePushToken();
             try {
                 await native.call('account.leave', opts);
             } catch (e) {
@@ -635,6 +648,30 @@ window.MedTrackerCloudReady = (async function boot() {
             .then((result) => { window.MedTrackerCloud.push = result; })
             .catch((e) => console.error('[cloud-boot] push subscription check failed', e));
 
+        // The app shells' APNs/FCM wake channel (bd med-erq1.3): WKWebView and
+        // Android WebView have no Web Push, so the shell's device token is
+        // registered with the relay on every unlock (POST is an upsert that
+        // refreshes last_seen) and again when the shell reports a new one
+        // (kind 'token': first grant, rotation). 'dry-queue' is the relay's
+        // "open the app to keep reminders running": refill the horizon now.
+        // The inbox-wake kind is handled with the inbox below. Never on the web.
+        let nativePush = false;
+        try { nativePush = window.NativePush?.isSupported?.() === true; } catch { /* native/ stub */ }
+        if (nativePush) {
+            const registerToken = () => import('/js/push.js')
+                .then(({ registerNativePushToken }) => registerNativePushToken())
+                .catch((e) => console.error('[cloud-boot] native push token register failed', e));
+            registerToken();
+            window.NativePush.onWake((kind) => {
+                if (kind === 'token') registerToken();
+                else if (kind === 'dry-queue') {
+                    import('/js/reminders.js')
+                        .then(({ recomputeAndPush }) => recomputeAndPush(ctx))
+                        .catch((e) => console.error('[cloud-boot] dry-queue reminder recompute failed', e));
+                }
+            });
+        }
+
         // Task 4: if this account has a Claude pairing, this tab starts
         // answering MCP calls too — any unlocked device may be the one online
         // when the shim connects. refreshResponder reads the pairing from the
@@ -700,6 +737,9 @@ window.MedTrackerCloudReady = (async function boot() {
                 // drainInbox directly bypasses the poller's backoff gate;
                 // drainInbox's own in-flight guard makes an overlapping poll
                 // tick a no-op.
+                const wakeDrain = () => drainInbox(ctx, { apply })
+                    .then((r) => (r.applied > 0 ? afterApply() : undefined))
+                    .catch((e) => console.error('[cloud-boot] inbox wake drain failed', e));
                 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
                     navigator.serviceWorker.addEventListener('message', (event) => {
                         if (!event.data || event.data.type !== 'inbox-wake') return;
@@ -709,11 +749,13 @@ window.MedTrackerCloudReady = (async function boot() {
                         // notification. This listener exists only post-unlock, so
                         // an ack also means "this window can actually apply it".
                         if (event.ports && event.ports[0]) event.ports[0].postMessage('ack');
-                        drainInbox(ctx, { apply })
-                            .then((r) => (r.applied > 0 ? afterApply() : undefined))
-                            .catch((e) => console.error('[cloud-boot] inbox wake drain failed', e));
+                        wakeDrain();
                     });
                 }
+                // The app shells' APNs/FCM inbox-wake (bd med-erq1.3): the same
+                // drain. No ack port — the shell decides on its own whether to
+                // show its fallback notification.
+                if (nativePush) window.NativePush.onWake((kind) => { if (kind === 'inbox-wake') wakeDrain(); });
 
                 // ...and subscribe to the server's content-free SSE wake (bd
                 // med-j0tc): the same instant drain as the push above, but with
