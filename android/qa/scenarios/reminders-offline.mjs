@@ -5,10 +5,11 @@
 // 2. A med due in ~2 min → the app process killed → the notification is posted anyway.
 // 3. Its tap opens that dose's take sheet (bd med-nt9p.52: row url → ReminderPath → handleDeepLinks).
 // 4. Offline cold start: airplane mode, force-stop, relaunch → the account renders from the SW.
-// 5. Last (bd med-nt9p.57; the reboot kills the UiAutomator driver): rows moved back to credential-
+// 5. Local mode with the app lock on (bd med-nt9p.60): the reminder tapped while locked → the system
+//    check → its take sheet after the unlock (lockedTap). Then back to the account.
+// 6. Last (bd med-nt9p.57; the reboot kills the UiAutomator driver): rows moved back to credential-
 //    encrypted prefs migrate to device-protected storage on the next start; then a med due in ~4 min,
 //    a PIN, reboot → posted while still locked; the PIN unlocks → no second post, an alarm armed.
-// The locked tap (local mode's app lock) is not covered yet: see the ponytail note at its place.
 // In `all` it runs after smoke and reopens smoke's account; dispatched alone it claims the invite.
 // "Killed" is HOME + am kill (+ kill -9), not am force-stop: Android drops a force-stopped app's alarms.
 // results.reminders = { permission: 'ui' | 'pm-grant/appops fallback: …', … } in qa-summary.json.
@@ -16,6 +17,8 @@ import { execFile } from 'node:child_process';
 import { claimAccount, waitForVault } from './smoke.mjs';
 
 const MODAL = 'med-confirm-modal';
+const PIN = '1234';
+const LOCK_KEY = 'wgLocalLock'; // LocalLock.KEY in the "shell" prefs
 // Device-protected storage (bd med-nt9p.57); run-as starts in the credential-encrypted data dir.
 const DE_ROWS = `/data/user_de/0/${process.env.QA_PKG || 'com.example.medtracker'}/shared_prefs/reminders.xml`;
 
@@ -109,15 +112,10 @@ export default async function remindersOffline(ctx) {
       }
     });
 
+    await lockedTap(ctx, (r.locked = {}));
+
     await ctx.step('upgrade moves the rows to device-protected storage; after a reboot a reminder posts before the first unlock', () =>
       rebootLocked(ctx, page, (r.reboot = {})));
-
-    // ponytail: no locked-tap step (the local-mode app lock + a reminder tap while locked). Turning the
-    // lock on needs the system credential screen. In runs 39924844133 / 39930468307, `locksettings
-    // set-pin` + lock.set left the focus on the ImmersiveModeConfirmation window, so the PIN keys
-    // never reached the prompt (FLAG_SECURE: its shots are black). The harness then stalled until the
-    // 45-min job timeout, even past bounded waits. Follow-up bead: dismiss the immersive notice
-    // (`settings put secure immersive_mode_confirmations confirmed`) and find the stall.
   } finally {
     await adb(['shell', 'svc power stayon false']); // the reboot step closed ctx.shell's device
   }
@@ -143,6 +141,54 @@ async function openVault(ctx, r) {
   if (!page) throw new Error('no WebView page');
   await waitForVault(page);
   return page;
+}
+
+/**
+ * bd med-nt9p.60: local mode, app lock on, a reminder tapped while locked → the system check over
+ * the lock screen → its take sheet after the unlock. No PIN is ever typed (runs 39924844133 /
+ * 39930468307: keys never reached the FLAG_SECURE credential screen and the Playwright driver stalled
+ * behind it): the lock goes on through its pref with the app dead (lock.set would need the check),
+ * the prompt is cancelled with Back, then the PIN is cleared and Unlock passes with no screen lock
+ * (deviceCheck: the lock must never strand the records) — the same deferred-tap path as a real unlock.
+ * While the credential screen is up only the adb CLI touches the device.
+ */
+async function lockedTap(ctx, out) {
+  const { shell, pkg, sleep } = ctx;
+  const adbShell = (cmd) => adb(['shell', cmd]);
+  const focus = async () => (await adbShell('dumpsys window | grep mCurrentFocus')).replace(/\s+/g, ' ');
+  try {
+    await ctx.step('local mode: a med due in ~2 min is scheduled on the device', async () => {
+      await addDueMed(ctx, await ctx.launchLocal('today'), out);
+    });
+    await ctx.step('local, app lock on: app killed → the reminder is posted', async () => {
+      await killApp(ctx);
+      await shell(`run-as ${pkg} sed -i -e '/"${LOCK_KEY}"/d' -e 's#</map>#<boolean name="${LOCK_KEY}" value="true" /></map>#' shared_prefs/shell.xml`);
+      out.prefs = (await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)).match(/<boolean name="wgLocal\w+" value="\w+" \/>/g);
+      await shell('settings put secure immersive_mode_confirmations confirmed'); // its notice took the focus in the earlier runs
+      out.setPin = await shell(`locksettings set-pin ${PIN}`);
+      await waitNotification(ctx, out, 'Medication time', out);
+    });
+    await ctx.step('local, locked: the tap asks for the unlock first, then opens the take sheet', async () => {
+      await tapNotification(ctx, /.*Medication time.*/, 'local');
+      await sleep(6000);
+      out.focusAfterTap = await focus();
+      if (!out.focusAfterTap || /MainActivity/.test(out.focusAfterTap)) throw new Error(`no system check over the app: ${out.focusAfterTap}`);
+      await adbShell('input keyevent KEYCODE_BACK'); // cancel: the plain lock screen, no re-prompt
+      await sleep(3000);
+      out.focusAfterCancel = await focus();
+      await ctx.waitFor({ text: 'Unlock' }, 30_000);
+      await ctx.stableShot('locked-after-tap');
+      await shell(`locksettings clear --old ${PIN}`);
+      await ctx.device.tap({ text: 'Unlock' });
+      await ctx.localPage((p) => waitSheet(p, out.name, out));
+      await ctx.stableShot('local-take-sheet');
+    });
+  } finally {
+    await adbShell(`locksettings clear --old ${PIN}`);
+    // Back to the account for the reboot step, as openVault does for a retry.
+    await shell(`am force-stop ${pkg}`);
+    await shell(`run-as ${pkg} sed -i -e '/"${LOCK_KEY}"/d' -e 's/"wgLocalMode" value="true"/"wgLocalMode" value="false"/' shared_prefs/shell.xml`);
+  }
 }
 
 /**

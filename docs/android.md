@@ -752,11 +752,16 @@ the app's alarms → the notification is posted with no app process → its tap
 opens the take sheet for that dose (`med-confirm-modal` naming the med) →
 offline cold start: airplane mode + wifi/data off, force-stop, relaunch → the
 app renders from the Service Worker (`navigator.onLine` false, SW-controlled,
-no N4), network restored. Shots: `reminders-offline-*` (system screens, the
-shade, the take sheet, the offline start). Not covered yet: a reminder tap
-under local mode's app lock (the lock exists in local mode only). Turning the
-lock on needs the system credential screen, which the harness could not
-drive (see the ponytail note in the scenario).
+no N4), network restored → local mode (scene `today`) with a due med, the app
+killed, the app lock switched on through its `wgLocalLock` pref (lock.set
+would need the check) and a throwaway screen-lock PIN → the reminder's tap
+puts the system check over the lock screen → Back cancels it (the lock screen
+stays, no re-prompt) → the PIN cleared, *Unlock* passes (no screen lock: the
+lock never strands the records) → the take sheet the tap held back (bd
+med-nt9p.60; no PIN is typed: the harness could not drive the FLAG_SECURE
+credential screen) → back to the account for the reboot step. Shots:
+`reminders-offline-*` (system screens, the shade, both take sheets, the
+offline start, the locked tap).
 
 **Agent how-to.**
 
@@ -1335,7 +1340,8 @@ account has its passkey, and cloud mode never shows or checks it.
     fingerprint/PIN; Home and back → one prompt, cancel → lock screen, no
     loop; *Unlock* opens it. App switcher shows no data. Settings → App lock
     off asks once more. A reminder tap while locked opens its section after
-    the unlock.
+    the unlock. *(The locked reminder tap is emulator-covered: android-qa
+    `reminders-offline`, unlocked without a PIN.)*
 
 ### Moving to a cloud account (bd med-nt9p.32.10)
 
