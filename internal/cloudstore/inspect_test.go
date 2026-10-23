@@ -39,7 +39,7 @@ func TestInspectAccountAndSummaries(t *testing.T) {
 		{DeviceCredentialID: cred1, RecordTypeTag: "bp:1", Nonce: []byte("n"), CT: []byte("ct1")},
 		{DeviceCredentialID: cred1, RecordTypeTag: "bp:2", Nonce: []byte("n"), CT: []byte("ct2")},
 		{DeviceCredentialID: cred2, RecordTypeTag: "weight:1", Nonce: []byte("n"), CT: []byte("ct3")},
-	}, 0, now); err != nil {
+	}, 0, false, now); err != nil {
 		t.Fatalf("AppendOps: %v", err)
 	}
 
@@ -47,7 +47,7 @@ func TestInspectAccountAndSummaries(t *testing.T) {
 	// so snapshotting at seq 1 here folds only the first "bp:1" op, leaving
 	// "bp:2" and "weight:1" live in the oplog — exercising both the snapshot
 	// section and a post-compaction oplog view in the same fixture.
-	if err := r.PutSnapshot(ctx, acc1.ID, 1, []byte("nonce"), []byte("snapshot-ciphertext"), now); err != nil {
+	if err := r.PutSnapshot(ctx, acc1.ID, 1, []byte("nonce"), []byte("snapshot-ciphertext"), false, now); err != nil {
 		t.Fatalf("PutSnapshot: %v", err)
 	}
 

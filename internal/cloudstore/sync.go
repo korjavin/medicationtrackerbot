@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -19,6 +20,66 @@ var ErrQuotaExceeded = errors.New("cloudstore: account storage quota exceeded")
 // compacting ops the server never assigned, which can only mean a stale or
 // corrupt client view.
 var ErrSnapshotSeqAhead = errors.New("cloudstore: snapshot_seq is ahead of last_seq")
+
+// ErrUpdateRequired is the writer gate (bd med-wi09.8): the account's ledger
+// cut is set and a writer that did not declare ledger v2 tried to push a
+// dose-ledger-tagged op or a snapshot. Nothing is written.
+var ErrUpdateRequired = errors.New("cloudstore: ledger v2 writer required")
+
+// LedgerCutTag is the record type whose first op sets the account's ledger
+// cut; GatedRecordTypes are the types a pre-v2 writer may no longer push once
+// the cut is set. Both match the plaintext record_type_tag prefix before ':'
+// — the server never reads ciphertext.
+const LedgerCutTag = "ledgercut"
+
+var GatedRecordTypes = map[string]bool{
+	"intake": true, "medication": true, "settings": true, "tzplan": true,
+	"stock": true, "medsched": true, "tztransition": true,
+}
+
+// RecordType returns the "<type>" half of a "<type>:<recordId>" tag (the
+// whole tag when it has no ':').
+func RecordType(tag string) string {
+	if i := strings.IndexByte(tag, ':'); i >= 0 {
+		return tag[:i]
+	}
+	return tag
+}
+
+// LedgerCut is the account's ledger cut, or nil fields when none is set.
+type LedgerCut struct {
+	Seq *int64
+	At  *string
+}
+
+func ledgerCutSet(ctx context.Context, tx storedb.TX, accountID string) (bool, error) {
+	var seq sql.NullInt64
+	err := tx.QueryRowContext(ctx, `SELECT ledger_cut_seq FROM accounts WHERE id = ?`, accountID).Scan(&seq)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	return seq.Valid, nil
+}
+
+// GetLedgerCut returns the account's ledger cut (nil fields when unset).
+func (r *Repo) GetLedgerCut(ctx context.Context, accountID string) (LedgerCut, error) {
+	var (
+		seq sql.NullInt64
+		at  sql.NullString
+		out LedgerCut
+	)
+	err := r.db.QueryRowContext(ctx, `SELECT ledger_cut_seq, ledger_cut_at FROM accounts WHERE id = ?`, accountID).Scan(&seq, &at)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return out, err
+	}
+	if seq.Valid {
+		out.Seq = &seq.Int64
+	}
+	if at.Valid {
+		out.At = &at.String
+	}
+	return out, nil
+}
 
 // Snapshot is an account's latest compacted state: all oplog rows with
 // seq <= SnapshotSeq have been folded into it and deleted.
@@ -59,9 +120,31 @@ type OpInput struct {
 // check; otherwise the batch is rejected with ErrQuotaExceeded (no partial
 // write) if it would push the account's total oplog+snapshot ciphertext past
 // quotaBytes.
-func (r *Repo) AppendOps(ctx context.Context, accountID string, ops []OpInput, quotaBytes int64, now time.Time) ([]int64, error) {
+//
+// Ledger cut (bd med-wi09.8), in the same transaction: once the account's cut
+// is set, a batch carrying any GatedRecordTypes op from a writer without
+// ledgerV2 is rejected whole with ErrUpdateRequired; the first LedgerCutTag op
+// ever appended sets the cut to its assigned seq and the server time, and
+// later ones never move it.
+func (r *Repo) AppendOps(ctx context.Context, accountID string, ops []OpInput, quotaBytes int64, ledgerV2 bool, now time.Time) ([]int64, error) {
 	seqs := make([]int64, len(ops))
 	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if !ledgerV2 {
+			gated := false
+			for _, op := range ops {
+				gated = gated || GatedRecordTypes[RecordType(op.RecordTypeTag)]
+			}
+			if gated {
+				cut, err := ledgerCutSet(ctx, tx, accountID)
+				if err != nil {
+					return err
+				}
+				if cut {
+					return ErrUpdateRequired
+				}
+			}
+		}
+
 		var lastSeq int64
 		err := tx.QueryRowContext(ctx, `SELECT last_seq FROM sync_state WHERE account_id = ?`, accountID).Scan(&lastSeq)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -93,6 +176,17 @@ func (r *Repo) AppendOps(ctx context.Context, accountID string, ops []OpInput, q
 				return err
 			}
 			seqs[i] = lastSeq
+			if RecordType(op.RecordTypeTag) == LedgerCutTag {
+				res, err := tx.ExecContext(ctx,
+					`UPDATE accounts SET ledger_cut_seq = ?, ledger_cut_at = ? WHERE id = ? AND ledger_cut_seq IS NULL`,
+					lastSeq, now.UTC().Format(time.RFC3339), accountID)
+				if err != nil {
+					return err
+				}
+				if n, _ := res.RowsAffected(); n > 0 {
+					slog.InfoContext(ctx, "sync: ledger cut set", "accountID", accountID, "seq", lastSeq)
+				}
+			}
 		}
 
 		_, err = tx.ExecContext(ctx,
@@ -163,9 +257,10 @@ func (r *Repo) CompactionFloor(ctx context.Context, accountID string) (int64, er
 // concurrent ListOps/AppendOps never observes the snapshot without the
 // matching compaction or vice versa. Rejects snapshotSeq > last_seq with
 // ErrSnapshotSeqAhead — the client can only compact ops the server actually
-// assigned.
-func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error {
-	if err := r.putSnapshot(ctx, accountID, snapshotSeq, nonce, ct, now); err != nil {
+// assigned. Once the account's ledger cut is set, a writer without ledgerV2
+// gets ErrUpdateRequired and nothing changes (bd med-wi09.8).
+func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, ledgerV2 bool, now time.Time) error {
+	if err := r.putSnapshot(ctx, accountID, snapshotSeq, nonce, ct, ledgerV2, now); err != nil {
 		return err
 	}
 	// Return the pages freed by the compaction DELETE (and any inbox/feedback
@@ -191,8 +286,17 @@ func (r *Repo) incrementalVacuum(ctx context.Context) error {
 	return rows.Err()
 }
 
-func (r *Repo) putSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error {
+func (r *Repo) putSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, ledgerV2 bool, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if !ledgerV2 {
+			cut, err := ledgerCutSet(ctx, tx, accountID)
+			if err != nil {
+				return err
+			}
+			if cut {
+				return ErrUpdateRequired
+			}
+		}
 		var lastSeq int64
 		err := tx.QueryRowContext(ctx, `SELECT last_seq FROM sync_state WHERE account_id = ?`, accountID).Scan(&lastSeq)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
