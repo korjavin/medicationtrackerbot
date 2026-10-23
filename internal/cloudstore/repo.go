@@ -569,6 +569,7 @@ var accountKeyedTables = []string{
 	"snapshots",
 	"sync_state",
 	"push_subscriptions",
+	"native_push_tokens",
 	"scheduled_pushes",
 	"mcp_remote",
 	"tg_bots",
