@@ -568,7 +568,9 @@ async function registerLocalEgressNow({ settings, win }) {
     // key). Never again after a trial_already_used.
     const state = localTrial?.state();
     const memo = readFeedbackMemo(win);
-    const hasTrialKey = memo.granted === true || trialKeyGranted(win.localStorage);
+    // The last enroll's own answer wins over the older trial memo (a key lost
+    // and replaced by a feedback-only one leaves that memo's used: false).
+    const hasTrialKey = typeof memo.granted === 'boolean' ? memo.granted : trialKeyGranted(win.localStorage);
     if (trialOn && !hasTrialKey && state?.used !== true && (memo.keyed === true || (!attest.attested && !state))) {
       localTrial.enroll().catch((e) => console.warn('[local] trial enrollment failed', e));
     }
