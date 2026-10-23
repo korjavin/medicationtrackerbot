@@ -172,25 +172,26 @@ describe('Navigation v2 — app-bar actions', () => {
         } finally { cleanup(); }
     });
 
-    it('gear opens Settings with the origin tab still lit; Back returns to it', async () => {
+    it('gear opens Settings with no tab lit; Back returns to the origin tab, lit again', async () => {
         const { window, cleanup } = await boot();
         const { document } = window;
         try {
             tab(document, 'food').click();
             document.querySelector('#food-view [data-nav-to="settings"]').click();
             expect(activeView(document)).toBe('settings-view');
-            expect(lit(document)).toEqual(['food']);
+            expect(lit(document)).toEqual([]);
             document.querySelector('#settings-view [data-nav-back]').click();
             expect(activeView(document)).toBe('food-view');
+            expect(lit(document)).toEqual(['food']);
         } finally { cleanup(); }
     });
 
-    it('a restored Settings page keeps its origin tab lit and Back returns there', async () => {
+    it('a restored Settings page lights no tab and Back returns to its origin', async () => {
         const { window, cleanup } = await boot({ savedTab: 'settings', pageOrigin: 'food' });
         const { document } = window;
         try {
             await until(() => activeView(document) === 'settings-view');
-            expect(lit(document)).toEqual(['food']);
+            expect(lit(document)).toEqual([]);
             document.querySelector('#settings-view [data-nav-back]').click();
             expect(activeView(document)).toBe('food-view');
         } finally { cleanup(); }
@@ -204,8 +205,10 @@ describe('Navigation v2 — app-bar actions', () => {
             expect(route.hidden).toBe(false);
             route.click();
             expect(activeView(document)).toBe('journey-view');
+            expect(lit(document)).toEqual([]);
             document.querySelector('#journey-view [data-nav-back]').click();
             expect(activeView(document)).toBe('today-view');
+            expect(lit(document)).toEqual(['today']);
         } finally { cleanup(); }
     });
 
