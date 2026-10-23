@@ -30,7 +30,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Local mode (bundled app, no account) | `WKURLSchemeHandler` (`wgapp://local`) | `appassets` + `files.js` / `chrome.js` | divergent: platform loader |
 | Local → cloud move (`move.stash` / `move.take` / `move.clear`, stash lifecycle, first-run hint) | ✓ (med-o7zq.35) | ✓ (med-nt9p.32.17) | parity |
 | Account → local leave (`leave.stash` / `leave.take` / `leave.clear`, Cancel returns to the account) | ✓ (med-o7zq.36.2, med-o7zq.42) | ✓ (med-o7zq.36.3, med-nt9p.43) | parity |
-| `local.reset` forgets the remembered leave host | pending-ios (med-w6gx.28) | ✓ (med-nt9p.43, #1217) | Android-first |
+| `local.reset` forgets the remembered leave host | ✓ (med-w6gx.28, #1280) | ✓ (med-nt9p.43, #1217) | parity |
 | Mode-switch restore: Replace / Merge / Cancel choice, silent pickup Cancel, orphan-intake guard | ✓ | ✓ | parity: shared web (med-o7zq.37, .38, .40, .41, .42) |
 | Page downloads (blob:/data:) | Files export picker (med-o7zq.43) | `ACTION_CREATE_DOCUMENT` picker, no shell dialog (med-nt9p.48) | parity: both go straight to the system picker; Share lives in the web sheet (hidden in the Android WebView) |
 | `window.print()` → native print (incl. the offscreen print-doc iframe) | ✓ (med-w6gx.11) | ✓ (med-nt9p.10) | parity |
@@ -40,7 +40,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Health data (BP + weight; sleep + workouts) | HealthKit (med-w6gx.6, .7) | Health Connect (med-nt9p.8, .9) | divergent: platform API; iOS follow-ups med-w6gx.18 open |
 | Reminders: local notifications from the horizon (replace-all, lapse notice, tap guard for another vault) | ✓ (med-w6gx.5, med-o7zq.9) | ✓ exact alarms + boot/update rearm (med-nt9p.7) | parity (iOS 64-slot cap is the platform's; Android caps at 200) |
 | Reminder tap target: a dose opens its take/log sheet (row `url`, `ReminderPath` allowlist), else its section | ✓ (med-w6gx.20, #1102) | ✓ (med-nt9p.52) | parity |
-| Reminder tap on a page without the deep-link router (e.g. unlock) loads the path | pending-ios (med-w6gx.27) | ✓ (med-nt9p.53, #1273) | Android-first |
+| Reminder tap on a page without the deep-link router (e.g. unlock) loads the path | ✓ (med-w6gx.27, #1280) | ✓ (med-nt9p.53, #1273) | parity |
 | Notifications (bridge ops incl. `notifications.openSettings`) | ✓ | ✓ | parity |
 | Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12, #1251) | parity |
 | Load-error screen (503 / 404 / local), Try again keeps the `#claim=` fragment, renderer-crash reload | ✓ (med-w6gx.3, med-ckm5.15) | ✓ (med-ckm5.16, med-nt9p.32.14) | parity |
@@ -57,7 +57,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
 | Switch account / `forget()` from local mode drops the move stash | ✓ (med-ta2n.17) | ✓ (med-nt9p.49, med-ta2n.12) | parity |
-| Late `history.back()` across a mode/account switch: off-origin reload guard | pending-ios (med-o7zq.47) | ✓ (#1251) | Android-first |
+| Late `history.back()` across a mode/account switch: off-origin reload guard | ✓ back/forward off the current mode/account cancelled before commit, never Safari (med-o7zq.47, #1280) | ✓ reload after an off-origin commit (#1251) | parity (divergent mechanism: iOS refuses before commit) |
 | Native push (`push.token`, remote wake) | pending-ios (med-erq1.4) | open: med-erq1.5 | neither shipped |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
 | `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ (error screen, launcher shortcut) | parity (med-w6gx.24, med-nt9p.22) |
