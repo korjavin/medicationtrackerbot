@@ -174,6 +174,11 @@ migration; add a new one.
   re-post loop rather than retrying forever; transient failures never wedge.
   "Reset local sync" clears `records`/`pending`/`sync_meta` in one IDB
   transaction and re-bootstraps from the server snapshot.
+  A **426** on an op push or snapshot POST (the writer gate, epic `med-wi09`)
+  is neither: it sets an in-memory `updateRequired` that pauses pushes for the
+  page load (pulls continue, `pending` kept and exportable, no streak, no
+  snapshot error) and shows "Update required — reload to keep syncing" with a
+  Reload action instead of the reset hint; the reloaded build re-posts the queue.
 
 ## 5. Reminders
 

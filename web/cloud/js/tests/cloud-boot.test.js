@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { JSDOM } from 'jsdom';
 import { fileURLToPath } from 'node:url';
 import * as realVault from '../../../domain/vault.js';
 import { loadFrontendEnv } from '../../../static/js/tests/helpers/frontend-harness.js';
@@ -161,9 +162,48 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
       },
     });
     expect(typeof drainOpts?.onAuthExpired).toBe('function');
-    expect(statusChecks).toBe(1); // the boot-time check still ran
+    // med-wi09.5: the update-required surface is wired the same way.
+    expect(typeof drainOpts?.onUpdateRequired).toBe('function');
+    expect(statusChecks).toBe(2); // both boot-time checks ran
     await drainOpts.onAuthExpired(); // a 401'd drain re-checks status and (if expired) mounts the banner
-    expect(statusChecks).toBe(2);
+    expect(statusChecks).toBe(3);
+    await drainOpts.onUpdateRequired(); // a 426'd push re-checks status and (if gated) mounts the banner
+    expect(statusChecks).toBe(4);
+  });
+
+  it('a 426-gated sync mounts the "Update required" banner whose Reload loads the current build (med-wi09.5)', async () => {
+    const dom = new JSDOM('<!doctype html><body></body>');
+    vi.stubGlobal('document', dom.window.document);
+    let drainOpts;
+    let reloads = 0;
+    try {
+      await runBoot({
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+          'sync.js': {
+            pullOnOpen: async () => {},
+            startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+            getSyncStatus: async () => ({ authExpired: false, updateRequired: true, wedged: false }),
+          },
+          'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+          'mcp-responder.js': { refreshResponder: () => {} },
+          'update-check.js': { reloadToLatest: async () => { reloads++; } },
+        },
+      });
+      await drainOpts.onUpdateRequired();
+      await drainOpts.onUpdateRequired(); // the banner id dedupes repeat surfaces
+      const banners = dom.window.document.querySelectorAll('#update-required-banner');
+      expect(banners).toHaveLength(1);
+      expect(banners[0].textContent).toContain('Update required — reload to keep syncing.');
+      expect(banners[0].textContent).not.toMatch(/reset/i);
+      const btn = banners[0].querySelector('button');
+      expect(btn.textContent).toBe('Reload');
+      btn.click();
+      await vi.waitFor(() => expect(reloads).toBe(1));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
