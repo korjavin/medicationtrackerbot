@@ -131,7 +131,8 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 "medications": {
   "items": [ { medication } ],
   "intakes": [ { intake } ],      // flat list across all meds
-  "restocks": [ { restock } ]
+  "restocks": [ { restock } ],
+  "schedules": [ { medsched } ]   // optional, cloud-only — omitted when empty
 }
 ```
 
@@ -152,6 +153,13 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   re-mint as `intake-manual-<ms>-<rand>` unless the file already carries a cloud
   recordId to preserve.
 - **restock** — `medication_id` (number), `quantity` (num), `note` (str), `restocked_at` (RFC3339).
+- **medsched** (bd med-wi09.9) — schedule history, one immutable row per
+  schedule/policy change: `id` (the recordId, `medsched-<medId>-<fromSec>-<rand>`;
+  the generation a med was created with uses the suffix `base`, `from` =
+  `created_at`), `medication_id` (number → medication.id), `schedule`,
+  `tz_shift_policy`, `from` (RFC3339, when it took effect). Exported in effective
+  order (`from`, then `id`). Import keeps the id; an id without the
+  `medsched-` prefix fails the import before the wipe.
 
 ### `bp`
 
@@ -349,9 +357,18 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 "tz": {
   "current": "Europe/Berlin" | null,
   "history": [ { "timezone": str, "changed_at": RFC3339 } ],
-  "transition_plans": [ { plan } ]
+  "transition_plans": [ { plan } ],
+  "transitions": [ { transition } ]   // optional, cloud-only — omitted when empty
 }
 ```
+
+- **transitions** (bd med-wi09.9) — zone history, one immutable row per actual zone
+  change (a flexible-only change, or a plan's Apply): `id` (the recordId,
+  `tztransition-<switchSec>-<rand>`), `old_tz`, `new_tz`, `switch_at` (RFC3339),
+  `steps` (the plan's steps in the `transition_plans` step shape; `[]` for a
+  flexible-only change), `boundary` (null until the lineage bead fills it).
+  Exported in effective order (`switch_at`, then `id`). Import keeps the id; an
+  id without the `tztransition-` prefix fails the import before the wipe.
 
 - **transition_plans** — **every** `tz_transition_plans` row, **oldest first** (not just
   the active/pending one): the wipe deletes them all, and past plans feed history
@@ -654,6 +671,9 @@ Export → import → export (and each single hop) must be
   stripped the same way.
 - **Cloud-only nudge state** — `protection` (med-ta2n.4). Legacy bot files omit
   it; stripped the same way. A local export stamps its own `last_backup_at`.
+- **Cloud-only history** — `medications.schedules` and `tz.transitions`
+  (med-wi09.9). Older files omit them and import no history; older clients
+  ignore both keys. Stripped the same way.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy
   bot import normalized every timestamp to UTC before storing it
   (`2026-07-07T12:00:00+02:00` → `2026-07-07T10:00:00Z`), because
@@ -676,7 +696,9 @@ the bot runtime): real legacy export output, kept to prove old exports remain
 importable.
 
 Every list-shaped block carries **≥2 rows** on purpose (two gamification targets, two
-ledger rows, two band overrides, two experiments — one active + one resolved, two modes, two api tokens, two tz plans — one `COMPLETED` + one `PENDING_APPROVAL`) so
+ledger rows, two band overrides, two experiments — one active + one resolved, two modes, two api tokens, two tz plans — one `COMPLETED` + one `PENDING_APPROVAL`, two
+schedule-history rows — the `base` generation + one edit, two zone transitions — one
+flexible-only + one applied plan with steps) so
 an exporter that drops all but the newest row fails the pin rather than passing it. The
 reminder blocks cover both shapes: `bp_reminder` has a non-null `snoozed_until`,
 `weight_reminder` has nulls.

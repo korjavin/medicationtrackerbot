@@ -190,6 +190,8 @@ describe('cloud shim contract — POST /api/settings returns the planner result 
         const { plan } = await env.window.apiCall('/api/tz-plan/current');
         expect(plan.status).toBe('PENDING_APPROVAL');
         expect(plan.new_tz).toBe('Asia/Tokyo');
+        // Staged, not switched: no zone history until Apply (bd med-wi09.9).
+        expect(await env.records.list('tztransition')).toHaveLength(0);
     });
 
     it('same zone → { changed: false, planCreated: false }', async () => {
@@ -198,6 +200,49 @@ describe('cloud shim contract — POST /api/settings returns the planner result 
         });
         const res = await env.window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
         expect(res).toEqual({ changed: false, planCreated: false });
+    });
+});
+
+// bd med-wi09.9 — zone history: one immutable tztransition-* per actual zone
+// change, so the planner can regenerate the past. tzplan-current stays the
+// banner's handle; nothing reads the history yet.
+describe('zone history — tztransition-* on every zone change and plan approve (bd med-wi09.9)', () => {
+    let env;
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    it('a flexible-only change writes one transition with no steps', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: { settings: [{ recordId: 'settings', clientTs: 1, deleted: false, timezone: 'Europe/Berlin' }] }
+        });
+        await env.window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+        const rows = await env.records.list('tztransition');
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+            old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', steps: [], boundary: null
+        });
+        const sec = Math.floor(Date.parse(rows[0].switch_at) / 1000);
+        expect(rows[0].recordId).toMatch(new RegExp(`^tztransition-${sec}-[a-z0-9]+$`));
+
+        // Same zone again: no change, no row.
+        await env.window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+        expect(await env.records.list('tztransition')).toHaveLength(1);
+    });
+
+    it('Apply writes one transition carrying the plan steps; Cancel writes none', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { tzplan: [seedPendingPlan()] } });
+        await env.window.apiCall('/api/tz-plan/tzplan-current/approve', 'POST');
+        const [row] = await env.records.list('tztransition');
+        expect(row).toMatchObject({ old_tz: 'America/New_York', new_tz: 'Asia/Tokyo', boundary: null });
+        expect(row.steps.map((s) => s.stepNumber)).toEqual([1, 2]);
+
+        env.cleanup();
+        env = loadCloudShimFrontendEnv({ seedRecords: { tzplan: [seedPendingPlan()] } });
+        await env.window.apiCall('/api/tz-plan/tzplan-current/reject', 'POST');
+        expect(await env.records.list('tztransition')).toHaveLength(0);
     });
 });
 
