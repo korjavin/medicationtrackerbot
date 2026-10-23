@@ -16,7 +16,12 @@
 //                         'dry-queue'  — the reminder horizon ran dry: refill it
 //                         'token'      — the device token is new or changed:
 //                                        register it again
-//                       The push payload carries nothing but kind.
+//                       The push payload carries nothing but kind. The event
+//                       is cancelable: an onWake(fn) whose fn returns true for
+//                       the kind calls preventDefault() as its receipt (bd
+//                       med-erq1.4), and the shell shows its own notification
+//                       unless the event came back defaultPrevented (no listener
+//                       yet, an old page, a failed boot all fall back to it).
 //
 // Load order: after native/index.js.
 (function () {
@@ -46,7 +51,8 @@
         onWake: function (fn) {
             document.addEventListener('wg:native-push', function (e) {
                 var kind = e && e.detail && e.detail.kind;
-                if (typeof kind === 'string') fn(kind);
+                // fn returns true when it took this kind: the receipt the shell reads.
+                if (typeof kind === 'string' && fn(kind) === true) e.preventDefault();
             });
         },
     };

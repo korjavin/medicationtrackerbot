@@ -69,8 +69,12 @@ function load({ shell = null, ops = ['shell.ops', 'push.token'], reply = { platf
     return { w, sent };
 }
 
+// The shells' script (ios/App/Push.swift, android MainActivity.pushEvent): a
+// cancelable event; defaultPrevented is the page's receipt.
 function wake(w, detail) {
-    w.document.dispatchEvent(new w.CustomEvent('wg:native-push', { detail }));
+    const e = new w.CustomEvent('wg:native-push', { detail, cancelable: true });
+    w.document.dispatchEvent(e);
+    return e.defaultPrevented;
 }
 
 describe('native/push-token.js', () => {
@@ -112,6 +116,17 @@ describe('native/push-token.js', () => {
         wake(w, null);
         wake(w, { kind: 7 });
         expect(kinds).toEqual(['inbox-wake', 'dry-queue']);
+    });
+
+    it('a wake is acknowledged only by a listener that took its kind (else the shell shows its fallback)', () => {
+        const { w } = load({ shell: 'ios' });
+        expect(wake(w, { kind: 'inbox-wake' })).toBe(false); // no listener yet
+        w.NativePush.onWake((k) => k === 'dry-queue'); // e.g. cloud-boot's horizon listener, before the inbox one
+        expect(wake(w, { kind: 'inbox-wake' })).toBe(false);
+        expect(wake(w, { kind: 'dry-queue' })).toBe(true);
+        w.NativePush.onWake((k) => { if (k === 'inbox-wake') return true; }); // the drain
+        expect(wake(w, { kind: 'inbox-wake' })).toBe(true);
+        expect(wake(w, null)).toBe(false);
     });
 });
 

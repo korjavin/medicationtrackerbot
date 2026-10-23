@@ -232,8 +232,8 @@ print("LocalOrigin.ops: ok")
 // Push (bd med-erq1.4): the page event, the token encoding, the Diag fingerprint.
 for kind in ["inbox-wake", "dry-queue", "token"] {
     let js = Push.event(kind)!
-    precondition(js.contains("new CustomEvent('wg:native-push',{detail:{kind:'\(kind)'}})"), js)
-    precondition(js.contains("window.MedTrackerCloud&&window.MedTrackerCloud.ctx"), js) // unlocked pages only
+    // Taken only when a listener cancelled it (onWake's receipt).
+    precondition(js == "!document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:'\(kind)'},cancelable:true}))", js)
 }
 for kind in ["", "Inbox-wake", "inbox-wake'", "x');alert(1);('"] { precondition(Push.event(kind) == nil, kind) }
 precondition(Push.hex(Data([0x00, 0x0a, 0xff])) == "000aff")

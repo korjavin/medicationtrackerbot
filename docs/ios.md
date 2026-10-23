@@ -885,10 +885,12 @@ Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15)
   asks iOS to register; the token arriving, first or changed, fires the page's
   `token` event, so the page registers it. Diag logs a 4-byte SHA-256
   fingerprint, never the token.
-- **Page event** `wg:native-push {kind}` on `document`, only on the account's
-  page whose vault is unlocked (`MedTrackerCloud.ctx`). In front,
-  `willPresent` hands the wake to the page and shows the alert only when no
-  page took it (the SW's rule). In the background the system already showed
+- **Page event** `wg:native-push {kind}` on `document`, cancelable, on the
+  account's page. A wake counts as taken only when the page cancelled it:
+  `NativePush.onWake`'s listener returned true for that kind (cloud-boot.js
+  installs them after unlock), the receipt like the SW's ack port. In front,
+  `willPresent` shows the alert only when no listener took it (the SW's rule);
+  the page has 5 s to answer. In the background the system already showed
   the server's fixed alert; `content-available` also hands a live page the
   wake, with a 10 s grace before completing. Tap: Today, like a reminder
   without a url. The shell reads `kind` only.

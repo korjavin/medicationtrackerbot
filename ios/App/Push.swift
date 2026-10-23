@@ -33,13 +33,14 @@ enum Push {
         SHA256.hash(data: Data(token.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The page script for one wake: document event wg:native-push {kind}
-    /// (web/static/js/native/push-token.js) on a page whose vault is unlocked
-    /// (cloud-boot's MedTrackerCloud.ctx; /unlock has none). Evaluates to
-    /// whether the page took it. nil for any other kind.
+    /// The page script for one wake: the cancelable document event
+    /// wg:native-push {kind} (web/static/js/native/push-token.js). Evaluates
+    /// to whether a listener took it: onWake's preventDefault() is the
+    /// receipt, and only the unlocked app installs one (cloud-boot.js), so
+    /// /unlock, a failed boot or an old page leave the alert to show. nil for
+    /// any other kind.
     static func event(_ kind: String) -> String? {
         guard kinds.contains(kind) else { return nil }
-        return "(function(){if(!(window.MedTrackerCloud&&window.MedTrackerCloud.ctx))return false;"
-            + "document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:'\(kind)'}}));return true})()"
+        return "!document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:'\(kind)'},cancelable:true}))"
     }
 }
