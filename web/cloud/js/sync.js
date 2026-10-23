@@ -953,6 +953,9 @@ function isAuthExpiredStatus(status) {
 async function tryForceSnapshot(ctx) {
   const meta = await readMeta();
   if (!meta.forceSnapshotPending || meta.localLastSeq === null) return;
+  // Writer gate hit this page load: pushes are paused, the marker waits for the
+  // reloaded build (pullOnOpen still skips the pull while it is set).
+  if (updateRequired) return;
   const kData = await getKData(ctx);
   const bumpBody = new TextEncoder().encode(
     JSON.stringify({ recordId: IMPORT_BUMP_RECORD_ID, clientTs: Date.now(), deleted: true }),

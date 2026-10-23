@@ -1947,6 +1947,28 @@ describe('a 426 from the writer gate asks for a reload, never wedges (med-wi09.5
     }
   });
 
+  it('a forced import snapshot waits for the reload once the gate answered, keeping its marker', async () => {
+    await seed({ records: [queued] });
+    let posts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (init?.method === 'POST') {
+        posts++;
+        return new Response('', { status: 426 });
+      }
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    await flushConfirmed(ctx); // the ordinary op push learns the gate
+    expect(posts).toBe(1);
+    expect(await forceSnapshot(ctx)).toBe('retrying');
+    await pullOnOpen(ctx); // a reconnect drain must not re-post the bump either
+    expect(posts).toBe(1);
+    const status = await getSyncStatus(ctx);
+    expect(status.snapshotError).toBeNull();
+    expect(status.updateRequired).toBe(true);
+  });
+
   it('a 426 on the snapshot POST records no snapshot error', async () => {
     await seed({ meta: { localLastSeq: 500, lastSnapshotSeq: 0 } });
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
