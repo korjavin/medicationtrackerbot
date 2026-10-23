@@ -37,8 +37,8 @@ final class FlowQAStashTests: XCTestCase {
         app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
         app.launch()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
-        XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: webText(app, contains: Self.firstMed(fixture))), // "Meds 1" with a dose due
-                      "the records are gone after the move")
+        openMeds(app)
+        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move")
         shot(flow, "records-kept")
         XCTAssertNotNil(Self.stashData("move"), "a relaunch in local mode dropped the move stash")
 
@@ -91,8 +91,8 @@ final class FlowQAStashTests: XCTestCase {
         let skip = app.webViews.buttons.matching(NSPredicate(format: "label IN {'Skip', 'Skip all'}")).firstMatch // W1 picker "Skip" (med-ta2n.1)
         if skip.waitForExistence(timeout: 10) { skip.tap() }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar after the pickup")
-        XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: webText(app, contains: Self.firstMed(fixture))), // "Meds 1" with a dose due
-                      "Meds lists no fixture medication after the pickup")
+        openMeds(app)
+        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "Meds lists no fixture medication after the pickup")
         shot(flow, "meds")
         XCTAssertNil(Self.stashData("leave"), "the pickup kept leave/vault.json")
 
@@ -112,12 +112,19 @@ final class FlowQAStashTests: XCTestCase {
         shot(flow, "cancelled")
         XCTAssertFalse(webText(app, "Records not copied").exists, "a dialog followed Cancel")
         XCTAssertNil(Self.stashData("leave"), "Cancel kept leave/vault.json")
-        XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: webText(app, contains: Self.firstMed(fixture))), // "Meds 1" with a dose due
-                      "the records are gone after the cancelled pickup")
+        openMeds(app)
+        XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the cancelled pickup")
         app.terminate()
     }
 
     // MARK: helpers
+
+    /// The Meds tab, retapped until its Schedule segment (Meds-only; Today can
+    /// list a med name too) shows (bd med-w6gx.29).
+    private func openMeds(_ app: XCUIApplication) {
+        let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == 'Schedule'")).firstMatch
+        XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: schedule), "the Meds tab never opened") // "Meds 1" with a dose due
+    }
 
     private func webButton(_ app: XCUIApplication, prefix: String) -> XCUIElement {
         app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
