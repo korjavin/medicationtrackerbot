@@ -149,13 +149,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             return
         }
         let path = ReminderPath.sanitize(raw)
-        if showingAccount, !webView.isLoading,
-           let json = try? JSONSerialization.data(withJSONObject: path, options: .fragmentsAllowed),
-           let quoted = String(data: json, encoding: .utf8) {
-            webView.evaluateJavaScript(
-                "history.replaceState({}, '', \(quoted)); window.handleDeepLinks && window.handleDeepLinks()")
-        } else if let url = URL(string: path, relativeTo: home)?.absoluteURL {
-            load(url)
+        guard let url = URL(string: path, relativeTo: home)?.absoluteURL else { return }
+        guard showingAccount, !webView.isLoading,
+              let json = try? JSONSerialization.data(withJSONObject: path, options: .fragmentsAllowed),
+              let quoted = String(data: json, encoding: .utf8) else { return load(url) }
+        // A page without the router (e.g. the unlock page) loads the path
+        // instead, its own URL untouched (bd med-w6gx.27, Android #1273).
+        webView.evaluateJavaScript(
+            "!!window.handleDeepLinks && (history.replaceState({}, '', \(quoted)), window.handleDeepLinks(), true)"
+        ) { [weak self] result, _ in
+            if result as? Bool != true { self?.load(url) }
         }
     }
 
@@ -357,6 +360,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             }
             // Subframes stay with WebKit: the app-bound limit already blocks foreign ones.
             if action.targetFrame?.isMainFrame == false { return .allow }
+            // A late history.back() into the other mode's or a previous
+            // account's page (bd med-o7zq.47, Android #1251): stay put, never Safari.
+            if action.navigationType == .backForward { return .cancel }
         case LocalOrigin.scheme:
             guard local, url.host?.lowercased() == LocalOrigin.host else { return .cancel }
             if action.targetFrame == nil {
@@ -492,6 +498,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // The page has erased its own storage (local-policy.js eraseDevice);
             // the shell's share of this vault is its reminders and host mirror.
             UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
+            // A stale account must not come back on a later leave.clear {back} (bd med-w6gx.28, Android #1217).
+            UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
             move.clear()
             leaveStash.clear()
             setInvite(nil) // no claim token left behind after Erase
