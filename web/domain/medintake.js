@@ -887,7 +887,9 @@ export function createIntakeDomain({ records, now, timeZone }) {
     for (const r of rows) {
       if (r.state !== 'upcoming') continue;
       const med = meds.find((m) => m.recordId === r.medId);
-      if (!med) continue;
+      // An archived med's stored PENDING row (e.g. an undo after archiving)
+      // is history, not a dose to offer — the forecast already skips it.
+      if (!med || med.archived) continue;
       const ms = Date.parse(r.plannedAt);
       if (nextTimeMs === null || ms < nextTimeMs) {
         nextTimeMs = ms;
@@ -927,7 +929,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
 
     const out = [];
     for (const r of rows) {
-      if (r.state !== 'upcoming' || !byId.has(r.medId)) continue;
+      if (r.state !== 'upcoming' || !byId.has(r.medId) || byId.get(r.medId).archived) continue;
       const [y, mo, d] = r.localDate.split('-').map(Number);
       const row = {
         medication_id: r.medId,
