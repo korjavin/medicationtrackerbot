@@ -823,7 +823,9 @@
     // pushes this page: one address field, then the shell opens
     // https://<sub>.<base>/unlock (local.leave {url}). No move.stash, no record
     // read or written: the local vault stays as it is, nothing is merged or
-    // erased. /unlock's own no-passkey state points at the QR flow (AD10 · none).
+    // erased. (Caveat: local.leave {url} keeps an existing move stash and local
+    // mode has no move.clear, so a stash left by an interrupted earlier move
+    // would still be offered by the account, behind its own confirm.) /unlock's own no-passkey state points at the QR flow (AD10 · none).
     //
     // parseAddress(raw, base) → 'https://<sub>.<base>/unlock' | null. Strict:
     // a base is required; <sub>.<base> or an https URL on it (any path, which
