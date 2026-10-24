@@ -136,7 +136,7 @@ function renderDevices(mount, ctx, hooks, devices, notices = []) {
       <div class="wg-section__head"><span class="wg-eyebrow">Devices</span><span class="wg-meta" id="device-count"></span></div>
       <div class="wg-list" id="device-notices"></div>
       <div class="wg-list" id="device-list"></div>
-      <p class="wg-hint">"This device" is our best guess. A passkey that syncs through iCloud Keychain, Google Password Manager or another manager can work on several of your devices.</p>
+      <p class="wg-hint">&ldquo;This device&rdquo; is our best guess. A passkey that syncs through iCloud Keychain, Google Password Manager or another manager can work on several of your devices.</p>
       <button type="button" id="add-device-button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Add a device</button>
     </section>
     <div class="wg-list"><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="link"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Account address</span><span class="wg-setting__desc wg-mono" id="account-address"></span></span><button type="button" id="copy-account-address" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Copy address"><i class="wg-ico wg-ico--sm" data-icon="copy"></i></button></div></div>`;

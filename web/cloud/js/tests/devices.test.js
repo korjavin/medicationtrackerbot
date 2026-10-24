@@ -249,7 +249,7 @@ describe('devices.js AD11: platform rows, This device, address, new-device notic
     expect(rows[2].querySelector('.wg-row__title').textContent).toBe('Passkey ddddeeee…');
     expect(rows[0].querySelector('.wg-tag.device-this').textContent).toBe('This device');
     expect(app.querySelectorAll('.device-this')).toHaveLength(1);
-    expect(app.textContent).toContain('"This device" is our best guess.');
+    expect(app.textContent).toContain('“This device” is our best guess.');
   });
 
   it('shows the account address and copies it', async () => {
