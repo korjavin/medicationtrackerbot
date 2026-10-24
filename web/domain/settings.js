@@ -23,6 +23,7 @@ export const BODY_FIELDS = Object.freeze({
   height_cm: {
     valid: (v) => typeof v === 'number' && Number.isFinite(v) && v >= 100 && v <= 250,
     def: null,
+    norm: Math.round, // whole cm on every write (PATCH and vault import)
     hint: 'must be a number between 100 and 250, or null',
   },
   // Display unit for height — its own segment, not tied to the weight unit.
@@ -44,7 +45,7 @@ export function readBodySettings(rec) {
 export function storedBodySettings(src, { vault = false } = {}) {
   const out = {};
   for (const [k, f] of Object.entries(BODY_FIELDS)) {
-    if (src && f.valid(src[k]) && !(vault && f.vault === false)) out[k] = src[k];
+    if (src && f.valid(src[k]) && !(vault && f.vault === false)) out[k] = f.norm ? f.norm(src[k]) : src[k];
   }
   return out;
 }
@@ -224,7 +225,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
       const body = { ...existing };
       for (const k of keys) {
         if (patch[k] === null) delete body[k];
-        else body[k] = patch[k];
+        else body[k] = BODY_FIELDS[k].norm ? BODY_FIELDS[k].norm(patch[k]) : patch[k];
       }
       return body;
     });

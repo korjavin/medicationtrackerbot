@@ -393,6 +393,9 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
                 ...DEFAULT_BODY, ed_safe: false, nudge: false,
             });
 
+            // Stored in whole cm.
+            expect((await patchBody(window, { height_cm: 180.4 })).height_cm).toBe(180);
+
             await patchBody(window, { height_cm: null });
             expect((await getBmi(window)).height_cm).toBeNull();
             const general = (await env.records.list('settings')).find((r) => r.recordId === 'settings');

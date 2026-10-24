@@ -1577,17 +1577,20 @@ function updateFeatureToggles() {
 
 // The weekly-digest toggle drives a gamification-summary push, so it's only
 // meaningful when gamification is on (both-on gate). The Journey mode switches
-// (med-8tur.12) share the same gate.
+// (med-8tur.12) share the same gate — except ED-safe: it hides weight numbers
+// on Today and BMI with Journey off too (med-njny), so its Safety group stays
+// reachable.
 function updateWeeklyDigestVisibility(flags) {
     const row = document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
     row?.classList.toggle('wg-settings-hidden', !flags.gamification);
     for (const key of GAMIFICATION_MODE_KEYS) {
+        if (key === 'ed_safe') continue;
         document.querySelector(`mt-setting-toggle[input-id="${gamificationModeToggleId(key)}"]`)
             ?.classList.toggle('wg-settings-hidden', !flags.gamification);
     }
-    // Features page: the folded Journey-extras row and the Safety group
-    // (ED-safe) share the gate, so no empty row or eyebrow lingers.
-    document.querySelectorAll('.wg-settings-journey-extras, .wg-settings-features__safety')
+    // Features page: the folded Journey-extras row shares the gate, so no
+    // empty row lingers.
+    document.querySelectorAll('.wg-settings-journey-extras')
         .forEach((el) => el.classList.toggle('wg-settings-hidden', !flags.gamification));
 }
 
@@ -1608,8 +1611,9 @@ function applyGamificationMode(mode) {
     refreshSettingsSummaries();
 }
 
+// Not gated on Journey: the ED-safe switch is visible with it off (med-njny)
+// and /api/gamification/mode is not feature-gated.
 async function loadGamificationMode() {
-    if (!window.featureSettings || !window.featureSettings.gamification) return;
     try {
         const mode = await apiCall('/api/gamification/mode', 'GET');
         if (mode && mode.enabled !== false) applyGamificationMode(mode);
