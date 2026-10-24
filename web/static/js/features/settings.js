@@ -1977,7 +1977,10 @@ function paintBmiHint() {
     const hint = document.getElementById('settings-height-bmi-hint');
     if (!hint) return;
     const kg = _bmiFacts && !_bmiFacts.ed_safe && Number.isFinite(_bmiFacts.latest_kg) ? _bmiFacts.latest_kg : null;
-    const typed = kg === null || _body.show_bmi === false || !_weightDomain ? null : readHeightInput();
+    // Untouched: the stored cm, not the rounded ft + in display read back.
+    const stored = typeof _body.height_cm === 'number' ? _body.height_cm : null;
+    const typed = kg === null || _body.show_bmi === false || !_weightDomain ? null
+        : (_heightDirty ? readHeightInput() : { cm: stored });
     const value = typed && !typed.error && typed.cm !== null ? _weightDomain.bmi(kg, typed.cm) : null;
     hint.classList.toggle('wg-settings-hidden', value === null);
     if (value === null) {

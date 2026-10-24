@@ -536,6 +536,24 @@ describe('Settings Units & body height field (med-a6fb.4)', () => {
         expect(hintShown()).toBe(false); // invalid height
     });
 
+    it('an untouched field keeps the stored cm for the hint across a unit switch (179 cm stays BMI 24.0)', async () => {
+        await openUnits();
+        typeHeight('179'); // input + change: saved, no longer being edited
+        await vi.waitFor(() => expect(bodyPatches()).toEqual([{ height_cm: 179 }]));
+        expect(hint().textContent).toBe('BMI 24.0 at your latest weight, 77.0 kg.');
+        env.document.querySelector('#height-unit-segmented [data-height-unit="ftin"]').click();
+        await vi.waitFor(() => expect(bodyPatches()[1]).toEqual({ height_unit: 'ftin' }));
+        expect(env.document.getElementById('settings-height-in').value).toBe('10');
+        expect(hint().textContent).toBe('BMI 24.0 at your latest weight, 77.0 kg.');
+        // Focus in and out of the untouched imperial pair: still the stored cm.
+        const ft = env.document.getElementById('settings-height-ft');
+        ft.focus();
+        ft.dispatchEvent(new env.window.FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(hint().textContent).toBe('BMI 24.0 at your latest weight, 77.0 kg.');
+        expect(bodyPatches().length).toBe(2);
+    });
+
     it('the hint gives the latest weight in lb when the weight unit is lb', async () => {
         env.window.weightUnitPreference = 'lb';
         await openUnits();
