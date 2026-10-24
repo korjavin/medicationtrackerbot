@@ -1255,7 +1255,7 @@ async function loadSettings() {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
         window.WeightUnitState.applyAuthoritative(bundle.weightUnitPreference);
-        paintBodySettings(bundle.body);
+        applyBundleBody(bundle.body);
         updateFeatureToggles();
         updateFeatureTabVisibility();
 
@@ -1973,44 +1973,53 @@ function readHeightInput() {
 }
 
 let _bodyWrites = Promise.resolve(); // module-state: body PATCHes run one at a time
+let _bodyPending = 0; // module-state: body writes painted but not yet settled
+let _bodyFailed = false; // module-state: a write in the current run of pending writes failed
+let _bodyConfirmed = { ..._body }; // module-state: the last server-confirmed body settings
+
+// A bundle repaint with no body write in flight is the confirmed state.
+function applyBundleBody(body) {
+    if (_bodyPending === 0 && body) _bodyConfirmed = { ..._bodyConfirmed, ...body };
+    paintBodySettings(body);
+}
 
 // Optimistic partial patch (rule 9): paint at once, then settings_bundle +
-// PATCH on one serial queue, so a rollback's snapshot never predates another
-// body write that already succeeded. A refusal reverts only the patched keys,
-// and only where no newer edit has replaced them.
+// PATCH on one serial queue, each settling before the next starts. A failure
+// never restores a snapshot: once every pending write has settled, the form
+// repaints from the confirmed baseline (successes merged in, failures not).
 function saveBodySettings(patch) {
-    const keys = Object.keys(patch);
-    const before = Object.fromEntries(keys.map((k) => [k, _body[k]]));
     paintBodySettings(patch);
-    const revert = () => {
-        const undo = Object.fromEntries(keys.filter((k) => _body[k] === patch[k]).map((k) => [k, before[k]]));
-        if (Object.keys(undo).length) paintBodySettings(undo);
-    };
+    _bodyPending++;
     const run = _bodyWrites.then(async () => {
         const ds = window.DataStore;
         let handle = null;
+        let ok = false;
         try {
             if (ds && typeof ds.applyOptimistic === 'function') {
                 handle = await ds.applyOptimistic('settings_bundle',
                     (prev) => (prev ? { ...prev, body: { ...(prev.body || {}), ...patch } } : prev),
                     ['settings', 'food_targets', 'feature_settings']);
             }
-            const res = await apiCall('/api/settings/body', 'PATCH', patch);
-            if (!res) {
-                // apiCall already surfaced the failure.
+            // apiCall surfaces its own failure (null).
+            ok = !!(await apiCall('/api/settings/body', 'PATCH', patch));
+            if (ok) {
+                await handle?.commit();
+                _bodyConfirmed = { ..._bodyConfirmed, ...patch };
+            } else {
                 await handle?.rollback();
-                revert();
-                return false;
             }
-            await handle?.commit();
-            return true;
         } catch (e) {
+            ok = false;
             await handle?.rollback();
-            revert();
             console.error('Failed to save body settings:', e);
             safeToast('Failed to save', 'error');
-            return false;
         }
+        if (!ok) _bodyFailed = true;
+        if (--_bodyPending === 0 && _bodyFailed) {
+            _bodyFailed = false;
+            paintBodySettings(_bodyConfirmed);
+        }
+        return ok;
     });
     _bodyWrites = run.catch(() => {});
     return run;

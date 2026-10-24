@@ -613,6 +613,24 @@ describe('Settings Units & body height field (med-a6fb.4)', () => {
         expect(toggle.checked).toBe(false);
     });
 
+    it('two rejected height saves in a row fall back to the saved 175, not the first rejected value', async () => {
+        typeHeight('175');
+        await vi.waitFor(() => expect(bodyPatches()).toEqual([{ height_cm: 175 }]));
+        const refusals = [];
+        env.window.apiCall = vi.fn((url, method) => (method === 'PATCH'
+            ? new Promise((r) => refusals.push(() => r(null)))
+            : Promise.resolve({ ok: true })));
+        typeHeight('180');
+        typeHeight('190');
+        expect(env.document.getElementById('settings-height-input').value).toBe('190');
+        await vi.waitFor(() => expect(refusals.length).toBe(1));
+        refusals[0]();
+        await vi.waitFor(() => expect(refusals.length).toBe(2));
+        refusals[1]();
+        await vi.waitFor(() => expect(env.document.getElementById('settings-height-input').value).toBe('175'));
+        expect(summary()).toBe('Height · 175 cm');
+    });
+
     it('a rejected optimistic cache write restores the field and sends nothing', async () => {
         vi.spyOn(env.window.DataStore, 'applyOptimistic').mockRejectedValue(new Error('quota'));
         env.window.safeAlert = vi.fn();
