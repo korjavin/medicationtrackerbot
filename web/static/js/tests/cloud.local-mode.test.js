@@ -1558,6 +1558,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             const FRAG = 'AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA';
             const HANDOFF = `https://app.example.com/d/abc#${FRAG}`;
             const JOIN = `https://abc.app.example.com/claim#${FRAG}`;
+            // A shell with the erase half (med-r1j2.7/.8); the nested
+            // describe below takes it away again.
+            let parentOps;
+            beforeAll(() => { parentOps = bootShellOps; bootShellOps = [...bootShellOps, 'local.erase']; });
+            afterAll(() => { bootShellOps = parentOps; });
             const slotted = (slot) => bridge.mockImplementation(async (op) => {
                 if (op === 'shell.ops') return bootShellOps;
                 if (op === 'invite.pending') return slot;
@@ -1630,16 +1635,50 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: JOIN, erase: true }]]));
             });
 
+            // Every shipped shell today: no local.erase → no erase promise.
+            describe('a shell without local.erase', () => {
+                let ops;
+                beforeAll(() => { ops = bootShellOps; bootShellOps = bootShellOps.filter((op) => op !== 'local.erase'); });
+                afterAll(() => { bootShellOps = ops; });
+
+                it('"Join <host>?" says the records stay in local mode; Join → plain local.leave {url}', async () => {
+                    const { window, document } = env;
+                    const n = await withRecords(window);
+                    slotted({ url: HANDOFF, receivedAt: Date.now() });
+                    await window.InviteSheet.boot();
+                    const d = await dialog(document);
+                    expect(d.textContent).toContain('Join abc.app.example.com?');
+                    expect(d.textContent).toContain(`The ${n} records on this iPhone stay in local mode. They are not copied to the account.`);
+                    expect(d.textContent).not.toMatch(/erase/i);
+                    expect(d.querySelector('.mt-confirm-modal__confirm').textContent).toBe('Join');
+                    d.querySelector('.mt-confirm-modal__confirm').click();
+                    await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: JOIN }]]));
+                    expect(erased()).toBe(false);
+                    expect(await window.CloudVault.userContentCount()).toBe(n);
+                });
+            });
+
             describe('with no records on this device', () => {
                 beforeAll(() => { healthOn = false; });
                 afterAll(() => { healthOn = true; });
 
-                it('skips the dialog and opens the claim straight away', async () => {
+                // The slot never opens by itself: any page can fire the scheme.
+                it('the slot still asks once ("Join <host>?"); Cancel clears it, Join opens the claim', async () => {
                     const { window, document } = env;
                     slotted({ url: HANDOFF, receivedAt: Date.now() });
                     await window.InviteSheet.boot();
-                    await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: JOIN, erase: true }]]));
-                    expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+                    let d = await dialog(document);
+                    expect(leaveOps()).toEqual([]);
+                    expect(d.textContent).toContain('Join abc.app.example.com?');
+                    expect(d.querySelector('.mt-confirm-modal__confirm').textContent).toBe('Join');
+                    d.querySelector('.mt-confirm-modal__cancel').click();
+                    await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('invite.clear'));
+                    expect(leaveOps()).toEqual([]);
+                    await vi.waitFor(() => expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull());
+                    window.InviteSheet.offer(JOIN);
+                    await vi.waitFor(() => { d = document.querySelector('mt-modal.mt-confirm-modal'); expect(d).not.toBeNull(); });
+                    d.querySelector('.mt-confirm-modal__confirm').click();
+                    await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: JOIN }]]));
                     expect(erased()).toBe(false);
                 });
             });

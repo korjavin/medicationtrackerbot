@@ -572,49 +572,62 @@
         }
     }
 
-    // AD9 "Join and erase" (bd med-r1j2.4), local mode: the D1 names the
-    // account and the record count; with no records it is skipped. Join =
-    // local.leave {url, erase: true}: no move stash (no merge path), and
-    // nothing is erased here. The shell holds `erase` and acts on it only once
-    // the joined account boots unlocked (cloud-boot.js finishJoinErase →
-    // local.erase); a shell that does not know it erases nothing. Cancel drops
-    // the 10-minute code from the slot; "Save a backup first" keeps it.
+    // AD9 "Join and erase" (bd med-r1j2.4), local mode. Always one tap: the
+    // slot never opens by itself (any page can fire the scheme). Where the
+    // shell lists local.erase and records are here, the D1 names the account
+    // and the record count and Join = local.leave {url, erase: true}. Nothing
+    // is erased here: the shell acts on `erase` only once the joined account
+    // boots unlocked (cloud-boot.js finishJoinErase → local.erase). A shell
+    // without local.erase gets "Join <host>?" — this device's records stay in
+    // local mode — and a plain local.leave {url}. No move stash: no merge.
+    // Cancel drops the 10-minute code from the slot; "Save a backup first"
+    // keeps it.
     async function join(url) {
         if (!isLocal()) return switchAccount(url);
         var n = native();
         var device = words().device;
+        var host = url.split('/')[2];
         var count = await window.CloudVault.userContentCount();
-        if (count > 0) {
-            var backup = false;
-            var records = count + (count === 1 ? ' record' : ' records');
-            var ok = await window.safeConfirm('Everything on this ' + device + ' (' + records + ') will be erased after this ' + device + ' is added.', null, {
-                title: 'Join ' + url.split('/')[2] + ' and erase this ' + device + '?',
-                icon: 'trash',
-                destructive: true,
-                confirmLabel: 'Join and erase',
-                cancelLabel: 'Cancel',
-                facts: [
-                    { text: records + ' and settings on this ' + device, gone: true },
-                    { text: 'Nothing is erased if adding fails or you stop' },
-                    { text: "The account's records arrive instead" },
-                ],
-                link: {
-                    label: 'Save a backup first',
-                    onClick: function () {
-                        backup = true;
-                        var io = window.SettingsImportExport;
-                        if (io && typeof io.openExport === 'function') io.openExport();
-                    },
+        var erase = count > 0 && (await within(n.has('local.erase'), false)) === true;
+        var records = count + (count === 1 ? ' record' : ' records');
+        var backup = false;
+        var ok = await window.safeConfirm(erase
+            ? 'Everything on this ' + device + ' (' + records + ') will be erased after this ' + device + ' is added.'
+            : count > 0
+                ? 'The ' + records + ' on this ' + device + ' stay in local mode. They are not copied to the account.'
+                : 'Your other device approves this ' + device + ' next.', null, erase ? {
+            title: 'Join ' + host + ' and erase this ' + device + '?',
+            icon: 'trash',
+            destructive: true,
+            confirmLabel: 'Join and erase',
+            cancelLabel: 'Cancel',
+            facts: [
+                { text: records + ' and settings on this ' + device, gone: true },
+                { text: 'Nothing is erased if adding fails or you stop' },
+                { text: "The account's records arrive instead" },
+            ],
+            link: {
+                label: 'Save a backup first',
+                onClick: function () {
+                    backup = true;
+                    var io = window.SettingsImportExport;
+                    if (io && typeof io.openExport === 'function') io.openExport();
                 },
-            });
-            if (!ok) {
-                if (!backup) n.call('invite.clear').catch(function () { /* the code expires on its own */ });
-                return;
-            }
+            },
+        } : {
+            title: 'Join ' + host + '?',
+            icon: 'device',
+            tone: 'info',
+            confirmLabel: 'Join',
+            cancelLabel: 'Cancel',
+        });
+        if (!ok) {
+            if (!backup) n.call('invite.clear').catch(function () { /* the code expires on its own */ });
+            return;
         }
         if (window.navigator.onLine === false) { window.safeToast(OFFLINE, 'error'); return; }
         try {
-            await n.call('local.leave', { url: url, erase: true });
+            await n.call('local.leave', erase ? { url: url, erase: true } : { url: url });
         } catch (e) {
             var msg = (e && e.message) || '';
             window.safeToast(/invalid url/.test(msg) ? NOT_INVITE : 'This device could not be added: ' + (msg || 'unknown error') + '.', 'error');

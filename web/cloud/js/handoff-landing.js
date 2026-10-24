@@ -7,7 +7,9 @@
 // the path, the code from the fragment (fragments never reach a server). No
 // request at all: the slot is read by /claim on the account host.
 //
-//   fragment + iPhone/Android -> AD8: Open in the app (medtracker://d/…),
+//   fragment + iPhone/Android -> AD8: Open in the app (medtracker://d/…; only
+//                                with <meta medtracker-handoff-app>, else
+//                                Continue in this browser is the sun),
 //                                Get the app (copies this link first, then the
 //                                store; no Play referrer: the code stays off
 //                                Google's servers), Continue in this browser
@@ -142,7 +144,10 @@ export async function mount(root = document, deps = {}) {
     shell.append(mark, make('h1', 'wg-shell__title wg-shell__title--md', `Add this ${ios ? 'iPhone' : 'phone'} to your account`),
       make('p', 'wg-shell__lede', COPY.lede));
     const foot = make('footer', 'wg-shell__foot');
-    foot.append(button('handoff-open', 'wg-btn--primary wg-btn--lg', COPY.openApp, () => go(appSchemeHref(sub, frag))));
+    // "Open in the app" only once the server says the shipped apps take /d/
+    // links (HANDOFF_APP_LINKS → the meta); until then the browser is the sun.
+    const appLinks = meta(root, 'medtracker-handoff-app') === '1';
+    if (appLinks) foot.append(button('handoff-open', 'wg-btn--primary wg-btn--lg', COPY.openApp, () => go(appSchemeHref(sub, frag))));
     const store = ios ? appStoreHref(meta(root, 'medtracker-ios-app-store-id')) : playHref(meta(root, 'medtracker-android-package'));
     if (store) {
       const link = location.origin + '/d/' + sub + '#' + frag;
@@ -158,7 +163,9 @@ export async function mount(root = document, deps = {}) {
         return copied.catch(() => {}).then(() => go(store));
       }));
     }
-    foot.append(button('handoff-browser', 'wg-btn--ghost', COPY.browser, () => go(claimHref(location, sub, frag))));
+    const browser = button('handoff-browser', appLinks ? 'wg-btn--ghost' : 'wg-btn--primary wg-btn--lg', COPY.browser, () => go(claimHref(location, sub, frag)));
+    if (appLinks) foot.append(browser);
+    else foot.prepend(browser);
     if (openAccount) foot.append(openAccount);
     app.replaceChildren(shell, foot);
     hydrate();

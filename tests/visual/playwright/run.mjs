@@ -172,7 +172,7 @@ async function inviteLandingShots() {
     // no code): static, so any sub renders it; the code is a placeholder.
     const handoff = `http://localhost:${PORT}/d/${sub}`;
     await shot('handoff-ad8', `${handoff}#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA`,
-      device === 'desktop-1280' ? '#handoff-continue:not([disabled])' : '#handoff-open');
+      device === 'desktop-1280' ? '#handoff-continue:not([disabled])' : '#handoff-browser');
     await shot('handoff-no-code', handoff, '#handoff-code');
     await context.close();
     await browser.close();

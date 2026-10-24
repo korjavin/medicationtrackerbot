@@ -140,6 +140,17 @@ func (h *Handler) SetInviteStoreIDs(iosAppStoreID, androidPackage string) {
 	h.handoffIndex = bytes.Replace(h.handoffIndex, []byte("<head>"), []byte(inject), 1)
 }
 
+// SetHandoffAppLinks marks the /d/<sub> hand-off page (med-r1j2.4) with
+// <meta name="medtracker-handoff-app" content="1">: the shipped iOS/Android
+// apps take /d/ links (native twins med-r1j2.7/.8), so the page offers "Open
+// in the app". Off (the default) the page leads with the browser path.
+func (h *Handler) SetHandoffAppLinks(on bool) {
+	if !on {
+		return
+	}
+	h.handoffIndex = bytes.Replace(h.handoffIndex, []byte("<head>"), []byte("<head>\n<meta name=\"medtracker-handoff-app\" content=\"1\">"), 1)
+}
+
 // SetRequestInviteEmail adds a "request an invite" contact line (a mailto:
 // link) to the base-domain landing page. Non-empty email → build landingIndex
 // once, injected before </main>; empty email → leave landingIndex nil (the

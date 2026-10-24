@@ -656,8 +656,16 @@ func TestRouter_HandoffLanding(t *testing.T) {
 		t.Error("base domain does not serve features/invite.js")
 	}
 
+	if strings.Contains(get(h, "app.example.com", "/d/known-sub").Body.String(), "medtracker-handoff-app") {
+		t.Error("app-links meta emitted while off")
+	}
+	h.SetHandoffAppLinks(false)
 	h.SetInviteStoreIDs("1234567890", "com.example.app")
+	h.SetHandoffAppLinks(true)
 	body := get(h, "app.example.com", "/d/known-sub").Body.String()
+	if !strings.Contains(body, `<meta name="medtracker-handoff-app" content="1">`) {
+		t.Errorf("hand-off page missing the app-links meta: %q", body)
+	}
 	for _, want := range []string{
 		`<meta name="medtracker-ios-app-store-id" content="1234567890">`,
 		`<meta name="medtracker-android-package" content="com.example.app">`,

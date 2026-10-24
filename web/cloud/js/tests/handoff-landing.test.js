@@ -68,7 +68,19 @@ describe('parseHandoffLink', () => {
 });
 
 describe('AD8 on a phone, with the code', () => {
-  it('iPhone: Open in the app is the sun; Continue in this browser opens /claim on the account host', async () => {
+  it('without the app-links meta (no shell takes /d/ yet): Continue in this browser is the sun, no Open in the app', async () => {
+    const { location } = await setup();
+    expect($('handoff-open')).toBeNull();
+    const browser = $('handoff-browser');
+    expect(browser.className).toContain('wg-btn--primary');
+    expect(browser.parentElement.firstElementChild).toBe(browser);
+    expect($('handoff-get')).not.toBeNull(); // the store button stays
+    browser.click();
+    expect(location.href).toBe(`https://${SUB}.med.example/claim#${frag}`);
+  });
+
+  it('iPhone with the app-links meta: Open in the app is the sun; Continue in this browser opens /claim on the account host', async () => {
+    doc.head.insertAdjacentHTML('beforeend', '<meta name="medtracker-handoff-app" content="1">');
     const fetchImpl = vi.fn();
     const { location } = await setup({ fetchImpl });
     expect(fetchImpl).not.toHaveBeenCalled(); // the page asks nothing
@@ -77,6 +89,7 @@ describe('AD8 on a phone, with the code', () => {
     expect($('handoff-open').className).toContain('wg-btn--primary');
     $('handoff-open').click();
     expect(location.href).toBe(`medtracker://d/${SUB}#${frag}`);
+    expect($('handoff-browser').className).toContain('wg-btn--ghost');
     $('handoff-browser').click();
     expect(location.href).toBe(`https://${SUB}.med.example/claim#${frag}`);
   });
