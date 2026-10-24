@@ -790,7 +790,7 @@ function handlePushAction(action, params) {
                 }
             }
             showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
-            // Kit RD3 (med-mt0l): local-only mode, once per device, Generic pref.
+            // Kit RD3 (med-mt0l, med-5vy0): once per device, Generic pref, both modes.
             if (fromReminder) window.NotifyPermission?.reminderHint(document.getElementById('med-confirm-hint'));
         }, 500);
     } else if (action === 'workout_start') {

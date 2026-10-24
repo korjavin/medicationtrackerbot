@@ -55,6 +55,21 @@
         return el;
     }
 
+    // Account mode (med-5vy0): a new account starts on Generic lock-screen
+    // text, as local mode does. {floor: 'auto'} stores a default only when no
+    // pref exists, and the shim picks it from the vault: Generic with no
+    // medication, Detailed when one exists (an existing account seeing W1
+    // keeps the names it always saw). Part of the W1 save: a failed write
+    // (apiCall answers null or rejects) keeps W1 open with its error, so
+    // first run never completes without the pref.
+    function _keepReminderText() {
+        if (document.documentElement.classList.contains('wg-local-vault')) return Promise.resolve();
+        if (typeof window.apiCall !== 'function') return Promise.resolve();
+        return Promise.resolve(window.apiCall('/api/settings/reminder-delivery', 'PUT', { floor: 'auto' })).then(function (pref) {
+            if (!pref || !pref.verbosity) throw new Error('reminder text pref not saved');
+        });
+    }
+
     function _isEnabled(key) {
         var flags = window.featureSettings;
         if (!flags || typeof flags !== 'object' || typeof flags[key] !== 'boolean') return true;
@@ -235,6 +250,7 @@
             busy(true);
             error.textContent = '';
             _persistAll(picked)
+                .then(_keepReminderText)
                 .then(function () { return helpers.finishPicker(picked); })
                 .catch(function () {
                     // Moving on now would leave unpicked sections silently ON

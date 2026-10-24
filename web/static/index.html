@@ -599,12 +599,12 @@
                     </div>
                 </section>
                 <section class="wg-section">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Telegram reminder text</span></div>
-                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Telegram reminder detail level">
-                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">Says only that a reminder is due</span></span></button>
-                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Also sends medication names</span></span></button>
+                    <div class="wg-section__head"><span class="wg-eyebrow">Reminder text</span></div>
+                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Reminder text on the lock screen and in Telegram">
+                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">"Medication time"</span></span></button>
+                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Shows the medication or measurement</span></span></button>
                     </div>
-                    <p class="wg-hint">Telegram reminders pass through the server as readable text.</p>
+                    <p class="wg-hint">Applies to the lock screen and to Telegram. Anyone holding your phone can read the lock screen, even while it is locked. Telegram reminders pass through the server as readable text.</p>
                     <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
                 </section>
             </div>

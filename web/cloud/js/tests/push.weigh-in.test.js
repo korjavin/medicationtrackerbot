@@ -34,14 +34,37 @@ describe('pushSchedule — goal-aware weigh-in text is Web-Push-only', () => {
     afterEach(() => { delete globalThis.fetch; });
 
     for (const verbosity of ['detailed', 'generic']) {
-        it(`delivery both, ${verbosity}: ct body carries the goal, tg_text does not`, async () => {
+        it(`delivery both, ${verbosity}: tg_text never carries the goal; the ct body follows the lock-screen pref`, async () => {
             await pushSchedule({ accountId: `a-${verbosity}` }, [reminder], { delivery: 'both', verbosity });
             const [entry] = sent;
-            expect(JSON.parse(entry.ct)).toMatchObject({ body: GOAL, kind: 'weight' });
+            // med-5vy0: Generic hides the goal from the lock screen too.
+            expect(JSON.parse(entry.ct)).toMatchObject({ body: verbosity === 'generic' ? reminder.genericText : GOAL, kind: 'weight' });
             expect(entry.tg_text).toBe(verbosity === 'generic' ? reminder.genericText : reminder.text);
             expect(entry.tg_text).not.toMatch(/82\.4|to go/);
         });
     }
+
+    // med-5vy0: account web push honours the lock-screen pref. Same keys, only
+    // the body text changes, so an older SW reads it as before.
+    it('a dose: generic seals "Medication time", detailed seals the names; keys unchanged', async () => {
+        const dose = { fireAtUnix: 1767258000, kind: 'medication', text: 'Time to take: Aspirin', genericText: '\u{1F48A} Medication time', callback: 's:1767258000', medicationIds: [2] };
+        await pushSchedule({ accountId: 'a-dose-g' }, [dose], { delivery: 'webpush', verbosity: 'generic' });
+        const generic = JSON.parse(sent[0].ct);
+        expect(Object.keys(generic).sort()).toEqual(['body', 'kind', 'title', 'url']);
+        expect(generic.body).toBe('\u{1F48A} Medication time');
+        expect(JSON.stringify(generic)).not.toContain('Aspirin');
+        await pushSchedule({ accountId: 'a-dose-d' }, [dose], { delivery: 'webpush', verbosity: 'detailed' });
+        expect(JSON.parse(sent[0].ct)).toMatchObject({ body: 'Time to take: Aspirin', kind: 'medication', title: 'Med Tracker' });
+    });
+
+    // med-5vy0: over the Detailed floor (lockscreen detailed, verbosity
+    // generic) the lock screen names the med; Telegram plaintext never does.
+    it('Telegram text over a lock-screen Detailed default stays generic', async () => {
+        const dose = { fireAtUnix: 1767258000, kind: 'medication', text: 'Time to take: Aspirin', genericText: '\u{1F48A} Medication time', callback: 's:1767258000', medicationIds: [2] };
+        await pushSchedule({ accountId: 'a-floor' }, [dose], { delivery: 'both', verbosity: 'generic', lockscreen: 'detailed' });
+        expect(JSON.parse(sent[0].ct).body).toBe('Time to take: Aspirin');
+        expect(sent[0].tg_text).toBe('\u{1F48A} Medication time');
+    });
 
     it('an entry without pushText keeps its text as the web push body', async () => {
         const plain = { ...reminder, pushText: undefined };

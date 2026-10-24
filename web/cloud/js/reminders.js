@@ -194,22 +194,37 @@ export function remindersDomain(ctx, { records: recordsOverride } = {}) {
 // vault may say "telegram only", which would schedule nothing), and the bodies
 // follow the verbosity pref, because the lock screen is the only place they
 // show: generic (the default) carries no medication or tracker names.
+//
+// Account mode: the lock-screen pref governs web push and the shell rows too
+// (med-5vy0). An account with medications and no stored pref is floored to
+// Detailed first, so an upgrade changes nothing silently.
 export async function recomputeAndPush(ctx, opts = {}) {
   const domain = remindersDomain(ctx, opts);
+  if (opts.relay !== false) await floorExistingAccountPref(ctx, opts, domain);
   const [entries, pref] = await Promise.all([
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
   ]);
   if (opts.askPermission) askPermissionIfNeeded(ctx, opts, entries, pref);
   if (opts.relay === false) {
-    await scheduleLocalNotifications(entries, { delivery: 'webpush' }, { generic: pref.verbosity === 'generic' });
+    await scheduleLocalNotifications(entries, { delivery: 'webpush' }, { generic: pref.lockscreen === 'generic' });
     return;
   }
   // The relay upload is started first and never waits on the device: a slow
   // or hung bridge call must not delay Telegram or the other devices.
-  const local = scheduleLocalNotifications(entries, pref);
+  const local = scheduleLocalNotifications(entries, pref, { generic: pref.lockscreen === 'generic' });
   await pushSchedule(ctx, entries, pref);
   await local; // never rejects, bounded by LOCAL_SCHEDULE_TIMEOUT_MS
+}
+
+// Never sinks the schedule: a failed floor leaves the read default in place.
+async function floorExistingAccountPref(ctx, opts, domain) {
+  try {
+    const meds = await (opts.records || recordsPort(ctx)).list(MEDICATION_RECORD_TYPE);
+    if (meds.some((m) => !m.deleted)) await domain.floorDeliveryPref('detailed');
+  } catch (e) {
+    console.error('[reminders] delivery pref floor failed', e);
+  }
 }
 
 // bd med-ckm5.4 (kit O3): a schedule after the user's own write that would
@@ -247,8 +262,8 @@ const LAPSE_TEXT = 'Open the app to keep reminders running'; // sw.js STALE_SYNC
 // right after them: the device-side twin of the relay's dry-queue warning
 // (same lapse semantics — the next open refreshes all of it). Telegram-only
 // delivery schedules nothing on the device, as it sends no Web Push on the web.
-// generic: bodies are the entries' name-free genericText (local-only mode's
-// lock-screen privacy pref); otherwise the full text, as in cloud mode.
+// generic: bodies are the entries' name-free genericText (the lock-screen
+// privacy pref, both modes since med-5vy0); otherwise the full text.
 export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(Date.now() / 1000), { generic = false } = {}) {
   if (pref.delivery === 'telegram') return [];
   const items = entries

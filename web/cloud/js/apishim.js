@@ -803,7 +803,16 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/reminder-delivery') {
       if (method === 'GET') return reminders.getDeliveryPref();
       if (method === 'PUT') {
-        const pref = await reminders.setDeliveryPref(body || {});
+        // {floor}: a default, not a choice (med-5vy0) — stored at clientTs 0
+        // only when no pref exists (docs/cloud-mode.md guard 3). 'auto' is
+        // the first run: Detailed when the vault already holds a medication
+        // (an existing account keeps what it saw), else Generic.
+        const floor = body && body.floor;
+        const pref = floor
+          ? await reminders.floorDeliveryPref(floor === 'auto'
+            ? ((await records.list('medication')).some((m) => !m.deleted) ? 'detailed' : 'generic')
+            : floor)
+          : await reminders.setDeliveryPref(body || {});
         scheduleReminderRecompute(ctx, { records, timeZone }, 0);
         return pref;
       }

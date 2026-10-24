@@ -266,6 +266,10 @@ async function readAllRecords() {
 // set inside the lock, so no write can land between its read and the clear.
 // dropPendingIds (rows the merge rewrote) leave the pending queue under that
 // same lock, before the overlay, so their old copies are not laid back.
+// Derived (floored) writes stamp clientTs 0, or 1 for the reminder delivery
+// pref's Generic default (med-5vy0). Real writes carry wall-clock ms.
+const FLOOR_MAX_CLIENT_TS = 1;
+
 export async function replaceAllRecords(input) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
@@ -275,8 +279,12 @@ export async function replaceAllRecords(input) {
   // a pending row stamped clientTs 0 (CLAUDE.md rule 12) that meets a snapshot
   // row with a HIGHER clientTs is stale by design — it loses every LWW merge —
   // so the snapshot row stands and the pending op is dropped instead of
-  // resurrecting over e.g. an imported tombstone. ONLY the floor is
-  // discardable: a real pending edit (clientTs > 0) keeps today's behaviour
+  // resurrecting over e.g. an imported tombstone. The same holds for the one
+  // floor above 0, the reminder delivery pref's Generic default at clientTs 1
+  // (med-5vy0, web/domain/reminders.js FLOOR_BODIES): it loses to any newer
+  // snapshot row (an explicit pref), and still beats the Detailed floor at 0.
+  // ONLY floors are discardable: a real pending edit (a wall-clock clientTs,
+  // never <= FLOOR_MAX_CLIENT_TS) keeps today's behaviour
   // exactly (overlay wins locally, stays queued) whatever the snapshot
   // timestamp says, because clock skew / blind concurrent writes leave real
   // timestamps unordered and a comparison alone can't prove an unsent user
@@ -301,7 +309,7 @@ export async function replaceAllRecords(input) {
       // field may already be compacted into this snapshot, so neither side may
       // simply replace the other.
       const merge = snap && !snap.deleted && !r.deleted ? APPLY_MERGE[r.recordType] : null;
-      if (snap && r.clientTs === 0 && snap.clientTs > 0) {
+      if (snap && r.clientTs <= FLOOR_MAX_CLIENT_TS && snap.clientTs > r.clientTs) {
         losingPending.push(recordId);
         if (merge) overlay.push(merge(snap, r));
         continue;
