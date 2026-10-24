@@ -245,6 +245,9 @@ create accounts for them.
 
 ## 11. Changes
 
-Changes to this policy are published at this address with a new effective
-date. If a change creates a new category of data leaving your device, the app
-tells you before it applies to you.
+- 2026-10-24: rewritten by data category; product name, contact address, metadata and retention tables, provider categories and your rights added.
+
+Changes to this policy are published at this address: we update the
+effective date at the top and summarise material changes here. A feature that
+creates a new category of data leaving your device asks for your consent in
+the app before it runs, as the optional features in section 3 do today.
