@@ -240,7 +240,16 @@ describe('Add a device — AD2 waiting: QR, link, typed code', () => {
     expect(tk).toHaveLength(16);
     expect(slot).toBe(await transferSlotId(tk));
     expect(create.body.slot_id).toBe(slot);
-    // The base-domain hand-off (med-r1j2.4), and the typed code's hint names it.
+    // HANDOFF_APP_LINKS off (no meta): the pre-#1336 claim URL that shipped app
+    // scanners accept, fragment <slot>.<TK>; the typed code's hint names it.
+    expect(qrData.startsWith('https://acct.example.test/claim#')).toBe(true);
+    expect(new URL(qrData).hash).toBe(`#${slot}.${qrData.split('.').pop()}`);
+    expect(app.querySelector('#transfer-claim-host').textContent).toBe('acct.example.test/claim');
+  });
+
+  it('HANDOFF_APP_LINKS on (meta present): the base-domain /d/ hand-off URL (med-r1j2.4)', async () => {
+    dom.window.document.head.insertAdjacentHTML('beforeend', '<meta name="medtracker-handoff-app" content="1">');
+    await mountWaiting();
     expect(qrData.startsWith('https://example.test/d/acct#')).toBe(true);
     expect(app.querySelector('#transfer-claim-host').textContent).toBe('example.test/d/acct');
   });
