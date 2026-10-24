@@ -16,7 +16,8 @@
  *     Capacitor shell was removed; a reappearing reference means someone is
  *     branching on a runtime that no longer ships.
  *
- * Tests are excluded: they legitimately stub these seams.
+ * Both scan web/static/js and web/cloud/js (the in-app scanner lives in
+ * web/cloud/js/claim.js). Tests are excluded: they legitimately stub these seams.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -27,6 +28,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const JS_ROOT = path.join(REPO_ROOT, 'web/static/js');
+const CLOUD_ROOT = path.join(REPO_ROOT, 'web/cloud/js');
 const NATIVE_DIR = 'web/static/js/native';
 
 /** Device-capability globals `native/` owns. */
@@ -50,7 +52,7 @@ function collectJsFiles(dir, results = []) {
     return results;
 }
 
-const allFiles = () => collectJsFiles(JS_ROOT).map(f => path.relative(REPO_ROOT, f));
+const allFiles = () => [...collectJsFiles(JS_ROOT), ...collectJsFiles(CLOUD_ROOT)].map(f => path.relative(REPO_ROOT, f));
 
 /** Non-test JS outside native/, as repo-relative paths. */
 function nonNativeFiles() {

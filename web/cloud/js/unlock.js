@@ -85,8 +85,8 @@ function renderLocked(app, errorText, noPasskey) {
   // AD10 · none (bd med-r1j2.5): the system sheet found no passkey (or was
   // cancelled — the browser can't tell us which), so point at the QR flow.
   // The sun opens /claim's in-app scanner (bd med-r1j2.10); in an app shell,
-  // "Back to local mode" is account.leave with no args (the shell returns to
-  // local mode; nothing is erased).
+  // "Back to local mode" is account.leave {then:'local', forget:true} where the shell
+  // advertises account.leave.forget, else bare account.leave (nothing is erased).
   if (noPasskey) {
     const section = app.querySelector('section');
     const p = document.createElement('p');
@@ -107,8 +107,10 @@ function renderLocked(app, errorText, noPasskey) {
       local.id = 'unlock-back-local';
       local.className = 'wg-btn wg-btn--ghost';
       local.textContent = 'Back to local mode';
-      local.addEventListener('click', () => {
-        Promise.resolve(native.call('account.leave')).catch(() => {
+      local.addEventListener('click', async () => {
+        // Newer shells land without the invite sheet; older ones keep the bare op.
+        const forget = await Promise.resolve(native.has?.('account.leave.forget')).catch(() => false);
+        Promise.resolve(forget ? native.call('account.leave', { then: 'local', forget: true }) : native.call('account.leave')).catch(() => {
           globalThis.safeAlert?.('Update Med Tracker to go back to local mode from here.');
         });
       });

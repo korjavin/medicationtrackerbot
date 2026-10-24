@@ -429,13 +429,54 @@ describe('/claim — in-app Scan and AD13 (camera off)', () => {
     try {
       installCamera({ decoded: [`https://example.test/d/other${linkHash()}`] });
       await scanAt('#scan');
-      await until(() => text().includes('This code is for another account'));
+      await until(() => text().includes('This code is for an account this app can't open'));
       expect(app.querySelector('#claim-code-input')).not.toBeNull();
       expect(globalThis.location.href).toBe('');
       expect(calls).toEqual([]);
     } finally {
       delete globalThis.LocalNotifications;
     }
+  });
+
+  // med-r1j2.17: the camera follows visibility, and a bfcache restore reopens it.
+  describe('lifecycle', () => {
+    let pageEvents;
+    const setHidden = (hidden) => {
+      Object.defineProperty(dom.window.document, 'hidden', { value: hidden, configurable: true });
+      dom.window.document.dispatchEvent(new dom.window.Event('visibilitychange'));
+    };
+    beforeEach(() => {
+      pageEvents = {};
+      globalThis.addEventListener = (type, fn) => { pageEvents[type] = fn; };
+      globalThis.removeEventListener = (type) => { delete pageEvents[type]; };
+    });
+    afterEach(() => {
+      delete globalThis.addEventListener;
+      delete globalThis.removeEventListener;
+      delete dom.window.document.hidden;
+    });
+
+    it('hidden stops the camera; returning reopens it', async () => {
+      installCamera();
+      await scanAt('#scan');
+      await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 1);
+      setHidden(true);
+      expect(stopped).toBe(1);
+      setHidden(false);
+      await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 2);
+      expect(app.querySelector('#claim-scan-video')).not.toBeNull();
+    });
+
+    it('a bfcache restore restarts the scan', async () => {
+      installCamera();
+      await scanAt('#scan');
+      await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 1);
+      pageEvents.pageshow({ persisted: false });
+      expect(stopped).toBe(0);
+      pageEvents.pageshow({ persisted: true });
+      expect(stopped).toBe(1);
+      await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 2);
+    });
   });
 
   it('on the web, another account\'s QR opens that account\'s /claim', async () => {
