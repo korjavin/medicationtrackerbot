@@ -374,7 +374,39 @@ describe('/claim — in-app Scan and AD13 (camera off)', () => {
     await originReveals();
   });
 
-  it('another account\'s QR opens that account\'s /claim', async () => {
+  // In a shell, navigation off this account host would open the system
+  // browser: the switch goes through account.leave {url}.
+  it('in a shell, another account\'s QR switches via account.leave {url}', async () => {
+    const call = vi.fn(async () => null);
+    globalThis.LocalNotifications = { __native: { platform: 'ios', call } };
+    try {
+      installCamera({ decoded: [`https://example.test/d/other${linkHash()}`] });
+      await scanAt('#scan');
+      await until(() => call.mock.calls.length > 0);
+      expect(call).toHaveBeenCalledWith('account.leave', { url: `https://other.example.test/claim${linkHash()}` });
+      expect(globalThis.location.href).toBe('');
+      expect(calls).toEqual([]);
+    } finally {
+      delete globalThis.LocalNotifications;
+    }
+  });
+
+  it('in a shell without account.leave {url}, the form says so and nothing navigates', async () => {
+    const call = vi.fn(async () => { throw new Error('unsupported: account.leave'); });
+    globalThis.LocalNotifications = { __native: { platform: 'android', call } };
+    try {
+      installCamera({ decoded: [`https://example.test/d/other${linkHash()}`] });
+      await scanAt('#scan');
+      await until(() => text().includes('This code is for another account'));
+      expect(app.querySelector('#claim-code-input')).not.toBeNull();
+      expect(globalThis.location.href).toBe('');
+      expect(calls).toEqual([]);
+    } finally {
+      delete globalThis.LocalNotifications;
+    }
+  });
+
+  it('on the web, another account\'s QR opens that account\'s /claim', async () => {
     installCamera({ decoded: [`medtracker://d/other${linkHash()}`] });
     await scanAt('#scan');
     await until(() => globalThis.location.href !== '');

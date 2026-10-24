@@ -348,11 +348,23 @@ async function renderScanner(app) {
 }
 
 // A scanned code for this account claims here; another account's opens its
-// own /claim (the same place its /d/ link leads).
+// own /claim (the same place its /d/ link leads). In an app shell that is
+// account.leave {url}: the shells keep navigation on this account host and
+// would hand another subdomain to the system browser.
 async function openScanned(app, { sub, frag }) {
   const [here, ...base] = location.host.split('.');
   if (sub !== here.toLowerCase()) {
-    location.href = `${location.protocol}//${sub}.${base.join('.')}/claim#${frag}`;
+    const url = `${location.protocol}//${sub}.${base.join('.')}/claim#${frag}`;
+    const native = globalThis.LocalNotifications && globalThis.LocalNotifications.__native;
+    if (!native || (native.platform !== 'ios' && native.platform !== 'android')) {
+      location.href = url;
+      return;
+    }
+    try {
+      await native.call('account.leave', { url });
+    } catch {
+      renderClaimForm(app, 'This code is for another account. Update Med Tracker to switch to it from here.');
+    }
     return;
   }
   let parsed;
