@@ -56,17 +56,16 @@
     }
 
     // Account mode (med-5vy0): a new account starts on Generic lock-screen
-    // text, as local mode does. The empty PUT stores the current pref (Generic
-    // when none is stored) before any medication exists, so the Detailed floor
-    // for existing accounts (web/cloud/js/reminders.js) never fires for it. A
-    // re-run with medications skips it: that account keeps what it has. Part
-    // of the W1 save: a failed write (apiCall answers null or rejects) keeps
-    // W1 open with its error, so first run never completes without the pref.
+    // text, as local mode does. {floor: 'auto'} stores a default only when no
+    // pref exists, and the shim picks it from the vault: Generic with no
+    // medication, Detailed when one exists (an existing account seeing W1
+    // keeps the names it always saw). Part of the W1 save: a failed write
+    // (apiCall answers null or rejects) keeps W1 open with its error, so
+    // first run never completes without the pref.
     function _keepReminderText() {
         if (document.documentElement.classList.contains('wg-local-vault')) return Promise.resolve();
         if (typeof window.apiCall !== 'function') return Promise.resolve();
-        if (Array.isArray(window.medications) && window.medications.length) return Promise.resolve();
-        return Promise.resolve(window.apiCall('/api/settings/reminder-delivery', 'PUT', {})).then(function (pref) {
+        return Promise.resolve(window.apiCall('/api/settings/reminder-delivery', 'PUT', { floor: 'auto' })).then(function (pref) {
             if (!pref || !pref.verbosity) throw new Error('reminder text pref not saved');
         });
     }

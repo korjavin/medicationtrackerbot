@@ -221,7 +221,7 @@ export async function recomputeAndPush(ctx, opts = {}) {
 async function floorExistingAccountPref(ctx, opts, domain) {
   try {
     const meds = await (opts.records || recordsPort(ctx)).list(MEDICATION_RECORD_TYPE);
-    if (meds.some((m) => !m.deleted)) await domain.floorDetailedDeliveryPref();
+    if (meds.some((m) => !m.deleted)) await domain.floorDeliveryPref('detailed');
   } catch (e) {
     console.error('[reminders] delivery pref floor failed', e);
   }

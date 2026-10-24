@@ -849,28 +849,42 @@ export function createRemindersDomain({ records, now }) {
   }
 
   async function setDeliveryPref({ delivery, verbosity } = {}) {
+    const stored = findSingleton(await records.list(DELIVERYPREF_RECORD_TYPE), DELIVERYPREF_RECORD_ID);
     const current = await getDeliveryPref();
     const next = {
       delivery: DELIVERY_CHANNELS.includes(delivery) ? delivery : current.delivery,
       verbosity: VERBOSITIES.includes(verbosity) ? verbosity : current.verbosity,
     };
+    // A floored verbosity (clientTs 0, floorDeliveryPref) was never chosen.
+    // It governs the lock screen only: moving from web push to a Telegram
+    // channel with the verbosity unchanged (any Settings UI resends the
+    // shown value) must not carry a floored Detailed into the relay's
+    // plaintext, so it falls back to Generic, as before med-5vy0.
+    if (stored && stored.clientTs === 0 && current.delivery === 'webpush'
+      && next.delivery !== 'webpush' && next.verbosity === current.verbosity) {
+      next.verbosity = 'generic';
+    }
     await records.put(DELIVERYPREF_RECORD_TYPE, {
       recordId: DELIVERYPREF_RECORD_ID, clientTs: now(), deleted: false, ...next,
     });
     return getDeliveryPref();
   }
 
-  // Account reminders always named what was due until med-5vy0 let the
-  // lock-screen pref govern them too, and an absent record reads 'generic'.
-  // An account that holds medications but never stored a pref keeps Detailed:
-  // a DERIVED write, so it takes the floor (CLAUDE.md rule 12) — putIfAbsent
-  // at clientTs 0, so any real choice on any device wins and a stored value
-  // (a Telegram user's 'generic' included) is never touched.
-  async function floorDetailedDeliveryPref() {
-    if (findSingleton(await records.list(DELIVERYPREF_RECORD_TYPE), DELIVERYPREF_RECORD_ID)) return;
-    await records.putIfAbsent(DELIVERYPREF_RECORD_TYPE, {
-      recordId: DELIVERYPREF_RECORD_ID, clientTs: 0, deleted: false, delivery: 'webpush', verbosity: 'detailed',
-    });
+  // A default, not a choice (med-5vy0). Account reminders always named what
+  // was due until the lock-screen pref governed them too, and an absent record
+  // reads 'generic'. So: an account holding medications but no pref keeps
+  // 'detailed'; a new account's first run and a closed ask sheet store
+  // 'generic'. Each is a DERIVED write and takes the floor (CLAUDE.md rule
+  // 12): putIfAbsent at clientTs 0, so any real choice on any device wins and
+  // a stored value (a Telegram user's 'generic' included) is never touched.
+  async function floorDeliveryPref(verbosity = 'detailed') {
+    if (!VERBOSITIES.includes(verbosity)) return getDeliveryPref();
+    if (!findSingleton(await records.list(DELIVERYPREF_RECORD_TYPE), DELIVERYPREF_RECORD_ID)) {
+      await records.putIfAbsent(DELIVERYPREF_RECORD_TYPE, {
+        recordId: DELIVERYPREF_RECORD_ID, clientTs: 0, deleted: false, delivery: 'webpush', verbosity,
+      });
+    }
+    return getDeliveryPref();
   }
 
   // buildHorizon returns [] when reminders are disabled — the caller uploads
@@ -925,6 +939,6 @@ export function createRemindersDomain({ records, now }) {
   return {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
-    getDeliveryPref, setDeliveryPref, floorDetailedDeliveryPref, buildHorizon,
+    getDeliveryPref, setDeliveryPref, floorDeliveryPref, buildHorizon,
   };
 }

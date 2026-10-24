@@ -322,10 +322,16 @@ function bindCloudReminderDelivery() {
         setChoicesDisabled(verbosityEl, true);
         try {
             const { remindersDomain, recomputeAndPush } = await loadCloudRemindersModule();
-            await remindersDomain(cloudCtx).setDeliveryPref({
+            const saved = await remindersDomain(cloudCtx).setDeliveryPref({
                 delivery: choiceValue(deliveryEl),
                 verbosity: choiceValue(verbosityEl),
             });
+            // The domain may store less than shown (a floored Detailed turns
+            // Generic on a move to Telegram, med-5vy0): show what was stored.
+            if (saved) {
+                setChoiceValue(deliveryEl, saved.delivery);
+                setChoiceValue(verbosityEl, saved.verbosity);
+            }
             await recomputeAndPush(cloudCtx);
             applyWebpushStatus(status, 'Reminder delivery updated.', 'success');
         } catch (err) {

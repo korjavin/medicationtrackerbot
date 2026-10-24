@@ -183,20 +183,19 @@ describe('firstrun W1 module picker', () => {
         } finally { cleanup(); }
     });
 
-    // med-5vy0: a new account stores its lock-screen pref (Generic when none)
-    // before any medication exists, so the existing-account Detailed floor
-    // never fires for it. Local mode and a re-run with medications write nothing.
-    it('account mode stores the reminder text pref on finish; local mode and a re-run with meds do not', async () => {
-        for (const [opts, meds, expected] of [[{}, [], 1], [{ local: true }, [], 0], [{}, [{ id: 1 }], 0]]) {
+    // med-5vy0: account mode stores a floored default pref on finish; the shim
+    // picks it from the vault (cloud.shim-contract.reminders). Local mode
+    // writes nothing.
+    it('account mode stores the floored reminder text default on finish; local mode does not', async () => {
+        for (const [opts, expected] of [[{}, 1], [{ local: true }, 0]]) {
             const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), ...opts });
             try {
-                window.medications = meds;
                 window.apiCall = vi.fn(async () => ({ delivery: 'webpush', verbosity: 'generic' }));
                 window.WGFirstRun.mount();
                 action(document, 'skip-all').click();
                 await flush();
                 const puts = window.apiCall.mock.calls.filter((c) => c[0] === '/api/settings/reminder-delivery');
-                expect(puts).toEqual(expected ? [['/api/settings/reminder-delivery', 'PUT', {}]] : []);
+                expect(puts).toEqual(expected ? [['/api/settings/reminder-delivery', 'PUT', { floor: 'auto' }]] : []);
             } finally { cleanup(); }
         }
     });
