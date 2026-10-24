@@ -76,6 +76,7 @@ async function renderAndSettle() {
   });
 }
 
+const CALM_ERROR = "Couldn't reach the server. Your data is safe — try again.";
 const revokeItem = (row) => row.querySelector('.wg-menu__item--danger');
 
 describe('devices.js device list', () => {
@@ -161,18 +162,48 @@ describe('devices.js device list', () => {
   });
 
   it('shows the error with a retry when the list fails to load', async () => {
-    global.fetch = vi.fn(async () => ({ ok: false, json: async () => ({}) }));
+    // A 4xx is final: no automatic retry, the calm copy at once.
+    global.fetch = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }));
     renderDeviceList(app, ctx, hooks);
     await vi.waitFor(() => {
       if (!app.querySelector('#devices-retry')) throw new Error('not rendered yet');
     });
-    expect(app.querySelector('.wg-error').textContent).toMatch(/Could not load your devices/);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(app.querySelector('.wg-error').textContent).toBe(CALM_ERROR);
 
     global.fetch = vi.fn(async () => ({ ok: true, json: async () => DEVICES }));
     app.querySelector('#devices-retry').click();
     await vi.waitFor(() => {
       if (!app.querySelector('#add-device-button')) throw new Error('not retried yet');
     });
+  });
+
+  // med-e92o: a redeploy blip (5xx or network error) is retried once, quietly,
+  // before the owner ever sees an error.
+  it('retries once after a 503 and renders the list with no error', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => DEVICES });
+    renderDeviceList(app, ctx, hooks);
+    await vi.waitFor(() => {
+      if (!app.querySelector('#add-device-button')) throw new Error('not rendered yet');
+    }, { timeout: 4000 });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(app.querySelectorAll('#device-list .device-row')).toHaveLength(2);
+    expect(app.querySelector('.wg-error')).toBeNull();
+  });
+
+  it('shows the calm error with Try again after the one retry also fails', async () => {
+    global.fetch = vi.fn()
+      .mockRejectedValueOnce(new TypeError('network error'))
+      .mockResolvedValue({ ok: false, status: 502, json: async () => ({}) });
+    renderDeviceList(app, ctx, hooks);
+    await vi.waitFor(() => {
+      if (!app.querySelector('#devices-retry')) throw new Error('not rendered yet');
+    }, { timeout: 4000 });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(app.querySelector('.wg-error').textContent).toBe(CALM_ERROR);
+    expect(app.querySelector('#devices-retry').textContent).toBe('Try again');
   });
 
   // The passkey shell's storage-blocked unlock menu (unlock.js) mounts the same

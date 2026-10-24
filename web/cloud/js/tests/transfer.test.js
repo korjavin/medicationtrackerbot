@@ -79,7 +79,7 @@ function installFetch() {
     const u = String(url);
     const method = init.method || 'GET';
     const body = init.body ? JSON.parse(init.body) : null;
-    calls.push({ method, url: u, body });
+    calls.push({ method, url: u, body, keepalive: init.keepalive });
     const slot = server.slot;
     const id = slot && slot.id;
 
@@ -435,6 +435,43 @@ describe('Add a device — host page Back (med-xso6.25)', () => {
     await mountWaiting();
     flow.stop();
     await until(() => server.slot.state === 'deleted');
+  });
+
+  // med-e92o / AD4: approved, but the new device never finished (its passkey
+  // prompt was cancelled, so no register/finish). The wrapped DEK must not sit
+  // on the server until expiry once the origin leaves the screen.
+  it('Back after Approve, with the new device unfinished, deletes the slot', async () => {
+    await mountApprove();
+    app.querySelector('#transfer-approve').click();
+    await until(() => text().includes('Finishing on your new device'));
+    expect(server.slot.state).toBe('approved');
+
+    await expect(flow.cancel()).resolves.toBe(true);
+    expect(server.slot.state).toBe('deleted');
+  });
+
+  it('closing the tab after Approve sends a keepalive DELETE (pagehide)', async () => {
+    await mountApprove();
+    app.querySelector('#transfer-approve').click();
+    await until(() => text().includes('Finishing on your new device'));
+
+    dom.window.dispatchEvent(new dom.window.Event('pagehide'));
+    await until(() => server.slot.state === 'deleted');
+    const deletes = calls.filter((c) => c.method === 'DELETE');
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].keepalive).toBe(true);
+  });
+
+  it('pagehide after the new device enrolled sends nothing', async () => {
+    const device = await mountApprove();
+    app.querySelector('#transfer-approve').click();
+    await until(() => server.slot.state === 'approved');
+    const n = await newDeviceSeesReveal(device);
+    Object.assign(server.slot, { state: 'enrolled', confN: await transferConfirmMac(n.kConf, n.transcript) });
+    await until(() => text().includes('Your Android phone is added'));
+
+    dom.window.dispatchEvent(new dom.window.Event('pagehide'));
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
   });
 
   it('renders into the mount with no page chrome of its own', async () => {
