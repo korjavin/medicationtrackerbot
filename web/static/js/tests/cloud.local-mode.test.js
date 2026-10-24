@@ -1548,6 +1548,102 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 });
             });
         });
+
+        // bd med-r1j2.4 (AD9): the add-device hand-off reaching the local app (a
+        // /d/ link in the slot, or pasted) → "Join and erase". Invariant: nothing
+        // here is erased — not on Cancel, not for an expired code, not on Join
+        // (the shell finishes only once the joined account boots unlocked:
+        // cloud-boot.js finishJoinErase → local.erase). No move stash: no merge.
+        describe('add-device hand-off: "Join and erase" (med-r1j2.4)', () => {
+            const FRAG = 'AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA';
+            const HANDOFF = `https://app.example.com/d/abc#${FRAG}`;
+            const JOIN = `https://abc.app.example.com/claim#${FRAG}`;
+            const slotted = (slot) => bridge.mockImplementation(async (op) => {
+                if (op === 'shell.ops') return bootShellOps;
+                if (op === 'invite.pending') return slot;
+                return op === 'setEgressHosts' ? { changed: false } : true;
+            });
+            const dialog = (document) => vi.waitFor(() => {
+                const d = document.querySelector('mt-modal.mt-confirm-modal');
+                if (!d) throw new Error('no dialog');
+                return d;
+            });
+            const erased = () => bridge.mock.calls.some(([op]) => op === 'local.reset' || op === 'local.erase');
+            async function withRecords(window) {
+                await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+                await window.apiCall('/api/weight', 'POST', { weight: 80 });
+                cancelReminderRecompute({ accountId: 'local' });
+                return window.CloudVault.userContentCount();
+            }
+
+            it('the dialog names the account and the record count; Cancel drops the code and keeps every record', async () => {
+                const { window, document } = env;
+                const n = await withRecords(window);
+                expect(n).toBeGreaterThanOrEqual(2);
+                slotted({ url: HANDOFF, receivedAt: Date.now() });
+                await window.InviteSheet.boot();
+                const d = await dialog(document);
+                expect(d.textContent).toContain('Join abc.app.example.com and erase this iPhone?');
+                expect(d.textContent).toContain(`Everything on this iPhone (${n} records) will be erased after this iPhone is added.`);
+                expect(d.textContent).toContain('Nothing is erased if adding fails or you stop');
+                expect(d.querySelector('.mt-confirm-modal__confirm').textContent).toBe('Join and erase');
+                d.querySelector('.mt-confirm-modal__cancel').click();
+                await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('invite.clear'));
+                expect(leaveOps()).toEqual([]);
+                expect(erased()).toBe(false);
+                expect(await window.CloudVault.userContentCount()).toBe(n);
+            });
+
+            it('Join and erase → local.leave {claim url, erase: true}: no stash, nothing erased on this page', async () => {
+                const { window, document } = env;
+                const n = await withRecords(window);
+                slotted({ url: HANDOFF, receivedAt: Date.now() });
+                await window.InviteSheet.boot();
+                (await dialog(document)).querySelector('.mt-confirm-modal__confirm').click();
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: JOIN, erase: true }]]));
+                expect(bridge).not.toHaveBeenCalledWith('invite.clear');
+                expect(erased()).toBe(false);
+                expect(await window.CloudVault.userContentCount()).toBe(n);
+            });
+
+            it('an expired code (slot older than 10 minutes) is cleared with no dialog; records stay', async () => {
+                const { window, document } = env;
+                const n = await withRecords(window);
+                slotted({ url: HANDOFF, receivedAt: Date.now() - 11 * 60 * 1000 });
+                await window.InviteSheet.boot();
+                expect(bridge).toHaveBeenCalledWith('invite.clear');
+                await new Promise((r) => { setTimeout(r, 20); });
+                expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+                expect(leaveOps()).toEqual([]);
+                expect(await window.CloudVault.userContentCount()).toBe(n);
+            });
+
+            it('a pasted medtracker://d/ link in F1 reaches the same dialog', async () => {
+                const { window, document } = env;
+                await withRecords(window);
+                openSheet(window, { clipboard: `medtracker://d/abc#${FRAG}` });
+                act(document, 'paste').click();
+                const d = await dialog(document);
+                expect(sheet(document)).toBeNull();
+                expect(d.textContent).toContain('Join abc.app.example.com and erase this iPhone?');
+                d.querySelector('.mt-confirm-modal__confirm').click();
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: JOIN, erase: true }]]));
+            });
+
+            describe('with no records on this device', () => {
+                beforeAll(() => { healthOn = false; });
+                afterAll(() => { healthOn = true; });
+
+                it('skips the dialog and opens the claim straight away', async () => {
+                    const { window, document } = env;
+                    slotted({ url: HANDOFF, receivedAt: Date.now() });
+                    await window.InviteSheet.boot();
+                    await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: JOIN, erase: true }]]));
+                    expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+                    expect(erased()).toBe(false);
+                });
+            });
+        });
     });
 
     it('boot in a pre-v3 shell (no invite.pending): no slot read, nothing shown', async () => {

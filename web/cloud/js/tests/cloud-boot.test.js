@@ -1233,10 +1233,21 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     for (const warmUnlock of [async () => null, async () => { throw new Error('ldk read failed'); }]) {
       env.cleanup();
       env = loadFrontendEnv();
-      const { call } = await boot({ warmUnlock });
+      const { call } = await boot({ warmUnlock, ops: ['shell.ops', 'move.take', 'move.clear', 'local.erase'] });
       await settle();
       expect(call).not.toHaveBeenCalledWith('move.take');
       expect(call).not.toHaveBeenCalledWith('move.clear');
+      expect(call).not.toHaveBeenCalledWith('local.erase'); // AD9: no erase before the account is unlocked
     }
+  });
+
+  // bd med-r1j2.4 (AD9 "Join and erase"): the local page erased nothing; the
+  // joined account's unlocked boot tells the shell to finish, once.
+  it('join and erase: an unlocked boot on a shell with local.erase asks it once; no move import', async () => {
+    const { call, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
+    await vi.waitFor(() => expect(log).toContain('local.erase'));
+    await settle();
+    expect(call.mock.calls.filter(([op]) => op === 'local.erase')).toEqual([['local.erase']]);
+    expect(log).not.toContain('move.take');
   });
 });

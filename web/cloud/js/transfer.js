@@ -57,6 +57,12 @@ function bytesField(value) {
   }
 }
 
+// https://<base>/d/<sub> for this account host <sub>.<base> (http in dev).
+function handoffPath() {
+  const [sub, ...base] = location.host.split('.');
+  return `${location.protocol}//${base.join('.')}/d/${sub}`;
+}
+
 function hhmm(date) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
@@ -151,9 +157,10 @@ export function renderAddDevice(mount, ctx, onExit) {
     flow.expiresAt = new Date(expiresAt).getTime();
     flow.s = { tk, keyPair, commit, dek, credentialId, claim: null, transcript: null, keys: null, approved: false };
 
-    // ponytail: the QR opens /claim on this account host; it moves to
-    // https://<base>/d/<sub> once the base-domain hand-off route ships (med-r1j2.4).
-    const link = `${location.origin}/claim#${slotId}.${toBase64Url(tk)}`;
+    // The base-domain hand-off (med-r1j2.4): App Links / universal links
+    // cover https://<base>/d/*, so a camera scan reaches the installed app;
+    // its landing forwards a browser to /claim on this host.
+    const link = `${handoffPath()}#${slotId}.${toBase64Url(tk)}`;
     await renderWaiting({ link, code: encodeTransferCode(tk), expiresAt: flow.expiresAt });
   }
 
@@ -192,7 +199,7 @@ export function renderAddDevice(mount, ctx, onExit) {
       <button type="button" id="transfer-cancel" class="wg-btn wg-btn--block">Cancel</button>`;
     // The code is the secret itself — textContent, never innerHTML.
     mount.querySelector('#transfer-fallback').textContent = code;
-    mount.querySelector('#transfer-claim-host').textContent = `${location.host}/claim`;
+    mount.querySelector('#transfer-claim-host').textContent = handoffPath().replace(/^https?:\/\//, '');
     mount.querySelector('#transfer-copy-link').addEventListener('click', () => copy(link, 'Link'));
     mount.querySelector('#transfer-copy-code').addEventListener('click', () => copy(code, 'Code'));
     bindCancel();

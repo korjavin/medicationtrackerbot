@@ -168,6 +168,12 @@ async function inviteLandingShots() {
       await shot('invite-l3', null, '#invite-open',() => page.evaluate((s) => sessionStorage.setItem(`mt-invite-l3:${s}`, '1'), sub));
     }
     await shot('invite-expired', `http://localhost:${PORT}/i/no-such-invite#00`, '#invite-ask');
+    // The add-device hand-off (bd med-r1j2.4, AD8 / AD8 · desktop, then AD8 ·
+    // no code): static, so any sub renders it; the code is a placeholder.
+    const handoff = `http://localhost:${PORT}/d/${sub}`;
+    await shot('handoff-ad8', `${handoff}#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA`,
+      device === 'desktop-1280' ? '#handoff-continue:not([disabled])' : '#handoff-open');
+    await shot('handoff-no-code', handoff, '#handoff-code');
     await context.close();
     await browser.close();
   }

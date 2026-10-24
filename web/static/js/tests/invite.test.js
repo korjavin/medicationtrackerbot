@@ -47,6 +47,32 @@ describe('InviteSheet.parse', () => {
         });
     });
 
+    // bd med-r1j2.4: the add-device hand-off maps to the claim page on the
+    // account host. Web-only vectors until the shells' twins (med-r1j2.7/.8)
+    // add theirs to inviteVectors.
+    it('maps the /d/ hand-off to the account host\'s /claim', () => {
+        const frag = 'AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA';
+        const claim = `https://abc.app.example.com/claim#${frag}`;
+        expect(parse(`https://app.example.com/d/ABC#${frag}`, 'app.example.com')).toEqual({ claimUrl: claim, sub: 'abc' });
+        expect(url(`medtracker://d/abc#${frag}`, 'app.example.com')).toBe(claim);
+        expect(url(`https://app.example.com/d/abc#${frag}`)).toBe(claim); // no base: its own host
+        expect(url(claim, 'app.example.com')).toBe(claim); // the pre-/d/ QR (med-r1j2.2)
+        for (const bad of [
+            'https://app.example.com/d/abc', // no code
+            'https://app.example.com/d/abc#nodot',
+            'https://app.example.com/d/abc#a.b.c',
+            'https://app.example.com/d/abc#a+b.c',
+            `https://app.example.com/d/abc?x=1#${frag}`,
+            `https://app.example.com/d/a.b#${frag}`,
+            `https://app.example.com:8443/d/abc#${frag}`,
+            `https://u@app.example.com/d/abc#${frag}`,
+            `https://evil.example/d/abc#${frag}`,
+            `medtracker://d/abc#${frag}\u0000`,
+        ]) expect(url(bad, 'app.example.com')).toBe('');
+        // The invite form stays hex-only.
+        expect(url(`https://app.example.com/i/abc#${frag}`, 'app.example.com')).toBe('');
+    });
+
     it('reads the first line of an Emergency Kit QR', () => {
         expect(url('https://abc.app.example.com\nacct-id\nRECOVERY CODE', 'app.example.com')).toBe('https://abc.app.example.com/');
     });

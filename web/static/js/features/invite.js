@@ -20,6 +20,9 @@
 //                     medtracker://i/<sub>#<token>, the claim link
 //                     https://<sub>.<base>/#claim=<token>[&kit=1], a bare
 //                     account address and the Emergency Kit QR (first line).
+//                     The add-device hand-off https://<base>/d/<sub>#<slot>.<TK>
+//                     (and medtracker://d/<sub>#…, bd med-r1j2.4) becomes
+//                     https://<sub>.<base>/claim#<slot>.<TK>: a join (offer()).
 //                     Landing/scheme forms are checked on the RAW string (no
 //                     percent-decoding): sub ^[a-z0-9-]+$ after lowercasing,
 //                     token ^[0-9a-f]+$, no userinfo/port/query; they become the
@@ -66,6 +69,13 @@
     // shell that never answers must not hold W1 for good.
     var FORCED_PROBE_MS = 15000;
     var STALE_MS = 14 * 24 * 60 * 60 * 1000;
+    // An add-device code lives 10 minutes (the transfer slot's TTL).
+    var JOIN_STALE_MS = 10 * 60 * 1000;
+
+    // A claim URL on /claim is the add-device hand-off (a join), not an invite.
+    function isJoin(url) {
+        return /^https:\/\/[^/?#]+\/claim#/.test(url);
+    }
 
     // scheme://authority path ?query #fragment, raw. `.` stops at a newline, so
     // a multi-line kit QR falls through to the first-line account parse.
@@ -102,14 +112,18 @@
             var scheme = m[1].toLowerCase();
             var host = m[2].toLowerCase();
             var path = m[3];
-            var landing = scheme === 'https' && (base ? host === base : path.indexOf('/i/') === 0);
-            var custom = scheme === 'medtracker' && host === 'i';
+            var landing = scheme === 'https' && (base ? host === base : /^\/[id]\//.test(path));
+            var custom = scheme === 'medtracker' && (host === 'i' || host === 'd');
             if (landing || custom) {
-                var prefix = landing ? '/i/' : '/';
-                var sub = path.indexOf(prefix) === 0 ? path.slice(prefix.length).toLowerCase() : '';
+                // 'i' an invite, 'd' the add-device hand-off (bd med-r1j2.4).
+                var kind = custom ? host : (/^\/[id]\//.test(path) ? path.charAt(1) : '');
+                var prefix = landing ? '/' + kind + '/' : '/';
+                var sub = kind && path.indexOf(prefix) === 0 ? path.slice(prefix.length).toLowerCase() : '';
                 var claimBase = base || (landing ? host : '');
-                if (m[4] !== undefined || !claimBase || !/^[a-z0-9-]+$/.test(sub) || !/^[0-9a-f]+$/.test(m[5] || '')) return null;
-                return parseAccount('https://' + sub + '.' + claimBase + '/#claim=' + m[5], claimBase);
+                var frag = m[5] || '';
+                var fragOk = kind === 'd' ? /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(frag) : /^[0-9a-f]+$/.test(frag);
+                if (m[4] !== undefined || !claimBase || !/^[a-z0-9-]+$/.test(sub) || !fragOk) return null;
+                return parseAccount('https://' + sub + '.' + claimBase + (kind === 'd' ? '/claim#' : '/#claim=') + frag, claimBase);
             }
         }
         return parseAccount(line, base);
@@ -537,7 +551,7 @@
             confirmLabel: 'Switch',
             facts: [
                 { text: 'This ' + w.device + ' leaves ' + host + '. Your records stay on the server for your other devices.' },
-                { text: 'The invite opens a new, empty account.' },
+                { text: isJoin(url) ? 'It opens ' + url.split('/')[2] + ' once your other device approves.' : 'The invite opens a new, empty account.' },
                 { text: 'Nothing is copied across.', gone: true },
             ],
         });
@@ -558,7 +572,57 @@
         }
     }
 
+    // AD9 "Join and erase" (bd med-r1j2.4), local mode: the D1 names the
+    // account and the record count; with no records it is skipped. Join =
+    // local.leave {url, erase: true}: no move stash (no merge path), and
+    // nothing is erased here. The shell holds `erase` and acts on it only once
+    // the joined account boots unlocked (cloud-boot.js finishJoinErase →
+    // local.erase); a shell that does not know it erases nothing. Cancel drops
+    // the 10-minute code from the slot; "Save a backup first" keeps it.
+    async function join(url) {
+        if (!isLocal()) return switchAccount(url);
+        var n = native();
+        var device = words().device;
+        var count = await window.CloudVault.userContentCount();
+        if (count > 0) {
+            var backup = false;
+            var records = count + (count === 1 ? ' record' : ' records');
+            var ok = await window.safeConfirm('Everything on this ' + device + ' (' + records + ') will be erased after this ' + device + ' is added.', null, {
+                title: 'Join ' + url.split('/')[2] + ' and erase this ' + device + '?',
+                icon: 'trash',
+                destructive: true,
+                confirmLabel: 'Join and erase',
+                cancelLabel: 'Cancel',
+                facts: [
+                    { text: records + ' and settings on this ' + device, gone: true },
+                    { text: 'Nothing is erased if adding fails or you stop' },
+                    { text: "The account's records arrive instead" },
+                ],
+                link: {
+                    label: 'Save a backup first',
+                    onClick: function () {
+                        backup = true;
+                        var io = window.SettingsImportExport;
+                        if (io && typeof io.openExport === 'function') io.openExport();
+                    },
+                },
+            });
+            if (!ok) {
+                if (!backup) n.call('invite.clear').catch(function () { /* the code expires on its own */ });
+                return;
+            }
+        }
+        if (window.navigator.onLine === false) { window.safeToast(OFFLINE, 'error'); return; }
+        try {
+            await n.call('local.leave', { url: url, erase: true });
+        } catch (e) {
+            var msg = (e && e.message) || '';
+            window.safeToast(/invalid url/.test(msg) ? NOT_INVITE : 'This device could not be added: ' + (msg || 'unknown error') + '.', 'error');
+        }
+    }
+
     function offer(url, opts) {
+        if (isJoin(url)) return join(url);
         if (opts && opts.kit) url = withKit(url);
         if (!isLocal()) return switchAccount(url);
         return Promise.resolve(window.CloudVault.userContentCount()).then(function (count) {
@@ -583,7 +647,7 @@
         if ((await within(n.has('invite.pending'), false, forced)) !== true) return;
         var slot = await within(n.call('invite.pending'), null, forced);
         var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
-        if (invite && !(slot.receivedAt > Date.now() - STALE_MS)) {
+        if (invite && !(slot.receivedAt > Date.now() - maxAge(invite.claimUrl))) {
             n.call('invite.clear').catch(function () { /* judged stale again next open */ });
             invite = null;
         }
@@ -592,6 +656,7 @@
             if (forced) setTimeout(open, 0);
             return;
         }
+        if (isJoin(invite.claimUrl)) { join(invite.claimUrl); return; }
         if (!isLocal()) { switchAccount(invite.claimUrl); return; }
         var count = await window.CloudVault.userContentCount();
         if (count > 0) { turnOnSync(invite.claimUrl, count); return; }
@@ -606,7 +671,11 @@
         if (!n || (await within(n.has('invite.pending'), false)) !== true) return null;
         var slot = await within(n.call('invite.pending'), null);
         var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
-        return invite && slot.receivedAt > Date.now() - STALE_MS ? invite.claimUrl : null;
+        return invite && slot.receivedAt > Date.now() - maxAge(invite.claimUrl) ? invite.claimUrl : null;
+    }
+
+    function maxAge(url) {
+        return isJoin(url) ? JOIN_STALE_MS : STALE_MS;
     }
 
     var booted = null;
