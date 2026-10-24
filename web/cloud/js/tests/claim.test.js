@@ -142,7 +142,7 @@ const enrolledMarker = () => sessionStorage.getItem('wg-join-enrolled');
 
 beforeEach(async () => {
   vi.useFakeTimers();
-  dom = new JSDOM('<!doctype html><main id="app"></main>');
+  dom = new JSDOM('<!doctype html><main id="app"></main>', { pretendToBeVisual: true });
   globalThis.document = dom.window.document;
   globalThis.history = { replaceState: vi.fn() };
   const store = new Map();
@@ -429,7 +429,7 @@ describe('/claim — in-app Scan and AD13 (camera off)', () => {
     try {
       installCamera({ decoded: [`https://example.test/d/other${linkHash()}`] });
       await scanAt('#scan');
-      await until(() => text().includes('This code is for an account this app can't open'));
+      await until(() => text().includes("This code is for an account this app can't open"));
       expect(app.querySelector('#claim-code-input')).not.toBeNull();
       expect(globalThis.location.href).toBe('');
       expect(calls).toEqual([]);
@@ -467,15 +467,51 @@ describe('/claim — in-app Scan and AD13 (camera off)', () => {
       expect(app.querySelector('#claim-scan-video')).not.toBeNull();
     });
 
-    it('a bfcache restore restarts the scan', async () => {
+    it('a bfcache trip (pagehide then pageshow persisted) restarts the scan', async () => {
       installCamera();
       await scanAt('#scan');
       await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 1);
-      pageEvents.pageshow({ persisted: false });
-      expect(stopped).toBe(0);
-      pageEvents.pageshow({ persisted: true });
+      pageEvents.pagehide({ persisted: true });
       expect(stopped).toBe(1);
+      expect(pageEvents.pageshow).toBeDefined();
+      pageEvents.pageshow({ persisted: true });
       await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 2);
+      pageEvents.pagehide({ persisted: false }); // a real unload ends it for good
+      expect(stopped).toBe(2);
+      expect(pageEvents.pageshow).toBeUndefined();
+    });
+
+    it('a decode pending across hide/resume does not start a second polling chain', async () => {
+      let release;
+      const pending = new Promise((r) => { release = r; });
+      installCamera();
+      let n = 0;
+      globalThis.Barcode.scan = vi.fn(() => (++n === 1 ? pending : Promise.resolve(null)));
+      await scanAt('#scan');
+      await until(() => globalThis.Barcode.scan.mock.calls.length === 1);
+      setHidden(true);
+      release(null); // the stale decode settles while hidden
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(globalThis.Barcode.scan).toHaveBeenCalledTimes(1); // no polling while hidden
+      setHidden(false);
+      await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 2);
+      await vi.advanceTimersByTimeAsync(1000);
+      const calls = globalThis.Barcode.scan.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(1000);
+      // one chain: ~1 call per SCAN_MS (200ms), not two
+      expect(globalThis.Barcode.scan.mock.calls.length - calls).toBeLessThanOrEqual(6);
+    });
+
+    it('a deferred play() finishing after hide does not start the loop', async () => {
+      let finish;
+      installCamera();
+      dom.window.HTMLMediaElement.prototype.play = vi.fn(() => new Promise((r) => { finish = r; }));
+      await scanAt('#scan');
+      await until(() => dom.window.HTMLMediaElement.prototype.play.mock.calls.length === 1);
+      setHidden(true);
+      finish();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(globalThis.Barcode.scan).not.toHaveBeenCalled();
     });
   });
 

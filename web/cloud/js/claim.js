@@ -279,10 +279,11 @@ function stopTracks(stream) {
 async function renderScanner(app) {
   const media = globalThis.MediaCapture;
   const barcode = globalThis.Barcode;
-  const scan = { stopped: false, stream: null, timer: null, opening: false };
+  const scan = { stopped: false, stream: null, timer: null, opening: false, gen: 0 };
   const doc = globalThis.document;
   // Camera off, scanner kept: backgrounding, or a bfcache freeze.
   const release = () => {
+    scan.gen++; // invalidates any pending play()/decode continuation
     clearTimeout(scan.timer);
     if (scan.stream) stopTracks(scan.stream);
     scan.stream = null;
@@ -291,7 +292,7 @@ async function renderScanner(app) {
   const stop = () => {
     scan.stopped = true;
     release();
-    globalThis.removeEventListener?.('pagehide', stop);
+    globalThis.removeEventListener?.('pagehide', onHide);
     globalThis.removeEventListener?.('pageshow', onShow);
     doc?.removeEventListener?.('visibilitychange', onVisibility);
   };
@@ -306,7 +307,9 @@ async function renderScanner(app) {
     release();
     open();
   };
-  globalThis.addEventListener?.('pagehide', stop);
+  // Going into the bfcache keeps the scanner resumable; a real unload ends it.
+  const onHide = (e) => (e && e.persisted ? release() : stop());
+  globalThis.addEventListener?.('pagehide', onHide);
   globalThis.addEventListener?.('pageshow', onShow);
   doc?.addEventListener?.('visibilitychange', onVisibility);
 
@@ -326,6 +329,7 @@ async function renderScanner(app) {
   async function open() {
     if (scan.opening || scan.stream || scan.stopped || doc?.hidden) return;
     scan.opening = true;
+    const gen = scan.gen;
     let stream;
     try {
       const live = () => !!barcode && typeof barcode.supportsLiveScan === 'function' && barcode.supportsLiveScan();
@@ -341,8 +345,9 @@ async function renderScanner(app) {
     } finally {
       scan.opening = false;
     }
-    if (scan.stopped || doc?.hidden) {
+    if (scan.stopped || doc?.hidden || gen !== scan.gen) {
       stopTracks(stream);
+      if (!scan.stopped && !doc?.hidden) open(); // visible again while it was opening
       return;
     }
     scan.stream = stream;
@@ -352,16 +357,17 @@ async function renderScanner(app) {
     } catch {
       // the decoder reads the stream either way
     }
-    loop();
+    if (gen !== scan.gen) return;
+    loop(gen);
   }
 
-  function loop() {
-    if (scan.stopped) return;
+  function loop(gen) {
+    if (scan.stopped || gen !== scan.gen) return;
     Promise.resolve()
       .then(() => barcode.scan({ source: video, formats: ['qr_code'] }))
       .catch(() => null) // an unready frame: try again
       .then((result) => {
-        if (scan.stopped) return;
+        if (scan.stopped || gen !== scan.gen) return;
         if (result && result.rawValue) {
           const code = parseScanned(result.rawValue);
           if (code) {
@@ -371,7 +377,7 @@ async function renderScanner(app) {
           }
           status.textContent = "That QR code isn't from Add a device. Scan the one on your other device.";
         }
-        scan.timer = setTimeout(loop, SCAN_MS);
+        scan.timer = setTimeout(() => loop(gen), SCAN_MS);
       });
   }
 }
@@ -392,7 +398,7 @@ async function openScanned(app, { sub, frag }) {
     try {
       await native.call('account.leave', { url });
     } catch {
-      renderClaimForm(app, 'This code is for an account this app can't open. Type the code shown under the QR instead.');
+      renderClaimForm(app, "This code is for an account this app can't open. Type the code shown under the QR instead.");
     }
     return;
   }
