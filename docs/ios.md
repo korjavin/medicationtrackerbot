@@ -752,9 +752,12 @@ changes for it.
   and `{then: "local", forget: true}` (bd med-r1j2.18, /unlock AD10 "Back to
   local mode") lands on plain local home with `wgLeaveHost` removed: no
   "Have an invite?" sheet, no way back (`LocalOrigin.leave`; `forget` alone is
-  the no-arg leave). The page sends `forget` only when `shell.ops` lists the
-  non-callable marker `account.leave.forget` (account mode; Android twin
-  med-r1j2.19, same shape); a shell before it ignores `forget`.
+  the no-arg leave). The shell advertises it with the non-callable
+  `shell.ops` marker `account.leave.forget` (account mode; Android twin
+  med-r1j2.19, same shape); a shell before it ignores `forget`. The web
+  switch is pending (bd med-r1j2.17): it will send `forget` only when the
+  marker is listed; until then /unlock (`unlock.js`) sends the bare
+  `account.leave`, i.e. home`?invite=1`.
   Older shells ignore `url` and land on their first run; the web probes
   `shell.ops` for `invite.pending`.
 - **Add-device hand-off** (bd med-r1j2.7, web med-r1j2.4, Android twin

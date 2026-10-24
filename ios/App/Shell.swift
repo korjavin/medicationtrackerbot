@@ -262,7 +262,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     /// Leaves the account (Settings.bundle Switch account, X-Account-Gone,
     /// the error screen, account.leave) into local mode — the app has no
     /// native first run (bd med-ta2n.17). Plain: on home?invite=1, where the
-    /// web offers "Have an invite?", with no way back. `thenLocal`
+    /// web offers "Have an invite?", with no way back. `.local`
     /// (account.leave {then: "local"}, bd med-o7zq.34): on local home,
     /// remembering the account for leave.clear {back}. `.forgetLocal`
     /// ({then: "local", forget: true}, bd med-r1j2.18): on local home, no way
