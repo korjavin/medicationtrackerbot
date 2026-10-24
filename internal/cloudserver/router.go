@@ -401,6 +401,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// alone proved nothing for five days of green deploys (bd med-m391).
 			h.serveVersion(w, r)
 			return
+		case privacyPath:
+			servePrivacy(w)
+			return
 		case feedbackReaderPath:
 			noStore(w)
 			// Decrypted attachments only exist in page memory, so they are shown
