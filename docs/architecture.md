@@ -185,8 +185,8 @@ migration; add a new one.
   and returned on every `GET /api/sync/ops` page. After the cut, an op batch
   containing a `medication|settings|tzplan|stock|medsched|tztransition`
   tag, or a snapshot POST, without `X-Ledger: 2` → 426 `update_required`,
-  nothing written except the batch's `intake` ops, which are appended in the
-  same call before the 426; pulls and everything else stay open. `intake` is not
+  nothing written (op AADs bind client-predicted seqs, so a batch is stored
+  whole or not at all); pulls and everything else stay open. `intake` is not
   gated: an old bundle's dose writes land and the intake reducer ranks them
   legacy (a `PENDING` placeholder never promotes or un-takes; an old `TAKEN`
   beats a regenerated due). Activated by
@@ -205,7 +205,7 @@ migration; add a new one.
   ignored. An action on a derived dose writes at its exact id
   (confirm-or-create). Settled past days are cached per records port and
   zone, re-checked on every read against `sync.js`'s write journal
-  (`changesSince`). Details:
+  (`changesSince`), which other tabs feed over a BroadcastChannel. Details:
   [cloud-mode.md → Sync protocol](cloud-mode.md#sync-protocol).
 
 ## 5. Reminders

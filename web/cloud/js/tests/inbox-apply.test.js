@@ -833,6 +833,40 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(stepped.status).toBe('TAKEN');
         expect(Date.parse(stepped.taken_at)).toBe(TAP_UNIX * 1000);
     });
+
+    // LOW-5 (known, bd med-wi09.12): ON the cut day a stored row covers a slot
+    // only at its own instant (Archie, N2 — no band). An old client's drifted
+    // PENDING from before the cut instant therefore sits next to the
+    // regenerated on-schedule dose: two doses due that day. The tap confirms
+    // the exact-id one; the drifted row stays due. One day only.
+    it('on the cut day, a drifted pre-cut row shows next to the regenerated slot (pinned double dose)', async () => {
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: new Date((SLOT_UNIX + 8 * 60) * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date((SLOT_UNIX + 3600) * 1000).toISOString() }],
+        });
+        const now = () => DRAIN_MS;
+        const intake = domainFor(records, now);
+        const span = { fromMs: (SLOT_UNIX - 3600) * 1000, toMs: DRAIN_MS };
+        expect((await intake.occurrences(span)).map((r) => [r.occId, r.state])).toEqual([
+            [`intake-med-a-${SLOT_UNIX}`, 'due'],
+            [`intake-med-b-${SLOT_UNIX}`, 'due'],
+            ['intake-med-b-drift', 'due'],
+        ]);
+
+        await applyIntakeSlotAction(confirmEvent, { intake, records, now });
+        expect((await intake.occurrences(span)).map((r) => [r.occId, r.state])).toEqual([
+            [`intake-med-a-${SLOT_UNIX}`, 'taken'],
+            [`intake-med-b-${SLOT_UNIX}`, 'taken'],
+            ['intake-med-b-drift', 'due'],
+        ]);
+    });
 });
 
 describe('inbox-apply.js — createInboxApplier routing', () => {

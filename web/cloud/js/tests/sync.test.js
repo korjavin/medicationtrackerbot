@@ -3072,11 +3072,13 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     }
   };
 
-  const pull = async (record) => {
+  // aadSeq: the seq the writing client predicted (the AAD binds it), when the
+  // server assigned a different one.
+  const pull = async (record, { aadSeq } = {}) => {
     seq += 1;
     const { recordType, ...body } = record;
     const { nonce, ct } = await encryptRecord({
-      kData: ctx.kData, accountId, recordType, recordId: record.recordId, seq,
+      kData: ctx.kData, accountId, recordType, recordId: record.recordId, seq: aadSeq ?? seq,
       plaintext: new TextEncoder().encode(JSON.stringify(body)),
     });
     pulledOps.push({
@@ -3241,11 +3243,13 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect((await converge(legacyTake, v2Snooze)).status).toBe('TAKEN');
   });
 
-  // Archie 4030: a gated old-bundle batch [intake TAKEN, medication stock] has
-  // its intake op stored before the 426, and the wedged bundle retries the
-  // same batch. A v2 device that never stored the dose pulls both copies and
-  // shows one row, taken.
-  it('an old bundle\'s TAKEN stored with a 426, posted twice, reads as one taken row on a v2 device', async () => {
+  // HIGH-3 (Archie 4100): an op's AAD binds the seq the old client PREDICTED.
+  // For [medication@6, intake@7] a server that stored only the intake would
+  // put it at 6, and no device could read it — which is why a gated batch is
+  // refused whole (TestSyncAPI_LedgerCutAndWriterGate pins the server side).
+  // An intake-only batch lands at its predicted seqs; posted twice, a v2 device
+  // reads one row, taken.
+  it('an old bundle\'s intake op reads only at its predicted seq; an intake-only repost is one taken row', async () => {
     const legacyTake = row({ clientTs: 5, status: 'TAKEN', taken_at: '2026-01-01T00:10:00.000Z' });
     dropCachedDb();
     await new Promise((resolve, reject) => {
@@ -3255,6 +3259,10 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     });
     seq = 5;
     await seed([]);
+    // A partial append: predicted 7, assigned 6 — unreadable, skipped.
+    await pull(legacyTake, { aadSeq: 7 });
+    expect(await getRaw()).toBeNull();
+    // The intake-only retry, assigned what it predicted, twice.
     await pull(legacyTake);
     await pull({ ...legacyTake, clientTs: 6 });
     const rows = (await getRaw('records', (s) => s.getAll())).filter((r) => r.recordId === id);
@@ -3304,5 +3312,43 @@ describe('replaceAllRecords(fn) computes its set inside the records lock (med-o7
     const ids = (await readStore('records')).map((r) => r.recordId).sort();
     expect(ids).toEqual(['note-1', 'weight-0', 'weight-1', 'weight-late']);
     expect((await readStore('pending')).map((p) => p.recordId).sort()).toEqual(['note-1', 'weight-late']);
+  });
+});
+
+// bd med-wi09.12 R3-1: two tabs share one IndexedDB store but each keeps its own
+// memo and write journal. A take written in the other tab (another window, the
+// MCP/voice responder, a Telegram drain) must reach this tab's raw memo and
+// journal, or the projection cache keeps showing the dose due here. Two
+// sync.js instances over one store stand in for the two tabs.
+describe('a write in another tab reaches this tab\'s memo and journal (med-wi09.12 R3-1)', () => {
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('the other tab\'s take shows up in listRaw and changesSince without a reload', async () => {
+    const ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    const id = 'intake-1-1767225600';
+    const base = { recordId: id, deleted: false, medication_id: 1, scheduled_at: '2026-01-01T00:00:00.000Z', snoozed_until: null, source: 'schedule' };
+    await writeRecord(ctx, 'intake', { ...base, clientTs: 1, status: 'PENDING', taken_at: null });
+    const here = recordsPort(ctx);
+    const { token } = here.changesSince('intake');
+    expect((await here.listRaw('intake')).map((r) => r.status)).toEqual(['PENDING']); // now memoized
+
+    vi.resetModules();
+    const otherTab = await import('../sync.js');
+    await otherTab.writeRecord(ctx, 'intake', {
+      ...base, clientTs: 2, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0)); // the announcement lands a task later
+
+    expect(here.changesSince('intake', token).ids).toEqual([id]);
+    expect((await here.listRaw('intake')).map((r) => r.status)).toEqual(['TAKEN']);
   });
 });

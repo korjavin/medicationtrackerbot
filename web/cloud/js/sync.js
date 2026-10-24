@@ -294,6 +294,33 @@ function journalReset() {
   journal = [];
 }
 
+// Cross-tab (bd med-wi09.12 R3-1): every tab and window of this origin shares
+// the IndexedDB store but keeps its own memos and journal, so each physical
+// write is announced to the others, which journal it and drop their memo as if
+// they had written it. A message lands a task later; a read racing it is fixed
+// by the next read. Never re-announced, so no echo.
+const recordsChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('medtracker-records') : null;
+if (recordsChannel) {
+  if (typeof recordsChannel.unref === 'function') recordsChannel.unref(); // Node (tests): don't hold the process open
+  recordsChannel.onmessage = (event) => {
+    const msg = event.data || {};
+    if (msg.reset) {
+      invalidateRecords();
+    } else if (typeof msg.type === 'string') {
+      journalWrite(msg.type, msg.id);
+      invalidateRecords(msg.type);
+    }
+  };
+}
+
+function announce(msg) {
+  try {
+    if (recordsChannel) recordsChannel.postMessage(msg);
+  } catch {
+    // A closed channel (page teardown) has no one left to tell.
+  }
+}
+
 export function changesSince(recordType, token) {
   const current = `${journalEpoch}:${journalSeq}`;
   const [epoch, seq] = typeof token === 'string' ? token.split(':').map(Number) : [NaN, NaN];
@@ -324,6 +351,7 @@ async function putRecord(record) {
   await withStore('records', 'readwrite', (store) => store.put(record));
   journalWrite(record && record.recordType, record && record.recordId);
   invalidateRecords(record && record.recordType);
+  announce({ type: record && record.recordType, id: String(record && record.recordId) });
 }
 
 async function readAllRecords() {
@@ -394,6 +422,7 @@ export async function replaceAllRecords(input) {
     if (losingPending.length > 0) await clearPending(losingPending);
   });
   invalidateRecords();
+  announce({ reset: true });
 }
 
 // Drop not-yet-flushed writes for the given record types. A destructive
@@ -437,6 +466,7 @@ export async function resetLocalSync(ctx) {
     }));
   });
   invalidateRecords();
+  announce({ reset: true });
   bootstrapped = false;
   offline = false;
   authExpired = false;
@@ -1549,8 +1579,8 @@ async function listLocalRecordsInRange(recordType, fromId, toId) {
 // row is itself state it must respect: the reminder horizon has to know that a
 // workout day was deliberately deleted, because a tombstoned slot means "no
 // workout that day", not "not materialized yet" (bd med-w0fe). Everything else
-// wants listRecords. Unmemoized (a once-per-recompute read; the memo holds the
-// live view every other caller shares) but sorted the SAME way, newest first —
+// wants listRecords. Memoized in rawMemo (the intake projection reads it on
+// every dose view), invalidated with recordsMemo, and sorted the SAME way, newest first —
 // a caller swapping list for listRaw must not silently pick up a different
 // last-write-wins order in whatever loop it feeds.
 export async function listRawRecords(ctx, recordType) {

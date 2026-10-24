@@ -789,10 +789,13 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     }
     for (let d = a; d <= b; d++) {
       const dayRows = rowsOfDays(c, d, d);
+      // Frozen: these rows are handed to every later read, so no consumer may
+      // change them in place (R3-3). `conflict` is the stored row's own object,
+      // so it gets a frozen copy rather than freezing the record.
       const rows = projectOccurrences({
         medications: base.medications, intakes: dayRows, tzPlan: base.tzPlan, timeZone, nowMs: base.nowMs,
         fromMs: d * DAY_MS, toMs: (d + 1) * DAY_MS - 1, forecast: false, regenerated: occByDay.get(d) || [], cutMs: base.cutMs,
-      });
+      }).map((r) => Object.freeze(r.conflict ? { ...r, conflict: Object.freeze({ ...r.conflict }) } : r));
       let recheckAt = Infinity;
       for (const i of dayRows) {
         const s = i.snoozed_until ? Date.parse(i.snoozed_until) : NaN;

@@ -458,8 +458,7 @@ func syncWrite(t *testing.T, h http.Handler, host string, session *http.Cookie, 
 // TestSyncAPI_LedgerCutAndWriterGate guards bd med-wi09.8: the gate is inert
 // until the first ledgercut op sets the cut (which never moves again); after
 // it, a pre-v2 writer gets 426 on dose-ledger-tagged pushes (the whole batch,
-// nothing inserted, except that a mixed batch's intake ops are stored
-// before the 426) and on snapshot POST, while pulls, intake pushes (bd
+// nothing inserted) and on snapshot POST, while pulls, intake pushes (bd
 // med-wi09.12 HIGH-1) and untagged pushes stay open and an X-Ledger: 2 writer
 // is accepted.
 func TestSyncAPI_LedgerCutAndWriterGate(t *testing.T) {
@@ -510,33 +509,36 @@ func TestSyncAPI_LedgerCutAndWriterGate(t *testing.T) {
 			t.Fatalf("gated %s push = %d, want 426", tag, rec.Code)
 		}
 	}
-	if p := getOpsPage(t, h, host, session, "?since=0"); len(p.Ops) != opsBefore {
+	// An old bundle's dose write next to its medication edit: the whole batch
+	// is refused, the intake op with it.
+	if rec := syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op("intake:intake-1-200"), op("medication:1"))); rec.Code != http.StatusUpgradeRequired {
+		t.Fatalf("intake+medication push = %d, want 426", rec.Code)
+	}
+	p = getOpsPage(t, h, host, session, "?since=0")
+	if len(p.Ops) != opsBefore {
 		t.Fatalf("426 batches inserted ops: %d → %d", opsBefore, len(p.Ops))
 	}
-	// An old bundle's dose write next to its medication edit (Archie 4030):
-	// the intake op is stored in the same AppendOps call, the medication op is
-	// refused, and the client gets 426. A retry of the same batch stores the
-	// intake op again (same record id; the client reducer folds it to one row).
-	for i := 1; i <= 2; i++ {
-		if rec := syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op("intake:intake-1-200"), op("medication:1"))); rec.Code != http.StatusUpgradeRequired {
-			t.Fatalf("intake+medication push #%d = %d, want 426", i, rec.Code)
-		}
-		p := getOpsPage(t, h, host, session, "?since=0")
-		if len(p.Ops) != opsBefore+i {
-			t.Fatalf("intake+medication push #%d stored %d ops, want %d", i, len(p.Ops)-opsBefore, i)
-		}
-		for _, o := range p.Ops[opsBefore:] {
-			if o.RecordTypeTag != "intake:intake-1-200" {
-				t.Fatalf("gated batch stored %q, want only the intake op", o.RecordTypeTag)
-			}
-		}
-	}
-	opsBefore += 2
 	// HIGH-1 (bd med-wi09.12): intake is not gated — an old bundle's dose
 	// writes (PENDING placeholders, real TAKENs) are stored after the cut; the
 	// client's intake reducer ranks them legacy.
-	if rec := syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op("intake:intake-1-100"), op("intake:intake-1-200"))); rec.Code != http.StatusOK {
+	//
+	// HIGH-3 (Archie 4100): each op's AES-GCM AAD binds the seq the CLIENT
+	// predicted (head+1, head+2, … in batch order), so the server may only
+	// store a batch whole. The old client predicted [medication@head+1,
+	// intake@head+2] for the refused batch above; a partial append would have
+	// put the intake at head+1, undecryptable. Its intake-only retry predicts
+	// [head+1, head+2] and must be assigned exactly that.
+	head := p.Ops[len(p.Ops)-1].Seq
+	rec = syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op("intake:intake-1-100"), op("intake:intake-1-200")))
+	if rec.Code != http.StatusOK {
 		t.Fatalf("un-headered intake push after cut = %d, want 200", rec.Code)
+	}
+	var assigned postOpsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &assigned); err != nil {
+		t.Fatalf("decode assigned: %v", err)
+	}
+	if len(assigned.Assigned) != 2 || assigned.Assigned[0] != head+1 || assigned.Assigned[1] != head+2 {
+		t.Fatalf("intake-only batch assigned %v, want the client-predicted [%d %d]", assigned.Assigned, head+1, head+2)
 	}
 	if p := getOpsPage(t, h, host, session, "?since=0"); len(p.Ops) != opsBefore+2 {
 		t.Fatalf("un-headered intake ops stored = %d, want %d", len(p.Ops)-opsBefore, 2)

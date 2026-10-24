@@ -23,8 +23,7 @@ var ErrSnapshotSeqAhead = errors.New("cloudstore: snapshot_seq is ahead of last_
 
 // ErrUpdateRequired is the writer gate (bd med-wi09.8): the account's ledger
 // cut is set and a writer that did not declare ledger v2 tried to push a
-// dose-ledger-tagged op or a snapshot. Nothing but the batch's intake ops is
-// written (AppendOps).
+// dose-ledger-tagged op or a snapshot. Nothing is written.
 var ErrUpdateRequired = errors.New("cloudstore: ledger v2 writer required")
 
 // LedgerCutTag is the record type whose first op sets the account's ledger
@@ -130,16 +129,11 @@ type OpInput struct {
 //
 // Ledger cut (bd med-wi09.8), in the same transaction: once the account's cut
 // is set, a batch carrying any GatedRecordTypes op from a writer without
-// ledgerV2 gets ErrUpdateRequired — but its `intake` ops are appended first
-// (bd med-wi09.12, Archie's ruling): an old bundle batches a stock-tracked
-// confirm as [intake TAKEN, medication stock], and the dose itself must not be
-// lost. The old client retries the whole batch; the intake reducer's same-id
-// merge absorbs the copies. Everything else in the batch is refused. The first
-// LedgerCutTag op ever appended sets the cut to its assigned seq and the
-// server time, and later ones never move it.
+// ledgerV2 is rejected whole with ErrUpdateRequired; the first LedgerCutTag op
+// ever appended sets the cut to its assigned seq and the server time, and
+// later ones never move it.
 func (r *Repo) AppendOps(ctx context.Context, accountID string, ops []OpInput, quotaBytes int64, ledgerV2 bool, now time.Time) ([]int64, error) {
 	seqs := make([]int64, len(ops))
-	refused := false
 	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
 		if !ledgerV2 {
 			gated := false
@@ -152,19 +146,7 @@ func (r *Repo) AppendOps(ctx context.Context, accountID string, ops []OpInput, q
 					return err
 				}
 				if cut {
-					refused = true
-					var kept []OpInput
-					for _, op := range ops {
-						if RecordType(op.RecordTypeTag) == "intake" {
-							kept = append(kept, op)
-						}
-					}
-					if len(kept) == 0 {
-						return nil
-					}
-					slog.InfoContext(ctx, "sync: gated batch, intake ops kept", "accountID", accountID, "kept", len(kept), "refused", len(ops)-len(kept))
-					ops = kept
-					seqs = make([]int64, len(ops))
+					return ErrUpdateRequired
 				}
 			}
 		}
@@ -221,9 +203,6 @@ func (r *Repo) AppendOps(ctx context.Context, accountID string, ops []OpInput, q
 	})
 	if err != nil {
 		return nil, err
-	}
-	if refused {
-		return nil, ErrUpdateRequired
 	}
 	return seqs, nil
 }
