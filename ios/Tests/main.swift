@@ -288,7 +288,49 @@ precondition(localOps.contains("base.post") && !accountOps.contains("base.post")
 // push.token (bd med-erq1.4): account only; local mode never reports a token.
 precondition(accountOps.contains("push.token") && !localOps.contains("push.token"))
 precondition(accountOps.contains("local.erase") && localOps.contains("local.erase"), "invite.js probes it in local mode") // bd med-r1j2.7
+// bd med-r1j2.18: app.openSettings in both modes; the forget marker on an account page only.
+precondition(accountOps.contains("app.openSettings") && localOps.contains("app.openSettings"))
+precondition(accountOps.contains("account.leave.forget") && !localOps.contains("account.leave.forget"))
 print("LocalOrigin.ops: ok")
+
+// account.leave without a url (bd med-r1j2.18): the no-arg and {then: "local"} landings unchanged.
+precondition(LocalOrigin.leave([:]) == .invite)
+precondition(LocalOrigin.leave(["forget": true]) == .invite) // forget alone: the plain leave already forgets
+precondition(LocalOrigin.leave(["then": "local"]) == .local)
+precondition(LocalOrigin.leave(["then": "local", "forget": false]) == .local)
+precondition(LocalOrigin.leave(["then": "local", "forget": "true"]) == .local) // only a JSON true
+precondition(LocalOrigin.leave(["then": "local", "forget": true]) == .forgetLocal)
+precondition(LocalOrigin.leave(["then": "account", "forget": true]) == .invite)
+print("LocalOrigin.leave: ok")
+
+// The shell's own page and getUserMedia (bd med-r1j2.18).
+let acct = "abc.app.example.com"
+func own(_ scheme: String, _ host: String, port: Int = 0, main: Bool = true, local: Bool, account: String? = "abc.app.example.com") -> Bool {
+    LocalOrigin.isOwn(scheme: scheme, host: host, port: port, mainFrame: main, local: local, account: account)
+}
+// The whole origin, port included (WKSecurityOrigin.port is 0 for the default).
+precondition(own("https", acct, port: 443, local: false))
+precondition(!own("https", acct, port: 8443, local: false))
+precondition(!own("https", acct, port: 80, local: false))
+precondition(!own("wgapp", "local", port: 8080, local: true))
+precondition(own("https", acct, local: false))
+precondition(own("https", "ABC.app.example.com", local: false))
+precondition(!own("https", acct, main: false, local: false)) // subframe
+precondition(!own("https", "evil.example.com", local: false)) // foreign host
+precondition(!own("https", "app.example.com", local: false)) // the base domain is no account page
+precondition(!own("https", "xyz.app.example.com", local: false)) // another account
+precondition(!own("http", acct, local: false))
+precondition(!own("https", acct, local: false, account: nil))
+precondition(!own("https", acct, local: true)) // a stored host means nothing in local mode
+precondition(own("wgapp", "local", local: true))
+precondition(!own("wgapp", "local", main: false, local: true))
+precondition(!own("wgapp", "local", local: false))
+precondition(!own("wgapp", "other", local: true))
+precondition(LocalOrigin.media(cameraOnly: true, own: true) == .grant)
+precondition(LocalOrigin.media(cameraOnly: false, own: true) == .prompt) // microphone: WebKit's prompt, as before
+precondition(LocalOrigin.media(cameraOnly: true, own: false) == .deny)
+precondition(LocalOrigin.media(cameraOnly: false, own: false) == .deny)
+print("LocalOrigin.media: ok")
 
 // Push (bd med-erq1.4): the page event, the token encoding, the Diag fingerprint.
 for kind in ["inbox-wake", "dry-queue", "transfer_claimed", "token"] {

@@ -748,7 +748,16 @@ changes for it.
   replies true and reopens local home`?invite=1` —
   still local, nothing else changes, the stash waits; `account.leave` with no
   args is Switch account (local mode, home`?invite=1`, `wgLeaveHost`
-  removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set).
+  removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set),
+  and `{then: "local", forget: true}` (bd med-r1j2.18, /unlock AD10 "Back to
+  local mode") lands on plain local home with `wgLeaveHost` removed: no
+  "Have an invite?" sheet, no way back (`LocalOrigin.leave`; `forget` alone is
+  the no-arg leave). The shell advertises it with the non-callable
+  `shell.ops` marker `account.leave.forget` (account mode; Android twin
+  med-r1j2.19, same shape); a shell before it ignores `forget`. The web
+  switch is pending (bd med-r1j2.17): it will send `forget` only when the
+  marker is listed; until then /unlock (`unlock.js`) sends the bare
+  `account.leave`, i.e. home`?invite=1`.
   Older shells ignore `url` and land on their first run; the web probes
   `shell.ops` for `invite.pending`.
 - **Add-device hand-off** (bd med-r1j2.7, web med-r1j2.4, Android twin
@@ -1284,7 +1293,20 @@ was removed by the shell bead; what the build sets up stays (all in
   Workers in WKWebView. A host outside the list fails to load with a
   `WKErrorDomain` "app-bound" error.
 - `NSCameraUsageDescription` and inline media playback (camera via
-  `getUserMedia`).
+  `getUserMedia`). The shell's `WKUIDelegate` decides each capture request
+  (bd med-r1j2.18, `LocalOrigin.isOwn` / `LocalOrigin.media`, covered by
+  `Tests/main.swift`): the camera alone is **granted** without WebKit's
+  per-page prompt to the main frame of the open account origin
+  (`https://<host>`, default port only — the bridge checks the same origin),
+  or of `wgapp://local` in local mode (the add-device scanner `/claim#scan`, W5, the
+  food scanner); iOS still asks for the app's camera access once. Anything with
+  the microphone stays WebKit's **prompt** there (the voice assistant and
+  voice notes use it, `NSMicrophoneUsageDescription`). Every other origin
+  (the base domain included), every subframe, and any page behind the lock is
+  **denied**. A denied camera shows AD13, whose "Allow camera in Settings"
+  calls the shared bridge op `app.openSettings` (`{}` → `true`, opens
+  `UIApplication.openSettingsURLString`, both modes; Android twin med-r1j2.19);
+  `notifications.openSettings` is unchanged.
 
 Production must serve the AASA: set `IOS_TEAM_ID` / `IOS_BUNDLE_ID` in the
 cloud env (docs/environment.md) and check that
