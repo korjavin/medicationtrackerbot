@@ -43,14 +43,18 @@ object LocalOrigin {
      * Bridge ops only an account page may call (bd med-nt9p.32.13); the bundled app gets "unsupported".
      * move.take/move.clear (bd med-nt9p.32.17): the new account picks up the local origin's stash.
      * push.token (bd med-erq1.5, Push.kt): local mode never reports an FCM token.
+     * account.leave.forget (bd med-r1j2.19): a capability marker, never callable ("unsupported"): this
+     * shell honours account.leave {then: "local", forget: true}.
      */
-    val ACCOUNT_OPS = setOf("account.leave", "move.take", "move.clear", "leave.stash", "push.token")
+    val ACCOUNT_OPS = setOf("account.leave", "move.take", "move.clear", "leave.stash", "push.token", "account.leave.forget")
     /** Every other op the shell answers, in both modes (MainActivity.onBridge, Notifications, HealthConnect). */
     val SHARED_OPS = setOf(
         "ping", "chrome", "shell.ops", "diag.append", "health.authorize", "health.query",
         "notifications.permission", "notifications.requestPermission", "notifications.schedule", "notifications.test",
         // The denied note's "Open Android Settings" (web #1218, bd med-ckm5.16).
         "notifications.openSettings",
+        // The camera-denied "Allow camera in Settings" (bd med-r1j2.19): this app's system Settings page.
+        "app.openSettings",
         // The pending-invite slot (bd med-ta2n.12.1, Invite.kt) and F1's Paste (Android only).
         "invite.pending", "invite.clear", "clipboard.read",
         // "Join and erase" (bd med-r1j2.8): the local page probes it to offer the erase; only the joined
