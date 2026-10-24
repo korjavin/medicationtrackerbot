@@ -456,9 +456,13 @@ function syncMedsAddButton() {
 // One scrollable pane replaces History and Upcoming: Tomorrow (its first two
 // groups + "N more"), Today (Next / Pending / Done) and the earlier days, all
 // read from the occurrence projection (GET /api/doses), so every row is the
-// dose — id, time, state — Telegram and the notifications show. Read-only:
-// rows carry their occIds (data-occ-ids) but no action yet (med-wi09.17); the
-// take sheet on Today / Schedule stays the way to act meanwhile.
+// dose — id, time, state — Telegram and the notifications show. Rows act on
+// their own occIds (data-occ-ids, bd med-wi09.17): a pending row has Take /
+// Skip and a tap opens the take sheet (M2); a taken or skipped row opens it in
+// edit mode (MT3); an earlier day with pending doses gets "Mark all taken" /
+// "Skip all", undone from the toast (MT4). Every write is POST /api/doses/act
+// through _tlAct / the sheet handlers, flipped in place first (applyOptimistic
+// on MEDS_TIMELINE_KEY).
 //
 // Rows group by (localDate, localTime, tz, state) exactly as the projection
 // stamped them, never by the device clock: a row keeps its own date across a
@@ -473,7 +477,8 @@ const MEDS_TIMELINE_LEAD = {
     taken: ['wg-row__lead--ok', 'check'],
     skipped: ['wg-row__lead--stale', 'minus'],
 };
-let _medsTimelineState = { rows: null, pastShown: MEDS_TIMELINE_PAGE_DAYS, pastRendered: 0, past: [], byDate: new Map(), ctx: null, tomorrowOpen: false, observer: null }; // module-state: timeline rows + scroll-paging cursor
+const MEDS_TIMELINE_KEY = 'doses_timeline'; // DataStore key of the projection rows
+let _medsTimelineState = { rows: null, pastShown: MEDS_TIMELINE_PAGE_DAYS, pastRendered: 0, past: [], byDate: new Map(), ctx: null, tomorrowOpen: false, observer: null, outOfDate: null }; // module-state: timeline rows + scroll-paging cursor + MT6 note
 
 // 'YYYY-MM-DD' of an instant on the tracked zone's calendar.
 function _tlDatePart(ms, tz) {
@@ -567,12 +572,56 @@ function _tlChip(group, ctx) {
     }
 }
 
-// One group = one kit row. No role/tabindex: nothing to tap until med-wi09.17.
+const _tlIsPending = (g) => g.state === 'due' || g.state === 'snoozed';
+const _tlIsDone = (g) => g.state === 'taken' || g.state === 'skipped';
+
+// A row tap opens the take sheet on exactly the group's occIds: a pending
+// group in confirm mode (Take at a time, Skip, Snooze — M2), a taken or
+// skipped one in edit mode (Taken / Skipped / Not taken + the time — MT3).
+function _tlOpenSheet(group, ctx) {
+    const rows = group.rows;
+    const medIds = rows.map((r) => r.medId);
+    const names = rows.map((r) => {
+        const med = ctx.medById.get(String(r.medId));
+        return (med && med.name) || r.name || 'Medication';
+    });
+    const occIds = rows.map((r) => r.occId);
+    if (_tlIsPending(group)) {
+        showMedicationConfirmModal(medIds, names, rows[0].plannedAt, 'confirm', occIds);
+        return;
+    }
+    const takenAt = rows.map((r) => r.takenAt).filter(Boolean).sort()[0];
+    showMedicationConfirmModal(medIds, names, takenAt || rows[0].plannedAt, 'edit', occIds, rows.map((r) => r.state));
+}
+
+function _tlRowButton(label, ghost, onClick) {
+    const btn = _medsEl('button', `wg-btn wg-btn--sm${ghost ? ' wg-btn--ghost' : ''}`, label);
+    btn.type = 'button';
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onClick();
+    });
+    return btn;
+}
+
+// One group = one kit row. Upcoming rows are read-only (Schedule's Take N
+// takes them early); every other row is a button that opens the sheet.
 function _tlRow(group, ctx, { chip = true } = {}) {
     const row = _medsEl('div', 'wg-row wg-timeline__row');
     row.dataset.state = group.state;
     row.dataset.localDate = group.localDate;
     row.dataset.occIds = group.rows.map((r) => String(r.occId)).join(' ');
+    row.dataset.medIds = group.rows.map((r) => String(r.medId)).join(' ');
+    if (group.state !== 'upcoming') {
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.addEventListener('click', () => _tlOpenSheet(group, ctx));
+        row.addEventListener('keydown', (e) => {
+            if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
+            e.preventDefault();
+            _tlOpenSheet(group, ctx);
+        });
+    }
 
     const [leadMod, icon] = MEDS_TIMELINE_LEAD[group.state] || MEDS_TIMELINE_LEAD.upcoming;
     const lead = _medsEl('span', leadMod ? `wg-row__lead ${leadMod}` : 'wg-row__lead');
@@ -596,7 +645,146 @@ function _tlRow(group, ctx, { chip = true } = {}) {
     if (chipEl) meta.appendChild(chipEl);
     body.appendChild(meta);
     row.appendChild(body);
+    // Pending rows keep Take / Skip for the odd one out (MT4); Take stamps now.
+    if (_tlIsPending(group)) {
+        const occIds = group.rows.map((r) => r.occId);
+        const trail = _medsEl('span', 'wg-row__trail');
+        trail.appendChild(_tlRowButton('Skip', true, () => _tlAct('skip', [{ occIds }])));
+        trail.appendChild(_tlRowButton('Take', false, () => _tlAct('take', [{ occIds }])));
+        row.appendChild(trail);
+    }
     return row;
+}
+
+// rows.map that merges patches[occId] into the matching rows.
+function _tlPatchRows(patches) {
+    return (rows) => rows.map((r) => (r && patches.has(String(r.occId)) ? { ...r, ...patches.get(String(r.occId)) } : r));
+}
+
+// The optimistic row of a past log (no plan behind it) until the re-read.
+function _tlManualRow(medId, takenAt) {
+    const tz = (_medsTimelineState.ctx && _medsTimelineState.ctx.tz) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return {
+        occId: `local_optimistic_${Date.now()}`,
+        medId: String(medId),
+        plannedAt: takenAt,
+        tz,
+        localDate: _tlDatePart(Date.parse(takenAt), tz),
+        localTime: _tlClock(takenAt, tz),
+        source: 'manual',
+        state: 'taken',
+        takenAt,
+    };
+}
+
+// Optimistic timeline write: the cached projection rows (MEDS_TIMELINE_KEY,
+// what loadTimeline reads while the write is pending) and the rows on screen
+// both take mutator(rows) at once. Returns an applyOptimistic handle whose
+// rollback also restores the screen.
+async function _applyOptimisticTimeline(mutator) {
+    const state = _medsTimelineState;
+    const prior = state.rows;
+    const apply = (rows) => (Array.isArray(rows) ? mutator(rows) : rows);
+    const handle = await window.DataStore.applyOptimistic(MEDS_TIMELINE_KEY, apply, ['history']);
+    if (Array.isArray(prior)) {
+        state.rows = apply(prior);
+        renderTimeline();
+    }
+    return {
+        commit: (payload) => handle.commit(payload),
+        async rollback() {
+            await handle.rollback();
+            if (Array.isArray(prior)) {
+                state.rows = prior;
+                renderTimeline();
+            }
+        },
+    };
+}
+
+// The timeline's own writes (row Take / Skip, bulk, the bulk Undo): flip the
+// rows in place, POST /api/doses/act once per batch ({occIds, takenAt?} — one
+// taken_at each), then commit, or roll back on any failure. Resolves true
+// when every id applied.
+async function _tlAct(action, batches) {
+    const nowIso = new Date().toISOString();
+    const patch = (takenAt) => ({
+        take: { state: 'taken', takenAt: takenAt || nowIso },
+        skip: { state: 'skipped', takenAt: null },
+        undo: { state: 'due', takenAt: null },
+    }[action]);
+    const patches = new Map();
+    batches.forEach((b) => b.occIds.forEach((id) => patches.set(String(id), patch(b.takenAt))));
+    if (!patches.size) return false;
+
+    const handles = [await _applyOptimisticTimeline(_tlPatchRows(patches))];
+    if (action !== 'undo') handles.push(await _applyOptimisticDueClear((row) => patches.has(String(row.occId))));
+    let ok = true;
+    try {
+        for (const b of batches) {
+            const body = { action, occ_ids: b.occIds };
+            if (b.takenAt) body.taken_at = b.takenAt;
+            const res = await apiCall('/api/doses/act', 'POST', body);
+            if (!res || typeof res !== 'object') { ok = false; break; }
+            if (Number(res.failed) > 0) {
+                ok = false;
+                safeToast("Couldn't update some doses. Please try again.", 'error');
+                break;
+            }
+        }
+    } catch (_) {
+        ok = false;
+    }
+    if (ok) {
+        await _commitOptimistic(handles);
+        if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
+    } else {
+        await _rollbackOptimistic(handles);
+    }
+    refreshMedsAfterMutation();
+    return ok;
+}
+
+// MT4 · pile-up: one bulk pair per earlier day that still has pending doses.
+// Acts only on that day's pending occIds at the moment of the tap (so a
+// repeat tap finds nothing left to do); "Mark all taken" writes each dose's
+// planned time. No dialog — the toast's Undo restores exactly those doses.
+async function _tlBulk(action, date) {
+    const pending = (_medsTimelineState.rows || []).filter((r) => r.localDate === date && (r.state === 'due' || r.state === 'snoozed'));
+    if (!pending.length) return false;
+    const batches = [];
+    if (action === 'take') {
+        const byPlanned = new Map();
+        pending.forEach((r) => {
+            if (!byPlanned.has(r.plannedAt)) byPlanned.set(r.plannedAt, []);
+            byPlanned.get(r.plannedAt).push(r.occId);
+        });
+        byPlanned.forEach((occIds, takenAt) => batches.push({ occIds, takenAt }));
+    } else {
+        batches.push({ occIds: pending.map((r) => r.occId) });
+    }
+    if (!await _tlAct(action, batches)) return false;
+    const n = pending.length;
+    const occIds = pending.map((r) => r.occId);
+    safeToast(`${n} dose${n === 1 ? '' : 's'} ${action === 'take' ? 'marked taken' : 'skipped'}`, 'success', {
+        detail: _tlDayName(date),
+        action: { label: 'Undo', onClick: () => _tlAct('undo', [{ occIds }]) },
+        duration: 8000,
+    });
+    return true;
+}
+
+function _tlBulkActions(date) {
+    const bar = _medsEl('div', 'wg-hstack wg-timeline__bulk');
+    const take = _medsEl('button', 'wg-btn wg-btn--sm wg-spacer');
+    take.type = 'button';
+    take.append(_medsIcon('check', 'wg-ico--sm'), 'Mark all taken');
+    take.addEventListener('click', () => _tlBulk('take', date));
+    const skip = _medsEl('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-spacer', 'Skip all');
+    skip.type = 'button';
+    skip.addEventListener('click', () => _tlBulk('skip', date));
+    bar.append(take, skip);
+    return bar;
 }
 
 function _tlHead(text, { tag = 'eyebrow', dot = false, meta } = {}) {
@@ -638,14 +826,12 @@ function _tlTomorrowSection(groups, ctx) {
     return section;
 }
 
-function _tlBlock(section, label, groups, ctx, meta) {
+function _tlBlock(section, label, groups, ctx, meta, bulkDate) {
     if (!groups.length) return;
     section.appendChild(_tlHead(label, { tag: 'label', meta }));
+    if (bulkDate) section.appendChild(_tlBulkActions(bulkDate));
     section.appendChild(_tlList(groups, ctx));
 }
-
-const _tlIsPending = (g) => g.state === 'due' || g.state === 'snoozed';
-const _tlIsDone = (g) => g.state === 'taken' || g.state === 'skipped';
 
 function _tlTodaySection(groups, ctx) {
     const section = _medsEl('section', 'wg-section wg-timeline__day wg-timeline__today');
@@ -682,7 +868,7 @@ function _tlTodaySection(groups, ctx) {
     _tlBlock(section, 'Pending', pending, ctx);
     Array.from(earlier.keys()).sort().reverse().forEach((date) => {
         const days = Math.round((_tlDayMs(ctx.todayDate) - _tlDayMs(date)) / 86400000);
-        _tlBlock(section, _tlDayName(date), earlier.get(date), ctx, days === 1 ? 'Yesterday' : `${days} days ago`);
+        _tlBlock(section, _tlDayName(date), earlier.get(date), ctx, days === 1 ? 'Yesterday' : `${days} days ago`, date);
     });
     _tlBlock(section, 'Done', done, ctx);
     if (!next.length && !pending.length && !earlier.size && !done.length) {
@@ -702,6 +888,7 @@ function _tlPastSection(date) {
     section.dataset.localDate = date;
     const label = date === _tlShiftDate(ctx.todayDate, -1) ? `Yesterday · ${_tlDayName(date)}` : _tlDayName(date);
     section.appendChild(_tlHead(label, { meta: pending ? `${pending} pending` : `${taken} of ${occ.length} taken` }));
+    if (pending) section.appendChild(_tlBulkActions(date));
     section.appendChild(_tlList(groups, ctx));
     return section;
 }
@@ -767,6 +954,7 @@ function renderTimeline({ anchor = false } = {}) {
     const ctx = { tz, deviceTz, nowMs, todayDate: _tlDatePart(nowMs, tz), medById: new Map(meds.map((m) => [String(m.id), m])) };
     const groups = _tlGroups(rows);
 
+    if (state.outOfDate) list.appendChild(_tlOutOfDateNote(state.outOfDate, ctx));
     const tomorrowDate = _tlShiftDate(ctx.todayDate, 1);
     const tomorrow = groups.filter((g) => g.localDate === tomorrowDate && g.state === 'upcoming');
     if (tomorrow.length) list.appendChild(_tlTomorrowSection(tomorrow, ctx));
@@ -784,16 +972,54 @@ function renderTimeline({ anchor = false } = {}) {
     if (anchor) state.pastShown = MEDS_TIMELINE_PAGE_DAYS;
     _tlAppendPast(list);
 
-    // Land on Today, with Tomorrow just above it.
-    if (anchor && typeof todaySection.scrollIntoView === 'function') todaySection.scrollIntoView({ block: 'start' });
+    // Land on Today, with Tomorrow just above it — or, under an MT6 note, on
+    // that med's first pending row in Today, else its first row (nothing
+    // selected).
+    const medId = state.outOfDate && state.outOfDate.medId;
+    const medRows = medId ? Array.from(todaySection.querySelectorAll('.wg-timeline__row'))
+        .filter((r) => r.dataset.medIds.split(' ').includes(medId)) : [];
+    const medRow = medRows.find((r) => r.dataset.state === 'due' || r.dataset.state === 'snoozed') || medRows[0];
+    const target = medRow || todaySection;
+    if (anchor && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: medRow ? 'center' : 'start' });
     syncMedsAddButton();
+}
+
+// MT6: a reminder tap that no longer matches a dose. Quotes the reminder's
+// own time and zone; picks nothing, logs nothing — the user taps the row.
+function _tlOutOfDateNote(info, ctx) {
+    const tz = info.tz || ctx.tz;
+    const note = _medsEl('div', 'wg-note wg-note--warn wg-timeline__stale');
+    note.appendChild(_medsIcon('bell'));
+    const body = _medsEl('div', 'wg-note__body');
+    const text = _medsEl('span');
+    text.append(_medsEl('b', '', `Reminder for ${_tlClock(info.scheduled, tz)} ${_tlZoneCity(tz)} is out of date.`), ' Pick the dose you mean.');
+    const dismiss = _medsEl('button', 'wg-btn wg-btn--ghost wg-btn--sm', 'Dismiss');
+    dismiss.type = 'button';
+    dismiss.addEventListener('click', () => {
+        _medsTimelineState.outOfDate = null;
+        note.remove();
+    });
+    body.append(text, dismiss);
+    note.appendChild(body);
+    return note;
+}
+
+// The landing an out-of-date reminder tap deep-links to (bd med-wi09.4):
+// Meds → Timeline under the MT6 note, scrolled to the med. {medId, scheduled
+// (the reminder's ISO instant), tz (the zone it was planned in)}.
+function showMedsReminderOutOfDate({ medId, scheduled, tz } = {}) {
+    _medsTimelineState.outOfDate = { medId: String(medId), scheduled, tz };
+    switchTab('meds');
+    switchMedTab('timeline');
 }
 
 // Timeline loader (switchMedTab / reloadCurrentTab / refreshMedsAfterMutation).
 // One projection read from the start of the ledger through tomorrow: pending
 // never expires, so Today's Pending needs every due row however old, and in
 // cloud mode the read is a local shim call. Resolves the rows (null when the
-// route did not answer).
+// route did not answer). Cached under MEDS_TIMELINE_KEY: while a write's
+// optimistic flip is pending fetchFresh yields null and the flipped rows are
+// read back instead of the pre-write projection.
 // ponytail: one full-ledger read, paged only in rendering; window the fetch by
 // localDate if vaults grow past ~10k intakes.
 async function loadTimeline({ anchor = false } = {}) {
@@ -808,9 +1034,11 @@ async function loadTimeline({ anchor = false } = {}) {
     }
     if (!Array.isArray(medications) || medications.length === 0) await loadMeds();
     const toIso = new Date(Date.now() + 2 * 86400000).toISOString();
-    const rows = await Promise.resolve()
+    const fetchRows = () => Promise.resolve()
         .then(() => apiCall(`/api/doses?from=${new Date(0).toISOString()}&to=${toIso}`))
         .catch(() => null);
+    let rows = await window.DataStore.fetchFresh(MEDS_TIMELINE_KEY, fetchRows, ['history']).catch(() => null);
+    if (!Array.isArray(rows)) rows = await window.DataStore.getCached(MEDS_TIMELINE_KEY).catch(() => null);
     if (!Array.isArray(rows)) {
         if (_medsTimelineState.rows === null) {
             list.replaceChildren(createOfflineEmptyState());
@@ -1477,15 +1705,25 @@ function _syncMedConfirmPrimary(mode) {
     const actionBtn = document.getElementById('med-confirm-action-btn');
     if (!actionBtn) return;
     actionBtn.replaceChildren(MED_CONFIRM_PRIMARY[mode] || MED_CONFIRM_PRIMARY.confirm);
-    if (mode !== 'confirm') return;
+    // Edit counts only a group ("Update 2", MT3 · group).
+    if (mode === 'log_past' || (mode === 'edit' && document.querySelectorAll('#med-confirm-list .med-confirm-check').length < 2)) return;
     const n = document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]').length;
     actionBtn.append(' ', _medsEl('span', 'wg-btn__count', String(n)));
 }
 
-function _buildMedConfirmChoice(index, name, med, mode) {
+// Edit mode's "This dose was" segment (MT3): the time row shows only for Taken.
+function _setMedConfirmTarget(target) {
+    document.querySelectorAll('#med-confirm-state [data-dose-state]').forEach((opt) => {
+        opt.setAttribute('aria-pressed', opt.dataset.doseState === target ? 'true' : 'false');
+    });
+    document.getElementById('med-confirm-time-edit').classList.toggle('hidden', target !== 'taken');
+}
+
+function _buildMedConfirmChoice(index, name, med, mode, state) {
     const btn = _medsEl('button', 'wg-choice wg-choice--check med-confirm-check');
     btn.type = 'button';
     btn.dataset.index = String(index);
+    if (state) btn.dataset.state = state;
     btn.setAttribute('aria-pressed', 'true');
     const label = _medsEl('span', '', name);
     if (med && med.dosage) label.appendChild(_medsEl('span', 'wg-choice__sub', med.dosage));
@@ -1507,7 +1745,9 @@ function _buildMedConfirmChoice(index, name, med, mode) {
 
 // Every confirm acts only on the sheet's own checked doses by explicit occId
 // (bd med-wi09.2); an unchecked or absent slot-mate is never touched.
-function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {
+// states (edit mode): each dose's current projection state, index-aligned —
+// the segment starts on the first one's (default taken).
+function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = [], states = []) {
     window.PushModalState.openMedConfirm({
         ids,
         names,
@@ -1567,8 +1807,15 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     const medById = new Map((Array.isArray(medications) ? medications : []).map((m) => [String(m.id), m]));
     const list = document.getElementById('med-confirm-list');
     list.replaceChildren(...ids.map((id, index) => _buildMedConfirmChoice(
-        index, names[index] || ('Medication ' + id), medById.get(String(id)), mode)));
+        index, names[index] || ('Medication ' + id), medById.get(String(id)), mode, states[index])));
     _syncMedConfirmPrimary(mode);
+
+    document.getElementById('med-confirm-state').classList.toggle('hidden', mode !== 'edit');
+    document.querySelectorAll('#med-confirm-state [data-dose-state]').forEach((opt) => {
+        opt.onclick = () => _setMedConfirmTarget(opt.dataset.doseState);
+    });
+    const first = states[0] === 'due' || states[0] === 'snoozed' ? 'pending' : states[0];
+    _setMedConfirmTarget(mode === 'edit' ? (first || 'taken') : 'taken');
 }
 
 // The "Time taken" value row opens the hidden datetime picker (app.js binds).

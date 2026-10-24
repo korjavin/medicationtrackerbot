@@ -811,9 +811,9 @@ function handlePushAction(action, params) {
 
 // showMedicationConfirmModal() moved to features/meds.js (Phase 5 Task 1)
 
-// closeMedicationConfirmModal, the optimistic history-cache helpers
-// (_applyOptimisticHistoryFlip / _applyOptimisticNextIntakeClear /
-// _applyOptimisticHistoryAdd / _commit/_rollbackOptimistic), and the
+// closeMedicationConfirmModal, the optimistic cache helpers
+// (_applyOptimisticNextIntakeClear / _applyOptimisticDueClear /
+// _commit/_rollbackOptimistic), and the
 // confirm/skip/edit/log-past handlers (confirmSelectedMedications,
 // skipSelectedMedications, updateIntakeHistory, confirmLogPast,
 // snoozeMedicationConfirm) moved to features/meds-history.js (Plan
