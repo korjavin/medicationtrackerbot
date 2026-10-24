@@ -1226,7 +1226,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('43 records on this phone');
                 expect([...sheet.querySelectorAll('[data-invite-facts] li b')].map((b) => b.textContent))
                     .toEqual(['A copy off this phone', 'Only you can open it', 'Your records on every device', 'Open it in any browser']);
-                requestAct(document, 'close').click();
+                // No header ×: Not now is the one close (Iris, PR #1346).
+                expect(requestAct(document, 'close')).toBeNull();
+                requestAct(document, 'not-now').click();
                 expect(requestSheet(document)).toBeNull();
             });
 
@@ -1236,7 +1238,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 const { document } = env;
                 expect(sheet.textContent).toMatch(/Request an invite/);
                 // IM2 (bd med-er5x): what an account adds, every device first,
-                // then the corrected hint, the form and the batches fine print.
+                // then the corrected hint, the form and the fine print, which is
+                // the request's privacy statement (what we get) + the batches line.
                 expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('Sync');
                 const facts = [...sheet.querySelectorAll('[data-invite-facts] li')].map((li) => li.textContent);
                 expect(facts).toEqual([
@@ -1248,7 +1251,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(sheet.querySelector('[data-invite-facts] + .wg-hint').textContent)
                     .toBe('Telegram, AI-assistant connectors and sharing need an account too. Everything else works on this phone.');
                 expect(sheet.querySelector('.wg-sheet__body .wg-shell__fine').textContent)
-                    .toBe("Invites go out in small batches. We'll write to this address when yours is ready.");
+                    .toBe("We get your email and note, nothing from your records. Invites go out in small batches; we'll write to this address when yours is ready.");
                 expect(sheet.textContent).not.toMatch(/Sync is invite-only for now/);
                 expect(document.getElementById('invite-request-note').maxLength).toBe(500);
                 const before = fetched.length;

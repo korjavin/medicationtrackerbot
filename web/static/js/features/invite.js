@@ -727,7 +727,8 @@
     var PRIVATE_FACT = ['lock', 'Only you can open it', "Encrypted on your device before it syncs. We store it but can't read it."];
     var BROWSER_FACT = ['globe', 'Open it in any browser', 'On a laptop or a work computer, whenever you need it.'];
     var ACCOUNT_HINT = 'Telegram, AI-assistant connectors and sharing need an account too. Everything else works on this phone.';
-    var REQUEST_FINE = "Invites go out in small batches. We'll write to this address when yours is ready.";
+    // The request's privacy statement (Iris, PR #1346): must stay visible.
+    var REQUEST_FINE = "We get your email and note, nothing from your records. Invites go out in small batches; we'll write to this address when yours is ready.";
 
     // The shell's bridge (native/index.js) when it can POST to its base.
     function shellNativeBridge() {
@@ -772,8 +773,7 @@
         var backdrop = el('div', 'mt-confirm-backdrop wg-sheet-backdrop');
         var head = window.WGSheet.header({
             eyebrow: opts.eyebrow || 'Sync',
-            title: 'Request an invite',
-            actions: [{ label: 'Close', icon: 'x', attrs: { 'data-invite-action': 'close' } }],
+            title: 'Request an invite', // no ×: Not now closes (Iris, PR #1346)
         });
         var body = el('div', 'wg-sheet__body');
         // Every device leads; from the W4 loss prompt (opts.lead 'copy') the
@@ -904,7 +904,6 @@
         email.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') { e.preventDefault(); submit(); }
         });
-        head.buttons[0].addEventListener('click', close);
         notNow.addEventListener('click', close);
         backdrop.addEventListener('click', close);
         document.addEventListener('keydown', onKeydown, true);
