@@ -164,7 +164,10 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   `created_at`), `medication_id` (number → medication.id), `schedule`,
   `tz_shift_policy`, `from` (RFC3339, when it took effect), and on an edit row
   (not `base`) `boundary` (bd med-wi09.10, see **boundary** under `tz`; absent on
-  rows written before it). Exported in effective
+  rows written before it). An archive/unarchive writes a row too (bd
+  med-wi09.12) carrying `archived` (boolean, the state from `from` on);
+  doses are derived, so these rows are what keep an archived med's days
+  empty. Absent on every other row. Exported in effective
   order (`from`, then `id`). Import keeps the id; an id without the
   `medsched-` prefix fails the import before the wipe.
 

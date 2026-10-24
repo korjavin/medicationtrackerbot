@@ -5,7 +5,7 @@
 // acceptance list from epic med-wi09 Phase 2 (b).
 import { describe, expect, it } from 'vitest';
 import {
-    boundary, transitionPreview, lineageTable, applyLineage
+    boundary, transitionPreview, lineageTable, applyLineage, regenerate
 } from '../../../domain/lineage.js';
 import { localWallToUtcMs, localDateTimeParts } from '../../../domain/medschedule.js';
 import { projectOccurrences } from '../../../domain/medintake.js';
@@ -302,5 +302,22 @@ describe('writers store the boundary at the change', () => {
         await meds.update(1, { name: 'Metformin', dosage: '500mg', schedule: daily('20:00') });
         const edit = (await records.list('medsched')).find((r) => !r.recordId.endsWith('-base'));
         expect(edit.boundary[0].replacement[id('2026-07-01T08:00:00Z')]).toBe(id('2026-07-01T20:00:00Z'));
+    });
+});
+
+// bd med-wi09.12 (codex review): a window that starts after a switch still
+// regenerates the old-generation dose that switch KEPT past it.
+describe('regenerate() — kept doses from a switch before the window', () => {
+    const H = 3600000;
+    const day = Date.UTC(2026, 9, 20);
+    const sw = day + 6 * H;
+    const keptId = `intake-1-${(day + 8 * H) / 1000}`;
+    const med = { recordId: 1, schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }), tz_shift_policy: 'flexible', created_at: '2026-10-01T00:00:00Z' };
+    const transitions = [{ recordId: 't', switch_at: new Date(sw).toISOString(), old_tz: 'UTC', new_tz: 'Europe/Moscow', boundary: [{ kept: [keptId] }] }];
+    const ids = (fromMs, nowMs) => regenerate({ medications: [med], transitions, timeZone: 'UTC', fromMs, toMs: day + 24 * H, nowMs }).map((o) => o.occId);
+
+    it('lists it from a window starting at the switch, and not from one after it', () => {
+        expect(ids(sw, day + 6.5 * H)).toContain(keptId);
+        expect(ids(day + 9 * H, day + 20 * H)).not.toContain(keptId);
     });
 });

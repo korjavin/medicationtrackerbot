@@ -13,6 +13,7 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { projectOccurrences } from './medintake.js';
+import { lineageTable, regenerate } from './lineage.js';
 import {
   minDoseIntervalMs, localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
@@ -492,7 +493,7 @@ export function computeReminderHorizon({
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
   workoutStatus = { enabled: false }, weighInPushText = null, weighInPausedWeeks = [],
-  trackers = [], trackerLogs = [],
+  trackers = [], trackerLogs = [], scheds = [], transitions = [],
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [String(m.recordId ?? m.id), m])); // String keys: med-wi09.16
@@ -504,9 +505,13 @@ export function computeReminderHorizon({
   // app does not show. The projection already hides a tombstoned slot (a dose
   // deleted on purpose: deleteFutureIntakes, or medications.js's
   // cancelPendingIntakesForMedication on archive — bd med-x7x2), which is why
-  // `intakes` must arrive RAW.
+  // `intakes` must arrive RAW. History (`scheds` / `transitions`, bd
+  // med-wi09.12) adds the old-generation doses a boundary kept past a switch —
+  // no stored row carries them any more — and hides the slots it cancelled.
   const targets = projectOccurrences({
     medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
+    lineage: lineageTable([...transitions, ...scheds]),
+    regenerated: regenerate({ medications: meds, scheds, transitions, timeZone, fromMs: now, toMs: now + FORECAST_DAYS * 86400000, nowMs: now, tzPlan }),
   // medById holds live, unarchived meds only: a stored future row of a deleted
   // or archived med is history, not a nag.
   }).filter((r) => r.state === 'upcoming' && medById.has(String(r.medId)))
@@ -869,10 +874,12 @@ export function createRemindersDomain({ records, now }) {
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
     weighInPushText = null, weighInPausedWeeks = [], trackers = [], trackerLogs = [],
   }) {
-    const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
+    const [{ enabled }, bpStatus, weightStatus, scheds, transitions] = await Promise.all([
       getStatus(),
       getBPStatus(),
       getWeightStatus(),
+      records.list('medsched'),
+      records.list('tztransition'),
     ]);
     const workoutStatus = { enabled: !!workoutEnabled };
 
@@ -889,6 +896,8 @@ export function createRemindersDomain({ records, now }) {
     return computeReminderHorizon({
       medications: medsToPass,
       intakes: intakesToPass,
+      scheds,
+      transitions,
       bps,
       weights,
       workoutGroups,

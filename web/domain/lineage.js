@@ -311,11 +311,31 @@ export function regenerate({
   for (const r of [...tr, ...sc]) {
     for (const e of Array.isArray(r.boundary) ? r.boundary : []) for (const id of e.kept || []) kept.add(id);
   }
+  // Segments start one window early: a kept old-generation instant inside
+  // [fromMs, end] can come from a switch up to the window before fromMs, and
+  // only the pre-switch generation enumerates it.
+  const start = fromMs - LINEAGE_WINDOW_MS;
   const changes = [...tr.map((r) => Date.parse(r.switch_at)), ...sc.map((r) => Date.parse(r.from))]
-    .filter((t) => t > fromMs && t <= end);
-  const bounds = [fromMs, ...[...new Set(changes)].sort((a, b) => a - b), end + 1];
+    .filter((t) => t > start && t <= end);
+  const bounds = [start, ...[...new Set(changes)].sort((a, b) => a - b), end + 1];
   const lastAt = (rows, key, at) => rows.filter((r) => Date.parse(r[key]) <= at).pop();
   const createdMs = new Map(medications.map((m) => [String(m.recordId ?? m.id), m.created_at ? Date.parse(m.created_at) : -Infinity]));
+  // Archiving (medications.js writes a medsched row with `archived` at each
+  // flip) cancels every open dose of the med, as the old archive path
+  // tombstoned every PENDING row, and nothing is due while archived. A
+  // regenerated occurrence is open by definition (a stored row would occupy
+  // its id), so: dropped when the med is archived at its instant or archived
+  // again later. A med archived before these rows existed has none: all of
+  // its occurrences go while it stays archived.
+  const archiveRows = new Map(medications.map((m) => [String(m.recordId ?? m.id),
+    sc.filter((h) => sameMed(h.medication_id, m.recordId ?? m.id) && typeof h.archived === 'boolean')]));
+  const archivedFor = new Map(medications.map((m) => [String(m.recordId ?? m.id), !!m.archived]));
+  const cancelledByArchive = (o) => {
+    const rows = archiveRows.get(String(o.medId)) || [];
+    if (rows.length === 0) return archivedFor.get(String(o.medId)) === true;
+    const at = lastAt(rows, 'from', o.at);
+    return (at && at.archived) || rows.some((h) => h.archived && Date.parse(h.from) > o.at);
+  };
   const out = new Map();
   for (let s = 0; s < bounds.length - 1; s++) {
     const [a, b] = [bounds[s], bounds[s + 1]];
@@ -335,8 +355,8 @@ export function regenerate({
     };
     for (const o of occurrences(gen, a, Math.min(b - 1 + LINEAGE_WINDOW_MS, end))) {
       const inSegment = o.at < b && o.at <= nowMs;
-      if (!(inSegment || kept.has(o.occId)) || out.has(o.occId)) continue;
-      if (o.at < (createdMs.get(String(o.medId)) ?? -Infinity)) continue;
+      if (o.at < fromMs || !(inSegment || kept.has(o.occId)) || out.has(o.occId)) continue;
+      if (o.at < (createdMs.get(String(o.medId)) ?? -Infinity) || cancelledByArchive(o)) continue;
       out.set(o.occId, o);
     }
   }

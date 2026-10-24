@@ -316,6 +316,19 @@ export function createMedicationsDomain({
       });
       await records.put(MEDSCHED_RECORD_TYPE, medschedRecord(existing.recordId, updated, new Date(nowMs).toISOString(), nowMs, undefined, lineage));
     }
+    if (archived !== !!existing.archived) {
+      // The archive flip is history too (bd med-wi09.12): doses are derived,
+      // so this row — not a tombstone per stored dose — is what cancels the
+      // open ones and keeps the archived days empty (lineage.js regenerate).
+      // Un-archiving a med archived before these rows existed first records
+      // that archive, at the med's last write.
+      const own = (await records.list(MEDSCHED_RECORD_TYPE)).filter((h) => String(h.medication_id) === String(existing.recordId));
+      if (!archived && !own.some((h) => h.archived === true)) {
+        const atMs = Number.isFinite(existing.clientTs) && existing.clientTs > 0 ? Math.min(existing.clientTs, nowMs - 1) : 0;
+        await records.put(MEDSCHED_RECORD_TYPE, { ...medschedRecord(existing.recordId, existing, new Date(atMs).toISOString(), nowMs, undefined), archived: true });
+      }
+      await records.put(MEDSCHED_RECORD_TYPE, { ...medschedRecord(existing.recordId, updated, new Date(nowMs).toISOString(), nowMs, undefined), archived });
+    }
 
     const warning = archived ? '' : await computeWarning(rxcui);
     return { status: 'updated', warning };

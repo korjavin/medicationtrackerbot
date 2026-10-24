@@ -636,6 +636,22 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         expect(await records.list('intake')).toEqual([]);
     });
 
+    // codex review: with no PENDING rows to tombstone, the archive flip itself
+    // (a medsched row) must cancel the open doses and keep archived days empty.
+    it('archiving cancels the open derived doses and un-archiving brings none of them back', async () => {
+        open({ medication: [med()], ledgercut: [cutRow(day(18, 0))] }, day(19, 12));
+        const body = (archived) => ({
+            name: 'Metformin', dosage: '500mg', schedule: DAILY('08:00'), tz_shift_policy: 'flexible', inventory_count: 30, archived
+        });
+        await env.window.apiCall('/api/medications/7', 'POST', body(true));
+        nowMs = day(21, 12);
+        await env.window.apiCall('/api/medications/7', 'POST', body(false));
+
+        nowMs = day(21, 13);
+        expect(shape(await doses(day(18, 0), day(22, 10)))).toEqual([[iso(day(22, 8)), 'upcoming']]);
+        expect(await env.records.list('intake')).toEqual([]);
+    });
+
     it('a Telegram confirm and an in-app take of the same regenerated dose land on one id', async () => {
         const SLOT_MS = day(18, 8);
         const seed = () => ({ medication: [med()], ledgercut: [cutRow(day(18, 0))] });
