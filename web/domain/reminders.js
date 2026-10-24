@@ -13,8 +13,9 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { projectOccurrences } from './medintake.js';
+import { lineageTable, regenerateWindow } from './lineage.js';
 import {
-  minDoseIntervalMs, localWallToUtcMs, localDateParts,
+  localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
 } from './medschedule.js';
 import { trackerDayTotals } from './trackers.js';
@@ -492,7 +493,7 @@ export function computeReminderHorizon({
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
   workoutStatus = { enabled: false }, weighInPushText = null, weighInPausedWeeks = [],
-  trackers = [], trackerLogs = [],
+  trackers = [], trackerLogs = [], scheds = [], transitions = [], cutMs = null,
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [String(m.recordId ?? m.id), m])); // String keys: med-wi09.16
@@ -504,42 +505,27 @@ export function computeReminderHorizon({
   // app does not show. The projection already hides a tombstoned slot (a dose
   // deleted on purpose: deleteFutureIntakes, or medications.js's
   // cancelPendingIntakesForMedication on archive — bd med-x7x2), which is why
-  // `intakes` must arrive RAW.
+  // `intakes` must arrive RAW. History (`scheds` / `transitions`, bd
+  // med-wi09.12) adds the old-generation doses a boundary kept past a switch —
+  // no stored row carries them any more — and hides the slots it cancelled.
+  const { occurrences: regenerated } = regenerateWindow({
+    medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs, fromMs: now, toMs: now + FORECAST_DAYS * 86400000, nowMs: now,
+  });
   const targets = projectOccurrences({
     medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
+    lineage: lineageTable([...transitions, ...scheds]),
+    regenerated,
+    cutMs,
   // medById holds live, unarchived meds only: a stored future row of a deleted
   // or archived med is history, not a nag.
+  // A dose already handled (taken early, skipped) has its evidence at its own
+  // id, so the projection lists it as taken/skipped, not upcoming: the
+  // projection is the only rule here — no ±band (bd med-wi09.12).
   }).filter((r) => r.state === 'upcoming' && medById.has(String(r.medId)))
     .map((r) => ({ medicationId: r.medId, medName: r.name, scheduledAtMs: Date.parse(r.plannedAt) }));
-  // A dose the user already confirmed early (via trigger-next-intake) or
-  // skipped must not resurface as a "Time to take" push. Mirrors the server
-  // scheduler's dedup, which skips a normal target already covered by a
-  // handled intake (internal/scheduler/medication.go): an exact-slot match
-  // plus the symmetric ±minDoseInterval band (same rule as medintake.js's
-  // materializeDueDoses / HasIntakeNearScheduledTime), so a schedule edit or
-  // tz-plan shift that moves the forecast target near — but not exactly onto —
-  // an already-handled intake still suppresses the duplicate push.
-  const handledByMed = new Map();
-  for (const intake of intakes) {
-    if (intake.deleted) continue;
-    if (intake.status === 'TAKEN' || intake.status === 'SKIPPED') {
-      const list = handledByMed.get(String(intake.medication_id)) || [];
-      list.push(Date.parse(intake.scheduled_at));
-      handledByMed.set(String(intake.medication_id), list);
-    }
-  }
-  // The ±band is suppression only (it avoids a nag) — actions never guess.
-  const isHandled = (t, med) => {
-    const handled = handledByMed.get(String(t.medicationId));
-    if (!handled) return false;
-    // bandMs === 0 (as_needed / unparseable) collapses to exact-slot equality.
-    const bandMs = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
-    return handled.some((ms) => Math.abs(ms - t.scheduledAtMs) <= bandMs);
-  };
   const bySlot = new Map();
   for (const t of targets) {
     const med = medById.get(String(t.medicationId));
-    if (isHandled(t, med)) continue;
     const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };
     slot.names.push(med ? medDisplayName(med) : t.medName);
     // Carry the identity of every med the reminder names for this slot so
@@ -869,11 +855,18 @@ export function createRemindersDomain({ records, now }) {
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
     weighInPushText = null, weighInPausedWeeks = [], trackers = [], trackerLogs = [],
   }) {
-    const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
+    const [{ enabled }, bpStatus, weightStatus, scheds, transitions, cuts] = await Promise.all([
       getStatus(),
       getBPStatus(),
       getWeightStatus(),
+      records.list('medsched'),
+      records.list('tztransition'),
+      records.list('ledgercut'),
     ]);
+    // The ledger cut (medintake.js LEDGERCUT_RECORD_*): the same cut the app's
+    // projection reads, so a post-cut orphan PENDING row hides here too.
+    const cut = cuts.find((r) => !r.deleted && r.recordId === 'ledgercut');
+    const cutMs = cut && Number.isFinite(Date.parse(cut.at)) ? Date.parse(cut.at) : null;
     const workoutStatus = { enabled: !!workoutEnabled };
 
     // We compute the horizon for everything enabled. If medication reminders are disabled,
@@ -889,6 +882,9 @@ export function createRemindersDomain({ records, now }) {
     return computeReminderHorizon({
       medications: medsToPass,
       intakes: intakesToPass,
+      scheds,
+      transitions,
+      cutMs,
       bps,
       weights,
       workoutGroups,

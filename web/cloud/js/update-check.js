@@ -122,6 +122,16 @@ async function activateAndReload(registration, win) {
     });
 }
 
+// The writer gate's 426 (bd med-wi09.12): start fetching the current build
+// the moment the "Update required" banner goes up, so by the time Reload is
+// tapped the new SW is installed (or installing) rather than first asked for.
+export async function fetchLatest(win = window) {
+    try {
+        const registration = await win.navigator?.serviceWorker?.getRegistration?.();
+        await registration?.update?.();
+    } catch { /* offline / no SW — Reload's own update() retries */ }
+}
+
 // The "Update required" banner's Reload (med-wi09.5): the same SW dance, so the
 // reload lands on the current build instead of the old SW's cached shell.
 export async function reloadToLatest(win = window) {

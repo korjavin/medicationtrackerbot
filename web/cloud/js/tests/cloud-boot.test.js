@@ -176,6 +176,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     vi.stubGlobal('document', dom.window.document);
     let drainOpts;
     let reloads = 0;
+    let fetched = 0;
     try {
       await runBoot({
         modules: {
@@ -188,13 +189,16 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
           },
           'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
           'mcp-responder.js': { refreshResponder: () => {} },
-          'update-check.js': { reloadToLatest: async () => { reloads++; } },
+          'update-check.js': { reloadToLatest: async () => { reloads++; }, fetchLatest: async () => { fetched++; } },
         },
       });
       await drainOpts.onUpdateRequired();
       await drainOpts.onUpdateRequired(); // the banner id dedupes repeat surfaces
       const banners = dom.window.document.querySelectorAll('#update-required-banner');
       expect(banners).toHaveLength(1);
+      // bd med-wi09.12: the SW is asked for the current build (registration.update())
+      // as the banner goes up — once, not per surface — before Reload is offered.
+      await vi.waitFor(() => expect(fetched).toBe(1));
       expect(banners[0].textContent).toContain('Update required — reload to keep syncing.');
       expect(banners[0].textContent).not.toMatch(/reset/i);
       const btn = banners[0].querySelector('button');

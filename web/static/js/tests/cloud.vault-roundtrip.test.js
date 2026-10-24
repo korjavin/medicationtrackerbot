@@ -66,6 +66,9 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const [, approved] = of('tztransition');
     expect(approved.recordId).toBe('tztransition-1777714200-b8n1x6te');
     expect(approved.steps[0]).toMatchObject({ medicationId: 1, scheduledAtMs: Date.parse('2026-05-03T08:00:00Z') });
+    // The lineage (bd med-wi09.10) rides verbatim on both history types.
+    expect(approved.boundary[0].replacement).toEqual({ 'intake-1-1777723200': 'intake-1-1777795200' });
+    expect(of('medsched')[1].boundary[0].cancelled).toEqual(['intake-1-1782028800']);
 
     const legacy = JSON.parse(JSON.stringify(fixture));
     delete legacy.data.medications.schedules;
@@ -229,6 +232,14 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       delete d.trackers;
       // So is the W4 nudge state (med-ta2n.4).
       delete d.protection;
+      // And the intake merge fields (med-wi09.11); a snoozed_at row's snooze
+      // is cloud-only state too.
+      // The UNTAKEN row (with note/conflict) has no bot counterpart at all.
+      d.medications.intakes = d.medications.intakes.filter((i) => i.status !== 'UNTAKEN');
+      for (const i of d.medications.intakes) {
+        if ('snoozed_at' in i) i.snoozed_until = null;
+        for (const k of ['rev', 'acted_at', 'via', 'tz', 'snoozed_at']) delete i[k];
+      }
       // And the schedule / zone history (med-wi09.9).
       delete d.medications.schedules;
       delete d.tz.transitions;
@@ -254,6 +265,20 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       return d;
     };
     expect(strip(back.data)).toEqual(strip(fixture.data));
+  });
+
+  it('carries the intake merge fields through: UNTAKEN, the undo note and a conflict flag (med-wi09.11)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const untaken = records.find((r) => r.recordType === 'intake' && r.status === 'UNTAKEN');
+    expect(untaken).toMatchObject({
+      recordId: `intake-1-${Date.parse('2026-07-06T19:00:00Z') / 1000}`,
+      rev: 2,
+      via: 'app',
+      note: expect.stringContaining('was taken at'),
+      conflict: { status: 'TAKEN', via: 'mcp' },
+    });
+    const back = recordsToVault(records, { now: NOW }).data.medications.intakes;
+    expect(back.find((i) => i.status === 'UNTAKEN')).toEqual(fixture.data.medications.intakes[0]);
   });
 
   it('mints deterministic recordIds for scheduled slots, sessions, rotations, and singletons', () => {

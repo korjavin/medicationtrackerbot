@@ -222,9 +222,9 @@ describe('cloud shim horizon — weekly digest entry', () => {
 });
 
 // bd med-x7x2 — a dose slot deliberately deleted leaves only a TOMBSTONE at
-// `intake-<medId>-<slotUnix>`, and materializeDueDoses never re-creates it
+// `intake-<medId>-<slotUnix>`, and the projection never regenerates over it
 // (putIfAbsent, bd med-j2ku). The horizon must read that as "no dose that
-// slot", not as "not materialized yet" — otherwise it keeps pushing "Time to
+// slot", not as "not regenerated yet" — otherwise it keeps pushing "Time to
 // take" for a dose the app no longer offers, and the Confirm on that push has
 // nothing to confirm. The intake twin of the workout-session case (bd med-w0fe).
 describe('cloud shim horizon — a tombstoned dose slot', () => {

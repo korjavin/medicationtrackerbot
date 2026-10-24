@@ -26,8 +26,9 @@
 // shape (medication_id, step_number, scheduled_at) — see toStepsResponse.
 import {
   parseSchedule, planDoses, targetInWindow, nominalIntervalHours, minDoseIntervalMs, maxDoseIntervalMs,
-  localDateTimeParts, historyRecordId,
+  localDateTimeParts, historyRecordId, localWallToUtcMs,
 } from './medschedule.js';
+import { boundary, transitionPreview } from './lineage.js';
 import { offsetMsAt } from './bp.js';
 import { createSettingsDomain } from './settings.js';
 
@@ -35,8 +36,9 @@ const TZPLAN_RECORD_TYPE = 'tzplan';
 const TZPLAN_RECORD_ID = 'tzplan-current';
 // History (bd med-wi09.9): one immutable tztransition-<switchSec>-<rand> per
 // zone change — old_tz, new_tz, switch_at (ISO), steps (the plan's, [] for a
-// flexible-only change), boundary (null until the lineage bead fills it).
-// tzplan-current stays the banner's handle; nothing reads these yet.
+// flexible-only change), boundary (lineage.js's per-med {medId, kept,
+// cancelled, replacement}, decided at the switch; null on rows written before
+// bd med-wi09.10). tzplan-current stays the banner's handle.
 export const TZTRANSITION_RECORD_TYPE = 'tztransition';
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -65,12 +67,6 @@ function lastTakenAtMs(medId, intakes) {
     if (max === null || t > max) max = t;
   }
   return max;
-}
-
-// Same two-pass DST refine as medschedule.js's localWallToUtcMs.
-function localWallToUtcMs(wallAsUtc, timeZone) {
-  const guess = wallAsUtc - offsetMsAt(wallAsUtc, timeZone);
-  return wallAsUtc - offsetMsAt(guess, timeZone);
 }
 
 function slotAt(year, month, day, hour, minute, timeZone) {
@@ -297,8 +293,8 @@ export function generatePlan({
 // inside the transition when the med still has a step at or after it. The two
 // rules agree in fire mode (every target is <= now, so any future step covers
 // them all), but in a forecast the once-against-`now` version dropped normal
-// doses that land AFTER the last step — the very doses materializeDueDoses
-// will happily create when that instant arrives, so the forecast under-
+// doses that land AFTER the last step — the very doses the projection
+// regenerates once that instant arrives, so the forecast under-
 // reported reality and the reminder horizon skipped a real dose. The plan
 // generator's hand-off guard (stepsForMedication → firstNormalDoseAfter) is
 // what keeps the gap between the last step and that resuming dose safe.
@@ -423,7 +419,22 @@ export function createTzPlanDomain({ records, now, timeZone }) {
   async function putPlanRecord(rec) {
     await records.put(TZPLAN_RECORD_TYPE, rec);
   }
-  // A user action (POST /api/settings, Apply), so a real now() stamp.
+  // The two generations either side of a zone change, for lineage.js: same
+  // schedules, old vs new zone, the plan's steps on the new side. Evidence is
+  // RAW (a tombstone is evidence).
+  async function lineageArgs(oldTz, newTz, nowMs, steps) {
+    const meds = await loadMeds();
+    const evidence = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await loadIntakes();
+    return {
+      oldGen: { timeZone: oldTz, medications: meds },
+      newGen: { timeZone: newTz, medications: meds, steps: Array.isArray(steps) ? steps : [] },
+      switchAt: nowMs,
+      evidence,
+    };
+  }
+
+  // A user action (POST /api/settings, Apply), so a real now() stamp. The
+  // boundary is decided here, once, and stored (bd med-wi09.10).
   async function recordTransition(oldTz, newTz, nowMs, steps) {
     await records.put(TZTRANSITION_RECORD_TYPE, {
       recordId: historyRecordId(TZTRANSITION_RECORD_TYPE, nowMs),
@@ -433,7 +444,7 @@ export function createTzPlanDomain({ records, now, timeZone }) {
       new_tz: newTz,
       switch_at: new Date(nowMs).toISOString(),
       steps: Array.isArray(steps) ? steps.map((s) => ({ ...s })) : [],
-      boundary: null,
+      boundary: boundary(await lineageArgs(oldTz, newTz, nowMs, steps)),
     });
   }
 
@@ -480,11 +491,14 @@ export function createTzPlanDomain({ records, now, timeZone }) {
     const { steps } = generatePlan({
       medications: meds, oldTz, newTz, now: nowMs, recentIntakes: intakes,
     });
+    // MT7's Before / After lists (bd med-wi09.10). The shim's /api/settings
+    // response does not carry it yet; the preview sheet will.
+    const preview = transitionPreview(await lineageArgs(oldTz, newTz, nowMs, steps));
 
     if (steps.length === 0) {
       await settings.setTimezone(newTz);
       await recordTransition(oldTz, newTz, nowMs, []);
-      return { changed: true, planCreated: false };
+      return { changed: true, planCreated: false, preview };
     }
 
     const createdAt = new Date(nowMs).toISOString();
@@ -501,6 +515,7 @@ export function createTzPlanDomain({ records, now, timeZone }) {
     return {
       changed: false,
       planCreated: true,
+      preview,
       plan: toPlanResponse({
         recordId: TZPLAN_RECORD_ID, old_tz: oldTz, new_tz: newTz, status: 'PENDING_APPROVAL', created_at: createdAt,
       }),
@@ -538,13 +553,14 @@ export function createTzPlanDomain({ records, now, timeZone }) {
 
   // Ported from handleGetCurrentTZPlan (GET /api/tz-plan/current).
   async function getCurrentPlan() {
+    await refreshPlanStatus();
     const plan = await getPlanRecord();
     return { plan: toPlanResponse(plan), steps: toStepsResponse(plan) };
   }
 
-  // Flips an APPROVED plan to COMPLETED once every step is in the past.
-  // Called by the shim's materialization timer alongside medintake's
-  // due-dose sweep (Task 5 wiring) — this module has no timer of its own.
+  // Flips an APPROVED plan to COMPLETED once every step is in the past. Run
+  // on read by getCurrentPlan (the banner's fetch) — the shim's 60 s sweep
+  // that used to call it went with the dose materializer (bd med-wi09.12).
   async function refreshPlanStatus() {
     const plan = await getPlanRecord();
     if (!plan || plan.status !== 'APPROVED') return;
