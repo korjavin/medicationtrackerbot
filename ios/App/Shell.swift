@@ -10,7 +10,7 @@ import WebKit
 /// med-o7zq.4) puts the same web view on the bundled app at wgapp://local/
 /// instead (LocalApp.swift): no account, data only in that origin.
 @MainActor
-final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
+final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     static let hostKey = "wgAccountHost"
     /// Settings.bundle toggle (iOS Settings → Med Tracker → Switch account).
     static let forgetKey = "wgForgetAccount"
@@ -115,6 +115,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // Its presence is what makes web/static/js/native/index.js pick the 'ios' platform.
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgNative")
         webView.navigationDelegate = self
+        webView.uiDelegate = self // getUserMedia's permission only (bd med-r1j2.18)
         // The page sits between the native bands (RootView), so nothing scrolls
         // under the status bar and no white shows around it.
         webView.isOpaque = false
@@ -259,20 +260,22 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// native first run (bd med-ta2n.17). Plain: on home?invite=1, where the
     /// web offers "Have an invite?", with no way back. `thenLocal`
     /// (account.leave {then: "local"}, bd med-o7zq.34): on local home,
-    /// remembering the account for leave.clear {back}. Website data is kept:
+    /// remembering the account for leave.clear {back}. `.forgetLocal`
+    /// ({then: "local", forget: true}, bd med-r1j2.18): on local home, no way
+    /// back. Website data is kept:
     /// it is per origin, so returning to this account later still finds its
     /// data. The move stash is dropped: from local mode (Settings.bundle) a
     /// stale snapshot would bring deleted rows back into the next account.
-    func forget(thenLocal: Bool = false) {
+    func forget(_ to: LocalOrigin.Leave = .invite) {
         let defaults = UserDefaults.standard
-        if thenLocal, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
+        if to == .local, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
         else { defaults.removeObject(forKey: Shell.leaveHostKey) }
         defaults.removeObject(forKey: Shell.hostKey)
         defaults.set(true, forKey: LocalOrigin.modeKey)
         host = nil
         local = true
         move.clear() // local.didSet does too; this one is load-bearing
-        reopen(to: thenLocal ? nil : inviteHome)
+        reopen(to: to == .invite ? inviteHome : nil)
     }
 
     /// Runs at launch and whenever the app becomes active.
@@ -538,6 +541,22 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         if webView.url == nil { retry() } else { webView.reload() } // reload keeps the current URL and fragment
     }
 
+    // MARK: WKUIDelegate
+
+    /// getUserMedia (bd med-r1j2.18): the add-device scanner (/claim#scan, W5)
+    /// and the food scanner get the camera without WebKit's per-page prompt;
+    /// the decision is LocalOrigin.media.
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+        let own = LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host,
+                                    mainFrame: frame.isMainFrame, local: local, account: host)
+        switch LocalOrigin.media(cameraOnly: type == .camera, own: own && !concealed) {
+        case .grant: return .grant
+        case .prompt: return .prompt
+        case .deny: return .deny
+        }
+    }
+
     // MARK: wgChrome messages
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -558,10 +577,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // Only the account's own top-level page — in local mode only the
         // bundled app's — reaches native capabilities.
         let origin = message.frameInfo.securityOrigin
-        let mine = local
-            ? origin.protocol == LocalOrigin.scheme && origin.host.lowercased() == LocalOrigin.host
-            : origin.protocol == "https" && origin.host.lowercased() == host
-        guard message.frameInfo.isMainFrame, mine else {
+        guard LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host,
+                                mainFrame: message.frameInfo.isMainFrame, local: local, account: host) else {
             replyHandler(nil, "forbidden")
             return
         }
@@ -693,10 +710,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 // stay): {then: "local"} is Settings → Account "Use this iPhone
                 // without an account", onto local home with the way back (bd
                 // med-o7zq.34); no args (account deletion, the ceremony's "Not
-                // your account?") onto local home?invite=1, no way back.
+                // your account?") onto local home?invite=1, no way back;
+                // {then: "local", forget: true} (/unlock "Back to local mode",
+                // bd med-r1j2.18) onto local home, no way back.
                 replyHandler(true, nil)
-                forget(thenLocal: args["then"] as? String == "local")
+                forget(LocalOrigin.leave(args))
             }
+        // AD13 "Allow camera in Settings" (bd med-r1j2.18, twin of Android):
+        // {} → true, this app's page in iOS Settings.
+        case "app.openSettings":
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            replyHandler(true, nil)
         // The local → cloud move (bd med-o7zq.35, twin of Android med-nt9p.32.17):
         // the local page stashes its vault v1 JSON before local.leave; the new
         // account takes it and clears it once imported, so a failed import
