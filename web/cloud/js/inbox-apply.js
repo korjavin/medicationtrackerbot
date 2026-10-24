@@ -848,7 +848,8 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // vitals_import stops emitting one /api/sync/ops POST per record (med-0ol.2).
   const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true });
   const timeZone = defaultTimeZone();
-  const intake = createIntakeDomain({ records, now, timeZone });
+  // via telegram: confirm() here is the reminder callback (rev 0 -> 1 only).
+  const intake = createIntakeDomain({ records, now, timeZone, via: 'telegram' });
 
   // The /food chain mirrors apishim's createApiRouter: settings → foodDb → food →
   // aiClient → foodAI. All are pure over the ports the applier already has, so
@@ -884,7 +885,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // path with the app (med-vcv.2). Tests inject agentOverride to stub the loop.
   const agent = agentOverride || (() => {
     const settings = createSettingsDomain({ records, now, timeZone });
-    const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL });
+    const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram' });
     const dispatcher = createDispatcher({ router, now });
     const aiClient = createAIClient({ settingsDomain: settings });
     return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher, prefs, history });

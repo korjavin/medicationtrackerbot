@@ -24,11 +24,35 @@
       "intakes": [
         {
           "medication_id": 1,
+          "scheduled_at": "2026-07-06T19:00:00Z",
+          "taken_at": null,
+          "status": "UNTAKEN",
+          "snoozed_until": null,
+          "source": "schedule",
+          "rev": 2,
+          "acted_at": "2026-07-06T20:00:00Z",
+          "via": "app",
+          "tz": "Europe/Berlin",
+          "note": "Undone; was taken at 2026-07-06T19:05:00Z",
+          "conflict": {
+            "status": "TAKEN",
+            "taken_at": "2026-07-06T19:05:00Z",
+            "acted_at": "2026-07-06T19:30:00Z",
+            "via": "mcp"
+          }
+        },
+        {
+          "medication_id": 1,
           "scheduled_at": "2026-07-07T07:00:00Z",
           "taken_at": "2026-07-07T07:05:00Z",
           "status": "TAKEN",
-          "snoozed_until": null,
-          "source": "schedule"
+          "snoozed_until": "2026-07-07T07:10:00Z",
+          "source": "schedule",
+          "rev": 1,
+          "acted_at": "2026-07-07T07:05:00Z",
+          "via": "telegram",
+          "tz": "Europe/Berlin",
+          "snoozed_at": "2026-07-07T07:00:00Z"
         },
         {
           "medication_id": 1,
@@ -36,7 +60,11 @@
           "taken_at": "2026-07-08T15:32:00Z",
           "status": "TAKEN",
           "snoozed_until": null,
-          "source": "schedule"
+          "source": "schedule",
+          "rev": 1,
+          "acted_at": "2026-07-08T15:33:00Z",
+          "via": "app",
+          "tz": "Europe/Berlin"
         },
         {
           "medication_id": 1,

@@ -2340,7 +2340,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         push(schedMs, { status: 'skipped' });
       } else if (i.status === 'MISSED') {
         push(schedMs, { status: 'missed' });
-      } else if (i.status === 'PENDING') {
+      } else if (i.status === 'PENDING' || i.status === 'UNTAKEN') {
         const slot = slotOf(i);
         if (schedMs < nowMs && !resolved.has(slot) && !missedSlots.has(slot)) {
           missedSlots.add(slot);

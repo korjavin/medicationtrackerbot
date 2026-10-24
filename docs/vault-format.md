@@ -145,7 +145,12 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   (RFC3339|null), `source` (`schedule`|`tz_step`), plus `tz_plan_id` (number|absent →
   `tz.transition_plans[].id`) and `tz_step_number` (number|absent), set only when
   `source` is `tz_step` — such a dose that loses its plan link is permanently invisible
-  to every medication read. No stored `id`: scheduled intakes
+  to every medication read. Cloud merge fields (bd med-wi09.11, all optional — a row
+  without `rev` is legacy): `rev` (number), `acted_at` (RFC3339), `via`
+  (`app`|`mcp`|`telegram`|`native`), `tz` (IANA zone of the action), `snoozed_at`
+  (RFC3339), and on occasion `note` (str) and `conflict` (object); `status` may also be
+  `UNTAKEN` (an explicit undo, read as pending). See
+  [cloud-mode.md → Sync protocol](cloud-mode.md#sync-protocol). No stored `id`: scheduled intakes
   re-mint deterministically as `intake-<medId>-<slotUnixSeconds>` on cloud import
   (a non-`schedule` source is appended — `intake-<medId>-<slot>-tz_step` — since both
   legitimately share one slot);
@@ -685,7 +690,8 @@ Export → import → export (and each single hop) must be
 ## The golden fixture
 
 `tests/fixtures/vault-v1.json` is a small hand-curated vault exercising every domain,
-every deterministic-id case (scheduled + manual intake, tz transition plan, workout
+every deterministic-id case (scheduled + manual intake — plus an `UNTAKEN` intake
+carrying the merge fields, an undo `note` and a `conflict` flag, med-wi09.11 — tz transition plan, workout
 scheduled session + rotation), a vitals day-batch boundary (samples spanning two calendar
 days), an integrations key, two derived-slot tombstones (a deleted workout day +
 a deleted dose, med-jtaj), and a `protection` block (no backup, one old

@@ -214,7 +214,8 @@ export function createMedicationsDomain({
   async function cancelPendingIntakesForMedication(medId) {
     const intakes = await records.list(INTAKE_RECORD_TYPE);
     for (const intake of intakes) {
-      if (!intake.deleted && String(intake.medication_id) === String(medId) && intake.status === 'PENDING') {
+      if (!intake.deleted && String(intake.medication_id) === String(medId)
+        && (intake.status === 'PENDING' || intake.status === 'UNTAKEN')) {
         await records.del(INTAKE_RECORD_TYPE, intake.recordId);
       }
     }

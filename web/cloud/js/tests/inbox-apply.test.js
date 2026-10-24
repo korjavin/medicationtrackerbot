@@ -113,6 +113,26 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(meds.find((m) => m.recordId === 'med-b').inventory_count).toBe(19);
     });
 
+    // bd med-wi09.11 — a reminder callback only moves rev 0 -> 1. The tap is
+    // stamped rev 1 / via telegram; after an in-app undo (rev 2, UNTAKEN) a
+    // re-drained copy of the same tap changes nothing.
+    it('a callback writes rev 1 via telegram, and a re-drained tap never undoes an in-app undo', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const tg = createIntakeDomain({ records, now, timeZone: 'UTC', via: 'telegram' });
+        const tapA = medsNamed(confirmEvent, ['med-a']);
+        const id = `intake-med-a-${SLOT_UNIX}`;
+        await applyIntakeSlotAction(tapA, { intake: tg, records, now });
+        expect((await records.list('intake')).find((i) => i.recordId === id))
+            .toMatchObject({ status: 'TAKEN', rev: 1, via: 'telegram', tz: 'UTC' });
+
+        await domainFor(records, now).act({ occIds: [id], action: 'undo' });
+        await applyIntakeSlotAction(tapA, { intake: tg, records, now });
+        expect((await records.list('intake')).find((i) => i.recordId === id))
+            .toMatchObject({ status: 'UNTAKEN', rev: 2, via: 'app' });
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-a').inventory_count).toBe(30);
+    });
+
     // Two meds due at the same instant, seeded with a REAL schedule and NO
     // intake rows: materializeDueDoses mints them at drain, then Confirm must
     // record BOTH. (The empty-schedule seed above pre-materializes at the exact

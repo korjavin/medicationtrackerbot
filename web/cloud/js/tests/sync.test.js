@@ -3025,6 +3025,199 @@ describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () =
   });
 });
 
+// med-wi09.11 — intake rows merge by the semantic reducer (mergeIntake), not by
+// clientTs, on local writes, pulled ops and pending-vs-snapshot alike.
+describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)', () => {
+  const id = 'intake-1-1767225600';
+  const base = {
+    recordId: id, recordType: 'intake', deleted: false, medication_id: 1,
+    scheduled_at: '2026-01-01T00:00:00.000Z', snoozed_until: null, source: 'schedule',
+  };
+  const row = (fields) => ({ ...base, ...fields });
+  const TAP = row({ clientTs: 9000, status: 'TAKEN', taken_at: '2026-01-01T00:10:00.000Z', rev: 1, via: 'telegram', acted_at: '2026-01-01T04:00:00.000Z' });
+  const UNDO = row({ clientTs: 2000, status: 'UNTAKEN', taken_at: null, rev: 2, via: 'app', acted_at: '2026-01-01T01:00:00.000Z' });
+  const SKIP = row({ clientTs: 1000, status: 'SKIPPED', taken_at: null, rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
+
+  let ctx;
+  let pulledOps;
+  let seq;
+
+  const seed = async (records, pending = []) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta', 'pending'], 'readwrite');
+        for (const r of records) tx.objectStore('records').put(r);
+        for (const r of pending) tx.objectStore('pending').put({ recordId: r.recordId, recordType: r.recordType });
+        tx.objectStore('sync_meta').put(5, 'localLastSeq');
+        tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const getRaw = async (store = 'records', op = (s) => s.get(id)) => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = op(db.transaction(store, 'readonly').objectStore(store));
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const pull = async (record) => {
+    seq += 1;
+    const { recordType, ...body } = record;
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType, recordId: record.recordId, seq,
+      plaintext: new TextEncoder().encode(JSON.stringify(body)),
+    });
+    pulledOps.push({
+      seq, record_type_tag: `${recordType}:${record.recordId}`,
+      nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)),
+    });
+    await pullOnOpen(ctx);
+  };
+
+  // Device-independent: what one device ends with after holding `local` and
+  // pulling `incoming`.
+  const converge = async (local, incoming) => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    seq = 5;
+    await seed([local]);
+    await pull(incoming);
+    const out = await getRaw();
+    delete out.clientTs;
+    return out;
+  };
+
+  beforeEach(async () => {
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    pulledOps = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) {
+        const ops = pulledOps.splice(0, pulledOps.length);
+        return new Response(JSON.stringify({ ops, next: false }), { status: 200 });
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map(() => (seq += 1)) }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('a stale tap drained after a correction loses on both devices', async () => {
+    // Device A holds the undo and pulls the tap (newer clientTs, lower rev).
+    const a = await converge(UNDO, TAP);
+    // Device B drained the tap and pulls the undo (older clientTs).
+    const b = await converge(TAP, UNDO);
+    expect(a).toMatchObject({ status: 'UNTAKEN', rev: 2, via: 'app' });
+    expect(b).toEqual(a);
+  });
+
+  it('an equal-rev reminder callback vs an in-app Skip: Skip wins, whatever the order', async () => {
+    const tap = { ...TAP, clientTs: 500 };
+    const a = await converge(SKIP, tap);
+    const b = await converge(tap, SKIP);
+    expect(a.status).toBe('SKIPPED');
+    expect(b).toEqual(a);
+  });
+
+  it('two explicit equal-rev edits tie deterministically and the row is flagged', async () => {
+    const early = row({ clientTs: 7000, status: 'SKIPPED', taken_at: null, rev: 2, via: 'app', acted_at: '2026-01-01T02:00:00.000Z' });
+    const late = row({ clientTs: 3000, status: 'TAKEN', taken_at: '2026-01-01T00:20:00.000Z', rev: 2, via: 'mcp', acted_at: '2026-01-01T03:00:00.000Z' });
+    const a = await converge(early, late);
+    const b = await converge(late, early);
+    expect(a).toMatchObject({ status: 'TAKEN', via: 'mcp', conflict: { status: 'SKIPPED', via: 'app' } });
+    expect(b).toEqual(a);
+  });
+
+  it('two devices taking the same dose at equal rev converge with no conflict flag', async () => {
+    const take = (via, at) => row({ clientTs: 1, status: 'TAKEN', taken_at: `2026-01-01T0${at}:00:00.000Z`, rev: 1, via, acted_at: `2026-01-01T0${at}:00:00.000Z` });
+    const [phone, laptop] = [take('app', 1), take('mcp', 2)];
+    const a = await converge(phone, laptop);
+    expect(a).toMatchObject({ status: 'TAKEN', via: 'mcp' });
+    expect(a.conflict).toBeUndefined();
+    expect(await converge(laptop, phone)).toEqual(a);
+  });
+
+  it('three tied explicit edits converge on one flag whatever the arrival order', async () => {
+    const e = (status, via, at) => row({ clientTs: 1, status, taken_at: null, rev: 2, via, acted_at: `2026-01-01T0${at}:00:00.000Z` });
+    const [A, B, C] = [e('SKIPPED', 'app', 1), e('TAKEN', 'app', 2), e('UNTAKEN', 'mcp', 3)];
+    const abc = await converge(A, B);
+    await pull(C);
+    const one = await getRaw();
+    await converge(C, B);
+    await pull(A);
+    const two = await getRaw();
+    delete one.clientTs;
+    delete two.clientTs;
+    expect(abc.conflict.status).toBe('SKIPPED');
+    expect(one).toMatchObject({ status: 'UNTAKEN', conflict: { status: 'TAKEN' } });
+    expect(two).toEqual(one);
+  });
+
+  it('a snooze merges on its own snoozed_at branch and never changes status', async () => {
+    const snoozed = row({ clientTs: 9500, status: 'PENDING', taken_at: null, snoozed_until: '2026-01-01T00:20:00.000Z', snoozed_at: '2026-01-01T00:10:00.000Z' });
+    const a = await converge(SKIP, snoozed);
+    expect(a).toMatchObject({ status: 'SKIPPED', rev: 1, snoozed_until: '2026-01-01T00:20:00.000Z' });
+    expect(await converge(snoozed, SKIP)).toEqual(a);
+  });
+
+  it('a tombstone never resurrects — not by a pulled op, not by a local write', async () => {
+    const tomb = { recordId: id, recordType: 'intake', clientTs: 100, deleted: true };
+    expect((await converge(tomb, { ...UNDO, rev: 9, clientTs: 99999 })).deleted).toBe(true);
+
+    await recordsPort(ctx).put('intake', row({ clientTs: 1, status: 'TAKEN', rev: 5, via: 'app' }));
+    expect((await getRaw()).deleted).toBe(true);
+  });
+
+  it('a local write the reducer rules stale is not written or queued', async () => {
+    await converge(UNDO, UNDO);
+    const stored = await writeRecord(ctx, 'intake', { ...TAP, clientTs: 1 });
+    expect(stored).toMatchObject({ status: 'UNTAKEN', rev: 2 });
+    expect((await getRaw()).status).toBe('UNTAKEN');
+  });
+
+  // Recovery acceptance (epic med-wi09, Socrates 3511): an old tab's queued
+  // write has no rev. Re-posted after reload it is legacy and never beats a v2
+  // correction — not as a pulled op, not as a pending row meeting a snapshot.
+  it('a legacy payload (no rev) re-posted after reload never beats a v2 correction', async () => {
+    const legacy = row({ clientTs: 99999, status: 'TAKEN', taken_at: '2026-01-01T00:10:00.000Z' });
+    const pulled = await converge(UNDO, legacy);
+    expect(pulled).toMatchObject({ status: 'UNTAKEN', rev: 2 });
+    expect(await converge(legacy, UNDO)).toEqual(pulled);
+    // A legacy TAKEN also loses to an equal-rev v2 action (rank) …
+    expect((await converge(SKIP, legacy)).status).toBe('SKIPPED');
+
+    // … and as a pending row under a snapshot that carries the correction, it
+    // leaves the queue instead of overlaying it.
+    await seed([legacy], [legacy]);
+    await replaceAllRecords([UNDO]);
+    expect(await getRaw()).toMatchObject({ status: 'UNTAKEN', rev: 2 });
+    expect(await getRaw('pending', (s) => s.getAll())).toEqual([]);
+  });
+});
+
 describe('replaceAllRecords(fn) computes its set inside the records lock (med-o7zq.38)', () => {
   // A merge import reads the store, merges, and replaces. A write landing
   // between the read and the clear would be in neither the merged set nor the

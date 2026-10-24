@@ -698,6 +698,10 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         expect(doses[0]).toMatchObject({
             name: 'Metformin', dosage: '10mg', tz: 'UTC', localDate: '2026-08-16', localTime: '08:00'
         });
+        // Evidence channel (bd med-wi09.11): a rev-less stored row is legacy; a
+        // forecast row has no evidence at all.
+        expect(doses[0].via).toBe('legacy');
+        expect(doses[3].via).toBeUndefined();
         expect(doses[1].snoozedUntil).toBe(iso(NOW + 5 * 60_000));
         expect(doses[2].takenAt).toBe(iso(at(10)));
         expect(doses[3].stepNote).toBe(STEP_NOTE);

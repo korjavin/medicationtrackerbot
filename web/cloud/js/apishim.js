@@ -153,6 +153,8 @@ function debugOnce(key, ...args) {
 // "New data is available" banner for the user's own action.
 // opts.now/opts.timeZone override the clock the domain instances read, which is
 // what lets a test drive the router across a date boundary deterministically.
+// opts.via names the channel for intake merge ranking (bd med-wi09.11):
+// 'mcp' for the MCP responder, 'telegram' for the chat agent; default app.
 // opts.timeZone stands in for the DEVICE zone specifically: a settings.timezone
 // the user pinned in Settings still wins over it (bd med-7ujt).
 //
@@ -173,7 +175,7 @@ function debugOnce(key, ...args) {
 //   opts.protection  the W4 nudge's local half (local-policy.js
 //                 LOCAL_PROTECTION, bd med-ta2n.4); omitted = never nudge.
 export function createApiRouter(ctx, {
-  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
+  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
@@ -220,7 +222,7 @@ export function createApiRouter(ctx, {
     medications = createMedicationsDomain({
       records, now, timeZone, rxnorm,
     });
-    intake = createIntakeDomain({ records, now, timeZone });
+    intake = createIntakeDomain({ records, now, timeZone, via });
     tzplan = createTzPlanDomain({ records, now, timeZone });
     foodDb = createFoodDbClient({ settingsDomain: settings, operatorFoodDb });
     food = createFoodDomain({

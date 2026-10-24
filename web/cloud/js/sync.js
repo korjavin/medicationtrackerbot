@@ -8,6 +8,7 @@
 import { encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
+import { mergeIntake } from '../../domain/medintake.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -297,6 +298,15 @@ export async function replaceAllRecords(input) {
       const r = await getRecord(recordId);
       if (!r) continue;
       const snap = snapshotById.get(recordId);
+      // A semantic-merge type (intake, med-wi09.11) is reduced, not overlaid: a
+      // pending row the reducer rules stale leaves the queue like a floored one.
+      const policy = snap ? MERGE_POLICY[r.recordType] : null;
+      if (policy) {
+        const won = policy(snap, r);
+        if (won === snap) losingPending.push(recordId);
+        else overlay.push(won);
+        continue;
+      }
       // Same grow-only fold as applyIncoming (med-ooeh): the op that carried a
       // field may already be compacted into this snapshot, so neither side may
       // simply replace the other.
@@ -586,9 +596,24 @@ async function noteServerDate(res) {
 // pending row meets a snapshot row. Tombstones are never merged.
 const APPLY_MERGE = { gamificationjournal: mergeGamificationJournal };
 
+// Semantic-merge types (bd med-wi09.11): the reducer REPLACES clientTs LWW for
+// the type, on every path a row meets another copy of itself — local writes
+// (stampAndPut), incoming ops (applyIncoming) and pending-vs-snapshot
+// (replaceAllRecords). policy(local, incoming) returns `local` itself when
+// nothing changes, else the row to store. clientTs is still stamped and pushed:
+// an older client keeps merging these rows by LWW.
+const MERGE_POLICY = { intake: mergeIntake };
+
 async function applyIncoming(recordType, record) {
   return withRecordsLock(async () => {
     const existing = await getRecord(record.recordId);
+    const policy = MERGE_POLICY[recordType];
+    if (policy) {
+      const merged = policy(existing, record);
+      if (merged === existing) return null;
+      await putRecord({ ...merged, recordType });
+      return recordType;
+    }
     const incomingWins = !existing || record.clientTs > existing.clientTs;
     const merge = APPLY_MERGE[recordType];
     if (merge && existing && !existing.deleted && !record.deleted) {
@@ -1547,6 +1572,16 @@ async function stampAndPut(recordType, record, { ifAbsent, skewMs, pending }) {
       clientTs: ifAbsent ? record.clientTs : nextClientTs(existing, record.clientTs, skewMs),
       recordType,
     };
+    const policy = existing && MERGE_POLICY[recordType];
+    if (policy) {
+      const merged = policy(existing, stamped);
+      if (merged === existing) {
+        stamped = existing;
+        wrote = false;
+        return;
+      }
+      stamped = { ...merged, clientTs: stamped.clientTs, recordType };
+    }
     await putRecord(stamped);
     if (pending) await markPending(record.recordId, recordType);
   });
