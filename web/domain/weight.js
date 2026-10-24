@@ -13,7 +13,7 @@ const GOAL_MAX_KG = 500;
 // BMI (epic med-a6fb): adult WHO bands, kg / m². Pure helpers — the route
 // (apishim GET /api/weight/bmi) owns the ED-safe decision.
 const BMI_BORDERS = [18.5, 25, 30, 35, 40];
-const BMI_BANDS = ['underweight', 'normal', 'overweight', 'obesity_1', 'obesity_2', 'obesity_3'];
+const BMI_BANDS = ['underweight', 'healthy', 'overweight', 'obesity_1', 'obesity_2', 'obesity_3'];
 const round1 = (x) => Math.round(x * 10) / 10;
 
 export function bmi(kg, cm) {

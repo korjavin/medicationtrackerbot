@@ -403,6 +403,12 @@ export function createApiRouter(ctx, {
       timezone: general.timezone,
       weight_unit_preference: weightUnit,
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
+      // Body settings (med-a6fb): the Settings height field's read source —
+      // reported as stored, never nulled by ED-safe (unlike /api/weight/bmi).
+      height_cm: general.height_cm,
+      height_unit: general.height_unit,
+      show_bmi: general.show_bmi,
+      bmi_nudge_dismissed: general.bmi_nudge_dismissed,
     };
     if (tabOrder) block.tab_order = tabOrder;
     return { settings: block, features: clampFeatures(features) };

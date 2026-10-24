@@ -363,7 +363,7 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             expect(bmiBand(25.4)).toBe('overweight');
             expect(bmiBordersKg(180)).toEqual([59.9, 81.0, 97.2, 113.4, 129.6]);
             expect([18.4, 18.5, 24.9, 25, 29.9, 30, 35, 40].map(bmiBand))
-                .toEqual(['underweight', 'normal', 'normal', 'overweight', 'overweight', 'obesity_1', 'obesity_2', 'obesity_3']);
+                .toEqual(['underweight', 'healthy', 'healthy', 'overweight', 'overweight', 'obesity_1', 'obesity_2', 'obesity_3']);
             // The rounded one-decimal BMI decides the class: 24.95 → 25.0 → overweight.
             expect(bmi(99.8, 200)).toBe(25);
             expect(bmiBand(bmi(99.8, 200))).toBe('overweight');
@@ -466,6 +466,18 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             });
             const summary = await window.apiCall('/api/weight/goal');
             for (const k of ['height_cm', 'bmi', 'bmi_band']) expect(summary).not.toHaveProperty(k);
+        });
+
+        it('GET /api/settings reports the body fields as stored, even under ED-safe', async () => {
+            const { window } = env;
+            expect(await window.apiCall('/api/settings')).toMatchObject({
+                height_cm: null, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false,
+            });
+            await patchBody(window, { height_cm: 180, height_unit: 'ftin', bmi_nudge_dismissed: true });
+            await window.apiCall('/api/gamification/mode', 'PUT', { ed_safe: true });
+            const expected = { height_cm: 180, height_unit: 'ftin', show_bmi: true, bmi_nudge_dismissed: true };
+            expect(await window.apiCall('/api/settings')).toMatchObject(expected);
+            expect((await window.apiCall('/api/bootstrap')).settings).toMatchObject(expected);
         });
 
         it('weight summary (MCP health.weight.goal.read) omits BMI without height', async () => {
