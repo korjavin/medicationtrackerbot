@@ -3151,6 +3151,22 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect(b).toEqual(a);
   });
 
+  it('three tied explicit edits converge on one flag whatever the arrival order', async () => {
+    const e = (status, via, at) => row({ clientTs: 1, status, taken_at: null, rev: 2, via, acted_at: `2026-01-01T0${at}:00:00.000Z` });
+    const [A, B, C] = [e('SKIPPED', 'app', 1), e('TAKEN', 'app', 2), e('UNTAKEN', 'mcp', 3)];
+    const abc = await converge(A, B);
+    await pull(C);
+    const one = await getRaw();
+    await converge(C, B);
+    await pull(A);
+    const two = await getRaw();
+    delete one.clientTs;
+    delete two.clientTs;
+    expect(abc.conflict.status).toBe('SKIPPED');
+    expect(one).toMatchObject({ status: 'UNTAKEN', conflict: { status: 'TAKEN' } });
+    expect(two).toEqual(one);
+  });
+
   it('a snooze merges on its own snoozed_at branch and never changes status', async () => {
     const snoozed = row({ clientTs: 9500, status: 'PENDING', taken_at: null, snoozed_until: '2026-01-01T00:20:00.000Z', snoozed_at: '2026-01-01T00:10:00.000Z' });
     const a = await converge(SKIP, snoozed);

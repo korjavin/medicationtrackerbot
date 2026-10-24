@@ -115,18 +115,23 @@ export function mergeIntake(local, incoming) {
     || cmpStr(ib, lb);
   const [win, lose] = cmp > 0 ? [incoming, local] : [local, incoming];
   let out = win;
-  if (ib === lb) {
-    // Same status body: only a conflict flag one side carries can differ.
-    if (!win.conflict && lose.conflict) out = { ...win, conflict: lose.conflict };
-  } else if (intakeRev(win) === intakeRev(lose) && viaRank(win) === 3 && viaRank(lose) === 3) {
-    out = {
-      ...win,
-      conflict: { status: lose.status, taken_at: lose.taken_at ?? null, acted_at: lose.acted_at ?? null, via: lose.via },
-    };
+  if (intakeRev(win) === intakeRev(lose)) {
+    // The conflict flag is the greatest piece of evidence across both rows (a
+    // fixed key), so three tied edits agree whatever order they arrive in. A
+    // lower-rev row's flag was resolved by the action that outranked it.
+    const tie = ib !== lb && viaRank(win) === 3 && viaRank(lose) === 3;
+    const candidates = [win.conflict, lose.conflict, tie && {
+      status: lose.status, taken_at: lose.taken_at ?? null, acted_at: lose.acted_at ?? null, via: lose.via,
+    }].filter(Boolean);
+    const key = (c) => `${c.acted_at || ''}|${JSON.stringify(c)}`;
+    const best = candidates.reduce((a, c) => (!a || key(c) > key(a) ? c : a), null);
+    if (best && (!win.conflict || key(best) !== key(win.conflict))) out = { ...win, conflict: best };
   }
   const ws = win.snoozed_at || '';
   const ls = lose.snoozed_at || '';
-  if (ls > ws && (lose.snoozed_until !== out.snoozed_until || lose.snoozed_at !== out.snoozed_at)) {
+  // Equal snoozed_at: the later snoozed_until decides, so the branch converges.
+  const laterSnooze = ls > ws || (ls && ls === ws && (lose.snoozed_until || '') > (out.snoozed_until || ''));
+  if (laterSnooze && (lose.snoozed_until !== out.snoozed_until || lose.snoozed_at !== out.snoozed_at)) {
     out = { ...out, snoozed_until: lose.snoozed_until ?? null, snoozed_at: lose.snoozed_at };
   }
   return out;
