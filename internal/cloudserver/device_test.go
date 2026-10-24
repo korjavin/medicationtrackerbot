@@ -95,6 +95,10 @@ func TestDeviceAPI_RevocationCascade(t *testing.T) {
 		if d.CredentialID != firstCredentialRef {
 			secondCredentialID = d.CredentialID
 		}
+		// "This device": only the session's own credential is current.
+		if d.Current != (d.CredentialID == firstCredentialRef) {
+			t.Fatalf("device %s current = %v, want only the session's credential", d.CredentialID, d.Current)
+		}
 	}
 	if secondCredentialID == "" {
 		t.Fatalf("could not identify second device among %+v", devices)

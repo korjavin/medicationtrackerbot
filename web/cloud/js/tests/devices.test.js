@@ -20,11 +20,20 @@ vi.mock('../crypto.js', () => ({
 vi.mock('../unlock.js', () => ({ assertPasskey: vi.fn() }));
 vi.mock('../signup.js', () => ({ renderEmergencyKit: vi.fn(async () => {}) }));
 
+// med-r1j2.6: the new-device baseline lives in sync.js's device-local store.
+const deviceValueMap = vi.hoisted(() => new Map());
+vi.mock('../sync.js', () => ({
+  deviceValues: {
+    get: async (k) => deviceValueMap.get(k) ?? null,
+    set: async (k, v) => { deviceValueMap.set(k, v); },
+  },
+}));
+
 import { assertPasskey } from '../unlock.js';
 import { auditEnvelopeWithKey } from '../crypto.js';
 import { renderEmergencyKit } from '../signup.js';
 
-import { renderDeviceList, renderRegenerateKit } from '../devices.js';
+import { renderDeviceList, renderRegenerateKit, checkNewDevices } from '../devices.js';
 import { installDialogs, installRowActions, answerDialog, openDialog, SHELL_DIALOG_SCRIPTS } from './helpers/dialogs.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,6 +59,7 @@ beforeEach(() => {
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => DEVICES }));
   app = dom.window.document.getElementById('app');
   hooks = { onAddDevice: vi.fn(), onLoaded: vi.fn() };
+  deviceValueMap.clear();
 });
 
 afterEach(() => {
@@ -208,6 +218,106 @@ describe('devices.js device list', () => {
     expect(dom.window.history.length).toBe(startLength + 1);
     expect(dom.window.location.href).toBe('https://acct.example.test/');
     expect(global.fetch).not.toHaveBeenCalled();
+    expect(app.querySelectorAll('#device-list .device-row')).toHaveLength(2);
+  });
+});
+
+// med-r1j2.6, Spec: screens-add-device.html AD11 (+ "· notice").
+describe('devices.js AD11: platform rows, This device, address, new-device notice', () => {
+  const ANDROID = { credential_id: 'newandroid01', created_at: '2026-10-23T10:00:00Z', platform: 'android', envelope: null };
+  const SELF = { ...DEVICES[0], platform: 'ios', current: true };
+
+  function serve(list) {
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => list }));
+  }
+  function toastSpy() {
+    const spy = vi.fn();
+    dom.window.safeToast = spy;
+    return spy;
+  }
+
+  it('titles rows by reported platform, tags only this device, keeps labelless rows as before', async () => {
+    serve([SELF, ANDROID, DEVICES[1]]);
+    await renderAndSettle();
+
+    const rows = app.querySelectorAll('#device-list .device-row');
+    expect(app.querySelector('.wg-eyebrow').textContent).toBe('Devices');
+    expect(app.querySelector('#device-count').textContent).toBe('3');
+    expect(rows[0].querySelector('.wg-row__title').textContent).toBe('iPhone');
+    expect(rows[1].querySelector('.wg-row__title').textContent).toBe('Android phone');
+    expect(rows[1].querySelector('.wg-row__meta').textContent).toMatch(/^added 23 Oct/);
+    expect(rows[2].querySelector('.wg-row__title').textContent).toBe('Passkey ddddeeee…');
+    expect(rows[0].querySelector('.wg-tag.device-this').textContent).toBe('This device');
+    expect(app.querySelectorAll('.device-this')).toHaveLength(1);
+    expect(app.textContent).toContain('“This device” is our best guess.');
+  });
+
+  it('shows the account address and copies it', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const toast = toastSpy();
+    await renderAndSettle();
+
+    expect(app.querySelector('#account-address').textContent).toBe('acct.example.test');
+    app.querySelector('#copy-account-address').click();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('Address copied', 'success'));
+    expect(writeText).toHaveBeenCalledWith('acct.example.test');
+  });
+
+  it('first run seeds the baseline silently; a new credential toasts once', async () => {
+    const toast = toastSpy();
+    serve([SELF]);
+    await checkNewDevices(1000);
+    expect(toast).not.toHaveBeenCalled();
+
+    serve([SELF, ANDROID]);
+    await checkNewDevices(2000);
+    expect(toast).toHaveBeenCalledTimes(1);
+    const [msg, type, opts] = toast.mock.calls[0];
+    expect(msg).toBe('New device added: Android phone, 23 Oct');
+    expect(type).toBe('info');
+    expect(opts.detail).toBe('Not you? Revoke it now.');
+    expect(opts.action.label).toBe('Revoke');
+
+    await checkNewDevices(3000);
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  it('never announces this device itself', async () => {
+    const toast = toastSpy();
+    serve([DEVICES[1]]);
+    await checkNewDevices(1000);
+    serve([DEVICES[1], SELF]);
+    await checkNewDevices(2000);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('keeps the notice in Devices for 7 days, with Revoke behind the destructive dialog', async () => {
+    toastSpy();
+    serve([SELF]);
+    await checkNewDevices(Date.now() - 1000);
+    serve([SELF, ANDROID]);
+    await checkNewDevices(Date.now());
+    await renderAndSettle();
+
+    const notice = app.querySelector('#device-notices .device-notice');
+    expect(notice.querySelector('.wg-row__title').textContent).toBe('New device added: Android phone, 23 Oct');
+    global.fetch.mockClear();
+    notice.querySelector('button').click();
+    await answerDialog(dom.window.document, true);
+    await vi.waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/devices/newandroid01', { method: 'DELETE' }));
+    await vi.waitFor(() => expect(hooks.onLoaded).toHaveBeenCalledTimes(2));
+  });
+
+  it('drops the notice after 7 days; the row stays', async () => {
+    toastSpy();
+    serve([SELF]);
+    await checkNewDevices(1000);
+    serve([SELF, ANDROID]);
+    await checkNewDevices(2000); // noticed long ago (epoch + 2s)
+    await renderAndSettle();
+
+    expect(app.querySelector('#device-notices')).toBeNull();
     expect(app.querySelectorAll('#device-list .device-row')).toHaveLength(2);
   });
 });

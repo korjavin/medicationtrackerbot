@@ -16,6 +16,73 @@
 // is a separate question from which AI client may read it.
 import { auditEnvelopeWithKey, fromBase64, fromBase64Url } from './crypto.js';
 
+// AD11 (med-r1j2.6): the platform is the coarse label a v2 transfer reported
+// (web|android|ios), shown as reported, never as proof. Rows without one
+// keep the old "Passkey <id8>…" title.
+const PLATFORM_LABELS = { web: 'Browser', android: 'Android phone', ios: 'iPhone' };
+const KNOWN_DEVICES_KEY = 'knownDevices';
+const NOTICE_MS = 7 * 24 * 60 * 60 * 1000;
+const SETTINGS_DEVICES_URL = '/?tab=settings&page=devices';
+
+function deviceLabel(d) {
+  return PLATFORM_LABELS[d.platform] || `Passkey ${d.credential_id.slice(0, 8)}…`;
+}
+
+function shortDate(iso) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function noticeText(d) {
+  return `New device added: ${deviceLabel(d)}, ${shortDate(d.created_at)}`;
+}
+
+// The device-local, never-synced value store (sync.js 'device' object store).
+// Lazy: the passkey shell renders this list too and has no business loading
+// sync.js until it is asked for. null when it cannot be read.
+async function deviceStore() {
+  try {
+    return (await import('./sync.js')).deviceValues;
+  } catch {
+    return null;
+  }
+}
+
+async function readKnownDevices() {
+  try {
+    const store = await deviceStore();
+    return store ? await store.get(KNOWN_DEVICES_KEY) : null;
+  } catch {
+    return null;
+  }
+}
+
+// AD11 · notice: on account boot, diff the server's device list against the
+// credential set this device last saw. The first run seeds the baseline
+// silently; a new credential (never this device's own) toasts once, and stays
+// a notice in Devices for 7 days in case the toast is missed. No server push.
+export async function checkNewDevices(now = Date.now()) {
+  const store = await deviceStore();
+  if (!store) return;
+  const res = await fetch('/api/devices');
+  if (!res.ok) return;
+  const devices = (await res.json()) || [];
+  const known = await store.get(KNOWN_DEVICES_KEY);
+  const ids = devices.map((d) => d.credential_id);
+  const fresh = known ? devices.filter((d) => !d.current && !known.ids.includes(d.credential_id)) : [];
+  const notices = [
+    ...((known && known.notices) || []).filter((n) => now - n.at < NOTICE_MS && ids.includes(n.credential_id)),
+    ...fresh.map((d) => ({ credential_id: d.credential_id, at: now })),
+  ];
+  await store.set(KNOWN_DEVICES_KEY, { ids, notices });
+  for (const d of fresh) {
+    window.safeToast(noticeText(d), 'info', {
+      detail: 'Not you? Revoke it now.',
+      duration: 10000,
+      action: { label: 'Revoke', onClick: () => window.location.assign(SETTINGS_DEVICES_URL) },
+    });
+  }
+}
+
 // hooks: { onAddDevice() — the page opens the transfer flow;
 //          onLoaded(devices) — the page refreshes its summary/nudge }
 export function renderDeviceList(mount, ctx, hooks = {}) {
@@ -50,19 +117,34 @@ async function loadDevices(mount, ctx, hooks) {
     })
   );
 
-  renderDevices(mount, ctx, hooks, audited);
+  const known = await readKnownDevices();
+  const noticed = new Set(((known && known.notices) || [])
+    .filter((n) => Date.now() - n.at < NOTICE_MS)
+    .map((n) => n.credential_id));
+  renderDevices(mount, ctx, hooks, audited, audited.filter((d) => noticed.has(d.credential_id)));
   if (typeof hooks.onLoaded === 'function') hooks.onLoaded(audited);
 }
 
 // Kit S4: one sun primary ("Add a device"); Revoke sits behind each row's
 // overflow and confirms through a destructive dialog.
-function renderDevices(mount, ctx, hooks, devices) {
+// AD11 revises it: section "Devices" with a count, platform rows with a
+// "This device" tag and the synced-passkey hint, the copyable account address
+// (Path 0 on another device asks for it), and any new-device notices.
+function renderDevices(mount, ctx, hooks, devices, notices = []) {
   mount.innerHTML = `
     <section class="wg-section">
-      <div class="wg-section__head"><span class="wg-eyebrow">Devices with a passkey</span></div>
+      <div class="wg-section__head"><span class="wg-eyebrow">Devices</span><span class="wg-meta" id="device-count"></span></div>
+      <div class="wg-list" id="device-notices"></div>
       <div class="wg-list" id="device-list"></div>
+      <p class="wg-hint">&ldquo;This device&rdquo; is our best guess. A passkey that syncs through iCloud Keychain, Google Password Manager or another manager can work on several of your devices.</p>
       <button type="button" id="add-device-button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Add a device</button>
-    </section>`;
+    </section>
+    <div class="wg-list"><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="link"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Account address</span><span class="wg-setting__desc wg-mono" id="account-address"></span></span><button type="button" id="copy-account-address" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Copy address"><i class="wg-ico wg-ico--sm" data-icon="copy"></i></button></div></div>`;
+
+  mount.querySelector('#device-count').textContent = String(devices.length);
+  const noticeList = mount.querySelector('#device-notices');
+  if (!notices.length) noticeList.remove();
+  for (const d of notices) noticeList.appendChild(renderNoticeRow(mount, ctx, hooks, d));
 
   const list = mount.querySelector('#device-list');
   for (const d of devices) {
@@ -72,7 +154,42 @@ function renderDevices(mount, ctx, hooks, devices) {
   mount.querySelector('#add-device-button').addEventListener('click', () => {
     if (typeof hooks.onAddDevice === 'function') hooks.onAddDevice();
   });
+
+  const address = window.location.host;
+  mount.querySelector('#account-address').textContent = address;
+  mount.querySelector('#copy-account-address').addEventListener('click', () => {
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(address))
+      .then(() => window.safeToast('Address copied', 'success'))
+      .catch(() => window.safeToast('Could not copy — select the text instead.', 'error'));
+  });
   hydrateIcons(mount);
+}
+
+// AD11 · notice kept in Devices: Revoke opens the same destructive dialog as
+// the row's overflow — never a one-tap revoke.
+function renderNoticeRow(mount, ctx, hooks, d) {
+  const row = document.createElement('div');
+  row.className = 'wg-row device-notice';
+  const lead = document.createElement('span');
+  lead.className = 'wg-row__lead';
+  lead.innerHTML = '<i class="wg-ico" data-icon="device"></i>';
+  const body = document.createElement('span');
+  body.className = 'wg-row__body';
+  const title = document.createElement('span');
+  title.className = 'wg-row__title';
+  title.textContent = noticeText(d);
+  const meta = document.createElement('span');
+  meta.className = 'wg-row__meta';
+  meta.textContent = 'Not you? Revoke it now.';
+  body.append(title, meta);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'wg-btn wg-btn--sm wg-btn--danger-ghost';
+  button.textContent = 'Revoke';
+  button.addEventListener('click', () => confirmRevoke(mount, ctx, hooks, d));
+  row.append(lead, body, button);
+  return row;
 }
 
 function hydrateIcons(root) {
@@ -151,7 +268,7 @@ function renderDeviceRow(mount, ctx, hooks, d) {
 
   const lead = document.createElement('span');
   lead.className = d.verified ? 'wg-row__lead wg-row__lead--ok' : 'wg-row__lead';
-  lead.innerHTML = '<i class="wg-ico" data-icon="device"></i>';
+  lead.innerHTML = `<i class="wg-ico" data-icon="${d.platform === 'web' ? 'globe' : 'device'}"></i>`;
 
   // Server-controlled fields (credential id, timestamps) — textContent only,
   // never innerHTML (this page holds the DEK; XSS here reads it).
@@ -159,10 +276,10 @@ function renderDeviceRow(mount, ctx, hooks, d) {
   body.className = 'wg-row__body';
   const title = document.createElement('span');
   title.className = 'wg-row__title';
-  title.textContent = `Passkey ${d.credential_id.slice(0, 8)}…`;
+  title.textContent = deviceLabel(d);
   const meta = document.createElement('span');
   meta.className = 'wg-row__meta';
-  meta.textContent = `added ${new Date(d.created_at).toLocaleDateString()}`;
+  meta.textContent = `added ${shortDate(d.created_at)}`;
 
   const chip = document.createElement('span');
   if (d.verified) {
@@ -175,6 +292,12 @@ function renderDeviceRow(mount, ctx, hooks, d) {
   meta.appendChild(chip);
   body.append(title, meta);
   row.append(lead, body);
+  if (d.current) {
+    const tag = document.createElement('span');
+    tag.className = 'wg-tag device-this';
+    tag.textContent = 'This device';
+    row.appendChild(tag);
+  }
 
   const label = 'Revoke';
   const onClick = () => confirmRevoke(mount, ctx, hooks, d);
