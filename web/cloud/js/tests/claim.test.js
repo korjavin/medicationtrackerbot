@@ -374,6 +374,25 @@ describe('/claim — in-app Scan and AD13 (camera off)', () => {
     await originReveals();
   });
 
+  // med-r1j2.13: while HANDOFF_APP_LINKS is off the origin's QR is the plain
+  // https://<sub>.<base>/claim#… link; it claims the same way as /d/<sub>#….
+  it('scans the /claim#… QR form for this account and claims', async () => {
+    installCamera({ decoded: [`https://acct.example.test/claim${linkHash()}`] });
+    await scanAt('#scan');
+    await until(() => server.slot.state === 'claimed');
+    expect(stopped).toBe(1);
+    expect(globalThis.location.href).toBe('');
+    await originReveals();
+  });
+
+  it('scans the /d/<sub>#… QR form for this account and claims', async () => {
+    installCamera({ decoded: [`https://example.test/d/acct${linkHash()}`] });
+    await scanAt('#scan');
+    await until(() => server.slot.state === 'claimed');
+    expect(globalThis.location.href).toBe('');
+    await originReveals();
+  });
+
   // In a shell, navigation off this account host would open the system
   // browser: the switch goes through account.leave {url}.
   it('in a shell, another account\'s QR switches via account.leave {url}', async () => {
