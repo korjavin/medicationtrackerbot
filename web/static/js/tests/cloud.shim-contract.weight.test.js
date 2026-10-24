@@ -410,6 +410,18 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             expect(await getBmi(window)).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false, nudge_dismissed: true });
         });
 
+        it('overlapping disjoint writes to the settings singleton keep every field', async () => {
+            const { window } = env;
+            await Promise.all([
+                patchBody(window, { height_cm: 180 }),
+                patchBody(window, { show_bmi: false }),
+                patchBody(window, { height_unit: 'ftin' }),
+                window.apiCall('/api/tz-suggestion/dismiss', 'POST', { detected_tz: 'Europe/Berlin' }),
+            ]);
+            expect(await getBmi(window)).toMatchObject({ height_cm: 180, show_bmi: false, height_unit: 'ftin' });
+            expect((await window.apiCall('/api/settings')).dismissed_tz_suggestion).toBe('Europe/Berlin');
+        });
+
         it('nudge turns off for height set, dismissed, show_bmi off and ED-safe', async () => {
             const { window } = env;
             expect((await getBmi(window)).nudge).toBe(true);

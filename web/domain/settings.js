@@ -186,6 +186,9 @@ const DEFAULT_FOOD_TARGETS = { calories: 0, carbs: 0, protein: 0, fat: 0 };
 // and 'settings' are not cards, so they are rejected same as server-side.
 const VALID_TABS = new Set(['bp', 'weight', 'workouts', 'food', 'health', 'meds']);
 
+// Write queue for the general singleton (see mergeGeneral).
+let generalWrites = Promise.resolve();
+
 function findSingleton(all, recordId) {
   return all.find((r) => r.recordId === recordId && !r.deleted);
 }
@@ -217,14 +220,13 @@ export function createSettingsDomain({ records, now, timeZone }) {
       err.code = 'invalid_request';
       throw err;
     }
-    const all = await records.list(GENERAL_RECORD_TYPE);
-    const next = { ...findSingleton(all, GENERAL_RECORD_ID) };
-    for (const k of keys) {
-      if (patch[k] === null) delete next[k];
-      else next[k] = patch[k];
-    }
-    await records.put(GENERAL_RECORD_TYPE, {
-      ...next, recordId: GENERAL_RECORD_ID, clientTs: now(), deleted: false,
+    const next = await mergeGeneral((existing) => {
+      const body = { ...existing };
+      for (const k of keys) {
+        if (patch[k] === null) delete body[k];
+        else body[k] = patch[k];
+      }
+      return body;
     });
     return readBodySettings(next);
   }
@@ -235,17 +237,11 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // change, never on every write.
   async function setTimezone(tz) {
     if (tz) {
-      const all = await records.list(GENERAL_RECORD_TYPE);
-      const existing = findSingleton(all, GENERAL_RECORD_ID);
-      const changed = !existing || existing.timezone !== tz;
-      await records.put(GENERAL_RECORD_TYPE, {
+      await mergeGeneral((existing) => ({
         ...existing,
-        recordId: GENERAL_RECORD_ID,
-        clientTs: now(),
-        deleted: false,
         timezone: tz,
-        dismissed_tz_suggestion: changed ? '' : (existing && existing.dismissed_tz_suggestion) || '',
-      });
+        dismissed_tz_suggestion: existing && existing.timezone === tz ? existing.dismissed_tz_suggestion || '' : '',
+      }));
     }
     return getGeneral();
   }
@@ -254,16 +250,27 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // persists the detected TZ the user dismissed so other devices skip the
   // same prompt (LWW via clientTs, same as every other singleton record).
   async function setDismissedTzSuggestion(tz) {
-    const all = await records.list(GENERAL_RECORD_TYPE);
-    const existing = findSingleton(all, GENERAL_RECORD_ID);
-    await records.put(GENERAL_RECORD_TYPE, {
-      ...existing,
-      recordId: GENERAL_RECORD_ID,
-      clientTs: now(),
-      deleted: false,
-      dismissed_tz_suggestion: tz || '',
-    });
+    await mergeGeneral((existing) => ({ ...existing, dismissed_tz_suggestion: tz || '' }));
     return tz || '';
+  }
+
+  // mergeGeneral is the ONLY writer of the general singleton: the whole
+  // read → merge → put runs on one module-wide queue, so two overlapping
+  // disjoint writes (a height patch and a show_bmi patch, or a timezone
+  // write) never read the same row and drop each other's field. Module-wide
+  // rather than per-instance because apishim rebuilds this domain on a tz
+  // change. ponytail: one tab only — cross-tab/device races stay LWW.
+  function mergeGeneral(merge) {
+    const run = generalWrites.then(async () => {
+      const existing = findSingleton(await records.list(GENERAL_RECORD_TYPE), GENERAL_RECORD_ID);
+      const body = merge(existing);
+      await records.put(GENERAL_RECORD_TYPE, {
+        ...body, recordId: GENERAL_RECORD_ID, clientTs: now(), deleted: false,
+      });
+      return body;
+    });
+    generalWrites = run.catch(() => {});
+    return run;
   }
 
   // Semantics: an ABSENT firstrun record means "needs onboarding". A vault
