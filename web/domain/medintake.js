@@ -21,6 +21,7 @@
 // nextId / weight.js's genId).
 import { minDoseIntervalMs, localDateTimeParts, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
+import { applyLineage, loadLineage } from './lineage.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -337,6 +338,7 @@ const MAX_FORECAST_DAYS = 30;
 
 export function projectOccurrences({
   medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
+  lineage = null,
 } = {}) {
   // Keyed by String(id): a vault can hold a med's recordId and an intake's
   // medication_id as number vs string (inbox-apply.js compares the same way);
@@ -423,8 +425,10 @@ export function projectOccurrences({
     }
   }
 
-  return out.sort((a, b) => (Date.parse(a.plannedAt) - Date.parse(b.plannedAt))
-    || String(a.medId).localeCompare(String(b.medId), undefined, { numeric: true }));
+  // `lineage` (lineage.js's alias table): cancelled slots resolve to their
+  // declared replacement, evidence on both sides is flagged (bd med-wi09.10).
+  return applyLineage(out.sort((a, b) => (Date.parse(a.plannedAt) - Date.parse(b.plannedAt))
+    || String(a.medId).localeCompare(String(b.medId), undefined, { numeric: true })), lineage, intakes);
 }
 
 // The stored intake wire shape (toResponse) read back off a stored projection
@@ -509,13 +513,14 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   // their forecast slot); a port without listRaw (pure-domain test doubles)
   // degrades to live rows only.
   async function project({ fromMs, toMs, forecast = true } = {}) {
-    const [meds, intakes, tzPlan] = await Promise.all([
+    const [meds, intakes, tzPlan, lineage] = await Promise.all([
       loadMeds(),
       records.listRaw ? records.listRaw(INTAKE_RECORD_TYPE) : records.list(INTAKE_RECORD_TYPE),
       loadActiveTzPlan(),
+      loadLineage(records),
     ]);
     const rows = projectOccurrences({
-      medications: meds, intakes, tzPlan, timeZone, nowMs: now(), fromMs, toMs, forecast,
+      medications: meds, intakes, tzPlan, timeZone, nowMs: now(), fromMs, toMs, forecast, lineage,
     });
     return { meds, rows };
   }

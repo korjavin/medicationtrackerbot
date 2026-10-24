@@ -87,12 +87,18 @@ export function localDateTimeParts(ms, timeZone) {
   };
 }
 
-// Two-pass refine, same technique as bp.js's dayStartMs: guess the offset,
-// convert, then re-derive the offset at the guessed instant (handles DST
-// transitions landing on the target wall-clock time).
+// Wall clock in `timeZone` -> UTC instant, with a NAMED DST policy (bd
+// med-wi09.10): a wall time inside a spring-forward gap moves forward by the
+// gap (Berlin 2026-03-29 02:30 -> 03:30 CEST); a wall time inside a fall-back
+// fold takes the EARLIER instant (Berlin 2026-10-25 02:30 -> 00:30Z, CEST).
+// The offsets a day either side are the two candidates around any transition;
+// a candidate is valid when the zone really shows that offset at it.
 export function localWallToUtcMs(wallAsUtc, timeZone) {
-  const guess = wallAsUtc - offsetMsAt(wallAsUtc, timeZone);
-  return wallAsUtc - offsetMsAt(guess, timeZone);
+  const before = offsetMsAt(wallAsUtc - DAY_MS, timeZone);
+  const after = offsetMsAt(wallAsUtc + DAY_MS, timeZone);
+  const valid = [before, after].filter((o) => offsetMsAt(wallAsUtc - o, timeZone) === o);
+  // No valid candidate = the gap: the pre-gap offset lands past it.
+  return wallAsUtc - (valid.length ? Math.max(...valid) : before);
 }
 
 function weekdayAllowed(weekday, days) {

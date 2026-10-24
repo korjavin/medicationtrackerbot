@@ -438,3 +438,97 @@ func TestSyncAPI_WritesWakeSyncStream(t *testing.T) {
 	default:
 	}
 }
+
+// syncWrite POSTs body to path, with X-Ledger: 2 when v2, and returns the
+// recorder (bd med-wi09.8 writer-gate tests).
+func syncWrite(t *testing.T, h http.Handler, host string, session *http.Cookie, path string, v2 bool, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
+	r.Host = host
+	r.AddCookie(session)
+	if v2 {
+		r.Header.Set("X-Ledger", "2")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec
+}
+
+// TestSyncAPI_LedgerCutAndWriterGate guards bd med-wi09.8: the gate is inert
+// until the first ledgercut op sets the cut (which never moves again); after
+// it, a pre-v2 writer gets 426 on dose-ledger-tagged pushes (the whole batch,
+// nothing inserted) and on snapshot POST, while pulls and untagged pushes
+// stay open and an X-Ledger: 2 writer is accepted.
+func TestSyncAPI_LedgerCutAndWriterGate(t *testing.T) {
+	h, host, claimToken := newTestSyncHandler(t, 0)
+	session := registerAndGetSession(t, h, host, claimToken)
+	op := func(tag string) opWire { return opWire{RecordTypeTag: tag, Nonce: []byte("n"), CT: []byte("c")} }
+	ops := func(o ...opWire) postOpsRequest { return postOpsRequest{Ops: o} }
+
+	// Before the cut: today's clients (no header) push anything, snapshot too.
+	if rec := syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op("intake:intake-1-100"), op("medication:1"))); rec.Code != http.StatusOK {
+		t.Fatalf("pre-cut tagged push = %d, want 200", rec.Code)
+	}
+	if rec := syncWrite(t, h, host, session, "/api/sync/snapshot", false, putSnapshotRequest{SnapshotSeq: 1, Nonce: []byte("n"), CT: []byte("s")}); rec.Code != http.StatusNoContent {
+		t.Fatalf("pre-cut snapshot = %d, want 204", rec.Code)
+	}
+	if p := getOpsPage(t, h, host, session, "?since=0"); p.LedgerCutSeq != nil || p.LedgerCutAt != nil {
+		t.Fatalf("pre-cut pull carries a cut: %+v", p)
+	}
+
+	// The first ledgercut op sets the cut at its assigned seq (4: note is 3).
+	rec := syncWrite(t, h, host, session, "/api/sync/ops", true, ops(op("note:x"), op("ledgercut:cut-1")))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ledgercut push = %d, want 200", rec.Code)
+	}
+	p := getOpsPage(t, h, host, session, "?since=0")
+	if p.LedgerCutSeq == nil || *p.LedgerCutSeq != 4 || p.LedgerCutAt == nil {
+		t.Fatalf("cut after first ledgercut = %v/%v, want seq 4 with a time", p.LedgerCutSeq, p.LedgerCutAt)
+	}
+	firstAt := *p.LedgerCutAt
+
+	// A second ledgercut never moves it.
+	if rec := syncWrite(t, h, host, session, "/api/sync/ops", true, ops(op("ledgercut:cut-2"))); rec.Code != http.StatusOK {
+		t.Fatalf("second ledgercut push = %d, want 200", rec.Code)
+	}
+	p = getOpsPage(t, h, host, session, "?since=0")
+	if *p.LedgerCutSeq != 4 || *p.LedgerCutAt != firstAt {
+		t.Fatalf("second ledgercut moved the cut to %v/%v", *p.LedgerCutSeq, *p.LedgerCutAt)
+	}
+	opsBefore := len(p.Ops)
+
+	// After the cut: a mixed batch without the header → 426, nothing inserted.
+	rec = syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op("note:y"), op("tzplan:p")))
+	if rec.Code != http.StatusUpgradeRequired || !bytes.Contains(rec.Body.Bytes(), []byte(`"update_required"`)) {
+		t.Fatalf("gated push = %d %q, want 426 update_required", rec.Code, rec.Body.String())
+	}
+	for _, tag := range []string{"intake:a", "medication:a", "settings:a", "tzplan:a", "stock:a", "medsched:a", "tztransition:a"} {
+		if rec := syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op(tag))); rec.Code != http.StatusUpgradeRequired {
+			t.Fatalf("gated %s push = %d, want 426", tag, rec.Code)
+		}
+	}
+	if p := getOpsPage(t, h, host, session, "?since=0"); len(p.Ops) != opsBefore {
+		t.Fatalf("426 batches inserted ops: %d → %d", opsBefore, len(p.Ops))
+	}
+	// Untagged types stay open to old writers.
+	if rec := syncWrite(t, h, host, session, "/api/sync/ops", false, ops(op("bp:1"), op("note:z"))); rec.Code != http.StatusOK {
+		t.Fatalf("untagged push after cut = %d, want 200", rec.Code)
+	}
+	// With the header the same tagged batch is accepted.
+	if rec := syncWrite(t, h, host, session, "/api/sync/ops", true, ops(op("note:y"), op("tzplan:p"))); rec.Code != http.StatusOK {
+		t.Fatalf("v2 tagged push = %d, want 200", rec.Code)
+	}
+
+	// Snapshot POST: gated without the header, accepted with it.
+	snap := putSnapshotRequest{SnapshotSeq: 5, Nonce: []byte("n"), CT: []byte("s2")}
+	if rec := syncWrite(t, h, host, session, "/api/sync/snapshot", false, snap); rec.Code != http.StatusUpgradeRequired {
+		t.Fatalf("gated snapshot = %d, want 426", rec.Code)
+	}
+	if resp := getSnapshot(t, h, host, session); resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET snapshot after cut = %d, want 200 (pulls stay open)", resp.StatusCode)
+	}
+	if rec := syncWrite(t, h, host, session, "/api/sync/snapshot", true, snap); rec.Code != http.StatusNoContent {
+		t.Fatalf("v2 snapshot = %d, want 204", rec.Code)
+	}
+}

@@ -162,7 +162,9 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   schedule/policy change: `id` (the recordId, `medsched-<medId>-<fromSec>-<rand>`;
   the generation a med was created with uses the suffix `base`, `from` =
   `created_at`), `medication_id` (number → medication.id), `schedule`,
-  `tz_shift_policy`, `from` (RFC3339, when it took effect). Exported in effective
+  `tz_shift_policy`, `from` (RFC3339, when it took effect), and on an edit row
+  (not `base`) `boundary` (bd med-wi09.10, see **boundary** under `tz`; absent on
+  rows written before it). Exported in effective
   order (`from`, then `id`). Import keeps the id; an id without the
   `medsched-` prefix fails the import before the wipe.
 
@@ -371,7 +373,14 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   change (a flexible-only change, or a plan's Apply): `id` (the recordId,
   `tztransition-<switchSec>-<rand>`), `old_tz`, `new_tz`, `switch_at` (RFC3339),
   `steps` (the plan's steps in the `transition_plans` step shape; `[]` for a
-  flexible-only change), `boundary` (null until the lineage bead fills it).
+  flexible-only change), `boundary` (below; null on rows written before bd
+  med-wi09.10).
+- **boundary** (bd med-wi09.10, on `transitions` and edit `schedules` rows) — the
+  dose lineage decided once at the change by `web/domain/lineage.js`: an array,
+  one entry per medication that had a slot cancelled, `{medId, kept: [occId],
+  cancelled: [occId], replacement: {cancelledOccId: occId | null}}`. occIds are
+  scheduled-intake ids (`intake-<medId>-<slotUnixSeconds>`), so they survive
+  export/import (re-minted identically). Carried verbatim; older clients ignore it.
   Exported in effective order (`switch_at`, then `id`). Import keeps the id; an
   id without the `tztransition-` prefix fails the import before the wipe.
 

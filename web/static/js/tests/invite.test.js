@@ -67,6 +67,51 @@ describe('InviteSheet.parse', () => {
     });
 });
 
+// bd med-r1j2.5 Path 0 (AD10): the "Open my account" address field. Strict —
+// only <sub>.<base> or an https URL on it reaches the shell, as /unlock.
+describe('InviteSheet.parseAddress', () => {
+    const { parseAddress } = dom.window.InviteSheet;
+    const BASE = 'app.example.com';
+    const UNLOCK = 'https://anna.app.example.com/unlock';
+
+    it.each([
+        'anna.app.example.com',
+        '  ANNA.App.Example.com  ',
+        'https://anna.app.example.com',
+        'https://anna.app.example.com/',
+        'https://anna.app.example.com/settings?x=1#frag',
+    ])('accepts %j', (raw) => {
+        expect(parseAddress(raw, BASE)).toBe(UNLOCK);
+    });
+
+    it.each([
+        ['anna', 'not a full address'],
+        ['anna.app', 'not a full address'],
+        ['app.example.com', 'the base itself'],
+        ['a.b.app.example.com', 'two labels under the base'],
+        ['anna.app.example.com.evil.com', 'lookalike suffix'],
+        ['anna-app.example.com', 'lookalike suffix'],
+        ['annaapp.example.com', 'lookalike suffix'],
+        ['anna.evil.com', 'external host'],
+        ['https://user@anna.app.example.com', 'userinfo'],
+        ['user@anna.app.example.com', 'userinfo'],
+        ['https://anna.app.example.com:8443/', 'port'],
+        ['anna.app.example.com:8443', 'port'],
+        ['http://anna.app.example.com', 'http'],
+        ['medtracker://anna.app.example.com', 'other scheme'],
+        ['javascript:alert(1)', 'other scheme'],
+        ['', 'empty'],
+    ])('rejects %j (%s)', (raw) => {
+        expect(parseAddress(raw, BASE)).toBeNull();
+    });
+
+    it('needs the base: without one nothing is accepted', () => {
+        expect(parseAddress('anna.app.example.com', '')).toBeNull();
+        expect(parseAddress('anna.app.example.com')).toBeNull();
+        expect(parseAddress(null, BASE)).toBeNull();
+    });
+});
+
 // bd med-ta2n.7: an invite reaching a shell that is in ACCOUNT mode (no
 // :root.wg-local-vault) → the "Switch account?" D1. Switch = account.leave
 // {url} (the shell drops the move stash, A1); Keep this account = invite.clear.

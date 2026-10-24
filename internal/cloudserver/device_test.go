@@ -1,14 +1,11 @@
 package cloudserver
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/descope/virtualwebauthn"
 )
 
 // newTestDeviceHandler mirrors cmd/cloud/main.go's wiring for the WebAuthn +
@@ -37,42 +34,8 @@ func newTestDeviceHandler(t *testing.T) (http.Handler, string, string) {
 func enrollSecondDevice(t *testing.T, h http.Handler, host string, session *http.Cookie) *http.Cookie {
 	t.Helper()
 
-	createBody, _ := json.Marshal(createTransferRequest{CT: []byte("dek-ciphertext-bytes")})
-	createReq := httptest.NewRequest(http.MethodPost, "/api/transfer", bytes.NewReader(createBody))
-	createReq.Host = host
-	createReq.AddCookie(session)
-	createRec := httptest.NewRecorder()
-	h.ServeHTTP(createRec, createReq)
-	if createRec.Code != http.StatusOK {
-		t.Fatalf("POST /api/transfer status = %d, body %q", createRec.Code, createRec.Body.String())
-	}
-	var created createTransferResponse
-	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
-		t.Fatalf("unmarshal create response: %v", err)
-	}
-
-	claimReq := httptest.NewRequest(http.MethodPost, "/api/transfer/"+created.SlotID+"/claim", nil)
-	claimReq.Host = host
-	claimRec := httptest.NewRecorder()
-	h.ServeHTTP(claimRec, claimReq)
-	if claimRec.Code != http.StatusOK {
-		t.Fatalf("claim status = %d, body %q", claimRec.Code, claimRec.Body.String())
-	}
-	var claimed claimTransferResponse
-	if err := json.Unmarshal(claimRec.Body.Bytes(), &claimed); err != nil {
-		t.Fatalf("unmarshal claim response: %v", err)
-	}
-
-	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
-	authenticator := virtualwebauthn.NewAuthenticator()
-	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
-
-	opts, challengeCookie, code := beginRegistrationWithEnrollmentToken(t, h, host, claimed.EnrollmentToken)
-	if code != http.StatusOK {
-		t.Fatalf("register/begin via enrollment token status = %d, want 200", code)
-	}
-	response := virtualwebauthn.CreateAttestationResponse(rp, authenticator, cred, *opts)
-	rec := finishRegistration(t, h, host, challengeCookie, response)
+	_, token := driveToApproved(t, h, host, session)
+	rec := enrollViaToken(t, h, host, token, testConfN)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("register/finish via enrollment token status = %d, body %q", rec.Code, rec.Body.String())
 	}
@@ -131,6 +94,10 @@ func TestDeviceAPI_RevocationCascade(t *testing.T) {
 	for _, d := range devices {
 		if d.CredentialID != firstCredentialRef {
 			secondCredentialID = d.CredentialID
+		}
+		// "This device": only the session's own credential is current.
+		if d.Current != (d.CredentialID == firstCredentialRef) {
+			t.Fatalf("device %s current = %v, want only the session's credential", d.CredentialID, d.Current)
 		}
 	}
 	if secondCredentialID == "" {

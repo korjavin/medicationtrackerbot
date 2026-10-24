@@ -66,6 +66,9 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const [, approved] = of('tztransition');
     expect(approved.recordId).toBe('tztransition-1777714200-b8n1x6te');
     expect(approved.steps[0]).toMatchObject({ medicationId: 1, scheduledAtMs: Date.parse('2026-05-03T08:00:00Z') });
+    // The lineage (bd med-wi09.10) rides verbatim on both history types.
+    expect(approved.boundary[0].replacement).toEqual({ 'intake-1-1777723200': 'intake-1-1777795200' });
+    expect(of('medsched')[1].boundary[0].cancelled).toEqual(['intake-1-1782028800']);
 
     const legacy = JSON.parse(JSON.stringify(fixture));
     delete legacy.data.medications.schedules;

@@ -866,6 +866,13 @@ window.MedTrackerCloudReady = (async function boot() {
                 drainFeedbackOutbox().catch(() => {});
             })
             .catch((e) => console.error('[cloud-boot] feedback launcher mount failed', e));
+
+        // New-device notice (AD11, med-r1j2.6): diff the account's devices
+        // against the set this device last saw; a new one toasts once.
+        Promise.resolve()
+            .then(() => import('/js/devices.js'))
+            .then(({ checkNewDevices }) => checkNewDevices())
+            .catch((e) => console.error('[cloud-boot] new-device check failed', e));
         })().catch((e) => console.error('[cloud-boot] background sync failed', e));
     } catch (e) {
         // Boot the app degraded rather than redirecting — the vault is already
