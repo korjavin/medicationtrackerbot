@@ -343,21 +343,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-next-subtitle-size',
     '--wg-meds-next-names-size',
 
-    // Meds history sub-tab tokens (Phase 5, Task 5) — filter-strip geometry,
-    // day-group label, log-row padding, trailing time + status sizes, and
-    // the muted next-intake link row.
-    '--wg-meds-filter-gap',
-    '--wg-meds-filter-field-pad-y',
-    '--wg-meds-filter-field-pad-x',
-    '--wg-meds-filter-label-size',
-    '--wg-meds-history-row-pad',
-    '--wg-meds-history-row-gap',
-    '--wg-meds-history-day-size',
-    '--wg-meds-history-time-size',
-    '--wg-meds-history-name-size',
-    '--wg-meds-next-intake-pad-y',
-    '--wg-meds-next-intake-pad-x',
-
     // Weight screen tokens (Phase 6, Task 1) — optional goal card +
     // progress bar, range selector, single-series chart geometry,
     // day-grouped history rows. Round-2 Task 12 (defect #15) deleted the
@@ -1242,10 +1227,6 @@ describe('Architecture – design tokens', () => {
             // Medication
             '.med-supplement-badge', '.med-normalized-name',
             '.med-action-icons',
-            // Next intake (Round-2 Task 8, #11b: restyled to Wandergeek tokens)
-            '.wg-meds-next-intake-card', '.wg-meds-next-intake-card__kicker',
-            '.wg-meds-next-intake-card__time', '.wg-meds-next-intake-card__meta',
-            '.wg-meds-next-intake-card__cta',
             // Charts
             '.chart-section', '.chart-container', '.chart-container-tall',
             '.chart-stat', '.chart-stat-spaced', '.chart-legend',

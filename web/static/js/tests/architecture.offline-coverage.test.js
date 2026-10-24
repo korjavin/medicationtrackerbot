@@ -148,6 +148,10 @@ const ALLOWLIST = [
         file: 'workout/scan.js',
         reason: 'printed-sheet scan-back (med-qj4.9); its only reads are one-shot variants/exercises fetches behind an explicit Scan press — the plan the sheet printed from, which must be fresh (a stale plan would misfile scanned sets, so offline it says so and scans nothing, same as the brief.js precedent). Saves go through the workout domain writes + tag invalidation',
     },
+    {
+        file: 'meds-history.js',
+        reason: 'medication editor + take-sheet write handlers (DataStore.applyOptimistic) only; its History list read went away with the Meds timeline (bd med-wi09.3), whose read lives in meds.js loadTimeline over the vault-served GET /api/doses',
+    },
     // ---- Food split sub-files (orchestrator + mutation-only / non-API helpers) ----
     {
         file: 'food/index.js',

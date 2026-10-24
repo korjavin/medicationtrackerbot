@@ -348,10 +348,13 @@ function switchTab(tab) {
     }
 
     if (tab === 'meds') {
-        const stored = typeof getActiveMedsSubTab === 'function' ? getActiveMedsSubTab() : 'history';
+        const stored = typeof getActiveMedsSubTab === 'function' ? getActiveMedsSubTab() : 'timeline';
         const activeMedTab = document.querySelector('.med-tab.active');
         if (!activeMedTab || activeMedTab.dataset.tab !== stored) {
             switchMedTab(stored);
+        } else if (stored === 'timeline') {
+            // Opening Meds lands the timeline on Today (MT1).
+            loadTimeline({ anchor: true });
         } else {
             reloadCurrentTab();
         }
@@ -418,9 +421,6 @@ function bindMedicationControls() {
             const element = document.getElementById(id);
             if (element) element.addEventListener('change', handler);
         };
-
-        bindChange('history-filter-med', () => loadHistory());
-        bindChange('history-filter-days', () => loadHistory());
 
         bindClick('add-btn', () => showAddModal());
         bindClick('med-modal-cancel-btn', () => closeModal());
@@ -530,6 +530,9 @@ bindNotificationControls();
 
 
 function switchMedTab(tab) {
+    // Retired History / Upcoming values (stored, linked or scripted) land on
+    // the timeline that replaced them (bd med-wi09.3).
+    if (tab === 'history' || tab === 'upcoming') tab = 'timeline';
     const activated = activateTabGroup(tab, {
         buttonSelector: '.med-tab',
         contentSelector: '.med-tab-content',
@@ -541,10 +544,7 @@ function switchMedTab(tab) {
     if (typeof syncMedsAddButton === 'function') syncMedsAddButton();
 
     if (tab === 'schedule') { loadMeds(); }
-    else if (tab === 'history') { loadHistory(); }
-    else if (tab === 'upcoming') {
-        if (typeof loadUpcoming === 'function') loadUpcoming();
-    }
+    else if (tab === 'timeline') { loadTimeline({ anchor: true }); }
     else if (tab === 'inventory') {
         if (typeof loadInventory === 'function') loadInventory();
     }
@@ -693,7 +693,7 @@ function reloadCurrentTab() {
     if (tab === 'meds') {
         const activeMedTab = document.querySelector('.med-tab.active');
         const medTab = activeMedTab ? activeMedTab.dataset.tab : 'schedule';
-        if (medTab === 'history') { loadHistory(); }
+        if (medTab === 'timeline') { loadTimeline(); }
         else if (medTab === 'inventory') {
             if (typeof loadInventory === 'function') loadInventory();
         }
@@ -716,10 +716,8 @@ window.reloadCurrentTab = reloadCurrentTab;
 
 // refreshMedsAfterMutation, the medication add modal + form helpers
 // (showAddModal / setMedModalHeader / closeModal / toggleScheduleFields /
-// addTimeInput / toggleInventoryFields / loadRestockHistory / isLowOnStock …),
-// the Meds → History load + next-intake card (loadHistory /
-// renderNextIntakeTrigger / triggerNextIntake) moved to
-// features/meds-history.js (Plan 2026-06-10 finish-app-js-split, Task 1).
+// addTimeInput / toggleInventoryFields / loadRestockHistory / isLowOnStock …)
+// moved to features/meds-history.js (Plan 2026-06-10 finish-app-js-split, Task 1).
 // Init
 // loadMeds() removed to avoid redundant call. It is called by checkAuth -> switchTab.
 
@@ -813,9 +811,9 @@ function handlePushAction(action, params) {
 
 // showMedicationConfirmModal() moved to features/meds.js (Phase 5 Task 1)
 
-// closeMedicationConfirmModal, the optimistic history-cache helpers
-// (_applyOptimisticHistoryFlip / _applyOptimisticNextIntakeClear /
-// _applyOptimisticHistoryAdd / _commit/_rollbackOptimistic), and the
+// closeMedicationConfirmModal, the optimistic cache helpers
+// (_applyOptimisticNextIntakeClear / _applyOptimisticDueClear /
+// _commit/_rollbackOptimistic), and the
 // confirm/skip/edit/log-past handlers (confirmSelectedMedications,
 // skipSelectedMedications, updateIntakeHistory, confirmLogPast,
 // snoozeMedicationConfirm) moved to features/meds-history.js (Plan

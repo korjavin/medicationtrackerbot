@@ -2,13 +2,12 @@
 //
 // Pins the user-reported findings fixed by Task 4:
 //   • #med-next-action card removed from the Schedule sub-tab (was a
-//     duplicate of the Today next-action + History next-intake surfaces).
+//     duplicate of the Today next-action surface).
 //   • #meds-view carries `.wg-screen-stage` so the view sits on the teal
 //     palette rather than the paper-white body background.
 //   • #med-confirm-modal carries the shared `.wg-modal` primitive; the
 //     #med-modal editor is a kit pushed page (`.wg-page`, med-xso6.20).
-//   • History is the default sub-tab on first open — stale localStorage
-//     values from the pre-round-2 persistence model don't win.
+//   • (The default sub-tab lives in meds.subtabs.test.js.)
 //   • renderMeds() does not re-introduce the next-action card even after
 //     medications + a cached next_intake payload are seeded (regression
 //     guard against restoring mountNextActionCard).
@@ -63,29 +62,6 @@ describe('Meds design parity (Round 2, Task 4)', () => {
         expect(modal).not.toBeNull();
         expect(modal.classList.contains('wg-modal')).toBe(true);
         expect(modal.classList.contains('wg-med-confirm-modal')).toBe(true);
-    });
-
-    it('history is the default sub-tab on a fresh session (no stored value)', () => {
-        const { window, document } = env;
-        window.sessionStorage.removeItem('mt-meds-subtab');
-        expect(window.getActiveMedsSubTab()).toBe('history');
-
-        const historyBtn = document.querySelector('.med-tab[data-tab="history"]');
-        const scheduleBtn = document.querySelector('.med-tab[data-tab="schedule"]');
-        const inventoryBtn = document.querySelector('.med-tab[data-tab="inventory"]');
-        expect(historyBtn.getAttribute('aria-pressed')).toBe('true');
-        expect(scheduleBtn.getAttribute('aria-pressed')).toBe('false');
-        expect(inventoryBtn.getAttribute('aria-pressed')).toBe('false');
-    });
-
-    it('stale legacy localStorage sub-tab values do not override the history default', () => {
-        // Simulate a user that had "schedule" or "inventory" persisted
-        // under the old localStorage model. The round-2 sessionStorage
-        // switch must ignore the stale value and render history.
-        const { window } = env;
-        window.localStorage.setItem('mt-meds-subtab', 'inventory');
-        window.sessionStorage.removeItem('mt-meds-subtab');
-        expect(window.getActiveMedsSubTab()).toBe('history');
     });
 
     it('renderMeds does not mount a next-action card even after medications are seeded', async () => {

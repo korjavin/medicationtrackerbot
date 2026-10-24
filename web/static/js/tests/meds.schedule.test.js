@@ -2,7 +2,7 @@
 //
 // Exercises renderMeds(): scheduled entries group by their next dose slot into
 // `.wg-meds-bucket` sections ("HH:MM · in Xh Ym" eyebrow + a "Take N" head
-// action), missed doses get "HH:MM · missed today" buckets with "Log late",
+// action), due doses get "HH:MM" buckets with a Pending chip and "Log late",
 // as-needed and archived meds collapse into their own buckets below, and each
 // row is a kit `.wg-row.wg-meds-row` (tap edits; Edit/Delete behind the
 // WGRowActions overflow menu; as-needed rows keep a per-row Log).
@@ -161,7 +161,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(document.getElementById('med-confirm-skip-btn').classList.contains('hidden')).toBe(false);
     });
 
-    it('a due PENDING intake renders a "missed" bucket first whose "Log late" confirms that intake', async () => {
+    it('a due PENDING intake renders a Pending bucket first whose "Log late" confirms that intake', async () => {
         const { window, document } = env;
         const missedAt = new Date(Date.now() - 2 * 60 * 1000);
         missedAt.setSeconds(0, 0);
@@ -184,9 +184,12 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
 
         const buckets = document.querySelectorAll('#med-list .wg-meds-bucket');
         const first = buckets[0];
-        expect(first.querySelector('.wg-meds-bucket__label').textContent).toMatch(/^\d{2}:\d{2} · missed (today|yesterday)$/);
-        expect(first.querySelector('.wg-eyebrow--danger')).not.toBeNull();
-        expect(first.querySelector('.wg-row__lead--danger')).not.toBeNull();
+        // Pending, never "missed" (owner, med-wi09): a Pending chip + sky lead.
+        expect(first.querySelector('.wg-meds-bucket__label').textContent).toMatch(/^\d{2}:\d{2}( · yesterday)?$/);
+        expect(first.querySelector('.wg-chip--pending').textContent).toBe('Pending');
+        expect(first.querySelector('.wg-eyebrow--danger')).toBeNull();
+        expect(first.querySelector('.wg-row__lead--sky')).not.toBeNull();
+        expect(first.querySelector('.wg-row__lead--danger')).toBeNull();
         expect(Array.from(first.querySelectorAll('.wg-meds-row__name')).map((el) => el.textContent)).toEqual(['Losartan']);
         // The missed med is not repeated under an upcoming bucket.
         expect(document.querySelectorAll('#med-list .wg-meds-row[data-med-id="7"]').length).toBe(1);
@@ -542,7 +545,8 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(addBtn.hidden).toBe(true);
 
         // Another pane without an empty-state Add shows it again.
-        window.switchMedTab('history');
+        window.loadTimeline = () => {};
+        window.switchMedTab('timeline');
         expect(addBtn.hidden).toBe(false);
 
         // Once there is a med, Schedule keeps the app-bar Add.
@@ -551,176 +555,5 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         window.switchMedTab('schedule');
         window.renderMeds();
         expect(addBtn.hidden).toBe(false);
-    });
-});
-
-// bd med-gut.2 — read-only "Upcoming" forecast: the next 7 days of doses
-// grouped by day in the TRACKED timezone, with tz-plan steps labelled and
-// their explanatory note surfaced.
-//
-// bd med-4oxj promoted it out of the Schedule list into its own Meds sub-tab
-// (History | Schedule | Upcoming | Inventory), so these cases now drive
-// switchMedTab('upcoming') and assert against the `#med-upcoming-list` pane.
-describe('Meds Upcoming sub-tab — forecast (bd med-gut.2, bd med-4oxj)', () => {
-    let env;
-
-    beforeEach(() => {
-        env = loadFrontendEnv();
-    });
-
-    afterEach(() => {
-        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
-        try { env.window.sessionStorage.clear(); } catch (_) { /* ignore */ }
-        env.cleanup();
-        env = null;
-    });
-
-    // Enters the Upcoming sub-tab the way a tap does — switchMedTab activates
-    // the pane and dispatches to loadUpcoming(); the explicit await makes the
-    // dispatch's floating promise deterministic for assertions.
-    async function openUpcomingTab(window, upcoming) {
-        window.apiCall = vi.fn(async (endpoint) => (
-            typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')
-                ? upcoming
-                : []
-        ));
-        window.switchMedTab('upcoming');
-        await window.loadUpcoming();
-    }
-
-    const med = {
-        id: 1,
-        name: 'Metformin',
-        dosage: '500mg',
-        schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
-        archived: false
-    };
-
-    it('groups the forecast by day using the route\'s tracked-timezone day fields', async () => {
-        const { window, document } = env;
-        const base = Date.now() + 60 * 60 * 1000;
-
-        await openUpcomingTab(window, [
-            upcomingDose({
-                id: 1, name: 'Metformin', dosage: '500mg', at: new Date(base),
-                localDate: '2026-08-16', localTime: '08:00', dayOffset: 0
-            }),
-            upcomingDose({
-                id: 1, name: 'Metformin', dosage: '500mg', at: new Date(base + 24 * 3600_000),
-                localDate: '2026-08-17', localTime: '08:00', dayOffset: 1
-            }),
-            upcomingDose({
-                id: 1, name: 'Metformin', dosage: '500mg', at: new Date(base + 48 * 3600_000),
-                localDate: '2026-08-18', localTime: '08:00', dayOffset: 2
-            })
-        ]);
-
-        const wrap = document.querySelector('#med-upcoming-list .wg-meds-upcoming');
-        expect(wrap).not.toBeNull();
-        // The pill above names the pane — no duplicated section label inside.
-        expect(wrap.querySelector('.wg-meds-bucket__label')).toBeNull();
-
-        const dayLabels = Array.from(wrap.querySelectorAll('.wg-meds-upcoming__day'))
-            .map((el) => el.textContent.trim());
-        expect(dayLabels).toHaveLength(3);
-        // day_offset comes from the domain (tracked zone), so "Today"/"Tomorrow"
-        // stay correct even when the device zone is a different calendar day.
-        expect(dayLabels[0]).toBe('Today');
-        expect(dayLabels[1]).toBe('Tomorrow');
-        expect(dayLabels[2]).not.toBe('Tomorrow');
-
-        const rows = wrap.querySelectorAll('.wg-meds-upcoming__row');
-        expect(rows.length).toBe(3);
-        expect(rows[0].querySelector('.wg-meds-upcoming__time').textContent).toBe('08:00');
-        expect(rows[0].querySelector('.wg-meds-upcoming__name').textContent).toBe('Metformin');
-        expect(rows[0].querySelector('.wg-meds-upcoming__dosage').textContent).toBe('500mg');
-        // Read-only: no take/skip/log affordances in the forecast list.
-        expect(wrap.querySelectorAll('button').length).toBe(0);
-    });
-
-    it('badges a tz-plan step dose and shows the step note', async () => {
-        const { window, document } = env;
-        const at = new Date(Date.now() + 3 * 3600_000);
-        const note = 'Metformin (strict — gradual shift): step 1/2 — 08:00 GMT+3 old / 05:00 GMT new';
-
-        await openUpcomingTab(window, [
-            upcomingDose({
-                id: 1, name: 'Metformin', dosage: '500mg', at,
-                localDate: '2026-08-16', localTime: '05:00', dayOffset: 0,
-                step: { number: 1, total: 2, note }
-            })
-        ]);
-
-        const row = document.querySelector('#med-upcoming-list .wg-meds-upcoming__row');
-        expect(row.classList.contains('wg-meds-upcoming__row--step')).toBe(true);
-        const badge = row.querySelector('.wg-meds-upcoming__badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-tag')).toBe(true);
-        expect(badge.classList.contains('wg-tag--mono')).toBe(true);
-        expect(badge.textContent).toBe('transition step 1/2');
-        expect(row.querySelector('.wg-meds-upcoming__note').textContent).toBe(note);
-    });
-
-    // bd med-jr1e: an answered-but-empty forecast used to render nothing, which
-    // was indistinguishable on screen from the feature not shipping at all —
-    // and in a dedicated tab (bd med-4oxj) that would be a blank screen.
-    it('renders an honest empty state when the forecast answered with no doses', async () => {
-        const { window, document } = env;
-        await openUpcomingTab(window, []);
-
-        const wrap = document.querySelector('#med-upcoming-list .wg-meds-upcoming');
-        expect(wrap).not.toBeNull();
-        const empty = wrap.querySelector('.wg-empty');
-        expect(empty).not.toBeNull();
-        expect(empty.querySelector('.wg-empty__title').textContent).toBe('Nothing scheduled');
-        expect(empty.querySelector('.wg-empty__body').textContent).toContain('next 7 days');
-        expect(wrap.querySelectorAll('.wg-meds-upcoming__row').length).toBe(0);
-        // M4: the empty state's Add is the one primary on screen.
-        expect(empty.querySelector('.wg-btn--primary')).not.toBeNull();
-        expect(document.getElementById('add-btn').hidden).toBe(true);
-    });
-
-    // bd med-4oxj: the forecast used to render inside the Schedule list
-    // (between the `Scheduled` fallback and `As needed`, bd med-jr1e). It now
-    // lives in its own pane, and the Schedule list must not carry it at all.
-    it('keeps the forecast out of the Schedule list and paints it in the Upcoming pane', async () => {
-        const { window, document } = env;
-        const at = new Date(Date.now() + 60 * 60 * 1000);
-
-        // seedMedications drives loadMeds(), which is the Schedule tab's own
-        // path — and still refreshes the shared forecast state (bd med-gut.1).
-        await seedMedications(window, [
-            { ...med, schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(at)] }) },
-            { id: 2, name: 'PRN Med', dosage: '1 tab', schedule: JSON.stringify({ type: 'as_needed' }), archived: false },
-            { id: 3, name: 'Archived Med', dosage: '2mg', schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }), archived: true }
-        ], [
-            upcomingDose({
-                id: 1, name: 'Metformin', dosage: '500mg', at,
-                localDate: '2026-08-16', localTime: toLocalTime(at), dayOffset: 0
-            })
-        ]);
-
-        const labels = Array.from(document.querySelectorAll('#med-list .wg-meds-bucket__label'))
-            .map((el) => el.textContent.trim());
-        expect(labels[0]).toMatch(/^\d{2}:\d{2} · in /);
-        expect(labels[1]).toBe('As needed');
-        expect(labels[2]).toBe('Archived');
-        expect(document.querySelector('#med-list .wg-meds-upcoming')).toBeNull();
-
-        // The same loadMeds() pass painted the Upcoming pane off the forecast
-        // it already fetched — one request behind both views.
-        const rows = document.querySelectorAll('#med-upcoming-list .wg-meds-upcoming__row');
-        expect(rows.length).toBe(1);
-        expect(rows[0].querySelector('.wg-meds-upcoming__name').textContent).toBe('Metformin');
-    });
-
-    it('renders nothing when the forecast route is unavailable', async () => {
-        const { window, document } = env;
-        await openUpcomingTab(window, null); // route answers null
-
-        // Offline / legacy server: no forecast to claim anything about, so the
-        // pane stays blank rather than asserting "nothing upcoming".
-        expect(document.querySelector('#med-upcoming-list .wg-meds-upcoming')).toBeNull();
-        expect(document.getElementById('med-upcoming-list').children.length).toBe(0);
     });
 });
