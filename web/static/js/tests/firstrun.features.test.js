@@ -462,17 +462,22 @@ describe('firstrun W1 waits for the account pull (account mode)', () => {
         });
         const flow = loadFlow({ fetchMock, authBootstrap: true });
         flow.window.apiCall = vi.fn(call);
-        // What applyBootstrapPayload and cloud-boot's re-ask both do with /api/bootstrap.
-        const ask = async () => flow.window.AuthBootstrap.mountFirstRun((await call('/api/bootstrap')).needs_first_run);
+        // What applyBootstrapPayload and cloud-boot's re-ask both do with a
+        // /api/bootstrap payload: mount only on a boolean needs_first_run.
+        const apply = (res) => {
+            if (typeof res.needs_first_run === 'boolean') flow.window.AuthBootstrap.mountFirstRun(res.needs_first_run);
+        };
+        const ask = async () => apply(await call('/api/bootstrap'));
         const gatedWrites = () => written.filter((t) => GATED.includes(t));
-        return { ...flow, pull, ask, store, gatedWrites, fetchMock };
+        return { ...flow, pull, ask, apply, call, store, gatedWrites, fetchMock };
     }
     const done = { firstrun: [{ recordId: 'firstrun', clientTs: 5, deleted: false, first_run_complete: true }] };
     const overlay = (document) => document.getElementById('wg-firstrun-overlay');
 
     it('pull failed: no W1, no feature-flag, deliverypref or firstrun writes', async () => {
-        const { document, ask, gatedWrites, fetchMock, window, cleanup } = account();
+        const { document, ask, call, gatedWrites, fetchMock, window, cleanup } = account();
         try {
+            expect('needs_first_run' in (await call('/api/bootstrap'))).toBe(false);
             await ask();
             await flush();
             expect(overlay(document)).toBeNull();
@@ -519,6 +524,20 @@ describe('firstrun W1 waits for the account pull (account mode)', () => {
                 expect(gatedWrites()).toEqual([]);
             } finally { cleanup(); }
         }
+    });
+
+    // The boot-time applyBootstrapPayload awaits cache writes before its mount,
+    // so a payload read before the pull can land after the post-pull re-ask.
+    it('a pre-pull bootstrap landing after the re-ask leaves the mounted W1 up', async () => {
+        const { document, ask, apply, call, pull, cleanup } = account();
+        try {
+            const stale = await call('/api/bootstrap');
+            pull.done = true;
+            await ask();
+            expect(overlay(document)).not.toBeNull();
+            apply(stale);
+            expect(overlay(document)).not.toBeNull();
+        } finally { cleanup(); }
     });
 });
 

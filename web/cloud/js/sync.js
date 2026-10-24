@@ -766,13 +766,13 @@ async function pullTail(ctx) {
         ? { localLastSeq: op.seq, importBumpSeq: op.seq }
         : { localLastSeq: op.seq });
     }
+    // tailCaughtUpAt: only here, on the last page of a successful pull — the
+    // one moment the mirror provably holds the whole account. hasCaughtUp()
+    // reads it (bd med-ejgf); lastSyncedAt is also stamped by any accepted
+    // push, so it cannot say that. resetLocalSync clears both with sync_meta.
+    await writeMeta(body.next ? { lastSyncedAt: Date.now() } : { lastSyncedAt: Date.now(), tailCaughtUpAt: Date.now() });
     notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
-    // Stamped on the last page only: hasCaughtUp() reads it as "this device
-    // has seen the whole server tail at least once" (bd med-ejgf).
-    if (!body.next) {
-      await writeMeta({ lastSyncedAt: Date.now() });
-      break;
-    }
+    if (!body.next) break;
   }
 }
 
@@ -1083,12 +1083,12 @@ export async function isBootstrapped() {
   return (await readMeta()).localLastSeq !== null;
 }
 
-// True once this device has pulled the server's whole tail (or pushed with no
-// peer op in between) at least once — i.e. the local mirror really is the
-// account. Until then an empty mirror says nothing about the account, so the
-// shim withholds the first-run wizard (bd med-ejgf). resetLocalSync clears it.
+// True once this device has pulled the server's whole tail at least once —
+// i.e. the local mirror really is the account. Until then an empty mirror
+// says nothing about the account, so the shim withholds the first-run wizard
+// (bd med-ejgf). resetLocalSync clears it.
 export async function hasCaughtUp() {
-  return (await readMeta()).lastSyncedAt !== null;
+  return (await withStore('sync_meta', 'readonly', (store) => reqToPromise(store.get('tailCaughtUpAt')))) != null;
 }
 
 // Max re-post attempts when a concurrent writer keeps interleaving (below).
@@ -1328,7 +1328,11 @@ export async function reauthenticate(ctx) {
   // pullOnOpen runs would flush the same pending set under the same predicted
   // seqs (duplicate ops + a guaranteed mis-predict retry).
   while (drainInFlight) await drainInFlight;
-  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; drainSettled(ctx); });
+  drainInFlight = pullOnOpen(ctx).finally(() => {
+    drainInFlight = null;
+    drainSettled(ctx);
+    if (onDrainSettled) onDrainSettled();
+  });
   await drainInFlight;
   return getSyncStatus(ctx);
 }

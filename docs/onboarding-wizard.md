@@ -37,9 +37,10 @@ local mode and the bundled app shows W1 ([ios.md](ios.md#the-shell-bd-med-w6gx3)
 caches; local mode takes the same path through the bundled app's shim.
 
 - **Account mode waits for the first pull** (`med-ejgf`). Until this device has pulled the account's whole tail once
-  (`sync.js` `hasCaughtUp`, i.e. `lastSyncedAt` set), the shim answers `needs_first_run: false`: an empty mirror of an
-  existing account must not run W1, whose flag writes and `{floor:'auto'}` reminder default would overwrite the
-  account's. `cloud-boot.js` re-asks after the boot pull and after every drain (online / visible / sync wake) and
+  (`sync.js` `hasCaughtUp`: the `tailCaughtUpAt` meta key, stamped only on the last page of a successful pull), the
+  shim omits `needs_first_run`, so no pre-pull answer can mount or dismiss the overlay: an empty mirror of an existing
+  account must not run W1, whose flag writes and `{floor:'auto'}` reminder default would overwrite the account's.
+  `cloud-boot.js` re-asks after the boot pull and after every drain (online / visible / sync wake / re-auth) and
   hands the answer to `AuthBootstrap.mountFirstRun`. A failed pull just leaves the app shell up without W1. Local mode
   has nothing to pull and is never gated.
 

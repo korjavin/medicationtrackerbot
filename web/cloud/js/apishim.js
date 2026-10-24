@@ -173,7 +173,7 @@ function debugOnce(key, ...args) {
 //   opts.protection  the W4 nudge's local half (local-policy.js
 //                 LOCAL_PROTECTION, bd med-ta2n.4); omitted = never nudge.
 //   opts.caughtUp async () => bool: has the mirror pulled the account yet?
-//                 Until it has, /api/bootstrap reports needs_first_run false,
+//                 Until it has, /api/bootstrap omits needs_first_run,
 //                 so W1 never runs on an empty mirror of an existing account
 //                 (bd med-ejgf). Defaults to sync.js hasCaughtUp on the real
 //                 sync store; any injected store (local mode, tests) has
@@ -439,16 +439,18 @@ export function createApiRouter(ctx, {
     ]);
     const payload = {
       cursor: 0,
-      // Read from the vault on every call, never cached: WGFirstRun's _mounted
-      // latch is module state lost on reload, so only a fresh `false` here keeps
-      // the overlay from re-opening on the next page load. Not before the
-      // first pull (opts.caughtUp): cloud-boot re-asks once a drain lands.
-      needs_first_run: !firstRunComplete && synced,
       features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
       settings: settingsPart.settings,
     };
+    // Read from the vault on every call, never cached: WGFirstRun's _mounted
+    // latch is module state lost on reload, so only a fresh `false` here keeps
+    // the overlay from re-opening on the next page load. Omitted, not false,
+    // before the first pull (opts.caughtUp): applyBootstrapPayload then leaves
+    // the overlay alone, so a stale pre-pull answer arriving late can never
+    // dismiss a W1 that cloud-boot's post-pull re-ask has mounted.
+    if (synced) payload.needs_first_run = !firstRunComplete;
     // The Today Goal Line hero warms 'gamification_goal_line' from this
     // (auth-bootstrap.js applyBootstrapPayload). Byte-identical to a live GET
     // /goal-line (incl. the unacknowledged `milestone`, med-8tur.5); with
