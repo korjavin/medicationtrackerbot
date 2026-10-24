@@ -6,21 +6,26 @@ import android.os.Looper
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
 
 /**
  * local.erase's wipe (bd med-r1j2.8): the local origin's storage, and only that origin's — the
- * joined account's origin shares the WebView profile and must survive. WebStorage.deleteOrigin
- * leaves localStorage, and androidx.webkit's site deletion needs a newer WebView than the shell's
- * minimum, so a throwaway WebView (no bridge) loads one page on the asset origin that clears
- * localStorage, every IndexedDB database, Cache Storage and service workers from inside it, and
- * reports through its title. deleteOrigin then sweeps whatever quota storage is left.
- * Main thread only. [done] gets true on success, false on a script error or the 10 s timeout.
+ * joined account's origin shares the WebView profile and must survive. A throwaway WebView (no
+ * bridge) loads one page on the asset origin that clears localStorage, every IndexedDB database,
+ * Cache Storage and service workers from inside it, and reports completion through its title.
+ * Nothing else: WebStorage.deleteOrigin leaves localStorage and can't be awaited (bd med-r1j2.12 —
+ * a sweep still pending after [done] could delete what a local page writes next), and androidx.webkit's
+ * site deletion needs a newer WebView than the shell's minimum.
+ * Main thread only. [done] gets true on success, false on a script error or the 10 s timeout, or
+ * when a wipe is already in flight. Until [done] has run, [gate] holds every local-origin load, so
+ * nothing written after a switch to local mode is deleted.
  */
 object LocalWipe {
+    /** Process-wide: an activity recreated mid-wipe still waits for the old one's wipe. */
+    val gate = WipeGate()
+
     private const val PATH = "/__wg_local_wipe"
     private const val PAGE = """<!doctype html><title>wiping</title><script>
 (async () => {
@@ -41,6 +46,7 @@ object LocalWipe {
 </script>"""
 
     fun run(context: Context, done: (Boolean) -> Unit) {
+        if (!gate.start()) return done(false)
         val web = WebView(context)
         val main = Handler(Looper.getMainLooper())
         var finished = false
@@ -49,8 +55,7 @@ object LocalWipe {
             finished = true
             main.removeCallbacksAndMessages(web)
             web.destroy()
-            WebStorage.getInstance().deleteOrigin(LocalOrigin.HOME.removeSuffix("/"))
-            done(ok)
+            try { done(ok) } finally { gate.end() }
         }
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
@@ -72,5 +77,31 @@ object LocalWipe {
         }
         main.postAtTime({ finish(false) }, web, android.os.SystemClock.uptimeMillis() + 10_000)
         web.loadUrl("https://${LocalOrigin.HOST}$PATH")
+    }
+}
+
+/**
+ * The in-flight wipe flag (bd med-r1j2.12): while [busy], [after] queues its action until [end];
+ * otherwise it runs it now. The wipe's own 10 s timeout caps the wait. Main thread only.
+ */
+class WipeGate {
+    private var waiters: MutableList<() -> Unit>? = null
+    val busy: Boolean get() = waiters != null
+
+    /** False when a wipe is already in flight. */
+    fun start(): Boolean {
+        if (busy) return false
+        waiters = mutableListOf()
+        return true
+    }
+
+    fun after(action: () -> Unit) {
+        waiters?.add(action) ?: action()
+    }
+
+    fun end() {
+        val w = waiters ?: return
+        waiters = null
+        w.forEach { it() }
     }
 }
