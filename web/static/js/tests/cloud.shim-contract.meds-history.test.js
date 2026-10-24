@@ -316,6 +316,39 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    // bd med-wi09.4 — a reminder tap resolves exact ids only. Metformin's dose
+    // moved 30 min off the reminder's slot (a tz change / schedule edit): the
+    // tap must not offer or confirm that neighbour; it lands on the MT6
+    // out-of-date note at that med with the reminder's original time.
+    it('a reminder tap whose slot drifted opens no sheet, confirms nothing, and lands on MT6', async () => {
+        const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
+        const driftedIso = new Date(Date.parse(slotIso) + 30 * 60000).toISOString();
+        env = loadCloudShimFrontendEnv({
+            url: `https://acct.example.test/?action=medication_confirm&ids=1&scheduled=${encodeURIComponent(slotIso)}`,
+            seedRecords: {
+                medication: [seedMedication({ recordId: 1, name: 'Metformin', inventory_count: 5 })],
+                intake: [seedIntake({ recordId: 'intake-drift', medication_id: 1, scheduled_at: driftedIso, status: 'PENDING' })]
+            }
+        });
+        const { window, document } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const landing = vi.spyOn(window, 'showMedsReminderOutOfDate').mockImplementation(() => {});
+            const modal = vi.spyOn(window, 'showMedicationConfirmModal');
+
+            window.handleDeepLinks();
+            await waitFor(() => landing.mock.calls.length > 0);
+
+            expect(landing).toHaveBeenCalledWith({ medId: 1, scheduled: slotIso });
+            expect(modal).not.toHaveBeenCalled();
+            const history = await window.apiCall('/api/history?days=2');
+            expect(history.find((h) => h.id === 'intake-drift').status).toBe('PENDING');
+            expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     // bd med-wi09.2 — explicit dose actions on explicit occIds. Two meds share
     // a past slot: intake-a (Metformin) and intake-b (Aspirin).
     const slotEnv = (statusA, statusB) => {

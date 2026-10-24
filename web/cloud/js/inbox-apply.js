@@ -39,7 +39,6 @@ import { cancelMedRefire, rearmMedRefire } from './reminders.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL, deviceValues } from './sync.js';
-import { minDoseIntervalMs } from '../../domain/medschedule.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
 export const TG_COMMAND = 'tg_command';
@@ -158,7 +157,6 @@ function truncateRunes(s, n) {
 }
 
 const INTAKE_RECORD_TYPE = 'intake';
-const MEDICATION_RECORD_TYPE = 'medication';
 
 
 // Mirrors DEFAULT_SNOOZE_MINUTES in web/domain/medintake.js (and the server's
@@ -179,31 +177,12 @@ function isAlreadyApplied(err) {
   return !!err && err.code === 'not_pending';
 }
 
-// nearestPendingByMed picks a med's single PENDING intake closest to the slot
-// within `bandMs`. Nearest-wins guards the rare case where both an on-slot and a
-// drifted intake of the same med sit inside the band — we act on one, not both.
-//
-// ponytail: known false-positive ceiling, and only reachable now as the FALLBACK
-// after the exact `intake-<medId>-<slotUnix>` lookup misses — i.e. the stored
-// intake's scheduled_at drifted off the instant the reminder was built from. So if the exact on-slot dose was already handled via
-// another channel AND a *different* dose of this same multi-daily med drifted
-// into `bandMs`, we confirm that other instant. The two cases are
-// indistinguishable here, so this is accepted rather than fixed. Requires a
-// narrow conjunction (multi-daily med + drift ≥ interval−band + on-slot dose
-// handled out-of-band + a stale reminder tap); upgrade path is instant-carrying.
-// The same-tap subset — a redelivery of THIS tap re-confirming a drifted dose
-// after the on-slot dose it already confirmed — IS distinguishable (taken_at is
-// the deterministic atMs) and is closed by the doneThisTap skip in the caller.
-function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
-  let best = null;
-  let bestDelta = Infinity;
-  for (const i of intakes) {
-    if (i.deleted || i.status !== 'PENDING' || String(i.medication_id) !== String(medId)) continue;
-    const delta = Math.abs(Date.parse(i.scheduled_at) - slotMs);
-    if (delta <= bandMs && delta < bestDelta) { best = i; bestDelta = delta; }
-  }
-  return best;
-}
+// The receipt for a tap that names a dose the vault no longer has at that
+// instant (bd med-wi09.4): a tz change or schedule edit moved it, or the med is
+// gone. Nothing is guessed — the app opens on the timeline instead (MT6).
+export const OUT_OF_DATE_TEXT = 'This reminder is out of date — open the app to log it.';
+
+const ROW_STATUS = { taken: 'TAKEN', skipped: 'SKIPPED' };
 
 // applyIntakeSlotAction confirms (or snoozes) the meds a slot reminder named.
 //
@@ -213,13 +192,14 @@ function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
 // side-table (the deleted `slotmeds` records — every reconstruction failure used
 // to mean 6h of hourly nags for doses already taken).
 //
-// Per named med it picks, in order:
-//   1. the deterministic `intake-<medId>-<slotUnix>` row — the exact id
-//      materializeDueDoses writes for the very instant the reminder was built
-//      from, so the common case is an exact lookup;
-//   2. otherwise that med's nearest PENDING dose within its OWN
-//      minDoseInterval — the drift fallback for a course/tz-plan dose whose
-//      scheduled_at moved hours off its clock slot (bd med-eas.67).
+// Per named med it resolves the dose EXACTLY, as POST /api/doses/act does
+// (bd med-wi09.4): the stored `intake-<medId>-<slotUnix>` row — a tombstone
+// means the user deleted that dose, so the tap is a silent no-op for it — else
+// the projection's row for that med at that very second (a legacy-id stored row,
+// or the forecast slot). Never a neighbouring dose: there is no band fallback.
+// A med that resolves to nothing gets nothing applied; the reminder message
+// becomes "out of date" and onOutOfDate opens the app's timeline at that med
+// with the reminder's own time and nothing preselected (MT6).
 //
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
@@ -231,13 +211,13 @@ function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
 // reaches for an ambient fetch. There is no cancel here any more: the relay
 // cancels the chain the instant the Confirm is tapped, and this only puts ONE
 // re-fire back when a named dose is somehow still due afterwards.
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {} }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {}, onOutOfDate = () => {} }) {
   const slotUnix = event.slot_unix;
   const slotMs = slotUnix * 1000;
   const atMs = event.at_unix * 1000;
   // confirm() backdates taken_at to atMs deterministically, so this instant is
-  // stable across an at-least-once redelivery of the same tap. Used both to skip
-  // a med a prior redelivery already confirmed and to recount the receipt.
+  // stable across an at-least-once redelivery of the same tap — the receipt
+  // recount below relies on it.
   const atIso = new Date(atMs).toISOString();
 
   // The tap may name a slot whose intakes were never materialized (the app has
@@ -245,7 +225,6 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // exist to confirm; it is idempotent via the deterministic intake id.
   await materializing(() => intake.materializeDueDoses());
 
-  const intakes = await records.list(INTAKE_RECORD_TYPE);
   // Compared as strings throughout: the relay round-trips the ids through a
   // decimal column, so a numeric recordId comes back as a number while an
   // imported vault could hold it as a string. One normalisation, no coercion.
@@ -268,63 +247,41 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     return;
   }
 
-  // medById + each med's own drift band (minDoseInterval) are needed by the
-  // selection, the receipt count and the still-due check — build them once.
-  const medById = new Map();
-  for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(String(m.recordId), m);
-  const medBandMs = (medId) => {
-    const med = medById.get(String(medId));
-    return med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
+  // medId → the stored-shape dose this slot names ({recordId, status,
+  // taken_at}), 'gone' for a tombstoned slot id, or null when nothing at this
+  // instant matches. Re-read after the writes for the still-due check.
+  const resolveNamed = async () => {
+    const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
+    // +999: the occId floors to the second, a tz-plan step can keep its ms.
+    const rows = await intake.occurrences({ fromMs: slotMs, toMs: slotMs + 999 });
+    const out = new Map();
+    for (const medId of named) {
+      const byId = raw.find((i) => String(i.recordId) === `intake-${medId}-${slotUnix}`);
+      if (byId) { out.set(medId, byId.deleted ? 'gone' : byId); continue; }
+      const row = rows.find((r) => String(r.medId) === String(medId));
+      out.set(medId, row ? { recordId: row.occId, status: ROW_STATUS[row.state] || 'PENDING', taken_at: row.takenAt || null } : null);
+    }
+    return out;
   };
-  // A med's dose for THIS slot: the deterministic `intake-<medId>-<slotUnix>`
-  // row materializeDueDoses writes for the very instant the reminder was built
-  // from (medintake.js's slotId, not exported), else its nearest PENDING dose
-  // within its own band. `list` is passed in because the still-due check below
-  // must see the writes this tap just made.
-  //
-  // A slot the user DELETED is tombstoned: materializeDueDoses creates nothing
-  // over it, the tombstone is filtered out of `list`, and (for a once-daily med)
-  // the band fallback has no candidate — so the tap applies nothing and edits no
-  // receipt. That is the wanted outcome, and since bd med-x7x2 the horizon no
-  // longer schedules such a slot at all, leaving only the in-flight-push race.
-  const findPending = (list, medId) => {
-    const exact = list.find((i) => i.recordId === `intake-${medId}-${slotUnix}` && !i.deleted);
-    if (exact && exact.status === 'PENDING') return exact;
-    return nearestPendingByMed(list, medId, slotMs, medBandMs(medId));
-  };
+  const isPending = (dose) => !!dose && dose !== 'gone' && dose.status === 'PENDING';
 
-  // atSlot: the PENDING intakes this tap acts on — one per NAMED med.
-  const atSlot = [];
-  for (const medId of named) {
-    // A prior redelivery of THIS tap may have already confirmed this med's dose
-    // (deferred flush failed → inbox re-queues the event). Its taken_at is atMs
-    // exactly, so a TAKEN intake at atMs within band means this tap is done with
-    // this med — skip it instead of picking its NEXT nearest PENDING dose, which
-    // on a multi-daily med with a drifted in-band dose would confirm a second
-    // instant the user never took. Only the same-tap case is closable here (atMs
-    // is deterministic across redeliveries); a genuinely separate confirm at
-    // another instant stays the documented ceiling in nearestPendingByMed.
-    const band = medBandMs(medId);
-    const doneThisTap = intakes.some((i) => !i.deleted && i.status === 'TAKEN'
-      && String(i.medication_id) === String(medId) && i.taken_at === atIso
-      && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= band);
-    if (doneThisTap) continue;
-    const hit = findPending(intakes, medId);
-    if (hit) atSlot.push(hit);
-  }
+  const before = await resolveNamed();
+  const unresolved = named.filter((medId) => before.get(medId) === null);
 
   let applied = 0;
-  for (const i of atSlot) {
+  for (const medId of named) {
+    const dose = before.get(medId);
+    if (!isPending(dose)) continue;
     try {
       if (event.action === 'confirm') {
-        await intake.confirm(i.recordId, atMs);
+        await intake.confirm(dose.recordId, atMs);
       } else {
         // Snooze from the TAP, not from the drain. If that window already
         // elapsed while the app was closed, snoozing is meaningless — the
         // re-reminders it would have suppressed have already fired.
         const minutes = (atMs + DEFAULT_SNOOZE_MINUTES * 60_000 - now()) / 60_000;
         if (minutes <= 0) continue;
-        await intake.snooze(i.recordId, minutes);
+        await intake.snooze(dose.recordId, minutes);
       }
       applied += 1;
     } catch (e) {
@@ -333,10 +290,11 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   }
 
   // The relay already cancelled this slot's re-fire chain when the button was
-  // tapped (med-kbpf). Put ONE re-fire back only if a med the message NAMED is
-  // still due after all of the above — the drifted dose that fell outside its
-  // band, which would otherwise be silent. Snooze never re-arms: the relay
-  // rescheduled the chain +1h itself, which is the point of the tap.
+  // tapped (med-kbpf). Put ONE re-fire back only if a med the message NAMED
+  // still has its dose due at this slot after all of the above. Snooze never
+  // re-arms: the relay rescheduled the chain +1h itself, which is the point of
+  // the tap. An unresolved med is not due at this slot — re-arming would only
+  // repeat the stale reminder.
   //
   // When nothing is left due, cancel AGAIN from here. The tap-time cancel is
   // primary, but a tap that lands in the gap between the relay sending a
@@ -344,53 +302,45 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // successor then carries the chain on. This idempotent backstop closes that
   // gap at drain latency. ponytail: a durable "confirmed" marker on the stem
   // would close it at tap time; add if the gap is ever hit in practice.
+  let confirmed = 0;
   if (event.action === 'confirm') {
-    const after = await records.list(INTAKE_RECORD_TYPE);
-    const stillDue = named.filter((medId) => !!findPending(after, medId));
+    const after = await resolveNamed();
+    const stillDue = named.filter((medId) => isPending(after.get(medId)));
     if (stillDue.length) rearmRefire(slotMs, stillDue);
     else cancelRefire(slotMs);
+    // Count every named med THIS tap confirmed, not just the writes from the
+    // final attempt: an at-least-once redelivery after a partial success
+    // re-runs with the earlier meds already TAKEN, so `applied` alone would
+    // undercount the receipt. taken_at === atIso is exactly this tap's set.
+    confirmed = named.filter((medId) => {
+      const dose = after.get(medId);
+      return !!dose && dose !== 'gone' && dose.status === 'TAKEN' && dose.taken_at === atIso;
+    }).length;
   }
 
   // Edit the original reminder message to a receipt and drop its buttons (the
-  // edit sends no reply_markup — bug 1). Only when we actually applied something:
-  // an at-least-once redelivery (flush-false re-queues the event, inbox.js:174)
-  // or a double-tap re-runs this with every intake already TAKEN/snoozed
-  // (applied === 0), and editing then would clobber the good "✅ Confirmed N"
-  // receipt with "ℹ️ Nothing was due". message_id is also absent when Telegram
-  // omitted cq.Message for an old message → editReply is a safe no-op.
-  if (applied > 0) {
-    let text;
-    if (event.action === 'confirm') {
-      // Count every intake THIS tap confirmed, not just the writes from the final
-      // attempt: an at-least-once redelivery after a partial success re-runs with
-      // the earlier meds already TAKEN (filtered out of the loop), so `applied`
-      // alone would undercount the receipt ("Confirmed 1" when 2 were taken).
-      // confirm() backdates taken_at to atMs deterministically, identical across
-      // retries, so intakes taken at this instant are exactly this tap's set.
-      // Identity: count DISTINCT named meds confirmed (not band-matched rows), so
-      // the receipt matches "every med the reminder named" — the reported
-      // "Confirmed 4" vs 3-taken mismatch. Fallback: band-matched rows, unchanged.
-      const taken = (await records.list(INTAKE_RECORD_TYPE)).filter((i) =>
-        !i.deleted && i.status === 'TAKEN' && i.taken_at === atIso);
-      const namedSet = new Set(named.map(String));
-      const distinct = new Set();
-      for (const i of taken) {
-        const medId = String(i.medication_id);
-        if (namedSet.has(medId) && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= medBandMs(medId)) {
-          distinct.add(medId);
-        }
-      }
-      const confirmed = distinct.size;
-      text = confirmationText({ kind: 'intake' }, { confirmed }, verbosity);
-    } else {
-      text = verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.';
-    }
+  // edit sends no reply_markup — bug 1). Only when something changed or a med
+  // is out of date: an at-least-once redelivery (flush-false re-queues the
+  // event, inbox.js:174) or a double-tap re-runs this with every intake already
+  // TAKEN/snoozed (applied === 0), and editing then would clobber the good
+  // "✅ Confirmed N" receipt with "ℹ️ Nothing was due". message_id is also
+  // absent when Telegram omitted cq.Message for an old message → editReply is a
+  // safe no-op.
+  const lines = [];
+  if (event.action === 'confirm' && (applied > 0 || (unresolved.length && confirmed > 0))) {
+    lines.push(confirmationText({ kind: 'intake' }, { confirmed }, verbosity));
+  } else if (event.action !== 'confirm' && applied > 0) {
+    lines.push(verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.');
+  }
+  if (unresolved.length) lines.push(OUT_OF_DATE_TEXT);
+  if (lines.length) {
     try {
-      await editReply(event.message_id, text);
+      await editReply(event.message_id, lines.join('\n'));
     } catch (e) {
       console.warn('[inbox] could not update the Telegram reply', e);
     }
   }
+  if (unresolved.length) onOutOfDate({ medId: String(unresolved[0]), scheduled: new Date(slotMs).toISOString() });
 }
 
 // SNOOZE_MINUTES_BY_ACTION maps a workout Snooze button to its duration. Skip
@@ -840,7 +790,14 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, cancelRefire = cancelMedRefire, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
+//
+// onOutOfDate defaults to the meds timeline's MT6 landing (features/meds.js,
+// a classic-script global) when the app page has it: the drain runs in the
+// open app, so an out-of-date Telegram tap opens Meds → Timeline at that med.
+const openMedsOutOfDate = (info) => {
+  if (typeof globalThis.showMedsReminderOutOfDate === 'function') globalThis.showMedsReminderOutOfDate(info);
+};
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, cancelRefire = cancelMedRefire, onOutOfDate = openMedsOutOfDate, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -977,6 +934,6 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
     const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, rearmRefire, cancelRefire });
+    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, rearmRefire, cancelRefire, onOutOfDate });
   };
 }
