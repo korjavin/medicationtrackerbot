@@ -201,6 +201,27 @@
                 ui.email.value = 'name@example.com';
                 ui.send.click();
             }
+        } else if (step.openAccount) {
+            // Path 0 "Open my account" (bd med-r1j2.5, AD10). Its W5 entry shows
+            // only where the shell reports its base, which no QA pass does:
+            // answer a placeholder base and open the page the way the entry
+            // does. Nothing leaves until "Unlock with passkey", never tapped.
+            // openAccount: "invalid" types a partial address and commits it.
+            window.Attest = {
+                isSupported: () => true,
+                status: async () => ({ supported: false, base: 'app.example.com', attested: false }),
+            };
+            window.InviteSheet.openAccount();
+            const input = document.getElementById('open-account-input');
+            const go = document.querySelector('.wg-pagefoot [data-invite-action="open-account"]');
+            const type = (v, commit) => {
+                input.value = v;
+                input.dispatchEvent(new Event('input'));
+                if (commit) input.dispatchEvent(new Event('change'));
+            };
+            // The base arrives async: a full address enables the sun once it has.
+            await until(() => { type('anna.app.example.com'); return !go.disabled; }, STEP_MS, 'open account base');
+            if (step.openAccount === 'invalid') type('anna.app', true);
         } else if (step.localFeedback) {
             // Settings → Send feedback in local mode (bd med-ta2n.20) mounts
             // only where the shell has App Attest and base.post, which no QA

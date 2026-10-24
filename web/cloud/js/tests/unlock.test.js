@@ -403,6 +403,35 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       await vi.waitFor(() => expect(globalThis.location.href).toBe('/#share-plan=p1.abc'));
     });
 
+    // bd med-r1j2.5 AD10 · none: Path 0 lands here; a NotAllowedError means no
+    // passkey for this account on this device (or a cancel — indistinguishable),
+    // so the locked screen keeps its error and points at the QR flow.
+    it('a NotAllowedError points at Add a device; an app error does not', async () => {
+      installFakeIdb();
+      let fail = Object.assign(new Error('not allowed'), { name: 'NotAllowedError' });
+      setGlobal('PublicKeyCredential', { parseRequestOptionsFromJSON: (x) => x || {} });
+      setGlobal('navigator', { credentials: { get: async () => { throw fail; } } });
+      setGlobal('fetch', async (url) => {
+        if (String(url) === '/api/webauthn/login/begin') return { ok: true, json: async () => ({ publicKey: {} }) };
+        throw new Error('unexpected fetch ' + url);
+      });
+      const app = fakeApp();
+      let appended = [];
+      const lookup = app.querySelector;
+      app.querySelector = (sel) => (sel === 'section' ? { appendChild: (n) => appended.push(n) } : lookup(sel));
+      setGlobal('document', { getElementById: () => app, createElement: () => ({}) });
+      setGlobal('location', { hash: '', href: '' });
+      await runUnlockFlow();
+      await app._listeners['unlock:click']();
+      await vi.waitFor(() => expect(appended.map((n) => n.id || n.className)).toEqual(['wizard-error', 'unlock-no-passkey']));
+      expect(appended[1].textContent).toMatch(/^No passkey for this account on this device\? .*Settings → Devices & connectors → Add a device\.$/);
+
+      appended = [];
+      fail = new Error('Unlock failed. Please try again.');
+      await app._listeners['unlock:click']();
+      await vi.waitFor(() => expect(appended.map((n) => n.id || n.className)).toEqual(['wizard-error']));
+    });
+
   });
 
   // med-5h1t.3: session renewal is login-only — no PRF requested, none needed,

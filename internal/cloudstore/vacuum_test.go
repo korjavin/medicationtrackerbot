@@ -35,13 +35,13 @@ func TestPutSnapshot_ReturnsFreedPages(t *testing.T) {
 		for i := range ops {
 			ops[i] = OpInput{DeviceCredentialID: []byte("dev"), RecordTypeTag: "bp:1", Nonce: []byte("n"), CT: ct}
 		}
-		seqs, err := r.AppendOps(ctx, acc.ID, ops, 0, now)
+		seqs, err := r.AppendOps(ctx, acc.ID, ops, 0, false, now)
 		if err != nil {
 			t.Fatal(err)
 		}
 		last = seqs[len(seqs)-1]
 	}
-	if err := r.PutSnapshot(ctx, acc.ID, last, []byte("n"), []byte("snap"), now); err != nil {
+	if err := r.PutSnapshot(ctx, acc.ID, last, []byte("n"), []byte("snap"), false, now); err != nil {
 		t.Fatal(err)
 	}
 	var free int64
