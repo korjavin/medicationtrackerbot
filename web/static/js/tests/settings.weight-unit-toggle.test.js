@@ -33,8 +33,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         expect(root).not.toBeNull();
         expect(root.getAttribute('role')).toBe('radiogroup');
 
-        const kgBtn = root.querySelector('.wg-settings-segmented__btn[data-unit="kg"]');
-        const lbBtn = root.querySelector('.wg-settings-segmented__btn[data-unit="lb"]');
+        const kgBtn = root.querySelector('[data-unit="kg"]');
+        const lbBtn = root.querySelector('[data-unit="lb"]');
         expect(kgBtn).not.toBeNull();
         expect(lbBtn).not.toBeNull();
     });
@@ -47,7 +47,7 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.apiCall = apiCallSpy;
         window.reloadCurrentTab = vi.fn();
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
         lbBtn.click();
         // Flush microtasks so the async click handler resolves before assertions.
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -72,7 +72,7 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.DataStore.setCached = setCachedSpy;
         window.reloadCurrentTab = vi.fn();
 
-        document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]').click();
+        document.querySelector('#weight-unit-segmented [data-unit="lb"]').click();
         await new Promise((resolve) => setTimeout(resolve, 0));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -88,8 +88,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.apiCall = vi.fn().mockResolvedValue({ ok: true });
         window.reloadCurrentTab = vi.fn();
 
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
 
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -97,7 +97,6 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
 
         expect(lbBtn.getAttribute('aria-pressed')).toBe('true');
         expect(kgBtn.getAttribute('aria-pressed')).toBe('false');
-        expect(lbBtn.classList.contains('wg-settings-segmented__btn--active')).toBe(true);
     });
 
     it('calls reloadCurrentTab so dashboards rerender in the new unit', async () => {
@@ -107,7 +106,7 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         const reloadSpy = vi.fn();
         window.reloadCurrentTab = reloadSpy;
 
-        document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]').click();
+        document.querySelector('#weight-unit-segmented [data-unit="lb"]').click();
         await new Promise((resolve) => setTimeout(resolve, 0));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -120,8 +119,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.apiCall = vi.fn().mockResolvedValue(null);
         window.reloadCurrentTab = vi.fn();
 
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
 
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -139,7 +138,7 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.apiCall = apiCallSpy;
         window.reloadCurrentTab = vi.fn();
 
-        document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]').click();
+        document.querySelector('#weight-unit-segmented [data-unit="kg"]').click();
         await new Promise((resolve) => setTimeout(resolve, 0));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -169,8 +168,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
             inflight.push(resolve);
         }));
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
 
         // Click sequence: lb (intent 1), kg (intent 2), lb (intent 3). Each
         // optimistic update flips window.weightUnitPreference synchronously, so
@@ -224,8 +223,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         }));
         window.apiCall = apiCallSpy;
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
 
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -272,8 +271,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
             inflight.push(resolve);
         }));
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
 
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -315,8 +314,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
             inflight.push(resolve);
         }));
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
 
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -363,8 +362,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         let resolvePatch;
         window.apiCall = vi.fn(() => new Promise((resolve) => { resolvePatch = resolve; }));
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
 
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -391,7 +390,7 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.apiCall = apiCallSpy;
         window.safeAlert = vi.fn();
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -416,8 +415,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.DataStore.setCachedWithTags = vi.fn().mockResolvedValue(undefined);
         window.apiCall = vi.fn().mockResolvedValue({ ok: true });
 
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
 
         lbBtn.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -433,9 +432,8 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         // the effective unit returned by commit.
         if (effective) {
             const root = document.getElementById('weight-unit-segmented');
-            root.querySelectorAll('.wg-settings-segmented__btn').forEach((btn) => {
+            root.querySelectorAll('[data-unit]').forEach((btn) => {
                 const isActive = btn.getAttribute('data-unit') === effective;
-                btn.classList.toggle('wg-settings-segmented__btn--active', isActive);
                 btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
             });
         }
@@ -470,13 +468,13 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.DataStore.setCachedWithTags = vi.fn().mockResolvedValue(undefined);
         window.apiCall = vi.fn().mockResolvedValue(null);
 
-        document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]').click();
+        document.querySelector('#weight-unit-segmented [data-unit="lb"]').click();
         await new Promise((resolve) => setTimeout(resolve, 0));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(window.weightUnitPreference).toBe('kg');
-        const kgBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="kg"]');
-        const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
+        const kgBtn = document.querySelector('#weight-unit-segmented [data-unit="kg"]');
+        const lbBtn = document.querySelector('#weight-unit-segmented [data-unit="lb"]');
         expect(kgBtn.getAttribute('aria-pressed')).toBe('true');
         expect(lbBtn.getAttribute('aria-pressed')).toBe('false');
     });

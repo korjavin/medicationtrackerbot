@@ -1931,8 +1931,6 @@ function paintBodySettings(body) {
     const unit = _body.height_unit === 'ftin' ? 'ftin' : 'cm';
     document.querySelectorAll('#height-unit-segmented [data-height-unit]').forEach((btn) => {
         const on = btn.dataset.heightUnit === unit;
-        btn.classList.toggle('wg-settings-segmented__btn--active', on);
-        btn.classList.toggle('wg-gloss--sun', on);
         btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     document.getElementById('settings-height-cm')?.classList.toggle('wg-settings-hidden', unit === 'ftin');
