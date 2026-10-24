@@ -135,6 +135,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             Shell.copyOnLaunch = false
             copyDiagnostics()
         }
+        #if DEBUG
+        if let link = Shell.qaCapture { capture(link) } // nothing committed yet: only the slot
+        #endif
         if !qa { retry() }
         Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
@@ -172,7 +175,13 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     #if DEBUG
     /// Visual QA scene (bd med-y5xx.2, LocalOrigin.qaHome): Debug builds only.
-    private static let localHome = LocalOrigin.qaHome(scene: UserDefaults.standard.string(forKey: LocalOrigin.qaSceneKey)) ?? LocalOrigin.home
+    /// `-wgQACapture <link>` (add-device-from-link): the link fills the invite
+    /// slot at launch as if the app had been opened with it, and the scene runs
+    /// on the real clock (`&clock=real`, tests/visual/driver.js) so the page's
+    /// 10-minute join check compares like with like.
+    private static let qaCapture = UserDefaults.standard.string(forKey: "wgQACapture").flatMap { URL(string: $0) }
+    private static let localHome = LocalOrigin.qaHome(scene: UserDefaults.standard.string(forKey: LocalOrigin.qaSceneKey))
+        .flatMap { qaCapture == nil ? $0 : URL(string: $0.absoluteString + "&clock=real") } ?? LocalOrigin.home
     #else
     private static let localHome = LocalOrigin.home
     #endif
