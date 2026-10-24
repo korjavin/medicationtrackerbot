@@ -99,9 +99,21 @@ describe('boundary() — schedule edit 08:00 → 20:00', () => {
         expect(e.replacement[id('2026-07-01T08:00:00Z')]).toBeNull();
     });
 
-    it('made after 08:00 has passed: that dose was real and stays', () => {
+    // Archie's F3 ruling (bd med-wi09.12): one dose per slot per day.
+    it('made after 08:00 has passed with 08:00 untaken: today\'s 20:00 replaces it', () => {
         const e = one({ oldGen: gen('UTC', ['08:00']), newGen: gen('UTC', ['20:00']), switchAt: at('2026-07-01T09:00:00Z') });
-        expect(e.cancelled).not.toContain(id('2026-07-01T08:00:00Z'));
+        expect(e.replacement[id('2026-07-01T08:00:00Z')]).toBe(id('2026-07-01T20:00:00Z'));
+        expect(e.replacement[id('2026-07-02T08:00:00Z')]).toBe(id('2026-07-02T20:00:00Z'));
+    });
+
+    it('made after 08:00 was taken: 08:00 stays and today\'s 20:00 is cancelled into it', () => {
+        const morning = taken('2026-07-01T08:00:00Z');
+        const e = one({
+            oldGen: gen('UTC', ['08:00']), newGen: gen('UTC', ['20:00']), switchAt: at('2026-07-01T09:00:00Z'), evidence: [morning]
+        });
+        expect(e.cancelled).not.toContain(morning.recordId);
+        expect(e.kept).toContain(morning.recordId);
+        expect(e.replacement[id('2026-07-01T20:00:00Z')]).toBe(morning.recordId);
         expect(e.replacement[id('2026-07-02T08:00:00Z')]).toBe(id('2026-07-02T20:00:00Z'));
     });
 });

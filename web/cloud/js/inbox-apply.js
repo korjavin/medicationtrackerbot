@@ -197,11 +197,13 @@ function isAlreadyApplied(err) {
 // The same-tap subset — a redelivery of THIS tap re-confirming a drifted dose
 // after the on-slot dose it already confirmed — IS distinguishable (taken_at is
 // the deterministic atMs) and is closed by the doneThisTap skip in the caller.
-function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
+function nearestPendingByMed(intakes, medId, slotMs, bandMs, latestMs = Infinity) {
   let best = null;
   let bestDelta = Infinity;
   for (const i of intakes) {
     if (i.deleted || i.status !== 'PENDING' || String(i.medication_id) !== String(medId)) continue;
+    // Past/due doses only: a later dose of the same med is not this tap's.
+    if (Date.parse(i.scheduled_at) > latestMs) continue;
     const delta = Math.abs(Date.parse(i.scheduled_at) - slotMs);
     if (delta <= bandMs && delta < bestDelta) { best = i; bestDelta = delta; }
   }
@@ -248,7 +250,9 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // open doses around the slot (withDueRows), and confirm() writes the
   // evidence at that exact id. Read through the replace gate, so a tap during
   // a store replace fails and stays queued.
-  const dueWindow = { fromMs: slotMs - TAP_DUE_WINDOW_MS, toMs: slotMs + TAP_DUE_WINDOW_MS };
+  // Nothing after the tap (or the slot itself): a dose still ahead is never
+  // the one a tap confirms (bd med-wi09.12).
+  const dueWindow = { fromMs: slotMs - TAP_DUE_WINDOW_MS, toMs: Math.max(slotMs, atMs) };
   const intakes = await materializing(() => intake.withDueRows(dueWindow));
   // Compared as strings throughout: the relay round-trips the ids through a
   // decimal column, so a numeric recordId comes back as a number while an
@@ -294,7 +298,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   const findPending = (list, medId) => {
     const exact = list.find((i) => i.recordId === `intake-${medId}-${slotUnix}` && !i.deleted);
     if (exact && exact.status === 'PENDING') return exact;
-    return nearestPendingByMed(list, medId, slotMs, medBandMs(medId));
+    return nearestPendingByMed(list, medId, slotMs, medBandMs(medId), Math.max(slotMs, atMs));
   };
 
   // atSlot: the PENDING intakes this tap acts on — one per NAMED med.
@@ -818,14 +822,14 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
   await finalReply(text ? truncateRunes(text, MAX_REPLY_RUNES) : '✅ Done.');
 }
 
-// confirmDueIntakes confirms every PENDING dose already due at `atMs` — the
+// confirmDueIntakes confirms every PENDING dose due today up to `atMs` — the
 // chat equivalent of tapping Confirm on the most recent reminder. Doses due
 // later stay pending; confirming a dose you have not taken yet would be a lie
 // the inventory count then inherits.
 async function confirmDueIntakes({ intake, atMs }) {
-  const due = (await materializing(() => intake.withDueRows({ toMs: atMs }))).filter((i) => !i.deleted
-    && i.status === 'PENDING'
-    && Date.parse(i.scheduled_at) <= atMs);
+  // Today's due doses only (intake.dueToday): an earlier day's missed dose is
+  // not "my meds" now, and a later one has not been taken.
+  const due = await materializing(() => intake.dueToday(atMs));
 
   let confirmed = 0;
   for (const i of due) {

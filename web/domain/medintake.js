@@ -20,11 +20,9 @@
 // same" dose converge on one record (mergeIntake). Manual (log-past) intakes
 // have no natural slot, so they get a random id (same nowMs+random technique as
 // medications.js's nextId / weight.js's genId).
-import {
-  localDateTimeParts, localWallToUtcMs, minDoseIntervalMs, scheduleYieldsDoses,
-} from './medschedule.js';
+import { localDateTimeParts, localWallToUtcMs, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
-import { applyLineage, loadLineage, regenerate } from './lineage.js';
+import { applyLineage, loadLineage, regenerateWindow } from './lineage.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -60,6 +58,7 @@ function pad2(n) {
 // Med ids compare as strings: a med recordId and an intake medication_id can be
 // number vs string in imported vaults (med-wi09.15/.16).
 const sameMed = (a, b) => String(a) === String(b);
+const MED_ID_ORDER = new Intl.Collator(undefined, { numeric: true });
 
 function slotId(medId, scheduledAtMs) {
   return `intake-${medId}-${Math.floor(scheduledAtMs / 1000)}`;
@@ -339,7 +338,9 @@ export function adherencePct(counts, empty = null) {
 // that is how day one shows the doses an old client left stuck). From the cut
 // on a stored PENDING row is a prediction, not evidence: it shows only where
 // (b)/(c) has its slot (carrying its snooze), so an old client's row at an
-// orphaned instant reads as "no evidence". cutMs null = no cut yet, stored
+// orphaned instant reads as "no evidence" — except on `legacyDays`
+// (lineage.js evidenceTransitions): a day an old client alone logged reads
+// like the days before the cut, stored rows only. cutMs null = no cut yet, stored
 // rows only.
 // No `missed` state and no threshold (epic med-wi09): a due dose stays due
 // until the user acts; "overdue" is a label the UI may put on it.
@@ -352,7 +353,7 @@ const MAX_FORECAST_DAYS = 30;
 
 export function projectOccurrences({
   medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
-  lineage = null, regenerated = [], cutMs = null,
+  lineage = null, regenerated = [], cutMs = null, legacyDays = [],
 } = {}) {
   // Keyed by String(id): a vault can hold a med's recordId and an intake's
   // medication_id as number vs string (inbox-apply.js compares the same way);
@@ -414,7 +415,8 @@ export function projectOccurrences({
     if (i.deleted) continue;
     const ms = Date.parse(i.scheduled_at);
     if (!(ms >= fromMs && ms <= toMs)) continue;
-    if (cutMs !== null && i.status === 'PENDING' && ms >= cutMs && !generated.has(slotId(i.medication_id, ms))) continue;
+    if (cutMs !== null && i.status === 'PENDING' && ms >= cutMs && !generated.has(slotId(i.medication_id, ms))
+      && !legacyDays.some((d) => ms >= d.from && ms <= d.to)) continue;
     let state;
     if (i.status === 'TAKEN') state = 'taken';
     else if (i.status === 'SKIPPED') state = 'skipped';
@@ -461,8 +463,10 @@ export function projectOccurrences({
 
   // `lineage` (lineage.js's alias table): cancelled slots resolve to their
   // declared replacement, evidence on both sides is flagged (bd med-wi09.10).
-  return applyLineage(out.sort((a, b) => (Date.parse(a.plannedAt) - Date.parse(b.plannedAt))
-    || String(a.medId).localeCompare(String(b.medId), undefined, { numeric: true })), lineage, intakes);
+  const sorted = out.map((r) => [Date.parse(r.plannedAt), r])
+    .sort((a, b) => (a[0] - b[0]) || MED_ID_ORDER.compare(String(a[1].medId), String(b[1].medId)))
+    .map((x) => x[1]);
+  return applyLineage(sorted, lineage, intakes);
 }
 
 // The stored intake wire shape (toResponse) read back off a stored projection
@@ -522,14 +526,25 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   // virtual open row at that id, so every action writes its evidence there
   // (confirm-or-create, bd med-wi09.12). Never a neighbouring dose.
   async function getIntake(id) {
-    const stored = (await loadIntakes()).find((i) => String(i.recordId) === String(id));
-    if (stored) return stored;
-    const m = /^intake-(.+)-(\d+)$/.exec(String(id));
-    if (!m) return null;
-    const ms = Number(m[2]) * 1000;
-    const { rows } = await project({ fromMs: ms - 2 * DAY_MS, toMs: ms + 2 * DAY_MS });
-    const r = rows.find((x) => x.occId === String(id));
-    return r ? virtualIntake(r) : null;
+    return (await resolver([id])).get(id);
+  }
+
+  // getIntake for a batch: one intake load and at most one projection (over
+  // the span of the unstored ids) per call, however many ids (F6).
+  async function resolver(ids) {
+    const stored = await loadIntakes();
+    const byId = new Map(stored.map((i) => [String(i.recordId), i]));
+    const unstored = ids.map((id) => /^intake-(.+)-(\d+)$/.exec(String(id)))
+      .filter((m) => m && !byId.has(m[0])).map((m) => Number(m[2]) * 1000);
+    let projected = new Map();
+    if (unstored.length) {
+      const { rows } = await project({ fromMs: Math.min(...unstored) - 2 * DAY_MS, toMs: Math.max(...unstored) + 2 * DAY_MS });
+      projected = new Map(rows.map((r) => [r.occId, r]));
+    }
+    return {
+      stored,
+      get: (id) => byId.get(String(id)) || (projected.has(String(id)) ? virtualIntake(projected.get(String(id))) : null),
+    };
   }
 
   function virtualIntake(r) {
@@ -545,13 +560,24 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     };
   }
 
-  // Every stored live row plus a virtual open row for each unstored dose the
-  // projection lists in [fromMs, toMs] — the stored-row shape the Telegram
-  // drain matches a tap against.
+  // The projection's rows in [fromMs, toMs] that are not still ahead — the
+  // stored row where there is one, else a virtual open row — in the
+  // stored-row shape the Telegram drain matches a tap against. Only what the
+  // app shows: no future dose, no row the projection hides (an orphan PENDING
+  // from an old client, a lineage-cancelled slot).
   async function withDueRows({ fromMs, toMs } = {}) {
-    const [stored, { rows }] = await Promise.all([loadIntakes(), project({ fromMs, toMs })]);
-    const ids = new Set(stored.map((i) => String(i.recordId)));
-    return stored.concat(rows.filter((r) => !ids.has(String(r.occId)) && r.source !== 'manual').map(virtualIntake));
+    const [stored, { rows }] = await Promise.all([loadIntakes(), project({ fromMs, toMs, forecast: false })]);
+    const byId = new Map(stored.map((i) => [String(i.recordId), i]));
+    return rows.filter((r) => r.state !== 'upcoming').map((r) => byId.get(String(r.occId)) || virtualIntake(r));
+  }
+
+  // "Took my meds" (the Telegram chat confirm): the projection's open rows
+  // due today in this instance's zone, up to atMs — never a future dose, never
+  // an earlier day's missed one (bd med-wi09.12).
+  async function dueToday(atMs) {
+    const p = localDateTimeParts(atMs, timeZone);
+    const dayStart = localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), timeZone);
+    return (await withDueRows({ fromMs: dayStart, toMs: atMs })).filter((i) => i.status === 'PENDING');
   }
 
   async function loadCutMs() {
@@ -604,28 +630,15 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     ]);
     const nowMs = now();
     // No ledgercut row yet = this client is about to write one (install-time
-    // ensureLedgerCut), so the cut is now. Regeneration starts at the local
-    // midnight of the cut day: the old client materialized "today's due doses"
-    // only when opened, so on day one a dose due earlier today may have no row
-    // — the same set the materializer's first sweep would have written.
+    // ensureLedgerCut), so the cut is now. Regeneration starts at the cut
+    // instant itself: before it, stored rows (old PENDING ones included) are
+    // the whole truth.
     const cut = (await loadCutMs()) ?? nowMs;
-    const p = localDateTimeParts(cut, timeZone);
-    const cutDayStart = localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), timeZone);
-    // Before the cut (the cut day's morning) the old materializer's rule still
-    // holds: a stored dose of the same med within its ±minDoseInterval band
-    // already covers the slot (a tz-plan step or a drifted cluster dose).
-    const live = intakes.filter((i) => !i.deleted);
-    const regenerated = regenerate({
-      medications: meds, scheds, transitions, timeZone, fromMs: Math.max(fromMs, cutDayStart), toMs, nowMs, tzPlan,
-    }).filter((o) => {
-      if (o.at >= cut) return true;
-      const med = meds.find((m) => sameMed(m.recordId, o.medId));
-      const band = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
-      return !(band > 0 && live.some((i) => sameMed(i.medication_id, o.medId) && String(i.recordId) !== o.occId
-        && (OPEN_STATUSES.has(i.status) || i.status === 'TAKEN') && Math.abs(Date.parse(i.scheduled_at) - o.at) <= band));
+    const { occurrences: regenerated, legacyDays } = regenerateWindow({
+      medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs: cut, fromMs, toMs, nowMs,
     });
     const rows = projectOccurrences({
-      medications: meds, intakes, tzPlan, timeZone, nowMs, fromMs, toMs, forecast, lineage, regenerated, cutMs: cut,
+      medications: meds, intakes, tzPlan, timeZone, nowMs, fromMs, toMs, forecast, lineage, regenerated, cutMs: cut, legacyDays,
     });
     return { meds, rows };
   }
@@ -683,8 +696,12 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     const minutes = durationMinutes > 0 ? durationMinutes : DEFAULT_SNOOZE_MINUTES;
     const nowMs = now();
     const snoozedUntil = new Date(nowMs + minutes * 60 * 1000).toISOString();
+    // A dose with no row yet gets its first one here: stamped rev 0 (a snooze
+    // is not an action — a reminder callback may still confirm it), the
+    // channel and the zone, like acted() but without the rev bump.
+    const stamp = typeof intake.rev === 'number' ? {} : { rev: intakeRev(intake), via, tz: timeZone };
     await putIntake({
-      ...intake, clientTs: nowMs, snoozed_until: snoozedUntil, snoozed_at: new Date(nowMs).toISOString(),
+      ...intake, ...stamp, clientTs: nowMs, snoozed_until: snoozedUntil, snoozed_at: new Date(nowMs).toISOString(),
     });
     return { status: 'snoozed', snoozed_until: snoozedUntil };
   }
@@ -720,8 +737,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     let updated = 0;
     const failures = [];
     const nowMs = now();
+    const resolve = await resolver(updates.map((up) => up.id));
     for (const up of updates) {
-      const intake = await getIntake(up.id);
+      const intake = resolve.get(up.id);
       if (!intake) {
         failures.push({ id: up.id, reason: 'not_found_or_forbidden' });
         continue;
@@ -755,8 +773,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     const takenIso = new Date(Number.isFinite(takenMs) ? takenMs : nowMs).toISOString();
 
     if (intakeIds.length > 0) {
+      const resolve = await resolver(intakeIds);
       for (const id of intakeIds) {
-        const intake = await getIntake(id);
+        const intake = resolve.get(id);
         if (!intake || !OPEN_STATUSES.has(intake.status)) continue;
         await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), -1);
       }
@@ -811,21 +830,23 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     const result = { updated: 0, unchanged: 0, failed: 0, failures: [], doses: [] };
     const fail = (id, reason) => { result.failed++; result.failures.push({ id, reason }); };
 
-    for (const occId of [...new Set(occIds)]) {
-      const intakes = await loadIntakes();
+    const ids = [...new Set(occIds)];
+    const [resolve, meds] = await Promise.all([resolver(ids), loadMeds()]);
+    const intakes = resolve.stored;
+    for (const occId of ids) {
       // Ids compare as String() throughout: a med's recordId and an intake's
       // medication_id (or a JSON occId) can be number vs string (med-wi09.15).
       let intake = intakes.find((i) => String(i.recordId) === String(occId)) || null;
       let virtual = false;
       if (!intake) {
         const m = /^intake-(.+)-(\d+)$/.exec(String(occId));
-        const med = m && (await loadMeds()).find((x) => String(x.recordId) === m[1]);
+        const med = m && meds.find((x) => String(x.recordId) === m[1]);
         if (m && med && !tombstoned.has(String(occId))) {
           const sec = Number(m[2]);
           intake = intakes.find((i) => String(i.medication_id) === String(med.recordId)
             && Math.floor(Date.parse(i.scheduled_at) / 1000) === sec) || null;
           if (!intake) {
-            intake = await getIntake(occId);
+            intake = resolve.get(occId);
             virtual = !!intake;
           }
         }
@@ -869,8 +890,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   async function cancelIntakes(intakeIds) {
     const nowMs = now();
     let cancelledCount = 0;
+    const resolve = await resolver(intakeIds);
     for (const id of intakeIds) {
-      const intake = await getIntake(id);
+      const intake = resolve.get(id);
       if (!intake || intake.status !== 'TAKEN') continue;
       await putIntake(acted(intake, untakenNote(intake, { status: 'UNTAKEN', taken_at: null }), nowMs), 1);
       cancelledCount++;
@@ -883,8 +905,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   async function deleteFutureIntakes(intakeIds) {
     const nowMs = now();
     let deletedCount = 0;
+    const resolve = await resolver(intakeIds);
     for (const id of intakeIds) {
-      const intake = await getIntake(id);
+      const intake = resolve.get(id);
       if (!intake || !OPEN_STATUSES.has(intake.status) || Date.parse(intake.scheduled_at) <= nowMs) continue;
       await records.del(INTAKE_RECORD_TYPE, id);
       deletedCount++;
@@ -1078,15 +1101,17 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     });
   }
 
-  // Every dose as a stored-row-shaped log (historyResponse): stored evidence,
-  // regenerated doses and the forecast — gamification's adherence input.
-  async function doseLog() {
-    return (await project()).rows.map(historyResponse);
+  // The doses in [fromMs, toMs] as a stored-row-shaped log (historyResponse):
+  // stored evidence, regenerated doses and the forecast — gamification's
+  // adherence input. Always a window: the projection never reads the whole log.
+  async function doseLog({ fromMs, toMs }) {
+    return (await project({ fromMs, toMs })).rows.map(historyResponse);
   }
 
   return {
     ensureLedgerCut,
     withDueRows,
+    dueToday,
     doseLog,
     confirm,
     skip,

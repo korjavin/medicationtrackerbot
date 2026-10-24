@@ -121,13 +121,17 @@ function foodLog(recordId, eatenAt, m) {
 // A vault with something in every section. Adherence over the window:
 // Metformin 3 TAKEN / 1 SKIPPED / today's 08:00 due = 60%, Lisinopril 1 TAKEN /
 // 1 SKIPPED / today's (Thu) 09:00 due = 33.3%, overall 4/8 = 50%. Today's doses
-// have no row: the projection derives them (no ledgercut row → the cut is now,
-// regenerated from its midnight, bd med-wi09.12) and a past one with no
-// evidence counts. Ibuprofen is as-needed: no dose is ever derived for it, so
-// its only rows are manual TAKEN logs — they must stay out of every percentage
+// have no row: the projection derives them from the ledger cut (TODAY_CUT,
+// bd med-wi09.12) and a past one with no evidence counts. Ibuprofen is
+// as-needed: no dose is ever derived for it, so its only rows are manual TAKEN logs — they must stay out of every percentage
 // (bd med-29gh.1), which is why overall is 50 and not 6/10 = 60%.
+// The ledger cut at today's midnight: doses are derived from it on, so
+// today's 08:00 counts as due with no row.
+const TODAY_CUT = [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-08-20T00:00:00.000Z' }];
+
 function fullVault() {
     return {
+        ledgercut: TODAY_CUT,
         medication: [
             med('med-1', 'Metformin', '500mg'),
             med('med-2', 'Lisinopril', '10mg', {
@@ -389,6 +393,7 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
     // logs must read 50% overall, not something dragged toward 100.
     it('never prints a percentage for a medication with no schedule', async () => {
         const call = routerWith({
+            ledgercut: TODAY_CUT,
             medication: [
                 med('med-1', 'Lisinopril', '10mg'),
                 med('med-2', 'Ibuprofen', '200mg', { schedule: JSON.stringify({ type: 'as_needed' }) }),
@@ -446,6 +451,7 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
     // let it go on faking adherence from beyond the grave.
     it('keeps an archived as-needed medication out of adherence too', async () => {
         const call = routerWith({
+            ledgercut: TODAY_CUT,
             medication: [
                 med('med-1', 'Lisinopril', '10mg'),
                 med('med-2', 'Ibuprofen', '200mg', {

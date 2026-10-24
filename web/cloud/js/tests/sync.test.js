@@ -3216,6 +3216,30 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect(await getRaw()).toMatchObject({ status: 'UNTAKEN', rev: 2 });
     expect(await getRaw('pending', (s) => s.getAll())).toEqual([]);
   });
+
+  // HIGH-1 (bd med-wi09.12): intake is out of the 426 gate, so an old bundle
+  // keeps streaming its PENDING placeholders (no rev → rev 0) and its own
+  // TAKENs (no rev → rev 1) next to a v2 device's actions. A placeholder never
+  // un-takes or un-skips anything, in either arrival order; a legacy TAKEN
+  // beats a placeholder and a v2 snooze-only row (rev 0) alike.
+  it('an old bundle\'s PENDING placeholders never un-take a v2 action, and its TAKEN beats them', async () => {
+    const placeholder = row({ clientTs: 99999, status: 'PENDING', taken_at: null });
+    const v2Take = row({ clientTs: 10, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
+    const a = await converge(v2Take, placeholder);
+    expect(a).toMatchObject({ status: 'TAKEN', rev: 1, via: 'app' });
+    expect(await converge(placeholder, v2Take)).toEqual(a);
+    expect((await converge(SKIP, placeholder)).status).toBe('SKIPPED');
+    expect((await converge(UNDO, placeholder)).status).toBe('UNTAKEN');
+
+    const legacyTake = row({ clientTs: 5, status: 'TAKEN', taken_at: '2026-01-01T00:10:00.000Z' });
+    const b = await converge(placeholder, legacyTake);
+    expect(b).toMatchObject({ status: 'TAKEN', taken_at: '2026-01-01T00:10:00.000Z' });
+    expect(b.rev).toBeUndefined(); // the reducer never writes rev into a legacy row
+    expect(await converge(legacyTake, placeholder)).toEqual(b);
+    const v2Snooze = row({ clientTs: 50, status: 'PENDING', taken_at: null, rev: 0, via: 'app', snoozed_until: '2026-01-01T00:20:00.000Z', snoozed_at: '2026-01-01T00:10:00.000Z' });
+    expect((await converge(v2Snooze, legacyTake)).status).toBe('TAKEN');
+    expect((await converge(legacyTake, v2Snooze)).status).toBe('TAKEN');
+  });
 });
 
 describe('replaceAllRecords(fn) computes its set inside the records lock (med-o7zq.38)', () => {

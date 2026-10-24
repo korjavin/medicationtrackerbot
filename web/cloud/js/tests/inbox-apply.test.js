@@ -454,7 +454,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // but well inside its own minDoseInterval. Under the band it stays PENDING
     // (adherence lost, re-nagged an hour later); the identity path confirms all 4.
     it('confirms a course med whose dose drifted beyond the band but within its interval', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // 2h: > band, < 14.4h interval
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(); // 2h: > band, < 14.4h interval
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -483,6 +483,28 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         // Receipt counts distinct named meds (4), not band-matched rows (the drifted
         // one is >10min from the slot, so a time filter would have said 3).
         expect(editReply).toHaveBeenCalledWith(9, expect.stringMatching(/Confirmed 4 medications/));
+    });
+
+    // F5 (bd med-wi09.12): the band fallback considers doses at or before the
+    // tap only. The on-slot dose was already taken in the app; a later dose of
+    // the same med sits inside the band and is due by the time the drain runs —
+    // still not the dose this tap confirmed.
+    it('never band-matches a dose scheduled after the tap, even one due by drain time', async () => {
+        const laterIso = new Date((SLOT_UNIX + 3 * 3600) * 1000).toISOString(); // in band, after the tap
+        const records = fakeRecords({
+            medication: [{ recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 }],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'TAKEN', taken_at: SLOT_ISO, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-a-later', deleted: false, medication_id: 'med-a', scheduled_at: laterIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS; // 4h after the slot: the later dose is due now
+        const rearmRefire = vi.fn();
+        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, rearmRefire });
+
+        expect((await records.list('intake')).find((i) => i.recordId === 'intake-med-a-later').status).toBe('PENDING');
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+        expect(rearmRefire).not.toHaveBeenCalled();
     });
 
     // A false positive is the one thing the wider interval must never cause: a
@@ -560,7 +582,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // tap — here its second in-band dose, which nearest-wins deliberately left
     // alone. Without the re-arm the relay would stay silent about it.
     it('re-arms the chain, naming the meds still due, when one is left over', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // in band
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(); // in band
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -597,7 +619,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             ],
             intake: [
                 // The slot's own row, drifted 2h off its instant.
-                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
                 // A closer-in-time dose of the same med that is NOT this slot's row.
                 { recordId: 'intake-med-a-other', deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
@@ -647,7 +669,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // Nearest-wins: when a named med has BOTH an on-slot and a drifted PENDING dose
     // inside its band, only the nearest is acted on — never both (no double-confirm).
     it('confirms only the nearest PENDING dose of a named med, not both in-band doses', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // 2h: in band, farther than the on-slot dose
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(); // 2h: in band, farther than the on-slot dose
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -670,7 +692,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // (same deterministic atMs) must see that med as already handled and skip it —
     // not confirm the drifted dose the user never took.
     it('identity path does not confirm a second drifted dose on redelivery', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // in band, farther than on-slot
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(); // in band, farther than on-slot
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -722,7 +744,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
 
     // Snooze resolves by identity too: each named med's due PENDING dose is snoozed.
     it('snoozes the named meds by identity, including a drifted dose', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString();
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString();
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -749,7 +771,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // side-table the draining device may never have synced.
 
     it('confirms a dose drifted far beyond the band from the event ids alone (cross-device tap)', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 3 * 3600) * 1000).toISOString(); // 3h: way past the ±10min cluster window
+        const driftedIso = new Date((SLOT_UNIX - 3 * 3600) * 1000).toISOString(); // 3h: way past the ±10min cluster window
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -779,7 +801,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // any intake instant — not even the deterministic id. Identity still resolves
     // it through the band fallback.
     it('confirms a tz-plan step dose that moved off the reminder slot', async () => {
-        const steppedIso = new Date((SLOT_UNIX + 90 * 60) * 1000).toISOString(); // 1h30 tz step
+        const steppedIso = new Date((SLOT_UNIX - 90 * 60) * 1000).toISOString(); // 1h30 tz step
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, tz_shift_policy: 'flexible', inventory_count: 30 },
@@ -1183,6 +1205,23 @@ describe('inbox-apply.js — a Telegram data command', () => {
         // The dose 12h later was NOT due at message time — confirming it would be a lie.
         const later = intakes.find((i) => i.scheduled_at !== SLOT_ISO);
         expect(later.status).toBe('PENDING');
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
+    // F4 (bd med-wi09.12): "took my meds" is today's due doses only — never an
+    // earlier day's missed one (that would fake adherence and move stock).
+    it('/intake leaves an earlier day\'s missed dose alone', async () => {
+        const seeded = seed();
+        const yesterday = new Date((SLOT_UNIX - 12 * 3600) * 1000).toISOString();
+        seeded.intake.push({ recordId: 'intake-med-a-yesterday', deleted: false, medication_id: 'med-a', scheduled_at: yesterday, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' });
+        const records = fakeRecords(seeded);
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/intake'), 12, { ...domainsFor(records, now), editReply });
+
+        const intakes = await records.list('intake');
+        expect(intakes.filter((i) => i.scheduled_at === SLOT_ISO).every((i) => i.status === 'TAKEN')).toBe(true);
+        expect(intakes.find((i) => i.recordId === 'intake-med-a-yesterday').status).toBe('PENDING');
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Confirmed 2 medications/));
     });
 

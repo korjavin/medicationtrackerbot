@@ -13,7 +13,7 @@ import {
 } from 'vitest';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { createApiRouter, materializationSettled } from '../../../cloud/js/apishim.js';
-import { createIntakeDomain } from '../../../domain/medintake.js';
+import { createIntakeDomain, foldAdherence } from '../../../domain/medintake.js';
 import { createMedicationsDomain } from '../../../domain/medications.js';
 import { sortByEffective } from '../../../domain/medschedule.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
@@ -510,7 +510,8 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
 
     // Socrates' case: the schedule moves 08:00 → 20:00 on Tuesday while this
     // device is closed (no sweep ever ran on it). Wednesday's open regenerates
-    // Monday and Tuesday from history, Tuesday on both generations.
+    // Monday and Tuesday from history. Tuesday's untaken 08:00 gives way to
+    // Tuesday's 20:00 (one dose per slot per day — Archie's F3 ruling).
     it('Mon/Tue/Wed: a schedule edit made Tuesday while closed regenerates Tuesday from history', async () => {
         open({ medication: [med()], ledgercut: [cutRow(day(18, 7))] }, day(20, 12));
         await env.window.apiCall('/api/medications/7', 'POST', {
@@ -521,19 +522,19 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         expect(shape(await doses(day(18, 0), day(22, 10)))).toEqual([
             [iso(day(18, 8)), 'due'],
             [iso(day(19, 8)), 'due'],
-            [iso(day(20, 8)), 'due'], // old generation, before the edit
-            [iso(day(20, 20)), 'due'], // new generation, after it
-            // Wednesday 08:00 was cancelled by the edit's lineage (→ 20:00).
+            // Tuesday 08:00 (untaken at the edit) was replaced by Tuesday 20:00,
+            // Wednesday 08:00 by Wednesday 20:00 — the edit's lineage.
+            [iso(day(20, 20)), 'due'],
             [iso(day(21, 20)), 'upcoming']
         ]);
 
         // A regenerated dose is actionable at its exact id: the take writes
         // the evidence there, nothing else.
-        const res = await env.window.apiCall('/api/doses/act', 'POST', { occ_ids: [slot(day(20, 8))], action: 'take' });
+        const res = await env.window.apiCall('/api/doses/act', 'POST', { occ_ids: [slot(day(19, 8))], action: 'take' });
         expect(res).toMatchObject({ updated: 1, failed: 0 });
         expect((await env.records.list('intake')).map((i) => [i.recordId, i.status, i.rev]))
-            .toEqual([[slot(day(20, 8)), 'TAKEN', 1]]);
-        expect((await doses(day(20, 0), day(20, 23))).map((r) => r.state)).toEqual(['taken', 'due']);
+            .toEqual([[slot(day(19, 8)), 'TAKEN', 1]]);
+        expect((await doses(day(19, 0), day(20, 23))).map((r) => r.state)).toEqual(['taken', 'due']);
     });
 
     it('pre-cut rows are untouched; a post-cut PENDING row from an old client reads as no evidence', async () => {
@@ -550,17 +551,17 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
             ]
         }, day(20, 12));
 
-        // 17 Oct 08:00: before the cut day with nothing stored — absent.
+        // 17 Oct and 19 Oct 08:00: before the cut instant (19 Oct 12:00) with
+        // nothing stored — absent; regeneration starts at the cut itself.
         // 20 Oct 09:00: the old client's prediction — hidden.
         expect(shape(await doses(day(17, 0), day(20, 12)))).toEqual([
             [iso(day(18, 8)), 'taken'],
             [iso(day(18, 9)), 'due'],
-            [iso(day(19, 8)), 'due'], // cut day: regenerated from its midnight
             [iso(day(20, 8)), 'snoozed'] // its stored snooze rides on the real slot
         ]);
         const history = await env.window.apiCall('/api/history?days=7');
         expect(history.map((h) => h.scheduled_at)).toEqual([
-            iso(day(20, 8)), iso(day(19, 8)), iso(day(18, 9)), iso(day(18, 8))
+            iso(day(20, 8)), iso(day(18, 9)), iso(day(18, 8))
         ]);
     });
 
@@ -578,10 +579,9 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         const rows = await doses(day(15, 0), day(18, 12));
         expect(rows.map((r) => [r.localDate, r.localTime, r.state])).toEqual([
             ['2026-10-16', '08:00', 'due'],
-            ['2026-10-17', '08:00', 'due'],
-            // Today's 08:00 was never materialized by the old client: the
-            // cut day regenerates from local midnight.
-            ['2026-10-18', '08:00', 'due']
+            ['2026-10-17', '08:00', 'due']
+            // Today's 08:00 is before the cut (12:00, this boot): stored rows
+            // are the truth there, and the old client stored none.
         ]);
         await env.window.apiCall('/api/history?days=7');
         await env.window.apiCall('/api/medications/next-intake');
@@ -663,6 +663,92 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         const [rowB] = await b.list('intake');
         expect([rowA.recordId, rowB.recordId]).toEqual([slot(SLOT_MS), slot(SLOT_MS)]);
         expect([rowA.status, rowB.status, rowA.rev, rowB.rev]).toEqual(['TAKEN', 'TAKEN', 1, 1]);
+    });
+
+    // F2 (Archie): a past day's zone comes from its evidence, never the device
+    // clock. 08:00 taken in Berlin, 20:00 forgotten; the device is now in New
+    // York with no tztransition recorded (an unpinned account).
+    it('a past day regenerates in the zone its evidence was logged in, not the device zone', async () => {
+        const TWICE = JSON.stringify({ type: 'daily', times: ['08:00', '20:00'] });
+        const records = createInMemoryRecordsPort({
+            medication: [{ ...med(), schedule: TWICE }],
+            ledgercut: [cutRow(day(19, 23))] // 20 Oct 01:00 Berlin
+        });
+        const berlin = createIntakeDomain({ records, now: () => day(20, 7), timeZone: 'Europe/Berlin' });
+        expect((await berlin.act({ occIds: [slot(day(20, 6))], action: 'take' })).updated).toBe(1);
+        expect((await records.list('intake'))[0].tz).toBe('Europe/Berlin');
+
+        const at = day(21, 2); // 20 Oct 22:00 in New York
+        const ny = createIntakeDomain({ records, now: () => at, timeZone: 'America/New_York' });
+        // Exactly one due — 20:00 Berlin (18:00Z). No 08:00/20:00 New York
+        // phantom (12:00Z, and 00:00Z on the 21st, already past).
+        expect(shape(await ny.occurrences({ fromMs: day(19, 22), toMs: at }))).toEqual([
+            [iso(day(20, 6)), 'taken'],
+            [iso(day(20, 18)), 'due']
+        ]);
+        // The brief's adherence fold over that day: 1 of 2.
+        const log = await ny.listWindow({ fromMs: day(19, 22), toMs: at });
+        expect(foldAdherence({ log, meds: await records.list('medication'), nowMs: at }).overall)
+            .toEqual({ total: 2, taken: 1 });
+        // "Took my meds" acts on exactly that dose (14:00 today in New York),
+        // never a phantom.
+        expect((await ny.dueToday(at)).map((i) => i.recordId)).toEqual([slot(day(20, 18))]);
+    });
+
+    // F3 (Archie): a time edit 08:00 → 20:00 made at 10:00 — one dose today
+    // either way, and the reminder horizon reads the same projection (no band).
+    it.each([
+        ['untaken', false, [[iso(day(20, 20)), 'upcoming']], true],
+        ['taken', true, [[iso(day(20, 8)), 'taken']], false]
+    ])('a same-day time edit with 08:00 %s: one dose today, and the push agrees', async (_label, taken, today, pushesTonight) => {
+        open({ medication: [med()], ledgercut: [cutRow(day(18, 7))] }, day(20, 8, 5));
+        if (taken) await env.window.apiCall('/api/doses/act', 'POST', { occ_ids: [slot(day(20, 8))], action: 'take' });
+        nowMs = day(20, 10);
+        await env.window.apiCall('/api/medications/7', 'POST', {
+            name: 'Metformin', dosage: '500mg', schedule: DAILY('20:00'), tz_shift_policy: 'flexible', inventory_count: 30
+        });
+        nowMs = day(20, 11);
+        expect(shape(await doses(day(20, 0), day(20, 23, 59)))).toEqual(today);
+        const horizon = computeReminderHorizon({
+            medications: await env.records.list('medication'),
+            intakes: await env.records.listRaw('intake'),
+            scheds: await env.records.list('medsched'),
+            timeZone: TZ,
+            now: nowMs,
+            cutMs: day(18, 7)
+        }).filter((e) => e.kind === 'medication').map((e) => e.fireAtUnix * 1000);
+        expect(horizon.includes(day(20, 20))).toBe(pushesTonight);
+        expect(horizon).toContain(day(21, 20));
+    });
+
+    // HIGH-1: an old bundle (intake no longer gated) still writes PENDING
+    // placeholders after the cut. At a regenerated slot's id it is one row with
+    // that dose; at an instant history does not yield it is nothing; its own
+    // TAKEN is the dose. A day only the old bundle logged (no tz on any of its
+    // evidence) is read like the days before the cut: stored rows only.
+    it('an old bundle\'s placeholders after the cut: one row per slot, nothing promoted, its TAKEN wins', async () => {
+        const v2Take = (ms) => ({ ...pending(slot(ms), ms), status: 'TAKEN', taken_at: iso(ms), rev: 1, via: 'app', tz: TZ, acted_at: iso(ms) });
+        const records = createInMemoryRecordsPort({
+            medication: [{ ...med(), schedule: JSON.stringify({ type: 'daily', times: ['08:00', '20:00'] }) }],
+            ledgercut: [cutRow(day(18, 0))],
+            intake: [
+                pending(slot(day(18, 8)), day(18, 8)), // on a regenerated slot
+                pending(slot(day(18, 9)), day(18, 9)), // an instant no history yields
+                v2Take(day(18, 20)),
+                { ...pending(slot(day(19, 8)), day(19, 8)), status: 'TAKEN', taken_at: iso(day(19, 8, 10)) } // legacy TAKEN
+            ]
+        });
+        const domain = createIntakeDomain({ records, now: () => day(19, 21), timeZone: TZ });
+        expect(shape(await domain.occurrences({ fromMs: day(18, 0), toMs: day(19, 21) }))).toEqual([
+            [iso(day(18, 8)), 'due'],
+            [iso(day(18, 20)), 'taken'],
+            [iso(day(19, 8)), 'taken']
+            // 19 Oct 20:00: a legacy-evidence day regenerates nothing.
+        ]);
+        // A v2 take of the placeholder's dose lands on the same id (rev 1).
+        expect((await domain.act({ occIds: [slot(day(18, 8))], action: 'take' })).updated).toBe(1);
+        expect((await records.list('intake')).find((i) => i.recordId === slot(day(18, 8))))
+            .toMatchObject({ status: 'TAKEN', rev: 1 });
     });
 });
 

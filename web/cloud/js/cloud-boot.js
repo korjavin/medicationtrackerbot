@@ -584,6 +584,8 @@ window.MedTrackerCloudReady = (async function boot() {
             if (!(await getSyncStatus(ctx)).updateRequired) return;
             if (!document.body) await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
             if (document.getElementById('update-required-banner')) return;
+            // Ask the SW for the current build before offering Reload.
+            import('/js/update-check.js').then((m) => m.fetchLatest(window)).catch(() => {});
             const banner = document.createElement('div');
             banner.id = 'update-required-banner';
             banner.className = 'wg-banner wg-banner--warn';

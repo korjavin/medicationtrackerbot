@@ -14,6 +14,9 @@
 // An old slot with no same-time partner (a schedule edit 08:00→20:00 made
 // before 08:00) that is after the switch is cancelled; its replacement is the
 // first new occurrence after it on the same old-zone local date, else none.
+// One before the switch on the switch's own date is replaced the same way when
+// untaken (08:00 → 20:00 at 10:00: today's 08:00 gives way to today's 20:00);
+// logged, it stays and today's first new occurrence is cancelled into it.
 // Output per med: {medId, kept, cancelled, replacement} — `replacement` maps
 // every cancelled occId to its canonical occId (null = no replacement). It is
 // stored on the tztransition / medsched record at approve/edit time; the
@@ -22,7 +25,7 @@
 // ponytail: an APPROVED plan still in progress when the zone changes again is
 // not part of oldGen (its steps are not paired); the newer plan's steps are.
 import {
-  parseSchedule, localDateParts, localDateTimeParts, localWallToUtcMs, sortByEffective,
+  parseSchedule, parseTimeOfDay, localDateParts, localDateTimeParts, localWallToUtcMs, sortByEffective,
 } from './medschedule.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -79,9 +82,9 @@ function occurrences(gen, fromMs, toMs) {
       const day = new Date(Date.UTC(start.year, start.month - 1, start.day + d));
       if (cfg.type === 'weekly' && !cfg.days.includes(day.getUTCDay())) continue;
       for (const t of cfg.times) {
-        const hm = /^(\d\d):(\d\d)$/.exec(t);
+        const hm = parseTimeOfDay(t);
         if (!hm) continue;
-        const at = localWallToUtcMs(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), +hm[1], +hm[2]), tz);
+        const at = localWallToUtcMs(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hm.hour, hm.minute), tz);
         if (!inRange(at) || at <= lastStep) continue;
         out.push({
           occId: slotId(medId, at), medId, at, tz, localDate: day.toISOString().slice(0, 10), localTime: t, source: 'schedule',
@@ -132,6 +135,14 @@ function resolve({
     keptOld.partnerAt = n.at;
   };
 
+  // A slot with no same-time partner earlier on the switch's own local date
+  // (a time edit 08:00 → 20:00 made at 10:00): untaken, it is cancelled and
+  // today's new time replaces it (second loop); logged, it is kept and today's
+  // new time is cancelled into it — one dose per slot per day either way.
+  const switchDate = localDateIn(switchAt, oldGen.timeZone);
+  const sameDayNew = (o) => news.find((x) => !used.has(x.occId) && sameMed(x.medId, o.medId) && x.at >= switchAt
+    && localDateIn(x.at, oldGen.timeZone) === o.localDate);
+  const loggedToday = [];
   for (const o of olds) {
     o.evidence = ev.get(o.occId) || null;
     let n = byKey.get(key(o));
@@ -140,6 +151,11 @@ function resolve({
     if (n && n.occId === o.occId) {
       o.state = 'kept';
       n.state = 'kept';
+    } else if (!n && o.at < switchAt && o.localDate === switchDate) {
+      if (o.evidence) {
+        o.state = 'kept';
+        loggedToday.push(o);
+      }
     } else if (o.evidence || o.at < switchAt) {
       o.state = 'kept';
       if (n) cancelNew(n, o);
@@ -153,9 +169,16 @@ function resolve({
       cancelNew(n, o);
     }
   }
+  for (const o of loggedToday) {
+    const n = sameDayNew(o);
+    if (n) {
+      used.add(n.occId);
+      cancelNew(n, o);
+    }
+  }
   for (const o of olds) {
     if (o.state) continue;
-    const n = news.find((x) => !used.has(x.occId) && sameMed(x.medId, o.medId) && x.at > o.at
+    const n = news.find((x) => !used.has(x.occId) && sameMed(x.medId, o.medId) && x.at > o.at && x.at >= switchAt
       && localDateIn(x.at, oldGen.timeZone) === o.localDate);
     o.state = 'cancelled';
     o.replacement = n ? n.occId : null;
@@ -361,6 +384,115 @@ export function regenerate({
     }
   }
   return [...out.values()].sort((x, y) => x.at - y.at);
+}
+
+// The zone of each past local day, for an account with no tztransition
+// history (bd med-wi09.12, Archie's rule): never the device clock. A day with
+// tz-stamped evidence (acted() stamps `tz`) is that zone — the newest row wins;
+// a day without carries the zone of the nearest earlier evidence row; before
+// any, `timeZone` (the pinned zone, else the device's). Returned as in-memory
+// pseudo-transitions at local midnight wherever the zone changes — no
+// boundary, no steps, never written. `legacyDays` ({date, from, to}): past
+// days whose only evidence carries no tz (an old client's row) — the stored
+// rows are that whole day, as before the cut: nothing is regenerated on it,
+// and the old client's own PENDING rows stand.
+const legacyDaysSeen = new Set();
+export function evidenceTransitions(intakes, timeZone, fromMs, nowMs) {
+  const days = new Map();
+  const legacyMs = [];
+  let before = null;
+  for (const i of intakes) {
+    if (!i || i.deleted || String(i.recordId).startsWith('intake-manual-')) continue;
+    const ms = Date.parse(i.scheduled_at);
+    if (!Number.isFinite(ms) || ms > nowMs) continue;
+    if (!i.tz) {
+      if (ms >= fromMs && (i.status === 'TAKEN' || i.status === 'SKIPPED')) legacyMs.push(ms);
+      continue;
+    }
+    const ts = i.clientTs || 0;
+    if (ms < fromMs) {
+      if (!before || ms > before.ms) before = { ms, tz: i.tz };
+      continue;
+    }
+    const date = localDateIn(ms, i.tz);
+    const cur = days.get(date);
+    if (!cur || ts > cur.ts) days.set(date, { tz: i.tz, ts, date });
+  }
+  const transitions = [];
+  let zone = before ? before.tz : timeZone;
+  for (const d of [...days.values()].sort((a, b) => (a.date < b.date ? -1 : 1))) {
+    if (d.tz === zone) continue;
+    const [y, m, day] = d.date.split('-').map(Number);
+    transitions.push({ switch_at: new Date(localWallToUtcMs(Date.UTC(y, m - 1, day), d.tz)).toISOString(), old_tz: zone, new_tz: d.tz });
+    zone = d.tz;
+  }
+  const zoneAt = (ms) => {
+    let z = before ? before.tz : timeZone;
+    for (const t of transitions) if (Date.parse(t.switch_at) <= ms) z = t.new_tz;
+    return z;
+  };
+  const legacy = new Map();
+  for (const ms of legacyMs) {
+    const z = zoneAt(ms);
+    const date = localDateIn(ms, z);
+    if (days.has(date) || legacy.has(date)) continue;
+    const [y, m, day] = date.split('-').map(Number);
+    legacy.set(date, {
+      date, from: localWallToUtcMs(Date.UTC(y, m - 1, day), z), to: localWallToUtcMs(Date.UTC(y, m - 1, day + 1), z) - 1,
+    });
+    if (!legacyDaysSeen.has(date)) {
+      legacyDaysSeen.add(date);
+      console.info(`[ledger] legacy-evidence day ${date}: stored rows stand for the whole day (${legacyDaysSeen.size} so far)`);
+    }
+  }
+  return { transitions, legacyDays: [...legacy.values()], initialZone: before ? before.tz : timeZone };
+}
+
+// regenerate() over [fromMs, toMs] the way every reader asks for it (bd
+// med-wi09.12): from the ledger cut on (before it, stored rows are the
+// truth), each past day in its evidence zone when there is no tztransition
+// history. The settled past — up to the last whole hour — is memoized on its
+// inputs, so a read after a write re-plans only what the write could change;
+// the window is floored to a UTC day so one caller's sliding window keeps
+// hitting. Segments start one LINEAGE_WINDOW_MS early, so the two halves'
+// union is exactly one regenerate() over the whole range. Returns the
+// occurrences and the legacy days (evidenceTransitions) the projection must
+// read as stored-rows-only.
+// ponytail: the memo keys on a JSON of the history rows (small) and holds the
+// last 16 windows; key on the records change count if that ever shows.
+const pastMemo = new Map();
+export function regenerateWindow({
+  medications = [], scheds = [], transitions = [], intakes = [], tzPlan = null, timeZone, cutMs = null, fromMs, toMs, nowMs,
+}) {
+  const from = Math.max(fromMs, cutMs ?? nowMs);
+  if (!(from <= toMs)) return { occurrences: [], legacyDays: [] };
+  let tr = transitions.filter((t) => t && !t.deleted);
+  let legacyDays = [];
+  if (tr.length === 0) {
+    const ev = evidenceTransitions(intakes, timeZone, cutMs ?? nowMs, nowMs);
+    tr = ev.transitions;
+    legacyDays = ev.legacyDays;
+    timeZone = ev.initialZone;
+  }
+  const args = { medications, scheds, transitions: tr, tzPlan, timeZone };
+  const pastEnd = Math.floor(nowMs / HOUR_MS) * HOUR_MS - 1;
+  const out = new Map();
+  if (from <= pastEnd) {
+    const memoFrom = Math.max(cutMs ?? -Infinity, Math.floor(from / DAY_MS) * DAY_MS);
+    const key = JSON.stringify([args, memoFrom, pastEnd]);
+    let past = pastMemo.get(key);
+    if (!past) {
+      past = regenerate({ ...args, fromMs: memoFrom, toMs: pastEnd, nowMs: pastEnd });
+      if (pastMemo.size >= 16) pastMemo.delete(pastMemo.keys().next().value);
+      pastMemo.set(key, past);
+    }
+    for (const o of past) if (o.at >= from && o.at <= toMs) out.set(o.occId, o);
+  }
+  for (const o of regenerate({ ...args, fromMs: Math.max(from, pastEnd + 1), toMs, nowMs })) out.set(o.occId, o);
+  const occurrences = [...out.values()]
+    .filter((o) => !(o.at <= nowMs && legacyDays.some((d) => o.at >= d.from && o.at <= d.to)))
+    .sort((x, y) => x.at - y.at);
+  return { occurrences, legacyDays };
 }
 
 function canonical(table, id) {

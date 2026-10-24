@@ -2414,7 +2414,11 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       // The dose projection, not raw intake rows (bd med-wi09.12): nothing
       // stores a PENDING prediction any more, so a missed dose exists only as
       // a regenerated occurrence.
-      createIntakeDomain({ records, now, timeZone }).doseLog(),
+      // A window (scoring days back, the reminder horizon's 36 h ahead for the
+      // next-pending expiry), never the whole log.
+      createIntakeDomain({ records, now, timeZone }).doseLog({
+        fromMs: nowMs - (SCORING_WINDOW_DAYS + 1) * DAY_MS, toMs: nowMs + 36 * 60 * 60 * 1000,
+      }),
       records.list(NOTE_RECORD_TYPE), records.list(WORKOUT_SESSION_RECORD_TYPE),
       records.list(TRACKER_RECORD_TYPE), records.list(TRACKER_LOG_RECORD_TYPE),
     ]);
