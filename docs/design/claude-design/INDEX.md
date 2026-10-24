@@ -1,7 +1,8 @@
-# Claude Design mirror — App UI kit v2
+# App UI kit v2
 
-Read-only mirror of the approved redesign. Source: Claude Design project `medtrackerbot`
-(`bcedc9b7-2339-487d-9822-f69bb7a86608`), path `ui_kits/app-v2/`. Approved by the owner 2026-10-09,
+The app's design source. It began as a mirror of the Claude Design project `medtrackerbot`
+(`bcedc9b7-2339-487d-9822-f69bb7a86608`, path `ui_kits/app-v2/`). Since 2026-10-24 new frames are drawn here
+directly (`.claude/skills/claude-design/SKILL.md`). Approved by the owner 2026-10-09,
 including the 5-tab navigation. Inputs: [../CAPABILITIES.md](../CAPABILITIES.md), [../UX-AUDIT.md](../UX-AUDIT.md) (option B).
 
 Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
