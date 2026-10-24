@@ -297,9 +297,8 @@ in `PrivacyInfo.xcprivacy`.
   Settings → Med Tracker → Privacy names it, and
   the signed-in app shows its disclosures under Settings → Account & privacy;
   a clickable link there would change the web app, so it is not added).
-  Nothing on the cloud
-  domain serves a policy: the base domain serves only the landing page and
-  the AASA.
+  The base domain serves it at `/privacy` (med-9u3s) alongside the landing
+  page and the AASA.
 - **Support URL:** <https://github.com/korjavin/medicationtrackerbot/issues>.
 - **Medical disclaimer** — end of the description (the native first-run
   footer that also carried it is gone, bd med-ta2n.17):
