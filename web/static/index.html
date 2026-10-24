@@ -518,7 +518,7 @@
                 <div class="wg-list">
                     <button type="button" class="wg-setting" data-settings-open="integrations">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="bolt"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">AI &amp; integrations</span><span class="wg-setting__desc" data-settings-summary="integrations">AI, food database, voice, Telegram</span></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">AI &amp; integrations</span><span class="wg-setting__desc" data-settings-summary="integrations">AI, voice, Telegram</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                     <button type="button" class="wg-setting" data-settings-open="devices">
@@ -939,7 +939,6 @@
                         <div class="wg-section__head"><span class="wg-eyebrow">Your own keys</span><span class="wg-meta">replace the trial</span></div>
                         <div class="wg-list">
                             <button type="button" class="wg-setting" data-own-key="openai"><span class="wg-row__lead"><i class="wg-ico" data-icon="key"></i></span><span class="wg-setting__body"><span class="wg-setting__title">OpenAI</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
-                            <button type="button" class="wg-setting" data-own-key="food"><span class="wg-row__lead"><i class="wg-ico" data-icon="search"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Food database</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                             <button type="button" class="wg-setting wg-cloud-only" data-own-key="elevenlabs"><span class="wg-row__lead"><i class="wg-ico" data-icon="mic"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Voice (ElevenLabs)</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                         </div>
                     </section>
@@ -1005,27 +1004,6 @@
                                 </div>
                             </div>
                         </details>
-                    </div>
-                </section>
-
-                <section class="wg-section">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Food database</span></div>
-                    <div class="wg-card wg-vstack">
-                        <p class="wg-hint">Used for barcode scanning and food info. Leave it empty to use our default database; your own server must speak the FastFoodDB API.</p>
-                        <a href="https://github.com/korjavin/fastfooddb" target="_blank" rel="noopener noreferrer" class="wg-link">About the FastFoodDB API<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></a>
-                        <div class="wg-field">
-                            <label for="integrations-food-api-key" class="wg-label">API key</label>
-                            <div class="wg-code wg-secret">
-                                <input type="password" id="integrations-food-api-key" class="wg-secret__input" autocomplete="off">
-                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
-                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
-                            </div>
-                        </div>
-                        <div class="wg-field">
-                            <label for="integrations-food-url" class="wg-label">API URL</label>
-                            <input type="text" id="integrations-food-url" class="wg-input" placeholder="https://food.example.com">
-                            <p class="wg-hint">Full base URL of your food database server. Leave empty to use the default.</p>
-                        </div>
                     </div>
                 </section>
 
