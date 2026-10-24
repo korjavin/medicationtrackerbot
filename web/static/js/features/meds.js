@@ -826,10 +826,9 @@ function _tlTomorrowSection(groups, ctx) {
     return section;
 }
 
-function _tlBlock(section, label, groups, ctx, meta, bulkDate) {
+function _tlBlock(section, label, groups, ctx, meta) {
     if (!groups.length) return;
     section.appendChild(_tlHead(label, { tag: 'label', meta }));
-    if (bulkDate) section.appendChild(_tlBulkActions(bulkDate));
     section.appendChild(_tlList(groups, ctx));
 }
 
@@ -868,7 +867,7 @@ function _tlTodaySection(groups, ctx) {
     _tlBlock(section, 'Pending', pending, ctx);
     Array.from(earlier.keys()).sort().reverse().forEach((date) => {
         const days = Math.round((_tlDayMs(ctx.todayDate) - _tlDayMs(date)) / 86400000);
-        _tlBlock(section, _tlDayName(date), earlier.get(date), ctx, days === 1 ? 'Yesterday' : `${days} days ago`, date);
+        _tlBlock(section, _tlDayName(date), earlier.get(date), ctx, days === 1 ? 'Yesterday' : `${days} days ago`);
     });
     _tlBlock(section, 'Done', done, ctx);
     if (!next.length && !pending.length && !earlier.size && !done.length) {

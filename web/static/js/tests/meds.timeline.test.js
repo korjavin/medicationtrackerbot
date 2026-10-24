@@ -357,15 +357,17 @@ describe('Meds timeline (MT1 / MT5)', () => {
             expect(blockRows(today(), 'Done')[0].dataset.state).toBe('taken');
         });
 
-        it('MT4 · pile-up: each earlier pending day gets Mark all taken / Skip all — in its own day and in Today', async () => {
+        it('MT4 · pile-up: each earlier pending day gets one Mark all taken / Skip all pair, under its own day head only', async () => {
             await serve(pileUp());
             const own = env.document.querySelector('section[data-local-date="2026-10-19"]');
             expect(text(own.querySelector('.wg-section__head .wg-meta'))).toBe('6 pending');
             expect(Array.from(own.querySelectorAll('.wg-timeline__bulk button')).map(text)).toEqual(['Mark all taken', 'Skip all']);
             expect(own.querySelector('.wg-timeline__bulk .wg-btn--ghost')).not.toBeNull();
-            expect(Array.from(today().querySelectorAll('.wg-timeline__bulk button')).map(text)).toEqual(['Mark all taken', 'Skip all']);
-            // A day with nothing pending gets none.
-            expect(env.document.querySelectorAll('.wg-timeline__bulk')).toHaveLength(2);
+            // Today's dated subhead lists the rows but carries no second pair,
+            // and a day with nothing pending gets none.
+            expect(blockRows(today(), 'Mon 19.10').length).toBeGreaterThan(0);
+            expect(today().querySelector('.wg-timeline__bulk')).toBeNull();
+            expect(env.document.querySelectorAll('.wg-timeline__bulk')).toHaveLength(1);
         });
 
         it('Mark all taken writes each dose\'s planned time on only that day\'s pending occIds, and a repeat is a no-op', async () => {
@@ -401,7 +403,7 @@ describe('Meds timeline (MT1 / MT5)', () => {
             const fixture = pileUp();
             const server = await serve(fixture);
             const skipIds = fixture.filter((r) => r.localDate === '2026-10-19' && r.state === 'due').map((r) => r.occId);
-            today().querySelector('.wg-timeline__bulk .wg-btn--ghost').click();
+            env.document.querySelector('section[data-local-date="2026-10-19"] .wg-timeline__bulk .wg-btn--ghost').click();
             const toast = await vi.waitFor(() => {
                 const t = env.document.querySelector('.wg-toasts .wg-toast');
                 expect(t).not.toBeNull();
