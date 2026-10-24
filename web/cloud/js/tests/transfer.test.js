@@ -36,7 +36,7 @@ vi.mock('../../vendor/qrcode.mjs', () => ({
 }));
 vi.mock('../unlock.js', () => ({ assertPasskey: vi.fn() }));
 
-import { renderAddDevice } from '../transfer.js';
+import { renderAddDevice, resumeLiveTransfer } from '../transfer.js';
 import { assertPasskey } from '../unlock.js';
 
 const ctx = { accountId: 'acct-1' };
@@ -240,7 +240,16 @@ describe('Add a device — AD2 waiting: QR, link, typed code', () => {
     expect(tk).toHaveLength(16);
     expect(slot).toBe(await transferSlotId(tk));
     expect(create.body.slot_id).toBe(slot);
-    // The base-domain hand-off (med-r1j2.4), and the typed code's hint names it.
+    // HANDOFF_APP_LINKS off (no meta): the pre-#1336 claim URL that shipped app
+    // scanners accept, fragment <slot>.<TK>; the typed code's hint names it.
+    expect(qrData.startsWith('https://acct.example.test/claim#')).toBe(true);
+    expect(new URL(qrData).hash).toBe(`#${slot}.${qrData.split('.').pop()}`);
+    expect(app.querySelector('#transfer-claim-host').textContent).toBe('acct.example.test/claim');
+  });
+
+  it('HANDOFF_APP_LINKS on (meta present): the base-domain /d/ hand-off URL (med-r1j2.4)', async () => {
+    dom.window.document.head.insertAdjacentHTML('beforeend', '<meta name="medtracker-handoff-app" content="1">');
+    await mountWaiting();
     expect(qrData.startsWith('https://example.test/d/acct#')).toBe(true);
     expect(app.querySelector('#transfer-claim-host').textContent).toBe('example.test/d/acct');
   });
@@ -478,5 +487,72 @@ describe('Add a device — host page Back (med-xso6.25)', () => {
     await mountWaiting();
     expect(app.querySelector('h1')).toBeNull();
     expect(app.querySelector('#transfer-fallback').closest('.wg-code')).not.toBeNull();
+  });
+});
+// med-r1j2.9: the server pushes "Approve the new device?" on the claim; the tap
+// lands here through Settings (resumeLiveTransfer, else renderAddDevice with
+// notHere). The flow's secrets live only in this page, so only a live flow in
+// this window can be resumed.
+describe('Add a device — the claim notification tap (med-r1j2.9)', () => {
+  const gets = () => calls.filter((c) => c.method === 'GET').length;
+
+  it('resumes a live flow at AD3 with the match code, polling at once', async () => {
+    await mountWaiting();
+    const device = await newDeviceClaims();
+
+    const before = gets();
+    expect(resumeLiveTransfer()).toBe(true);
+    // The tap polls now instead of waiting out a (throttled) interval.
+    expect(gets()).toBe(before + 1);
+    await until(() => app.querySelector('#transfer-approve'));
+    const n = await newDeviceSeesReveal(device);
+    expect(app.querySelector('#transfer-matchcode').textContent).toBe(n.sas);
+  });
+
+  it('with no live flow there is nothing to resume, and Add a device opens on AD4', async () => {
+    expect(resumeLiveTransfer()).toBe(false);
+    flow = renderAddDevice(app, ctx, onExit);
+    expect(resumeLiveTransfer()).toBe(false); // AD1: no code yet
+    flow.stop();
+
+    flow = renderAddDevice(app, ctx, onExit, { notHere: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(text()).toContain("This request isn't open here");
+    expect(text()).toContain('Stopped');
+    expect(calls).toEqual([]);
+    expect(assertPasskey).not.toHaveBeenCalled();
+    app.querySelector('#transfer-retry').click();
+    expect(app.querySelector('#transfer-confirm')).not.toBeNull();
+  });
+
+  it("acks the service worker's live-code probe only while this page holds a live code", async () => {
+    const listeners = [];
+    vi.stubGlobal('navigator', { serviceWorker: { addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); } } });
+    try {
+      const probe = () => {
+        const port = { postMessage: vi.fn() };
+        listeners.forEach((fn) => fn({ data: { type: 'transfer-live-probe' }, ports: [port] }));
+        return port.postMessage.mock.calls.length > 0;
+      };
+      await mountWaiting();
+      expect(listeners).toHaveLength(1);
+      expect(probe()).toBe(true);
+      flow.stop();
+      expect(probe()).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('an expired or stopped flow is not resumed', async () => {
+    await mountWaiting();
+    await vi.advanceTimersByTimeAsync(600000);
+    await until(() => text().includes('The code expired'));
+    expect(resumeLiveTransfer()).toBe(false);
+
+    flow.stop();
+    await mountWaiting();
+    flow.stop();
+    expect(resumeLiveTransfer()).toBe(false);
   });
 });

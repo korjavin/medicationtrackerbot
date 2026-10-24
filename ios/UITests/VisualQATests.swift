@@ -22,7 +22,7 @@ import XCTest
 ///   {"type": "app"}            typeText into the tapped element (real keyboard)
 ///   {"clear": true}            delete the tapped field's text
 ///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label
-///   {"waitFor": "Start"}       any element by label or id, 10 s
+///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds)
 ///   {"keyboard": true}         the software keyboard must be up (implied after "type")
 ///
 /// One scene: `TEST_RUNNER_WG_QA_SCENES=food-add-sheet-keyboard xcodebuild test ...`
@@ -189,7 +189,8 @@ final class VisualQATests: XCTestCase {
             } else if let label = step["waitFor"] as? String {
                 let el = app.descendants(matching: .any)
                     .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
-                guard el.waitForExistence(timeout: 10) else { return "\"\(label)\" never appeared" }
+                let timeout = step["timeout"] as? Double ?? 10
+                guard el.waitForExistence(timeout: timeout) else { return "\"\(label)\" never appeared" }
             } else if step["keyboard"] as? Bool == true {
                 typed = true
             } else {

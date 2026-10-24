@@ -153,7 +153,7 @@ export const PRIVACY_MANIFEST = [
     id: 'push-relay',
     feature: 'Push reminder relay',
     boundary: 'not-a-carve-out',
-    data: 'The time a reminder fires — plus, if you linked Telegram, the time a message you send the bot arrives, which fires a content-free wake — and an opaque blob; a reminder payload is app-layer encrypted under the push key on top of RFC 8291',
+    data: 'The time a reminder fires — plus, if you linked Telegram, the time a message you send the bot arrives, and the time a new device claims your add-device code, each of which fires a content-free wake — and an opaque blob; a reminder payload is app-layer encrypted under the push key on top of RFC 8291',
     destination: 'The operator\'s queue, then your browser vendor\'s push service (FCM / APNs / Mozilla)',
     operatorVisibility: 'ciphertext',
     retention: 'The queue entry is deleted once sent; the subscription endpoint persists until you disable push',
@@ -169,7 +169,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'When your reminders fire',
-      detail: 'A reminder is a blind alarm clock: the server knows a reminder is due at a time, but its content stays sealed. Your push subscription endpoint also tells the operator which browser vendor you use, and that vendor sees the ciphertext and its timing. Sending your bot a message also fires a wake push carrying no text at all, so an open tab records it immediately — that timing reaches your push vendor too.',
+      detail: 'A reminder is a blind alarm clock: the server knows a reminder is due at a time, but its content stays sealed. Your push subscription endpoint also tells the operator which browser vendor you use, and that vendor sees the ciphertext and its timing. Sending your bot a message also fires a wake push carrying no text at all, so an open tab records it immediately — that timing reaches your push vendor too. A new device claiming your add-device code fires one more, asking you to come back and approve it.',
     },
   },
   {

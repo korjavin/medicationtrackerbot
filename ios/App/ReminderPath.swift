@@ -6,7 +6,9 @@ import Foundation
 /// Foundation only, so ios/Tests/main.swift checks it without a simulator.
 enum ReminderPath {
     static let fallback = "/?tab=today"
-    static let keys: Set<String> = ["tab", "action", "ids", "scheduled"]
+    /// 'page': the Settings sub-page of ?tab=settings&page=… (deeplink-router.js
+    /// routes only a fixed list), e.g. Push.paths' add-device.
+    static let keys: Set<String> = ["tab", "action", "ids", "scheduled", "page"]
     /// An already-encoded query: no space, quote, fragment or non-ASCII.
     private static let allowed = CharacterSet.urlQueryAllowed.union(CharacterSet(charactersIn: "%"))
 

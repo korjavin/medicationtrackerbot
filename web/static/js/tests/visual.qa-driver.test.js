@@ -38,6 +38,7 @@ function deleteDb() {
 
 describe('iOS visual QA driver (med-y5xx.1)', () => {
     let env;
+    let pendingLoads;
 
     beforeEach(async () => {
         // Seeding ends in importexport.js's location.reload (a jsdom no-op).
@@ -50,6 +51,15 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         vi.stubGlobal('fetch', fetchImpl);
         env = loadFrontendEnv({ withWorkout: true, url: 'https://example.test/?qa=today' });
         env.window.fetch = fetchImpl;
+        // Track every Today load so teardown can await them: a load resolving
+        // after env.cleanup() hit the removed `document` (med-i7v5).
+        pendingLoads = [];
+        const realLoadToday = env.window.loadToday;
+        env.window.loadToday = (...args) => {
+            const p = realLoadToday(...args);
+            pendingLoads.push(p.then(() => null, (err) => err || new Error('loadToday rejected')));
+            return p;
+        };
         env.window.eval(TODAY_SRC);
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
@@ -65,10 +75,16 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         env.window.switchTab('today');
     });
 
-    afterEach(() => {
-        cancelReminderRecompute({ accountId: 'local' });
-        env.cleanup();
-        vi.unstubAllGlobals();
+    afterEach(async () => {
+        try {
+            // A loader exception still fails the test; teardown runs regardless.
+            const failures = (await Promise.all(pendingLoads)).filter(Boolean);
+            if (failures.length) throw failures[0];
+        } finally {
+            cancelReminderRecompute({ accountId: 'local' });
+            env.cleanup();
+            vi.unstubAllGlobals();
+        }
     });
 
     async function load(scene) {

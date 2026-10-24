@@ -634,6 +634,10 @@ function renderApproved(app, ctx, errorText) {
       return;
     }
     renderOpening(app);
+    // This tab enrolled: only that boot may finish a "Join and erase"
+    // (cloud-boot.js finishJoinErase, bd med-r1j2.7). A failed join's Close
+    // also lands on '/', and an older session there can boot unlocked.
+    try { sessionStorage.setItem('wg-join-enrolled', '1'); } catch { /* no storage: nothing is erased */ }
     // Session cookie + LDK are both set now; the unlock flow's normal
     // "already unlocked" render takes it from here.
     location.href = '/';

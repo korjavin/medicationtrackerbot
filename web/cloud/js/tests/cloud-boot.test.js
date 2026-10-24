@@ -986,7 +986,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
 
   async function boot({
     platform = 'android', ops = ['shell.ops', 'move.take', 'move.clear'], stash = { vault: VAULT },
-    content = false, choice = 'replace', confirm = true, importAll, warmUnlock = UNLOCKED, live,
+    content = false, choice = 'replace', confirm = true, importAll, warmUnlock = UNLOCKED, live, pull, erase,
   } = {}) {
     const { window } = env;
     const log = [];
@@ -994,6 +994,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
       log.push(op);
       if (op === 'shell.ops') { if (!ops) throw new Error('unsupported: shell.ops'); return ops; }
       if (op === 'move.take') return stash;
+      if (op === 'local.erase' && erase) return erase();
       return true;
     });
     if (platform) window.LocalNotifications = { ...window.LocalNotifications, __native: { platform, call }, copy: { device: 'phone' } };
@@ -1007,7 +1008,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
       'unlock.js': { warmUnlock },
       'apishim.js': { installApiShim: () => async () => null },
       'sync.js': {
-        pullOnOpen: () => pulled,
+        pullOnOpen: pull || (() => pulled),
         startReconnectAutoDrain() {},
         getSyncStatus: async () => ({}),
         readAllLiveRecords: async () => live || [],
@@ -1233,21 +1234,84 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     for (const warmUnlock of [async () => null, async () => { throw new Error('ldk read failed'); }]) {
       env.cleanup();
       env = loadFrontendEnv();
-      const { call } = await boot({ warmUnlock, ops: ['shell.ops', 'move.take', 'move.clear', 'local.erase'] });
+      const { call, log } = await boot({ warmUnlock, ops: ['shell.ops', 'move.take', 'move.clear', 'local.erase'] });
       await settle();
       expect(call).not.toHaveBeenCalledWith('move.take');
       expect(call).not.toHaveBeenCalledWith('move.clear');
-      expect(call).not.toHaveBeenCalledWith('local.erase'); // AD9: no erase before the account is unlocked
+      expect(log).not.toContain('local.erase'); // AD9: no erase before the account is unlocked
     }
   });
 
   // bd med-r1j2.4 (AD9 "Join and erase"): the local page erased nothing; the
   // joined account's unlocked boot tells the shell to finish, once.
   it('join and erase: an unlocked boot on a shell with local.erase asks it once; no move import', async () => {
-    const { call, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
+    env.window.sessionStorage.setItem('wg-join-enrolled', '1'); // claim.js, right after this tab enrolled
+    const { window, call, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
     await vi.waitFor(() => expect(log).toContain('local.erase'));
     await settle();
-    expect(call.mock.calls.filter(([op]) => op === 'local.erase')).toEqual([['local.erase']]);
+    // {enrolled: true}: the shell ignores a bare local.erase (an older cached cloud-boot.js).
+    expect(call.mock.calls.filter(([op]) => op === 'local.erase')).toEqual([['local.erase', { enrolled: true }]]);
+    expect(window.safeConfirm).not.toHaveBeenCalled();
     expect(log).not.toContain('move.take');
+    expect(window.sessionStorage.getItem('wg-join-enrolled')).toBeNull(); // one-shot
+  });
+
+  // bd med-r1j2.7: a failed join's Close lands on '/', where an older session
+  // can boot unlocked — without this tab's enrollment marker nothing is erased.
+  it('join and erase: an unlocked boot without the enrollment marker never asks', async () => {
+    const { log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
+    await vi.waitFor(() => expect(log).toContain('shell.ops'));
+    await settle();
+    expect(log).not.toContain('local.erase');
+  });
+
+  // The marker belongs to the boot right after the enroll: one that fails
+  // before finishJoinErase (pullOnOpen rejects) still drops it, so a later
+  // unrelated boot erases nothing.
+  it('join and erase: a boot whose pull fails consumes the marker and erases nothing', async () => {
+    env.window.sessionStorage.setItem('wg-join-enrolled', '1');
+    const { window, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null, pull: async () => { throw new Error('pull failed'); } });
+    await settle();
+    expect(window.sessionStorage.getItem('wg-join-enrolled')).toBeNull();
+    expect(log).not.toContain('local.erase');
+  });
+
+  // Argus #1: a wipe that did not finish keeps the shell's intent and says so;
+  // Try again asks once more, Not now stops.
+  it('join and erase: a failed wipe is reported and Try again retries it', async () => {
+    env.window.sessionStorage.setItem('wg-join-enrolled', '1');
+    let fails = 1;
+    const erase = async () => { if (fails-- > 0) throw new Error('erase failed'); return true; };
+    const { window, call } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null, erase });
+    await vi.waitFor(() => expect(call.mock.calls.filter(([op]) => op === 'local.erase')).toHaveLength(2));
+    await settle();
+    expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+    expect(window.safeConfirm.mock.calls[0][0]).toBe('The records that were on this phone before could not be erased.');
+    expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ title: "Erase didn't finish", confirmLabel: 'Try again' });
+  });
+
+  // A wipe that never answers (hung WebKit) is reported too, never silent.
+  it('join and erase: no answer within the time box is reported as not finished', async () => {
+    // The 60 s time box (JOIN_ERASE_MS) runs out at once here.
+    const real = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => real(fn, ms === 60000 ? 0 : ms, ...rest));
+    try {
+      env.window.sessionStorage.setItem('wg-join-enrolled', '1');
+      const erase = () => new Promise(() => {});
+      const { window, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null, erase, confirm: false });
+      await vi.waitFor(() => expect(window.safeConfirm).toHaveBeenCalledTimes(1));
+      expect(log.filter((op) => op === 'local.erase')).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('join and erase: Not now after a failed wipe stops asking', async () => {
+    env.window.sessionStorage.setItem('wg-join-enrolled', '1');
+    const erase = async () => { throw new Error('erase failed'); };
+    const { window, call } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null, erase, confirm: false });
+    await vi.waitFor(() => expect(window.safeConfirm).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(call.mock.calls.filter(([op]) => op === 'local.erase')).toHaveLength(1);
   });
 });

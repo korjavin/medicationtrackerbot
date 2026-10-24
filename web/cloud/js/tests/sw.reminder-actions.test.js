@@ -268,3 +268,87 @@ describe('cloud sw.js — reminder notification actions', () => {
         expect(client.focus).toHaveBeenCalled();
     });
 });
+
+// med-r1j2.9 — the add-device claim push: a bare kind tag from the server, a
+// fixed client-side text, and a tap that opens Settings → Add a device.
+describe('cloud sw.js — "Approve the new device?" (transfer_claimed)', () => {
+    let self;
+    let listeners;
+
+    beforeEach(() => {
+        ({ self, listeners } = loadCloudSw(crypto.getRandomValues(new Uint8Array(32))));
+    });
+
+    const claimPush = (extra = {}) => {
+        const bytes = new TextEncoder().encode(JSON.stringify({ kind: 'transfer_claimed', ...extra }));
+        return { arrayBuffer: () => bytes.buffer };
+    };
+
+    it('shows the fixed copy, replaces an older one, and carries the add-device deeplink', async () => {
+        await firePush(self, listeners, claimPush({ title: 'Bank', body: 'evil.example' }));
+
+        const [title, opts] = self.registration.showNotification.mock.calls[0];
+        expect(title).toBe('Approve the new device?');
+        expect(opts.body).toBe('A new device is waiting · approve it before the code expires');
+        expect(opts.tag).toBe('transfer_claimed');
+        expect(opts.data).toEqual({ url: '/?tab=settings&page=add-device' });
+    });
+
+    it('a warm tap hands the deeplink to the open tab; a cold tap opens it', async () => {
+        await firePush(self, listeners, claimPush());
+        const [, opts] = self.registration.showNotification.mock.calls[0];
+
+        const client = { focus: vi.fn(), postMessage: vi.fn() };
+        self.clients.matchAll.mockResolvedValue([client]);
+        await fireNotificationClick(self, listeners, '', opts.data);
+        expect(client.postMessage).toHaveBeenCalledWith({ type: 'reminder-open', url: '/?tab=settings&page=add-device' });
+        expect(client.focus).toHaveBeenCalled();
+
+        self.clients.matchAll.mockResolvedValue([]);
+        await fireNotificationClick(self, listeners, '', opts.data);
+        expect(self.clients.openWindow).toHaveBeenCalledWith('/?tab=settings&page=add-device');
+    });
+
+    // Argus #1: the live flow is page memory of the tab that made the code. With
+    // two tabs the tap must reach that one, not just the first window.
+    it('routes the tap to the window that acks the live-code probe, not the first one', async () => {
+        const first = { focus: vi.fn(), postMessage: vi.fn() }; // no live code: never answers
+        const owner = {
+            focus: vi.fn(),
+            postMessage: vi.fn((msg, ports) => { if (msg.type === 'transfer-live-probe') ports[0].postMessage('live'); }),
+        };
+        self.clients.matchAll.mockResolvedValue([first, owner]);
+
+        await fireNotificationClick(self, listeners, '', { url: '/?tab=settings&page=add-device' });
+
+        expect(owner.postMessage).toHaveBeenCalledWith({ type: 'reminder-open', url: '/?tab=settings&page=add-device' });
+        expect(owner.focus).toHaveBeenCalled();
+        expect(first.focus).not.toHaveBeenCalled();
+        expect(first.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'reminder-open' }));
+    });
+
+    // Firefox grants focus()/openWindow() for only ~1 s after a click: the
+    // owner is focused as soon as it acks (not after the silent windows time
+    // out), and with no ack the fallback comes after ~250 ms, well inside it.
+    it('focuses the acking window at once, and falls back well inside the click focus window', async () => {
+        const silent = () => ({ focus: vi.fn(), postMessage: vi.fn() });
+        const owner = {
+            focus: vi.fn(),
+            postMessage: vi.fn((msg, ports) => { if (msg.type === 'transfer-live-probe') ports[0].postMessage('live'); }),
+        };
+        const data = { url: '/?tab=settings&page=add-device' };
+
+        self.clients.matchAll.mockResolvedValue([silent(), owner, silent()]);
+        let t0 = Date.now();
+        await fireNotificationClick(self, listeners, '', data);
+        expect(owner.focus).toHaveBeenCalled();
+        expect(Date.now() - t0).toBeLessThan(200);
+
+        const first = silent();
+        self.clients.matchAll.mockResolvedValue([first, silent()]);
+        t0 = Date.now();
+        await fireNotificationClick(self, listeners, '', data);
+        expect(first.focus).toHaveBeenCalled();
+        expect(Date.now() - t0).toBeLessThan(900);
+    });
+});

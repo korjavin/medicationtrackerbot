@@ -536,7 +536,9 @@ async function loadToday() {
     // another tab is current; the visibilitychange re-render covers the ticks a
     // backgrounded tab's throttled timers slept through. The food key is
     // recomputed per tick so a repaint across midnight reads the new day.
-    if (!_todayLoaderState.repaintTick) {
+    // `document` is gone when jsdom teardown lands during the awaits above
+    // (med-i7v5): skip the tick setup instead of throwing an unhandled rejection.
+    if (!_todayLoaderState.repaintTick && typeof document !== 'undefined') {
         const repaint = () => {
             if (typeof document !== 'undefined' && document.hidden) return;
             if (!window.AppStore || window.AppStore.get('currentTab') !== 'today') return;

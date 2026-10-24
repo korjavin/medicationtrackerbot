@@ -537,7 +537,7 @@ async function mountCloudDevices() {
     if (!ctx || !mount) return;
     try {
         const { renderDeviceList } = await loadCloudDevicesModule();
-        renderDeviceList(mount, ctx, { onAddDevice: openAddDevicePage, onLoaded: noteDeviceList });
+        renderDeviceList(mount, ctx, { onAddDevice: () => openAddDevicePage(), onLoaded: noteDeviceList });
     } catch (e) {
         console.error('devices module failed to load', e);
         mount.textContent = 'Could not load your devices. Check your connection and reopen this page.';
@@ -556,14 +556,14 @@ async function refreshConnectorStatus(ctx) {
 
 // "Add a device" pushes its own page. Back runs the flow's server-side cancel
 // and refuses to leave if that fails: leaving would imply a live code is dead.
-async function openAddDevicePage() {
+async function openAddDevicePage(opts) {
     const ctx = cloudCtx();
     if (!ctx || !window.WGPage) return;
     const { renderAddDevice } = await loadCloudTransferModule();
     const body = document.createElement('div');
     body.className = 'wg-vstack';
     let page = null;
-    const flow = renderAddDevice(body, ctx, () => page && page.close());
+    const flow = renderAddDevice(body, ctx, () => page && page.close(), opts);
     page = window.WGPage.push({
         title: 'Add a device',
         back: 'Devices',
@@ -667,8 +667,25 @@ function bindCloudDevicesPage() {
 // ?tab=settings&page=devices|connectors (deeplink-router.js; the old shell
 // pages /devices and /connectors redirect here).
 function openDevicesDeeplink(target) {
+    if (target === 'add-device') {
+        resumeAddDevice();
+        return;
+    }
     if (!cloudCtx() || !openSettingsPage('devices')) return;
     if (target === 'connectors') openConnectorPage();
+}
+
+// The "Approve the new device?" tap (med-r1j2.9, AD3). The flow's secrets live
+// only in the page that made the code, so a live flow in this window is brought
+// back (it polls now and shows Approve with the match code); with none here —
+// another device made the code, or the page was closed, which deleted the slot —
+// open Add a device on its AD4 "not open here" end state.
+async function resumeAddDevice() {
+    if (!cloudCtx()) return;
+    const { resumeLiveTransfer } = await loadCloudTransferModule();
+    if (resumeLiveTransfer()) return;
+    openSettingsPage('devices');
+    openAddDevicePage({ notHere: true });
 }
 
 // "What can the operator see?" transparency section (med-d5t.9). The content

@@ -751,6 +751,37 @@ changes for it.
   removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set).
   Older shells ignore `url` and land on their first run; the web probes
   `shell.ops` for `invite.pending`.
+- **Add-device hand-off** (bd med-r1j2.7, web med-r1j2.4, Android twin
+  med-r1j2.8): `https://<base>/d/<sub>#<slot>.<TK>` (a universal link once the
+  AASA lists `/d/*`, i.e. with `HANDOFF_APP_LINKS=1`) and
+  `medtracker://d/<sub>#<slot>.<TK>` take the invite path above:
+  `parseInvite` maps them to `https://<sub>.<base>/claim#<slot>.<TK>` (code
+  `^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`, no query) into the same slot; the page
+  offers the join. `local.leave {url, erase: true}` with a `/claim` URL also
+  drops the move stash (no merge) and remembers the erase for that host
+  (`JoinErase`, UserDefaults `wgJoinErase` `{host, at}`); it expires after 10
+  minutes (the code's TTL) and is dropped on entering local mode, on opening
+  any account and once used. `local.erase` (listed in both modes, because the
+  local page probes it before offering the erase) acts only on
+  `{enrolled: true}` (cloud-boot.js, the boot right after this tab's claim
+  enrolled); `{}` (the #1336 page sent it on every unlocked boot) and any
+  call outside account mode with `JoinErase` naming the open host answer
+  `true` and touch nothing. The wipe clears `wgapp://local`'s IndexedDB,
+  localStorage and Cache Storage from a throwaway web view on that origin
+  (`Shell.eraseLocalOrigin`; `fetchDataRecords` lists no custom-scheme
+  origin) and leaves the localStorage marker `wg-shell-session-wipe`, which
+  `Shell.sessionWipeJS` turns into a `sessionStorage.clear()` in the shell's
+  own view at the next local document's start (sessionStorage is per view).
+  The intent (host + stamp) is re-checked once the throwaway view has loaded,
+  right before deleting, and again before the native effects: a switch to local
+  mode or another account, a newer intent or the TTL running out cancels it;
+  every page load and `wgapp` navigation while it runs waits until it ends. Only a
+  verified wipe (nothing left, one retry) spends the intent and runs the
+  local.reset effects (host mirror, `wgLeaveHost`, move/leave stashes, local
+  reminders); anything left answers `"erase failed"`, the intent stays and
+  the page offers Try again (also when no answer comes within 60 s; a call
+  while a wipe still runs answers `"busy"`, never `true`). The diag log notes `wiped`, what was left or
+  `cancelled`; never the host.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are
@@ -871,7 +902,7 @@ a Web Push subscription.
 
 ### Native push (APNs) (bd med-erq1.4)
 
-The relay's content-free wakes (`inbox-wake`, `dry-queue`;
+The relay's content-free wakes (`inbox-wake`, `dry-queue`, `transfer_claimed`;
 `internal/cloudserver/nativepush.go`) reach the shell over APNs, twin of
 Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15);
 [`Push.swift`](../ios/App/Push.swift)). Reminders stay local notifications (above).
@@ -896,8 +927,10 @@ Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15)
   `willPresent` shows the alert only when no listener took it (the SW's rule);
   the page has 5 s to answer. In the background the system already showed
   the server's fixed alert; `content-available` also hands a live page the
-  wake, with a 10 s grace before completing. Tap: Today, like a reminder
-  without a url. The shell reads `kind` only.
+  wake, with a 10 s grace before completing. Tap: the kind's `Push.paths`
+  entry — `transfer_claimed` (the add-device claim, bd med-r1j2.16; no page
+  takes it, so it always shows) opens `/?tab=settings&page=add-device` —
+  else Today, like a reminder without a url. The shell reads `kind` only.
 - **Check:** `Tests/main.swift` (op gates, the event script, token encoding);
   a real delivery is an owner device check after med-erq1.7: a Telegram
   message to the bot with the app in the background shows "Open the app to
@@ -1258,7 +1291,8 @@ cloud env (docs/environment.md) and check that
 `https://<base>/.well-known/apple-app-site-association` and the same path on an
 account subdomain return
 `{"applinks":{"details":[{"appIDs":["<TEAM>.<bundle>"],"components":[{"/":"/i/*","comment":"invite landing"}]}]},"webcredentials":{"apps":["<TEAM>.<bundle>"]}}`
-(applinks claims the invite landing `/i/*`; the entitlement lists
+(applinks claims the invite landing `/i/*`, plus `{"/":"/d/*","comment":"add-device hand-off"}`
+with `HANDOFF_APP_LINKS=1`, med-r1j2.7; the entitlement lists
 `applinks:<base>` only — never `*.<base>` — med-ta2n.11).
 Apple fetches it through its CDN
 (`https://app-site-association.cdn-apple.com/a/v1/<host>`), which can lag by

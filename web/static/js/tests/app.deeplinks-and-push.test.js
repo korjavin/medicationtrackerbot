@@ -652,7 +652,7 @@ describe('handleDeepLinks – ?tab=settings&page= (Devices & connectors)', () =>
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  for (const page of ['devices', 'connectors']) {
+  for (const page of ['devices', 'connectors', 'add-device']) {
     it(`page=${page} lands on Settings and opens that page`, async () => {
       const { window, cleanup } = loadFrontendEnv({ url: `https://acct.example.test/?tab=settings&page=${page}` });
       try {

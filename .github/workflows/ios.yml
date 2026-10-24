@@ -301,7 +301,8 @@ jobs:
           xcodebuild -version
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
+            WG_BASE_DOMAIN=qa.test | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Create and boot the simulator

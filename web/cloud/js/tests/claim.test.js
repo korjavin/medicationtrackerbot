@@ -135,12 +135,22 @@ function openAt(hash) {
 }
 
 const linkHash = () => `#${origin.slot}.${toBase64Url(origin.tk)}`;
+// The one-shot "this tab enrolled" marker, the only thing that lets the
+// joined account's boot ask the shell for a "Join and erase" wipe
+// (cloud-boot.js finishJoinErase, bd med-r1j2.7).
+const enrolledMarker = () => sessionStorage.getItem('wg-join-enrolled');
 
 beforeEach(async () => {
   vi.useFakeTimers();
   dom = new JSDOM('<!doctype html><main id="app"></main>');
   globalThis.document = dom.window.document;
   globalThis.history = { replaceState: vi.fn() };
+  const store = new Map();
+  globalThis.sessionStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
   globalThis.PublicKeyCredential = { parseCreationOptionsFromJSON: (o) => o };
   app = dom.window.document.getElementById('app');
   server = { slot: null };
@@ -157,6 +167,7 @@ afterEach(() => {
   delete globalThis.document;
   delete globalThis.location;
   delete globalThis.history;
+  delete globalThis.sessionStorage;
   delete globalThis.fetch;
   delete globalThis.PublicKeyCredential;
 });
@@ -242,8 +253,10 @@ describe('/claim — AD6: approval, then this device\'s own passkey', () => {
     expect(text()).toContain('Approved on your other device');
     expect(createCredential).not.toHaveBeenCalled(); // the sheet waits for the tap
 
+    expect(enrolledMarker()).toBeNull();
     app.querySelector('#claim-enroll').click();
     await until(() => location.href === '/');
+    expect(enrolledMarker()).toBe('1');
     const [begin] = posted('/register/begin');
     expect(begin.body.enrollment_token).toBe('claim-tok');
     const expected = await transferConfirmMac(origin.keys.kConf, origin.transcript);
@@ -451,6 +464,7 @@ describe('/claim — AD7: end states', () => {
     await until(() => app.querySelector('#claim-used'));
     expect(text()).toContain('This code was already used');
     expect(text()).toContain('Ask for a new code on your other device');
+    expect(enrolledMarker()).toBeNull();
   });
 
   it('410 while waiting (denied / cancelled): the code no longer works', async () => {
@@ -464,6 +478,7 @@ describe('/claim — AD7: end states', () => {
     expect(text()).toContain('This code no longer works');
     expect(text()).toContain('Stopped');
     expect(unwrapTransferDek).not.toHaveBeenCalled();
+    expect(enrolledMarker()).toBeNull();
   });
 
   it('stopped on the origin after approval: the passkey step ends, and a new code can be entered', async () => {
@@ -479,6 +494,7 @@ describe('/claim — AD7: end states', () => {
     expect(text()).toContain('Stopped');
     expect(app.querySelector('#claim-enroll')).toBeNull();
     expect(posted('/register/finish')).toEqual([]);
+    expect(enrolledMarker()).toBeNull();
 
     app.querySelector('#claim-new-code').click();
     expect(app.querySelector('#claim-code-input')).not.toBeNull();
@@ -495,6 +511,22 @@ describe('/claim — AD7: end states', () => {
     app.querySelector('#claim-enroll').click();
     await until(() => app.querySelector('#claim-ended'));
     expect(text()).toContain('Expired');
+    expect(enrolledMarker()).toBeNull();
+  });
+
+  it('a passkey step that fails (the ceremony throws) stays on the step and sets no join marker', async () => {
+    await openAt(linkHash());
+    await until(() => server.slot.state === 'claimed');
+    await originReveals();
+    await originApproves();
+    await until(() => app.querySelector('#claim-enroll'));
+    createCredential.mockRejectedValueOnce(new Error('NotAllowedError'));
+
+    app.querySelector('#claim-enroll').click();
+    await until(() => app.querySelector('#claim-enroll') && !app.querySelector('#claim-enroll').disabled);
+    expect(location.href).toBe('');
+    expect(posted('/register/finish')).toEqual([]);
+    expect(enrolledMarker()).toBeNull();
   });
 
   it('local expiry while waiting says Expired', async () => {

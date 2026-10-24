@@ -621,6 +621,7 @@ html, body {
     --wg-settings-row-gap: 12px;
     --wg-settings-row-pad-y: 12px;
     --wg-settings-row-pad-x: 0px;
+    --wg-settings-nudge-pad-x: 12px;
     --wg-settings-row-divider: 1px solid var(--wg-border-hairline);
     --wg-settings-title-size: 14px;
     --wg-settings-desc-size: 12px;
@@ -7022,7 +7023,7 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-sm);
     align-items: center;
     justify-content: space-between;
-    padding: var(--wg-settings-row-pad-y) var(--wg-settings-row-pad-x);
+    padding: var(--wg-settings-row-pad-y) var(--wg-settings-nudge-pad-x);
     border-left: 3px solid var(--wg-mint-soft);
     border-radius: var(--wg-radius-gloss);
     background: var(--wg-bg-card-inset);
