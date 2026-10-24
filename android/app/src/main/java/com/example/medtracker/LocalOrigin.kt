@@ -44,11 +44,7 @@ object LocalOrigin {
      * move.take/move.clear (bd med-nt9p.32.17): the new account picks up the local origin's stash.
      * push.token (bd med-erq1.5, Push.kt): local mode never reports an FCM token.
      */
-    val ACCOUNT_OPS = setOf(
-        "account.leave", "move.take", "move.clear", "leave.stash", "push.token",
-        // "Join and erase" (bd med-r1j2.8): the joined account, booted unlocked, finishes the erase.
-        "local.erase",
-    )
+    val ACCOUNT_OPS = setOf("account.leave", "move.take", "move.clear", "leave.stash", "push.token")
     /** Every other op the shell answers, in both modes (MainActivity.onBridge, Notifications, HealthConnect). */
     val SHARED_OPS = setOf(
         "ping", "chrome", "shell.ops", "diag.append", "health.authorize", "health.query",
@@ -57,6 +53,9 @@ object LocalOrigin {
         "notifications.openSettings",
         // The pending-invite slot (bd med-ta2n.12.1, Invite.kt) and F1's Paste (Android only).
         "invite.pending", "invite.clear", "clipboard.read",
+        // "Join and erase" (bd med-r1j2.8): the local page probes it to offer the erase; only the joined
+        // account, booted unlocked, makes it act (MainActivity); in local mode a no-op.
+        "local.erase",
     )
 
     /** The bridge op shell.ops (bd med-nt9p.32.13): what this shell answers in this mode, for the page's capability probe. */

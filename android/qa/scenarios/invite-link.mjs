@@ -202,43 +202,76 @@ export default async function inviteLink(ctx) {
   // bd med-r1j2.8: the add-device hand-off /d/<sub>#<slot>.<TK> fills the same slot as the claim page's
   // URL; local.leave {url, erase: true} opens it and remembers the erase for that host only; the
   // account's local.erase wipes the local origin and spends the flag. The code is fake: never claimed.
-  await ctx.step('/d/ hand-off: slot, local.leave {erase}, local.erase wipes the local origin', async () => {
-    const code = 'QaSlot_1-x.QaTk_2-y';
-    const dWant = `https://${claim.host}/claim#${code}`;
-    const expectD = async (pg, what) => {
-      const slot = await pending(pg);
-      expect(slot && slot.url === dWant, `${what}: ${JSON.stringify(slot)}`);
-    };
-    await page.evaluate(() => localStorage.setItem('qa-erase-marker', '1'));
-    await warm(page, `medtracker://d/${sub}#${code}`, `${LOCAL_ORIGIN}/`);
-    let p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
-    await expectD(p, 'medtracker://d/');
-    await clear(p);
-    await warm(p, `https://${base}/d/${sub}#${code}`, `${LOCAL_ORIGIN}/`, true);
-    p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+  const code = 'QaSlot_1-x.QaTk_2-y';
+  const dWant = `https://${claim.host}/claim#${code}`;
+  const expectD = async (pg, what) => {
+    const slot = await pending(pg);
+    expect(slot && slot.url === dWant, `${what}: ${JSON.stringify(slot)}`);
+  };
+  /** The local vault's record count (CloudVault, local-policy.js), once the app's boot defined it. */
+  const records = async (pg) => {
+    await pg.waitForFunction(() => !!(window.CloudVault && window.CloudVault.userContentCount), null, { timeout: 60_000 });
+    return pg.evaluate(() => window.CloudVault.userContentCount());
+  };
+
+  await ctx.step('/d/ landing link: the slot holds the account\'s /claim URL', async () => {
+    await warm(page, `https://${base}/d/${sub}#${code}`, `${LOCAL_ORIGIN}/`, true);
+    const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
     await expectD(p, 'landing /d/');
-    await ctx.shot('d-link-local');
+    await clear(p);
     const bad = await call(p, 'local.leave', { url: `https://${base}/d/${sub}#${code}`, erase: true });
     expect(!bad.ok && bad.error === 'invalid url', `local.leave landing /d/: ${JSON.stringify(bad)}`);
-    await call(p, 'local.leave', { url: dWant, erase: true });
+  });
+
+  // The real UI: seeded local records, medtracker://d/ → the page's boot reads the slot, probes
+  // shell.ops for local.erase and asks "Join … and erase this phone?"; the tap is local.leave {url, erase: true}.
+  page = await ctx.step('/d/ in local mode with records: the page offers Join and erase; the tap opens /claim and arms the erase', async () => {
+    await ctx.launchLocal('today'); // seeds the golden vault into the local origin
+    let p = await ctx.launchLocal(null); // the plain home, the seeded records kept
+    const seeded = await records(p);
+    expect(seeded > 0, `no seeded records: ${seeded}`);
+    await p.evaluate(() => localStorage.setItem('qa-erase-marker', '1'));
+    const ops = await call(p, 'shell.ops');
+    expect(ops.ok && ops.result.includes('local.erase'), `local shell.ops: ${JSON.stringify(ops)}`);
+    const noop = await call(p, 'local.erase'); // local mode: a no-op
+    expect(noop.ok && noop.result === true, `local-mode local.erase: ${JSON.stringify(noop)}`);
+    await warm(p, `medtracker://d/${sub}#${code}`, `${LOCAL_ORIGIN}/`);
+    p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    const title = p.locator('.mt-confirm-modal__title');
+    await title.waitFor({ state: 'visible', timeout: 60_000 });
+    const text = await title.textContent();
+    expect(/^Join .+ and erase this /.test(text || ''), `not the erase confirm: ${text}`);
+    expect((await records(p)) === seeded, 'records changed before the join');
+    await expectD(p, 'medtracker://d/');
+    await ctx.shot('d-link-join-erase');
+    await p.locator('.mt-confirm-modal__confirm').click();
     p = await pageOn((u) => u.host === claim.host);
     expect((await pending(p)) === null, 'the slot outlived local.leave {erase}');
     await sleep(1500);
-    let xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
     expect(xml.includes(`name="wgJoinEraseHost">${claim.host}<`), `erase not remembered: ${xml}`);
-    const ops = await call(p, 'shell.ops');
-    expect(ops.ok && ops.result.includes('local.erase'), `shell.ops ${JSON.stringify(ops)}`);
-    const res = await call(p, 'local.erase');
+    return p;
+  });
+
+  await ctx.step('local.erase on the joined account: the local origin wiped, the account origin kept, the flag spent', async () => {
+    await page.evaluate(() => localStorage.setItem('qa-account-marker', '1'));
+    const res = await call(page, 'local.erase');
     expect(res.ok && res.result === true, `local.erase: ${JSON.stringify(res)}`);
     await sleep(1500);
-    xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
     expect(!/wgJoinErase/.test(xml), `erase flag not spent: ${xml}`);
-    const again = await call(p, 'local.erase'); // spent: a no-op
+    const again = await call(page, 'local.erase'); // spent: a no-op
     expect(again.ok && again.result === true, `second local.erase: ${JSON.stringify(again)}`);
-    await call(p, 'account.leave', { then: 'local' });
-    p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    await page.reload({ waitUntil: 'load' });
+    const kept = await page.evaluate(() => localStorage.getItem('qa-account-marker'));
+    expect(kept === '1', `the account origin lost its storage: ${kept}`);
+    await call(page, 'account.leave', { then: 'local' });
+    const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
     const marker = await p.evaluate(() => localStorage.getItem('qa-erase-marker'));
-    expect(marker === null, `local origin not wiped: marker=${marker}`);
+    expect(marker === null, `local localStorage not wiped: marker=${marker}`);
+    const left = await records(p);
+    expect(left === 0, `local IndexedDB not wiped: ${left} records`);
+    await ctx.shot('d-link-erased');
     r.handoff = true;
     r.ok = true;
   });

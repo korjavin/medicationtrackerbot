@@ -34,7 +34,6 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -826,17 +825,20 @@ class MainActivity : Activity() {
             // 10 minutes: wipe the local origin's website data plus local.reset's native share. Reminders
             // and the slot were already cleared by enterAccount; clearing them here would hit this
             // account's own. Otherwise a no-op. Either way the flag is spent.
+            // Listed in both modes (the local page's Join-and-erase probe); in local mode a no-op.
             "local.erase" -> {
+                if (local) return answer(true) // the flag cannot exist here (setLocal(true) clears it)
                 val due = Invite.eraseDue(prefs.getString(Invite.ERASE_HOST_KEY, null), prefs.getLong(Invite.ERASE_AT_KEY, 0), host, System.currentTimeMillis())
                 clearErase()
-                if (due) {
-                    WebStorage.getInstance().deleteOrigin(LocalOrigin.HOME.removeSuffix("/"))
-                    prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
-                    move.clear()
-                    leave.clear()
-                    diag("shell local erased")
+                if (!due) return answer(true)
+                prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
+                move.clear()
+                leave.clear()
+                // The reply waits for the wipe; the page's caller times out on its own.
+                LocalWipe.run(this) { ok ->
+                    diag("shell local erase ${if (ok) "done" else "failed"}")
+                    if (!isDestroyed) runCatching { answer(true) }
                 }
-                answer(true)
             }
             // The pending-invite slot: the page reads it once per boot; clear on "Keep this account" or stale.
             "invite.pending" -> answer(pendingInvite() ?: JSONObject.NULL)
