@@ -6,22 +6,21 @@ import android.os.Looper
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
 
 /**
  * local.erase's wipe (bd med-r1j2.8): the local origin's storage, and only that origin's — the
- * joined account's origin shares the WebView profile and must survive. WebStorage.deleteOrigin
- * leaves localStorage, and androidx.webkit's site deletion needs a newer WebView than the shell's
- * minimum, so a throwaway WebView (no bridge) loads one page on the asset origin that clears
- * localStorage, every IndexedDB database, Cache Storage and service workers from inside it, and
- * reports through its title. deleteOrigin then sweeps whatever quota storage is left.
+ * joined account's origin shares the WebView profile and must survive. A throwaway WebView (no
+ * bridge) loads one page on the asset origin that clears localStorage, every IndexedDB database,
+ * Cache Storage and service workers from inside it, and reports completion through its title.
+ * Nothing else: WebStorage.deleteOrigin leaves localStorage and can't be awaited (bd med-r1j2.12 —
+ * a sweep still pending after [done] could delete what a local page writes next), and androidx.webkit's
+ * site deletion needs a newer WebView than the shell's minimum.
  * Main thread only. [done] gets true on success, false on a script error or the 10 s timeout, or
- * when a wipe is already in flight. [keep] is asked right before deleteOrigin: false (mode,
- * account or intent changed during the wipe) skips it. Until [done] has run, [gate] holds every
- * local-origin load (bd med-r1j2.12), so nothing written after a switch to local mode is swept.
+ * when a wipe is already in flight. Until [done] has run, [gate] holds every local-origin load, so
+ * nothing written after a switch to local mode is deleted.
  */
 object LocalWipe {
     /** Process-wide: an activity recreated mid-wipe still waits for the old one's wipe. */
@@ -46,7 +45,7 @@ object LocalWipe {
 })();
 </script>"""
 
-    fun run(context: Context, keep: () -> Boolean, done: (Boolean) -> Unit) {
+    fun run(context: Context, done: (Boolean) -> Unit) {
         if (!gate.start()) return done(false)
         val web = WebView(context)
         val main = Handler(Looper.getMainLooper())
@@ -56,9 +55,6 @@ object LocalWipe {
             finished = true
             main.removeCallbacksAndMessages(web)
             web.destroy()
-            // ponytail: deleteOrigin is async inside WebView; a held load is released right after it
-            // is queued, and the page's first write comes far later. Await a callback if that ever races.
-            if (keep()) WebStorage.getInstance().deleteOrigin(LocalOrigin.HOME.removeSuffix("/"))
             try { done(ok) } finally { gate.end() }
         }
         web.settings.javaScriptEnabled = true

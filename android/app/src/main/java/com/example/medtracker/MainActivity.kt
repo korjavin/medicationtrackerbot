@@ -847,13 +847,12 @@ class MainActivity : Activity() {
                 // keeps the (host- and TTL-bound) flag, so the next unlocked boot retries.
                 val from = host
                 val at = prefs.getLong(Invite.ERASE_AT_KEY, 0)
-                // Nothing changed during the wipe (mode, account, erase intent): checked right before
-                // deleteOrigin (skipped otherwise) and again before the native state is cleared.
-                fun same() = !local && host == from && prefs.getString(Invite.ERASE_HOST_KEY, null) == from &&
-                    prefs.getLong(Invite.ERASE_AT_KEY, 0) == at
-                LocalWipe.run(this, ::same) { ok ->
+                LocalWipe.run(this) { ok ->
                     diag("shell local erase ${if (ok) "done" else "failed"}")
-                    if (ok && same()) {
+                    // Native state only if nothing changed during the wipe (mode, account, erase intent).
+                    val same = !local && host == from && prefs.getString(Invite.ERASE_HOST_KEY, null) == from &&
+                        prefs.getLong(Invite.ERASE_AT_KEY, 0) == at
+                    if (ok && same) {
                         clearErase()
                         prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
                         move.clear()
