@@ -28,6 +28,12 @@ const DRAIN_MS = (SLOT_UNIX + 4 * 3600) * 1000; // app first opened 4h later
 // cut instant (bd med-wi09.12), so a vault with no cut row regenerates nothing
 // before "now".
 const CUT_BEFORE_SLOT = [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date((SLOT_UNIX - 86400) * 1000).toISOString() }];
+// A cut the day after the slot: the slot's day is wholly before the cut, where
+// stored rows are the whole truth. The drift tests pin that pre-cut path — a
+// drifted row is an old client's materialization. From the cut day on a slot is
+// covered only by a row at its own instant, so a drifted row there sits next to
+// the regenerated dose (N5, known; bd med-wi09.12).
+const CUT_AFTER_SLOT_DAY = [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date((SLOT_UNIX + 86400) * 1000).toISOString() }];
 
 // Records port over an in-memory map, keyed by recordId within each type.
 function fakeRecords(seed = {}) {
@@ -196,6 +202,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 // med-b's dose drifted 8min past the callback slot (cluster window).
                 { recordId: `intake-med-b-drift`, deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => DRAIN_MS;
         await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
@@ -473,6 +480,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 { recordId: `intake-med-c-${SLOT_UNIX}`, deleted: false, medication_id: 'med-c', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
                 { recordId: 'intake-med-d-drift', deleted: false, medication_id: 'med-d', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => DRAIN_MS;
         const editReply = vi.fn(async () => {});
@@ -759,6 +767,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
                 { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => (TAP_UNIX + 60) * 1000; // window still open
         await applyIntakeSlotAction(snoozeEvent, { intake: domainFor(records, now), records, now });
@@ -786,6 +795,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
                 { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => DRAIN_MS;
         const editReply = vi.fn(async () => {});
@@ -814,6 +824,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             intake: [
                 { recordId: 'intake-med-a-step', deleted: false, medication_id: 'med-a', scheduled_at: steppedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'tz_step' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => DRAIN_MS;
         await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now });

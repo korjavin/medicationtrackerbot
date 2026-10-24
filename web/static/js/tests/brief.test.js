@@ -313,7 +313,7 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
 
     // bd med-29gh.2 — the breakdown behind the percentage. Ten slots for one
     // scheduled med: 6 taken within minutes, 2 taken 90 minutes late, 1 skipped,
-    // 1 still PENDING an hour after its slot (overdue, so it counts as missed).
+    // 1 still PENDING hours after its slot (overdue, so it counts as missed).
     function tenSlotVault(extraIntakes = [], extraMeds = []) {
         const slot = (i) => NOW - (i + 2) * DAY;
         const intakes = [];
@@ -324,7 +324,9 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
             intakes.push(intake(`intake-med-1-${i}`, 'med-1', slot(i), 'TAKEN', slot(i) + 90 * MIN));
         }
         intakes.push(intake('intake-med-1-8', 'med-1', slot(8), 'SKIPPED'));
-        intakes.push(intake('intake-med-1-9', 'med-1', NOW - 60 * MIN, 'PENDING'));
+        // Today's 08:00 slot: the cut day regenerates from midnight, and a
+        // stored row covers a slot only at its own instant (bd med-wi09.12).
+        intakes.push(intake('intake-med-1-9', 'med-1', NOW - 4 * 60 * MIN, 'PENDING'));
         return {
             medication: [med('med-1', 'Metformin', '500mg'), ...extraMeds],
             intake: [...intakes, ...extraIntakes]
