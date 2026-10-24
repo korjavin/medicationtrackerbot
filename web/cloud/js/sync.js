@@ -256,9 +256,54 @@ export function getRecordsChangeCount() {
 }
 
 function invalidateRecords(type) {
-  if (type) recordsMemo.delete(type);
-  else recordsMemo.clear();
+  if (type) {
+    recordsMemo.delete(type);
+    rawMemo.delete(type);
+  } else {
+    recordsMemo.clear();
+    rawMemo.clear();
+    journalReset();
+  }
   recordsChangeCount++;
+}
+
+// The raw (tombstones included) twin of recordsMemo, invalidated at the same
+// funnels: medintake.js's projection reads raw intakes on every dose view.
+const rawMemo = new Map();
+
+// Write journal (bd med-wi09.12): the records each physical write touched,
+// for readers that keep derived state across reads (medintake.js's projection
+// cache). changesSince(type, token) → {token, ids}: the recordIds of `type`
+// written since `token` — or ids null when that is unknown (a first ask, a
+// store replace or reset, a dropped connection, more writes than the journal
+// holds), and the reader must rebuild. Same coverage as recordsMemo: every
+// write goes through putRecord, replaceAllRecords or resetLocalSync.
+const JOURNAL_MAX = 2000;
+let journalEpoch = 0;
+let journalSeq = 0;
+let journal = [];
+
+function journalWrite(type, id) {
+  journalSeq++;
+  journal.push({ seq: journalSeq, type, id: String(id) });
+  if (journal.length > JOURNAL_MAX) journal = journal.slice(-JOURNAL_MAX / 2);
+}
+
+function journalReset() {
+  journalEpoch++;
+  journal = [];
+}
+
+export function changesSince(recordType, token) {
+  const current = `${journalEpoch}:${journalSeq}`;
+  const [epoch, seq] = typeof token === 'string' ? token.split(':').map(Number) : [NaN, NaN];
+  if (epoch !== journalEpoch || !(seq <= journalSeq)) return { token: current, ids: null };
+  if (seq < journalSeq && (journal.length === 0 || journal[0].seq > seq + 1)) return { token: current, ids: null };
+  const ids = [];
+  for (let k = journal.length - 1; k >= 0 && journal[k].seq > seq; k--) {
+    if (journal[k].type === recordType) ids.push(journal[k].id);
+  }
+  return { token: current, ids };
 }
 
 // A dropped cached connection (versionchange / deleteDatabase / account-delete)
@@ -267,6 +312,8 @@ function invalidateRecords(type) {
 // between tests (fake-indexeddb's deleteDatabase fires onversionchange).
 onCachedDbDropped(() => {
   recordsMemo.clear();
+  rawMemo.clear();
+  journalReset();
   recordsChangeCount++;
   bootstrapped = false;
   // Harmless to clear mid-session: the next push re-learns it with one 426.
@@ -275,6 +322,7 @@ onCachedDbDropped(() => {
 
 async function putRecord(record) {
   await withStore('records', 'readwrite', (store) => store.put(record));
+  journalWrite(record && record.recordType, record && record.recordId);
   invalidateRecords(record && record.recordType);
 }
 
@@ -1511,10 +1559,15 @@ export async function listRawRecords(ctx, recordType) {
 }
 
 async function listLocalRawRecords(recordType) {
+  const cached = rawMemo.get(recordType);
+  if (cached) return cached.slice();
+  const gen = recordsChangeCount;
   const records = await withStore('records', 'readonly', (store) => (
     reqToPromise(store.index('recordType').getAll(recordType))
   ));
-  return records.sort((a, b) => b.clientTs - a.clientTs);
+  records.sort((a, b) => b.clientTs - a.clientTs);
+  if (recordsChangeCount === gen) rawMemo.set(recordType, records);
+  return records.slice();
 }
 
 // flushConfirmed is the ack barrier for the inbound mailbox drain: it resolves
@@ -1634,6 +1687,7 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     // Tombstones included — only for readers that must respect a deliberate
     // delete (see listRawRecords).
     listRaw: (recordType) => listRawRecords(ctx, recordType),
+    changesSince,
     put: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush }),
     // Derived materialization (see writeRecord's `ifAbsent`): writes only into an
     // EMPTY raw slot and always resolves to the stored winner, so a read path can
@@ -1660,6 +1714,7 @@ export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
     list: (recordType) => listLocalRecords(recordType),
     listRange: (recordType, fromId, toId) => listLocalRecordsInRange(recordType, fromId, toId),
     listRaw: (recordType) => listLocalRawRecords(recordType),
+    changesSince,
     put: (recordType, record) => write(recordType, record, false),
     putIfAbsent: (recordType, record) => write(recordType, record, true),
     del: (recordType, recordId) => write(recordType, { recordId, clientTs: Date.now(), deleted: true }, false),

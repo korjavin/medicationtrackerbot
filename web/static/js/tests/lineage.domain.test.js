@@ -94,9 +94,12 @@ describe('boundary() — schedule edit 08:00 → 20:00', () => {
         expect(e.replacement[id('2026-07-02T08:00:00Z')]).toBe(id('2026-07-02T20:00:00Z'));
     });
 
-    it('no new dose later that day → no replacement', () => {
+    // N1 (Archie, bd med-wi09.12): the edit day pairs by order, so today's
+    // 07:00 replaces today's 08:00 even though it is already past — a
+    // forgotten dose stays due.
+    it('a new time already past on the edit day still replaces the untaken old one', () => {
         const e = one({ oldGen: gen('UTC', ['08:00']), newGen: gen('UTC', ['07:00']), switchAt: at('2026-07-01T07:30:00Z') });
-        expect(e.replacement[id('2026-07-01T08:00:00Z')]).toBeNull();
+        expect(e.replacement[id('2026-07-01T08:00:00Z')]).toBe(id('2026-07-01T07:00:00Z'));
     });
 
     // Archie's F3 ruling (bd med-wi09.12): one dose per slot per day.
@@ -249,6 +252,54 @@ describe('projection resolves evidence through declared aliases only', () => {
             { recordId: 'tztransition-2-a', switch_at: '2026-07-02T06:00:00Z', boundary: [{ medId: 1, kept: [], cancelled: ['Y'], replacement: { Y: 'X' } }] }
         ]);
         expect([...t.entries()]).toEqual([['Y', 'X']]);
+    });
+});
+
+// N1 (Archie, bd med-wi09.12): on the edit day the slots left without a
+// same-time partner pair by order — k-th old with k-th new, both by time.
+describe('boundary() — the edit day pairs slots by order', () => {
+    const EDIT = at('2026-07-01T10:00:00Z');
+    const mark = (rows, occId) => (rows.find((r) => r.occId === occId) || {}).mark;
+
+    it('08:00/20:00 → 09:00/21:00 at 10:00, 08:00 taken: 08:00 stands, nothing at 09:00, 21:00 replaces 20:00', () => {
+        const morning = taken('2026-07-01T08:00:00Z');
+        const args = { oldGen: gen('UTC', ['08:00', '20:00']), newGen: gen('UTC', ['09:00', '21:00']), switchAt: EDIT, evidence: [morning] };
+        const e = one(args);
+        expect(e.kept).toContain(morning.recordId);
+        expect(e.replacement[id('2026-07-01T09:00:00Z')]).toBe(morning.recordId);
+        expect(e.replacement[id('2026-07-01T20:00:00Z')]).toBe(id('2026-07-01T21:00:00Z'));
+        const { before, after } = transitionPreview(args);
+        expect(mark(before, morning.recordId)).toBe('kept');
+        expect(mark(before, id('2026-07-01T20:00:00Z'))).toBe('cancelled');
+        expect(mark(after, morning.recordId)).toBe('kept');
+        expect(after.find((r) => r.occId === id('2026-07-01T21:00:00Z'))).toMatchObject({ mark: 'replaces', replaces: id('2026-07-01T20:00:00Z') });
+        expect(after.some((r) => r.occId === id('2026-07-01T09:00:00Z'))).toBe(false);
+    });
+
+    it('the same edit with 08:00 untaken: 09:00 replaces 08:00 though already past, 21:00 replaces 20:00', () => {
+        const args = { oldGen: gen('UTC', ['08:00', '20:00']), newGen: gen('UTC', ['09:00', '21:00']), switchAt: EDIT };
+        const e = one(args);
+        expect(e.replacement[id('2026-07-01T08:00:00Z')]).toBe(id('2026-07-01T09:00:00Z'));
+        expect(e.replacement[id('2026-07-01T20:00:00Z')]).toBe(id('2026-07-01T21:00:00Z'));
+        const { before, after } = transitionPreview(args);
+        expect(mark(before, id('2026-07-01T08:00:00Z'))).toBe('cancelled');
+        expect(after.find((r) => r.occId === id('2026-07-01T09:00:00Z'))).toMatchObject({ mark: 'replaces', replaces: id('2026-07-01T08:00:00Z') });
+    });
+
+    it('2 → 3 slots (08:00/20:00 → 08:00/14:00/20:00 at 10:00): the same times stand, 14:00 is new', () => {
+        const morning = taken('2026-07-01T08:00:00Z');
+        expect(boundary({
+            oldGen: gen('UTC', ['08:00', '20:00']), newGen: gen('UTC', ['08:00', '14:00', '20:00']), switchAt: EDIT, evidence: [morning]
+        })).toEqual([]);
+    });
+
+    it('3 → 2 slots (08:00/14:00/20:00 → 09:00/21:00 at 10:00): pairs 08↔09 and 14↔21; 20:00 is cancelled', () => {
+        const e = one({ oldGen: gen('UTC', ['08:00', '14:00', '20:00']), newGen: gen('UTC', ['09:00', '21:00']), switchAt: EDIT });
+        expect(e.replacement[id('2026-07-01T08:00:00Z')]).toBe(id('2026-07-01T09:00:00Z'));
+        expect(e.replacement[id('2026-07-01T14:00:00Z')]).toBe(id('2026-07-01T21:00:00Z'));
+        expect(e.replacement[id('2026-07-01T20:00:00Z')]).toBeNull();
+        // Every later day is the new schedule whole.
+        expect(e.replacement[id('2026-07-02T08:00:00Z')]).toBe(id('2026-07-02T09:00:00Z'));
     });
 });
 

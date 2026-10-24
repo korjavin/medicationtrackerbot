@@ -551,17 +551,19 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
             ]
         }, day(20, 12));
 
-        // 17 Oct and 19 Oct 08:00: before the cut instant (19 Oct 12:00) with
-        // nothing stored — absent; regeneration starts at the cut itself.
-        // 20 Oct 09:00: the old client's prediction — hidden.
+        // 17 Oct: before the cut day, nothing stored — absent. 19 Oct 08:00:
+        // the cut day regenerates from its midnight (N2), and no stored row
+        // holds that instant — due. 20 Oct 09:00: the old client's
+        // prediction — hidden.
         expect(shape(await doses(day(17, 0), day(20, 12)))).toEqual([
             [iso(day(18, 8)), 'taken'],
             [iso(day(18, 9)), 'due'],
+            [iso(day(19, 8)), 'due'],
             [iso(day(20, 8)), 'snoozed'] // its stored snooze rides on the real slot
         ]);
         const history = await env.window.apiCall('/api/history?days=7');
         expect(history.map((h) => h.scheduled_at)).toEqual([
-            iso(day(20, 8)), iso(day(18, 9)), iso(day(18, 8))
+            iso(day(20, 8)), iso(day(19, 8)), iso(day(18, 9)), iso(day(18, 8))
         ]);
     });
 
@@ -579,9 +581,10 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         const rows = await doses(day(15, 0), day(18, 12));
         expect(rows.map((r) => [r.localDate, r.localTime, r.state])).toEqual([
             ['2026-10-16', '08:00', 'due'],
-            ['2026-10-17', '08:00', 'due']
-            // Today's 08:00 is before the cut (12:00, this boot): stored rows
-            // are the truth there, and the old client stored none.
+            ['2026-10-17', '08:00', 'due'],
+            // Today's 08:00 is before the cut (12:00, this boot) with no row:
+            // the cut day regenerates from its midnight (N2) — due.
+            ['2026-10-18', '08:00', 'due']
         ]);
         await env.window.apiCall('/api/history?days=7');
         await env.window.apiCall('/api/medications/next-intake');
@@ -721,11 +724,43 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         expect(horizon).toContain(day(21, 20));
     });
 
+    // N1 (Archie): the edit day pairs slots by order — k-th old with k-th new.
+    it.each([
+        ['08:00 taken, 20:00 untaken → 09:00/21:00', ['08:00', '20:00'], ['09:00', '21:00'],
+            [[iso(day(20, 8)), 'taken'], [iso(day(20, 21)), 'upcoming']]],
+        ['08:00 taken → 08:00/14:00/20:00', ['08:00', '20:00'], ['08:00', '14:00', '20:00'],
+            [[iso(day(20, 8)), 'taken'], [iso(day(20, 14)), 'upcoming'], [iso(day(20, 20)), 'upcoming']]]
+    ])('a same-day edit of a twice-daily med (%s at 10:00): no dose lost, none doubled', async (_label, from, to, today) => {
+        const times = (list) => JSON.stringify({ type: 'daily', times: list });
+        open({ medication: [{ ...med(), schedule: times(from) }], ledgercut: [cutRow(day(18, 7))] }, day(20, 8, 5));
+        await env.window.apiCall('/api/doses/act', 'POST', { occ_ids: [slot(day(20, 8))], action: 'take' });
+        nowMs = day(20, 10);
+        await env.window.apiCall('/api/medications/7', 'POST', {
+            name: 'Metformin', dosage: '500mg', schedule: times(to), tz_shift_policy: 'flexible', inventory_count: 29
+        });
+        nowMs = day(20, 11);
+        expect(shape(await doses(day(20, 0), day(20, 23, 59)))).toEqual(today);
+    });
+
+    // N2 (Archie): the cut day regenerates from its local midnight; a stored
+    // row at the same medication and instant wins.
+    it.each([
+        ['no stored row: 08:00 is due', [], [[iso(day(20, 8)), 'due', slot(day(20, 8))]]],
+        ['a stored PENDING 08:00: one row, the stored one', [pending('intake-7-old-client', day(20, 8))],
+            [[iso(day(20, 8)), 'due', 'intake-7-old-client']]]
+    ])('first v2 boot at 11:00 — %s', async (_label, intake, want) => {
+        open({ medication: [med('2026-10-01T00:00:00.000Z')], intake }, day(20, 11));
+        await materializationSettled();
+        expect((await env.records.list('ledgercut'))[0].at).toBe(iso(day(20, 11)));
+        expect((await doses(day(20, 0), day(20, 11))).map((r) => [r.plannedAt, r.state, r.occId])).toEqual(want);
+    });
+
     // HIGH-1: an old bundle (intake no longer gated) still writes PENDING
     // placeholders after the cut. At a regenerated slot's id it is one row with
     // that dose; at an instant history does not yield it is nothing; its own
     // TAKEN is the dose. A day only the old bundle logged (no tz on any of its
-    // evidence) is read like the days before the cut: stored rows only.
+    // evidence) is still regenerated after the cut (NEW-2): its forgotten
+    // evening dose is due, and a confirm lands on it.
     it('an old bundle\'s placeholders after the cut: one row per slot, nothing promoted, its TAKEN wins', async () => {
         const v2Take = (ms) => ({ ...pending(slot(ms), ms), status: 'TAKEN', taken_at: iso(ms), rev: 1, via: 'app', tz: TZ, acted_at: iso(ms) });
         const records = createInMemoryRecordsPort({
@@ -742,9 +777,12 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         expect(shape(await domain.occurrences({ fromMs: day(18, 0), toMs: day(19, 21) }))).toEqual([
             [iso(day(18, 8)), 'due'],
             [iso(day(18, 20)), 'taken'],
-            [iso(day(19, 8)), 'taken']
-            // 19 Oct 20:00: a legacy-evidence day regenerates nothing.
+            [iso(day(19, 8)), 'taken'],
+            [iso(day(19, 20)), 'due']
         ]);
+        expect((await domain.withDueRows({ fromMs: day(19, 19), toMs: day(19, 21) })).map((i) => i.recordId))
+            .toEqual([slot(day(19, 20))]);
+        expect((await domain.confirm(slot(day(19, 20)), day(19, 20, 30))).status).toBe('TAKEN');
         // A v2 take of the placeholder's dose lands on the same id (rev 1).
         expect((await domain.act({ occIds: [slot(day(18, 8))], action: 'take' })).updated).toBe(1);
         expect((await records.list('intake')).find((i) => i.recordId === slot(day(18, 8))))

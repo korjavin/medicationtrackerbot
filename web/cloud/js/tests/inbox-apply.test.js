@@ -857,6 +857,58 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         expect(rearmRefire).not.toHaveBeenCalled();
         expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
+
+    // bd med-wi09.12 N3: the drain stamps the account's zone on the confirm —
+    // the stamp is that day's evidence zone — never the draining device's.
+    it('stamps the pinned zone on a drained confirm, not the device zone', async () => {
+        const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const pinned = device === 'Pacific/Auckland' ? 'Europe/Berlin' : 'Pacific/Auckland';
+        const records = fakeRecords({ ...seed(), settings: [{ recordId: 'settings', deleted: false, timezone: pinned }] });
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire: vi.fn(), cancelRefire: vi.fn() });
+        await apply(confirmEvent);
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot.map((i) => [i.status, i.tz])).toEqual([['TAKEN', pinned], ['TAKEN', pinned]]);
+    });
+});
+
+// bd med-wi09.12 — doses due before the first v2 boot (NEW-1) and doses on a
+// day an old tab logged (NEW-2) are regenerated, so a queued tap lands.
+describe('inbox-apply.js — taps on regenerated doses around the ledger cut', () => {
+    const DAY0 = Date.UTC(2026, 9, 20);
+    const at = (h, m = 0) => DAY0 + h * 3600e3 + m * 60e3;
+    const twice = { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["08:00","20:00"]}', inventory_count: 30, created_at: '2026-10-01T00:00:00Z' };
+    const tap = (slotMs, atMs) => ({ kind: INTAKE_SLOT_ACTION, slot_unix: slotMs / 1000, action: 'confirm', at_unix: atMs / 1000, medication_ids: ['med-a'] });
+
+    it('a Confirm tapped at 08:05 with no app open, drained by the first v2 boot at noon, records the 08:00 dose', async () => {
+        const records = fakeRecords({ medication: [twice], intake: [] });
+        const now = () => at(12);
+        const intake = createIntakeDomain({ records, now, timeZone: 'UTC', via: 'telegram' });
+        await intake.ensureLedgerCut(); // the install write: the cut is noon
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(tap(at(8), at(8, 5)), { intake, records, now, editReply });
+
+        const row = (await records.list('intake')).find((i) => i.recordId === `intake-med-a-${at(8) / 1000}`);
+        expect(row).toMatchObject({ status: 'TAKEN', taken_at: new Date(at(8, 5)).toISOString() });
+        expect((await records.list('medication'))[0].inventory_count).toBe(29);
+        expect(editReply.mock.calls.at(-1)[1]).toMatch(/Confirmed 1 medication/);
+    });
+
+    it('an old tab\'s tz-less TAKEN at 08:00 after the cut leaves 20:00 due, and a tap on it confirms', async () => {
+        const records = fakeRecords({
+            medication: [twice],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date(DAY0 - 86400e3).toISOString() }],
+            intake: [{ recordId: `intake-med-a-${at(8) / 1000}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date(at(8)).toISOString(), status: 'TAKEN', taken_at: new Date(at(8, 3)).toISOString(), snoozed_until: null, source: 'schedule', clientTs: at(8, 3) }],
+        });
+        const now = () => at(21);
+        const intake = createIntakeDomain({ records, now, timeZone: 'UTC', via: 'telegram' });
+        expect((await intake.occurrences({ fromMs: at(0), toMs: at(23) })).map((r) => [r.localTime, r.state]))
+            .toEqual([['08:00', 'taken'], ['20:00', 'due']]);
+        await applyIntakeSlotAction(tap(at(20), at(20, 10)), { intake, records, now });
+
+        const row = (await records.list('intake')).find((i) => i.recordId === `intake-med-a-${at(20) / 1000}`);
+        expect(row).toMatchObject({ status: 'TAKEN' });
+    });
 });
 
 // bd med-nzz Task 4 — a server-parsed NXK import sealed as one vitals_import

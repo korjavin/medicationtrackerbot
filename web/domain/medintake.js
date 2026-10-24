@@ -22,7 +22,7 @@
 // medications.js's nextId / weight.js's genId).
 import { localDateTimeParts, localWallToUtcMs, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
-import { applyLineage, loadLineage, regenerateWindow } from './lineage.js';
+import { applyLineage, evidenceTransitions, loadLineage, regenerateWindow } from './lineage.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -329,8 +329,9 @@ export function adherencePct(counts, empty = null) {
 //   (a) every non-deleted stored intake row in range, as-is: TAKEN/SKIPPED as
 //       recorded; PENDING → snoozed while snoozed_until is ahead, upcoming while
 //       its slot is ahead, else due; an `intake-manual-*` row is source manual.
-//   (b) `regenerated` (lineage.js regenerate, bd med-wi09.12): from the ledger
-//       cut on, the doses history says were scheduled — due once past.
+//   (b) `regenerated` (lineage.js regenerateWindow, bd med-wi09.12): from
+//       local midnight of the cut day on, the doses history says were
+//       scheduled — due once past.
 //   (c) the current forecast (forecastDosesWithTzPlan), future instants only.
 // (b) and (c) only fill slots with no stored row at their exact deterministic
 // id; a tombstoned id is hidden — that dose was dropped on purpose.
@@ -338,10 +339,8 @@ export function adherencePct(counts, empty = null) {
 // that is how day one shows the doses an old client left stuck). From the cut
 // on a stored PENDING row is a prediction, not evidence: it shows only where
 // (b)/(c) has its slot (carrying its snooze), so an old client's row at an
-// orphaned instant reads as "no evidence" — except on `legacyDays`
-// (lineage.js evidenceTransitions): a day an old client alone logged reads
-// like the days before the cut, stored rows only. cutMs null = no cut yet, stored
-// rows only.
+// orphaned instant reads as "no evidence"; an old client's TAKEN row still
+// counts at its own instant. cutMs null = no cut yet, stored rows only.
 // No `missed` state and no threshold (epic med-wi09): a due dose stays due
 // until the user acts; "overdue" is a label the UI may put on it.
 //
@@ -353,7 +352,7 @@ const MAX_FORECAST_DAYS = 30;
 
 export function projectOccurrences({
   medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
-  lineage = null, regenerated = [], cutMs = null, legacyDays = [],
+  lineage = null, regenerated = [], cutMs = null,
 } = {}) {
   // Keyed by String(id): a vault can hold a med's recordId and an intake's
   // medication_id as number vs string (inbox-apply.js compares the same way);
@@ -415,8 +414,7 @@ export function projectOccurrences({
     if (i.deleted) continue;
     const ms = Date.parse(i.scheduled_at);
     if (!(ms >= fromMs && ms <= toMs)) continue;
-    if (cutMs !== null && i.status === 'PENDING' && ms >= cutMs && !generated.has(slotId(i.medication_id, ms))
-      && !legacyDays.some((d) => ms >= d.from && ms <= d.to)) continue;
+    if (cutMs !== null && i.status === 'PENDING' && ms >= cutMs && !generated.has(slotId(i.medication_id, ms))) continue;
     let state;
     if (i.status === 'TAKEN') state = 'taken';
     else if (i.status === 'SKIPPED') state = 'skipped';
@@ -483,6 +481,102 @@ function historyResponse(r) {
   if (r.takenAt) resp.taken_at = r.takenAt;
   if (r.snoozedUntil) resp.snoozed_until = r.snoozedUntil;
   return resp;
+}
+
+// ---------------------------------------------------------------------------
+// Projection cache (bd med-wi09.12, perf). project() is the read every dose
+// view goes through, and a year of history is ~15k rows to rebuild. Settled
+// UTC days (ended before now) are kept as finished rows, per records port and
+// zone. Nothing is reused unchecked — every read first re-checks:
+//   - the port's write journal (`records.changesSince`, sync.js) names every
+//     intake written since the last read; each one's old and new days are
+//     dropped. A port without a journal, or a journal that lost track (a store
+//     replace, an overflow), rebuilds the index and drops every day.
+//   - every other input — the meds minus their stock, history, the tz plan,
+//     the cut, the evidence zones — is one key; any change drops every day.
+//   - a day holding a snooze still ahead is recomputed once it lapses.
+// Today and later are always computed fresh.
+const projectionCaches = new WeakMap();
+const provisionalCuts = new WeakMap();
+const PLAIN_SLOT_RE = /^intake-(.+)-(\d+)$/;
+
+function projectionCache(records, timeZone) {
+  let byZone = projectionCaches.get(records);
+  if (!byZone) projectionCaches.set(records, byZone = new Map());
+  let c = byZone.get(timeZone);
+  if (!c) {
+    c = { token: null, index: new Map(), days: new Map(), cells: new Map(), version: 0, minDay: Infinity, gkey: null, evidence: null };
+    byZone.set(timeZone, c);
+  }
+  return c;
+}
+
+// A stored row sits in the UTC day of its instant and, when its id names a
+// different slot, in that slot's day too (it occupies that slot).
+function indexAdd(c, row) {
+  const ms = Date.parse(row.scheduled_at);
+  const days = Number.isFinite(ms) ? [Math.floor(ms / DAY_MS)] : [];
+  const id = String(row.recordId);
+  const m = id.startsWith(MANUAL_ID_PREFIX) ? null : PLAIN_SLOT_RE.exec(id);
+  if (m) {
+    const d = Math.floor((Number(m[2]) * 1000) / DAY_MS);
+    if (!days.includes(d)) days.push(d);
+  }
+  const e = { row, ms, days, localDate: undefined };
+  c.index.set(id, e);
+  for (const d of days) {
+    let set = c.days.get(d);
+    if (!set) c.days.set(d, set = new Set());
+    set.add(e);
+    if (d < c.minDay) c.minDay = d;
+    c.cells.delete(d);
+  }
+}
+
+function indexRemove(c, id) {
+  const e = c.index.get(id);
+  if (!e) return;
+  c.index.delete(id);
+  for (const d of e.days) {
+    const set = c.days.get(d);
+    if (set) set.delete(e);
+    c.cells.delete(d);
+  }
+}
+
+function syncIndex(c, changes, intakes) {
+  if (!changes || changes.ids === null || c.token === null) {
+    c.index = new Map();
+    c.days = new Map();
+    c.cells = new Map();
+    c.minDay = Infinity;
+    for (const row of intakes) indexAdd(c, row);
+    c.version++;
+  } else if (changes.ids.length) {
+    const ids = new Set(changes.ids.map(String));
+    for (const id of ids) indexRemove(c, id);
+    for (const row of intakes) if (ids.has(String(row.recordId))) indexAdd(c, row);
+    c.version++;
+  }
+  c.token = changes ? changes.token : null;
+}
+
+function rowsOfDays(c, from, to) {
+  const out = new Set();
+  if (Number.isFinite(to)) {
+    for (let d = from; d <= to; d++) for (const e of c.days.get(d) || []) out.add(e.row);
+  } else {
+    for (const [d, set] of c.days) if (d >= from) for (const e of set) out.add(e.row);
+  }
+  return [...out];
+}
+
+// Everything a settled day's rows read besides its own intakes. Stock and
+// bookkeeping fields are left out: a take moves inventory_count and must not
+// drop a year of days.
+function medsKey(meds) {
+  return meds.map((m) => [m.recordId ?? m.id, m.name, m.dosage, m.schedule, m.tz_shift_policy, m.created_at,
+    m.start_date, m.end_date, !!m.archived, !!m.deleted]);
 }
 
 // createIntakeDomain builds the intake state-machine API over the injected
@@ -620,27 +714,112 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   // their forecast slot); a port without listRaw (pure-domain test doubles)
   // degrades to live rows only.
   async function project({ fromMs = -Infinity, toMs = Infinity, forecast = true } = {}) {
-    const [meds, intakes, tzPlan, lineage, scheds, transitions] = await Promise.all([
+    const c = projectionCache(records, timeZone);
+    // Asked before the read: a write landing in between is named again next time.
+    const changes = typeof records.changesSince === 'function' ? records.changesSince(INTAKE_RECORD_TYPE, c.token) : null;
+    const [meds, intakes, tzPlan, lineage, scheds, transitions, storedCut] = await Promise.all([
       loadMeds(),
       records.listRaw ? records.listRaw(INTAKE_RECORD_TYPE) : records.list(INTAKE_RECORD_TYPE),
       loadActiveTzPlan(),
       loadLineage(records),
       records.list('medsched'),
       records.list('tztransition'),
+      loadCutMs(),
     ]);
     const nowMs = now();
     // No ledgercut row yet = this client is about to write one (install-time
-    // ensureLedgerCut), so the cut is now. Regeneration starts at the cut
-    // instant itself: before it, stored rows (old PENDING ones included) are
-    // the whole truth.
-    const cut = (await loadCutMs()) ?? nowMs;
-    const { occurrences: regenerated, legacyDays } = regenerateWindow({
-      medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs: cut, fromMs, toMs, nowMs,
+    // ensureLedgerCut), so the cut is this port's first read — fixed there, so
+    // it never slides forward with the clock before the write lands (N2).
+    if (storedCut === null && !provisionalCuts.has(records)) provisionalCuts.set(records, nowMs);
+    const cut = storedCut ?? provisionalCuts.get(records);
+    syncIndex(c, changes, intakes);
+    const evidence = transitions.some((t) => t && !t.deleted) ? null : evidenceFor(c, cut, nowMs);
+    const gkey = JSON.stringify([cut, medsKey(meds), scheds, transitions, tzPlan,
+      evidence && [evidence.transitions, evidence.initialZone]]);
+    if (gkey !== c.gkey) {
+      c.cells.clear();
+      c.gkey = gkey;
+    }
+    const base = { medications: meds, scheds, transitions, tzPlan, timeZone, cutMs: cut, nowMs, evidence };
+    const liveDay = Math.floor(nowMs / DAY_MS);
+    // Before the earliest stored row and the cut day there is nothing to list.
+    const dFrom = Math.max(Number.isFinite(fromMs) ? Math.floor(fromMs / DAY_MS) : -Infinity,
+      Math.min(c.minDay, Math.floor(cut / DAY_MS) - 1));
+    const dTo = Math.min(Number.isFinite(toMs) ? Math.floor(toMs / DAY_MS) : Infinity, liveDay - 1);
+    let span = null;
+    const fill = () => { if (span) settleDays(c, span[0], span[1], base); span = null; };
+    for (let d = dFrom; d <= dTo; d++) {
+      const cell = c.cells.get(d);
+      if (cell && nowMs < cell.recheckAt) fill();
+      else if (span) span[1] = d;
+      else span = [d, d];
+    }
+    fill();
+    const rows = [];
+    for (let d = dFrom; d <= dTo; d++) {
+      const cell = c.cells.get(d);
+      const edge = d === dFrom || d === dTo;
+      for (let k = 0; k < cell.rows.length; k++) {
+        if (!edge || (cell.ms[k] >= fromMs && cell.ms[k] <= toMs)) rows.push(cell.rows[k]);
+      }
+    }
+    if (toMs >= liveDay * DAY_MS) {
+      const lf = Math.max(fromMs, liveDay * DAY_MS);
+      const live = rowsOfDays(c, liveDay, Number.isFinite(toMs) ? Math.floor(toMs / DAY_MS) : Infinity);
+      const { occurrences: regenerated } = regenerateWindow({ ...base, intakes: live, fromMs: lf, toMs });
+      rows.push(...projectOccurrences({
+        medications: meds, intakes: live, tzPlan, timeZone, nowMs, fromMs: lf, toMs, forecast, regenerated, cutMs: cut,
+      }));
+    }
+    return { meds, rows: applyLineage(rows, lineage, intakes) };
+  }
+
+  // The settled days [a, b] (UTC day numbers): one regeneration over the span,
+  // then each day's rows on their own — a day's stored rows are exactly the
+  // ones that can occupy its slots (indexAdd).
+  function settleDays(c, a, b, base) {
+    const fromMs = a * DAY_MS;
+    const toMs = (b + 1) * DAY_MS - 1;
+    const { occurrences } = regenerateWindow({ ...base, intakes: rowsOfDays(c, a, b), fromMs, toMs });
+    const occByDay = new Map();
+    for (const o of occurrences) {
+      const d = Math.floor(o.at / DAY_MS);
+      if (!occByDay.has(d)) occByDay.set(d, []);
+      occByDay.get(d).push(o);
+    }
+    for (let d = a; d <= b; d++) {
+      const dayRows = rowsOfDays(c, d, d);
+      const rows = projectOccurrences({
+        medications: base.medications, intakes: dayRows, tzPlan: base.tzPlan, timeZone, nowMs: base.nowMs,
+        fromMs: d * DAY_MS, toMs: (d + 1) * DAY_MS - 1, forecast: false, regenerated: occByDay.get(d) || [], cutMs: base.cutMs,
+      });
+      let recheckAt = Infinity;
+      for (const i of dayRows) {
+        const s = i.snoozed_until ? Date.parse(i.snoozed_until) : NaN;
+        if (s > base.nowMs && s < recheckAt) recheckAt = s;
+      }
+      c.cells.set(d, { rows, ms: rows.map((r) => Date.parse(r.plannedAt)), recheckAt });
+    }
+  }
+
+  // evidenceTransitions over the index, kept until the index changes, the cut
+  // moves, or a tz-stamped instant still ahead comes due.
+  function evidenceFor(c, cut, nowMs) {
+    const e = c.evidence;
+    if (e && e.version === c.version && e.cut === cut && nowMs >= e.nowMs && nowMs < e.value.nextAt) return e.value;
+    const value = evidenceTransitions([...c.index.values()], timeZone, cut, nowMs, {
+      rowOf: (x) => x.row,
+      msOf: (x) => x.ms,
+      localDateOf: (x) => {
+        if (x.localDate === undefined) {
+          const p = localDateTimeParts(x.ms, x.row.tz);
+          x.localDate = `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+        }
+        return x.localDate;
+      },
     });
-    const rows = projectOccurrences({
-      medications: meds, intakes, tzPlan, timeZone, nowMs, fromMs, toMs, forecast, lineage, regenerated, cutMs: cut, legacyDays,
-    });
-    return { meds, rows };
+    c.evidence = { version: c.version, cut, nowMs, value };
+    return value;
   }
 
   // GET /api/doses — the projection itself.

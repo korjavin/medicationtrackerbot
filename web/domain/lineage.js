@@ -11,12 +11,13 @@
 //   2. old instant before the switch → keep old (it was real);
 //   3. new instant after the switch → old cancelled, replacement = new;
 //   4. else (old after, new before) → keep old.
-// An old slot with no same-time partner (a schedule edit 08:00→20:00 made
-// before 08:00) that is after the switch is cancelled; its replacement is the
-// first new occurrence after it on the same old-zone local date, else none.
-// One before the switch on the switch's own date is replaced the same way when
-// untaken (08:00 → 20:00 at 10:00: today's 08:00 gives way to today's 20:00);
-// logged, it stays and today's first new occurrence is cancelled into it.
+// On the switch's own local date, the slots with no same-time partner pair by
+// order (k-th old ↔ k-th new by time): logged, the old dose stays and its
+// partner is cancelled into it; untaken, the old one is cancelled and its
+// partner replaces it, even at an instant already past; an unpartnered old
+// slot is cancelled unless logged. On a later date an old slot with no
+// same-time partner is cancelled; its replacement is the first new occurrence
+// after it on the same old-zone local date, else none.
 // Output per med: {medId, kept, cancelled, replacement} — `replacement` maps
 // every cancelled occId to its canonical occId (null = no replacement). It is
 // stored on the tztransition / medsched record at approve/edit time; the
@@ -135,27 +136,20 @@ function resolve({
     keptOld.partnerAt = n.at;
   };
 
-  // A slot with no same-time partner earlier on the switch's own local date
-  // (a time edit 08:00 → 20:00 made at 10:00): untaken, it is cancelled and
-  // today's new time replaces it (second loop); logged, it is kept and today's
-  // new time is cancelled into it — one dose per slot per day either way.
   const switchDate = localDateIn(switchAt, oldGen.timeZone);
-  const sameDayNew = (o) => news.find((x) => !used.has(x.occId) && sameMed(x.medId, o.medId) && x.at >= switchAt
-    && localDateIn(x.at, oldGen.timeZone) === o.localDate);
-  const loggedToday = [];
+  const editDay = [];
   for (const o of olds) {
     o.evidence = ev.get(o.occId) || null;
     let n = byKey.get(key(o));
     if (n && used.has(n.occId)) n = null;
+    if (!n && o.localDate === switchDate) {
+      editDay.push(o);
+      continue;
+    }
     if (n) used.add(n.occId);
     if (n && n.occId === o.occId) {
       o.state = 'kept';
       n.state = 'kept';
-    } else if (!n && o.at < switchAt && o.localDate === switchDate) {
-      if (o.evidence) {
-        o.state = 'kept';
-        loggedToday.push(o);
-      }
     } else if (o.evidence || o.at < switchAt) {
       o.state = 'kept';
       if (n) cancelNew(n, o);
@@ -169,12 +163,38 @@ function resolve({
       cancelNew(n, o);
     }
   }
-  for (const o of loggedToday) {
-    const n = sameDayNew(o);
-    if (n) {
-      used.add(n.occId);
-      cancelNew(n, o);
-    }
+  // The switch's own local date (bd med-wi09.12 N1): the slots left without a
+  // same-time partner pair by order — the k-th old with the k-th new of that
+  // date, both by time (08:00/20:00 → 09:00/21:00: 08↔09, 20↔21). Logged, the
+  // old dose stands and its partner is cancelled into it; untaken, the old one
+  // is cancelled and its partner is the dose, even when its instant is already
+  // past (a forgotten dose stays due). An old slot with no partner is
+  // cancelled unless logged; a new one with none exists from the switch on.
+  const editMeds = new Map();
+  for (const o of editDay) {
+    const k = String(o.medId);
+    if (!editMeds.has(k)) editMeds.set(k, []);
+    editMeds.get(k).push(o);
+  }
+  for (const group of editMeds.values()) {
+    const partners = news.filter((x) => !used.has(x.occId) && sameMed(x.medId, group[0].medId)
+      && localDateIn(x.at, oldGen.timeZone) === switchDate);
+    group.forEach((o, k) => {
+      const n = partners[k];
+      o.paired = true;
+      if (n) used.add(n.occId);
+      if (o.evidence) {
+        o.state = 'kept';
+        if (n) cancelNew(n, o);
+      } else {
+        o.state = 'cancelled';
+        o.replacement = n ? n.occId : null;
+        if (n) {
+          n.state = 'kept';
+          n.replaces = o.occId;
+        }
+      }
+    });
   }
   for (const o of olds) {
     if (o.state) continue;
@@ -208,7 +228,7 @@ function resolve({
   }
   // Worth listing: what stands from the switch on, or what cancels a twin
   // that would have stood from it.
-  for (const o of olds) o.shown = o.at >= switchAt || (o.partnerAt ?? -Infinity) >= switchAt;
+  for (const o of olds) o.shown = o.at >= switchAt || (o.partnerAt ?? -Infinity) >= switchAt || !!o.paired;
   return { olds, news };
 }
 
@@ -269,7 +289,7 @@ export function transitionPreview(args) {
   const keptOlds = olds.filter((o) => o.state === 'kept' && o.shown);
   const keptIds = new Set(keptOlds.map((o) => o.occId));
   const after = keptOlds.map((o) => row(o, o.evidence ? 'kept' : null))
-    .concat(news.filter((n) => n.state === 'kept' && n.at >= args.switchAt && n.at <= toMs && !keptIds.has(n.occId)).map((n) => {
+    .concat(news.filter((n) => n.state === 'kept' && (n.at >= args.switchAt || n.replaces) && n.at <= toMs && !keptIds.has(n.occId)).map((n) => {
       if (!n.replaces) return row(n, null);
       const was = byId.get(n.replaces);
       return row(n, was && was.localTime === n.localTime ? 'moved' : 'replaces', { replaces: n.replaces });
@@ -330,17 +350,28 @@ export function regenerate({
   if (!(Number.isFinite(fromMs) && end >= fromMs)) return [];
   const tr = sortByEffective(transitions, 'switch_at');
   const sc = sortByEffective(scheds, 'from');
+  // `kept`: old instants a boundary kept past its switch; `targets`: new
+  // instants a boundary named as a replacement — on the edit day one can lie
+  // before the switch (an untaken 08:00 replaced by 09:00 at 10:00), where the
+  // segment split alone would never plan it.
   const kept = new Set();
+  const targets = new Set();
   for (const r of [...tr, ...sc]) {
-    for (const e of Array.isArray(r.boundary) ? r.boundary : []) for (const id of e.kept || []) kept.add(id);
+    for (const e of Array.isArray(r.boundary) ? r.boundary : []) {
+      for (const id of e.kept || []) kept.add(id);
+      for (const id of Object.values(e.replacement || {})) if (id) targets.add(id);
+    }
   }
   // Segments start one window early: a kept old-generation instant inside
   // [fromMs, end] can come from a switch up to the window before fromMs, and
   // only the pre-switch generation enumerates it.
+  // They also run one window past `end`: a switch just after the range can
+  // name a replacement inside it (the edit-day pairing, before the switch).
   const start = fromMs - LINEAGE_WINDOW_MS;
+  const reach = end + LINEAGE_WINDOW_MS;
   const changes = [...tr.map((r) => Date.parse(r.switch_at)), ...sc.map((r) => Date.parse(r.from))]
-    .filter((t) => t > start && t <= end);
-  const bounds = [start, ...[...new Set(changes)].sort((a, b) => a - b), end + 1];
+    .filter((t) => t > start && t <= reach);
+  const bounds = [start, ...[...new Set(changes)].sort((a, b) => a - b), reach + 1];
   const lastAt = (rows, key, at) => rows.filter((r) => Date.parse(r[key]) <= at).pop();
   const createdMs = new Map(medications.map((m) => [String(m.recordId ?? m.id), m.created_at ? Date.parse(m.created_at) : -Infinity]));
   // Archiving (medications.js writes a medsched row with `archived` at each
@@ -376,9 +407,10 @@ export function regenerate({
         return h ? { ...m, schedule: h.schedule, tz_shift_policy: h.tz_shift_policy } : m;
       }),
     };
-    for (const o of occurrences(gen, a, Math.min(b - 1 + LINEAGE_WINDOW_MS, end))) {
-      const inSegment = o.at < b && o.at <= nowMs;
-      if (o.at < fromMs || !(inSegment || kept.has(o.occId)) || out.has(o.occId)) continue;
+    for (const o of occurrences(gen, a - LINEAGE_WINDOW_MS, Math.min(b - 1 + LINEAGE_WINDOW_MS, end))) {
+      const inSegment = o.at >= a && o.at < b && o.at <= nowMs;
+      const named = kept.has(o.occId) || (targets.has(o.occId) && o.at <= nowMs);
+      if (o.at < fromMs || o.at > end || !(inSegment || named) || out.has(o.occId)) continue;
       if (o.at < (createdMs.get(String(o.medId)) ?? -Infinity) || cancelledByArchive(o)) continue;
       out.set(o.occId, o);
     }
@@ -390,23 +422,25 @@ export function regenerate({
 // history (bd med-wi09.12, Archie's rule): never the device clock. A day with
 // tz-stamped evidence (acted() stamps `tz`) is that zone — the newest row wins;
 // a day without carries the zone of the nearest earlier evidence row; before
-// any, `timeZone` (the pinned zone, else the device's). Returned as in-memory
-// pseudo-transitions at local midnight wherever the zone changes — no
-// boundary, no steps, never written. `legacyDays` ({date, from, to}): past
-// days whose only evidence carries no tz (an old client's row) — the stored
-// rows are that whole day, as before the cut: nothing is regenerated on it,
-// and the old client's own PENDING rows stand.
-const legacyDaysSeen = new Set();
-export function evidenceTransitions(intakes, timeZone, fromMs, nowMs) {
+// any, `timeZone` (the pinned zone, else the tracked one). Rows without `tz`
+// (an old client's) name no zone. Returned as in-memory pseudo-transitions at
+// local midnight wherever the zone changes — no boundary, no steps, never
+// written. `nextAt`: the first tz-stamped instant still ahead of nowMs — the
+// answer holds until then (or the next write). `items` are intake rows, or a
+// caller's cache entries read through `rowOf` / `msOf` / `localDateOf`.
+export function evidenceTransitions(intakes, timeZone, fromMs, nowMs, {
+  rowOf = (x) => x, msOf = (x) => Date.parse(x.scheduled_at), localDateOf = (x, ms) => localDateIn(ms, rowOf(x).tz),
+} = {}) {
   const days = new Map();
-  const legacyMs = [];
   let before = null;
-  for (const i of intakes) {
-    if (!i || i.deleted || String(i.recordId).startsWith('intake-manual-')) continue;
-    const ms = Date.parse(i.scheduled_at);
-    if (!Number.isFinite(ms) || ms > nowMs) continue;
-    if (!i.tz) {
-      if (ms >= fromMs && (i.status === 'TAKEN' || i.status === 'SKIPPED')) legacyMs.push(ms);
+  let nextAt = Infinity;
+  for (const x of intakes) {
+    const i = rowOf(x);
+    if (!i || i.deleted || !i.tz || String(i.recordId).startsWith('intake-manual-')) continue;
+    const ms = msOf(x);
+    if (!Number.isFinite(ms)) continue;
+    if (ms > nowMs) {
+      if (ms < nextAt) nextAt = ms;
       continue;
     }
     const ts = i.clientTs || 0;
@@ -414,7 +448,7 @@ export function evidenceTransitions(intakes, timeZone, fromMs, nowMs) {
       if (!before || ms > before.ms) before = { ms, tz: i.tz };
       continue;
     }
-    const date = localDateIn(ms, i.tz);
+    const date = localDateOf(x, ms);
     const cur = days.get(date);
     if (!cur || ts > cur.ts) days.set(date, { tz: i.tz, ts, date });
   }
@@ -426,73 +460,51 @@ export function evidenceTransitions(intakes, timeZone, fromMs, nowMs) {
     transitions.push({ switch_at: new Date(localWallToUtcMs(Date.UTC(y, m - 1, day), d.tz)).toISOString(), old_tz: zone, new_tz: d.tz });
     zone = d.tz;
   }
-  const zoneAt = (ms) => {
-    let z = before ? before.tz : timeZone;
-    for (const t of transitions) if (Date.parse(t.switch_at) <= ms) z = t.new_tz;
-    return z;
-  };
-  const legacy = new Map();
-  for (const ms of legacyMs) {
-    const z = zoneAt(ms);
-    const date = localDateIn(ms, z);
-    if (days.has(date) || legacy.has(date)) continue;
-    const [y, m, day] = date.split('-').map(Number);
-    legacy.set(date, {
-      date, from: localWallToUtcMs(Date.UTC(y, m - 1, day), z), to: localWallToUtcMs(Date.UTC(y, m - 1, day + 1), z) - 1,
-    });
-    if (!legacyDaysSeen.has(date)) {
-      legacyDaysSeen.add(date);
-      console.info(`[ledger] legacy-evidence day ${date}: stored rows stand for the whole day (${legacyDaysSeen.size} so far)`);
-    }
-  }
-  return { transitions, legacyDays: [...legacy.values()], initialZone: before ? before.tz : timeZone };
+  return { transitions, initialZone: before ? before.tz : timeZone, nextAt };
+}
+
+// The zone in force at `ms` under a transition list (regenerate's own rule).
+function zoneAt(tr, timeZone, ms) {
+  let z = tr[0] ? tr[0].old_tz : timeZone;
+  for (const t of tr) if (Date.parse(t.switch_at) <= ms) z = t.new_tz;
+  return z;
 }
 
 // regenerate() over [fromMs, toMs] the way every reader asks for it (bd
-// med-wi09.12): from the ledger cut on (before it, stored rows are the
-// truth), each past day in its evidence zone when there is no tztransition
-// history. The settled past — up to the last whole hour — is memoized on its
-// inputs, so a read after a write re-plans only what the write could change;
-// the window is floored to a UTC day so one caller's sliding window keeps
-// hitting. Segments start one LINEAGE_WINDOW_MS early, so the two halves'
-// union is exactly one regenerate() over the whole range. Returns the
-// occurrences and the legacy days (evidenceTransitions) the projection must
-// read as stored-rows-only.
-// ponytail: the memo keys on a JSON of the history rows (small) and holds the
-// last 16 windows; key on the records change count if that ever shows.
-const pastMemo = new Map();
+// med-wi09.12): each past day in its evidence zone when there is no
+// tztransition history, and from local midnight of the cut day on (N2: the
+// old client wrote a day's rows only while it was open, so the cut day's
+// earlier doses may have none). Before the cut instant a slot is covered when
+// a stored row has the same medication and the same instant — the stored row
+// wins; an uncovered one is due. Before the cut day, stored rows are the whole
+// truth. `evidence` ({transitions, initialZone}) is a caller's cached
+// evidenceTransitions over `intakes`.
 export function regenerateWindow({
   medications = [], scheds = [], transitions = [], intakes = [], tzPlan = null, timeZone, cutMs = null, fromMs, toMs, nowMs,
+  evidence = null,
 }) {
-  const from = Math.max(fromMs, cutMs ?? nowMs);
-  if (!(from <= toMs)) return { occurrences: [], legacyDays: [] };
+  const cut = cutMs ?? nowMs;
   let tr = transitions.filter((t) => t && !t.deleted);
-  let legacyDays = [];
   if (tr.length === 0) {
-    const ev = evidenceTransitions(intakes, timeZone, cutMs ?? nowMs, nowMs);
+    const ev = evidence || evidenceTransitions(intakes, timeZone, cut, nowMs);
     tr = ev.transitions;
-    legacyDays = ev.legacyDays;
     timeZone = ev.initialZone;
   }
-  const args = { medications, scheds, transitions: tr, tzPlan, timeZone };
-  const pastEnd = Math.floor(nowMs / HOUR_MS) * HOUR_MS - 1;
-  const out = new Map();
-  if (from <= pastEnd) {
-    const memoFrom = Math.max(cutMs ?? -Infinity, Math.floor(from / DAY_MS) * DAY_MS);
-    const key = JSON.stringify([args, memoFrom, pastEnd]);
-    let past = pastMemo.get(key);
-    if (!past) {
-      past = regenerate({ ...args, fromMs: memoFrom, toMs: pastEnd, nowMs: pastEnd });
-      if (pastMemo.size >= 16) pastMemo.delete(pastMemo.keys().next().value);
-      pastMemo.set(key, past);
+  const z = zoneAt(tr, timeZone, cut);
+  const p = localDateParts(cut, z);
+  const cutDayStart = localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), z);
+  const from = Math.max(fromMs, cutDayStart);
+  if (!(from <= toMs)) return { occurrences: [] };
+  let occurrences = regenerate({ medications, scheds, transitions: tr, tzPlan, timeZone, fromMs: from, toMs, nowMs });
+  if (from < cut) {
+    const covered = new Set();
+    for (const i of intakes) {
+      const ms = Date.parse(i && i.scheduled_at);
+      if (ms >= from && ms < cut) covered.add(`${i.medication_id}|${ms}`);
     }
-    for (const o of past) if (o.at >= from && o.at <= toMs) out.set(o.occId, o);
+    occurrences = occurrences.filter((o) => o.at >= cut || !covered.has(`${o.medId}|${o.at}`));
   }
-  for (const o of regenerate({ ...args, fromMs: Math.max(from, pastEnd + 1), toMs, nowMs })) out.set(o.occId, o);
-  const occurrences = [...out.values()]
-    .filter((o) => !(o.at <= nowMs && legacyDays.some((d) => o.at >= d.from && o.at <= d.to)))
-    .sort((x, y) => x.at - y.at);
-  return { occurrences, legacyDays };
+  return { occurrences };
 }
 
 function canonical(table, id) {

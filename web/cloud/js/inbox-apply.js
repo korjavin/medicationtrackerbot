@@ -856,7 +856,17 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true });
   const timeZone = defaultTimeZone();
   // via telegram: confirm() here is the reminder callback (rev 0 -> 1 only).
-  const intake = createIntakeDomain({ records, now, timeZone, via: 'telegram' });
+  // Built on the account's zone — the pinned settings.timezone, which a tz-plan
+  // approval also moves (the tracked zone) — never the device clock: acted()
+  // stamps it on every confirm, and that stamp is the day's evidence zone (bd
+  // med-wi09.12 N3). Read per event; one domain per zone.
+  let intakeFor = null;
+  async function intakeDomain() {
+    const general = await createSettingsDomain({ records, now, timeZone }).getGeneral().catch(() => null);
+    const tz = (general && general.timezone) || timeZone;
+    if (!intakeFor || intakeFor.tz !== tz) intakeFor = { tz, domain: createIntakeDomain({ records, now, timeZone: tz, via: 'telegram' }) };
+    return intakeFor.domain;
+  }
 
   // The /food chain mirrors apishim's createApiRouter: settings → foodDb → food →
   // aiClient → foodAI. All are pure over the ports the applier already has, so
@@ -928,7 +938,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
         bp: createBPDomain({ records, now, timeZone }),
         weight: createWeightDomain({ records, now, timeZone }),
         notes: createNotesDomain({ records, now }),
-        intake,
+        intake: await intakeDomain(),
         foodAI,
         activityAI,
         workout: createWorkoutDomain({ records, now: () => sentMs, timeZone }),
@@ -985,6 +995,6 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
     const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, rearmRefire, cancelRefire });
+    await applyIntakeSlotAction(event, { intake: await intakeDomain(), records, now, verbosity, editReply, rearmRefire, cancelRefire });
   };
 }

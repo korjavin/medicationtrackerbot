@@ -3240,6 +3240,27 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect((await converge(v2Snooze, legacyTake)).status).toBe('TAKEN');
     expect((await converge(legacyTake, v2Snooze)).status).toBe('TAKEN');
   });
+
+  // Archie 4030: a gated old-bundle batch [intake TAKEN, medication stock] has
+  // its intake op stored before the 426, and the wedged bundle retries the
+  // same batch. A v2 device that never stored the dose pulls both copies and
+  // shows one row, taken.
+  it('an old bundle\'s TAKEN stored with a 426, posted twice, reads as one taken row on a v2 device', async () => {
+    const legacyTake = row({ clientTs: 5, status: 'TAKEN', taken_at: '2026-01-01T00:10:00.000Z' });
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    seq = 5;
+    await seed([]);
+    await pull(legacyTake);
+    await pull({ ...legacyTake, clientTs: 6 });
+    const rows = (await getRaw('records', (s) => s.getAll())).filter((r) => r.recordId === id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'TAKEN', taken_at: '2026-01-01T00:10:00.000Z', deleted: false });
+  });
 });
 
 describe('replaceAllRecords(fn) computes its set inside the records lock (med-o7zq.38)', () => {

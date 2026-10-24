@@ -508,14 +508,13 @@ export function computeReminderHorizon({
   // `intakes` must arrive RAW. History (`scheds` / `transitions`, bd
   // med-wi09.12) adds the old-generation doses a boundary kept past a switch —
   // no stored row carries them any more — and hides the slots it cancelled.
-  const { occurrences: regenerated, legacyDays } = regenerateWindow({
+  const { occurrences: regenerated } = regenerateWindow({
     medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs, fromMs: now, toMs: now + FORECAST_DAYS * 86400000, nowMs: now,
   });
   const targets = projectOccurrences({
     medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
     lineage: lineageTable([...transitions, ...scheds]),
     regenerated,
-    legacyDays,
     cutMs,
   // medById holds live, unarchived meds only: a stored future row of a deleted
   // or archived med is history, not a nag.

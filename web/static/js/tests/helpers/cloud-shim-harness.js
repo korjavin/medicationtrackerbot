@@ -32,7 +32,22 @@ export function createInMemoryRecordsPort(seed = {}) {
         records.forEach((r) => byId.set(r.recordId, { ...r, recordType }));
     }
 
+    // Mirrors sync.js changesSince (bd med-wi09.12): every write is journaled,
+    // so the intake projection cache runs here exactly as in the app — a write
+    // it failed to re-check would show up as a stale dose in these suites.
+    const journal = [];
+    const set = (recordType, record) => {
+        bucket(recordType).set(record.recordId, record);
+        journal.push({ type: recordType, id: String(record.recordId) });
+        return record;
+    };
+
     return {
+        changesSince(recordType, token) {
+            const current = String(journal.length);
+            if (typeof token !== 'string') return { token: current, ids: null };
+            return { token: current, ids: journal.slice(Number(token)).filter((j) => j.type === recordType).map((j) => j.id) };
+        },
         async list(recordType) {
             return [...bucket(recordType).values()].filter((r) => !r.deleted);
         },
@@ -49,9 +64,7 @@ export function createInMemoryRecordsPort(seed = {}) {
             return [...bucket(recordType).values()];
         },
         async put(recordType, record) {
-            const stamped = { ...record, recordType };
-            bucket(recordType).set(record.recordId, stamped);
-            return stamped;
+            return set(recordType, { ...record, recordType });
         },
         // Mirrors sync.js recordsPort.putIfAbsent (bd med-qhpu): the RAW slot
         // decides — a tombstone counts as occupied — and the stored winner comes
@@ -60,9 +73,7 @@ export function createInMemoryRecordsPort(seed = {}) {
             const byId = bucket(recordType);
             const existing = byId.get(record.recordId);
             if (existing) return existing;
-            const stamped = { ...record, recordType };
-            byId.set(record.recordId, stamped);
-            return stamped;
+            return set(recordType, { ...record, recordType });
         },
         // Bodyless, like sync.js recordsPort.del (which writes via writeRecord):
         // a tombstone is { recordId, clientTs, deleted, recordType } — no reader may need a
@@ -70,7 +81,7 @@ export function createInMemoryRecordsPort(seed = {}) {
         // med-jtaj). Keeping the body here let suites pass against shapes the
         // real store never holds.
         async del(recordType, recordId) {
-            bucket(recordType).set(recordId, { recordId, clientTs: Date.now(), deleted: true, recordType });
+            set(recordType, { recordId, clientTs: Date.now(), deleted: true, recordType });
         }
     };
 }

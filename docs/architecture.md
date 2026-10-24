@@ -185,7 +185,8 @@ migration; add a new one.
   and returned on every `GET /api/sync/ops` page. After the cut, an op batch
   containing a `medication|settings|tzplan|stock|medsched|tztransition`
   tag, or a snapshot POST, without `X-Ledger: 2` → 426 `update_required`,
-  nothing written; pulls and everything else stay open. `intake` is not
+  nothing written except the batch's `intake` ops, which are appended in the
+  same call before the 426; pulls and everything else stay open. `intake` is not
   gated: an old bundle's dose writes land and the intake reducer ranks them
   legacy (a `PENDING` placeholder never promotes or un-takes; an old `TAKEN`
   beats a regenerated due). Activated by
@@ -194,14 +195,17 @@ migration; add a new one.
   push sets the server cut; a pull adopts the server's `ledger_cut_at` into it.
   From then on doses are **derived, not materialized**: there is no dose
   sweep and no `PENDING` placeholder write. `medintake.js`'s projection
-  regenerates occurrences from the cut instant out of medication history
-  (`lineage.js` `regenerateWindow`: `medsched` + `tztransition` + the
+  regenerates occurrences from the cut day's local midnight out of medication
+  history (`lineage.js` `regenerateWindow`: `medsched` + `tztransition` + the
   approved tz plan; with no transitions, each past day in the zone its
-  evidence was stamped in, never the device clock) and stored rows are
+  evidence was stamped in, never the device clock; on the cut day a stored
+  row at the same med + instant covers the slot) and stored rows are
   evidence only — a post-cut `PENDING`
   row on a slot history does not yield (an old client's prediction) is
   ignored. An action on a derived dose writes at its exact id
-  (confirm-or-create). Details:
+  (confirm-or-create). Settled past days are cached per records port and
+  zone, re-checked on every read against `sync.js`'s write journal
+  (`changesSince`). Details:
   [cloud-mode.md → Sync protocol](cloud-mode.md#sync-protocol).
 
 ## 5. Reminders
