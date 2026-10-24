@@ -1293,8 +1293,9 @@ was removed by the shell bead; what the build sets up stays (all in
   `getUserMedia`). The shell's `WKUIDelegate` decides each capture request
   (bd med-r1j2.18, `LocalOrigin.isOwn` / `LocalOrigin.media`, covered by
   `Tests/main.swift`): the camera alone is **granted** without WebKit's
-  per-page prompt to the main frame of the open account host, or of
-  `wgapp://local` in local mode (the add-device scanner `/claim#scan`, W5, the
+  per-page prompt to the main frame of the open account origin
+  (`https://<host>`, default port only — the bridge checks the same origin),
+  or of `wgapp://local` in local mode (the add-device scanner `/claim#scan`, W5, the
   food scanner); iOS still asks for the app's camera access once. Anything with
   the microphone stays WebKit's **prompt** there (the voice assistant and
   voice notes use it, `NSMicrophoneUsageDescription`). Every other origin

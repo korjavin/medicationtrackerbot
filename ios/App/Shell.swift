@@ -116,6 +116,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgNative")
         webView.navigationDelegate = self
         webView.uiDelegate = self // getUserMedia's permission only (bd med-r1j2.18)
+        // The selector WebKit asks for must be the one implemented below (a
+        // misnamed optional delegate method compiles and is never called); a
+        // Debug build (the simulator QA run) traps if it is not.
+        assert(responds(to: #selector(WKUIDelegate.webView(_:requestMediaCapturePermissionFor:initiatedByFrame:type:decisionHandler:))))
         // The page sits between the native bands (RootView), so nothing scrolls
         // under the status bar and no white shows around it.
         webView.isOpaque = false
@@ -546,14 +550,18 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     /// getUserMedia (bd med-r1j2.18): the add-device scanner (/claim#scan, W5)
     /// and the food scanner get the camera without WebKit's per-page prompt;
     /// the decision is LocalOrigin.media.
+    /// The completion-handler spelling on purpose: the async one is imported
+    /// as decideMediaCapturePermissionsFor, so a misnamed async method would
+    /// silently never be called.
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
-        let own = LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let own = LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host, port: origin.port,
                                     mainFrame: frame.isMainFrame, local: local, account: host)
         switch LocalOrigin.media(cameraOnly: type == .camera, own: own && !concealed) {
-        case .grant: return .grant
-        case .prompt: return .prompt
-        case .deny: return .deny
+        case .grant: decisionHandler(.grant)
+        case .prompt: decisionHandler(.prompt)
+        case .deny: decisionHandler(.deny)
         }
     }
 
@@ -577,7 +585,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         // Only the account's own top-level page — in local mode only the
         // bundled app's — reaches native capabilities.
         let origin = message.frameInfo.securityOrigin
-        guard LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host,
+        guard LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host, port: origin.port,
                                 mainFrame: message.frameInfo.isMainFrame, local: local, account: host) else {
             replyHandler(nil, "forbidden")
             return

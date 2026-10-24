@@ -62,11 +62,13 @@ enum LocalOrigin {
 
     /// The page this shell has open (bd med-r1j2.18): the main frame of the
     /// account host, or in local mode of wgapp://local. The bridge and the
-    /// camera grant both ask this.
-    static func isOwn(scheme: String, host: String, mainFrame: Bool, local: Bool, account: String?) -> Bool {
+    /// camera grant both ask this. The whole origin: WKSecurityOrigin.port is
+    /// 0 for the scheme's default, so https://<account>:8443 is not the account.
+    static func isOwn(scheme: String, host: String, port: Int, mainFrame: Bool, local: Bool, account: String?) -> Bool {
         let s = scheme.lowercased(), h = host.lowercased()
         guard mainFrame else { return false }
-        return local ? s == LocalOrigin.scheme && h == LocalOrigin.host : s == "https" && account != nil && h == account
+        if local { return s == LocalOrigin.scheme && h == LocalOrigin.host && port == 0 }
+        return s == "https" && account != nil && h == account && (port == 0 || port == 443)
     }
 
     /// getUserMedia's permission (WKUIDelegate, bd med-r1j2.18): the camera

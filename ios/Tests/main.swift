@@ -305,9 +305,14 @@ print("LocalOrigin.leave: ok")
 
 // The shell's own page and getUserMedia (bd med-r1j2.18).
 let acct = "abc.app.example.com"
-func own(_ scheme: String, _ host: String, main: Bool = true, local: Bool, account: String? = "abc.app.example.com") -> Bool {
-    LocalOrigin.isOwn(scheme: scheme, host: host, mainFrame: main, local: local, account: account)
+func own(_ scheme: String, _ host: String, port: Int = 0, main: Bool = true, local: Bool, account: String? = "abc.app.example.com") -> Bool {
+    LocalOrigin.isOwn(scheme: scheme, host: host, port: port, mainFrame: main, local: local, account: account)
 }
+// The whole origin, port included (WKSecurityOrigin.port is 0 for the default).
+precondition(own("https", acct, port: 443, local: false))
+precondition(!own("https", acct, port: 8443, local: false))
+precondition(!own("https", acct, port: 80, local: false))
+precondition(!own("wgapp", "local", port: 8080, local: true))
 precondition(own("https", acct, local: false))
 precondition(own("https", "ABC.app.example.com", local: false))
 precondition(!own("https", acct, main: false, local: false)) // subframe
