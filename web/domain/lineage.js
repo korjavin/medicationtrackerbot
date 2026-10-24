@@ -119,10 +119,10 @@ function resolve({
 }) {
   const ev = evidenceMap(evidence);
   const olds = occurrences(oldGen, fromMs, toMs);
-  // A day of slack each side: the same wall time on the same local date can
+  // Two days of slack each side: the same wall time on the same local date can
   // sit up to 26 h away in the other zone (UTC+14 ↔ UTC−12), and a fallback
   // replacement may lie past the window's edge.
-  const news = occurrences(newGen, fromMs - DAY_MS, toMs + DAY_MS);
+  const news = occurrences(newGen, fromMs - 2 * DAY_MS, toMs + 2 * DAY_MS);
   const used = new Set();
   const key = (o) => `${o.medId}|${o.localTime}|${o.localDate}`;
   const byKey = new Map(news.map((n) => [key(n), n]));
@@ -246,7 +246,7 @@ export function transitionPreview(args) {
   const keptOlds = olds.filter((o) => o.state === 'kept' && o.shown);
   const keptIds = new Set(keptOlds.map((o) => o.occId));
   const after = keptOlds.map((o) => row(o, o.evidence ? 'kept' : null))
-    .concat(news.filter((n) => n.state === 'kept' && n.at <= toMs && !keptIds.has(n.occId)).map((n) => {
+    .concat(news.filter((n) => n.state === 'kept' && n.at >= args.switchAt && n.at <= toMs && !keptIds.has(n.occId)).map((n) => {
       if (!n.replaces) return row(n, null);
       const was = byId.get(n.replaces);
       return row(n, was && was.localTime === n.localTime ? 'moved' : 'replaces', { replaces: n.replaces });
@@ -304,20 +304,35 @@ export function applyLineage(rows, table, intakes = []) {
   const keyOf = (r) => (r.source === 'manual' ? null : slotId(r.medId, Date.parse(r.plannedAt)));
   const occOf = new Map();
   for (const r of rows) { const k = keyOf(r); if (k) occOf.set(k, r.occId); }
-  const hidden = new Set();
-  const twice = new Map();
+  // One group per logical dose: the canonical K plus every cancelled id that
+  // resolves to it (a whole A → B → C chain). No K → each id stands alone.
+  const groups = new Map();
   for (const c of table.keys()) {
     const k = canonical(table, c);
-    if (!ev.has(c)) {
+    const g = k ? `k:${k}` : `c:${c}`;
+    if (!groups.has(g)) groups.set(g, { k, members: k ? [k] : [] });
+    groups.get(g).members.push(c);
+  }
+  const hidden = new Set();
+  const twice = new Map();
+  for (const { k, members } of groups.values()) {
+    const logged = members.filter((m) => ev.has(m));
+    if (logged.length > 1) {
+      // Logged more than once: every logged row stays, flagged, unsettled.
+      for (const m of logged) {
+        const other = logged.find((x) => x !== m);
+        twice.set(m, occOf.get(other) ?? other);
+      }
+      for (const m of members) if (!ev.has(m)) hidden.add(m);
+    } else if (logged.length === 1) {
+      for (const m of members) if (m !== logged[0]) hidden.add(m);
+    } else {
       // ponytail: until bd med-wi09.12 regenerates kept old instants, a
       // canonical the projection doesn't list (an old instant kept after the
-      // switch) would leave the slot empty — so C stays as the stand-in. The
-      // check is per call, so a window that cuts K off shows C.
-      if (!k || occOf.has(k)) hidden.add(c);
-    } else if (k && ev.has(k)) {
-      twice.set(c, occOf.get(k) ?? k);
-      twice.set(k, occOf.get(c) ?? c);
-    } else if (k) hidden.add(k);
+      // switch) would leave the slot empty — so the cancelled rows stay as
+      // stand-ins. The check is per call, so a window that cuts K off shows them.
+      if (!k || occOf.has(k)) for (const m of members) if (m !== k) hidden.add(m);
+    }
   }
   return rows.filter((r) => !hidden.has(keyOf(r))).map((r) => {
     const partner = twice.get(keyOf(r));

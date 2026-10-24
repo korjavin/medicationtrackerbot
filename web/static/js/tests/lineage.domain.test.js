@@ -56,6 +56,11 @@ describe('boundary() — switch-day rule (one dose per logical slot)', () => {
         expect(e.replacement[id('2026-07-01T18:00:00Z')]).toBe(id('2026-07-02T20:00:00Z'));
     });
 
+    it('UTC+14 → UTC−12 at the window edge still finds the partner 26 h away', () => {
+        const e = one({ oldGen: gen('Pacific/Kiritimati', ['07:00']), newGen: gen('Etc/GMT+12', ['07:00']), switchAt: SWITCH });
+        expect(e.replacement[id('2026-07-02T17:00:00Z')]).toBe(id('2026-07-03T19:00:00Z'));
+    });
+
     it('UTC−12 → UTC+14: the new instant is already past, so the old one stands', () => {
         const e = one({ oldGen: gen('Etc/GMT+12', ['08:00']), newGen: gen('Pacific/Kiritimati', ['08:00']), switchAt: SWITCH });
         expect(e.kept).toContain(id('2026-07-01T20:00:00Z'));
@@ -215,6 +220,17 @@ describe('projection resolves evidence through declared aliases only', () => {
         expect(applyLineage(rows, t, []).map((r) => r.occId)).toEqual(['intake-1-100']);
     });
 
+    it('evidence on two links of an A → B → C chain is flagged, C (no evidence) hidden', () => {
+        const row = (s) => ({ occId: `intake-1-${s}`, medId: 1, plannedAt: new Date(s * 1000).toISOString(), source: 'schedule', state: 'due' });
+        const log = (s) => ({ recordId: `intake-1-${s}`, medication_id: 1, scheduled_at: new Date(s * 1000).toISOString(), status: 'TAKEN' });
+        const t = lineageTable([
+            { recordId: 'tztransition-1-a', switch_at: '2026-07-01T00:00:00Z', boundary: [{ medId: 1, kept: [], cancelled: ['intake-1-100'], replacement: { 'intake-1-100': 'intake-1-200' } }] },
+            { recordId: 'tztransition-2-a', switch_at: '2026-07-02T00:00:00Z', boundary: [{ medId: 1, kept: [], cancelled: ['intake-1-200'], replacement: { 'intake-1-200': 'intake-1-300' } }] }
+        ]);
+        const out = applyLineage([row(100), row(200), row(300)], t, [log(100), log(200)]);
+        expect(out.map((r) => [r.occId, r.loggedTwice])).toEqual([['intake-1-100', 'intake-1-200'], ['intake-1-200', 'intake-1-100']]);
+    });
+
     it('a later boundary that moves back revives the id (back-and-forth zones)', () => {
         const t = lineageTable([
             { recordId: 'tztransition-1-a', switch_at: '2026-07-01T06:00:00Z', boundary: [{ medId: 1, kept: [], cancelled: ['X'], replacement: { X: 'Y' } }] },
@@ -242,6 +258,13 @@ describe('transitionPreview — MT7 Before / After', () => {
         // 21:30 Berlin moves to 21:30 Lisbon.
         expect(mark(before, id('2026-07-04T19:30:00Z'))).toBe('moves');
         expect(mark(after, id('2026-07-04T20:30:00Z'))).toBe('moved');
+    });
+
+    it('After lists nothing from before the switch unless it cancels a future twin', () => {
+        const { after } = transitionPreview({
+            oldGen: gen('UTC', ['08:00', '20:00']), newGen: gen('UTC', ['09:00', '20:00']), switchAt: at('2026-07-01T06:00:00Z')
+        });
+        expect(after.every((r) => Date.parse(r.plannedAt) >= at('2026-07-01T06:00:00Z'))).toBe(true);
     });
 
     it('a schedule edit marks the replacement "replaces"', () => {
