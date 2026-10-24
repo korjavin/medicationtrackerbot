@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 describe('Settings weight-unit segmented control (Task 7)', () => {
     let env;
@@ -632,6 +633,7 @@ describe('Settings Units & body height field (med-a6fb.4)', () => {
     });
 
     it('a rejected optimistic cache write restores the field and sends nothing', async () => {
+        allowConsoleNoise(); // the failure is logged by design
         vi.spyOn(env.window.DataStore, 'applyOptimistic').mockRejectedValue(new Error('quota'));
         env.window.safeAlert = vi.fn();
         typeHeight('180');
