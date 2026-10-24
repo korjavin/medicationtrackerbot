@@ -326,4 +326,29 @@ describe('cloud sw.js — "Approve the new device?" (transfer_claimed)', () => {
         expect(first.focus).not.toHaveBeenCalled();
         expect(first.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'reminder-open' }));
     });
+
+    // Firefox grants focus()/openWindow() for only ~1 s after a click: the
+    // owner is focused as soon as it acks (not after the silent windows time
+    // out), and with no ack the fallback comes after ~250 ms, well inside it.
+    it('focuses the acking window at once, and falls back well inside the click focus window', async () => {
+        const silent = () => ({ focus: vi.fn(), postMessage: vi.fn() });
+        const owner = {
+            focus: vi.fn(),
+            postMessage: vi.fn((msg, ports) => { if (msg.type === 'transfer-live-probe') ports[0].postMessage('live'); }),
+        };
+        const data = { url: '/?tab=settings&page=add-device' };
+
+        self.clients.matchAll.mockResolvedValue([silent(), owner, silent()]);
+        let t0 = Date.now();
+        await fireNotificationClick(self, listeners, '', data);
+        expect(owner.focus).toHaveBeenCalled();
+        expect(Date.now() - t0).toBeLessThan(200);
+
+        const first = silent();
+        self.clients.matchAll.mockResolvedValue([first, silent()]);
+        t0 = Date.now();
+        await fireNotificationClick(self, listeners, '', data);
+        expect(first.focus).toHaveBeenCalled();
+        expect(Date.now() - t0).toBeLessThan(900);
+    });
 });

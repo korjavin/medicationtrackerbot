@@ -468,7 +468,7 @@ const WAKE_ACK_TIMEOUT_MS = 1500;
 // The reply rides a per-push MessageChannel rather than a global SW `message`
 // listener: the port IS the correlation, so there is nothing to match up and
 // nothing to clean up but the port itself.
-function nudgeWindow(client, type = INBOX_WAKE_KIND) {
+function nudgeWindow(client, type = INBOX_WAKE_KIND, timeoutMs = WAKE_ACK_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     const finish = (acked) => {
@@ -476,9 +476,29 @@ function nudgeWindow(client, type = INBOX_WAKE_KIND) {
       channel.port1.close();
       resolve(acked);
     };
-    const timer = setTimeout(() => finish(false), WAKE_ACK_TIMEOUT_MS);
+    const timer = setTimeout(() => finish(false), timeoutMs);
     channel.port1.onmessage = () => finish(true);
     client.postMessage({ type }, [channel.port2]);
+  });
+}
+
+// The claim tap's probe budget. A click only grants focus()/openWindow() for a
+// short while (Firefox: ~1 s), so the tap goes to the first window that acks,
+// and falls back after this much — never the 1.5 s wake budget.
+const TRANSFER_PROBE_TIMEOUT_MS = 250;
+
+// Resolves the first window that acks the live-code probe, or null once every
+// window has declined or timed out.
+function firstLiveWindow(windows) {
+  return new Promise((resolve) => {
+    let pending = windows.length;
+    if (!pending) resolve(null);
+    for (const w of windows) {
+      nudgeWindow(w, TRANSFER_PROBE_TYPE, TRANSFER_PROBE_TIMEOUT_MS).then((acked) => {
+        if (acked) resolve(w);
+        else if (--pending === 0) resolve(null);
+      });
+    }
   });
 }
 
@@ -579,9 +599,7 @@ self.addEventListener('notificationclick', (event) => {
         // code, not necessarily the first one: ask every window (content-free
         // probe, transfer.js acks only while it holds a live code) and route
         // the tap to the owner. No ack → the first window, which lands on AD4.
-        const focusable = clients.filter((c) => 'focus' in c);
-        const acks = await Promise.all(focusable.map((c) => nudgeWindow(c, TRANSFER_PROBE_TYPE)));
-        client = focusable[acks.indexOf(true)] || client;
+        client = (await firstLiveWindow(clients.filter((c) => 'focus' in c))) || client;
       }
       if (!route) {
         // A body tap opens the reminder's own target (med-9d1a): a dose's take
