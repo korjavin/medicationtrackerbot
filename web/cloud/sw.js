@@ -347,6 +347,20 @@ const STALE_SYNC_WARNING = { title: 'Med Tracker', body: 'Open the app to keep r
 const INBOX_WAKE_KIND = 'inbox-wake';
 const INBOX_WAKE_NOTIFICATION = { title: 'Med Tracker', body: 'Open the app to record what you sent' };
 
+// The add-device claim (bd med-r1j2.9): a device claimed one of this account's
+// slots and the origin must come back to compare the code and approve. The push
+// is a bare kind tag — no slot, platform or expiry — so the text is generic
+// (internal/cloudserver/nativepush.go transferClaimed* is its native twin). The
+// tap opens Settings → Devices → Add a device: the live Approve screen when
+// this window holds the flow, else the "not open here" end state.
+const TRANSFER_CLAIMED_KIND = 'transfer_claimed';
+const TRANSFER_CLAIMED_NOTIFICATION = {
+  title: 'Approve the new device?',
+  body: 'A new device is waiting · approve it before the code expires',
+  kind: TRANSFER_CLAIMED_KIND,
+  url: '/?tab=settings&page=add-device',
+};
+
 // Inlined from crypto.js encryptPushPayload/decryptPushPayload: NK app-layer is
 // AES-GCM(NK, payload, aad="mt/v1/push") with the 12-byte nonce packed ahead of
 // the ciphertext (single BLOB wire column). Kept here so the worker needs no
@@ -370,6 +384,7 @@ function tryDecodeServerPayload(data) {
     // (phishing) notification text on this one non-NK-encrypted channel.
     if (payload && payload.kind === 'server-warning') return { ...STALE_SYNC_WARNING };
     if (payload && payload.kind === INBOX_WAKE_KIND) return { ...INBOX_WAKE_NOTIFICATION, kind: INBOX_WAKE_KIND };
+    if (payload && payload.kind === TRANSFER_CLAIMED_KIND) return { ...TRANSFER_CLAIMED_NOTIFICATION };
   } catch {
     // Not JSON — real NK ciphertext, ignore.
   }
@@ -402,7 +417,9 @@ async function decodePush(data) {
 // A notification tap may only open the app's own root with the query keys the
 // reminder deeplink uses (web/cloud/js/reminder-deeplink.js) — never an
 // arbitrary string out of a payload. Anything else opens '/'.
-const REMINDER_URL_KEYS = new Set(['tab', 'action', 'ids', 'scheduled']);
+// 'page' is the Settings sub-page key of ?tab=settings&page=… (deeplink-router.js
+// routes only a fixed list of pages).
+const REMINDER_URL_KEYS = new Set(['tab', 'action', 'ids', 'scheduled', 'page']);
 function reminderOpenUrl(raw) {
   if (typeof raw !== 'string' || !raw.startsWith('/?')) return '/';
   try {
@@ -490,6 +507,8 @@ self.addEventListener('push', (event) => {
       return self.registration.showNotification(n.title, {
         body: n.body,
         actions: NOTIFICATION_ACTIONS[n.kind] || [],
+        // A newer claim replaces the shade entry rather than stacking.
+        ...(n.kind === TRANSFER_CLAIMED_KIND ? { tag: TRANSFER_CLAIMED_KIND } : {}),
         data: { url: n.url || '/' },
       });
     })

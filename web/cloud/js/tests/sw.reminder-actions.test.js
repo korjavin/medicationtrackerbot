@@ -268,3 +268,44 @@ describe('cloud sw.js — reminder notification actions', () => {
         expect(client.focus).toHaveBeenCalled();
     });
 });
+
+// med-r1j2.9 — the add-device claim push: a bare kind tag from the server, a
+// fixed client-side text, and a tap that opens Settings → Add a device.
+describe('cloud sw.js — "Approve the new device?" (transfer_claimed)', () => {
+    let self;
+    let listeners;
+
+    beforeEach(() => {
+        ({ self, listeners } = loadCloudSw(crypto.getRandomValues(new Uint8Array(32))));
+    });
+
+    const claimPush = (extra = {}) => {
+        const bytes = new TextEncoder().encode(JSON.stringify({ kind: 'transfer_claimed', ...extra }));
+        return { arrayBuffer: () => bytes.buffer };
+    };
+
+    it('shows the fixed copy, replaces an older one, and carries the add-device deeplink', async () => {
+        await firePush(self, listeners, claimPush({ title: 'Bank', body: 'evil.example' }));
+
+        const [title, opts] = self.registration.showNotification.mock.calls[0];
+        expect(title).toBe('Approve the new device?');
+        expect(opts.body).toBe('A new device is waiting · approve it before the code expires');
+        expect(opts.tag).toBe('transfer_claimed');
+        expect(opts.data).toEqual({ url: '/?tab=settings&page=add-device' });
+    });
+
+    it('a warm tap hands the deeplink to the open tab; a cold tap opens it', async () => {
+        await firePush(self, listeners, claimPush());
+        const [, opts] = self.registration.showNotification.mock.calls[0];
+
+        const client = { focus: vi.fn(), postMessage: vi.fn() };
+        self.clients.matchAll.mockResolvedValue([client]);
+        await fireNotificationClick(self, listeners, '', opts.data);
+        expect(client.postMessage).toHaveBeenCalledWith({ type: 'reminder-open', url: '/?tab=settings&page=add-device' });
+        expect(client.focus).toHaveBeenCalled();
+
+        self.clients.matchAll.mockResolvedValue([]);
+        await fireNotificationClick(self, listeners, '', opts.data);
+        expect(self.clients.openWindow).toHaveBeenCalledWith('/?tab=settings&page=add-device');
+    });
+});

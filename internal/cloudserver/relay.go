@@ -69,12 +69,22 @@ func mustMarshalStaleSyncWarning() []byte {
 // staleSyncWarningPayload — a bare kind tag, no title/body, because sw.js keys
 // the (fixed, client-side) notification text off `kind` and never renders
 // server-supplied strings here.
-var inboxWakePayload = mustMarshalInboxWake()
+var inboxWakePayload = mustMarshalKind("inbox-wake")
 
-func mustMarshalInboxWake() []byte {
+// transferClaimedPayload is the third server-composed, content-free push (bd
+// med-r1j2.9): a device claimed one of the account's add-device slots, and the
+// origin — often backgrounded, its 2 s poll frozen — must come back to compare
+// the match code and approve before the slot expires. A bare kind tag like
+// inboxWakePayload: no slot id, no platform, no expiry; sw.js renders a fixed
+// client-side text and the tap opens the live Approve screen if one is open.
+var transferClaimedPayload = mustMarshalKind(transferClaimedKind)
+
+const transferClaimedKind = "transfer_claimed"
+
+func mustMarshalKind(kind string) []byte {
 	b, err := json.Marshal(struct {
 		Kind string `json:"kind"`
-	}{Kind: "inbox-wake"})
+	}{Kind: kind})
 	if err != nil {
 		panic(err) // static literal — cannot fail
 	}
@@ -475,15 +485,27 @@ func (rl *Relay) WakeInbox(ctx context.Context, accountID string) {
 	}
 	// Both channels inside the one claimed window, so a burst coalesces on the
 	// phone shells exactly as it does for Web Push (bd med-erq1.2).
-	rl.wakeWebPush(ctx, accountID)
+	rl.fanWebPush(ctx, accountID, inboxWakePayload, nativeKindInboxWake)
 	rl.sendNative(ctx, accountID, nativeKindInboxWake)
 }
 
-// wakeWebPush is WakeInbox's Web Push half.
-func (rl *Relay) wakeWebPush(ctx context.Context, accountID string) {
+// NotifyTransferClaimed tells the account's devices that a new device claimed
+// an add-device slot (bd med-r1j2.9). The caller fires it once, on the claim
+// transition — the store refuses a second claim of the same slot, so this is at
+// most one push per slot. No cooldown: every claim is a distinct slot the owner
+// must act on. Blocking like WakeInbox; failures are logged and swallowed (the
+// origin's own poll still sees the claim once the page runs again).
+func (rl *Relay) NotifyTransferClaimed(ctx context.Context, accountID string) {
+	rl.fanWebPush(ctx, accountID, transferClaimedPayload, transferClaimedKind)
+	rl.sendNative(ctx, accountID, transferClaimedKind)
+}
+
+// fanWebPush sends one content-free payload to every push subscription of the
+// account; kind only labels the logs.
+func (rl *Relay) fanWebPush(ctx context.Context, accountID string, payload []byte, kind string) {
 	subs, err := rl.store.List(ctx, accountID)
 	if err != nil {
-		slog.Error("push relay: list subscriptions for inbox wake", "accountID", accountID, "error", err)
+		slog.Error("push relay: list subscriptions for wake", "kind", kind, "accountID", accountID, "error", err)
 		return
 	}
 	if len(subs) == 0 {
@@ -491,22 +513,22 @@ func (rl *Relay) wakeWebPush(ctx context.Context, accountID string) {
 	}
 	keys, err := rl.store.AccountVAPIDKeysByID(ctx, accountID)
 	if err != nil {
-		slog.Error("push relay: load VAPID keys for inbox wake", "accountID", accountID, "error", err)
+		slog.Error("push relay: load VAPID keys for wake", "kind", kind, "accountID", accountID, "error", err)
 		return
 	}
 	if keys.PublicKey == "" || keys.PrivateKey == "" {
 		return
 	}
-	slog.Info("inbox: push wake attempt", "accountID", accountID, "subs", len(subs))
+	slog.Info("push relay: wake attempt", "kind", kind, "accountID", accountID, "subs", len(subs))
 	var sent, failed int
 	for _, sub := range subs {
-		if rl.send(ctx, sub, keys, inboxWakePayload) {
+		if rl.send(ctx, sub, keys, payload) {
 			sent++
 		} else {
 			failed++
 		}
 	}
-	slog.Info("inbox: push wake result", "accountID", accountID, "sent", sent, "failed", failed)
+	slog.Info("push relay: wake result", "kind", kind, "accountID", accountID, "sent", sent, "failed", failed)
 }
 
 // sendNative fans the content-free wake `kind` out to the account's APNs/FCM

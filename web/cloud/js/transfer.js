@@ -67,14 +67,33 @@ function hhmm(date) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
+// The one add-device flow this window is running (its page is open), so the
+// "Approve the new device?" notification tap (med-r1j2.9) can bring it back.
+// module-state: a single page-lifetime handle; renderAddDevice sets it and
+// stop() clears it.
+let currentFlow = null;
+
+// Called on the notification tap: true when this window holds a live code —
+// it polls now, so a claim lands on Approve (AD3) with the match code without
+// waiting out a throttled interval. False: nothing to resume here.
+export function resumeLiveTransfer() {
+  if (!currentFlow || !currentFlow.live) return false;
+  currentFlow.pollNow();
+  return true;
+}
+
 // Returns { cancel(): Promise<boolean>, stop() }. cancel() resolves true once
 // nothing claimable is left (the live slot was deleted server-side, or there
 // never was one) and false when the DELETE failed — the host must then stay put,
 // since leaving would imply a still-live code is dead. stop() only clears the
 // timers (the host calls it after its page is gone, however it closed).
-export function renderAddDevice(mount, ctx, onExit) {
+// opts.notHere: open on the AD4 "not open here" end state instead of starting —
+// the notification tap found no live flow in this window.
+export function renderAddDevice(mount, ctx, onExit, opts = {}) {
   // s holds this pairing's secrets (TK, ECDH key, DEK) for the page's life only.
   const flow = { slotId: null, live: false, closed: false, timer: null, poller: null, busy: false, s: null };
+  flow.pollNow = () => { pollSlot(); };
+  currentFlow = flow;
   // The account subdomain names the account in the transcript: it is the one
   // name the new device knows before approval.
   const accountSub = location.hostname.split('.')[0];
@@ -603,7 +622,20 @@ export function renderAddDevice(mount, ctx, onExit) {
     mount.querySelector('#transfer-retry').addEventListener('click', start);
   }
 
-  start();
+  // AD4 for a tap with no live flow here. Honest either way: another device
+  // may hold the request, or this page closed and its code was deleted.
+  function renderNotHere() {
+    renderEnd({
+      icon: 'device',
+      title: "This request isn't open here",
+      lede: 'Approve a new device on the screen that shows its code. If that screen was closed, the code stopped working — make a new one.',
+      chip: { tone: 'stale', icon: 'x', text: 'Stopped' },
+      actions: [doneAction(true), retryAction(false)],
+    });
+  }
+
+  if (opts && opts.notHere) renderNotHere();
+  else start();
   return {
     cancel,
     // The host's page is gone. A close that bypassed cancel() (anything but
@@ -611,6 +643,7 @@ export function renderAddDevice(mount, ctx, onExit) {
     // delete it.
     stop() {
       if (win) win.removeEventListener('pagehide', onPageHide);
+      if (currentFlow === flow) currentFlow = null;
       if (flow.live) deleteSlot(flow.slotId).catch(() => {});
       flow.closed = true;
       finish();
