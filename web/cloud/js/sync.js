@@ -766,9 +766,13 @@ async function pullTail(ctx) {
         ? { localLastSeq: op.seq, importBumpSeq: op.seq }
         : { localLastSeq: op.seq });
     }
-    await writeMeta({ lastSyncedAt: Date.now() });
     notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
-    if (!body.next) break;
+    // Stamped on the last page only: hasCaughtUp() reads it as "this device
+    // has seen the whole server tail at least once" (bd med-ejgf).
+    if (!body.next) {
+      await writeMeta({ lastSyncedAt: Date.now() });
+      break;
+    }
   }
 }
 
@@ -1079,6 +1083,14 @@ export async function isBootstrapped() {
   return (await readMeta()).localLastSeq !== null;
 }
 
+// True once this device has pulled the server's whole tail (or pushed with no
+// peer op in between) at least once — i.e. the local mirror really is the
+// account. Until then an empty mirror says nothing about the account, so the
+// shim withholds the first-run wizard (bd med-ejgf). resetLocalSync clears it.
+export async function hasCaughtUp() {
+  return (await readMeta()).lastSyncedAt !== null;
+}
+
 // Max re-post attempts when a concurrent writer keeps interleaving (below).
 const FLUSH_MAX_ATTEMPTS = 5;
 
@@ -1370,15 +1382,21 @@ export function requestDrain(ctx, { wake = false } = {}) {
       // event-driven drains — the boot-time check already ran. Hand it to
       // the caller so the UI can surface it instead of queueing silently.
       if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
+      if (onDrainSettled) onDrainSettled();
     });
   return drainInFlight;
 }
 
-export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: onUpdate } = {}) {
+// Installed by startReconnectAutoDrain: runs after every requestDrain settles.
+let onDrainSettled = null;
+
+export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: onUpdate, onSettled } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
   const surface = onAuthExpired ? () => onAuthExpired() : null;
   onDrainAuthExpired = surface;
+  const settled = onSettled ? () => onSettled() : null;
+  onDrainSettled = settled;
   // Fired once, the first time any push (drain or a write's inline flush) hits 426.
   const surfaceUpdate = onUpdate ? () => onUpdate() : null;
   onUpdateRequired = surfaceUpdate;
@@ -1395,6 +1413,7 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: 
     // No queued rerun or expiry surface outlives the teardown.
     drainRerun = false;
     if (onDrainAuthExpired === surface) onDrainAuthExpired = null;
+    if (onDrainSettled === settled) onDrainSettled = null;
     if (onUpdateRequired === surfaceUpdate) onUpdateRequired = null;
     clearTimeout(debounce);
     window.removeEventListener('online', trigger);

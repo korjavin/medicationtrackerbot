@@ -171,6 +171,46 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(statusChecks).toBe(4);
   });
 
+  // bd med-ejgf: the shim withholds W1 until the mirror has caught up, so the
+  // boot re-asks /api/bootstrap after the boot pull and after each drain —
+  // once caught up, exactly once.
+  it('re-asks first run once the mirror has caught up, on the boot pull or a later drain', async () => {
+    for (const caughtAtBoot of [true, false]) {
+      let caughtUp = caughtAtBoot;
+      let drainOpts;
+      const asked = [];
+      const mounted = [];
+      await runBoot({
+        setupWindow: (w) => { w.AuthBootstrap = { mountFirstRun: (needs) => mounted.push(needs) }; },
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': {
+            installApiShim: () => async (endpoint, method) => {
+              asked.push(`${method} ${endpoint}`);
+              return endpoint === '/api/bootstrap' ? { needs_first_run: true } : null;
+            },
+          },
+          'sync.js': {
+            pullOnOpen: async () => {},
+            hasCaughtUp: async () => caughtUp,
+            startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+            getSyncStatus: async () => ({ authExpired: false }),
+          },
+          'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+          'mcp-responder.js': { refreshResponder: () => {} },
+        },
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mounted).toEqual(caughtAtBoot ? [true] : []);
+      caughtUp = true;
+      await drainOpts.onSettled();
+      await drainOpts.onSettled();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mounted).toEqual([true]);
+      expect(asked.filter((a) => a === 'GET /api/bootstrap')).toHaveLength(1);
+    }
+  });
+
   it('a 426-gated sync mounts the "Update required" banner whose Reload loads the current build (med-wi09.5)', async () => {
     const dom = new JSDOM('<!doctype html><body></body>');
     vi.stubGlobal('document', dom.window.document);

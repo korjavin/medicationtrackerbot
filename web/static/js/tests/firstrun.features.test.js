@@ -16,6 +16,7 @@ const OFFER_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-offer-ca
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 const NOTIFY_JS = path.join(REPO_ROOT, 'web/static/js/features/notify-permission.js');
 const INVITE_JS = path.join(REPO_ROOT, 'web/static/js/features/invite.js');
+const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
 
 // W1 — the first-run module picker (bd med-ta2n.1, screens-onboarding-v3.html
 // W1): the first and only picker screen of the WGFirstRun overlay. Seven
@@ -34,7 +35,7 @@ const FLAGS = ['medication', 'bp', 'weight', 'workout', 'health', 'food'];
 function loadFlow({
     fetchMock = null, toggleMock = null, features = null, notifyPermission = null,
     trialOffer = null, localTrial = null, trialAi = false, trialConsent = null,
-    local = false, native = null, invite = false, base = null,
+    local = false, native = null, invite = false, base = null, authBootstrap = false,
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
@@ -65,6 +66,7 @@ function loadFlow({
 
     const files = [OFFER_CARD_JS, STATE_JS, FEATURES_JS, TRIAL_JS, INDEX_JS];
     if (invite) files.unshift(INVITE_JS);
+    if (authBootstrap) files.push(AUTH_BOOTSTRAP_JS);
     if (notifyPermission) {
         window.Notification = { permission: notifyPermission };
         files.unshift(NOTIFY_JS);
@@ -428,6 +430,95 @@ describe('firstrun W1 module picker', () => {
             await flush();
             expect(document.querySelector('[data-notify-denied]')).toBeNull();
         } finally { cleanup(); }
+    });
+});
+
+// bd med-ejgf: in account mode W1 waits for the first pull. Until this device
+// has pulled the account (sync.js hasCaughtUp), an empty mirror says nothing
+// about the account, and W1's flag writes plus its {floor:'auto'} reminder
+// default would overwrite an existing account's. The shim answers
+// needs_first_run false until then; cloud-boot re-asks after each drain and
+// hands the answer to AuthBootstrap.mountFirstRun, as applyBootstrapPayload does.
+describe('firstrun W1 waits for the account pull (account mode)', () => {
+    const GATED = ['features', 'deliverypref', 'firstrun'];
+
+    function account({ seed = {} } = {}) {
+        const store = createInMemoryRecordsPort(seed);
+        const written = [];
+        const records = {
+            ...store,
+            put: (type, rec) => { written.push(type); return store.put(type, rec); },
+            putIfAbsent: (type, rec) => { written.push(type); return store.putIfAbsent(type, rec); },
+        };
+        const pull = { done: false };
+        const router = createApiRouter(null, {
+            records, now: () => Date.parse('2026-07-10T12:00:00.000Z'), timeZone: 'UTC', caughtUp: async () => pull.done,
+            effects: { scheduleReminderRecompute: () => {} },
+        });
+        const call = async (url, method = 'GET', body) => router(url, method, body);
+        const fetchMock = vi.fn(async (url, opts) => {
+            const result = await call(url, (opts && opts.method) || 'GET', opts && opts.body ? JSON.parse(opts.body) : undefined);
+            return { ok: result !== null && result !== undefined, status: 200, json: async () => result };
+        });
+        const flow = loadFlow({ fetchMock, authBootstrap: true });
+        flow.window.apiCall = vi.fn(call);
+        // What applyBootstrapPayload and cloud-boot's re-ask both do with /api/bootstrap.
+        const ask = async () => flow.window.AuthBootstrap.mountFirstRun((await call('/api/bootstrap')).needs_first_run);
+        const gatedWrites = () => written.filter((t) => GATED.includes(t));
+        return { ...flow, pull, ask, store, gatedWrites, fetchMock };
+    }
+    const done = { firstrun: [{ recordId: 'firstrun', clientTs: 5, deleted: false, first_run_complete: true }] };
+    const overlay = (document) => document.getElementById('wg-firstrun-overlay');
+
+    it('pull failed: no W1, no feature-flag, deliverypref or firstrun writes', async () => {
+        const { document, ask, gatedWrites, fetchMock, window, cleanup } = account();
+        try {
+            await ask();
+            await flush();
+            expect(overlay(document)).toBeNull();
+            expect(window.WGFirstRun.isActive()).toBe(false);
+            expect(gatedWrites()).toEqual([]);
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(window.apiCall).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('pulled an account that finished first run: no W1', async () => {
+        const { document, ask, pull, gatedWrites, cleanup } = account({ seed: done });
+        try {
+            pull.done = true;
+            await ask();
+            expect(overlay(document)).toBeNull();
+            expect(gatedWrites()).toEqual([]);
+        } finally { cleanup(); }
+    });
+
+    it('pulled a new account: W1 shows as before, and Skip writes the flags and the reminder default', async () => {
+        const { document, ask, pull, gatedWrites, store, cleanup } = account();
+        try {
+            pull.done = true;
+            await ask();
+            expect(overlay(document)).not.toBeNull();
+            action(document, 'skip-all').click();
+            await vi.waitFor(() => expect(new Set(gatedWrites())).toEqual(new Set(GATED)));
+            expect(await store.list('deliverypref')).toHaveLength(1);
+        } finally { cleanup(); }
+    });
+
+    it('pull fails, then succeeds: the re-ask behaves like the matching success case', async () => {
+        for (const [seed, shown] of [[done, false], [{}, true]]) {
+            const { document, ask, pull, store, gatedWrites, cleanup } = account();
+            try {
+                await ask();
+                expect(overlay(document)).toBeNull();
+                // The pull lands what the server holds.
+                for (const [type, recs] of Object.entries(seed)) for (const r of recs) await store.put(type, r);
+                pull.done = true;
+                await ask();
+                expect(overlay(document) !== null).toBe(shown);
+                expect(gatedWrites()).toEqual([]);
+            } finally { cleanup(); }
+        }
     });
 });
 
