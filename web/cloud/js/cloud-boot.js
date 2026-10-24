@@ -175,13 +175,21 @@ async function pickUpMovedVault(win) {
 
 // AD9 "Join and erase", account side (bd med-r1j2.4). The local page asked
 // local.leave {url, erase: true} and erased nothing. Only here — the joined
-// account booted unlocked, so this device enrolled (or opened it with its own
-// passkey) — is the shell told to finish: local.erase wipes the local vault
-// (the Settings → Erase data on this device effects) if, and only if, it
-// still holds that join's erase for this host; otherwise a no-op. A cancel,
-// an expired code, a 409/410, another account or a crash never reach this
-// boot. Inert on the web and on shells whose shell.ops lacks local.erase.
+// account booted unlocked right after this tab enrolled its passkey (claim.js
+// sets the one-shot sessionStorage 'wg-join-enrolled'; bd med-r1j2.7) — is the
+// shell told to finish: local.erase wipes the local vault (the Settings →
+// Erase data on this device effects) if, and only if, it still holds that
+// join's erase for this host; otherwise a no-op. A cancel, an expired code, a
+// 409/410 (whose Close lands here too, unlocked by an older session), another
+// account or a crash never get the marker. Inert on the web and on shells
+// whose shell.ops lacks local.erase.
 async function finishJoinErase(win) {
+    let enrolled = false;
+    try {
+        enrolled = win.sessionStorage.getItem('wg-join-enrolled') === '1';
+        win.sessionStorage.removeItem('wg-join-enrolled');
+    } catch { /* no storage: never erase */ }
+    if (!enrolled) return;
     const doc = win.document;
     if (doc && doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
     const native = win.LocalNotifications && win.LocalNotifications.__native;

@@ -1244,10 +1244,21 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
   // bd med-r1j2.4 (AD9 "Join and erase"): the local page erased nothing; the
   // joined account's unlocked boot tells the shell to finish, once.
   it('join and erase: an unlocked boot on a shell with local.erase asks it once; no move import', async () => {
-    const { call, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
+    env.window.sessionStorage.setItem('wg-join-enrolled', '1'); // claim.js, right after this tab enrolled
+    const { window, call, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
     await vi.waitFor(() => expect(log).toContain('local.erase'));
     await settle();
     expect(call.mock.calls.filter(([op]) => op === 'local.erase')).toEqual([['local.erase']]);
     expect(log).not.toContain('move.take');
+    expect(window.sessionStorage.getItem('wg-join-enrolled')).toBeNull(); // one-shot
+  });
+
+  // bd med-r1j2.7: a failed join's Close lands on '/', where an older session
+  // can boot unlocked — without this tab's enrollment marker nothing is erased.
+  it('join and erase: an unlocked boot without the enrollment marker never asks', async () => {
+    const { call, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
+    await vi.waitFor(() => expect(log).toContain('shell.ops'));
+    await settle();
+    expect(call).not.toHaveBeenCalledWith('local.erase');
   });
 });

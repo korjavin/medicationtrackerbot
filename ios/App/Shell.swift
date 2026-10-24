@@ -585,7 +585,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             setInvite(nil)
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
-                let left = await Shell.eraseLocalOrigin()
+                // One retry: a delete blocked by the shell page's old connection
+                // has usually finished by then. ponytail: still incomplete → only
+                // logged; the data stays visible in local mode for Settings → Erase.
+                var left = await Shell.eraseLocalOrigin()
+                if left != 0 { left = await Shell.eraseLocalOrigin() }
                 diag("shell local.erase " + (left == 0 ? "wiped" : "incomplete (\(left))")) // no host, no data
                 replyHandler(true, nil)
             }
