@@ -114,7 +114,18 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(off.bp.feature_on).toBe(false);
 
         await window.toggleFeatureSetting('gamification', false);
-        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false });
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false, ed_safe: false });
+    });
+
+    // med-njny: ED-safe is its own promise — with Journey off the disabled
+    // payload still carries ed_safe, so Today keeps hiding weight numbers.
+    it('GET /api/gamification/goal-line carries ed_safe with Journey off', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+        await window.saveGamificationMode('ed_safe', true);
+        await window.toggleFeatureSetting('gamification', false);
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false, ed_safe: true });
+        expect((await window.apiCall('/api/bootstrap')).gamification_goal_line).toEqual({ enabled: false, ed_safe: true });
     });
 
     // med-8tur.12: the Journey mode switches persist through the shim and gate

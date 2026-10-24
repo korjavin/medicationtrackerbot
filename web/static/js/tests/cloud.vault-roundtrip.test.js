@@ -43,6 +43,35 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(back.data).toEqual(dropGps(fixture.data));
   });
 
+  // med-a6fb.2: the body settings ride the general singleton; a legacy file
+  // without them (or with invalid values) imports with none and exports none.
+  it('settings body fields round-trip; absent or invalid values import and export nothing', () => {
+    const general = (recs) => recs.find((r) => r.recordType === 'settings' && r.recordId === 'settings');
+    expect(fixture.data.settings.height_cm).toBe(180);
+    expect(general(vaultToRecords(fixture, { now: NOW })).height_cm).toBe(180);
+
+    const custom = JSON.parse(JSON.stringify(fixture));
+    Object.assign(custom.data.settings, { height_unit: 'ftin', show_bmi: false, bmi_nudge_dismissed: true });
+    const customRecs = vaultToRecords(custom, { now: NOW });
+    expect(general(customRecs)).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false });
+    expect(general(customRecs)).not.toHaveProperty('bmi_nudge_dismissed');
+    const out = recordsToVault([...customRecs.filter((r) => r.recordType !== 'settings'),
+      { ...general(customRecs), bmi_nudge_dismissed: true }], { now: NOW }).data.settings;
+    expect(out).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false });
+    expect(out).not.toHaveProperty('bmi_nudge_dismissed');
+
+    for (const value of [undefined, '180', null]) {
+      const legacy = JSON.parse(JSON.stringify(fixture));
+      if (value === undefined) delete legacy.data.settings.height_cm;
+      else Object.assign(legacy.data.settings, { height_cm: value, height_unit: 'yards', show_bmi: 'no' });
+      const records = vaultToRecords(legacy, { now: NOW });
+      for (const k of ['height_cm', 'height_unit', 'show_bmi']) {
+        expect(general(records)).not.toHaveProperty(k);
+        expect(recordsToVault(records, { now: NOW }).data.settings).not.toHaveProperty(k);
+      }
+    }
+  });
+
   it('trackers keep their id; check logs re-mint the deterministic day id (med-1vy5)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const of = (type) => records.filter((r) => r.recordType === type);
@@ -209,6 +238,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const strip = (data) => {
       const d = dropGps(data);
       delete d.settings.med_reminder_pref;
+      // Height is cloud-only too (med-a6fb); the bot file has none.
+      delete d.settings.height_cm;
       // Tombstones are a cloud-only v1 addition (med-jtaj); a real bot export
       // never carries them, so they canonicalize away like med_reminder_pref.
       delete d.tombstones;

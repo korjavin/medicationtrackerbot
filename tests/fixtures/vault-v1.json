@@ -606,6 +606,7 @@
     "settings": {
       "timezone": "Europe/Berlin",
       "dismissed_tz_suggestion": "",
+      "height_cm": 180,
       "features": {
         "food": true,
         "bp": true,

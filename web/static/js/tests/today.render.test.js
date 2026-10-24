@@ -904,6 +904,23 @@ describe('Today v2 — Goal Line', () => {
         expect(normal.weightLatest.status).toBe('ok');
     });
 
+    // med-njny: ED-safe holds with Journey off — the route's disabled payload
+    // carries ed_safe and Today obeys it without a gamification gate.
+    it('Journey off + ED-safe → no weight metric on Today; ED-safe off → shown', () => {
+        const bootstrap = {
+            features: { gamification: false, weight: true },
+            weight: { logs: [{ measured_at: NOW.toISOString(), weight: 82.4 }] },
+        };
+        const safe = env.aggregate(bootstrap, { gamification_goal_line: { enabled: false, ed_safe: true } }, NOW);
+        expect(safe.goalLine.status).toBe('disabled');
+        expect(safe.weightLatest.status).toBe('disabled');
+        expect(safe.weightTrend7d.status).toBe('disabled');
+
+        const open = env.aggregate(bootstrap, { gamification_goal_line: { enabled: false, ed_safe: false } }, NOW);
+        expect(open.goalLine.status).toBe('disabled');
+        expect(open.weightLatest.status).toBe('ok');
+    });
+
     it('ED-safe + active adherence alert → the alert line alone, no weight numbers', () => {
         const bootstrap = {
             features: { gamification: true, weight: true, bp: false, food: false, medication: true, workout: false, health: false },

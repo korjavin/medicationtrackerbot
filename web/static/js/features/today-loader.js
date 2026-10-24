@@ -213,7 +213,8 @@ function todayFetchSpecs(foodKey) {
             }
         },
         gamification_goal_line: {
-            feature: 'gamification',
+            // No feature gate: with Journey off the route still answers
+            // {enabled:false, ed_safe}, which Today's weight cells obey (med-njny).
             // Goal Line hero (med-8tur.2). Only gamificationmilestone syncs
             // under 'gamification' (sync.js RECORD_TAGS: weightgoal→weight,
             // workoutsession→workout, bp→bp, settings→settings), so the card

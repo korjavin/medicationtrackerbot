@@ -13,6 +13,41 @@
 
 const GENERAL_RECORD_TYPE = 'settings';
 const GENERAL_RECORD_ID = 'settings';
+// Body settings (epic med-a6fb) — optional fields on the general singleton,
+// absent when unset (the default applies). One list drives the PATCH
+// validation, getGeneral() and vault export/import (vault.js), so adding a
+// field is one entry here. `vault: false` keeps a field out of backups.
+const isBool = (v) => typeof v === 'boolean';
+export const BODY_FIELDS = Object.freeze({
+  // Adult height for BMI, stored in cm only.
+  height_cm: {
+    valid: (v) => typeof v === 'number' && Number.isFinite(v) && v >= 100 && v <= 250,
+    def: null,
+    hint: 'must be a number between 100 and 250, or null',
+  },
+  // Display unit for height — its own segment, not tied to the weight unit.
+  height_unit: { valid: (v) => v === 'cm' || v === 'ftin', def: 'cm', hint: "must be 'cm' or 'ftin', or null" },
+  show_bmi: { valid: isBool, def: true, hint: 'must be a boolean, or null' },
+  bmi_nudge_dismissed: { valid: isBool, def: false, hint: 'must be a boolean, or null', vault: false },
+});
+
+// readBodySettings: every BODY_FIELDS key, its default when absent or invalid.
+export function readBodySettings(rec) {
+  const out = {};
+  for (const [k, f] of Object.entries(BODY_FIELDS)) out[k] = rec && f.valid(rec[k]) ? rec[k] : f.def;
+  return out;
+}
+
+// storedBodySettings: only the fields actually present and valid on `src`
+// (never a default, never null) — the vault export/import shape. With
+// { vault: true } fields marked vault:false are skipped.
+export function storedBodySettings(src, { vault = false } = {}) {
+  const out = {};
+  for (const [k, f] of Object.entries(BODY_FIELDS)) {
+    if (src && f.valid(src[k]) && !(vault && f.vault === false)) out[k] = src[k];
+  }
+  return out;
+}
 const FEATURES_RECORD_TYPE = 'features';
 const FEATURES_RECORD_ID = 'features';
 const TABORDER_RECORD_TYPE = 'taborder';
@@ -166,7 +201,32 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return {
       timezone: (rec && rec.timezone) || timeZone,
       dismissed_tz_suggestion: (rec && rec.dismissed_tz_suggestion) || '',
+      ...readBodySettings(rec),
     };
+  }
+
+  // setBodySettings merges a partial patch of BODY_FIELDS onto the general
+  // singleton (same write path as setTimezone). null clears a field (it is
+  // dropped, never stored as null); an unknown key or invalid value rejects
+  // the whole patch.
+  async function setBodySettings(patch) {
+    const keys = Object.keys(patch || {});
+    const bad = keys.find((k) => !BODY_FIELDS[k] || (patch[k] !== null && !BODY_FIELDS[k].valid(patch[k])));
+    if (!keys.length || bad) {
+      const err = new Error(bad ? `${bad}: ${BODY_FIELDS[bad] ? BODY_FIELDS[bad].hint : 'unknown field'}` : 'empty patch');
+      err.code = 'invalid_request';
+      throw err;
+    }
+    const all = await records.list(GENERAL_RECORD_TYPE);
+    const next = { ...findSingleton(all, GENERAL_RECORD_ID) };
+    for (const k of keys) {
+      if (patch[k] === null) delete next[k];
+      else next[k] = patch[k];
+    }
+    await records.put(GENERAL_RECORD_TYPE, {
+      ...next, recordId: GENERAL_RECORD_ID, clientTs: now(), deleted: false,
+    });
+    return readBodySettings(next);
   }
 
   // setTimezone merges onto the existing singleton record (rather than
@@ -599,6 +659,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
     getGeneral,
     getFirstRunComplete,
     setTimezone,
+    setBodySettings,
     setDismissedTzSuggestion,
     setFirstRunComplete,
     getStartHere,
