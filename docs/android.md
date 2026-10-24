@@ -484,8 +484,10 @@ Reminders stay local notifications (above).
   posted even in front, like the web. Its tap — the shell's notification
   (launcher intent + extra `kind`, `CLEAR_TOP|SINGLE_TOP`, one PendingIntent
   requestCode per kind so a later wake never rewrites it) or the server's
-  block (FCM delivers the launcher intent with the data payload as extras, no
-  click action) — opens `https://<account host>/?tab=settings&page=add-device`
+  block (FCM delivers the launcher intent + `CLEAR_TOP` with the data payload
+  as extras, no click action; `MainActivity` is `singleTop` so that reaches
+  the live activity's `onNewIntent` instead of recreating it and losing the
+  page's in-memory flow) — opens `https://<account host>/?tab=settings&page=add-device`
   (`Push.tappedPath`, then `openPath` like a reminder tap: the open page's
   router warm, a load cold, deferred behind the app lock). Only the open
   account's host; nothing in local mode or on a Recents relaunch. The other
@@ -494,8 +496,10 @@ Reminders stay local notifications (above).
   alone) checks the op gates, null without Firebase, and a fake message via
   the debug-only `QaPush` receiver in front (page event, no notification) and
   in the background (the notification); `transfer_claimed` acked in front
-  (nothing posted) and tapped from the shade in the background (Add a device's
-  "not open here" state). A real FCM delivery is an owner device check after
+  (nothing posted), tapped from the shade in the background (Add a device's
+  "not open here" state) in both posting orders against `dry-queue`, and a
+  server-style launch (`am start` launcher + `--activity-clear-top` + kind)
+  over a live flow (same page, flow resumed). A real FCM delivery is an owner device check after
   med-erq1.7.
 
 ### Health Connect import (bd med-nt9p.8, med-nt9p.9)

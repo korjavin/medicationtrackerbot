@@ -125,4 +125,26 @@ export default async function pushWake(ctx) {
     expect(r.dryTapDeeplinks.length === 0, `the dry-queue tap routed: ${JSON.stringify(r.dryTapDeeplinks)}`);
   });
   await shell('cmd statusbar collapse');
+
+  // The server's FCM block: its tap is the launcher intent + CLEAR_TOP (no SINGLE_TOP) with the data
+  // payload as extras. singleTop must hand it to the live activity: the page, its in-memory add-device
+  // flow and a window marker survive, and the flow is resumed, not replaced by "not open here".
+  await ctx.step('server-style tap with a live add-device flow: same page, flow resumed', async () => {
+    // Still on the "not open here" page from the Approve tap: its "Make a new code" starts a flow.
+    await page.locator('#transfer-retry').click({ timeout: 30_000 });
+    await page.locator('#transfer-confirm').click({ timeout: 30_000 });
+    await page.getByText('Scan this with your new device').waitFor({ state: 'visible', timeout: 60_000 });
+    await page.evaluate(() => { window.__qaMarker = 'live'; window.__qaDeeplink = []; });
+    await shell('input keyevent KEYCODE_HOME');
+    await sleep(2000);
+    await shell(`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${pkg}/com.example.medtracker.MainActivity --activity-clear-top --es kind transfer_claimed`);
+    await sleep(3000);
+    // A recreated activity destroys this WebView: the evaluate then throws (target closed).
+    r.serverTap = await page.evaluate(() => ({ marker: window.__qaMarker, deeplinks: window.__qaDeeplink }));
+    expect(r.serverTap.marker === 'live', `page state lost: ${JSON.stringify(r.serverTap)}`);
+    expect(r.serverTap.deeplinks.includes('add-device'), `the tap did not route: ${JSON.stringify(r.serverTap)}`);
+    // A tap that found no live flow would push "not open here" over it.
+    expect(await page.getByText('Scan this with your new device').isVisible(), 'the live flow is gone or covered');
+  });
+  await ctx.shot('server-tap-live-flow');
 }
