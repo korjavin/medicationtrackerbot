@@ -502,6 +502,37 @@ describe('/claim — in-app Scan and AD13 (camera off)', () => {
       expect(globalThis.Barcode.scan.mock.calls.length - calls).toBeLessThanOrEqual(6);
     });
 
+    it('a camera open rejecting after hide/resume does not end the scanner', async () => {
+      let fail;
+      let calls = 0;
+      installCamera({ open: () => (++calls === 1 ? new Promise((_, rej) => { fail = rej; }) : Promise.resolve({ getTracks: () => [] })) });
+      await scanAt('#scan');
+      await until(() => calls === 1);
+      setHidden(true);
+      setHidden(false);
+      fail(denied()); // the stale attempt fails
+      await until(() => calls === 2);
+      expect(app.querySelector('#claim-camera-off')).toBeNull();
+      expect(pageEvents.pageshow).toBeDefined();
+    });
+
+    it('the decoder finishing its load while hidden does not request the camera', async () => {
+      let loaded;
+      installCamera();
+      globalThis.Barcode.supportsLiveScan = () => !!globalThis.ZXing;
+      dom.window.document.head.append = (s) => { loaded = s; };
+      await scanAt('#scan');
+      await until(() => loaded);
+      setHidden(true);
+      globalThis.ZXing = {};
+      loaded.onload();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(globalThis.MediaCapture.openCameraStream).not.toHaveBeenCalled();
+      setHidden(false);
+      await until(() => globalThis.MediaCapture.openCameraStream.mock.calls.length === 1);
+      delete globalThis.ZXing;
+    });
+
     it('a deferred play() finishing after hide does not start the loop', async () => {
       let finish;
       installCamera();

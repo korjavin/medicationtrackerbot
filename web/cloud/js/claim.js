@@ -326,6 +326,11 @@ async function renderScanner(app) {
 
   await open();
 
+  // Once `opening` clears: retry if the page is visible again.
+  function again() {
+    Promise.resolve().then(() => { if (!scan.stopped && !doc?.hidden) open(); });
+  }
+
   async function open() {
     if (scan.opening || scan.stream || scan.stopped || doc?.hidden) return;
     scan.opening = true;
@@ -336,9 +341,11 @@ async function renderScanner(app) {
       if (barcode && !live()) await loadZxing();
       if (!live()) throw Object.assign(new Error('no live scan'), { code: 'UNAVAILABLE' });
       if (scan.stopped) return;
+      if (doc?.hidden || gen !== scan.gen) return again(); // hidden while loading
       stream = await media.openCameraStream({ facingMode: 'environment' });
     } catch (err) {
       if (scan.stopped) return;
+      if (doc?.hidden || gen !== scan.gen) return again(); // a stale attempt failing is not the user's answer
       stop();
       renderCameraOff(app, err && err.code === 'PERMISSION_DENIED');
       return;
@@ -347,7 +354,7 @@ async function renderScanner(app) {
     }
     if (scan.stopped || doc?.hidden || gen !== scan.gen) {
       stopTracks(stream);
-      if (!scan.stopped && !doc?.hidden) open(); // visible again while it was opening
+      again();
       return;
     }
     scan.stream = stream;
