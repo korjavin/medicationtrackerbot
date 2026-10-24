@@ -75,15 +75,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// What the lock held back: a load and a notification tap, run on unlock.
     private var deferredURL: URL?
     private var deferredReminder: (String, String?)?
-    /// local.erase is wiping wgapp://local; reopen() holds its page until done.
+    /// local.erase is wiping wgapp://local: every load() waits in heldLoad
+    /// and no wgapp navigation is allowed until it ends, so no local page
+    /// runs (or writes) beside a half-done wipe.
     private var erasing = false
-    private var heldReopen: URL??
+    private var heldLoad: URL?
 
     private func endErase() {
         erasing = false
-        if let held = heldReopen {
-            heldReopen = nil
-            reopen(to: held)
+        if let url = heldLoad {
+            heldLoad = nil
+            load(url)
         }
     }
 
@@ -394,12 +396,6 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     /// Mode or account changed: open the new home (or `url` on it), or stop the old page.
     private func reopen(to url: URL? = nil) {
-        // local.erase is wiping wgapp://local: the mode/account change already
-        // happened (state, and the erase's re-check sees it); its page waits.
-        if erasing {
-            heldReopen = .some(url)
-            return
-        }
         lastURL = nil
         committedHost = nil
         loadError = nil
@@ -412,6 +408,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     private func load(_ url: URL) {
         loadError = nil
         lastURL = url
+        if erasing {
+            heldLoad = url
+            return
+        }
         if concealed {
             deferredURL = url
             return
@@ -448,6 +448,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             if action.navigationType == .backForward { return .cancel }
         case LocalOrigin.scheme:
             guard local, url.host?.lowercased() == LocalOrigin.host else { return .cancel }
+            // A reload or page navigation outside load() (process restart,
+            // location.reload) waits for local.erase like a load() does.
+            if erasing {
+                if action.targetFrame?.isMainFrame != false, heldLoad == nil { heldLoad = url }
+                return .cancel
+            }
             if action.targetFrame == nil {
                 webView.load(action.request)
                 return .cancel
@@ -616,8 +622,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // The intent (host + its stamp) is captured here and re-checked right
         // before each destructive step: a switch to local mode, another
         // account, a newer intent or the TTL running out in between cancels
-        // the wipe. Mode changes made while it runs wait for it (reopen), so
-        // the local page never loads beside a half-done wipe. Native state is
+        // the wipe. Every load and wgapp navigation while it runs waits for it
+        // (load, decidePolicyFor), so no local page runs beside a half-done wipe. Native state is
         // spent only after a verified wipe; a failed one answers "erase
         // failed" and keeps the intent for the page's retry (twin of Android).
         // Only {enrolled: true} acts: the boot right after this tab's claim

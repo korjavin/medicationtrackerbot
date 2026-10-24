@@ -775,7 +775,7 @@ changes for it.
   The intent (host + stamp) is re-checked once the throwaway view has loaded,
   right before deleting, and again before the native effects: a switch to local
   mode or another account, a newer intent or the TTL running out cancels it;
-  a mode change while it runs holds its page reload until it ends. Only a
+  every page load and `wgapp` navigation while it runs waits until it ends. Only a
   verified wipe (nothing left, one retry) spends the intent and runs the
   local.reset effects (host mirror, `wgLeaveHost`, move/leave stashes, local
   reminders); anything left answers `"erase failed"`, the intent stays and
