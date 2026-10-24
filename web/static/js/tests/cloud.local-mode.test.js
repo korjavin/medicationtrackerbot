@@ -2113,7 +2113,7 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         || (/^https?:/.test(url) && new URL(url).hostname === TRIAL_BASE));
     const foodGets = () => fetched.filter(({ url, method }) => method === 'GET'
         && url.startsWith(`https://${TRIAL_BASE}/api/attest/food/`));
-    const OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
+    const OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations to use it.';
 
     it('off: an unknown barcode says the food database is missing, opens the manual form, and asks no server', async () => {
         const { window, document } = env;
