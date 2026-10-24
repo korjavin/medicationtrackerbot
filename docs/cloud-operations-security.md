@@ -181,16 +181,16 @@ busy_timeout, full disk) is a Warn, not a startup failure: the file stays at
 
 **If backups are enabled, this policy binds them:**
 
-- **Maximum retention 7 days.** Any backup / replication target must expire
-  every object within 7 days. A backup that outlives 7 days violates this
-  policy.
+- **Maximum retention 30 days** (operator decision 2026-10-24, bd med-9jgc;
+  was 7 days). Any backup / replication target must expire every object
+  within 30 days. A backup that outlives 30 days violates this policy.
 - **⚠️ The shipped defaults do not satisfy that policy.** As written,
   `docker-compose.cloud.yml` defaults to `LITESTREAM_RETENTION_ENABLED=false`
   (nothing expires at all) and, when enabled, `LITESTREAM_RETENTION=1680h`
   (70 days) with `LITESTREAM_SNAPSHOT_INTERVAL=240h`. Enabling litestream
   without overriding these puts the deployment out of policy on day one.
   Either set `LITESTREAM_RETENTION_ENABLED=true` with `LITESTREAM_RETENTION`
-  ≤ `168h`, or enforce the bound with an object-store lifecycle rule on the
+  ≤ `720h`, or enforce the bound with an object-store lifecycle rule on the
   litestream prefix — and prefer the lifecycle rule, since it holds even if the
   replicator misbehaves.
 - **Ciphertext-only, isolated credentials.** As
@@ -215,12 +215,12 @@ What that means for each place data can live:
 |---|---|
 | **Server database (logical)** | **Immediately.** One transaction removes every account-keyed row; the recovery verifier goes with it. |
 | **Server database (physical bytes)** | **Incrementally.** Freed ciphertext pages are reclaimed by later page reuse, not zeroed on delete (§2). |
-| **Backups** | **Depends on your deployment (§3).** Litestream not configured → no replica exists and deletion is physically immediate. Litestream configured → by **expiry only** (policy: ≤ 7 days). There is **no proactive purge** on account deletion — the operator does not reach into a replica to scrub a deleted account; the object ages out within the retention window. |
+| **Backups** | **Depends on your deployment (§3).** Litestream not configured → no replica exists and deletion is physically immediate. Litestream configured → by **expiry only** (policy: ≤ 30 days). There is **no proactive purge** on account deletion — the operator does not reach into a replica to scrub a deleted account; the object ages out within the retention window. |
 | **Local device (browser vault)** | Client-side, and **verified**: `clearLocalVault()` awaits `deleteDatabase` on both the encrypted mirror and the plaintext cache, resolving only on `onsuccess` and surfacing `blocked` as a recoverable "close other tabs" error. It runs **twice** — before `DELETE /api/account`, so a blocked wipe fails while the account is still intact, and after, as the load-bearing erase (`web/cloud/js/account-delete.js:70-77`, `web/static/js/features/settings.js:548-556`). Push unsubscribe and SW unregister are best-effort. |
 | **Third parties (§5)** | Governed by each subprocessor's own retention — the server cannot delete data already transmitted to Telegram, an AI provider, RxNav, a food DB, or a push service. |
 
 The user-facing takeaway the deletion UI must convey: **logical server deletion
-is immediate; backup removal, where backups exist, is by expiry within 7 days;
+is immediate; backup removal, where backups exist, is by expiry within 30 days;
 and data already sent to a third party is retained per that party's policy, not
 ours.**
 

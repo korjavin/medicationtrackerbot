@@ -27,11 +27,11 @@ func TestRouter_PrivacyPage(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"<h1>Med Tracker — Privacy Policy</h1>",
-		"<h2>Deleting your data</h2>",
+		"<h1>MyHealthBot — Privacy Policy</h1>",
+		"<h2>8. Your rights, and deleting your data</h2>",
 		"<table>",
-		"<strong>end-to-end encrypted</strong>",
-		`<a href="https://github.com/korjavin/medicationtrackerbot/issues">`,
+		"<strong>Your health records are end-to-end encrypted.</strong>",
+		`<a href="mailto:dev@myhealthbot.ai">`,
 		"Last updated 2026-",
 	} {
 		if !strings.Contains(body, want) {
