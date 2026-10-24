@@ -176,12 +176,27 @@ func TestInviteRequest_EmailDecline(t *testing.T) {
 	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
 	f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`)
 	f.tap(t, 1, "d", inviteAdmin, f.request(t, 1).AdminMessageID)
-	if len(f.mails()) != 0 || mintedBy(t, f.store, "req:1") != 0 {
-		t.Fatal("decline sent mail or minted")
+	m := f.mails()
+	if len(m) != 1 || m[0].to != "ada@example.com" || m[0].subject != inviteEmailDeclineSubject ||
+		m[0].body != inviteEmailDeclineBody || mintedBy(t, f.store, "req:1") != 0 {
+		t.Fatalf("decline mail = %+v", m)
 	}
 	_, edits, _ := f.snapshot()
-	if f.request(t, 1).Status != "declined" || len(edits) != 1 || !strings.Contains(edits[0], "Declined") {
+	if f.request(t, 1).Status != "declined" || len(edits) != 1 || !strings.Contains(edits[0], "Declined") ||
+		strings.Contains(edits[0], "failed") {
 		t.Fatalf("status/edit after decline: %s %v", f.request(t, 1).Status, edits)
+	}
+}
+
+func TestInviteRequest_EmailDeclineSendFailure(t *testing.T) {
+	f := newInviteFixture(t, inviteAdmin, 14*24*time.Hour, true)
+	f.mail.err = errors.New("dial tcp: connection refused")
+	f.post(t, "localhost", "203.0.113.1", `{"email":"ada@example.com"}`)
+	f.tap(t, 1, "d", inviteAdmin, f.request(t, 1).AdminMessageID)
+	_, edits, _ := f.snapshot()
+	if len(f.mails()) != 1 || f.request(t, 1).Status != "declined" || len(edits) != 1 ||
+		!strings.Contains(edits[0], "Declined (email failed)") {
+		t.Fatalf("failure edit = %v", edits)
 	}
 }
 
