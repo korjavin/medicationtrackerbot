@@ -480,3 +480,124 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         expect(lbBtn.getAttribute('aria-pressed')).toBe('false');
     });
 });
+
+// Settings → Units & body: the height field for BMI (med-a6fb.4, kit BM2).
+describe('Settings Units & body height field (med-a6fb.4)', () => {
+    let env;
+
+    const bodyPatches = () => env.window.apiCall.mock.calls
+        .filter((c) => c[0] === '/api/settings/body' && c[1] === 'PATCH')
+        .map((c) => c[2]);
+    const summary = () => env.document.querySelector('[data-settings-summary="body"]').textContent;
+
+    function typeHeight(value) {
+        const input = env.document.getElementById('settings-height-input');
+        input.value = value;
+        input.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+        input.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+    }
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+        env.window.apiCall = vi.fn(async (url, method, body) => (method === 'PATCH' ? { ...body } : { ok: true }));
+        env.window.reloadCurrentTab = vi.fn();
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    it('renames the home row to Units & body and shows Height · Not set when empty', () => {
+        const row = env.document.querySelector('[data-settings-open="units"]');
+        expect(row.querySelector('.wg-setting__title').textContent).toBe('Units & body');
+        expect(summary()).toBe('Height · Not set');
+        expect(env.document.getElementById('settings-height-input').value).toBe('');
+        const page = env.document.querySelector('[data-settings-page="units"]');
+        expect(page.textContent).toContain('Adult ranges; not meant for under-18s.');
+        expect(env.document.getElementById('settings-show-bmi-toggle').checked).toBe(true);
+    });
+
+    it('entering 180 sends PATCH {height_cm: 180} through applyOptimistic and shows it', async () => {
+        const optimistic = vi.spyOn(env.window.DataStore, 'applyOptimistic');
+        typeHeight('180');
+        await vi.waitFor(() => expect(bodyPatches()).toEqual([{ height_cm: 180 }]));
+        expect(optimistic.mock.calls[0][0]).toBe('settings_bundle');
+        expect(optimistic.mock.calls[0][1]({ tabOrder: ['x'], body: { show_bmi: true } }))
+            .toEqual({ tabOrder: ['x'], body: { show_bmi: true, height_cm: 180 } });
+        expect(env.document.getElementById('settings-height-input').value).toBe('180');
+        expect(summary()).toBe('Height · 180 cm');
+    });
+
+    it('switching the height unit to ft + in shows 180 cm as 5′ 11″ and stores the unit only', async () => {
+        typeHeight('180');
+        await vi.waitFor(() => expect(bodyPatches().length).toBe(1));
+        env.document.querySelector('#height-unit-segmented [data-height-unit="ftin"]').click();
+        await vi.waitFor(() => expect(bodyPatches()[1]).toEqual({ height_unit: 'ftin' }));
+        expect(env.document.getElementById('settings-height-ft').value).toBe('5');
+        expect(env.document.getElementById('settings-height-in').value).toBe('11');
+        expect(env.document.getElementById('settings-height-ftin').classList.contains('wg-settings-hidden')).toBe(false);
+        expect(env.document.getElementById('settings-height-cm').classList.contains('wg-settings-hidden')).toBe(true);
+        expect(summary()).toBe('Height · 5′ 11″');
+        // The weight unit is untouched.
+        expect(env.window.apiCall.mock.calls.some((c) => c[0] === '/api/settings/weight-unit')).toBe(false);
+    });
+
+    it('clearing the field sends height_cm: null', async () => {
+        typeHeight('180');
+        await vi.waitFor(() => expect(bodyPatches().length).toBe(1));
+        typeHeight('');
+        await vi.waitFor(() => expect(bodyPatches()[1]).toEqual({ height_cm: null }));
+        expect(summary()).toBe('Height · Not set');
+    });
+
+    it('an out-of-range height shows an inline error and sends nothing', async () => {
+        env.window.safeAlert = vi.fn();
+        typeHeight('90');
+        await Promise.resolve();
+        const err = env.document.getElementById('settings-height-error');
+        expect(err.classList.contains('wg-settings-hidden')).toBe(false);
+        expect(err.textContent).toBe('Enter a height between 100 and 250 cm.');
+        expect(env.document.getElementById('settings-height-input').getAttribute('aria-invalid')).toBe('true');
+        expect(bodyPatches()).toEqual([]);
+        expect(env.window.safeAlert).not.toHaveBeenCalled();
+
+        typeHeight('175');
+        await vi.waitFor(() => expect(bodyPatches()).toEqual([{ height_cm: 175 }]));
+        expect(err.classList.contains('wg-settings-hidden')).toBe(true);
+    });
+
+    it('turning off Show BMI on Weight sends show_bmi: false', async () => {
+        const toggle = env.document.getElementById('settings-show-bmi-toggle');
+        toggle.checked = false;
+        toggle.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+        await vi.waitFor(() => expect(bodyPatches()).toEqual([{ show_bmi: false }]));
+    });
+
+    it('a refused PATCH rolls the field back', async () => {
+        env.window.apiCall = vi.fn().mockResolvedValue(null);
+        typeHeight('180');
+        await vi.waitFor(() => expect(bodyPatches().length).toBe(1));
+        await vi.waitFor(() => expect(env.document.getElementById('settings-height-input').value).toBe(''));
+        expect(summary()).toBe('Height · Not set');
+    });
+});
+
+describe('?tab=settings&page=units&focus=height (med-a6fb.7 nudge)', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('opens Units & body with the height input focused', async () => {
+        const { window, document, cleanup } = loadFrontendEnv({ url: 'https://acct.example.test/?tab=settings&page=units&focus=height' });
+        try {
+            vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+            window.handleDeepLinks();
+            await vi.advanceTimersByTimeAsync(110);
+            const input = document.getElementById('settings-height-input');
+            expect(input.closest('.wg-page')).not.toBeNull();
+            expect(document.activeElement).toBe(input);
+        } finally {
+            cleanup();
+        }
+    });
+});

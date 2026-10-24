@@ -508,7 +508,7 @@
                     </button>
                     <button type="button" class="wg-setting" data-settings-open="units">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Units</span></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Units &amp; body</span><span class="wg-setting__desc" data-settings-summary="body">Height · Not set</span></span>
                         <span class="wg-setting__value" data-settings-summary="units"></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
@@ -727,6 +727,52 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Height has its own unit, not the weight unit (med-a6fb.4, BM2). -->
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title">Height</div>
+                            <div class="wg-settings-row__desc">Stored in centimetres</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Height unit"
+                                id="height-unit-segmented">
+                                <button type="button" class="wg-gloss wg-settings-segmented__btn wg-settings-segmented__btn--active wg-gloss--sun"
+                                    data-height-unit="cm" aria-pressed="true">cm</button>
+                                <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                                    data-height-unit="ftin" aria-pressed="false">ft + in</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wg-section wg-settings-body">
+                <div class="wg-section__head"><span class="wg-eyebrow">Height</span><span class="wg-meta">for BMI</span></div>
+                <div class="wg-card wg-vstack" id="settings-height-field">
+                    <label class="wg-field" id="settings-height-cm">
+                        <span class="wg-label">Height · cm</span>
+                        <input class="wg-input" id="settings-height-input" type="text" inputmode="numeric"
+                            autocomplete="off" placeholder="Not set" aria-describedby="settings-height-error">
+                    </label>
+                    <div class="wg-fieldrow wg-settings-hidden" id="settings-height-ftin">
+                        <label class="wg-field">
+                            <span class="wg-label">ft</span>
+                            <input class="wg-input" id="settings-height-ft" type="text" inputmode="numeric"
+                                autocomplete="off" placeholder="–" aria-describedby="settings-height-error">
+                        </label>
+                        <label class="wg-field">
+                            <span class="wg-label">in</span>
+                            <input class="wg-input" id="settings-height-in" type="text" inputmode="numeric"
+                                autocomplete="off" placeholder="–" aria-describedby="settings-height-error">
+                        </label>
+                    </div>
+                    <p class="wg-error wg-settings-hidden" id="settings-height-error" role="alert"></p>
+                    <p class="wg-shell__fine">Adult ranges; not meant for under-18s.</p>
+                </div>
+                <div class="wg-list">
+                    <mt-setting-toggle title="Show BMI on Weight"
+                        description="The read-out and the borders on the chart"
+                        input-id="settings-show-bmi-toggle"></mt-setting-toggle>
                 </div>
             </section>
 

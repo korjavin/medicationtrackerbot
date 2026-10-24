@@ -96,6 +96,16 @@ function handleDeepLinks() {
                     window.SettingsView.openDevicesDeeplink(page);
                 }
             }, 100);
+        } else if (page === 'units') {
+            // ?tab=settings&page=units[&focus=height] — Units & body; focus=height
+            // is the Weight page's "Add your height" nudge (med-a6fb.7).
+            const focus = urlParams.get('focus');
+            setTimeout(() => {
+                const view = window.SettingsView;
+                if (!view) return;
+                if (focus === 'height') view.openHeightField();
+                else view.openSettingsPage('units');
+            }, 100);
         }
         window.history.replaceState({}, '', '/');
     } else if (!action && tab) {
