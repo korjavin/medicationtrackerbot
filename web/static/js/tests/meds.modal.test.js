@@ -197,6 +197,9 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('Let Med Tracker remind you');
         expect(Array.from(sheet.querySelectorAll('.wg-facts b')).map((b) => b.textContent))
             .toEqual(['Only what you schedule', 'Shown on your lock screen', 'Change it any time']);
+        // Account mode (med-mt0l): reminders always name what is due — no choice.
+        expect(sheet.querySelector('[data-notify-verbosity]')).toBeNull();
+        expect(sheet.querySelector('.wg-notif')).toBeNull();
         // A second schedule while the sheet is up does not stack another.
         expect(window.NotifyPermission.maybeAsk()).toBe(first);
 
@@ -227,6 +230,120 @@ describe('Medication editor page (kit M5–M6)', () => {
         window.showAddModal();
         await flush();
         expect(document.querySelector('#med-notify-note [data-notify-denied]')).not.toBeNull();
+    });
+
+    // med-mt0l (kit RD1): local-only mode's ask sheet carries S8's Generic /
+    // Detailed pair with a live preview; the pick is saved however it closes.
+    describe('local-only lock-screen choice (RD1/RD2)', () => {
+        const DELIVERY = '/api/settings/reminder-delivery';
+        const pressed = (root) => root.querySelector('[data-notify-verbosity] .wg-choice[aria-pressed="true"]').dataset.value;
+
+        function localSetup(window) {
+            window.document.documentElement.classList.add('wg-local-vault');
+            window.medications = [{ id: 1, name: 'Candecor' }];
+            window.apiCall = vi.fn(async (url, method, body) => (method === 'PUT' ? body : { verbosity: 'generic' }));
+        }
+
+        it('RD1: the choice replaces the lock fact, previews live, and Allow saves Detailed', async () => {
+            const { document, window } = env;
+            localSetup(window);
+            window.LocalNotifications = { isSupported: () => true, permission: vi.fn(async () => 'default'), requestPermission: vi.fn(async () => 'granted') };
+
+            const asking = window.NotifyPermission.maybeAsk();
+            await flush();
+            await flush();
+            const sheet = document.getElementById('notify-permission-sheet');
+            expect(sheet).not.toBeNull();
+            expect(Array.from(sheet.querySelectorAll('.wg-facts b')).map((b) => b.textContent))
+                .toEqual(['Only what you schedule', 'Change it any time']);
+            expect(sheet.querySelector('.wg-label').textContent).toBe('On the lock screen, show');
+            expect(pressed(sheet)).toBe('generic');
+            const preview = sheet.querySelector('.wg-notif__text');
+            expect(preview.textContent).toBe('Medication time');
+            expect(sheet.querySelector('.wg-notif').getAttribute('aria-live')).toBe('polite');
+            expect(sheet.querySelector('.wg-hint').textContent)
+                .toBe('Anyone holding your phone can read the lock screen, even while it is locked.');
+
+            sheet.querySelector('[data-notify-verbosity] .wg-choice[data-value="detailed"]').click();
+            expect(pressed(sheet)).toBe('detailed');
+            expect(preview.textContent).toBe('Time to take: Candecor');
+
+            sheet.querySelector('[data-notify-choice="allow"]').click();
+            await expect(asking).resolves.toBe(true);
+            expect(window.apiCall).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
+        });
+
+        it('RD1: "Not now" still saves the pick; an untouched Generic writes nothing', async () => {
+            const { document, window } = env;
+            localSetup(window);
+            const permission = vi.fn(async () => 'default');
+            window.LocalNotifications = { isSupported: () => true, permission, requestPermission: vi.fn() };
+
+            const asking = window.NotifyPermission.maybeAsk();
+            await flush();
+            await flush();
+            const sheet = document.getElementById('notify-permission-sheet');
+            sheet.querySelector('[data-notify-verbosity] .wg-choice[data-value="detailed"]').click();
+            sheet.querySelector('[data-notify-choice="not-now"]').click();
+            await expect(asking).resolves.toBe(false);
+            expect(window.LocalNotifications.requestPermission).not.toHaveBeenCalled();
+            expect(window.apiCall).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
+
+            // A fresh device: Generic left as it was → no write.
+            window.localStorage.removeItem('wg.notifyPermission.asked');
+            window.apiCall.mockClear();
+            const again = window.NotifyPermission.maybeAsk();
+            await flush();
+            await flush();
+            document.querySelector('#notify-permission-sheet [data-notify-choice="not-now"]').click();
+            await expect(again).resolves.toBe(false);
+            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([]);
+        });
+
+        it('RD2: the first-run one-tap grant follows with "What should reminders show?"; Done saves', async () => {
+            const { document, window } = env;
+            localSetup(window);
+            const permission = vi.fn(async () => 'default');
+            const requestPermission = vi.fn(async () => { permission.mockResolvedValue('granted'); return 'granted'; });
+            window.LocalNotifications = { isSupported: () => true, permission, requestPermission, copy: { os: 'iOS' } };
+            const slot = document.createElement('div');
+            document.body.appendChild(slot);
+
+            await window.NotifyPermission.renderNote(slot, { askNow: true });
+            slot.querySelector('[data-notify-allow]').click();
+            expect(requestPermission).toHaveBeenCalledTimes(1);
+            await flush();
+            await flush();
+            await flush();
+            const sheet = document.getElementById('notify-detail-sheet');
+            expect(sheet).not.toBeNull();
+            expect(sheet.querySelector('.wg-eyebrow').textContent).toBe('Notifications are on');
+            expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('What should reminders show?');
+            expect(pressed(sheet)).toBe('generic');
+            sheet.querySelector('[data-notify-verbosity] .wg-choice[data-value="detailed"]').click();
+            sheet.querySelector('[data-notify-choice="done"]').click();
+            expect(document.getElementById('notify-detail-sheet')).toBeNull();
+            expect(window.apiCall).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
+        });
+
+        it('RD2 is local-only: an account-mode grant opens no follow-up sheet', async () => {
+            const { document, window } = env;
+            const permission = vi.fn(async () => 'default');
+            const requestPermission = vi.fn(async () => { permission.mockResolvedValue('granted'); return 'granted'; });
+            window.LocalNotifications = { isSupported: () => true, permission, requestPermission, copy: { os: 'iOS' } };
+            const slot = document.createElement('div');
+            document.body.appendChild(slot);
+            await window.NotifyPermission.renderNote(slot, { askNow: true });
+            slot.querySelector('[data-notify-allow]').click();
+            await flush();
+            await flush();
+            await flush();
+            expect(document.getElementById('notify-detail-sheet')).toBeNull();
+        });
+
+        afterEach(() => {
+            env?.window.document.documentElement.classList.remove('wg-local-vault');
+        });
     });
 
     // med-1ikf: after "Not now" the note's button is the one tap to the system

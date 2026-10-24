@@ -280,7 +280,7 @@
         if (remote && !(await remoteConfigured())) {
             const hint = await remoteHint();
             if (seq !== st.searchSeq) return;
-            setSearchStatus(hint || 'Food database not configured. Add one in Settings → Integrations.');
+            setSearchStatus(hint || 'Food database not available right now.');
             return;
         }
         setSearchStatus(remote ? 'Searching the food database…' : 'Searching…');
@@ -473,7 +473,7 @@
         // A miss without a food database to ask is not "no product": say why.
         const missCopy = hit ? '' : ((await remoteConfigured())
             ? 'No product found for that barcode. Enter it once and it will be found next time.'
-            : (await remoteHint()) || 'Barcode lookup needs the food database. Add one in Settings → Integrations.');
+            : (await remoteHint()) || 'Barcode lookup needs the food database, which isn’t available right now.');
         if (seq !== st.searchSeq) return;
         if (!hit) {
             setSearchStatus('');

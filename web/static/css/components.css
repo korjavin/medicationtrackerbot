@@ -595,6 +595,13 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
     z-index: var(--z-confirm);
 }
 
+/* Notification ask + RD2 lock-screen choice (features/notify-permission.js,
+   med-mt0l): same confirm layer as their backdrop, so the backdrop never
+   swallows a tap on the sheet and RD2 opens over the W1 overlay. */
+.wg-modal.wg-notify-ask {
+    z-index: var(--z-confirm);
+}
+
 .wg-invite-sheet [hidden] {
     display: none;
 }

@@ -366,9 +366,9 @@ function useLocalTrial(base, attest, win) {
 // hint(). Answers that say "not now" park it in memory: today's lookups spent
 // (429 install-day) until resets_at, the operator having no food DB or no
 // trial at all (503 food_not_configured / trial_not_configured) for an hour.
-export const FOOD_OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
+export const FOOD_OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations to use it.';
 export const FOOD_PAUSED_COPY = 'Food lookups paused until tomorrow.';
-const foodUsedCopy = () => `The free trial was already used on this ${deviceName()}. Add your own food DB in Settings → AI & integrations.`;
+const foodUsedCopy = () => `The free trial was already used on this ${deviceName()}. The food database is not available in device-only mode.`;
 let foodParked = null; // { hint, until }
 
 export const LOCAL_FOOD_DB = {
