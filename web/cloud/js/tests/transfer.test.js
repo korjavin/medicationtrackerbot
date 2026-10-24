@@ -516,6 +516,25 @@ describe('Add a device — the claim notification tap (med-r1j2.9)', () => {
     expect(app.querySelector('#transfer-confirm')).not.toBeNull();
   });
 
+  it("acks the service worker's live-code probe only while this page holds a live code", async () => {
+    const listeners = [];
+    vi.stubGlobal('navigator', { serviceWorker: { addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); } } });
+    try {
+      const probe = () => {
+        const port = { postMessage: vi.fn() };
+        listeners.forEach((fn) => fn({ data: { type: 'transfer-live-probe' }, ports: [port] }));
+        return port.postMessage.mock.calls.length > 0;
+      };
+      await mountWaiting();
+      expect(listeners).toHaveLength(1);
+      expect(probe()).toBe(true);
+      flow.stop();
+      expect(probe()).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('an expired or stopped flow is not resumed', async () => {
     await mountWaiting();
     await vi.advanceTimersByTimeAsync(600000);

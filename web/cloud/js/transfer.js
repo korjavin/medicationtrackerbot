@@ -82,6 +82,21 @@ export function resumeLiveTransfer() {
   return true;
 }
 
+// sw.js asks every window which one holds the live code before routing the
+// tap (another tab of the account may be the first window). Ack on the
+// transferred port only while live; the probe and the ack carry nothing.
+let probeBound = false; // module-state: one SW listener per page
+function bindLiveProbe() {
+  const sw = globalThis.navigator && globalThis.navigator.serviceWorker;
+  if (probeBound || !sw) return;
+  probeBound = true;
+  sw.addEventListener('message', (event) => {
+    const port = event.ports && event.ports[0];
+    if (!port || !event.data || event.data.type !== 'transfer-live-probe') return;
+    if (currentFlow && currentFlow.live) port.postMessage('live');
+  });
+}
+
 // Returns { cancel(): Promise<boolean>, stop() }. cancel() resolves true once
 // nothing claimable is left (the live slot was deleted server-side, or there
 // never was one) and false when the DELETE failed — the host must then stay put,
@@ -94,6 +109,7 @@ export function renderAddDevice(mount, ctx, onExit, opts = {}) {
   const flow = { slotId: null, live: false, closed: false, timer: null, poller: null, busy: false, s: null };
   flow.pollNow = () => { pollSlot(); };
   currentFlow = flow;
+  bindLiveProbe();
   // The account subdomain names the account in the transcript: it is the one
   // name the new device knows before approval.
   const accountSub = location.hostname.split('.')[0];

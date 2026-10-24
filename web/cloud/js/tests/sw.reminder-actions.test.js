@@ -308,4 +308,22 @@ describe('cloud sw.js — "Approve the new device?" (transfer_claimed)', () => {
         await fireNotificationClick(self, listeners, '', opts.data);
         expect(self.clients.openWindow).toHaveBeenCalledWith('/?tab=settings&page=add-device');
     });
+
+    // Argus #1: the live flow is page memory of the tab that made the code. With
+    // two tabs the tap must reach that one, not just the first window.
+    it('routes the tap to the window that acks the live-code probe, not the first one', async () => {
+        const first = { focus: vi.fn(), postMessage: vi.fn() }; // no live code: never answers
+        const owner = {
+            focus: vi.fn(),
+            postMessage: vi.fn((msg, ports) => { if (msg.type === 'transfer-live-probe') ports[0].postMessage('live'); }),
+        };
+        self.clients.matchAll.mockResolvedValue([first, owner]);
+
+        await fireNotificationClick(self, listeners, '', { url: '/?tab=settings&page=add-device' });
+
+        expect(owner.postMessage).toHaveBeenCalledWith({ type: 'reminder-open', url: '/?tab=settings&page=add-device' });
+        expect(owner.focus).toHaveBeenCalled();
+        expect(first.focus).not.toHaveBeenCalled();
+        expect(first.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'reminder-open' }));
+    });
 });

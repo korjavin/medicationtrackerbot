@@ -360,6 +360,8 @@ const TRANSFER_CLAIMED_NOTIFICATION = {
   kind: TRANSFER_CLAIMED_KIND,
   url: '/?tab=settings&page=add-device',
 };
+// The tap's "which window holds the live code?" probe (transfer.js answers).
+const TRANSFER_PROBE_TYPE = 'transfer-live-probe';
 
 // Inlined from crypto.js encryptPushPayload/decryptPushPayload: NK app-layer is
 // AES-GCM(NK, payload, aad="mt/v1/push") with the 12-byte nonce packed ahead of
@@ -466,7 +468,7 @@ const WAKE_ACK_TIMEOUT_MS = 1500;
 // The reply rides a per-push MessageChannel rather than a global SW `message`
 // listener: the port IS the correlation, so there is nothing to match up and
 // nothing to clean up but the port itself.
-function nudgeWindow(client) {
+function nudgeWindow(client, type = INBOX_WAKE_KIND) {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     const finish = (acked) => {
@@ -476,7 +478,7 @@ function nudgeWindow(client) {
     };
     const timer = setTimeout(() => finish(false), WAKE_ACK_TIMEOUT_MS);
     channel.port1.onmessage = () => finish(true);
-    client.postMessage({ type: INBOX_WAKE_KIND }, [channel.port2]);
+    client.postMessage({ type }, [channel.port2]);
   });
 }
 
@@ -501,7 +503,7 @@ self.addEventListener('push', (event) => {
         // before it shows its own "site updated in the background" one. A chatty
         // day in Telegram can therefore surface a notification per burst anyway.
         const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        const acks = await Promise.all(windows.map(nudgeWindow));
+        const acks = await Promise.all(windows.map((w) => nudgeWindow(w)));
         if (acks.some(Boolean)) return undefined;
       }
       return self.registration.showNotification(n.title, {
@@ -570,8 +572,17 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const route = ACTION_ROUTES[event.action];
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      const client = clients.find((c) => 'focus' in c);
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
+      let client = clients.find((c) => 'focus' in c);
+      if (!route && event.notification.data && event.notification.data.url === TRANSFER_CLAIMED_NOTIFICATION.url) {
+        // The live add-device flow lives in the memory of the tab that made the
+        // code, not necessarily the first one: ask every window (content-free
+        // probe, transfer.js acks only while it holds a live code) and route
+        // the tap to the owner. No ack → the first window, which lands on AD4.
+        const focusable = clients.filter((c) => 'focus' in c);
+        const acks = await Promise.all(focusable.map((c) => nudgeWindow(c, TRANSFER_PROBE_TYPE)));
+        client = focusable[acks.indexOf(true)] || client;
+      }
       if (!route) {
         // A body tap opens the reminder's own target (med-9d1a): a dose's take
         // sheet, or its section. Warm unlocked tab → the page navigates
