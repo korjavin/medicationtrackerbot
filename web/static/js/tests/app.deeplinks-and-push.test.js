@@ -413,6 +413,92 @@ describe('handleDeepLinks – push-action query params', () => {
     }
   });
 
+  // bd med-mt0l (kit RD3): the take sheet opened from a reminder in local-only
+  // mode shows the one-time "medication name on the lock screen?" line while
+  // the pref is Generic. Once per device; never with Detailed or an account.
+  describe('RD3 lock-screen hint', () => {
+    const DELIVERY = '/api/settings/reminder-delivery';
+    const SLOT = 'ids=2&scheduled=2026-03-01T08%3A00%3A00.000Z';
+
+    function setup({ local = true, verbosity = 'generic' } = {}) {
+      const env = loadFrontendEnv();
+      const { window } = env;
+      window.localStorage.clear();
+      if (local) window.document.documentElement.classList.add('wg-local-vault');
+      const api = vi.spyOn(window, 'apiCall').mockImplementation(async (url, method, body) => {
+        if (url === DELIVERY) return method === 'PUT' ? body : { verbosity };
+        if (url.startsWith('/api/medications')) return [{ id: 2, name: 'Aspirin' }];
+        return [];
+      });
+      return { ...env, api };
+    }
+
+    async function openFromReminder(window) {
+      window.handlePushAction('medication_confirm', new URLSearchParams(SLOT));
+      await vi.advanceTimersByTimeAsync(520);
+      return window.document.querySelector('#med-confirm-hint [data-reminder-hint]');
+    }
+
+    it('shows once, after a Generic reminder; Show details sets Detailed with an Undo toast', async () => {
+      const { window, cleanup, api } = setup();
+      try {
+        const toast = vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+        const hint = await openFromReminder(window);
+        expect(hint).not.toBeNull();
+        expect(hint.textContent).toContain('Want the medication name on the lock screen?');
+        // Below the take sheet's time row, never between the user and Take.
+        expect(hint.closest('.wg-sheet__body')).not.toBeNull();
+
+        hint.querySelector('[data-reminder-hint-action="details"]').click();
+        expect(window.document.querySelector('[data-reminder-hint]')).toBeNull();
+        expect(api).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
+        const [msg, type, opts] = toast.mock.calls.at(-1);
+        expect([msg, type, opts.detail, opts.action.label])
+          .toEqual(['Lock screen now shows medication names', 'success', 'Change in Settings → Reminders', 'Undo']);
+        opts.action.onClick();
+        expect(api).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'generic' });
+
+        // Once per device: the next reminder-opened sheet has no hint.
+        expect(await openFromReminder(window)).toBeNull();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('× retires it for good; a non-reminder open never shows it', async () => {
+      const { window, cleanup } = setup();
+      try {
+        window.showMedicationConfirmModal([2], ['Aspirin'], '2026-03-01T08:00:00.000Z', 'confirm', []);
+        await vi.advanceTimersByTimeAsync(20);
+        expect(window.document.querySelector('[data-reminder-hint]')).toBeNull();
+
+        const hint = await openFromReminder(window);
+        hint.querySelector('[data-reminder-hint-action="dismiss"]').click();
+        expect(window.document.querySelector('[data-reminder-hint]')).toBeNull();
+        expect(await openFromReminder(window)).toBeNull();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('never with Detailed already set, and never in account mode', async () => {
+      const detailed = setup({ verbosity: 'detailed' });
+      try {
+        expect(await openFromReminder(detailed.window)).toBeNull();
+        expect(detailed.window.localStorage.getItem('wg.reminderDetailHint.shown')).toBeNull();
+      } finally {
+        detailed.cleanup();
+      }
+      const account = setup({ local: false });
+      try {
+        expect(await openFromReminder(account.window)).toBeNull();
+        expect(account.api.mock.calls.some((c) => c[0] === DELIVERY)).toBe(false);
+      } finally {
+        account.cleanup();
+      }
+    });
+  });
+
   it('?action=workout_start routes to handlePushAction and cleans URL', async () => {
     const { window, cleanup } = loadFrontendEnv({
       url: 'https://example.test/?action=workout_start&session_id=42'

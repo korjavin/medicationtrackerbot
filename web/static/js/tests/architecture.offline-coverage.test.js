@@ -65,7 +65,7 @@ const ALLOWLIST = [
     },
     {
         file: 'notify-permission.js',
-        reason: 'notification permission ask sheet + denied note (bd med-ckm5.4); reads only the device/browser permission, no API data',
+        reason: 'notification permission ask sheet + denied note (bd med-ckm5.4); reads the device/browser permission, plus (local-only mode, med-mt0l) the reminder-delivery pref, which the in-browser shim answers from the local vault — no section data',
     },
     {
         file: 'invite.js',
