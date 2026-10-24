@@ -141,11 +141,12 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     }
 
     /// A tap opens the reminder's url (bd med-w6gx.20): a dose's take sheet, else its section.
-    /// A native push's alert has no url and no vault: Today (ReminderPath.fallback).
+    /// A native push's alert has no url and no vault: its kind's Push.path
+    /// (transfer_claimed → add-device), else Today (ReminderPath.fallback).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
-        let path = ReminderPath.sanitize(info["url"] as? String ?? ReminderPath.legacy(info["section"]))
+        let path = ReminderPath.sanitize(info["url"] as? String ?? Push.path(info["kind"]) ?? ReminderPath.legacy(info["section"]))
         let vault = info["vault"] as? String
         Task { @MainActor in
             if let onOpen { onOpen(path, vault) } else { pending = (path, vault) }

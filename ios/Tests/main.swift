@@ -202,6 +202,7 @@ tap("/?action=medication_confirm&ids=2,5&scheduled=2026-01-01T09:00:00.000Z",
     "/?action=medication_confirm&ids=2,5&scheduled=2026-01-01T09:00:00.000Z")
 tap("/?tab=meds", "/?tab=meds")
 tap("/?tab=bp", "/?tab=bp")
+tap("/?tab=settings&page=add-device", "/?tab=settings&page=add-device") // the claim push's tap (bd med-r1j2.16)
 for bad in [nil, "", "/?", "/", "?tab=meds", "https://evil.com/?tab=meds", "//evil.com/?tab=meds", "/x?tab=meds",
             "/?tab=meds#claim=x", "/?tab=meds#", "/?tab=meds&next=https://evil.com", "/?reminder_action=bp_snooze",
             "/?tab=me\"ds", "/?tab=meds');alert(1)//\n", "javascript:alert(1)"] as [String?] {
@@ -230,12 +231,17 @@ precondition(accountOps.contains("push.token") && !localOps.contains("push.token
 print("LocalOrigin.ops: ok")
 
 // Push (bd med-erq1.4): the page event, the token encoding, the Diag fingerprint.
-for kind in ["inbox-wake", "dry-queue", "token"] {
+for kind in ["inbox-wake", "dry-queue", "transfer_claimed", "token"] {
     let js = Push.event(kind)!
     // Taken only when a listener cancelled it (onWake's receipt).
     precondition(js == "!document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:'\(kind)'},cancelable:true}))", js)
 }
 for kind in ["", "Inbox-wake", "inbox-wake'", "x');alert(1);('"] { precondition(Push.event(kind) == nil, kind) }
+// The claim push's tap opens add-device (sw.js TRANSFER_CLAIMED_NOTIFICATION); other kinds fall to Today.
+precondition(Push.path("transfer_claimed") == "/?tab=settings&page=add-device")
+precondition(ReminderPath.sanitize(Push.path("transfer_claimed")) == "/?tab=settings&page=add-device")
+let noPath: [Any?] = ["inbox-wake", "dry-queue", "token", "transfer-claimed", "", nil, 42]
+for kind in noPath { precondition(Push.path(kind) == nil) }
 precondition(Push.hex(Data([0x00, 0x0a, 0xff])) == "000aff")
 let fp = Push.fingerprint("abcdef0123456789")
 precondition(fp.count == 8 && fp != Push.fingerprint("abcdef012345678a"), fp)
