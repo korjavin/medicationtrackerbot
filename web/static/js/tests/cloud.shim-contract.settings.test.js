@@ -5,6 +5,7 @@
 // (core/api.js), which delegates to the cloud shim (web/cloud/js/apishim.js)
 // instead of the network. Additive suite — the original (network-mocked)
 // settings.*.test.js files keep running unshimmed.
+import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
@@ -145,6 +146,9 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(row.closest('.wg-settings-features__safety').classList.contains('wg-settings-hidden')).toBe(false);
         expect(edSafe.checked).toBe(true);
 
+        // The frontend harness does not load features/today.js; eval it for
+        // the aggregator Today renders from.
+        window.eval(fs.readFileSync(new URL('../features/today.js', import.meta.url), 'utf8'));
         const todayWeight = async () => {
             const boot = await window.apiCall('/api/bootstrap');
             const caches = { gamification_goal_line: await window.apiCall('/api/gamification/goal-line', 'GET') };
