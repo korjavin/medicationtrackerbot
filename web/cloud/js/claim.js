@@ -315,7 +315,7 @@ async function claim(app, { slot, tk }) {
       return;
     }
     const confN = await transferConfirmMac(flow.keys.kConf, flow.transcript);
-    renderApproved(app, { enrollmentToken: v.enrollment_token, accountId: v.account_id, dek, confN });
+    renderApproved(app, { enrollmentToken: v.enrollment_token, accountId: v.account_id, dek, confN, expiresAt });
   }
 
   // The origin's key must be the one it committed to, and its MAC must prove
@@ -420,7 +420,10 @@ function renderApproved(app, ctx, errorText) {
     try {
       if (!(await enrollWithToken(app, ctx))) return;
     } catch (err) {
-      renderApproved(app, ctx, err.message || "Couldn't set up your passkey. Please try again.");
+      // The slot expired or was stopped on the origin: retrying the same
+      // enrollment token can never succeed.
+      if (err.tokenDead) renderEnded(app, Date.now() >= ctx.expiresAt ? 'Expired' : 'Stopped');
+      else renderApproved(app, ctx, err.message || "Couldn't set up your passkey. Please try again.");
       return;
     }
     renderOpening(app);
@@ -516,7 +519,7 @@ async function enroll(app, { enrollmentToken, accountId, dek, confN }) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(beginBody),
   }));
-  if (!beginRes.ok) throw new Error('Could not start passkey registration — the code may be expired.');
+  if (!beginRes.ok) throw deadTokenError(beginRes.status === 403, 'Could not start passkey registration — the code may be expired.');
   const { publicKey } = await beginRes.json();
   const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
 
@@ -555,7 +558,7 @@ async function enroll(app, { enrollmentToken, accountId, dek, confN }) {
       },
     }),
   }));
-  if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
+  if (!finishRes.ok) throw deadTokenError(finishRes.status === 409, 'Passkey registration failed. Please try again.');
 
   try {
     await establishLdkCache(dek, accountId);
@@ -564,4 +567,13 @@ async function enroll(app, { enrollmentToken, accountId, dek, confN }) {
     // reach the vault after a successful enrollment — see unlock.js.
   }
   return true;
+}
+
+// register/begin answers 403 and register/finish 409 when the enrollment
+// token is gone (slot expired or stopped). A plain Error (name 'Error') so
+// passkeyCeremony passes it through unchanged.
+function deadTokenError(dead, message) {
+  const err = new Error(message);
+  if (dead) err.tokenDead = true;
+  return err;
 }

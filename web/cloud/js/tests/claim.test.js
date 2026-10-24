@@ -97,8 +97,11 @@ function installFetch() {
     const headers = init.headers || {};
     calls.push({ method, url: u, body, headers });
     if (server.offline) throw new TypeError('network error');
-    if (u === '/api/webauthn/register/begin') return json(200, { publicKey: {} });
+    // The enrollment token lives only while the slot is approved and unexpired.
+    const tokenLive = server.slot.state === 'approved' && Date.now() < server.slot.expiresAt;
+    if (u === '/api/webauthn/register/begin') return tokenLive ? json(200, { publicKey: {} }) : json(403, {});
     if (u === '/api/webauthn/register/finish') {
+      if (!tokenLive) return json(409, {});
       server.slot.state = 'enrolled';
       return json(200, {});
     }
@@ -315,6 +318,37 @@ describe('/claim — AD7: end states', () => {
     expect(text()).toContain('This code no longer works');
     expect(text()).toContain('Stopped');
     expect(unwrapTransferDek).not.toHaveBeenCalled();
+  });
+
+  it('stopped on the origin after approval: the passkey step ends, and a new code can be entered', async () => {
+    await openAt(linkHash());
+    await until(() => server.slot.state === 'claimed');
+    await originReveals();
+    await originApproves();
+    await until(() => app.querySelector('#claim-enroll'));
+    server.slot.state = 'deleted';
+
+    app.querySelector('#claim-enroll').click();
+    await until(() => app.querySelector('#claim-ended'));
+    expect(text()).toContain('Stopped');
+    expect(app.querySelector('#claim-enroll')).toBeNull();
+    expect(posted('/register/finish')).toEqual([]);
+
+    app.querySelector('#claim-new-code').click();
+    expect(app.querySelector('#claim-code-input')).not.toBeNull();
+  });
+
+  it('expired after approval: the passkey step says Expired instead of retrying', async () => {
+    await openAt(linkHash());
+    await until(() => server.slot.state === 'claimed');
+    await originReveals();
+    await originApproves();
+    await until(() => app.querySelector('#claim-enroll'));
+    await vi.advanceTimersByTimeAsync(601000);
+
+    app.querySelector('#claim-enroll').click();
+    await until(() => app.querySelector('#claim-ended'));
+    expect(text()).toContain('Expired');
   });
 
   it('local expiry while waiting says Expired', async () => {
