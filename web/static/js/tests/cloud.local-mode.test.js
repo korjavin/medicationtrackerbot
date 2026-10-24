@@ -322,17 +322,17 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(weights).toHaveLength(2 + VAULT_FIXTURE.data.weight.logs.length);
     });
 
-    // bd med-o7zq.41: a boot's dose sweep that read this store's medications
-    // before a restore (the leave/move pickup runs right after install) must
-    // not write their doses into the restored store: no intake of a
-    // medication the store does not have.
-    it('a dose sweep in flight when a restore replaces the store writes nothing into the restored one, and the next sweep runs', async () => {
+    // bd med-o7zq.41 / med-wi09.12: there is no boot-time dose sweep any more
+    // (doses are derived), so a restore right after install leaves no intake of
+    // a medication the store does not have; the boot writes only the ledger
+    // cut, which a restore keeps (not vault-managed), and local mode derives
+    // due doses from it without any server.
+    it('a restore after install leaves no dose rows behind; due doses are derived from the local ledger cut', async () => {
         const { window } = env;
         const DAY = 24 * 60 * 60 * 1000;
         const t0 = Date.parse('2026-07-08T12:00:00Z');
         vi.useFakeTimers({ toFake: ['Date'], now: t0 });
-        const getAll = globalThis.IDBIndex.prototype.getAll;
-        // Every hour, created a day before the sweep: a dose is due today in any zone.
+        // Every hour, created a day before: a dose is due today in any zone.
         const hours = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
         const addMed = (name) => window.apiCall('/api/medications', 'POST', {
             name, dosage: '1mg', schedule: JSON.stringify({ type: 'daily', times: hours }),
@@ -340,42 +340,25 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         const install = () => installApiShim({ accountId: 'local' }, {
             recordsPort: localRecordsPort, effects: LOCAL_EFFECTS, rxnorm: null, registerEgress: async () => null, win: window,
         });
-        const intakesOf = async (medId) => (await localRecordsPort().listRaw('intake')).filter((i) => i.medication_id === medId);
-        let importing = null;
-        let spy;
         try {
             const med = await addMed('Old store med');
             cancelReminderRecompute({ accountId: 'local' });
             vi.setSystemTime(t0 + DAY);
-            // The restore starts the moment the sweep has read the medications.
-            spy = vi.spyOn(globalThis.IDBIndex.prototype, 'getAll').mockImplementation(function (...args) {
-                const req = getAll.apply(this, args);
-                if (!importing && args[0] === 'medication') {
-                    req.addEventListener('success', () => {
-                        importing ??= window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
-                    });
-                }
-                return req;
-            });
             install();
-            await vi.waitFor(() => expect(importing).not.toBe(null));
-            spy.mockRestore();
-            spy = null;
-            await importing;
+            await window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
             await materializationSettled();
             expect((await localRecordsPort().listRaw('medication')).map((m) => m.recordId)).not.toContain(med.id);
-            expect(await intakesOf(med.id)).toEqual([]);
+            expect((await localRecordsPort().listRaw('intake')).filter((i) => i.medication_id === med.id)).toEqual([]);
+            expect(await localRecordsPort().list('ledgercut')).toHaveLength(1);
 
-            // No reload followed (a cancelled one, or a failure after the
-            // replace): the dose writers are not left stopped.
             const fresh = await addMed('Restored store med');
             cancelReminderRecompute({ accountId: 'local' });
             vi.setSystemTime(t0 + 2 * DAY);
-            install();
-            await materializationSettled();
-            expect((await intakesOf(fresh.id)).length).toBeGreaterThan(0);
+            const now = t0 + 2 * DAY;
+            const doses = await window.apiCall(`/api/doses?from=${new Date(now - DAY).toISOString()}&to=${new Date(now).toISOString()}`);
+            expect(doses.some((d) => String(d.medId) === String(fresh.id) && d.state === 'due')).toBe(true);
+            expect((await localRecordsPort().listRaw('intake')).filter((i) => i.medication_id === fresh.id)).toEqual([]);
         } finally {
-            spy?.mockRestore();
             vi.useRealTimers();
         }
     });

@@ -134,10 +134,10 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     });
 
     // Two meds due at the same instant, seeded with a REAL schedule and NO
-    // intake rows: materializeDueDoses mints them at drain, then Confirm must
-    // record BOTH. (The empty-schedule seed above pre-materializes at the exact
-    // slot, which masked the drift bug — this exercises the real path.)
-    it('materializes then confirms every med when the slot had no intake rows yet', async () => {
+    // intake rows (bd med-wi09.12: nothing stores a PENDING prediction): the
+    // projection lists both doses, and Confirm must record BOTH at their exact
+    // ids.
+    it('confirms every med at its exact id when the slot had no intake rows yet', async () => {
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
@@ -153,12 +153,11 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         for (const i of atSlot) expect(i.status).toBe('TAKEN');
     });
 
-    // The silent-revert regression (bd med-d4w): a device whose mirror predates
-    // the tap re-materializes the SAME deterministic recordId as PENDING on its
-    // next open. Materialization is derived state, so that write must LOSE the
-    // LWW merge (sync.js: `record.clientTs > existing.clientTs`) against the real
-    // TAKEN — otherwise a confirmed dose reverts to Pending on every device.
-    it('re-materializing a slot cannot outrank a confirm that already happened', async () => {
+    // The silent-revert regression (bd med-d4w) is gone at the root (bd
+    // med-wi09.12): a device whose mirror predates the tap no longer writes a
+    // PENDING row for the slot at all — it only shows the dose as due until
+    // the confirm syncs in.
+    it('a device that missed the confirm shows the dose as due and writes nothing', async () => {
         const med = { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 };
         const now = () => DRAIN_MS;
 
@@ -170,12 +169,9 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
 
         // Device B was closed through all of it: same med, no intake rows yet.
         const deviceB = fakeRecords({ medication: [med], intake: [] });
-        await domainFor(deviceB, now).materializeDueDoses();
-        const stale = (await deviceB.list('intake')).find((i) => i.recordId === confirmed.recordId);
-        expect(stale.status).toBe('PENDING');
-
-        // ...and on sync, the merge every device runs must keep the TAKEN.
-        expect(stale.clientTs > confirmed.clientTs).toBe(false);
+        const due = await domainFor(deviceB, now).occurrences({ fromMs: SLOT_UNIX * 1000, toMs: DRAIN_MS });
+        expect(due.map((r) => [r.occId, r.state])).toEqual([[confirmed.recordId, 'due']]);
+        expect(await deviceB.list('intake')).toEqual([]);
     });
 
     // The data-loss regression: the callback slot and the stored intake's
@@ -313,7 +309,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const now = () => DRAIN_MS;
         const real = domainFor(records, now);
         const raced = {
-            materializeDueDoses: real.materializeDueDoses,
+            withDueRows: real.withDueRows,
             confirm: vi.fn(async () => {
                 const err = new Error('intake is not pending');
                 err.code = 'not_pending';
@@ -334,7 +330,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const now = () => DRAIN_MS;
         const real = domainFor(records, now);
         const broken = {
-            materializeDueDoses: real.materializeDueDoses,
+            withDueRows: real.withDueRows,
             confirm: async () => { throw new Error('vault write failed'); },
             snooze: real.snooze,
         };
@@ -356,10 +352,10 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const order = [];
         const slow = {
             ...real,
-            materializeDueDoses: async () => { await held; await real.materializeDueDoses(); order.push('doses'); },
+            withDueRows: async (w) => { await held; const rows = await real.withDueRows(w); order.push('doses'); return rows; },
         };
         const tap = applyIntakeSlotAction(confirmEvent, { intake: slow, records, now });
-        const during = { ...real, materializeDueDoses: vi.fn(real.materializeDueDoses) };
+        const during = { ...real, withDueRows: vi.fn(real.withDueRows) };
         const replace = withMaterializationStopped(async () => {
             order.push('replace');
             await expect(applyIntakeSlotAction(confirmEvent, { intake: during, records, now }))
@@ -369,7 +365,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         await tap;
         await replace;
         expect(order).toEqual(['doses', 'replace']);
-        expect(during.materializeDueDoses).not.toHaveBeenCalled();
+        expect(during.withDueRows).not.toHaveBeenCalled();
     });
 
     // Bug 1: Confirm must edit the original reminder message to a receipt (which
@@ -776,8 +772,8 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     });
 
     // A DST / tz-plan step: the approved plan walks a dose off its clock slot, so
-    // materializeDueDoses keeps the shifted `tz_step` row (its ±minDoseInterval
-    // dedup blocks a second on-slot row) and the reminder's slot no longer matches
+    // the projection keeps the shifted `tz_step` row (its ±minDoseInterval
+    // dedup blocks a second on-slot dose) and the reminder's slot no longer matches
     // any intake instant — not even the deterministic id. Identity still resolves
     // it through the band fallback.
     it('confirms a tz-plan step dose that moved off the reminder slot', async () => {
@@ -2104,8 +2100,8 @@ describe('inbox-apply.js — a tap on a deleted dose slot', () => {
             { intake: domainFor(records, now), records, now, editReply },
         );
 
-        // The slot is still a tombstone — materializeDueDoses' putIfAbsent found
-        // it occupied and minted nothing.
+        // The slot is still a tombstone — the projection lists nothing there,
+        // so the tap minted nothing.
         expect(await records.listRaw('intake')).toEqual([
             { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: true },
         ]);

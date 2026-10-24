@@ -39,12 +39,6 @@ import { createVoiceLLMResponder } from './voice-llm-responder.js';
 import { registerEgressHosts } from './egress-hosts.js';
 import { materializing, materializationSettled, withMaterializationStopped } from './materialize-gate.js';
 
-// materializeTimerHandle is module-level (not per-shim-instance) because the
-// production invariant is "one shim installed per page load"; re-installing
-// (as every shim-mode test case does) simply clears and restarts the single
-// sweep instead of stacking a new setInterval on top of the previous one.
-const MATERIALIZE_INTERVAL_MS = 60_000;
-let materializeTimerHandle;
 // Re-exported for the store replacers (cloud-boot.js, local-policy.js) and the
 // tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
 export { materializationSettled, withMaterializationStopped };
@@ -277,7 +271,7 @@ export function createApiRouter(ctx, {
   // pinned a zone resolves to deviceTimeZone and nothing is rebuilt.
   //
   // Memoized against the records-change counter, NOT once-only: cloud-boot.js
-  // installs the shim (and fires the first materialization sweep) BEFORE
+  // installs the shim BEFORE
   // pullOnOpen has landed this account's records, so a once-only memo would pin
   // a freshly-unlocked device to its own zone for the whole session — exactly
   // the user this fix is for. Every sync pull and every local write bumps the
@@ -1597,8 +1591,7 @@ export function createApiRouter(ctx, {
   }
 
   // A getter, not a snapshot: buildDomains() replaces the instances, so a
-  // property read must land on the current set (installApiShim's materialization
-  // sweep re-reads it on every tick for exactly this reason).
+  // property read must land on the current set.
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
@@ -1611,7 +1604,7 @@ export function createApiRouter(ctx, {
 
 // installApiShim wires the router to window.offlineAwareApiCall (the seam
 // web/static/js/core/api.js delegates through) plus the browser-direct globals
-// that bypass /api entirely, and starts the materialization sweep. Signature
+// that bypass /api entirely, and writes the ledger cut. Signature
 // and return value unchanged: it resolves to the router itself.
 // now/timeZone are forwarded straight to createApiRouter (both routers, so the
 // two agree on the clock) — the same test-only override it documents, reachable
@@ -1633,7 +1626,7 @@ export function installApiShim(ctx, {
   //               them has already repainted.
   //   bgCall    — everything else that writes from inside this tab: the voice
   //               agent's MCP dispatcher, the browser-direct food-AI client, and
-  //               the materialization sweep. None of these is a user action on
+  //               the ledger-cut write. None of these is a user action on
   //               the current screen, so all of them must repaint it.
   //
   // A test's injected `records` port carries its own origin and is shared by
@@ -1695,28 +1688,19 @@ export function installApiShim(ctx, {
   // start()s it before minting the signed URL and stop()s it on hang-up.
   targetWindow.CloudVoiceLLM = createVoiceLLMResponder({ aiClient });
 
-  // Due-dose materialization + tz-plan status refresh: neither domain module
-  // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
-  // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
-  // Both compute dose slots in wall time, so they must run on the RESOLVED zone:
-  // await the settings.timezone read and re-read `.domains` each tick, since a
-  // rebuild replaces the instances (bd med-7ujt).
-  async function runMaterializationSweep() {
+  // Ledger v2 activation (bd med-wi09.12): no dose sweep, no timer — doses are
+  // derived (the projection regenerates them from the ledger cut). On install
+  // this client writes the ledgercut singleton (floored, put-if-absent), whose
+  // first op sets the account's cut and arms the server's writer gate against
+  // pre-v2 bundles. Skipped during a store replace (materialize-gate.js); the
+  // next page load writes it.
+  materializing(async () => {
     try {
-      await bgCall.ensureTimeZone();
-      const { intake, tzplan } = bgCall.domains;
-      await intake.materializeDueDoses();
-      await tzplan.refreshPlanStatus();
+      await bgCall.domains.intake.ensureLedgerCut();
     } catch (e) {
-      console.error('[cloud shim] materialization sweep failed', e);
+      console.error('[cloud shim] ledger cut write failed', e);
     }
-  }
-  // A tick during a store replace is skipped (materialize-gate.js); the next
-  // one reads the replaced store.
-  const sweep = () => { materializing(runMaterializationSweep).catch(() => {}); };
-  clearInterval(materializeTimerHandle);
-  sweep();
-  materializeTimerHandle = setInterval(sweep, MATERIALIZE_INTERVAL_MS);
+  }).catch(() => {});
 
   // Egress allowlist (CSP scoping). Tell the server which provider HOSTNAMES
   // this account connects to browser-direct so /'s connect-src can be scoped to

@@ -13,15 +13,18 @@
 // action came through), tz, snoozed_at; optional note, conflict. UNTAKEN is an
 // explicit undo: it reads as due, and the wire shape reports it as PENDING.
 //
-// Deterministic ids are the multi-device dedup mechanism: a scheduled dose's
-// recordId is `intake-<medId>-<slotUnix>`, so two devices materializing "the
-// same" due intake write an identical record and LWW merges them into one —
-// no dupes, no divergence. Manual (log-past) intakes have no natural slot, so
-// they get a random id (same nowMs+random technique as medications.js's
-// nextId / weight.js's genId).
-import { minDoseIntervalMs, localDateTimeParts, scheduleYieldsDoses } from './medschedule.js';
+// Evidence stored, occurrences derived (bd med-wi09.12): nothing writes a
+// PENDING prediction any more. A scheduled dose's recordId is
+// `intake-<medId>-<slotUnix>`, and an action on a dose that has no stored row
+// yet writes its evidence at exactly that id, so two devices acting on "the
+// same" dose converge on one record (mergeIntake). Manual (log-past) intakes
+// have no natural slot, so they get a random id (same nowMs+random technique as
+// medications.js's nextId / weight.js's genId).
+import {
+  localDateTimeParts, localWallToUtcMs, minDoseIntervalMs, scheduleYieldsDoses,
+} from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
-import { applyLineage, loadLineage } from './lineage.js';
+import { applyLineage, loadLineage, regenerate } from './lineage.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -33,11 +36,17 @@ const CLUSTER_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_SNOOZE_MINUTES = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 // The only marker a log-past intake carries — logPast writes source:'schedule'
-// like a materialized dose, so the id prefix is what distinguishes them.
+// like a scheduled dose, so the id prefix is what distinguishes them.
 const MANUAL_ID_PREFIX = 'intake-manual-';
 const UPCOMING_FORECAST_DAYS = 7;
-// confirmSchedule may create a just-due slot that is not materialized yet.
-const CONFIRM_DUE_GRACE_MS = 10 * 60 * 1000;
+// The ledger cut (bd med-wi09.12): a singleton whose first op sets the
+// account's cut server-side (med-wi09.8, which then fences pre-v2 writers with
+// 426). Written put-if-absent at the clientTs floor (CLAUDE.md rule 12); `at`
+// is this device's boot instant until sync adopts the server's ledger_cut_at
+// from the pull (sync.js adoptLedgerCut), and it is the cut on a device that
+// never syncs (local mode).
+export const LEDGERCUT_RECORD_TYPE = 'ledgercut';
+export const LEDGERCUT_RECORD_ID = 'ledgercut';
 // A dose taken more than this long after its slot is "delayed". Owner decision
 // (bd med-29gh.2): 60 minutes, from their own "avg delay ~ 1h" framing — the
 // default snooze is 10 minutes, so anything under an hour is routine. Named so
@@ -321,24 +330,29 @@ export function adherencePct(counts, empty = null) {
 //   (a) every non-deleted stored intake row in range, as-is: TAKEN/SKIPPED as
 //       recorded; PENDING → snoozed while snoozed_until is ahead, upcoming while
 //       its slot is ahead, else due; an `intake-manual-*` row is source manual.
-//   (b) the current forecast (forecastDosesWithTzPlan), future instants only,
-//       for every slot with no stored row at its exact deterministic id. A
-//       tombstoned id is hidden — that dose was dropped on purpose.
+//   (b) `regenerated` (lineage.js regenerate, bd med-wi09.12): from the ledger
+//       cut on, the doses history says were scheduled — due once past.
+//   (c) the current forecast (forecastDosesWithTzPlan), future instants only.
+// (b) and (c) only fill slots with no stored row at their exact deterministic
+// id; a tombstoned id is hidden — that dose was dropped on purpose.
+// Before `cutMs` stored rows are the whole truth (old PENDING rows included:
+// that is how day one shows the doses an old client left stuck). From the cut
+// on a stored PENDING row is a prediction, not evidence: it shows only where
+// (b)/(c) has its slot (carrying its snooze), so an old client's row at an
+// orphaned instant reads as "no evidence". cutMs null = no cut yet, stored
+// rows only.
 // No `missed` state and no threshold (epic med-wi09): a due dose stays due
 // until the user acts; "overdue" is a label the UI may put on it.
-// ponytail: the forecast half is future-only — a past slot with no stored row
-// (the ≤60 s before the materializer's next sweep, or a day the app was never
-// opened) is not shown. Phase 2 (med-wi09.12) regenerates the past from the cut.
 //
 // Inputs are raw records: `medications` live (deleted filtered by the caller),
 // `intakes` RAW with tombstones (recordsPort.listRaw). `forecast: false` skips
-// (b) — the history view reads stored rows only. Rows sorted by
-// (plannedAt, medId); stored rows keep their stored ISO strings verbatim.
+// (c) — the history view. Rows sorted by (plannedAt, medId); stored rows keep
+// their stored ISO strings verbatim.
 const MAX_FORECAST_DAYS = 30;
 
 export function projectOccurrences({
   medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
-  lineage = null,
+  lineage = null, regenerated = [], cutMs = null,
 } = {}) {
   // Keyed by String(id): a vault can hold a med's recordId and an intake's
   // medication_id as number vs string (inbox-apply.js compares the same way);
@@ -382,11 +396,25 @@ export function projectOccurrences({
     return out;
   }
 
+  const targets = forecast && toMs > nowMs
+    ? forecastDosesWithTzPlan({
+      medications: medications.map((m) => ({ ...m, id: m.recordId ?? m.id })),
+      timeZone,
+      now: nowMs,
+      days: Math.min(MAX_FORECAST_DAYS, Math.ceil((Math.min(toMs, nowMs + MAX_FORECAST_DAYS * DAY_MS) - nowMs) / DAY_MS)),
+      tzPlan,
+    }).filter((t) => t.scheduledAtMs >= fromMs && t.scheduledAtMs <= toMs)
+    : [];
+  const generated = new Set([
+    ...regenerated.map((o) => o.occId), ...targets.map((t) => slotId(t.medicationId, t.scheduledAtMs)),
+  ]);
+
   const out = [];
   for (const i of intakes) {
     if (i.deleted) continue;
     const ms = Date.parse(i.scheduled_at);
     if (!(ms >= fromMs && ms <= toMs)) continue;
+    if (cutMs !== null && i.status === 'PENDING' && ms >= cutMs && !generated.has(slotId(i.medication_id, ms))) continue;
     let state;
     if (i.status === 'TAKEN') state = 'taken';
     else if (i.status === 'SKIPPED') state = 'skipped';
@@ -405,24 +433,30 @@ export function projectOccurrences({
     out.push(r);
   }
 
-  if (forecast && toMs > nowMs) {
-    const days = Math.min(MAX_FORECAST_DAYS, Math.ceil((Math.min(toMs, nowMs + MAX_FORECAST_DAYS * DAY_MS) - nowMs) / DAY_MS));
-    const targets = forecastDosesWithTzPlan({
-      medications: medications.map((m) => ({ ...m, id: m.recordId ?? m.id })), timeZone, now: nowMs, days, tzPlan,
-    });
-    for (const t of targets) {
-      if (t.scheduledAtMs < fromMs || t.scheduledAtMs > toMs) continue;
-      const id = slotId(t.medicationId, t.scheduledAtMs);
-      if (occupied.has(id) || !medById.has(String(t.medicationId))) continue;
-      out.push(row({
-        occId: id,
-        medId: t.medicationId,
-        plannedMs: t.scheduledAtMs,
-        plannedAt: new Date(t.scheduledAtMs).toISOString(),
-        source: t.source === 'tz_step' ? 'tz_step' : 'schedule',
-        state: 'upcoming',
-      }));
-    }
+  for (const o of regenerated) {
+    if (o.at < fromMs || o.at > toMs || occupied.has(o.occId) || !medById.has(String(o.medId))) continue;
+    occupied.add(o.occId);
+    out.push(row({
+      occId: o.occId,
+      medId: o.medId,
+      plannedMs: o.at,
+      plannedAt: new Date(o.at).toISOString(),
+      source: o.source === 'tz_step' ? 'tz_step' : 'schedule',
+      state: o.at > nowMs ? 'upcoming' : 'due',
+    }));
+  }
+
+  for (const t of targets) {
+    const id = slotId(t.medicationId, t.scheduledAtMs);
+    if (occupied.has(id) || !medById.has(String(t.medicationId))) continue;
+    out.push(row({
+      occId: id,
+      medId: t.medicationId,
+      plannedMs: t.scheduledAtMs,
+      plannedAt: new Date(t.scheduledAtMs).toISOString(),
+      source: t.source === 'tz_step' ? 'tz_step' : 'schedule',
+      state: 'upcoming',
+    }));
   }
 
   // `lineage` (lineage.js's alias table): cancelled slots resolve to their
@@ -450,9 +484,8 @@ function historyResponse(r) {
 // createIntakeDomain builds the intake state-machine API over the injected
 // ports:
 //   records — { list(type), put(type, record), putIfAbsent(type, record),
-//              del(type, id) }. putIfAbsent is not optional: the dose sweep
-//              materializes through it (bd med-j2ku), so a port without it
-//              throws on the first due slot.
+//              del(type, id), listRaw?(type) }. putIfAbsent writes the ledger
+//              cut (ensureLedgerCut).
 //   now()   — current time in ms epoch
 //   timeZone — IANA zone string, passed straight through to planDoses
 //   via     — the channel this instance's writes come through (app|mcp|
@@ -484,9 +517,57 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     return all.filter((i) => !i.deleted);
   }
 
+  // The dose `id` names: its stored row, else — when the projection lists that
+  // exact occId with no row behind it (a regenerated or forecast dose) — a
+  // virtual open row at that id, so every action writes its evidence there
+  // (confirm-or-create, bd med-wi09.12). Never a neighbouring dose.
   async function getIntake(id) {
-    const all = await loadIntakes();
-    return all.find((i) => i.recordId === id) || null;
+    const stored = (await loadIntakes()).find((i) => String(i.recordId) === String(id));
+    if (stored) return stored;
+    const m = /^intake-(.+)-(\d+)$/.exec(String(id));
+    if (!m) return null;
+    const ms = Number(m[2]) * 1000;
+    const { rows } = await project({ fromMs: ms - 2 * DAY_MS, toMs: ms + 2 * DAY_MS });
+    const r = rows.find((x) => x.occId === String(id));
+    return r ? virtualIntake(r) : null;
+  }
+
+  function virtualIntake(r) {
+    return {
+      recordId: r.occId,
+      deleted: false,
+      medication_id: r.medId,
+      scheduled_at: r.plannedAt,
+      taken_at: null,
+      status: 'PENDING',
+      snoozed_until: null,
+      source: r.source === 'tz_step' ? 'tz_step' : 'schedule',
+    };
+  }
+
+  // Every stored live row plus a virtual open row for each unstored dose the
+  // projection lists in [fromMs, toMs] — the stored-row shape the Telegram
+  // drain matches a tap against.
+  async function withDueRows({ fromMs, toMs } = {}) {
+    const [stored, { rows }] = await Promise.all([loadIntakes(), project({ fromMs, toMs })]);
+    const ids = new Set(stored.map((i) => String(i.recordId)));
+    return stored.concat(rows.filter((r) => !ids.has(String(r.occId)) && r.source !== 'manual').map(virtualIntake));
+  }
+
+  async function loadCutMs() {
+    const all = await records.list(LEDGERCUT_RECORD_TYPE);
+    const rec = all.find((r) => !r.deleted && r.recordId === LEDGERCUT_RECORD_ID);
+    const ms = rec ? Date.parse(rec.at) : NaN;
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  // First boot of a ledger-v2 client (bd med-wi09.12): the singleton whose
+  // first op sets the account's cut. A derived write — floored and
+  // put-if-absent (rule 12) — so it never moves a cut another device set.
+  async function ensureLedgerCut() {
+    return records.putIfAbsent(LEDGERCUT_RECORD_TYPE, {
+      recordId: LEDGERCUT_RECORD_ID, clientTs: 0, deleted: false, at: new Date(now()).toISOString(),
+    });
   }
 
   // The active APPROVED tz transition plan, or null — read directly (this
@@ -512,15 +593,39 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   // projectOccurrences over the current vault. RAW intakes (tombstones hide
   // their forecast slot); a port without listRaw (pure-domain test doubles)
   // degrades to live rows only.
-  async function project({ fromMs, toMs, forecast = true } = {}) {
-    const [meds, intakes, tzPlan, lineage] = await Promise.all([
+  async function project({ fromMs = -Infinity, toMs = Infinity, forecast = true } = {}) {
+    const [meds, intakes, tzPlan, lineage, scheds, transitions] = await Promise.all([
       loadMeds(),
       records.listRaw ? records.listRaw(INTAKE_RECORD_TYPE) : records.list(INTAKE_RECORD_TYPE),
       loadActiveTzPlan(),
       loadLineage(records),
+      records.list('medsched'),
+      records.list('tztransition'),
     ]);
+    const nowMs = now();
+    // No ledgercut row yet = this client is about to write one (install-time
+    // ensureLedgerCut), so the cut is now. Regeneration starts at the local
+    // midnight of the cut day: the old client materialized "today's due doses"
+    // only when opened, so on day one a dose due earlier today may have no row
+    // — the same set the materializer's first sweep would have written.
+    const cut = (await loadCutMs()) ?? nowMs;
+    const p = localDateTimeParts(cut, timeZone);
+    const cutDayStart = localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), timeZone);
+    // Before the cut (the cut day's morning) the old materializer's rule still
+    // holds: a stored dose of the same med within its ±minDoseInterval band
+    // already covers the slot (a tz-plan step or a drifted cluster dose).
+    const live = intakes.filter((i) => !i.deleted);
+    const regenerated = regenerate({
+      medications: meds, scheds, transitions, timeZone, fromMs: Math.max(fromMs, cutDayStart), toMs, nowMs, tzPlan,
+    }).filter((o) => {
+      if (o.at >= cut) return true;
+      const med = meds.find((m) => sameMed(m.recordId, o.medId));
+      const band = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
+      return !(band > 0 && live.some((i) => sameMed(i.medication_id, o.medId) && String(i.recordId) !== o.occId
+        && (OPEN_STATUSES.has(i.status) || i.status === 'TAKEN') && Math.abs(Date.parse(i.scheduled_at) - o.at) <= band));
+    });
     const rows = projectOccurrences({
-      medications: meds, intakes, tzPlan, timeZone, nowMs: now(), fromMs, toMs, forecast, lineage,
+      medications: meds, intakes, tzPlan, timeZone, nowMs, fromMs, toMs, forecast, lineage, regenerated, cutMs: cut,
     });
     return { meds, rows };
   }
@@ -543,86 +648,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
       clientTs: now(),
       inventory_count: med.inventory_count + delta,
     });
-  }
-
-  // Ported from internal/domain/medplan/medplan.go's fire-mode use in
-  // internal/scheduler/medication.go: run PlanDoses with window=0 (due-or-past
-  // targets in today's local date) and materialize a PENDING intake for any
-  // slot not already covered. Dedup mirrors HasIntakeNearScheduledTime: the
-  // deterministic id itself catches an exact-slot re-run, and the
-  // ±minDoseInterval band additionally blocks a near-duplicate slot (e.g. a
-  // schedule edit that shifted the clock time slightly) from double-firing.
-  // Called by the shim on domain init and on its own timer — this module
-  // itself has no timer, staying a pure function of its inputs at call time.
-  async function materializeDueDoses() {
-    const meds = await loadMeds();
-    const intakes = await loadIntakes();
-    const nowMs = now();
-    const tzPlan = await loadActiveTzPlan();
-
-    const targets = planDosesWithTzPlan({
-      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: 0, tzPlan,
-    });
-
-    const created = [];
-    for (const target of targets) {
-      const id = slotId(target.medicationId, target.scheduledAtMs);
-      if (intakes.some((i) => i.recordId === id)) continue;
-
-      const med = meds.find((m) => sameMed(m.recordId, target.medicationId));
-      const bandMs = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
-      if (bandMs > 0) {
-        const near = intakes.some((i) => sameMed(i.medication_id, target.medicationId)
-          && (OPEN_STATUSES.has(i.status) || i.status === 'TAKEN')
-          && Math.abs(Date.parse(i.scheduled_at) - target.scheduledAtMs) <= bandMs);
-        if (near) continue;
-      }
-
-      const record = {
-        recordId: id,
-        // DERIVED state, so it takes the LOWEST possible LWW precedence — not
-        // now(). This row is re-derivable from the schedule on every device and
-        // its id is deterministic, so a device whose mirror predates a confirm
-        // (it was closed when the Telegram tap drained elsewhere) re-creates
-        // the very same recordId as PENDING. Stamped with now() that stale
-        // re-creation is the NEWEST write, and LWW erases the real TAKEN — a
-        // confirmed dose silently reverting to Pending hours later, on every
-        // device (bd med-d4w). A floor clientTs makes materialization lose
-        // every merge against a real write, which is exactly its standing: it
-        // only ever needs to win against nothing at all. The floor alone was not
-        // enough — writeRecord promoted it to `existing.clientTs + 1` over any
-        // raw row already in the slot — so this goes in through putIfAbsent
-        // below (bd med-qhpu, bd med-j2ku).
-        clientTs: 0,
-        deleted: false,
-        medication_id: target.medicationId,
-        scheduled_at: new Date(target.scheduledAtMs).toISOString(),
-        taken_at: null,
-        status: 'PENDING',
-        snoozed_until: null,
-        source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
-      };
-      // put-if-absent, not put: the RAW slot decides. Two ways it can already be
-      // taken, and neither is ours to overwrite:
-      //   - a TOMBSTONE: that dose was dropped on purpose. A plain put promoted
-      //     this floored placeholder to `tombstone.clientTs + 1`, so the deleted
-      //     dose came back on the very next sweep (bd med-j2ku). Two paths write
-      //     one — deleteFutureIntakes (future PENDING only) and medications.js's
-      //     cancelPendingIntakesForMedication on archive (any PENDING, today's
-      //     already-due slot included). Un-archiving the same day therefore no
-      //     longer hands back the dose that archiving cancelled; the next day's
-      //     slots have their own ids and materialize normally.
-      //   - a REAL ROW that landed between loadIntakes() above and this write —
-      //     applyIncoming pulling in a confirm tapped elsewhere. It is the truth;
-      //     the placeholder is not.
-      const stored = await records.putIfAbsent(INTAKE_RECORD_TYPE, record);
-      if (stored.deleted) continue;
-      // The stored winner, not the proposal, is what the ±band dedup below must
-      // see for the rest of this sweep.
-      intakes.push(stored);
-      if (stored.status === 'PENDING') created.push(stored);
-    }
-    return created.map(toResponse);
   }
 
   // The REMINDER CALLBACK (a Telegram tap drained by inbox-apply.js): PENDING ->
@@ -716,40 +741,12 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     return { updated, failed: failures.length, failures };
   }
 
-  // The med ids the current forecast has a slot for at exactly scheduledAtMs,
-  // mapped to their target — only these may be created by a take/skip, never
-  // an arbitrary instant. The grace covers a slot that came due while the take
-  // sheet was open but has not been materialized yet (the shim materializes on
-  // a 60s cadence).
-  // Matched on the whole second, the occId's resolution: a tz-plan step can
-  // keep its anchor's milliseconds, and its slot id floors them — the target's
-  // own scheduledAtMs is the instant to write. The horizon reaches the slot
-  // (up to the projection's MAX_FORECAST_DAYS), so every occId /api/doses
-  // lists is actionable.
-  async function forecastAt(scheduledAtMs, nowMs) {
-    const slots = new Map();
-    if (!Number.isFinite(scheduledAtMs) || scheduledAtMs <= nowMs - CONFIRM_DUE_GRACE_MS) return slots;
-    const sec = Math.floor(scheduledAtMs / 1000);
-    const targets = forecastDosesWithTzPlan({
-      medications: (await loadMeds()).map(toMedScheduleShape),
-      timeZone,
-      now: Math.min(nowMs, sec * 1000 - 1),
-      days: Math.min(MAX_FORECAST_DAYS, Math.max(UPCOMING_FORECAST_DAYS, Math.ceil((scheduledAtMs - nowMs) / DAY_MS) + 1)),
-      tzPlan: await loadActiveTzPlan(),
-    });
-    for (const t of targets) {
-      // Keyed by String(id): a med's recordId and an intake's medication_id
-      // can be number vs string (bd med-wi09.15).
-      if (Math.floor(t.scheduledAtMs / 1000) === sec) slots.set(String(t.medicationId), t);
-    }
-    return slots;
-  }
-
   // Ported from handleConfirmSchedule: intake_ids take priority (batch
   // confirm-by-id); otherwise scheduled_at + medication_ids confirms the
   // listed meds. Always additive (bd med-wi09.2): a med absent from the list
   // is never touched — absence from a view is not an undo; undo is an
-  // explicit act() on its id. A slot still in the future is confirm-or-create.
+  // explicit act() on its id. A dose with no stored row (regenerated or
+  // forecast) is confirm-or-create at its exact id (getIntake).
   // takenAt (optional, the take sheet's "Time taken") back-dates taken_at;
   // clientTs stays now so the write still wins LWW.
   async function confirmSchedule({ scheduledAt, medicationIds = [], intakeIds = [], takenAt } = {}) {
@@ -767,31 +764,13 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     }
 
     const scheduledAtMs = Date.parse(scheduledAt);
-    const forecastSlots = await forecastAt(scheduledAtMs, nowMs);
     for (const medId of medicationIds) {
       const intakes = await loadIntakes();
       const intake = intakes.find((i) => String(i.medication_id) === String(medId)
-        && Date.parse(i.scheduled_at) === scheduledAtMs);
+        && Date.parse(i.scheduled_at) === scheduledAtMs)
+        || (Number.isFinite(scheduledAtMs) ? await getIntake(slotId(medId, scheduledAtMs)) : null);
       if (intake && OPEN_STATUSES.has(intake.status)) {
         await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), -1);
-      } else if (!intake && forecastSlots.has(String(medId))) {
-        // A future slot is not materialized yet (doses materialize once due):
-        // confirm-or-create, exactly as triggerNextIntake does, so taking an
-        // upcoming dose early is not a silent no-op (Meds → Schedule "Take N",
-        // Today's Take). Same deterministic slot id, so the later floored
-        // materialization of this slot loses to this real write.
-        const target = forecastSlots.get(String(medId));
-        const plannedMs = target.scheduledAtMs;
-        await putIntake(acted(null, {
-          recordId: slotId(medId, plannedMs),
-          deleted: false,
-          medication_id: medId,
-          scheduled_at: new Date(plannedMs).toISOString(),
-          taken_at: takenIso,
-          status: 'TAKEN',
-          snoozed_until: null,
-          source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
-        }, nowMs), -1);
       }
     }
 
@@ -811,7 +790,8 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   // per-id failure {id, reason}, so the UI rolls back only those.
   // An absent occId resolves EXACTLY: the stored row with that id, else a
   // stored row for the same med at the same instant (legacy ids), else the
-  // forecast slot — never a neighbouring dose. A tombstoned id is gone.
+  // projection's dose at that id (regenerated or forecast) — never a
+  // neighbouring dose. A tombstoned id is gone.
   async function act({ occIds = [], action, takenAt } = {}) {
     if (!['take', 'skip', 'undo', 'edit_time'].includes(action)) {
       const err = new Error('action must be take, skip, undo or edit_time');
@@ -828,7 +808,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     const takenIso = new Date(Number.isFinite(takenMs) ? takenMs : nowMs).toISOString();
     const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : [];
     const tombstoned = new Set(raw.filter((i) => i.deleted).map((i) => String(i.recordId)));
-    const forecasts = new Map();
     const result = { updated: 0, unchanged: 0, failed: 0, failures: [], doses: [] };
     const fail = (id, reason) => { result.failed++; result.failures.push({ id, reason }); };
 
@@ -837,7 +816,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
       // Ids compare as String() throughout: a med's recordId and an intake's
       // medication_id (or a JSON occId) can be number vs string (med-wi09.15).
       let intake = intakes.find((i) => String(i.recordId) === String(occId)) || null;
-      let slot = null;
+      let virtual = false;
       if (!intake) {
         const m = /^intake-(.+)-(\d+)$/.exec(String(occId));
         const med = m && (await loadMeds()).find((x) => String(x.recordId) === m[1]);
@@ -846,16 +825,15 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
           intake = intakes.find((i) => String(i.medication_id) === String(med.recordId)
             && Math.floor(Date.parse(i.scheduled_at) / 1000) === sec) || null;
           if (!intake) {
-            if (!forecasts.has(sec)) forecasts.set(sec, await forecastAt(sec * 1000, nowMs));
-            const t = forecasts.get(sec).get(String(med.recordId));
-            if (t) slot = { med, ms: t.scheduledAtMs, source: t.source === 'tz_step' ? 'tz_step' : 'schedule' };
+            intake = await getIntake(occId);
+            virtual = !!intake;
           }
         }
       }
-      if (!intake && !slot) { fail(occId, 'not_found'); continue; }
+      if (!intake) { fail(occId, 'not_found'); continue; }
 
       // UNTAKEN (an earlier undo) acts exactly like PENDING here.
-      const status = intake ? wireStatus(intake.status) : 'PENDING';
+      const status = wireStatus(intake.status);
       let next = null;
       let delta = 0;
       if (action === 'take') {
@@ -868,7 +846,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
         next = { status: 'SKIPPED', taken_at: null };
       } else if (action === 'undo') {
-        if (!intake) { fail(occId, 'not_found'); continue; }
+        if (virtual) { fail(occId, 'not_found'); continue; }
         if (status === 'PENDING') { result.unchanged++; continue; }
         next = { status: 'UNTAKEN', taken_at: null };
         if (status === 'TAKEN') delta = 1;
@@ -878,17 +856,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
         next = { taken_at: takenIso };
       }
 
-      const record = intake
-        ? acted(intake, untakenNote(intake, next), nowMs)
-        : acted(null, {
-          recordId: slotId(slot.med.recordId, slot.ms),
-          deleted: false,
-          medication_id: slot.med.recordId,
-          scheduled_at: new Date(slot.ms).toISOString(),
-          snoozed_until: null,
-          source: slot.source,
-          ...next,
-        }, nowMs);
+      const record = acted(intake, untakenNote(intake, next), nowMs);
       if (!(await putIntake(record, delta))) { fail(occId, 'not_found'); continue; }
       result.updated++;
       result.doses.push(toResponse(record));
@@ -1092,31 +1060,34 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   // ({medication_name, dosage, scheduled_at, status, taken_at?}), plus
   // `manual: true` on a log-past row — its scheduled_at is a fake copy of
   // taken_at (see logPast), so foldAdherence must keep it out of delay math.
+  // A view over the projection's history half (bd med-wi09.12), so a dose
+  // regenerated from the cut with nothing logged counts as missed exactly as a
+  // stored PENDING row did.
   async function listWindow({ fromMs = 0, toMs = Infinity } = {}) {
-    const [intakes, meds] = await Promise.all([loadIntakes(), loadMeds()]);
-    const byId = new Map(meds.map((m) => [String(m.recordId), m]));
-    return intakes
-      .filter((i) => {
-        const ms = Date.parse(i.scheduled_at);
-        return ms >= fromMs && ms <= toMs;
-      })
-      .sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at))
-      .map((i) => {
-        const med = byId.get(String(i.medication_id));
-        const row = {
-          medication_name: med ? med.name : '',
-          dosage: med ? med.dosage : '',
-          scheduled_at: i.scheduled_at,
-          status: wireStatus(i.status),
-        };
-        if (i.taken_at) row.taken_at = i.taken_at;
-        if (typeof i.recordId === 'string' && i.recordId.startsWith(MANUAL_ID_PREFIX)) row.manual = true;
-        return row;
-      });
+    const { rows } = await project({ fromMs, toMs, forecast: false });
+    return rows.map((r) => {
+      const row = {
+        medication_name: r.name,
+        dosage: r.dosage,
+        scheduled_at: r.plannedAt,
+        status: historyResponse(r).status,
+      };
+      if (r.takenAt) row.taken_at = r.takenAt;
+      if (r.source === 'manual') row.manual = true;
+      return row;
+    });
+  }
+
+  // Every dose as a stored-row-shaped log (historyResponse): stored evidence,
+  // regenerated doses and the forecast — gamification's adherence input.
+  async function doseLog() {
+    return (await project()).rows.map(historyResponse);
   }
 
   return {
-    materializeDueDoses,
+    ensureLedgerCut,
+    withDueRows,
+    doseLog,
     confirm,
     skip,
     snooze,

@@ -22,7 +22,7 @@
 // ponytail: an APPROVED plan still in progress when the zone changes again is
 // not part of oldGen (its steps are not paired); the newer plan's steps are.
 import {
-  parseSchedule, localDateParts, localDateTimeParts, localWallToUtcMs,
+  parseSchedule, localDateParts, localDateTimeParts, localWallToUtcMs, sortByEffective,
 } from './medschedule.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -282,6 +282,67 @@ export async function loadLineage(records) {
   return lineageTable([...tz, ...ms]);
 }
 
+// Regenerated occurrences (bd med-wi09.12): the doses the schedule in force at
+// each instant produced over [fromMs, toMs]. History (tztransition + medsched)
+// cuts the range into segments at every change; a segment is planned with the
+// zone, each med's schedule and the tz-plan steps in force at its start. An
+// old-generation instant a boundary KEPT past its switch (rule 4: old after the
+// switch, new before it) is regenerated as well — the segment split alone would
+// drop it. Past instants only, plus those kept ones (they can sit up to the
+// window ahead of a switch); the forecast owns the rest of the future. A med
+// regenerates nothing before its created_at. Tombstones and evidence are the
+// projection's business, not this function's.
+// ponytail: cost grows with days since the ledger cut (one Intl pass per slot);
+// memoize on the records change count if a long-lived vault makes it show.
+//
+// `tzPlan` (the current APPROVED plan, or null) adds its steps from its
+// approval on: a plan approved before history existed has no tztransition
+// carrying them.
+export function regenerate({
+  medications = [], scheds = [], transitions = [], timeZone, fromMs, toMs, nowMs, tzPlan = null,
+}) {
+  const plan = tzPlan && tzPlan.status === 'APPROVED' && Array.isArray(tzPlan.steps) ? tzPlan : null;
+  const planFrom = plan ? (Date.parse(plan.approved_at || plan.created_at) || 0) : Infinity;
+  const end = Math.min(toMs, nowMs + LINEAGE_WINDOW_MS);
+  if (!(Number.isFinite(fromMs) && end >= fromMs)) return [];
+  const tr = sortByEffective(transitions, 'switch_at');
+  const sc = sortByEffective(scheds, 'from');
+  const kept = new Set();
+  for (const r of [...tr, ...sc]) {
+    for (const e of Array.isArray(r.boundary) ? r.boundary : []) for (const id of e.kept || []) kept.add(id);
+  }
+  const changes = [...tr.map((r) => Date.parse(r.switch_at)), ...sc.map((r) => Date.parse(r.from))]
+    .filter((t) => t > fromMs && t <= end);
+  const bounds = [fromMs, ...[...new Set(changes)].sort((a, b) => a - b), end + 1];
+  const lastAt = (rows, key, at) => rows.filter((r) => Date.parse(r[key]) <= at).pop();
+  const createdMs = new Map(medications.map((m) => [String(m.recordId ?? m.id), m.created_at ? Date.parse(m.created_at) : -Infinity]));
+  const out = new Map();
+  for (let s = 0; s < bounds.length - 1; s++) {
+    const [a, b] = [bounds[s], bounds[s + 1]];
+    const t = lastAt(tr, 'switch_at', a);
+    const steps = new Map();
+    for (const st of [...(t && Array.isArray(t.steps) ? t.steps : []), ...(a >= planFrom ? plan.steps : [])]) {
+      steps.set(`${st.medicationId}-${st.scheduledAtMs}`, st);
+    }
+    const gen = {
+      timeZone: t ? t.new_tz : (tr[0] ? tr[0].old_tz : timeZone),
+      steps: [...steps.values()],
+      medications: medications.map((m) => {
+        const own = sc.filter((h) => sameMed(h.medication_id, m.recordId ?? m.id));
+        const h = lastAt(own, 'from', a) || own[0];
+        return h ? { ...m, schedule: h.schedule, tz_shift_policy: h.tz_shift_policy } : m;
+      }),
+    };
+    for (const o of occurrences(gen, a, Math.min(b - 1 + LINEAGE_WINDOW_MS, end))) {
+      const inSegment = o.at < b && o.at <= nowMs;
+      if (!(inSegment || kept.has(o.occId)) || out.has(o.occId)) continue;
+      if (o.at < (createdMs.get(String(o.medId)) ?? -Infinity)) continue;
+      out.set(o.occId, o);
+    }
+  }
+  return [...out.values()].sort((x, y) => x.at - y.at);
+}
+
 function canonical(table, id) {
   let k = table.get(id);
   const seen = new Set([id]);
@@ -327,10 +388,9 @@ export function applyLineage(rows, table, intakes = []) {
     } else if (logged.length === 1) {
       for (const m of members) if (m !== logged[0]) hidden.add(m);
     } else {
-      // ponytail: until bd med-wi09.12 regenerates kept old instants, a
-      // canonical the projection doesn't list (an old instant kept after the
-      // switch) would leave the slot empty — so the cancelled rows stay as
-      // stand-ins. The check is per call, so a window that cuts K off shows them.
+      // A canonical the projection doesn't list (a window that cuts K off, or
+      // a switch before the ledger cut, where nothing is regenerated) would
+      // leave the slot empty — so the cancelled rows stay as stand-ins.
       if (!k || occOf.has(k)) for (const m of members) if (m !== k) hidden.add(m);
     }
   }

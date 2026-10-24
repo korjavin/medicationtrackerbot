@@ -551,9 +551,10 @@ the key (unknown `data` keys are skipped — pinned by a round-trip test).
 ```
 
 Derived-slot suppression signals (bd med-jtaj). `intake-<medId>-<slot>` and
-`session-<groupId>-<date>` rows are lazily materialized by readers
-(`materializeDueDoses`, `getNext`) via `putIfAbsent`, which treats any raw row —
-tombstone included — as occupying the slot. A tombstone there means "deliberately
+`session-<groupId>-<date>` slots are derived by readers — the dose projection
+(`medintake.js` `project`, which hides a tombstoned slot; bd med-wi09.12) and
+`getNext` (`putIfAbsent`, which treats any raw row — tombstone included — as
+occupying the slot). A tombstone there means "deliberately
 deleted, do not re-materialize"; dropping it on export resurrects the day and its
 reminder on the next import. Every other type is delete-by-absence (a missing row
 stays missing after the replace-only import), so only `intake` and

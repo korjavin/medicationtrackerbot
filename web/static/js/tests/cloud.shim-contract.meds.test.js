@@ -12,7 +12,7 @@ import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
-import { createApiRouter } from '../../../cloud/js/apishim.js';
+import { createApiRouter, materializationSettled } from '../../../cloud/js/apishim.js';
 import { createIntakeDomain } from '../../../domain/medintake.js';
 import { createMedicationsDomain } from '../../../domain/medications.js';
 import { sortByEffective } from '../../../domain/medschedule.js';
@@ -447,158 +447,202 @@ describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintak
     });
 });
 
-// bd med-j2ku — the dose sweep is the last read-path-that-writes to move onto
-// records.putIfAbsent. Pure domain (no jsdom, no router): the deterministic
-// `intake-<medId>-<slotUnix>` slot and what happens when it is already taken is
-// the load-bearing property, not any browser wiring. Mirrors
-// cloud.shim-contract.workout-convergence.test.js for getNext.
-describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
+// bd med-wi09.12 — ledger v2 activation. Nothing stores a PENDING prediction:
+// before the ledger cut the stored rows are the truth, from the cut on the
+// projection regenerates doses from history (medsched / tztransition) + lineage
+// and unions the stored evidence, deduped by id. Driven through the shim
+// (installApiShim writes the ledgercut row) and the /api routes the screens use.
+describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => {
     const TZ = 'UTC';
-    // 08:00 daily; "now" sits at 09:00 UTC so today's slot is already due.
-    const SLOT_MS = Date.UTC(2026, 7, 16, 8, 0);
-    const NOW = Date.UTC(2026, 7, 16, 9, 0);
-    const SLOT_ID = `intake-1-${SLOT_MS / 1000}`;
-
-    const med = () => ({
-        recordId: 1,
-        clientTs: Date.UTC(2026, 0, 1),
+    const HOUR = 3600_000;
+    const iso = (ms) => new Date(ms).toISOString();
+    const DAILY = (t) => JSON.stringify({ type: 'daily', times: [t] });
+    const slot = (ms) => `intake-7-${ms / 1000}`;
+    // Sun 2026-10-18 … Thu 2026-10-22, all UTC.
+    const day = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
+    const med = (created = '2026-10-18T06:00:00.000Z') => ({
+        recordId: 7,
+        clientTs: 1,
         deleted: false,
         name: 'Metformin',
         dosage: '500mg',
-        schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+        schedule: DAILY('08:00'),
         archived: false,
         start_date: null,
         end_date: null,
-        inventory_count: null,
-        tz_shift_policy: 'strict',
-        created_at: '2026-01-01T00:00:00.000Z'
+        inventory_count: 30,
+        tz_shift_policy: 'flexible',
+        created_at: created
+    });
+    const pending = (recordId, ms, extra = {}) => ({
+        recordId,
+        clientTs: 0,
+        deleted: false,
+        medication_id: 7,
+        scheduled_at: iso(ms),
+        taken_at: null,
+        status: 'PENDING',
+        snoozed_until: null,
+        source: 'schedule',
+        ...extra
+    });
+    const cutRow = (ms) => ({ recordId: 'ledgercut', clientTs: 0, deleted: false, at: iso(ms) });
+
+    let env = null;
+    let nowMs = 0;
+    const open = (seedRecords, at) => {
+        nowMs = at;
+        env = loadCloudShimFrontendEnv({ seedRecords, now: () => nowMs, timeZone: TZ });
+        return env;
+    };
+    const doses = (fromMs, toMs) => env.window.apiCall(`/api/doses?from=${iso(fromMs)}&to=${iso(toMs)}`);
+    const shape = (rows) => rows.map((r) => [r.plannedAt, r.state]);
+
+    afterEach(async () => {
+        await materializationSettled();
+        if (env) env.cleanup();
+        env = null;
     });
 
-    // A local REPLICA of the comparison web/cloud/js/sync.js applyIncoming makes
-    // on every pulled record: strict `>` on clientTs, so equal stamps leave the
-    // existing row in place.
-    const applyIncoming = (existing, incoming) => (
-        !existing || incoming.clientTs > existing.clientTs ? incoming : existing
-    );
+    // Socrates' case: the schedule moves 08:00 → 20:00 on Tuesday while this
+    // device is closed (no sweep ever ran on it). Wednesday's open regenerates
+    // Monday and Tuesday from history, Tuesday on both generations.
+    it('Mon/Tue/Wed: a schedule edit made Tuesday while closed regenerates Tuesday from history', async () => {
+        open({ medication: [med()], ledgercut: [cutRow(day(18, 7))] }, day(20, 12));
+        await env.window.apiCall('/api/medications/7', 'POST', {
+            name: 'Metformin', dosage: '500mg', schedule: DAILY('20:00'), tz_shift_policy: 'flexible', inventory_count: 30
+        });
 
-    const domainOver = (records, now) => createIntakeDomain({ records, now, timeZone: TZ });
+        nowMs = day(21, 10);
+        expect(shape(await doses(day(18, 0), day(22, 10)))).toEqual([
+            [iso(day(18, 8)), 'due'],
+            [iso(day(19, 8)), 'due'],
+            [iso(day(20, 8)), 'due'], // old generation, before the edit
+            [iso(day(20, 20)), 'due'], // new generation, after it
+            // Wednesday 08:00 was cancelled by the edit's lineage (→ 20:00).
+            [iso(day(21, 20)), 'upcoming']
+        ]);
 
-    it('two devices materializing the same slot write byte-identical bodies that never displace each other', async () => {
-        const portA = createInMemoryRecordsPort({ medication: [med()] });
-        const portB = createInMemoryRecordsPort({ medication: [med()] });
-        const deviceA = domainOver(portA, () => NOW);
-        // Different clock: the body must not depend on when the device derived it.
-        const deviceB = domainOver(portB, () => NOW + 3 * 3600_000);
+        // A regenerated dose is actionable at its exact id: the take writes
+        // the evidence there, nothing else.
+        const res = await env.window.apiCall('/api/doses/act', 'POST', { occ_ids: [slot(day(20, 8))], action: 'take' });
+        expect(res).toMatchObject({ updated: 1, failed: 0 });
+        expect((await env.records.list('intake')).map((i) => [i.recordId, i.status, i.rev]))
+            .toEqual([[slot(day(20, 8)), 'TAKEN', 1]]);
+        expect((await doses(day(20, 0), day(20, 23))).map((r) => r.state)).toEqual(['taken', 'due']);
+    });
 
-        await Promise.all([deviceA.materializeDueDoses(), deviceB.materializeDueDoses()]);
+    it('pre-cut rows are untouched; a post-cut PENDING row from an old client reads as no evidence', async () => {
+        open({
+            medication: [med('2026-10-01T00:00:00.000Z')],
+            ledgercut: [cutRow(day(19, 12))],
+            intake: [
+                // Before the cut: as stored, orphaned instant and all.
+                pending('intake-7-legacy-a', day(18, 9)),
+                { ...pending(slot(day(18, 8)), day(18, 8)), status: 'TAKEN', taken_at: iso(day(18, 8)) },
+                // After the cut, written by an old client that still predicted.
+                pending(slot(day(20, 9)), day(20, 9)), // instant no history yields
+                pending(slot(day(20, 8)), day(20, 8), { snoozed_until: iso(day(20, 13)) }) // a real slot
+            ]
+        }, day(20, 12));
 
-        const bodyA = (await portA.list('intake'))[0];
-        const bodyB = (await portB.list('intake'))[0];
-        expect(bodyA.recordId).toBe(SLOT_ID);
-        expect(bodyA.clientTs).toBe(0); // still the derived-state floor (med-d4w)
-        expect(bodyB).toEqual(bodyA);
-        // Equal stamps, identical bodies: the merge is a no-op in both directions.
-        expect(applyIncoming(bodyB, bodyA)).toBe(bodyB);
-        expect(applyIncoming(bodyA, bodyB)).toBe(bodyA);
+        // 17 Oct 08:00: before the cut day with nothing stored — absent.
+        // 20 Oct 09:00: the old client's prediction — hidden.
+        expect(shape(await doses(day(17, 0), day(20, 12)))).toEqual([
+            [iso(day(18, 8)), 'taken'],
+            [iso(day(18, 9)), 'due'],
+            [iso(day(19, 8)), 'due'], // cut day: regenerated from its midnight
+            [iso(day(20, 8)), 'snoozed'] // its stored snooze rides on the real slot
+        ]);
+        const history = await env.window.apiCall('/api/history?days=7');
+        expect(history.map((h) => h.scheduled_at)).toEqual([
+            iso(day(20, 8)), iso(day(19, 8)), iso(day(18, 9)), iso(day(18, 8))
+        ]);
+    });
+
+    it('day one: stuck pendings show as due with their dates, and nothing writes PENDING', async () => {
+        open({
+            medication: [med('2026-10-01T00:00:00.000Z')],
+            intake: [pending(slot(day(16, 8)), day(16, 8)), pending(slot(day(17, 8)), day(17, 8))]
+        }, day(18, 12));
+        await materializationSettled();
+        // First boot of this client wrote the cut: floored, put-if-absent.
+        expect(await env.records.list('ledgercut')).toEqual([
+            expect.objectContaining({ recordId: 'ledgercut', clientTs: 0, at: iso(day(18, 12)) })
+        ]);
+
+        const rows = await doses(day(15, 0), day(18, 12));
+        expect(rows.map((r) => [r.localDate, r.localTime, r.state])).toEqual([
+            ['2026-10-16', '08:00', 'due'],
+            ['2026-10-17', '08:00', 'due'],
+            // Today's 08:00 was never materialized by the old client: the
+            // cut day regenerates from local midnight.
+            ['2026-10-18', '08:00', 'due']
+        ]);
+        await env.window.apiCall('/api/history?days=7');
+        await env.window.apiCall('/api/medications/next-intake');
+        nowMs = day(19, 12);
+        await doses(day(15, 0), day(19, 12));
+        expect((await env.records.list('intake')).map((i) => i.recordId))
+            .toEqual([slot(day(16, 8)), slot(day(17, 8))]);
     });
 
     // bd med-wi09.16 — a string med recordId against numeric intake ids (imported
     // vault) must still match: no duplicate slot, no missing name.
     it('string med recordId vs numeric intake medication_id: no duplicate, name resolved', async () => {
+        const SLOT_MS = day(18, 8);
         const records = createInMemoryRecordsPort({
-            medication: [{ ...med(), recordId: '1' }],
-            intake: [{
-                recordId: SLOT_ID,
-                clientTs: Date.UTC(2026, 7, 16, 7, 0),
-                deleted: false,
-                medication_id: 1,
-                scheduled_at: new Date(SLOT_MS).toISOString(),
-                taken_at: null,
-                status: 'PENDING',
-                snoozed_until: null,
-                source: 'schedule'
-            }]
+            medication: [{ ...med(), recordId: '7' }],
+            intake: [pending(slot(SLOT_MS), SLOT_MS)]
         });
-        const domain = domainOver(records, () => NOW);
-        expect(await domain.materializeDueDoses()).toEqual([]);
-        await domainOver(records, () => SLOT_MS - 3600_000).triggerNextIntake();
+        const domain = createIntakeDomain({ records, now: () => day(18, 9), timeZone: TZ });
+        await createIntakeDomain({ records, now: () => SLOT_MS - HOUR, timeZone: TZ }).triggerNextIntake();
         const rows = await records.list('intake');
         expect(rows).toHaveLength(1);
         expect(rows[0].status).toBe('TAKEN');
         expect((await domain.listWindow())[0].medication_name).toBe('Metformin');
 
         // logPast finds the med by String id.
-        await expect(domain.logPast(1, SLOT_MS - 86400_000)).resolves.toBeDefined();
+        await expect(domain.logPast(7, SLOT_MS - 86400_000)).resolves.toBeDefined();
 
-        // Reminder horizon: the next-day slot is a medication entry (med found by
-        // String id); the TAKEN slot just logged is not nagged again.
+        // Reminder horizon: the slot is a medication entry (med found by String
+        // id); the TAKEN slot just logged is not nagged again.
         const horizon = (intakes) => computeReminderHorizon({
-            medications: [{ ...med(), recordId: '1' }],
+            medications: [{ ...med(), recordId: '7' }],
             intakes,
             timeZone: TZ,
-            now: SLOT_MS - 3600_000
+            now: SLOT_MS - HOUR
         }).filter((e) => e.kind === 'medication' && e.fireAtUnix === SLOT_MS / 1000);
         expect(horizon([])).toHaveLength(1);
         expect(horizon(await records.listRaw('intake'))).toHaveLength(0);
     });
 
-    it('a deleteFutureIntakes tombstone keeps the slot deleted once it comes due', async () => {
-        const records = createInMemoryRecordsPort({
-            medication: [med()],
-            intake: [{
-                recordId: SLOT_ID,
-                clientTs: Date.UTC(2026, 7, 16, 7, 0),
-                deleted: false,
-                medication_id: 1,
-                scheduled_at: new Date(SLOT_MS).toISOString(),
-                taken_at: null,
-                status: 'PENDING',
-                snoozed_until: null,
-                source: 'schedule'
-            }]
-        });
-        let nowMs = Date.UTC(2026, 7, 16, 7, 0); // an hour before the slot
-        const domain = domainOver(records, () => nowMs);
+    it('a deleted dose stays deleted once it comes due: the tombstone hides the regenerated slot', async () => {
+        const SLOT_MS = day(18, 8);
+        const records = createInMemoryRecordsPort({ medication: [med()], ledgercut: [cutRow(day(18, 0))] });
+        let at = day(18, 7); // an hour before the slot
+        const domain = createIntakeDomain({ records, now: () => at, timeZone: TZ });
+        // A forecast dose with no row: delete writes the tombstone at its id.
+        expect((await domain.deleteFutureIntakes([slot(SLOT_MS)])).deleted_count).toBe(1);
 
-        expect((await domain.deleteFutureIntakes([SLOT_ID])).deleted_count).toBe(1);
-
-        // The sweep runs again once the slot is due. Pre-fix the floored
-        // placeholder was promoted to `tombstone.clientTs + 1`, so the dose the
-        // user deleted came straight back as PENDING on the next tick.
-        nowMs = NOW;
-        expect(await domain.materializeDueDoses()).toEqual([]);
+        at = day(18, 9);
+        expect(await domain.occurrences({ fromMs: day(18, 0), toMs: at })).toEqual([]);
+        expect((await domain.act({ occIds: [slot(SLOT_MS)], action: 'take' })).failures)
+            .toEqual([{ id: slot(SLOT_MS), reason: 'not_found' }]);
         expect(await records.list('intake')).toEqual([]);
-        // Probe the raw slot (putIfAbsent never overwrites): still a tombstone.
-        const raw = await records.putIfAbsent('intake', { recordId: SLOT_ID, clientTs: 0 });
-        expect(raw.deleted).toBe(true);
     });
 
-    it('a confirm that lands mid-sweep wins — the placeholder never overwrites it', async () => {
-        const records = createInMemoryRecordsPort({ medication: [med()] });
-        const domain = domainOver(records, () => NOW);
-
-        // Build the confirmed row on a peer device, exactly as a real confirm does.
-        const peer = createInMemoryRecordsPort({ medication: [med()] });
-        const peerDomain = domainOver(peer, () => NOW);
-        await peerDomain.materializeDueDoses();
-        await peerDomain.confirm(SLOT_ID, NOW);
-        const confirmed = (await peer.list('intake'))[0];
-        expect(confirmed.status).toBe('TAKEN');
-
-        // Force the losing interleaving: applyIncoming lands the op between the
-        // sweep's loadIntakes() and its write. withRecordsLock only makes the
-        // write itself atomic — loadIntakes runs outside it — so this window is
-        // real in production, not hypothetical, and putIfAbsent is what closes it.
-        const inner = records.putIfAbsent.bind(records);
-        records.putIfAbsent = async (type, record) => {
-            await records.put(type, confirmed);
-            return inner(type, record);
-        };
-
-        expect(await domain.materializeDueDoses()).toEqual([]);
-        const row = (await records.list('intake'))[0];
-        expect(row.status).toBe('TAKEN');
-        expect(row.clientTs).toBe(confirmed.clientTs);
+    it('a Telegram confirm and an in-app take of the same regenerated dose land on one id', async () => {
+        const SLOT_MS = day(18, 8);
+        const seed = () => ({ medication: [med()], ledgercut: [cutRow(day(18, 0))] });
+        const a = createInMemoryRecordsPort(seed());
+        const b = createInMemoryRecordsPort(seed());
+        await createIntakeDomain({ records: a, now: () => day(18, 9), timeZone: TZ }).act({ occIds: [slot(SLOT_MS)], action: 'take' });
+        await createIntakeDomain({ records: b, now: () => day(18, 10), timeZone: TZ, via: 'telegram' }).confirm(slot(SLOT_MS), day(18, 8, 5));
+        const [rowA] = await a.list('intake');
+        const [rowB] = await b.list('intake');
+        expect([rowA.recordId, rowB.recordId]).toEqual([slot(SLOT_MS), slot(SLOT_MS)]);
+        expect([rowA.status, rowB.status, rowA.rev, rowB.rev]).toEqual(['TAKEN', 'TAKEN', 1, 1]);
     });
 });
 

@@ -293,8 +293,8 @@ export function generatePlan({
 // inside the transition when the med still has a step at or after it. The two
 // rules agree in fire mode (every target is <= now, so any future step covers
 // them all), but in a forecast the once-against-`now` version dropped normal
-// doses that land AFTER the last step — the very doses materializeDueDoses
-// will happily create when that instant arrives, so the forecast under-
+// doses that land AFTER the last step — the very doses the projection
+// regenerates once that instant arrives, so the forecast under-
 // reported reality and the reminder horizon skipped a real dose. The plan
 // generator's hand-off guard (stepsForMedication → firstNormalDoseAfter) is
 // what keeps the gap between the last step and that resuming dose safe.
@@ -553,13 +553,14 @@ export function createTzPlanDomain({ records, now, timeZone }) {
 
   // Ported from handleGetCurrentTZPlan (GET /api/tz-plan/current).
   async function getCurrentPlan() {
+    await refreshPlanStatus();
     const plan = await getPlanRecord();
     return { plan: toPlanResponse(plan), steps: toStepsResponse(plan) };
   }
 
-  // Flips an APPROVED plan to COMPLETED once every step is in the past.
-  // Called by the shim's materialization timer alongside medintake's
-  // due-dose sweep (Task 5 wiring) — this module has no timer of its own.
+  // Flips an APPROVED plan to COMPLETED once every step is in the past. Run
+  // on read by getCurrentPlan (the banner's fetch) — the shim's 60 s sweep
+  // that used to call it went with the dose materializer (bd med-wi09.12).
   async function refreshPlanStatus() {
     const plan = await getPlanRecord();
     if (!plan || plan.status !== 'APPROVED') return;

@@ -516,7 +516,7 @@ export function computeReminderHorizon({
   // scheduler's dedup, which skips a normal target already covered by a
   // handled intake (internal/scheduler/medication.go): an exact-slot match
   // plus the symmetric ±minDoseInterval band (same rule as medintake.js's
-  // materializeDueDoses / HasIntakeNearScheduledTime), so a schedule edit or
+  // pre-cut regeneration dedup / HasIntakeNearScheduledTime), so a schedule edit or
   // tz-plan shift that moves the forecast target near — but not exactly onto —
   // an already-handled intake still suppresses the duplicate push.
   const handledByMed = new Map();

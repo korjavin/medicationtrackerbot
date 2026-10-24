@@ -422,7 +422,7 @@ describe('planDosesWithTzPlan — per-med future-step suppression (web/domain/tz
     // The suppression is judged per TARGET, not once against `now`. Judging it
     // once meant a forecast dropped every normal dose in the window as soon as
     // the med had any future step — including doses landing well AFTER the
-    // last step, which materializeDueDoses will create when that instant
+    // last step, which the projection regenerates once that instant
     // arrives. The forecast then under-reported reality and the reminder
     // horizon skipped a real dose.
     it('keeps a normal dose that lands after the medication\'s last step', () => {

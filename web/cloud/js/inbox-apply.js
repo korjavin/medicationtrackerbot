@@ -164,6 +164,9 @@ const MEDICATION_RECORD_TYPE = 'medication';
 // Mirrors DEFAULT_SNOOZE_MINUTES in web/domain/medintake.js (and the server's
 // own default). Not imported because that module does not export it.
 const DEFAULT_SNOOZE_MINUTES = 10;
+// How far around a tap's slot the open doses are read: wider than any med's
+// minDoseInterval band (a once-weekly med's is ~4 days).
+const TAP_DUE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 function defaultTimeZone() {
   return (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -214,9 +217,9 @@ function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
 // to mean 6h of hourly nags for doses already taken).
 //
 // Per named med it picks, in order:
-//   1. the deterministic `intake-<medId>-<slotUnix>` row — the exact id
-//      materializeDueDoses writes for the very instant the reminder was built
-//      from, so the common case is an exact lookup;
+//   1. the deterministic `intake-<medId>-<slotUnix>` dose — the exact id the
+//      projection gives the very instant the reminder was built from, so the
+//      common case is an exact lookup;
 //   2. otherwise that med's nearest PENDING dose within its OWN
 //      minDoseInterval — the drift fallback for a course/tz-plan dose whose
 //      scheduled_at moved hours off its clock slot (bd med-eas.67).
@@ -240,12 +243,13 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // a med a prior redelivery already confirmed and to recount the receipt.
   const atIso = new Date(atMs).toISOString();
 
-  // The tap may name a slot whose intakes were never materialized (the app has
-  // not been open since it came due). Materializing first is what makes them
-  // exist to confirm; it is idempotent via the deterministic intake id.
-  await materializing(() => intake.materializeDueDoses());
-
-  const intakes = await records.list(INTAKE_RECORD_TYPE);
+  // Nothing stores a PENDING prediction (bd med-wi09.12), so the dose a tap
+  // names usually has no row yet: match against stored rows ∪ the projection's
+  // open doses around the slot (withDueRows), and confirm() writes the
+  // evidence at that exact id. Read through the replace gate, so a tap during
+  // a store replace fails and stays queued.
+  const dueWindow = { fromMs: slotMs - TAP_DUE_WINDOW_MS, toMs: slotMs + TAP_DUE_WINDOW_MS };
+  const intakes = await materializing(() => intake.withDueRows(dueWindow));
   // Compared as strings throughout: the relay round-trips the ids through a
   // decimal column, so a numeric recordId comes back as a number while an
   // imported vault could hold it as a string. One normalisation, no coercion.
@@ -277,13 +281,13 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     return med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
   };
   // A med's dose for THIS slot: the deterministic `intake-<medId>-<slotUnix>`
-  // row materializeDueDoses writes for the very instant the reminder was built
-  // from (medintake.js's slotId, not exported), else its nearest PENDING dose
-  // within its own band. `list` is passed in because the still-due check below
-  // must see the writes this tap just made.
+  // dose (stored, or the projection's virtual open row) for the very instant
+  // the reminder was built from (medintake.js's slotId, not exported), else its
+  // nearest PENDING dose within its own band. `list` is passed in because the
+  // still-due check below must see the writes this tap just made.
   //
-  // A slot the user DELETED is tombstoned: materializeDueDoses creates nothing
-  // over it, the tombstone is filtered out of `list`, and (for a once-daily med)
+  // A slot the user DELETED is tombstoned: the projection lists nothing at
+  // it, the tombstone is filtered out of `list`, and (for a once-daily med)
   // the band fallback has no candidate — so the tap applies nothing and edits no
   // receipt. That is the wanted outcome, and since bd med-x7x2 the horizon no
   // longer schedules such a slot at all, leaving only the in-flight-push race.
@@ -345,7 +349,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // gap at drain latency. ponytail: a durable "confirmed" marker on the stem
   // would close it at tap time; add if the gap is ever hit in practice.
   if (event.action === 'confirm') {
-    const after = await records.list(INTAKE_RECORD_TYPE);
+    const after = await intake.withDueRows(dueWindow);
     const stillDue = named.filter((medId) => !!findPending(after, medId));
     if (stillDue.length) rearmRefire(slotMs, stillDue);
     else cancelRefire(slotMs);
@@ -818,9 +822,8 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
 // chat equivalent of tapping Confirm on the most recent reminder. Doses due
 // later stay pending; confirming a dose you have not taken yet would be a lie
 // the inventory count then inherits.
-async function confirmDueIntakes({ intake, records, atMs, now }) {
-  await materializing(() => intake.materializeDueDoses());
-  const due = (await records.list(INTAKE_RECORD_TYPE)).filter((i) => !i.deleted
+async function confirmDueIntakes({ intake, atMs }) {
+  const due = (await materializing(() => intake.withDueRows({ toMs: atMs }))).filter((i) => !i.deleted
     && i.status === 'PENDING'
     && Date.parse(i.scheduled_at) <= atMs);
 

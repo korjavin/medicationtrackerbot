@@ -184,8 +184,18 @@ migration; add a new one.
   and returned on every `GET /api/sync/ops` page. After the cut, an op batch
   containing an `intake|medication|settings|tzplan|stock|medsched|tztransition`
   tag, or a snapshot POST, without `X-Ledger: 2` → 426 `update_required`,
-  nothing written; pulls and everything else stay open. Inert until the
-  activation release (`med-wi09.12`) writes the first `ledgercut`. Details:
+  nothing written; pulls and everything else stay open. Activated by
+  `med-wi09.12`: every write POST sends `X-Ledger: 2`, and each boot
+  `putIfAbsent`s the floored `ledgercut` singleton (`at` = now), whose first
+  push sets the server cut; a pull adopts the server's `ledger_cut_at` into it.
+  From then on doses are **derived, not materialized**: there is no dose
+  sweep and no `PENDING` placeholder write. `medintake.js`'s projection
+  regenerates occurrences from the cut day's midnight out of medication
+  history (`lineage.js` `regenerate`: `medsched` + `tztransition` + the
+  approved tz plan) and stored rows are evidence only — a post-cut `PENDING`
+  row on a slot history does not yield (an old client's prediction) is
+  ignored. An action on a derived dose writes at its exact id
+  (confirm-or-create). Details:
   [cloud-mode.md → Sync protocol](cloud-mode.md#sync-protocol).
 
 ## 5. Reminders

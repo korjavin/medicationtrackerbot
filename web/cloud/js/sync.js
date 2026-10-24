@@ -8,7 +8,7 @@
 import { encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
-import { mergeIntake } from '../../domain/medintake.js';
+import { mergeIntake, LEDGERCUT_RECORD_ID, LEDGERCUT_RECORD_TYPE } from '../../domain/medintake.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -99,6 +99,26 @@ function markUpdateRequired() {
 }
 function isUpdateRequiredStatus(status) {
   return status === 426;
+}
+// Every oplog push and snapshot POST declares the v2 dose ledger (bd
+// med-wi09.12): once the account's ledger cut is set the server answers 426 to
+// a writer without it (med-wi09.8). A header only — queued legacy payloads go
+// up unchanged and the intake reducer still ranks them legacy.
+const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Ledger': '2' };
+
+// The pull's ledger_cut_at is the account's cut; the local ledgercut singleton
+// carries it as `at` for the projection (medintake.js loadCutMs). A local-only
+// overwrite — the server already holds the cut, so nothing is queued.
+async function adoptLedgerCut(cutAt) {
+  if (typeof cutAt !== 'string') return false;
+  return withRecordsLock(async () => {
+    const existing = await getRecord(LEDGERCUT_RECORD_ID);
+    if (existing && !existing.deleted && existing.at === cutAt) return false;
+    await putRecord({
+      ...(existing || {}), recordId: LEDGERCUT_RECORD_ID, recordType: LEDGERCUT_RECORD_TYPE, clientTs: 0, deleted: false, at: cutAt,
+    });
+    return true;
+  });
 }
 
 // Serializes the record-store mutations that must not interleave:
@@ -443,6 +463,8 @@ const RECORD_TAGS = {
   medication: ['medications'],
   restock: ['medications'],
   intake: ['medications', 'history'],
+  // bd med-wi09.12: the cut moves where the projection starts regenerating.
+  ledgercut: ['medications', 'history'],
   note: ['notes', 'health-notes'],
   sleep: ['health'],
   hrsample: ['health'],
@@ -757,6 +779,7 @@ async function pullTail(ctx) {
       continue;
     }
     const applied = new Set();
+    if (await adoptLedgerCut(body.ledger_cut_at)) applied.add(LEDGERCUT_RECORD_TYPE);
     for (const op of body.ops || []) {
       const { recordType, recordId } = parseTag(op.record_type_tag);
       try {
@@ -807,7 +830,7 @@ async function snapshotAt(ctx, snapshotSeq) {
   try {
     res = await timedFetch('/api/sync/snapshot', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: WRITE_HEADERS,
       body: JSON.stringify({ snapshot_seq: snapshotSeq, nonce: toBase64(nonce), ct: toBase64(ct) }),
     });
   } catch {
@@ -997,7 +1020,7 @@ async function tryForceSnapshot(ctx) {
   try {
     res = await timedFetch('/api/sync/ops', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: WRITE_HEADERS,
       body: JSON.stringify({ ops: [{ record_type_tag: makeTag('importbump', IMPORT_BUMP_RECORD_ID), nonce: toBase64(nonce), ct: toBase64(ct) }] }),
     });
   } catch {
@@ -1209,7 +1232,7 @@ async function flushPendingUnlocked(ctx) {
     try {
       res = await timedFetch('/api/sync/ops', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: WRITE_HEADERS,
         body: JSON.stringify({ ops }),
       });
     } catch {
