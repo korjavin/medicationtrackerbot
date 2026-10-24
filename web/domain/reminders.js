@@ -25,7 +25,7 @@ const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
 const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
-const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
+export const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];

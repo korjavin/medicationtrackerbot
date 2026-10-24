@@ -664,6 +664,10 @@
         "preferred_reminder_hour": 7,
         "snoozed_until": null,
         "dont_remind_until": null
+      },
+      "reminder_delivery": {
+        "delivery": "webpush",
+        "verbosity": "generic"
       }
     },
     "gamification": {
