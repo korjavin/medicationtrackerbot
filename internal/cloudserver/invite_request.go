@@ -50,7 +50,11 @@ const (
 	inviteTGAlreadyMessage = "You've already asked recently. Please wait a few days before asking again."
 	inviteTGClosedMessage  = "Invites are closed right now."
 	inviteTGDeclineMessage = "Sorry, invites are closed for now."
-	inviteTGFailMessage    = "Sorry, I couldn't pass that on just now. Please try again in a few minutes."
+
+	inviteEmailDeclineSubject = "Your MyHealthBot invite request"
+	inviteEmailDeclineBody    = "Thanks for your interest in MyHealthBot. We can't offer you an account right now. " +
+		"You can apply again later, or get an invite from a friend who already has an account.\n"
+	inviteTGFailMessage = "Sorry, I couldn't pass that on just now. Please try again in a few minutes."
 )
 
 // InviteRequestAPI serves POST /api/invite-requests. It is always mounted; it
@@ -383,7 +387,17 @@ func (t *TelegramAPI) carryOutInviteDecision(ctx context.Context, req *cloudstor
 			// A reply to someone who asked in this chat — not unsolicited mail.
 			t.reply(ctx, req.TGChatID, inviteTGDeclineMessage)
 		}
-		edit("✖️ Declined", false)
+		outcome := "✖️ Declined"
+		if req.Channel == cloudstore.InviteRequestEmail && t.mailer != nil {
+			// One attempt, no retry queue.
+			if err := t.mailer.send(ctx, req.EmailLC, inviteEmailDeclineSubject, inviteEmailDeclineBody); err != nil {
+				slog.Warn("invite request: decline email failed", "class", mailErrorClass(err), "request", req.ID)
+				outcome = "✖️ Declined (email failed)"
+			} else {
+				slog.Info("invite request: decline email sent", "request", req.ID)
+			}
+		}
+		edit(outcome, false)
 		return
 	}
 
