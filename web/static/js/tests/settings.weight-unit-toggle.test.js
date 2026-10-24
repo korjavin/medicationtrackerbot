@@ -581,6 +581,46 @@ describe('Settings Units & body height field (med-a6fb.4)', () => {
         await vi.waitFor(() => expect(env.document.getElementById('settings-height-input').value).toBe(''));
         expect(summary()).toBe('Height · Not set');
     });
+
+    it('focusing and leaving the ft + in pair without an edit writes nothing (179 cm is not rounded to 178)', async () => {
+        typeHeight('179');
+        await vi.waitFor(() => expect(bodyPatches().length).toBe(1));
+        env.document.querySelector('#height-unit-segmented [data-height-unit="ftin"]').click();
+        await vi.waitFor(() => expect(bodyPatches().length).toBe(2));
+        const ft = env.document.getElementById('settings-height-ft');
+        ft.focus();
+        ft.dispatchEvent(new env.window.FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(bodyPatches()).toEqual([{ height_cm: 179 }, { height_unit: 'ftin' }]);
+        expect(summary()).toBe('Height · 5′ 10″');
+    });
+
+    it('a failed height save does not undo a later Show BMI save that succeeded', async () => {
+        let refuseHeight;
+        env.window.apiCall = vi.fn((url, method, body) => {
+            if (body && 'height_cm' in body) return new Promise((r) => { refuseHeight = () => r(null); });
+            return Promise.resolve({ ...body });
+        });
+        typeHeight('180');
+        const toggle = env.document.getElementById('settings-show-bmi-toggle');
+        toggle.checked = false;
+        toggle.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+        await vi.waitFor(() => expect(refuseHeight).toBeTypeOf('function'));
+        refuseHeight();
+        await vi.waitFor(() => expect(bodyPatches()).toEqual([{ height_cm: 180 }, { show_bmi: false }]));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(env.document.getElementById('settings-height-input').value).toBe('');
+        expect(toggle.checked).toBe(false);
+    });
+
+    it('a rejected optimistic cache write restores the field and sends nothing', async () => {
+        vi.spyOn(env.window.DataStore, 'applyOptimistic').mockRejectedValue(new Error('quota'));
+        env.window.safeAlert = vi.fn();
+        typeHeight('180');
+        await vi.waitFor(() => expect(env.document.getElementById('settings-height-input').value).toBe(''));
+        expect(bodyPatches()).toEqual([]);
+        expect(summary()).toBe('Height · Not set');
+    });
 });
 
 describe('?tab=settings&page=units&focus=height (med-a6fb.7 nudge)', () => {

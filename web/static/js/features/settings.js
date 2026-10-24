@@ -1972,37 +1972,53 @@ function readHeightInput() {
     return { cm };
 }
 
-// Optimistic partial patch (rule 9): paint + settings_bundle first, then PATCH;
-// a refusal rolls both back.
-async function saveBodySettings(patch) {
-    const before = _body;
+let _bodyWrites = Promise.resolve(); // module-state: body PATCHes run one at a time
+
+// Optimistic partial patch (rule 9): paint at once, then settings_bundle +
+// PATCH on one serial queue, so a rollback's snapshot never predates another
+// body write that already succeeded. A refusal reverts only the patched keys,
+// and only where no newer edit has replaced them.
+function saveBodySettings(patch) {
+    const keys = Object.keys(patch);
+    const before = Object.fromEntries(keys.map((k) => [k, _body[k]]));
     paintBodySettings(patch);
-    const ds = window.DataStore;
-    const handle = (ds && typeof ds.applyOptimistic === 'function')
-        ? await ds.applyOptimistic('settings_bundle',
-            (prev) => (prev ? { ...prev, body: { ...(prev.body || {}), ...patch } } : prev),
-            ['settings', 'food_targets', 'feature_settings'])
-        : null;
-    try {
-        const res = await apiCall('/api/settings/body', 'PATCH', patch);
-        if (!res) {
-            // apiCall already surfaced the failure.
+    const revert = () => {
+        const undo = Object.fromEntries(keys.filter((k) => _body[k] === patch[k]).map((k) => [k, before[k]]));
+        if (Object.keys(undo).length) paintBodySettings(undo);
+    };
+    const run = _bodyWrites.then(async () => {
+        const ds = window.DataStore;
+        let handle = null;
+        try {
+            if (ds && typeof ds.applyOptimistic === 'function') {
+                handle = await ds.applyOptimistic('settings_bundle',
+                    (prev) => (prev ? { ...prev, body: { ...(prev.body || {}), ...patch } } : prev),
+                    ['settings', 'food_targets', 'feature_settings']);
+            }
+            const res = await apiCall('/api/settings/body', 'PATCH', patch);
+            if (!res) {
+                // apiCall already surfaced the failure.
+                await handle?.rollback();
+                revert();
+                return false;
+            }
+            await handle?.commit();
+            return true;
+        } catch (e) {
             await handle?.rollback();
-            paintBodySettings(before);
+            revert();
+            console.error('Failed to save body settings:', e);
+            safeToast('Failed to save', 'error');
             return false;
         }
-        await handle?.commit();
-        return true;
-    } catch (e) {
-        await handle?.rollback();
-        paintBodySettings(before);
-        console.error('Failed to save body settings:', e);
-        safeToast('Failed to save', 'error');
-        return false;
-    }
+    });
+    _bodyWrites = run.catch(() => {});
+    return run;
 }
 
 async function commitHeight() {
+    // Untouched fields never write: 179 cm shows as 5′ 10″, which reads back as 178.
+    if (!_heightDirty) return true;
     const typed = readHeightInput();
     if (typed.error) {
         showHeightError(typed.error);
