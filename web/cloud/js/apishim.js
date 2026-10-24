@@ -27,7 +27,7 @@ import {
 } from '../../domain/paginate.js';
 import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
-import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues } from './sync.js';
+import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp } from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -172,9 +172,16 @@ function debugOnce(key, ...args) {
 //                 med-o7zq.20).
 //   opts.protection  the W4 nudge's local half (local-policy.js
 //                 LOCAL_PROTECTION, bd med-ta2n.4); omitted = never nudge.
+//   opts.caughtUp async () => bool: has the mirror pulled the account yet?
+//                 Until it has, /api/bootstrap omits needs_first_run,
+//                 so W1 never runs on an empty mirror of an existing account
+//                 (bd med-ejgf). Defaults to sync.js hasCaughtUp on the real
+//                 sync store; any injected store (local mode, tests) has
+//                 nothing to pull and is always caught up.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
+  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -420,7 +427,7 @@ export function createApiRouter(ctx, {
   // flag is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, settingsPart, firstRunComplete] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, settingsPart, firstRunComplete, synced] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
@@ -428,18 +435,22 @@ export function createApiRouter(ctx, {
       weight.getGoal(),
       settingsResponse(),
       settings.getFirstRunComplete(),
+      caughtUp(),
     ]);
     const payload = {
       cursor: 0,
-      // Read from the vault on every call, never cached: WGFirstRun's _mounted
-      // latch is module state lost on reload, so only a fresh `false` here keeps
-      // the overlay from re-opening on the next page load.
-      needs_first_run: !firstRunComplete,
       features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
       settings: settingsPart.settings,
     };
+    // Read from the vault on every call, never cached: WGFirstRun's _mounted
+    // latch is module state lost on reload, so only a fresh `false` here keeps
+    // the overlay from re-opening on the next page load. Omitted, not false,
+    // before the first pull (opts.caughtUp): applyBootstrapPayload then leaves
+    // the overlay alone, so a stale pre-pull answer arriving late can never
+    // dismiss a W1 that cloud-boot's post-pull re-ask has mounted.
+    if (synced) payload.needs_first_run = !firstRunComplete;
     // The Today Goal Line hero warms 'gamification_goal_line' from this
     // (auth-bootstrap.js applyBootstrapPayload). Byte-identical to a live GET
     // /goal-line (incl. the unacknowledged `milestone`, med-8tur.5); with
@@ -803,8 +814,8 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/reminder-delivery') {
       if (method === 'GET') return reminders.getDeliveryPref();
       if (method === 'PUT') {
-        // {floor}: a default, not a choice (med-5vy0) — stored at clientTs 0
-        // only when no pref exists (docs/cloud-mode.md guard 3). 'auto' is
+        // {floor}: a default, not a choice (med-5vy0) — stored at the floor
+        // (Detailed clientTs 0, Generic clientTs 1) only when no pref exists (docs/cloud-mode.md guard 3). 'auto' is
         // the first run: Detailed when the vault already holds a medication
         // (an existing account keeps what it saw), else Generic.
         const floor = body && body.floor;

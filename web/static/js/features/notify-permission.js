@@ -28,7 +28,7 @@
 // however the sheet closes (Not now too), through the same PUT
 // /api/settings/reminder-delivery S8 uses. A changed pick is a real write.
 // Closed untouched, local mode writes nothing and account mode stores Generic
-// as a floored default ({floor: 'generic'}: clientTs 0, only when no pref is
+// as a floored default ({floor: 'generic'}: clientTs 1, only when no pref is
 // stored), so skipping never overwrites another device's pick.
 (function () {
     'use strict';

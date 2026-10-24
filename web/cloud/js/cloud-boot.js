@@ -500,7 +500,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
@@ -544,6 +544,24 @@ window.MedTrackerCloudReady = (async function boot() {
         // is already unlocked). The IIFE closes just before the outer catch.
         void (async () => {
         await pullOnOpen(ctx);
+        // bd med-ejgf: the shim reports needs_first_run false until this
+        // device has pulled the account once, so W1 never writes flags or the
+        // reminder default over an existing account from an empty mirror. The
+        // boot-time /api/bootstrap usually ran before that pull: re-ask after
+        // it and after every drain (online / visible / sync wake) until the
+        // mirror has caught up, then stop. Offline, the app shell simply runs
+        // without W1 and the sync status line says so.
+        let firstRunAsked = false;
+        const askFirstRun = () => (async () => {
+            if (firstRunAsked || !(await hasCaughtUp())) return;
+            const res = await shimCall('/api/bootstrap', 'GET');
+            // Only a real answer ends the re-asking: a throw or a payload
+            // without the flag leaves the next drain to try again.
+            if (firstRunAsked || !res || typeof res.needs_first_run !== 'boolean' || !window.AuthBootstrap) return;
+            firstRunAsked = true;
+            window.AuthBootstrap.mountFirstRun(res.needs_first_run);
+        })().catch((e) => console.error('[cloud-boot] first-run check failed', e));
+        askFirstRun();
         // The kit page's save state (bd med-ckm5.2, kit-state.js): after
         // pullOnOpen, so the record lands on the synced singleton.
         Promise.resolve()
@@ -643,7 +661,7 @@ window.MedTrackerCloudReady = (async function boot() {
             const host = document.getElementById('app-banners');
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired });
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: askFirstRun });
         surfaceAuthExpired();
         surfaceUpdateRequired();
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {

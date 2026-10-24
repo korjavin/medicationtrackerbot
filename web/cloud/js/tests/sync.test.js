@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -906,6 +906,36 @@ describe('writeRecord does not await the background oplog push (med-eas.77)', ()
       process.off('unhandledRejection', onRej);
     }
   });
+
+  // bd med-ejgf: hasCaughtUp gates first-run W1. An accepted push stamps
+  // lastSyncedAt even when a peer interleaved and the re-pull failed, so only
+  // the last page of a successful pull may mark the mirror caught up.
+  it('a failed pull plus an accepted mispredicted push is not caught up; a full pull is', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    let pullOk = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        // Before: a peer took seqs 1-4. After: contiguous from our cursor.
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => i + (pullOk ? 1 : 5)) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) {
+        return pullOk ? new Response(JSON.stringify({ ops: [], next: false }), { status: 200 }) : new Response('', { status: 503 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+
+    await pullOnOpen(ctx);
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx);
+    expect((await getSyncStatus(ctx)).lastSyncedAt).not.toBeNull(); // the push was accepted
+    expect(await hasCaughtUp()).toBe(false);
+
+    pullOk = true;
+    await pullOnOpen(ctx);
+    expect(await hasCaughtUp()).toBe(true);
+  });
 });
 
 // med-gvk.2 — a half-open connection (captive portal / hung TCP) leaves a bare
@@ -1136,6 +1166,16 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     await fireDebounce();
     await entered;
     expect(opsGets).toBeGreaterThan(0); // pullTail's ops GET fired — no writeRecord involved
+  });
+
+  // bd med-ejgf: cloud-boot re-asks first run from onSettled; a boot 401
+  // recovered by Re-authenticate must reach it with no further wake.
+  it('a reauthenticate drain runs the onSettled hook too', async () => {
+    let settled = 0;
+    teardown = startReconnectAutoDrain(ctx, { onSettled: () => { settled++; } });
+    await reauthenticate(ctx);
+    expect(settled).toBe(1);
+    expect(await hasCaughtUp()).toBe(true);
   });
 
   it('a visibility regain while online triggers the same drain', async () => {
