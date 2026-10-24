@@ -156,6 +156,16 @@
         } else if (step.click) {
             await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
             firstVisible(step.click).click();
+        } else if (step.api) {
+            // Writes through the app's own API, e.g. PATCH /api/settings/body.
+            // The write stays in the store for later scenes.
+            await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.fill) {
+            // Types into an input the way a user does (fires `input`).
+            await until(() => firstVisible(step.fill), STEP_MS, `fill ${step.fill}`);
+            const el = firstVisible(step.fill);
+            el.value = step.value;
+            el.dispatchEvent(new window.Event('input', { bubbles: true }));
         } else if (step.tag) {
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.
