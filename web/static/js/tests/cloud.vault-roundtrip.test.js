@@ -155,6 +155,40 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     ], { now: NOW }).data).toBe(false);
   });
 
+  // med-5vy0.4: a stored verbosity (choice or generic default) rides
+  // settings.reminder_delivery at now(); the Detailed floor is derived and
+  // never exported; a file without a valid block leaves the destination alone.
+  it('carries the reminder delivery pref; the Detailed floor, a legacy file and invalid values carry none', () => {
+    const PREF = 'reminderdeliverypref';
+    const rec = (fields) => ({ recordType: PREF, recordId: PREF, deleted: false, ...fields });
+    const of = (records) => records.filter((r) => r.recordType === PREF);
+    expect(of(vaultToRecords(fixture, { now: NOW }))).toEqual([rec({ clientTs: NOW, delivery: 'webpush', verbosity: 'generic' })]);
+    expect(managedTypesForImport(fixture).has(PREF)).toBe(true);
+    expect(hasUserContent(of(vaultToRecords(fixture, { now: NOW })))).toBe(false);
+
+    const exported = (body) => recordsToVault(body ? [rec(body)] : [], { now: NOW }).data.settings;
+    expect(exported({ clientTs: 1, delivery: 'webpush', verbosity: 'generic' }).reminder_delivery).toEqual({ delivery: 'webpush', verbosity: 'generic' });
+    expect(exported({ clientTs: 9, delivery: 'telegram', verbosity: 'detailed' }).reminder_delivery).toEqual({ delivery: 'telegram', verbosity: 'detailed' });
+    expect(exported({ clientTs: 0, delivery: 'webpush', lockscreen_default: 'detailed' })).not.toHaveProperty('reminder_delivery');
+    expect(exported(null)).not.toHaveProperty('reminder_delivery');
+
+    // Telegram-only restores as 'both': the target may have no linked chat.
+    const tg = JSON.parse(JSON.stringify(fixture));
+    tg.data.settings.reminder_delivery = { delivery: 'telegram', verbosity: 'detailed' };
+    expect(of(vaultToRecords(tg, { now: NOW }))).toEqual([rec({ clientTs: NOW, delivery: 'both', verbosity: 'detailed' })]);
+
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.settings.reminder_delivery;
+    expect(of(vaultToRecords(legacy, { now: NOW }))).toEqual([]);
+    expect(managedTypesForImport(legacy).has(PREF)).toBe(false);
+    for (const bad of [{ delivery: 'sms', verbosity: 'generic' }, { delivery: 'webpush', verbosity: 'loud' }, { delivery: 'webpush' }, 'generic', null]) {
+      const v = JSON.parse(JSON.stringify(legacy));
+      v.data.settings.reminder_delivery = bad;
+      expect(of(vaultToRecords(v, { now: NOW }))).toEqual([]);
+      expect(managedTypesForImport(v).has(PREF)).toBe(false);
+    }
+  });
+
   // Forward compat (docs/vault-format.md "Newer exporter, older importer"):
   // the importer reads named sections only, so a key it does not know — what
   // `protection` is to an older client — imports cleanly and is dropped.
@@ -260,6 +294,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       delete d.trackers;
       // So is the W4 nudge state (med-ta2n.4).
       delete d.protection;
+      // And the reminder delivery pref (med-5vy0.4).
+      delete d.settings.reminder_delivery;
       // And the schedule / zone history (med-wi09.9).
       delete d.medications.schedules;
       delete d.tz.transitions;

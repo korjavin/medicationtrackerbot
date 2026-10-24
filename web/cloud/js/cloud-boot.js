@@ -402,8 +402,9 @@ window.MedTrackerCloudReady = (async function boot() {
             } else {
                 // Replace: discard any not-yet-flushed managed writes first, or
                 // replaceAllRecords' pending overlay resurrects them over the backup
-                // (and they later flush over it). Non-managed pending (nk, reminder
-                // prefs) stays queued — those records are in `survive`.
+                // (and they later flush over it). Non-managed pending (nk, and
+                // the delivery pref when the file carries none) stays queued —
+                // those records are in `survive`.
                 await dropPendingForTypes(VAULT_MANAGED_TYPES);
                 await replaceAllRecords([...records, ...survive]);
             } });

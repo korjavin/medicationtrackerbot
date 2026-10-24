@@ -403,7 +403,8 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   "integrations": { integrations },          // absent when include_secrets=0
   "med_reminder_pref": { "enabled": bool } | null,
   "bp_reminder": { reminder_state } | null,
-  "weight_reminder": { reminder_state } | null
+  "weight_reminder": { reminder_state } | null,
+  "reminder_delivery": { "delivery": "webpush"|"telegram"|"both", "verbosity": "generic"|"detailed" }  // absent when none stored
 }
 ```
 
@@ -429,6 +430,22 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   the record body as passthrough so a bot→cloud→bot loop is lossless.
   `weight_reminder` may also carry `cadence` (`weekly` | `daily`, the weigh-in
   cadence — `web/domain/reminders.js` `WEIGHT_CADENCES`); absent means weekly.
+- **reminder_delivery** — the `reminderdeliverypref` singleton (bd med-5vy0.4,
+  `web/domain/reminders.js`): where reminders go and how much the lock screen /
+  Telegram text says. Exported only when the record stores a `verbosity` — an
+  explicit choice or the Generic default (clientTs 1). The Detailed floor
+  (`lockscreen_default`, `verbosity` absent, clientTs 0) is derived and is
+  recomputed on the target, so it is **never** exported; a store holding only
+  the floor, or no record, omits the key. Import writes `{delivery, verbosity}`
+  at import time, so it beats any floor (CLAUDE.md rule 12); a block whose
+  `delivery` or `verbosity` is not one of the listed values is ignored, never
+  fatal. An imported `"telegram"` is stored as `"both"`: the target may have no
+  linked Telegram chat, and Telegram-only would silently stop every reminder;
+  web push keeps working until the user links Telegram. On a merge import the
+  receiver's record wins, the clientTs-1 Generic default included; only the
+  Detailed floor (clientTs 0) gives way to the file's block. A file without a valid block (every backup before med-5vy0.4) leaves
+  the destination's record alone on replace, like `protection`. Older importers
+  read named `settings` fields only and drop the key.
 - **integrations** — the user's own provider keys, stored **unmasked**:
   `openai: {api_key, url, model, vision_api_key, vision_url, vision_model}`,
   `food: {api_key, url, domain}`, `elevenlabs: {api_key, agent_id}`. This makes the

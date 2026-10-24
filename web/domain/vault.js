@@ -34,7 +34,8 @@
 //     vault carries `weight.goals[]` oldest-first; only the newest is current.
 //   - singletons: bpgoal, weight-unit, settings, features, activelocation,
 //     taborder, foodtargets, integrations, medreminderpref, bpreminderpref,
-//     weightreminderpref, gamification, apitokens, tzplan-current.
+//     weightreminderpref, reminderdeliverypref, gamification, apitokens,
+//     tzplan-current.
 //   - the active/pending tz plan stays at `tzplan-current` (what tzplan.js and
 //     medintake.js look up by exact recordId); every older plan lands on a
 //     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
@@ -72,6 +73,7 @@ import { compareChain, isHealthWeight, weightTrendChain } from './weight.js';
 import { healthImportRecordId, healthNumericId } from './healthsource.js';
 import { FIRSTRUN_RECORD_TYPE, FIRSTRUN_RECORD_ID, storedBodySettings } from './settings.js';
 import { sortByEffective } from './medschedule.js';
+import { DELIVERYPREF_RECORD_TYPE, DELIVERY_CHANNELS, VERBOSITIES } from './reminders.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
@@ -95,7 +97,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
   'gamificationmilestone', 'gamificationweek',
   'gamificationjournal', 'gamificationexperiment', 'gamificationtargets', 'gamificationmode',
-  'protection',
+  'protection', DELIVERYPREF_RECORD_TYPE,
 ]);
 
 // Settings / preference / catalog types: present on a vault that holds no user
@@ -106,7 +108,7 @@ const NON_CONTENT_TYPES = new Set([
   // History rows (bd med-wi09.9) are bookkeeping of a medication / zone, not
   // something the user logged: they never count as content.
   'tzplan', 'tzhistory', 'tztransition', 'medsched', 'activelocation',
-  'gamificationtargets', 'gamificationmode', 'protection',
+  'gamificationtargets', 'gamificationmode', 'protection', DELIVERYPREF_RECORD_TYPE,
 ]);
 export const USER_CONTENT_TYPES = new Set([...VAULT_MANAGED_TYPES].filter((t) => !NON_CONTENT_TYPES.has(t)));
 
@@ -283,7 +285,21 @@ export function managedTypesForImport(vault) {
   // does an empty one (an older client exporting a kitNudge-only record,
   // bd med-ta2n.15): it carries nothing to restore.
   if (!protectionBlockHasW4(data.protection)) types.delete('protection');
+  // A file without a valid reminder_delivery (any backup older than
+  // med-5vy0.4, or one whose source held only the Detailed floor) leaves this
+  // device's delivery pref alone.
+  if (!deliveryPrefFromVault(data.settings)) types.delete(DELIVERYPREF_RECORD_TYPE);
   return types;
+}
+
+// settings.reminder_delivery -> the record body, or null when absent or not
+// a valid {delivery, verbosity} pair (ignored, never fatal). 'telegram'
+// lands as 'both': the target may have no linked chat, and Telegram-only
+// would then silently stop every reminder (no web push, relay drops them).
+function deliveryPrefFromVault(settings) {
+  const p = settings && settings.reminder_delivery;
+  if (!p || !DELIVERY_CHANNELS.includes(p.delivery) || !VERBOSITIES.includes(p.verbosity)) return null;
+  return { delivery: p.delivery === 'telegram' ? 'both' : p.delivery, verbosity: p.verbosity };
 }
 
 // A protection block with a backup stamp or a dismissal; anything else
@@ -525,6 +541,17 @@ export function recordsToVault(records, { now, includeSecrets = true, backupAt }
   Object.assign(settings, storedBodySettings(general, { vault: true }));
   if (bpReminderRec) settings.bp_reminder = reminderToVault(bpReminderRec);
   if (weightReminderRec) settings.weight_reminder = reminderToVault(weightReminderRec);
+  // Reminder delivery pref (med-5vy0.4): only a stored verbosity (a choice or
+  // the generic default) is carried. The Detailed floor (lockscreen_default,
+  // verbosity absent) is derived and recomputed on the target, so it exports
+  // nothing, as does an absent record.
+  const deliveryRec = singleton(DELIVERYPREF_RECORD_TYPE, DELIVERYPREF_RECORD_TYPE);
+  if (deliveryRec && VERBOSITIES.includes(deliveryRec.verbosity)) {
+    settings.reminder_delivery = {
+      delivery: DELIVERY_CHANNELS.includes(deliveryRec.delivery) ? deliveryRec.delivery : 'webpush',
+      verbosity: deliveryRec.verbosity,
+    };
+  }
   // include_secrets=0: omit the block entirely (absent, not `null`/`{}` — only
   // absent means "leave the destination's provider keys alone" on import).
   if (!includeSecrets) delete settings.integrations;
@@ -931,6 +958,9 @@ export function vaultToRecords(vault, { now } = {}) {
   if (settings.med_reminder_pref) push('medreminderpref', 'medreminderpref', { enabled: !!settings.med_reminder_pref.enabled });
   if (settings.bp_reminder) push('bpreminderpref', 'bpreminderpref', reminderFromVault(settings.bp_reminder));
   if (settings.weight_reminder) push('weightreminderpref', 'weightreminderpref', reminderFromVault(settings.weight_reminder));
+  // At now(), so it beats any Detailed floor (clientTs 0) on any device.
+  const deliveryPref = deliveryPrefFromVault(settings);
+  if (deliveryPref) push(DELIVERYPREF_RECORD_TYPE, DELIVERYPREF_RECORD_TYPE, deliveryPref);
 
   // --- gamification / api_tokens (passthrough singletons; absent api_tokens
   // leaves the destination's tokens alone — see managedTypesForImport) ---

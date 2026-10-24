@@ -8,7 +8,8 @@ vi.mock('../../../cloud/js/push.js', () => ({
 }));
 import { pushSchedule, sendTestPush } from '../../../cloud/js/push.js';
 import { computeReminderEntries } from '../../../cloud/js/reminders.js';
-import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { loadCloudShimFrontendEnv, createInMemoryRecordsPort, applyIncomingReplica } from './helpers/cloud-shim-harness.js';
+import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 import { installApiShim, createApiRouter } from '../../../cloud/js/apishim.js';
 import { ORIGIN_UI, ORIGIN_EXTERNAL } from '../../../cloud/js/sync.js';
 
@@ -123,6 +124,31 @@ describe('cloud shim contract — reminders', () => {
             setupEnv({ medication: [MED], reminderdeliverypref: [pref({ clientTs: 5, delivery: 'webpush', verbosity: 'detailed' })] });
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { delivery: 'telegram', verbosity: 'detailed' });
             expect((await stored())[0]).toMatchObject({ delivery: 'telegram', verbosity: 'detailed' });
+        });
+
+        // med-5vy0.4: export -> restore into a fresh account keeps Generic; the
+        // account holds a medication, yet no Detailed floor lands, and one a
+        // not-yet-synced device writes later loses LWW.
+        it('a vault restore keeps Generic in a fresh account; the Detailed floor never overrides it', async () => {
+            setupEnv({ medication: [MED], reminderdeliverypref: [pref(GENERIC_FLOOR)] });
+            const source = [...await env.records.list('medication'), ...await env.records.list('reminderdeliverypref')];
+            const file = recordsToVault(source, { now: Date.now() });
+            expect(file.data.settings.reminder_delivery).toEqual({ delivery: 'webpush', verbosity: 'generic' });
+
+            const seed = {};
+            for (const r of vaultToRecords(file, { now: Date.now() })) (seed[r.recordType] ||= []).push(r);
+            setupEnv(seed);
+            await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { floor: 'auto' });
+            expect(await env.window.offlineAwareApiCall(DELIVERY, 'GET')).toEqual({ delivery: 'webpush', verbosity: 'generic', lockscreen: 'generic' });
+            const [restored] = await stored();
+            expect(restored).not.toHaveProperty('lockscreen_default');
+            expect(restored.clientTs).toBeGreaterThan(1);
+            expect(applyIncomingReplica(restored, DETAILED_FLOOR)).toBe(restored);
+
+            // A floor-only source exports no pref, so the target derives its own.
+            setupEnv({ medication: [MED], reminderdeliverypref: [pref(DETAILED_FLOOR)] });
+            const floorOnly = recordsToVault(await env.records.list('reminderdeliverypref'), { now: Date.now() });
+            expect(floorOnly.data.settings).not.toHaveProperty('reminder_delivery');
         });
     });
 
