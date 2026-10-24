@@ -6,14 +6,13 @@ import { loadFrontendEnv } from './helpers/frontend-harness.js';
 //   "Intake logged via the Log button on the medication schedule page does not
 //    appear on the intake history page, even after refresh."
 //
-// Task 1 verified that the HTTP flow (POST /api/medications/log-past followed
-// by GET /api/history) works on the backend. This suite exercises the frontend
-// path: open the log-past modal -> confirmLogPast() -> loadHistory() ->
-// renderHistory() and asserts the new intake shows up in the DOM.
-describe('app.js log-past -> history reflects new intake', () => {
+// The History list is gone (bd med-wi09.3); the Meds timeline over GET
+// /api/doses is where a logged dose shows. This suite exercises the frontend
+// path: open the log-past modal -> confirmLogPast() -> loadTimeline() and
+// asserts the new intake shows up in #med-timeline-list.
+describe('app.js log-past -> timeline reflects new intake', () => {
   async function seedMedications(window, meds) {
-    // Match the seed pattern used by app.medication-history.test.js — prime
-    // the medications array via the same loadMeds() path the real app uses.
+    // Prime the medications array via the same loadMeds() path the real app uses.
     const originalLoadSWR = window.DataStore.loadSWR;
     window.DataStore.loadSWR = vi.fn(async (options) => {
       await options.onFresh(meds);
@@ -29,6 +28,21 @@ describe('app.js log-past -> history reflects new intake', () => {
       `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
       `T${pad(date.getHours())}:${pad(date.getMinutes())}`
     );
+  }
+
+  // The GET /api/doses projection row of a logged (manual) intake.
+  function doseRow(intake) {
+    return {
+      occId: intake.id,
+      medId: intake.medication_id,
+      plannedAt: intake.scheduled_at,
+      tz: 'UTC',
+      localDate: intake.scheduled_at.slice(0, 10),
+      localTime: intake.scheduled_at.slice(11, 16),
+      source: 'manual',
+      state: 'taken',
+      takenAt: intake.taken_at
+    };
   }
 
   it('confirmLogPast invalidates history+medications cache before reload and renders the new intake', async () => {
@@ -64,7 +78,7 @@ describe('app.js log-past -> history reflects new intake', () => {
         scheduled_at: takenDate.toISOString()
       };
 
-      // Record call ordering to verify invalidation happens before /api/history.
+      // Record call ordering to verify invalidation happens before /api/doses.
       const callLog = [];
       const invalidateSpy = vi.spyOn(window.DataStore, 'invalidateByTag').mockImplementation(async (tag) => {
         callLog.push({ type: 'invalidate', tag });
@@ -75,9 +89,9 @@ describe('app.js log-past -> history reflects new intake', () => {
           callLog.push({ type: 'api', endpoint, method });
           return newIntake;
         }
-        if (typeof endpoint === 'string' && endpoint.startsWith('/api/history')) {
+        if (typeof endpoint === 'string' && endpoint.startsWith('/api/doses')) {
           callLog.push({ type: 'api', endpoint, method });
-          return [newIntake];
+          return [doseRow(newIntake)];
         }
         if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications')) {
           return [
@@ -108,23 +122,23 @@ describe('app.js log-past -> history reflects new intake', () => {
       expect(invalidatedTags).toContain('history');
       expect(invalidatedTags).toContain('medications');
 
-      // Cache invalidation must occur BEFORE the history GET so that the
-      // refetch bypasses any stale SWR payload.
-      const firstHistoryIdx = callLog.findIndex(
-        (e) => e.type === 'api' && typeof e.endpoint === 'string' && e.endpoint.startsWith('/api/history')
+      // Cache invalidation must occur BEFORE the timeline GET so that the
+      // refetch bypasses any stale payload.
+      const firstDosesIdx = callLog.findIndex(
+        (e) => e.type === 'api' && typeof e.endpoint === 'string' && e.endpoint.startsWith('/api/doses')
       );
       const firstInvalidateHistoryIdx = callLog.findIndex((e) => e.type === 'invalidate' && e.tag === 'history');
       const firstInvalidateMedicationsIdx = callLog.findIndex((e) => e.type === 'invalidate' && e.tag === 'medications');
       expect(firstInvalidateHistoryIdx).toBeGreaterThanOrEqual(0);
       expect(firstInvalidateMedicationsIdx).toBeGreaterThanOrEqual(0);
-      expect(firstHistoryIdx).toBeGreaterThan(firstInvalidateHistoryIdx);
-      expect(firstHistoryIdx).toBeGreaterThan(firstInvalidateMedicationsIdx);
+      expect(firstDosesIdx).toBeGreaterThan(firstInvalidateHistoryIdx);
+      expect(firstDosesIdx).toBeGreaterThan(firstInvalidateMedicationsIdx);
 
-      // The history DOM must now contain the newly logged intake.
-      const list = document.getElementById('history-list');
-      expect(list.textContent).not.toContain('No doses logged yet');
-      expect(list.textContent).toContain('Vitamin D');
-      expect(list.querySelectorAll('.history-group').length).toBeGreaterThan(0);
+      // The timeline must now contain the newly logged intake.
+      const row = document.querySelector('#med-timeline-list .wg-timeline__row[data-occ-ids~="9001"]');
+      expect(row).not.toBeNull();
+      expect(row.dataset.state).toBe('taken');
+      expect(row.textContent).toContain('Vitamin D');
 
       // And the user saw the success toast, not a blocking alert (med-omvw).
       expect(window.safeAlert).not.toHaveBeenCalled();
@@ -137,7 +151,7 @@ describe('app.js log-past -> history reflects new intake', () => {
     }
   });
 
-  it('warns and toasts when the refreshed history response does not contain the new intake', async () => {
+  it('warns and toasts when the refreshed timeline does not contain the new intake', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -172,13 +186,13 @@ describe('app.js log-past -> history reflects new intake', () => {
       };
 
       // Simulate the bug path: the POST succeeded (server returned the intake)
-      // but the subsequent /api/history fetch does NOT include it — the exact
+      // but the subsequent /api/doses read does NOT include it — the exact
       // condition the defensive visibility check exists to catch.
       window.apiCall = vi.fn(async (endpoint, method) => {
         if (endpoint === '/api/medications/log-past' && method === 'POST') {
           return newIntake;
         }
-        if (typeof endpoint === 'string' && endpoint.startsWith('/api/history')) {
+        if (typeof endpoint === 'string' && endpoint.startsWith('/api/doses')) {
           return []; // empty — new intake missing
         }
         if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications')) {
@@ -212,7 +226,7 @@ describe('app.js log-past -> history reflects new intake', () => {
     }
   });
 
-  it('POST returns the full intake and the rendered DOM has a node with that id', async () => {
+  it('a string occId from the projection still matches the POST\'s numeric id', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -246,11 +260,10 @@ describe('app.js log-past -> history reflects new intake', () => {
 
       window.apiCall = vi.fn(async (endpoint, method) => {
         if (endpoint === '/api/medications/log-past' && method === 'POST') {
-          // Task 1: server now returns the full persisted IntakeLog.
           return newIntake;
         }
-        if (typeof endpoint === 'string' && endpoint.startsWith('/api/history')) {
-          return [newIntake];
+        if (typeof endpoint === 'string' && endpoint.startsWith('/api/doses')) {
+          return [{ ...doseRow(newIntake), occId: '777', medId: '17' }];
         }
         if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications')) {
           return [
@@ -269,8 +282,7 @@ describe('app.js log-past -> history reflects new intake', () => {
       await window.confirmLogPast();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const list = document.getElementById('history-list');
-      const node = list.querySelector(`[data-intake-id="${newIntake.id}"]`);
+      const node = document.querySelector(`#med-timeline-list [data-occ-ids~="${newIntake.id}"]`);
       expect(node).not.toBeNull();
       expect(node.textContent).toContain('Fish Oil');
 

@@ -1,31 +1,33 @@
 // ==================== Medication modal + intake history ====================
 // Extracted from app.js (Plan 2026-06-10 "finish-app-js-split", Task 1).
 //
-// This file owns the medication add/edit modal form helpers, the Meds →
-// History sub-tab (history load + next-intake card), and the push-driven
-// medication-confirm modal flow (confirm / skip / edit / log-past) with its
-// optimistic-cache helpers. These functions remain global (script-tag
+// This file owns the medication add/edit modal form helpers and the
+// push-driven medication-confirm modal flow (confirm / skip / edit / log-past)
+// with its optimistic-cache helpers. (The Meds History pane and its
+// next-intake card are gone — the timeline in features/meds.js replaced them,
+// bd med-wi09.3.) These functions remain global (script-tag
 // loading) and still rely on app.js + sibling globals: apiCall, safeAlert,
 // safeConfirm, withSubmit, formatDate, editingMedId, medications, loadMeds,
-// populateMedFilter, renderInventory, renderHistory, loadInventory,
+// loadTimeline, renderInventory, loadInventory,
 // switchTab, window.DataStore, window.PushModalState, window.ModalManager,
-// window.MedTrackerDB. The optimistic helpers
-// (_applyOptimisticHistoryFlip / _commitOptimistic / _rollbackOptimistic) are
-// also reached by features/meds.js via bare name + typeof guards, so they
-// stay function-scoped globals here rather than being privatised.
+// window.MedTrackerDB, and meds.js's timeline flip (_applyOptimisticTimeline /
+// _tlPatchRows). The optimistic helpers (_applyOptimisticDueClear /
+// _commitOptimistic / _rollbackOptimistic) are also reached by
+// features/meds.js via bare name, so they stay function-scoped globals here
+// rather than being privatised.
 //
 // Public surface is mirrored on window.MedsHistory for discoverability; the
 // bare function names are the live call path used by app.js bindings and
 // inline siblings.
 
 // Refresh the meds view siblings after a mutation (confirm/skip/edit/log-past).
-// loadMeds refreshes the schedule data and the `medications` array; loadHistory
-// refreshes the history list. Inventory is re-rendered (after loadMeds resolves)
+// loadMeds refreshes the schedule data and the `medications` array; loadTimeline
+// re-reads the timeline. Inventory is re-rendered (after loadMeds resolves)
 // only when it's the active sub-tab, so stock counts stay correct without
 // burning the per-med last-refilled fetch when off-screen.
 function refreshMedsAfterMutation() {
     const medsPromise = typeof loadMeds === 'function' ? loadMeds() : null;
-    if (typeof loadHistory === 'function') loadHistory();
+    if (typeof loadTimeline === 'function') loadTimeline();
     if (medsPromise && typeof medsPromise.then === 'function') {
         medsPromise.then(() => {
             const activeMedTab = document.querySelector('.med-tab.active');
@@ -374,184 +376,8 @@ function removeTime(btn) {
     btn.closest('.time-row').remove();
 }
 
-async function loadHistory() {
-    // Ensure medications are loaded for name resolution
-    // populateMedFilter() is called inside loadMeds(), so only call it explicitly
-    // when loadMeds() is skipped (medications pre-loaded from bootstrap)
-    if (medications.length === 0) await loadMeds();
-    else populateMedFilter();
-
-    const days = document.getElementById('history-filter-days').value;
-    const medId = document.getElementById('history-filter-med').value;
-
-    const cacheKey = `history_${days}_${medId}`;
-
-    const result = await window.DataStore.loadSWR({
-        key: cacheKey,
-        tags: ['history'],
-        fetcher: async () => await apiCall(`/api/history?days=${days}&med_id=${medId}`),
-        allowNullFresh: true,
-        onCached: async (cached) => {
-            renderHistory(cached);
-        },
-        onFresh: async (fresh) => {
-            if (fresh && window.MedTrackerDB?.IntakeHistoryStore) {
-                await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, fresh);
-            }
-            renderHistory(fresh || []);
-        },
-        onError: async (_err, cached) => {
-            if (!cached) renderHistory([]);
-        }
-    });
-    renderNextIntakeTrigger();
-    return result;
-}
-
-// module-state: holds the next-intake countdown setInterval handle so a
-// re-render clears the prior timer before starting a new one.
-let _medsHistoryState = { nextIntakeTimer: null }; // module-state: next-intake countdown interval handle
-
-function _formatCountdown(ms) {
-    if (ms <= 0) return '0:00';
-    const totalMinutes = Math.floor(ms / 60000);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return `${hours}:${String(minutes).padStart(2, '0')}`;
-}
-
-async function renderNextIntakeTrigger() {
-    const container = document.getElementById('next-intake-trigger');
-    if (!container) return;
-
-    if (_medsHistoryState.nextIntakeTimer) {
-        clearInterval(_medsHistoryState.nextIntakeTimer);
-        _medsHistoryState.nextIntakeTimer = null;
-    }
-
-    try {
-        // Kick off a refresh as a side-effect. fetchFresh returns null for
-        // both "no data" and "superseded by a concurrent invalidation", so we
-        // can't use its return value to decide between "render empty" and
-        // "leave the card alone". Instead, read the cache afterwards — it
-        // reflects whichever fetch most recently won. This avoids wiping a
-        // correctly-rendered card when an older, invalidated fetch resolves
-        // after a newer one has already populated the cache.
-        await window.DataStore.fetchFresh(
-            'next_intake',
-            fetchNextIntakePayload,
-            ['history', 'medications']
-        );
-
-        const res = await window.DataStore.getCached('next_intake');
-
-        if (!res || !res.scheduled_at) {
-            container.replaceChildren();
-            return;
-        }
-
-        const nextTime = new Date(res.scheduled_at);
-        const medNamesStr = res.medication_names.join(', ');
-
-        // Format the next time
-        const timeStr = nextTime.toLocaleString('de-DE', {
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-
-        // Round-2 Task 8 (#11b): restyled to match the Today "Next up" card —
-        // elevated-teal surface + muted-uppercase kicker + display-numeric
-        // countdown + secondary meta line + kit .wg-btn CTA.
-        const card = document.createElement('div');
-        card.className = 'wg-meds-next-intake-card';
-
-        const body = document.createElement('div');
-        body.className = 'wg-meds-next-intake-card__text';
-
-        const title = document.createElement('div');
-        title.className = 'wg-meds-next-intake-card__kicker';
-        title.textContent = 'Next scheduled intake';
-
-        const countdown = document.createElement('div');
-        countdown.className = 'wg-meds-next-intake-card__time';
-        function updateCountdown() {
-            countdown.textContent = _formatCountdown(nextTime - Date.now());
-        }
-        updateCountdown();
-        _medsHistoryState.nextIntakeTimer = setInterval(updateCountdown, 30000);
-
-        const details = document.createElement('div');
-        details.className = 'wg-meds-next-intake-card__meta';
-        details.textContent = `${medNamesStr} at ${timeStr}`;
-        body.appendChild(title);
-        body.appendChild(countdown);
-        body.appendChild(details);
-
-        const action = document.createElement('button');
-        action.type = 'button';
-        // Plain .wg-btn: the app-bar Add is the view's one primary.
-        action.className = 'wg-btn wg-btn--sm wg-meds-next-intake-card__cta';
-        action.textContent = 'Take Now';
-        action.addEventListener('click', () => {
-            triggerNextIntake();
-        });
-
-        card.appendChild(body);
-        card.appendChild(action);
-        container.replaceChildren(card);
-    } catch (e) {
-        console.error("Error fetching next intake:", e);
-        container.replaceChildren();
-    }
-}
-
-async function triggerNextIntake() {
-    const res = await apiCall('/api/medications/trigger-next-intake', 'POST');
-    if (res && res.status === 'confirmed') {
-        await window.DataStore.invalidateTags(['history', 'medications', 'gamification']);
-        await window.DataStore.invalidateKey('next_intake');
-        const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
-        safeToast(`Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`, 'info');
-        await loadHistory();
-    }
-}
-
 function closeMedicationConfirmModal() {
     window.ModalManager.medConfirm.close();
-}
-
-// Apply `mutator(log) → log|null` against every cached `history_*` payload so
-// intake-status mutations (confirm/skip/edit/log-past/delete-future) repaint
-// the meds History list synchronously before the POST resolves. Returns an
-// array of applyOptimistic handles the caller settles on success/failure.
-// Returning `null` from the mutator drops the log (used by deleteFutureIntakes).
-async function _applyOptimisticHistoryFlip(mutator) {
-    const handles = [];
-    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
-        return handles;
-    }
-    const apiCache = window.MedTrackerDB && window.MedTrackerDB.ApiCache;
-    if (!apiCache || typeof apiCache.keys !== 'function') return handles;
-
-    let keys = [];
-    try { keys = await apiCache.keys('history_'); } catch (_) { keys = []; }
-    if (!Array.isArray(keys) || keys.length === 0) return handles;
-
-    for (const key of keys) {
-        const handle = await window.DataStore.applyOptimistic(key, (prev) => {
-            if (!Array.isArray(prev)) return prev;
-            const next = [];
-            for (const log of prev) {
-                const mapped = mutator(log);
-                if (mapped) next.push(mapped);
-            }
-            return next;
-        }, ['history']);
-        handles.push(handle);
-    }
-    return handles;
 }
 
 // Patch `next_intake` cache when the just-confirmed/skipped scheduled time
@@ -608,36 +434,6 @@ async function _applyOptimisticDueClear(isResolved) {
     return window.DataStore.applyOptimistic('doses_due_24h', (prev) => (Array.isArray(prev)
         ? prev.filter((row) => !(row && isResolved(row)))
         : prev), ['history']);
-}
-
-// Prepend a freshly-synthesised log into every cached `history_*` payload
-// whose filter (range + medId) would include it. Used by confirmLogPast where
-// no prior log row exists. `medId` matches the per-med filter; the "0" / "all"
-// medId always matches. Range filter is not strictly enforced — the next
-// loadHistory() refetch reconciles against authoritative server data.
-async function _applyOptimisticHistoryAdd(log, medId) {
-    const handles = [];
-    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
-        return handles;
-    }
-    const apiCache = window.MedTrackerDB && window.MedTrackerDB.ApiCache;
-    if (!apiCache || typeof apiCache.keys !== 'function') return handles;
-
-    let keys = [];
-    try { keys = await apiCache.keys('history_'); } catch (_) { keys = []; }
-    if (!Array.isArray(keys) || keys.length === 0) return handles;
-
-    for (const key of keys) {
-        const parts = key.split('_');
-        const keyMedId = parts[2] === undefined || parts[2] === '' ? 0 : Number(parts[2]);
-        if (keyMedId !== 0 && keyMedId !== medId) continue;
-        const handle = await window.DataStore.applyOptimistic(key, (prev) => {
-            const base = Array.isArray(prev) ? prev : [];
-            return [log, ...base];
-        }, ['history']);
-        handles.push(handle);
-    }
-    return handles;
 }
 
 async function _commitOptimistic(handles) {
@@ -699,17 +495,12 @@ async function confirmSelectedMedications() {
         const pickedMs = timeInput && timeInput.dataset.edited ? new Date(timeInput.value).getTime() : NaN;
         const pickedIso = Number.isFinite(pickedMs) ? new Date(pickedMs).toISOString() : undefined;
 
-        // Optimistic: flip exactly the acted rows to TAKEN in every cached
-        // `history_*` payload, clear `next_intake` and the due rows, so the
-        // meds History list + Today repaint before the POST resolves.
+        // Optimistic: flip exactly the acted rows to taken on the timeline,
+        // clear `next_intake` and the due rows, so the timeline + Today
+        // repaint before the POST resolves.
         const takenAt = pickedIso || new Date().toISOString();
-        const handles = await _applyOptimisticHistoryFlip((log) => {
-            if (!log || typeof log !== 'object') return log;
-            if (occIds.indexOf(log.id) !== -1 && log.status === 'PENDING') {
-                return { ...log, status: 'TAKEN', taken_at: takenAt, _optimistic: true };
-            }
-            return log;
-        });
+        const handles = [await _applyOptimisticTimeline(_tlPatchRows(
+            new Map(occIds.map((id) => [String(id), { state: 'taken', takenAt }]))))];
         handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedIds));
         handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
 
@@ -753,13 +544,8 @@ async function skipSelectedMedications() {
         // Explicit occIds (bd med-wi09.2) — no nearest-PENDING lookup.
         const occIds = _medConfirmOccIds(selectedIndices);
 
-        const handles = await _applyOptimisticHistoryFlip((log) => {
-            if (!log || typeof log !== 'object') return log;
-            if (occIds.indexOf(log.id) !== -1) {
-                return { ...log, status: 'SKIPPED', _optimistic: true };
-            }
-            return log;
-        });
+        const handles = [await _applyOptimisticTimeline(_tlPatchRows(
+            new Map(occIds.map((id) => [String(id), { state: 'skipped', takenAt: null }]))))];
         handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedMedIds));
         handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
 
@@ -811,52 +597,58 @@ function _describeIntakeUpdateFailures(failures) {
     return "Couldn't update: " + labels.join(', ') + ". Please try again.";
 }
 
+// Edit sheet (MT3, bd med-wi09.17): the checked doses take the segment's
+// state — Taken (at the picked time), Skipped or Not taken — on their own
+// occIds; unchecked doses stay as they were. Each dose's current state (the
+// choice's data-state, default taken) decides the explicit actions: leaving
+// taken/skipped is an undo first, then take or skip; a taken dose that stays
+// taken only gets its time edited, and only once the user picked a time.
 async function updateIntakeHistory() {
-    const checks = document.querySelectorAll('#med-confirm-list .med-confirm-check');
-    const selectedIndices = [];
-    const unselectedIndices = [];
+    const targetOpt = document.querySelector('#med-confirm-state [data-dose-state][aria-pressed="true"]');
+    const target = targetOpt ? targetOpt.dataset.doseState : 'taken';
+    const timeInput = document.getElementById('med-confirm-datetime');
+    const takenMs = new Date(timeInput.value).getTime();
+    const takenAt = Number.isFinite(takenMs) ? new Date(takenMs).toISOString() : null;
+    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
 
-    checks.forEach(c => {
-        const idx = parseInt(c.dataset.index, 10);
-        if (c.getAttribute('aria-pressed') === 'true') {
-            selectedIndices.push(idx);
+    const plan = { undo: [], take: [], skip: [], edit_time: [] };
+    const patches = new Map();
+    document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]').forEach((c) => {
+        const id = intakeIds[parseInt(c.dataset.index, 10)];
+        if (id == null) return;
+        const raw = c.dataset.state || 'taken';
+        const from = raw === 'taken' || raw === 'skipped' ? raw : 'pending';
+        if (from === target) {
+            // A group's doses keep their own times unless the user picked one.
+            if (target !== 'taken' || !takenAt || !timeInput.dataset.edited) return;
+            plan.edit_time.push(id);
         } else {
-            unselectedIndices.push(idx);
+            if (from !== 'pending') plan.undo.push(id);
+            if (target === 'taken') plan.take.push(id);
+            if (target === 'skipped') plan.skip.push(id);
         }
+        patches.set(String(id), target === 'taken' ? { state: 'taken', takenAt }
+            : { state: target === 'skipped' ? 'skipped' : 'due', takenAt: null });
     });
 
-    const timeInput = document.getElementById('med-confirm-datetime');
-    const takenAt = new Date(timeInput.value).toISOString();
-
-    // Edit sheet (bd med-wi09.2): a still-checked dose gets its time edited, an
-    // unchecked one is an explicit undo of THAT dose — only rows listed here.
-    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
-    const editIds = selectedIndices.map((idx) => intakeIds[idx]).filter((id) => id != null);
-    const undoIds = unselectedIndices.map((idx) => intakeIds[idx]).filter((id) => id != null);
-
-    if (editIds.length === 0 && undoIds.length === 0) {
+    if (patches.size === 0) {
         closeMedicationConfirmModal();
         return;
     }
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        // Optimistic: apply each TAKEN/PENDING flip across cached history payloads
-        // so the History list reflects the user's choice before the round-trip.
-        const handles = await _applyOptimisticHistoryFlip((log) => {
-            if (!log || typeof log !== 'object') return log;
-            if (editIds.indexOf(log.id) !== -1) return { ...log, status: 'TAKEN', taken_at: takenAt, _optimistic: true };
-            if (undoIds.indexOf(log.id) !== -1) return { ...log, status: 'PENDING', taken_at: null, _optimistic: true };
-            return log;
-        });
+        const handles = [await _applyOptimisticTimeline(_tlPatchRows(patches))];
 
         // Any failed id rolls the whole flip back and names the med(s) that
         // did not persist (_actOnDoses toasts); refreshMedsAfterMutation then
         // repaints authoritative state either way.
         let ok = true;
         try {
-            if (editIds.length) ok = await _actOnDoses('edit_time', editIds, takenAt);
-            if (ok && undoIds.length) ok = await _actOnDoses('undo', undoIds);
+            for (const action of ['undo', 'take', 'skip', 'edit_time']) {
+                const at = action === 'take' || action === 'edit_time' ? takenAt : undefined;
+                if (ok && plan[action].length) ok = await _actOnDoses(action, plan[action], at);
+            }
         } catch (e) {
             await _rollbackOptimistic(handles);
             throw e;
@@ -883,19 +675,9 @@ async function confirmLogPast() {
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        // Optimistic: prepend a synthesised TAKEN log into every cached
-        // `history_<range>_<medId>` payload that should contain it (the
-        // "all meds" filter and the per-med filter for this medId) so the
-        // user sees the new entry before /log-past resolves.
-        const optimisticLog = {
-            id: `local_optimistic_${Date.now()}`,
-            medication_id: Number(medId),
-            scheduled_at: takenAt,
-            taken_at: takenAt,
-            status: 'TAKEN',
-            _optimistic: true
-        };
-        const handles = await _applyOptimisticHistoryAdd(optimisticLog, Number(medId));
+        // Optimistic: a synthesised taken row joins the timeline so the user
+        // sees the new entry before /log-past resolves.
+        const handles = [await _applyOptimisticTimeline((rows) => [...rows, _tlManualRow(medId, takenAt)])];
 
         let res;
         try {
@@ -928,20 +710,19 @@ async function confirmLogPast() {
                 typeof renderInventory === 'function') {
                 renderInventory();
             }
-            const historyResult = await loadHistory();
+            const timelineRows = typeof loadTimeline === 'function' ? await loadTimeline() : null;
             const newId = res && typeof res.id !== 'undefined' ? res.id : null;
-            // Only run the visibility check when the history fetch actually
-            // returned an array. If it failed (historyResult.error set or
-            // fresh is null), the user is offline/degraded — the POST already
-            // succeeded, so don't shout "history did not refresh" at them.
-            if (newId !== null && historyResult && Array.isArray(historyResult.fresh)) {
-                const found = historyResult.fresh.some((l) => l && typeof l.id === 'number' && l.id === newId);
+            // Only run the visibility check when the timeline read actually
+            // returned rows. If it failed (null), the user is offline/degraded —
+            // the POST already succeeded, so don't shout "did not refresh".
+            if (newId !== null && Array.isArray(timelineRows)) {
+                const found = timelineRows.some((r) => r && String(r.occId) === String(newId));
                 if (!found) {
                     if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {
-                        window.SyncDebug.warn('log-past: new intake not visible in history after reload', { id: newId });
+                        window.SyncDebug.warn('log-past: new intake not visible in the timeline after reload', { id: newId });
                     }
                     if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
-                        window.SyncManager.showToast('Saved, but history did not refresh — pull to refresh', 'error');
+                        window.SyncManager.showToast('Saved, but the timeline did not refresh — pull to refresh', 'error');
                     }
                 }
             }
@@ -981,9 +762,6 @@ window.MedsHistory = {
     calculateDailyUsage,
     addTimeInput,
     removeTime,
-    loadHistory,
-    renderNextIntakeTrigger,
-    triggerNextIntake,
     closeMedicationConfirmModal,
     confirmSelectedMedications,
     skipSelectedMedications,

@@ -53,6 +53,9 @@ object LocalOrigin {
         "notifications.openSettings",
         // The pending-invite slot (bd med-ta2n.12.1, Invite.kt) and F1's Paste (Android only).
         "invite.pending", "invite.clear", "clipboard.read",
+        // "Join and erase" (bd med-r1j2.8): the local page probes it to offer the erase; only the joined
+        // account, booted unlocked, makes it act (MainActivity); in local mode a no-op.
+        "local.erase",
     )
 
     /** The bridge op shell.ops (bd med-nt9p.32.13): what this shell answers in this mode, for the page's capability probe. */
