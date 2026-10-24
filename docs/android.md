@@ -447,7 +447,7 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
 
 ### Native push (FCM) (bd med-erq1.5)
 
-The relay's content-free wakes (`inbox-wake`, `dry-queue`;
+The relay's content-free wakes (`inbox-wake`, `dry-queue`, `transfer_claimed`;
 `internal/cloudserver/nativepush.go`) reach the shell over FCM, twin of the
 iOS APNs bead med-erq1.4 ([`Push.kt`](../android/app/src/main/java/com/example/medtracker/Push.kt)).
 Reminders stay local notifications (above).
@@ -477,11 +477,25 @@ Reminders stay local notifications (above).
   (tag = kind, the same tag the server sets: one shade entry per kind). Tap
   opens the app home. No WorkManager drain: only
   the unlocked page has the key.
+- **`transfer_claimed`** (bd med-r1j2.15, server med-r1j2.9): a device claimed
+  an add-device slot. Its own title, "Approve the new device?", body "A new
+  device is waiting · approve it before the code expires" (`Push.text`, the
+  server's `nativeWakeTitleFor`). cloud-boot does not take it, so it is
+  posted even in front, like the web. Its tap — the shell's notification
+  (launcher intent + extra `kind`, `CLEAR_TOP|SINGLE_TOP`) or the server's
+  block (FCM delivers the launcher intent with the data payload as extras, no
+  click action) — opens `https://<account host>/?tab=settings&page=add-device`
+  (`Push.tappedPath`, then `openPath` like a reminder tap: the open page's
+  router warm, a load cold, deferred behind the app lock). Only the open
+  account's host; nothing in local mode or on a Recents relaunch. The other
+  kinds' taps still open the home.
 - **QA:** `android-qa` scenario `push-wake` (claims the invite: dispatch it
   alone) checks the op gates, null without Firebase, and a fake message via
   the debug-only `QaPush` receiver in front (page event, no notification) and
-  in the background (the notification). A real FCM delivery is an owner
-  device check after med-erq1.7.
+  in the background (the notification); `transfer_claimed` acked in front
+  (nothing posted) and tapped from the shade in the background (Add a device's
+  "not open here" state). A real FCM delivery is an owner device check after
+  med-erq1.7.
 
 ### Health Connect import (bd med-nt9p.8, med-nt9p.9)
 

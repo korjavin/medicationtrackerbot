@@ -2,7 +2,8 @@
 // the account lists it and answers null (the QA build has no Firebase config); a fake FCM message
 // (debug-only QaPush receiver, the same Push.deliver an FCM message runs) with the app in front
 // reaches the page as the wg:native-push event and posts nothing; with the app in the background it
-// posts the fixed, content-free notification instead. results.push has the checks.
+// posts the fixed, content-free notification instead. transfer_claimed (bd med-r1j2.15): acked in
+// front → nothing posted; in the background its tap lands on Settings → Add a device. results.push has the checks.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
 import { claimAccount } from './smoke.mjs';
 
@@ -10,6 +11,7 @@ export const retry = false;
 
 const INBOX_TEXT = 'Open the app to record what you sent';
 const DRY_TEXT = 'Open the app to keep reminders running';
+const TRANSFER_TITLE = 'Approve the new device?';
 
 /** The page's own bridge call (native/index.js): {ok, result} or {ok: false, error}. */
 const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotifications.__native.call(o, a)
@@ -18,7 +20,7 @@ const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotificat
 const expect = (cond, what) => { if (!cond) throw new Error(what); };
 
 export default async function pushWake(ctx) {
-  const { shell, pkg, sleep } = ctx;
+  const { shell, pkg, sleep, device } = ctx;
   const r = (ctx.results.push = {});
   await shell(`pm clear ${pkg}`);
   // The fallback needs the grant; given before launch, so no false → true 'token' edge below.
@@ -58,6 +60,18 @@ export default async function pushWake(ctx) {
   });
   await ctx.shot('front-wake');
 
+  // transfer_claimed (bd med-r1j2.15): cloud-boot does not take it (the web shows its notification
+  // even in front), so a QA listener stands in for an ack to check the receipt suppresses it.
+  await ctx.step('in front: an acked transfer_claimed posts no notification', async () => {
+    await page.evaluate(() => document.addEventListener('wg:native-push', (e) => {
+      if (e.detail && e.detail.kind === 'transfer_claimed') e.preventDefault();
+    }));
+    await wake('transfer_claimed');
+    await page.waitForFunction(() => window.__qaPush.includes('transfer_claimed'), null, { timeout: 15_000 });
+    await sleep(1500);
+    expect(!(await shade()).includes(TRANSFER_TITLE), 'an acked transfer_claimed was posted');
+  });
+
   await ctx.step('in the background: dry-queue posts the fixed notification, no page event', async () => {
     await shell('input keyevent KEYCODE_HOME');
     await sleep(2000);
@@ -72,4 +86,17 @@ export default async function pushWake(ctx) {
   await sleep(1500);
   await ctx.shot('background-notification');
   await shell('cmd statusbar collapse');
+
+  await ctx.step('in the background: transfer_claimed posts "Approve the new device?"; its tap opens Add a device', async () => {
+    await wake('transfer_claimed');
+    await sleep(2000);
+    r.transferPosted = (await shade()).includes(TRANSFER_TITLE);
+    expect(r.transferPosted, 'no transfer_claimed notification');
+    await shell('cmd statusbar expand-notifications');
+    await sleep(1500);
+    await device.tap({ text: TRANSFER_TITLE });
+    // No live flow in this window: Settings → Add a device on its "not open here" end state.
+    await page.getByText("This request isn't open here").waitFor({ state: 'visible', timeout: 30_000 });
+  });
+  await ctx.shot('transfer-tap');
 }

@@ -156,7 +156,7 @@ class MainActivity : Activity() {
 
     /**
      * Native push (bd med-erq1.5, Push.kt): cancelable document event wg:native-push {kind} on the
-     * account page. A wake ('inbox-wake', 'dry-queue') goes in only while this activity is in front;
+     * account page. A wake ('inbox-wake', 'dry-queue', 'transfer_claimed') goes in only while this activity is in front;
      * done(true) only when a listener cancelled it (NativePush.onWake's receipt, installed by
      * cloud-boot after unlock; twin of iOS Push.swift, bd med-erq1.10), else Push posts the
      * notification. 'token' whenever an account page is open; it has no fallback.
@@ -209,7 +209,7 @@ class MainActivity : Activity() {
         if (!local && host == null) setLocal(true)
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
         if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
-        else reopen(Notifications.tappedPath(intent, vaultHost)?.let { pathUrl(it) } ?: home)
+        else reopen(tappedPath(intent)?.let { pathUrl(it) } ?: home)
         if (DebugHooks.qaLocalError(this)) showError(LoadError.LOCAL, "local · bundle failed to load")
     }
 
@@ -243,9 +243,13 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         if (intent.action == ACTION_SWITCH) forget()
         if (intent.action == ACTION_DIAG) copyDiagnostics()
-        Notifications.tappedPath(intent, vaultHost)?.let { openPath(it) }
+        tappedPath(intent)?.let { openPath(it) }
         if (capture(intent, fresh = true)) deliverInvite()
     }
+
+    /** A reminder tap, or a push tap with a path (Push.tappedPath, bd med-r1j2.15) — that one only into the open account. */
+    private fun tappedPath(intent: Intent?) =
+        Notifications.tappedPath(intent, vaultHost) ?: Push.tappedPath(intent)?.takeUnless { local }
 
     // MARK: invites (bd med-ta2n.12.1, contract med-ta2n.7 §4–§7)
 
