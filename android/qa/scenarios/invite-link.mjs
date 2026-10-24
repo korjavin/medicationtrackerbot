@@ -253,14 +253,50 @@ export default async function inviteLink(ctx) {
     return p;
   });
 
+  // bd med-r1j2.12: a bare local.erase {} (an old cached cloud-boot.js, failed joins included) never
+  // wipes; and a switch to local mode mid-wipe waits for it, so what the local page writes afterwards
+  // survives (the wipe's deleteOrigin, which sweeps IndexedDB, must not run after the page loaded).
+  page = await ctx.step('erase guard: bare local.erase is a no-op; a switch to local mid-wipe keeps data written after it', async () => {
+    const bare = await call(page, 'local.erase');
+    expect(bare.ok && bare.result === true, `bare local.erase: ${JSON.stringify(bare)}`);
+    let xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(xml.includes(`name="wgJoinEraseHost">${claim.host}<`), `bare local.erase spent the flag: ${xml}`);
+    // The wipe starts, then the switch arrives before it ends (same main-thread queue, in order).
+    await page.evaluate(() => window.wgNative.postMessage(JSON.stringify({ op: 'local.erase', args: { enrolled: true }, id: 'qa-race' })));
+    await call(page, 'account.leave', { then: 'local' });
+    let p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    expect((await records(p)) === 0, 'the wipe did not finish before the local page loaded');
+    await p.evaluate(() => new Promise((ok, fail) => {
+      const q = indexedDB.open('qa-after-switch', 1);
+      q.onupgradeneeded = () => q.result.createObjectStore('s');
+      q.onsuccess = () => { q.result.close(); ok(); };
+      q.onerror = () => fail(q.error);
+    }));
+    await sleep(12_000); // past the wipe's 10 s cap: a late deleteOrigin would have swept it by now
+    await p.reload({ waitUntil: 'load' });
+    const dbs = await p.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
+    expect(dbs.includes('qa-after-switch'), `data written after the switch was deleted: ${JSON.stringify(dbs)}`);
+    xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/wgJoinErase/.test(xml), `entering local mode kept the erase flag: ${xml}`);
+    // Re-arm for the uninterrupted erase below: a fresh local marker, then Join and erase again.
+    await p.evaluate(() => localStorage.setItem('qa-erase-marker', '1'));
+    const rejoin = await call(p, 'local.leave', { url: dWant, erase: true });
+    expect(rejoin.ok && rejoin.result === true, `re-join: ${JSON.stringify(rejoin)}`);
+    p = await pageOn((u) => u.host === claim.host);
+    await sleep(1500);
+    xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(xml.includes(`name="wgJoinEraseHost">${claim.host}<`), `re-join did not arm the erase: ${xml}`);
+    return p;
+  });
+
   await ctx.step('local.erase on the joined account: the local origin wiped, the account origin kept, the flag spent', async () => {
     await page.evaluate(() => localStorage.setItem('qa-account-marker', '1'));
-    const res = await call(page, 'local.erase');
+    const res = await call(page, 'local.erase', { enrolled: true });
     expect(res.ok && res.result === true, `local.erase: ${JSON.stringify(res)}`);
     await sleep(1500);
     const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
     expect(!/wgJoinErase/.test(xml), `erase flag not spent: ${xml}`);
-    const again = await call(page, 'local.erase'); // spent: a no-op
+    const again = await call(page, 'local.erase', { enrolled: true }); // spent: a no-op
     expect(again.ok && again.result === true, `second local.erase: ${JSON.stringify(again)}`);
     await page.reload({ waitUntil: 'load' });
     const kept = await page.evaluate(() => localStorage.getItem('qa-account-marker'));

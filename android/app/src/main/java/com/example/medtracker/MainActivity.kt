@@ -482,6 +482,12 @@ class MainActivity : Activity() {
             deferredUrl = url // loaded after the unlock
             return
         }
+        // bd med-r1j2.12: the local origin waits for an in-flight local.erase wipe (max 10 s), so a
+        // switch to local mode, or its import/restore, can't write data the wipe then deletes.
+        if (LocalWipe.gate.busy && Uri.parse(url).host == LocalOrigin.HOST) {
+            LocalWipe.gate.after { if (!isDestroyed && lastUrl == url) load(url) }
+            return
+        }
         web.loadUrl(url)
         updateChrome()
     }
@@ -827,8 +833,11 @@ class MainActivity : Activity() {
             // account's own. Not due: a no-op that spends the flag. A failed wipe answers "erase failed"
             // and keeps the flag for the next boot.
             // Listed in both modes (the local page's Join-and-erase probe); in local mode a no-op.
+            // Only {enrolled: true} wipes (bd med-r1j2.12, iOS #1347's contract): an old cached cloud-boot.js
+            // sends a bare {} on every unlocked boot, failed joins included — a no-op that keeps the flag.
             "local.erase" -> {
                 if (local) return answer(true) // the flag cannot exist here (setLocal(true) clears it)
+                if (msg.optJSONObject("args")?.optBoolean("enrolled") != true) return answer(true)
                 val due = Invite.eraseDue(prefs.getString(Invite.ERASE_HOST_KEY, null), prefs.getLong(Invite.ERASE_AT_KEY, 0), host, System.currentTimeMillis())
                 if (!due) {
                     clearErase()
@@ -838,12 +847,13 @@ class MainActivity : Activity() {
                 // keeps the (host- and TTL-bound) flag, so the next unlocked boot retries.
                 val from = host
                 val at = prefs.getLong(Invite.ERASE_AT_KEY, 0)
-                LocalWipe.run(this) { ok ->
+                // Nothing changed during the wipe (mode, account, erase intent): checked right before
+                // deleteOrigin (skipped otherwise) and again before the native state is cleared.
+                fun same() = !local && host == from && prefs.getString(Invite.ERASE_HOST_KEY, null) == from &&
+                    prefs.getLong(Invite.ERASE_AT_KEY, 0) == at
+                LocalWipe.run(this, ::same) { ok ->
                     diag("shell local erase ${if (ok) "done" else "failed"}")
-                    // Native state only if nothing changed during the wipe (mode, account, erase intent).
-                    val same = !local && host == from && prefs.getString(Invite.ERASE_HOST_KEY, null) == from &&
-                        prefs.getLong(Invite.ERASE_AT_KEY, 0) == at
-                    if (ok && same) {
+                    if (ok && same()) {
                         clearErase()
                         prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
                         move.clear()
