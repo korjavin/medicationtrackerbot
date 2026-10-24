@@ -91,6 +91,7 @@ func testFS() fstest.MapFS {
 		"signup.html":      {Data: []byte("account shell")},
 		"share.html":       {Data: []byte(`<body data-page="share-landing">`)},
 		"invite.html":      {Data: []byte(`<html><head></head><body data-page="invite-landing"></body></html>`)},
+		"handoff.html":     {Data: []byte(`<html><head></head><body data-page="handoff-landing"></body></html>`)},
 		"css/cloud.css":    {Data: []byte("body{}")},
 		"js/cloud-boot.js": {Data: []byte("window.__MEDTRACKER_CLOUD__=true;")},
 	}
@@ -603,6 +604,74 @@ func TestRouter_InviteLanding(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("invite page missing %s: %q", want, body)
+		}
+	}
+}
+
+// The add-device hand-off (bd med-r1j2.4): https://<base>/d/<sub> serves the
+// static landing with the strict default CSP (never a wildcard connect-src),
+// the store metas, no-store, and nothing on an account host.
+func TestRouter_HandoffLanding(t *testing.T) {
+	store := setupStore(t)
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	get := func(h *Handler, host, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	isLanding := func(rec *httptest.ResponseRecorder) bool {
+		return rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), `data-page="handoff-landing"`)
+	}
+
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+	for _, host := range []string{"app.example.com", "app.example.com:8080"} {
+		rec := get(h, host, "/d/known-sub")
+		if !isLanding(rec) {
+			t.Fatalf("%s GET /d/<sub> = %d %q, want the hand-off page", host, rec.Code, rec.Body.String())
+		}
+		if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+			t.Errorf("Cache-Control = %q, want no-store", cc)
+		}
+		csp := rec.Header().Get("Content-Security-Policy")
+		if csp != cspPolicy("connect-src 'self'", "") || strings.Contains(csp, "https:;") || strings.Contains(csp, " https: ") || strings.Contains(csp, "wss:") {
+			t.Errorf("CSP = %q, want the strict default", csp)
+		}
+	}
+	for _, path := range []string{"/d/", "/d/Known-Sub", "/d/a/b", "/d/a.b"} {
+		if isLanding(get(h, "app.example.com", path)) {
+			t.Errorf("GET %s served the hand-off page, want no match", path)
+		}
+	}
+	// Base domain only: an account host has no /d/ landing.
+	if isLanding(get(h, "known-sub.app.example.com", "/d/known-sub")) {
+		t.Error("account host served the hand-off page")
+	}
+	// The page's Path 0 link reads InviteSheet.parseAddress from the base domain.
+	if !baseDomainStaticAssets["/static/js/features/invite.js"] {
+		t.Error("base domain does not serve features/invite.js")
+	}
+
+	if strings.Contains(get(h, "app.example.com", "/d/known-sub").Body.String(), "medtracker-handoff-app") {
+		t.Error("app-links meta emitted while off")
+	}
+	h.SetHandoffAppLinks(false)
+	h.SetInviteStoreIDs("1234567890", "com.example.app")
+	h.SetHandoffAppLinks(true)
+	body := get(h, "app.example.com", "/d/known-sub").Body.String()
+	if !strings.Contains(body, `<meta name="medtracker-handoff-app" content="1">`) {
+		t.Errorf("hand-off page missing the app-links meta: %q", body)
+	}
+	for _, want := range []string{
+		`<meta name="medtracker-ios-app-store-id" content="1234567890">`,
+		`<meta name="medtracker-android-package" content="com.example.app">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("hand-off page missing %s: %q", want, body)
 		}
 	}
 }

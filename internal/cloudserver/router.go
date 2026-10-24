@@ -58,13 +58,19 @@ type Handler struct {
 	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
 	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
 
-	inviteIndex []byte // web/cloud/invite.html + store-id metas, served at /i/<sub>; nil = file server fallback, see SetInviteStoreIDs
+	inviteIndex  []byte // web/cloud/invite.html + store-id metas, served at /i/<sub>; nil = file server fallback, see SetInviteStoreIDs
+	handoffIndex []byte // web/cloud/handoff.html + the same metas, served at /d/<sub>; nil = file server fallback
 }
 
 // invitePathPattern is the invite landing path, https://<base>/i/<sub>#<token>
 // (bd med-ta2n.9 pinned contract). The token rides the fragment and never
 // reaches the server.
 var invitePathPattern = regexp.MustCompile(`^/i/[a-z0-9-]+$`)
+
+// handoffPathPattern is the add-device hand-off landing,
+// https://<base>/d/<sub>#<slot>.<TK> (bd med-r1j2.4). The code rides the
+// fragment and never reaches the server.
+var handoffPathPattern = regexp.MustCompile(`^/d/[a-z0-9-]+$`)
 
 // New builds the host-routing Handler. shellFS is the embedded web/cloud tree
 // (cloudweb.FS) containing index.html, signup.html, css/, js/ — the passkey
@@ -95,6 +101,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	// back to the file server there.
 	signup, _ := fs.ReadFile(shellFS, "signup.html")
 	invite, _ := fs.ReadFile(shellFS, "invite.html")
+	handoff, _ := fs.ReadFile(shellFS, "handoff.html")
 	buildID := buildIDFrom(idx)
 	idx, buildID = stampDevVersion(idx, buildID, vcsRevision())
 	return &Handler{
@@ -108,7 +115,8 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		buildID:     buildID,
 		api:         api,
 		landingRaw:  landing,
-		inviteIndex: invite,
+		inviteIndex:  invite,
+		handoffIndex: handoff,
 	}
 }
 
@@ -117,11 +125,9 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 // (IOS_APP_STORE_ID, numeric) and <meta name="medtracker-android-package">
 // (ANDROID_PACKAGE), spliced after <head> and HTML-escaped. An empty value
 // emits no meta, and the page (med-ta2n.10) hides that platform's store button. Setter
-// rather than a New param, mirroring SetRequestInviteEmail.
+// rather than a New param, mirroring SetRequestInviteEmail. The add-device
+// hand-off (/d/<sub>, med-r1j2.4) gets the same metas.
 func (h *Handler) SetInviteStoreIDs(iosAppStoreID, androidPackage string) {
-	if h.inviteIndex == nil {
-		return
-	}
 	inject := "<head>"
 	if iosAppStoreID != "" {
 		inject += "\n<meta name=\"medtracker-ios-app-store-id\" content=\"" + html.EscapeString(iosAppStoreID) + "\">"
@@ -129,7 +135,20 @@ func (h *Handler) SetInviteStoreIDs(iosAppStoreID, androidPackage string) {
 	if androidPackage != "" {
 		inject += "\n<meta name=\"medtracker-android-package\" content=\"" + html.EscapeString(androidPackage) + "\">"
 	}
+	// bytes.Replace on a nil page stays nil (the file server fallback).
 	h.inviteIndex = bytes.Replace(h.inviteIndex, []byte("<head>"), []byte(inject), 1)
+	h.handoffIndex = bytes.Replace(h.handoffIndex, []byte("<head>"), []byte(inject), 1)
+}
+
+// SetHandoffAppLinks marks the /d/<sub> hand-off page (med-r1j2.4) with
+// <meta name="medtracker-handoff-app" content="1">: the shipped iOS/Android
+// apps take /d/ links (native twins med-r1j2.7/.8), so the page offers "Open
+// in the app". Off (the default) the page leads with the browser path.
+func (h *Handler) SetHandoffAppLinks(on bool) {
+	if !on {
+		return
+	}
+	h.handoffIndex = bytes.Replace(h.handoffIndex, []byte("<head>"), []byte("<head>\n<meta name=\"medtracker-handoff-app\" content=\"1\">"), 1)
 }
 
 // SetRequestInviteEmail adds a "request an invite" contact line (a mailto:
@@ -361,6 +380,7 @@ var baseDomainStaticAssets = map[string]bool{
 	"/static/css/components.css":                   true,
 	"/static/css/fonts.css":                        true,
 	"/static/js/components/wg-icons.js":            true, // the invite landing's kit icons (med-ta2n.10)
+	"/static/js/features/invite.js":                true, // the /d/ hand-off's InviteSheet.parseAddress (med-r1j2.4)
 	"/static/fonts/space-grotesk-latin.woff2":      true,
 	"/static/fonts/space-grotesk-latin-ext.woff2":  true,
 	"/static/fonts/jetbrains-mono-latin.woff2":     true,
@@ -466,6 +486,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			r.URL.Path = "/invite.html"
+		}
+		// The add-device hand-off (med-r1j2.4), the invite landing's twin:
+		// static, no account lookup and no API read; strict default CSP.
+		if handoffPathPattern.MatchString(r.URL.Path) {
+			noStore(w)
+			if h.handoffIndex != nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write(h.handoffIndex)
+				return
+			}
+			r.URL.Path = "/handoff.html"
 		}
 		h.shell.ServeHTTP(w, r)
 		return
