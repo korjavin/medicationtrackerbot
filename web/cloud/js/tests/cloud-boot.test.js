@@ -1290,6 +1290,22 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ title: "Erase didn't finish", confirmLabel: 'Try again' });
   });
 
+  // A wipe that never answers (hung WebKit) is reported too, never silent.
+  it('join and erase: no answer within the time box is reported as not finished', async () => {
+    // The 60 s time box (JOIN_ERASE_MS) runs out at once here.
+    const real = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => real(fn, ms === 60000 ? 0 : ms, ...rest));
+    try {
+      env.window.sessionStorage.setItem('wg-join-enrolled', '1');
+      const erase = () => new Promise(() => {});
+      const { window, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null, erase, confirm: false });
+      await vi.waitFor(() => expect(window.safeConfirm).toHaveBeenCalledTimes(1));
+      expect(log.filter((op) => op === 'local.erase')).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('join and erase: Not now after a failed wipe stops asking', async () => {
     env.window.sessionStorage.setItem('wg-join-enrolled', '1');
     const erase = async () => { throw new Error('erase failed'); };

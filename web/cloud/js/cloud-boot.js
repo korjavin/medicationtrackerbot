@@ -206,8 +206,10 @@ async function finishJoinErase(win) {
     // A failed wipe keeps the shell's intent: offer it again while it is due.
     const device = win.LocalNotifications.copy?.device || 'device';
     for (;;) {
-        const failed = await withinMs(native.call('local.erase', { enrolled: true }).then(() => false, () => true), JOIN_ERASE_MS);
-        if (failed !== true || typeof win.safeConfirm !== 'function') return;
+        // No answer within JOIN_ERASE_MS (a hung wipe) counts as not finished;
+        // a Try again while it still runs gets "busy" from the shell.
+        const ok = await withinMs(native.call('local.erase', { enrolled: true }).then(() => true, () => false), JOIN_ERASE_MS);
+        if (ok === true || typeof win.safeConfirm !== 'function') return;
         const again = await win.safeConfirm(`The records that were on this ${device} before could not be erased.`, null,
             { title: "Erase didn't finish", confirmLabel: 'Try again', cancelLabel: 'Not now' });
         if (!again) return;

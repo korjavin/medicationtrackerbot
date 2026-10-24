@@ -631,7 +631,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // unlocked boot, a failed join's included, so it is a no-op.
         case "local.erase":
             let enrolled = (body["args"] as? [String: Any])?["enrolled"] as? Bool == true
-            guard enrolled, !local, !erasing, let from = host, JoinErase.due(from), let at = JoinErase.stamp() else {
+            // A wipe still running (the page's Try again after its timeout) is
+            // not a success: "busy", and the page keeps showing the failure.
+            if enrolled, erasing { return replyHandler(nil, "busy") }
+            guard enrolled, !local, let from = host, JoinErase.due(from), let at = JoinErase.stamp() else {
                 return replyHandler(true, nil)
             }
             let due = { [weak self] () -> Bool in

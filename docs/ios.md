@@ -779,7 +779,8 @@ changes for it.
   verified wipe (nothing left, one retry) spends the intent and runs the
   local.reset effects (host mirror, `wgLeaveHost`, move/leave stashes, local
   reminders); anything left answers `"erase failed"`, the intent stays and
-  the page offers Try again. The diag log notes `wiped`, what was left or
+  the page offers Try again (also when no answer comes within 60 s; a call
+  while a wipe still runs answers `"busy"`, never `true`). The diag log notes `wiped`, what was left or
   `cancelled`; never the host.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
