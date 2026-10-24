@@ -939,6 +939,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(document.getElementById('settings-sync-none').hidden).toBe(false);
         expect(document.getElementById('settings-sync-waiting').hidden).toBe(true);
         expect(document.getElementById('settings-sync-how').hidden).toBe(true); // no shell base
+        expect(document.getElementById('settings-sync-open-group').hidden).toBe(true); // Path 0 needs the base
         expect(document.getElementById('importexport-sync-group').textContent).toMatch(/Sync needs an invite for now/);
         expect(bridge).not.toHaveBeenCalledWith('invite.pending');
     });
@@ -1094,6 +1095,66 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(window.Clipboard.readText).toHaveBeenCalledTimes(1); // same tap: WebKit's Paste callout
             tap(await sync(document), 'turn-on-sync');
             await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: `${CLAIM}&kit=1` }]]));
+        });
+
+        // bd med-r1j2.5 Path 0 (AD10): "Already have an account? Open it" →
+        // the address page → local.leave {url: <account>/unlock}. No move.stash:
+        // the local vault stays as it is, nothing is merged or erased.
+        it('W5 Open my account: a strict address, then local.leave to /unlock with no stash', async () => {
+            const { window, document } = env;
+            const UNLOCK = 'https://anna.app.example.com/unlock';
+            window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ base: 'app.example.com' })) };
+            await window.paintSyncSection();
+            expect(document.getElementById('settings-sync-open-group').hidden).toBe(false);
+            document.getElementById('settings-sync-open').click();
+            const input = document.getElementById('open-account-input');
+            const page = input.closest('.wg-page');
+            expect(page.querySelector('.wg-pagebar__title').textContent).toBe('Open my account');
+            expect(page.textContent).toMatch(/Open your account on this iPhone/);
+            expect(page.textContent).toMatch(/On your other device: Settings → Devices & connectors/);
+            expect(page.textContent).toMatch(/Nothing on this iPhone changes/);
+            const go = page.querySelector('[data-invite-action="open-account"]');
+            expect(go.closest('.wg-pagefoot')).not.toBeNull();
+            expect(go.disabled).toBe(true);
+            const field = input.closest('.wg-field');
+            const type = (v) => {
+                input.value = v;
+                input.dispatchEvent(new window.Event('input'));
+                input.dispatchEvent(new window.Event('change'));
+            };
+            // The shell base arrives async; a valid address enables the sun.
+            await vi.waitFor(() => { type('anna.app.example.com'); expect(go.disabled).toBe(false); });
+            for (const bad of ['anna', 'anna.app.example.com.evil.com', 'https://u@anna.app.example.com', 'anna.app.example.com:8443', 'http://anna.app.example.com']) {
+                type(bad);
+                expect(field.classList.contains('wg-field--error')).toBe(true);
+                expect(field.querySelector('.wg-error').textContent).toBe('Not a full address. It ends in .app.example.com');
+                expect(go.disabled).toBe(true);
+                go.click();
+            }
+            expect(leaveOps()).toEqual([]);
+            type('https://anna.app.example.com/settings');
+            expect(field.classList.contains('wg-field--error')).toBe(false);
+            go.click();
+            await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: UNLOCK }]]));
+            expect(offDevice()).toEqual([]);
+        });
+
+        it('W5 Open my account offline: an in-page error and no leave', async () => {
+            const { window, document } = env;
+            window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ base: 'app.example.com' })) };
+            await window.paintSyncSection();
+            document.getElementById('settings-sync-open').click();
+            const input = document.getElementById('open-account-input');
+            const go = input.closest('.wg-page').querySelector('[data-invite-action="open-account"]');
+            await vi.waitFor(() => {
+                input.value = 'anna.app.example.com';
+                input.dispatchEvent(new window.Event('input'));
+                expect(go.disabled).toBe(false);
+            });
+            Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+            go.click();
+            await vi.waitFor(() => expect(input.closest('.wg-field').querySelector('.wg-error').textContent).toMatch(/You're offline/));
+            expect(leaveOps()).toEqual([]);
         });
 
         // W5 "Request an invite" (bd med-ta2n.14): the shell POSTs email + note

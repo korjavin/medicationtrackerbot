@@ -136,7 +136,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'on-device',
     activationNote: 'the app renders offline, which requires a local plaintext copy',
     byo: 'n/a',
-    evidence: ['web/cloud/js/sync.js:211', 'web/cloud/js/unlock.js:330', 'web/cloud/js/unlock.js:437'],
+    evidence: ['web/cloud/js/sync.js:211', 'web/cloud/js/unlock.js:343', 'web/cloud/js/unlock.js:450'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {

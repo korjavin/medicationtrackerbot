@@ -1171,6 +1171,8 @@ async function paintSyncSection() {
         document.getElementById('settings-sync-scan')?.addEventListener('click', () => f1('scan'));
         // bd med-ta2n.14: the email request sheet (InviteSheet.request).
         document.getElementById('settings-sync-request')?.addEventListener('click', () => sheet.request());
+        // bd med-r1j2.5: Path 0, "Open my account" (AD10).
+        document.getElementById('settings-sync-open')?.addEventListener('click', () => sheet.openAccount());
         document.getElementById('settings-sync-turn-on')?.addEventListener('click', () => {
             if (_syncInvite) sheet.offer(_syncInvite, { kit: true });
         });
@@ -1186,6 +1188,9 @@ async function paintSyncSection() {
     waiting.hidden = !_syncInvite;
     how.hidden = !base;
     if (base) how.href = `https://${base}/`;
+    // The address check needs the base: without it, no Path 0 entry.
+    const openGroup = document.getElementById('settings-sync-open-group');
+    if (openGroup) openGroup.hidden = !base;
     const request = document.getElementById('settings-sync-request');
     if (request) request.hidden = canRequest !== true;
 }
