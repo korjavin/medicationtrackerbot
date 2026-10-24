@@ -465,6 +465,23 @@ describe('features/weight.js — BMI on the weight graph (med-a6fb.5–.8)', () 
         expect(Number(svg.dataset.weightYMax)).toBeLessThan(100);
     });
 
+    it('a flat series draws no border its padding happens to cover, in kg or lb', async () => {
+        const { window, document } = env;
+        installApiCache(window);
+        const flat = [{ id: 1, weight: 80.0, measured_at: day(1) }];
+        window.apiCall = vi.fn(async (url) => {
+            if (url.startsWith('/api/weight?')) return flat.slice();
+            if (url === '/api/weight/goal') return {};
+            if (url === '/api/weight/bmi') return BMI_180;
+            return {};
+        });
+        await window.loadWeightLogs();
+        expect(bands(document)).toHaveLength(0);
+        window.weightUnitPreference = 'lb';
+        await window.loadWeightLogs();
+        expect(bands(document)).toHaveLength(0);
+    });
+
     it('lb display draws the borders in lb', async () => {
         const { window, document } = env;
         window.weightUnitPreference = 'lb';

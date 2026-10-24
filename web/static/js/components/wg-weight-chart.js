@@ -321,16 +321,19 @@
             dataMin = 60;
             dataMax = 90;
         }
+        // BMI borders (med-a6fb.6): only those inside the raw data-plus-goal
+        // range (before the flat-series padding below); they never stretch the
+        // axis. toDisplay is linear, so kg and lb select the same borders.
+        const rawMin = dataMin;
+        const rawMax = dataMax;
+        const bands = Array.isArray(options.bands)
+            ? options.bands.map((kg, i) => ({ value: toDisplay(Number(kg)), label: BMI_BORDER_LABELS[i] }))
+                .filter((b) => b.label && b.value >= rawMin && b.value <= rawMax)
+            : [];
         if (dataMin === dataMax) {
             dataMin -= 2;
             dataMax += 2;
         }
-        // BMI borders (med-a6fb.6): only those already inside the data-plus-goal
-        // range; they never stretch the axis.
-        const bands = Array.isArray(options.bands)
-            ? options.bands.map((kg, i) => ({ value: toDisplay(Number(kg)), label: BMI_BORDER_LABELS[i] }))
-                .filter((b) => b.label && b.value >= dataMin && b.value <= dataMax)
-            : [];
         const boundedMin = Math.max(yFloor, Math.min(yCeil, dataMin));
         const boundedMax = Math.max(yFloor, Math.min(yCeil, dataMax));
         const yMin = Math.max(yFloor, Math.floor((boundedMin - 2) / 2) * 2);
