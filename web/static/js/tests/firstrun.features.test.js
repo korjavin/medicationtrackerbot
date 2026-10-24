@@ -440,7 +440,9 @@ describe('firstrun W1 module picker', () => {
 // needs_first_run false until then; cloud-boot re-asks after each drain and
 // hands the answer to AuthBootstrap.mountFirstRun, as applyBootstrapPayload does.
 describe('firstrun W1 waits for the account pull (account mode)', () => {
-    const GATED = ['features', 'deliverypref', 'firstrun'];
+    // reminderdeliverypref: web/domain/reminders.js DELIVERYPREF_RECORD_TYPE.
+    // The new-account Skip test below proves W1 writes all three.
+    const GATED = ['features', 'reminderdeliverypref', 'firstrun'];
 
     function account({ seed = {} } = {}) {
         const store = createInMemoryRecordsPort(seed);
@@ -506,7 +508,7 @@ describe('firstrun W1 waits for the account pull (account mode)', () => {
             expect(overlay(document)).not.toBeNull();
             action(document, 'skip-all').click();
             await vi.waitFor(() => expect(new Set(gatedWrites())).toEqual(new Set(GATED)));
-            expect(await store.list('deliverypref')).toHaveLength(1);
+            expect(await store.list('reminderdeliverypref')).toHaveLength(1);
         } finally { cleanup(); }
     });
 

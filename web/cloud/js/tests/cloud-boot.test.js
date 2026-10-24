@@ -211,6 +211,42 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     }
   });
 
+  it('a failed first-run re-ask is retried on the next drain', async () => {
+    let drainOpts;
+    let calls = 0;
+    const mounted = [];
+    await runBoot({
+      setupWindow: (w) => { w.AuthBootstrap = { mountFirstRun: (needs) => mounted.push(needs) }; },
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': {
+          installApiShim: () => async (endpoint) => {
+            if (endpoint !== '/api/bootstrap') return null;
+            calls++;
+            if (calls === 1) throw new Error('shim read failed');
+            return calls === 2 ? {} : { needs_first_run: true };
+          },
+        },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          hasCaughtUp: async () => true,
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mounted).toEqual([]); // boot re-ask threw
+    await drainOpts.onSettled(); // no flag in the answer
+    expect(mounted).toEqual([]);
+    await drainOpts.onSettled();
+    await drainOpts.onSettled();
+    expect(mounted).toEqual([true]);
+    expect(calls).toBe(3);
+  });
+
   it('a 426-gated sync mounts the "Update required" banner whose Reload loads the current build (med-wi09.5)', async () => {
     const dom = new JSDOM('<!doctype html><body></body>');
     vi.stubGlobal('document', dom.window.document);

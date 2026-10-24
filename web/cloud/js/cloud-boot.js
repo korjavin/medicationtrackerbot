@@ -553,11 +553,12 @@ window.MedTrackerCloudReady = (async function boot() {
         let firstRunAsked = false;
         const askFirstRun = () => (async () => {
             if (firstRunAsked || !(await hasCaughtUp())) return;
-            firstRunAsked = true;
             const res = await shimCall('/api/bootstrap', 'GET');
-            if (res && typeof res.needs_first_run === 'boolean' && window.AuthBootstrap) {
-                window.AuthBootstrap.mountFirstRun(res.needs_first_run);
-            }
+            // Only a real answer ends the re-asking: a throw or a payload
+            // without the flag leaves the next drain to try again.
+            if (firstRunAsked || !res || typeof res.needs_first_run !== 'boolean' || !window.AuthBootstrap) return;
+            firstRunAsked = true;
+            window.AuthBootstrap.mountFirstRun(res.needs_first_run);
         })().catch((e) => console.error('[cloud-boot] first-run check failed', e));
         askFirstRun();
         // The kit page's save state (bd med-ckm5.2, kit-state.js): after
