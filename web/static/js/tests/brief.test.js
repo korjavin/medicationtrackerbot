@@ -119,11 +119,13 @@ function foodLog(recordId, eatenAt, m) {
 }
 
 // A vault with something in every section. Adherence over the window:
-// Metformin 3 TAKEN / 1 SKIPPED = 75%, Lisinopril 1 TAKEN / 1 SKIPPED = 50%,
-// overall 4/6 = 66.7%. Ibuprofen is as-needed: planDoses never materializes a
-// dose for it, so its only rows are manual TAKEN logs — they must stay out of
-// every percentage (bd med-29gh.1), which is why overall is still 66.7 and not
-// 6/8 = 75%.
+// Metformin 3 TAKEN / 1 SKIPPED / today's 08:00 due = 60%, Lisinopril 1 TAKEN /
+// 1 SKIPPED / today's (Thu) 09:00 due = 33.3%, overall 4/8 = 50%. Today's doses
+// have no row: the projection derives them (no ledgercut row → the cut is now,
+// regenerated from its midnight, bd med-wi09.12) and a past one with no
+// evidence counts. Ibuprofen is as-needed: no dose is ever derived for it, so
+// its only rows are manual TAKEN logs — they must stay out of every percentage
+// (bd med-29gh.1), which is why overall is 50 and not 6/10 = 60%.
 function fullVault() {
     return {
         medication: [
@@ -286,7 +288,7 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
                 dosage: '10mg',
                 schedule_summary: 'Mon, Thu at 09:00',
                 started_at: '2026-02-01T00:00:00.000Z',
-                adherence_pct: 50,
+                adherence_pct: 33.3,
                 as_needed: false,
                 times_taken: 1
             },
@@ -295,14 +297,14 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
                 dosage: '500mg',
                 schedule_summary: 'daily at 08:00, 20:00',
                 started_at: '2026-01-05T00:00:00.000Z',
-                adherence_pct: 75,
+                adherence_pct: 60,
                 as_needed: false,
                 times_taken: 3
             }
         ]);
-        // 4 kept of 6 scheduled doses. The two Ibuprofen logs are excluded from
-        // the overall fold too — counting them would report 6/8 = 75%.
-        expect(brief.overall_adherence_pct).toBe(66.7);
+        // 4 kept of 8 scheduled doses. The two Ibuprofen logs are excluded from
+        // the overall fold too — counting them would report 6/10 = 60%.
+        expect(brief.overall_adherence_pct).toBe(50);
     });
 
     // bd med-29gh.2 — the breakdown behind the percentage. Ten slots for one
@@ -376,9 +378,10 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         const brief = await call('/api/brief?days=30&sections=meds', 'GET');
 
         // No intake in the vault carries a taken_at, so nothing can be delayed;
-        // the two non-TAKEN scheduled rows are the missed ones.
+        // the two non-TAKEN scheduled rows and today's two derived due doses
+        // are the missed ones.
         expect(brief.adherence_detail).toEqual({
-            missed: 2, delayed: 0, avg_delay_minutes: null
+            missed: 4, delayed: 0, avg_delay_minutes: null
         });
     });
 
@@ -432,10 +435,10 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         expect(byName.Slotless).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
         expect(byName.Junktime).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
         expect(byName.Noday).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
-        expect(byName.Lisinopril).toMatchObject({ adherence_pct: 50, as_needed: false, times_taken: 1 });
-        // 1 of 2 scheduled doses. Folding the 9 unscheduled TAKEN rows in would
-        // have reported 10/11 = 90.9%.
-        expect(brief.overall_adherence_pct).toBe(50);
+        expect(byName.Lisinopril).toMatchObject({ adherence_pct: 33.3, as_needed: false, times_taken: 1 });
+        // 1 of 3 scheduled doses (today's derived 08:00 included). Folding the 9
+        // unscheduled TAKEN rows in would have reported 10/12 = 83.3%.
+        expect(brief.overall_adherence_pct).toBe(33.3);
     });
 
     // An archived PRN med keeps its rows in listWindow but drops out of the
@@ -462,8 +465,9 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
 
         // Archived meds stay out of the printed list…
         expect(brief.medications.map((m) => m.name)).toEqual(['Lisinopril']);
-        // …but their PRN rows must stay out of the number as well: 1 of 2, not 4 of 5.
-        expect(brief.overall_adherence_pct).toBe(50);
+        // …but their PRN rows must stay out of the number as well: 1 of 3
+        // (today's derived 08:00 included), not 4 of 6.
+        expect(brief.overall_adherence_pct).toBe(33.3);
     });
 
     // The acceptance pin: the brief must never disagree with the composite
@@ -721,7 +725,8 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
     it('degrades an empty section to null/empty instead of throwing', async () => {
         // A vault with meds + BP only: no weight, notes, sleep, food or workouts.
         const call = routerWith({
-            medication: [med('med-1', 'Metformin', '500mg')],
+            // Created a minute ago: no dose of it has come due yet.
+            medication: [med('med-1', 'Metformin', '500mg', { created_at: iso(NOW - MIN) })],
             bp: [bpReading('bp-1', '2026-08-18T09:00:00Z', 120, 80, 60)]
         });
 

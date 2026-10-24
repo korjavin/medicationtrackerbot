@@ -364,7 +364,9 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         release();
         await tap;
         await replace;
-        expect(order).toEqual(['doses', 'replace']);
+        // The gated read lands before the replace; the receipt's read-only
+        // re-read after the write may follow it.
+        expect(order.slice(0, 2)).toEqual(['doses', 'replace']);
         expect(during.withDueRows).not.toHaveBeenCalled();
     });
 

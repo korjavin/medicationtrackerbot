@@ -326,15 +326,15 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         ]);
     });
 
-    it('stops rendering once the last step is past, before the status flip catches up', async () => {
+    it('stops rendering once the last step is past; the read itself flips the status', async () => {
         const { window, document } = env;
 
         await window.TZPlanBanner.refresh();
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).not.toBeNull();
 
-        // Push every step into the past without touching the status — this is
-        // the window between the final dose and the shim's next materialization
-        // sweep (60s), where a tab left open would otherwise keep showing an
+        // Push every step into the past without touching the status. There is
+        // no sweep to complete the plan any more (bd med-wi09.12): the next
+        // read of the current plan does, so a tab left open never keeps an
         // in-progress card with nothing left in it.
         window.reloadCurrentTab.mockClear();
         const [rec] = await env.records.list('tzplan');
@@ -345,7 +345,7 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
 
         await window.TZPlanBanner.refresh();
         const { plan } = await window.apiCall('/api/tz-plan/current');
-        expect(plan.status).toBe('APPROVED');
+        expect(plan.status).toBe('COMPLETED');
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
         // The step count is part of the render key, so the already-mounted card
         // gets repainted away rather than lingering until an unrelated render.
@@ -359,7 +359,7 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).not.toBeNull();
         window.reloadCurrentTab.mockClear();
 
-        // Same call the shim's materialization sweep makes, on a clock past the
+        // Same call getCurrentPlan makes on every read, on a clock past the
         // last step — driven explicitly so the flip is deterministic.
         const afterAllSteps = Date.now() + 24 * 3600_000;
         await createTzPlanDomain({

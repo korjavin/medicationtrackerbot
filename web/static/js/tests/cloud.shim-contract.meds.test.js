@@ -490,9 +490,12 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
 
     let env = null;
     let nowMs = 0;
+    const realFetch = globalThis.fetch;
     const open = (seedRecords, at) => {
         nowMs = at;
         env = loadCloudShimFrontendEnv({ seedRecords, now: () => nowMs, timeZone: TZ });
+        // A take best-effort POSTs /api/telegram/cancel-refire (med-r3dm).
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
         return env;
     };
     const doses = (fromMs, toMs) => env.window.apiCall(`/api/doses?from=${iso(fromMs)}&to=${iso(toMs)}`);
@@ -502,6 +505,7 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         await materializationSettled();
         if (env) env.cleanup();
         env = null;
+        globalThis.fetch = realFetch;
     });
 
     // Socrates' case: the schedule moves 08:00 → 20:00 on Tuesday while this

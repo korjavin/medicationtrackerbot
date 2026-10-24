@@ -41,9 +41,8 @@ const MODULES = {
     '/js/local-policy.js': () => import('../../../cloud/js/local-policy.js'),
 };
 
-// The last test's install-time dose sweep may still be running: it read that
-// store's medications and would write their due doses into the fresh store
-// (bd med-o7zq.40: a 09:00 fixture dose, so only after 07:00 UTC).
+// The last test's install-time ledger-cut write may still be running; let it
+// settle so it never lands in the fresh store (bd med-o7zq.40).
 async function deleteDb() {
     await materializationSettled();
     return new Promise((resolve, reject) => {
@@ -330,7 +329,9 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
     it('a restore after install leaves no dose rows behind; due doses are derived from the local ledger cut', async () => {
         const { window } = env;
         const DAY = 24 * 60 * 60 * 1000;
-        const t0 = Date.parse('2026-07-08T12:00:00Z');
+        // The boot in beforeEach already wrote the ledger cut on the real clock:
+        // start from it, so the cut never lies after the faked days below.
+        const t0 = Date.now();
         vi.useFakeTimers({ toFake: ['Date'], now: t0 });
         // Every hour, created a day before: a dose is due today in any zone.
         const hours = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
