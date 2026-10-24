@@ -491,7 +491,9 @@ function historyResponse(r) {
 //   - the port's write journal (`records.changesSince`, sync.js) names every
 //     intake written since the last read; each one's old and new days are
 //     dropped. A port without a journal, or a journal that lost track (a store
-//     replace, an overflow), rebuilds the index and drops every day.
+//     replace, an overflow), rebuilds the index and drops every day. So does a
+//     list whose row count or newest clientTs the index doesn't match (a
+//     write no journal named, e.g. an old bundle's tab).
 //   - every other input — the meds minus their stock, history, the tz plan,
 //     the cut, the evidence zones — is one key; any change drops every day.
 //   - a day holding a snooze still ahead is recomputed once it lapses.
@@ -544,18 +546,38 @@ function indexRemove(c, id) {
   }
 }
 
+// Row count and newest clientTs: what a write the journal never named still
+// changes (a new row, or a re-stamp of one — every write stamps a fresh clientTs).
+function rowsFingerprint(rows) {
+  let max = -Infinity;
+  for (const r of rows) if (r.clientTs > max) max = r.clientTs;
+  return `${rows.length}|${max}`;
+}
+
+function indexFingerprint(c) {
+  let max = -Infinity;
+  for (const e of c.index.values()) if (e.row.clientTs > max) max = e.row.clientTs;
+  return `${c.index.size}|${max}`;
+}
+
 function syncIndex(c, changes, intakes) {
-  if (!changes || changes.ids === null || c.token === null) {
+  let rebuild = !changes || changes.ids === null || c.token === null;
+  if (!rebuild && changes.ids.length) {
+    const ids = new Set(changes.ids.map(String));
+    for (const id of ids) indexRemove(c, id);
+    for (const row of intakes) if (ids.has(String(row.recordId))) indexAdd(c, row);
+    c.version++;
+  }
+  // A write no journal named — an old bundle's tab left open after a deploy, a
+  // cross-tab message lost to a frozen page, a browser without
+  // BroadcastChannel — leaves the index off the list it was built from.
+  if (!rebuild && indexFingerprint(c) !== rowsFingerprint(intakes)) rebuild = true;
+  if (rebuild) {
     c.index = new Map();
     c.days = new Map();
     c.cells = new Map();
     c.minDay = Infinity;
     for (const row of intakes) indexAdd(c, row);
-    c.version++;
-  } else if (changes.ids.length) {
-    const ids = new Set(changes.ids.map(String));
-    for (const id of ids) indexRemove(c, id);
-    for (const row of intakes) if (ids.has(String(row.recordId))) indexAdd(c, row);
     c.version++;
   }
   c.token = changes ? changes.token : null;

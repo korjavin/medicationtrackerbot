@@ -1922,6 +1922,65 @@ describe('a 426 from the writer gate asks for a reload, never wedges (med-wi09.5
     expect(after.updateRequired).toBe(false);
   });
 
+  // MED-3 (bd med-wi09.12, Archie 4126): an eb4b97ea tab queued a stock adjust
+  // and a TAKEN, got three 426s and wrote syncWedged + writeError 426 into the
+  // shared sync_meta. A v2 tab opening next to it must not inherit that wedge:
+  // it flushes the same queue under X-Ledger: 2, the server takes both ops, the
+  // stock moves once — and the reset hint, which would discard the queue both
+  // tabs share, is never shown.
+  const oldTabQueue = [
+    { recordId: 7, recordType: 'medication', clientTs: 9, deleted: false, name: 'Metformin', inventory_count: 29 },
+    { recordId: 'intake-7-1767225600', recordType: 'intake', clientTs: 9, deleted: false, medication_id: 7, scheduled_at: '2026-01-01T00:00:00.000Z', status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', snoozed_until: null, source: 'schedule' },
+  ];
+  const wedgedByOldTab = { localLastSeq: 0, syncWedged: true, writeError: { status: 426, at: 1 }, writeErrorStreak: 3 };
+
+  it('a v2 tab clears an old tab\'s 426 wedge and flushes its queue under X-Ledger: 2', async () => {
+    await seed({ records: oldTabQueue, meta: wedgedByOldTab });
+    expect((await describeSyncStatus(ctx))).not.toMatch(/reset local sync|refused/i);
+    let posted = null;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        expect(init.headers['X-Ledger']).toBe('2');
+        posted = JSON.parse(init.body).ops;
+        return new Response(JSON.stringify({ assigned: posted.map((_, i) => i + 1) }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot') return new Response(null, { status: 204 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    await pullOnOpen(ctx);
+
+    expect(posted.map((o) => o.record_type_tag)).toEqual(['medication:7', 'intake:intake-7-1767225600']);
+    const stock = JSON.parse(new TextDecoder().decode(await decryptRecord({
+      kData: ctx.kData, accountId, recordType: 'medication', recordId: '7', seq: 1,
+      nonce: fromBase64(posted[0].nonce), ct: fromBase64(posted[0].ct),
+    })));
+    expect(stock.inventory_count).toBe(29); // one decrement, posted once
+    const status = await getSyncStatus(ctx);
+    expect(status).toMatchObject({ pendingCount: 0, wedged: false, writeError: null, updateRequired: false });
+    const records = await readAllRawRecords(ctx);
+    expect(records.find((r) => r.recordId === 'intake-7-1767225600').status).toBe('TAKEN');
+    expect(records.find((r) => r.recordId === 7).inventory_count).toBe(29);
+    expect(await describeSyncStatus(ctx)).not.toMatch(/reset local sync/i);
+  });
+
+  it('if the v2 flush of an old tab\'s queue is still refused, it says Update required, never reset', async () => {
+    await seed({ records: oldTabQueue, meta: wedgedByOldTab });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') return new Response('', { status: 426 });
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot') return new Response(null, { status: 204 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    await pullOnOpen(ctx);
+    const line = await describeSyncStatus(ctx);
+    expect(line).toContain('Update required — reload to keep syncing');
+    expect(line).not.toMatch(/reset local sync/i);
+    expect((await getSyncStatus(ctx)).pendingCount).toBe(2);
+  });
+
   it('a write that hits 426 fires the update-required surface once', async () => {
     await seed();
     vi.stubGlobal('window', new EventTarget());
@@ -3350,5 +3409,53 @@ describe('a write in another tab reaches this tab\'s memo and journal (med-wi09.
 
     expect(here.changesSince('intake', token).ids).toEqual([id]);
     expect((await here.listRaw('intake')).map((r) => r.status)).toEqual(['TAKEN']);
+  });
+});
+
+// Round 4 (LOW-7): an eb4b97ea tab next to a v2 tab writes straight into the
+// shared records store and announces nothing (its pulled echo writes nothing
+// here either). The memos drop when this page comes back into use, and the
+// intake projection's fingerprint then rebuilds (cloud.shim-contract.meds).
+describe('an old tab\'s unannounced write shows once the page is back in use (med-wi09.12 LOW-7)', () => {
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(['focus', 'visibilitychange', 'pageshow'])('%s drops the raw memo', async (type) => {
+    const win = new EventTarget();
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    vi.stubGlobal('window', win);
+    vi.stubGlobal('document', doc);
+    vi.resetModules();
+    const tab = await import('../sync.js');
+    const ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    const id = 'intake-1-1767225600';
+    const base = { recordId: id, deleted: false, medication_id: 1, scheduled_at: '2026-01-01T00:00:00.000Z', snoozed_until: null, source: 'schedule', taken_at: null };
+    await tab.writeRecord(ctx, 'intake', { ...base, clientTs: 1, status: 'PENDING' });
+    const port = tab.recordsPort(ctx);
+    expect((await port.listRaw('intake')).map((r) => r.status)).toEqual(['PENDING']);
+
+    // The old tab's TAKEN, straight into the shared records store.
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      tx.objectStore('records').put({ ...base, recordType: 'intake', clientTs: 2, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z' });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    expect((await port.listRaw('intake')).map((r) => r.status)).toEqual(['PENDING']); // memo, until …
+
+    const event = new Event(type);
+    if (type === 'pageshow') Object.defineProperty(event, 'persisted', { value: true });
+    (type === 'visibilitychange' ? doc : win).dispatchEvent(event);
+    expect((await port.listRaw('intake')).map((r) => r.status)).toEqual(['TAKEN']);
   });
 });

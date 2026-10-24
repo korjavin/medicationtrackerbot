@@ -788,6 +788,48 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         expect((await records.list('intake')).find((i) => i.recordId === slot(day(18, 8))))
             .toMatchObject({ status: 'TAKEN', rev: 1 });
     });
+
+    // Round 4 (bd med-wi09.12): not every writer reaches this tab's journal —
+    // an old bundle's tab left open after the deploy, a cross-tab message lost
+    // to a frozen page, Safari without BroadcastChannel. Such a take, on a day
+    // the projection already cached, shows on the next read (the index is
+    // fingerprinted against the list), so a second Take here is a no-op
+    // instead of a second stock decrement.
+    it('a take written past the journal (an old tab) shows on the next read; Take here does not decrement again', async () => {
+        const store = new Map();
+        const journal = [];
+        const put = (type, r) => { store.set(`${type}|${r.recordId}`, { ...r, recordType: type }); journal.push({ type, id: String(r.recordId) }); return r; };
+        const rows = (type) => [...store.values()].filter((r) => r.recordType === type);
+        const records = {
+            list: async (type) => rows(type).filter((r) => !r.deleted),
+            listRaw: async (type) => rows(type),
+            put: async (type, r) => put(type, r),
+            putIfAbsent: async (type, r) => store.get(`${type}|${r.recordId}`) || put(type, r),
+            del: async (type, id) => put(type, { recordId: id, clientTs: Date.now(), deleted: true }),
+            changesSince: (type, token) => (typeof token !== 'string'
+                ? { token: String(journal.length), ids: null }
+                : { token: String(journal.length), ids: journal.slice(Number(token)).filter((j) => j.type === type).map((j) => j.id) }),
+        };
+        put('medication', med());
+        put('ledgercut', cutRow(day(18, 0)));
+        const domain = createIntakeDomain({ records, now: () => day(20, 12), timeZone: TZ });
+        const span = { fromMs: day(18, 0), toMs: day(20, 12) };
+        expect(shape(await domain.occurrences(span))).toEqual([
+            [iso(day(18, 8)), 'due'], [iso(day(19, 8)), 'due'], [iso(day(20, 8)), 'due']
+        ]);
+
+        // The old tab's TAKEN on Monday (a settled, cached day), straight into
+        // the store: no journal entry, no announcement.
+        store.set(`intake|${slot(day(19, 8))}`, {
+            ...pending(slot(day(19, 8)), day(19, 8)), recordType: 'intake', status: 'TAKEN', taken_at: iso(day(19, 8, 5)), clientTs: day(19, 8, 5)
+        });
+        expect(shape(await domain.occurrences(span))).toEqual([
+            [iso(day(18, 8)), 'due'], [iso(day(19, 8)), 'taken'], [iso(day(20, 8)), 'due']
+        ]);
+        // Take on the same dose here: already taken, nothing written, stock kept.
+        expect(await domain.act({ occIds: [slot(day(19, 8))], action: 'take' })).toMatchObject({ updated: 0, unchanged: 1 });
+        expect(rows('medication')[0].inventory_count).toBe(30);
+    });
 });
 
 // bd med-wi09.1 — one occurrence projection. Every reader of "which doses

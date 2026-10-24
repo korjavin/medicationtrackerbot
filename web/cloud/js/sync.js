@@ -210,6 +210,13 @@ async function readMeta() {
       reqToPromise(store.get('lastSnapshotAt')),
       reqToPromise(store.get('importBumpSeq')),
     ]);
+    // A 426 error/streak/wedge in the shared sync_meta was written by a pre-v2
+    // bundle's tab (this build never counts a 426: markUpdateRequired), which
+    // wedges after three. This build sends X-Ledger: 2, so the server accepts
+    // that same queue from it: ignore the gate wedge and keep flushing; if the
+    // push is still refused, it raises "Update required", never the reset hint
+    // that would discard the queue both tabs share (bd med-wi09.12 MED-3).
+    const gateWedge = writeError != null && isUpdateRequiredStatus(writeError.status);
     return {
       localLastSeq: localLastSeq ?? null,
       lastSnapshotSeq: lastSnapshotSeq ?? 0,
@@ -217,11 +224,11 @@ async function readMeta() {
       integrityErrors: integrityErrors ?? 0,
       forceSnapshotPending: forceSnapshotPending ?? false,
       snapshotError: snapshotError ?? null,
-      writeError: writeError ?? null,
+      writeError: gateWedge ? null : (writeError ?? null),
       clockSkewMs: clockSkewMs ?? 0,
       snapshotErrorSeq: snapshotErrorSeq ?? null,
-      writeErrorStreak: writeErrorStreak ?? 0,
-      syncWedged: syncWedged ?? false,
+      writeErrorStreak: gateWedge ? 0 : (writeErrorStreak ?? 0),
+      syncWedged: gateWedge ? false : (syncWedged ?? false),
       lastSnapshotAt: lastSnapshotAt ?? null,
       importBumpSeq: importBumpSeq ?? null,
     };
@@ -311,6 +318,26 @@ if (recordsChannel) {
       invalidateRecords(msg.type);
     }
   };
+}
+
+// Not every writer announces: an old bundle's tab left open after a deploy, a
+// message lost while this page sat frozen (bfcache), a browser without
+// BroadcastChannel (Safari < 15.4). So the memos are also dropped whenever the
+// page comes back into use — restored, shown, or focused (clicking into this
+// window precedes the tap). The journal is kept: the intake projection catches
+// an unnamed write by its fingerprint (medintake.js syncIndex), so this costs
+// one store read per type, not a rebuild.
+function dropMemos() {
+  recordsMemo.clear();
+  rawMemo.clear();
+  recordsChangeCount++;
+}
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('pageshow', (event) => { if (event.persisted) dropMemos(); });
+  window.addEventListener('focus', dropMemos);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') dropMemos(); });
+  }
 }
 
 function announce(msg) {
