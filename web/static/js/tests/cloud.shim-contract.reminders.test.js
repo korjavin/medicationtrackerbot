@@ -70,22 +70,25 @@ describe('cloud shim contract — reminders', () => {
     });
 
     // med-5vy0 — the delivery pref's floored defaults (docs/cloud-mode.md
-    // guard 3): {floor} stores at clientTs 0 only when nothing is stored.
+    // guard 3): {floor} stores a fixed default body only when nothing is
+    // stored. Domain-level convergence lives in reminders.domain.test.js.
     describe('reminder-delivery floors', () => {
         const DELIVERY = '/api/settings/reminder-delivery';
         const MED = { recordId: 1, deleted: false, name: 'A', dosage: '1', schedule: '{"type":"daily","times":["09:00"]}' };
         const pref = (fields) => ({ recordId: 'reminderdeliverypref', deleted: false, ...fields });
         const stored = async () => (await env.records.list('reminderdeliverypref'))
-            .map(({ clientTs, delivery, verbosity }) => ({ clientTs, delivery, verbosity }));
+            .map(({ recordId, deleted, recordType, ...rest }) => rest);
+        const GENERIC_FLOOR = { clientTs: 1, delivery: 'webpush', verbosity: 'generic' };
+        const DETAILED_FLOOR = { clientTs: 0, delivery: 'webpush', lockscreen_default: 'detailed' };
 
         it('first run (auto): Generic with no medication, Detailed when one exists, nothing over a stored pref', async () => {
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { floor: 'auto' });
-            expect(await stored()).toEqual([{ clientTs: 0, delivery: 'webpush', verbosity: 'generic' }]);
+            expect(await stored()).toEqual([GENERIC_FLOOR]);
 
             // An existing account with meds but no first-run record sees W1: the floor keeps Detailed.
             setupEnv({ medication: [MED] });
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { floor: 'auto' });
-            expect(await stored()).toEqual([{ clientTs: 0, delivery: 'webpush', verbosity: 'detailed' }]);
+            expect(await stored()).toEqual([DETAILED_FLOOR]);
 
             setupEnv({ medication: [MED], reminderdeliverypref: [pref({ clientTs: 9, delivery: 'telegram', verbosity: 'generic' })] });
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { floor: 'auto' });
@@ -94,12 +97,12 @@ describe('cloud shim contract — reminders', () => {
 
         it('ask sheet closed untouched (generic): floored Generic, never over a stored pick; a later explicit Detailed wins', async () => {
             const res = await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { floor: 'generic' });
-            expect(res).toEqual({ delivery: 'webpush', verbosity: 'generic' });
-            expect(await stored()).toEqual([{ clientTs: 0, delivery: 'webpush', verbosity: 'generic' }]);
+            expect(res).toEqual({ delivery: 'webpush', verbosity: 'generic', lockscreen: 'generic' });
+            expect(await stored()).toEqual([GENERIC_FLOOR]);
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { verbosity: 'detailed' });
             const [after] = await stored();
             expect(after.verbosity).toBe('detailed');
-            expect(after.clientTs).toBeGreaterThan(0);
+            expect(after.clientTs).toBeGreaterThan(1);
 
             setupEnv({ reminderdeliverypref: [pref({ clientTs: 7, delivery: 'webpush', verbosity: 'detailed' })] });
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { floor: 'generic' });
@@ -108,11 +111,12 @@ describe('cloud shim contract — reminders', () => {
 
         it('a floored Detailed never follows a switch to Telegram; a chosen Detailed does', async () => {
             // What any Settings UI sends: the new channel plus the verbosity it shows.
-            setupEnv({ medication: [MED], reminderdeliverypref: [pref({ clientTs: 0, delivery: 'webpush', verbosity: 'detailed' })] });
+            setupEnv({ medication: [MED], reminderdeliverypref: [pref(DETAILED_FLOOR)] });
+            expect(await env.window.offlineAwareApiCall(DELIVERY, 'GET')).toEqual({ delivery: 'webpush', verbosity: 'generic', lockscreen: 'detailed' });
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { delivery: 'telegram', verbosity: 'detailed' });
             expect((await stored())[0]).toMatchObject({ delivery: 'telegram', verbosity: 'generic' });
 
-            setupEnv({ medication: [MED], reminderdeliverypref: [pref({ clientTs: 0, delivery: 'webpush', verbosity: 'detailed' })] });
+            setupEnv({ medication: [MED], reminderdeliverypref: [pref(DETAILED_FLOOR)] });
             await env.window.offlineAwareApiCall(DELIVERY, 'PUT', { delivery: 'both' });
             expect((await stored())[0]).toMatchObject({ delivery: 'both', verbosity: 'generic' });
 

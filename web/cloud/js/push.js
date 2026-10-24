@@ -379,6 +379,9 @@ const MAX_TG_MED_IDS_LEN = 2048;
 async function pushScheduleInner(ctx, reminders, pref = {}) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
+  // The sealed body follows the lock-screen value (getDeliveryPref's
+  // `lockscreen`, med-5vy0); Telegram reads `verbosity` only.
+  const lockscreen = (pref.lockscreen || verbosity) === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
   const needsText = delivery === 'telegram' || delivery === 'both';
 
@@ -396,8 +399,8 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
       // `url` (the tap target, med-9d1a) is sealed here too, so the relay never
       // sees which meds or section a reminder points at. An older SW picks only
       // title/body/kind and ignores it. The body follows the lock-screen pref
-      // like tg_text below (med-5vy0): 'generic' shows only "Medication time".
-      const body = verbosity === 'generic' ? (r.genericText || r.text) : (r.pushText || r.text);
+      // (med-5vy0): 'generic' shows only "Medication time".
+      const body = lockscreen === 'generic' ? (r.genericText || r.text) : (r.pushText || r.text);
       const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body, kind: r.kind, url: reminderDeeplink(r) }));
       entry.ct = toBase64(await encryptPushPayload(nk, plaintext));
     }

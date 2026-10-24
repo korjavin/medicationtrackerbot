@@ -57,6 +57,15 @@ describe('pushSchedule — goal-aware weigh-in text is Web-Push-only', () => {
         expect(JSON.parse(sent[0].ct)).toMatchObject({ body: 'Time to take: Aspirin', kind: 'medication', title: 'Med Tracker' });
     });
 
+    // med-5vy0: over the Detailed floor (lockscreen detailed, verbosity
+    // generic) the lock screen names the med; Telegram plaintext never does.
+    it('Telegram text over a lock-screen Detailed default stays generic', async () => {
+        const dose = { fireAtUnix: 1767258000, kind: 'medication', text: 'Time to take: Aspirin', genericText: '\u{1F48A} Medication time', callback: 's:1767258000', medicationIds: [2] };
+        await pushSchedule({ accountId: 'a-floor' }, [dose], { delivery: 'both', verbosity: 'generic', lockscreen: 'detailed' });
+        expect(JSON.parse(sent[0].ct).body).toBe('Time to take: Aspirin');
+        expect(sent[0].tg_text).toBe('\u{1F48A} Medication time');
+    });
+
     it('an entry without pushText keeps its text as the web push body', async () => {
         const plain = { ...reminder, pushText: undefined };
         await pushSchedule({ accountId: 'a-plain' }, [plain], { delivery: 'webpush' });

@@ -207,12 +207,12 @@ export async function recomputeAndPush(ctx, opts = {}) {
   ]);
   if (opts.askPermission) askPermissionIfNeeded(ctx, opts, entries, pref);
   if (opts.relay === false) {
-    await scheduleLocalNotifications(entries, { delivery: 'webpush' }, { generic: pref.verbosity === 'generic' });
+    await scheduleLocalNotifications(entries, { delivery: 'webpush' }, { generic: pref.lockscreen === 'generic' });
     return;
   }
   // The relay upload is started first and never waits on the device: a slow
   // or hung bridge call must not delay Telegram or the other devices.
-  const local = scheduleLocalNotifications(entries, pref, { generic: pref.verbosity === 'generic' });
+  const local = scheduleLocalNotifications(entries, pref, { generic: pref.lockscreen === 'generic' });
   await pushSchedule(ctx, entries, pref);
   await local; // never rejects, bounded by LOCAL_SCHEDULE_TIMEOUT_MS
 }

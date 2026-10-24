@@ -303,7 +303,8 @@ function bindCloudReminderDelivery() {
             .then(({ remindersDomain }) => remindersDomain(ctx).getDeliveryPref())
             .then((pref) => {
                 setChoiceValue(deliveryEl, pref.delivery);
-                setChoiceValue(verbosityEl, pref.verbosity);
+                // The resolved lock-screen value (med-5vy0): a floored Detailed shows as Detailed.
+                setChoiceValue(verbosityEl, pref.lockscreen || pref.verbosity);
             })
             .catch(() => { /* leave the HTML defaults (webpush/generic) */ });
     }
@@ -330,7 +331,7 @@ function bindCloudReminderDelivery() {
             // Generic on a move to Telegram, med-5vy0): show what was stored.
             if (saved) {
                 setChoiceValue(deliveryEl, saved.delivery);
-                setChoiceValue(verbosityEl, saved.verbosity);
+                setChoiceValue(verbosityEl, saved.lockscreen || saved.verbosity);
             }
             await recomputeAndPush(cloudCtx);
             applyWebpushStatus(status, 'Reminder delivery updated.', 'success');

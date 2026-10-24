@@ -995,7 +995,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you allow notifications; Settings → Reminders & notifications picks Generic or Detailed (Lock-screen text on the device, Reminder text in an account), as does the ask sheet',
     byo: 'n/a',
-    evidence: ['web/cloud/js/reminders.js:201', 'web/cloud/js/reminders.js:267', 'web/cloud/js/push.js:400', 'android/app/src/main/java/com/example/medtracker/Notifications.kt:30'],
+    evidence: ['web/cloud/js/reminders.js:201', 'web/cloud/js/reminders.js:267', 'web/cloud/js/push.js:403', 'android/app/src/main/java/com/example/medtracker/Notifications.kt:30'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {

@@ -146,7 +146,8 @@
         try {
             var pref = await window.apiCall(DELIVERY_PATH, 'GET');
             if (!pref) return null;
-            return pref.verbosity === 'detailed' ? 'detailed' : 'generic';
+            // The resolved lock-screen value (med-5vy0); older shims send verbosity only.
+            return (pref.lockscreen || pref.verbosity) === 'detailed' ? 'detailed' : 'generic';
         } catch (_) {
             return null;
         }

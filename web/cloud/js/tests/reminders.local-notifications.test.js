@@ -169,13 +169,13 @@ describe('account mode: lock-screen pref, floored Detailed default', () => {
     await recomputeAndPush(ctx, { records: generic, timeZone: 'UTC' });
     expect(medBodies(schedule).length).toBeGreaterThan(0);
     for (const b of medBodies(schedule)) expect(b).toBe('\u{1F48A} Medication time');
-    expect(pushSchedule.mock.calls[0][2]).toEqual({ delivery: 'webpush', verbosity: 'generic' });
+    expect(pushSchedule.mock.calls[0][2]).toEqual({ delivery: 'webpush', verbosity: 'generic', lockscreen: 'generic' });
     // A stored generic is never rewritten by the floor.
     expect(generic.store.reminderdeliverypref).toEqual(seed('webpush', 'generic').reminderdeliverypref);
 
     await recomputeAndPush(ctx, { records: storingRecords(seed('webpush', 'detailed')), timeZone: 'UTC' });
     for (const b of medBodies(schedule, 1)) expect(b).toContain('Time to take: A');
-    expect(pushSchedule.mock.calls[1][2]).toEqual({ delivery: 'webpush', verbosity: 'detailed' });
+    expect(pushSchedule.mock.calls[1][2]).toEqual({ delivery: 'webpush', verbosity: 'detailed', lockscreen: 'detailed' });
   });
 
   it('meds and no stored pref: floored Detailed record; a later explicit choice wins and stays', async () => {
@@ -184,10 +184,11 @@ describe('account mode: lock-screen pref, floored Detailed default', () => {
     const records = storingRecords({ medication: [MED] });
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
     expect(records.store.reminderdeliverypref).toEqual([
-      { recordId: 'reminderdeliverypref', clientTs: 0, deleted: false, delivery: 'webpush', verbosity: 'detailed' },
+      { recordId: 'reminderdeliverypref', deleted: false, clientTs: 0, delivery: 'webpush', lockscreen_default: 'detailed' },
     ]);
     for (const b of medBodies(schedule)) expect(b).toContain('Time to take: A');
-    expect(pushSchedule.mock.calls[0][2]).toEqual({ delivery: 'webpush', verbosity: 'detailed' });
+    // Lock screen Detailed; Telegram text (verbosity) stays generic.
+    expect(pushSchedule.mock.calls[0][2]).toEqual({ delivery: 'webpush', verbosity: 'generic', lockscreen: 'detailed' });
 
     await remindersDomain(ctx, { records }).setDeliveryPref({ verbosity: 'generic' });
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
