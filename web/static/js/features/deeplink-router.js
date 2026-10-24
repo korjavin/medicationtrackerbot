@@ -85,11 +85,12 @@ function handleDeepLinks() {
 
     if (!action && tab === 'settings') {
         // ?tab=settings&page=devices|connectors — where the passkey shell's old
-        // /devices and /connectors pages redirect (med-xso6.25). Only a fixed
-        // page list; anything else just lands on Settings.
+        // /devices and /connectors pages redirect (med-xso6.25); add-device is
+        // the "Approve the new device?" notification tap (med-r1j2.9). Only a
+        // fixed page list; anything else just lands on Settings.
         const page = urlParams.get('page');
         switchTab('settings');
-        if (page === 'devices' || page === 'connectors') {
+        if (page === 'devices' || page === 'connectors' || page === 'add-device') {
             setTimeout(() => {
                 if (window.SettingsView && typeof window.SettingsView.openDevicesDeeplink === 'function') {
                     window.SettingsView.openDevicesDeeplink(page);
