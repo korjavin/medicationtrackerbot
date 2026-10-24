@@ -133,12 +133,14 @@ export default async function inviteLink(ctx) {
 
   page = await ctx.step('local.leave {url}: the claim page, the move stash kept, the slot consumed', async () => {
     await seedMove();
-    await call(page, 'local.leave', { url: ctx.claimUrl }); // the page goes away right after the reply
+    // bd med-r1j2.14: erase on an invite (not /claim) is a plain leave: nothing armed, the stash kept.
+    await call(page, 'local.leave', { url: ctx.claimUrl, erase: true }); // the page goes away right after the reply
     const p = await pageOn((u) => u.host === claim.host);
     expect((await pending(p)) === null, 'the slot outlived local.leave {url}');
     expect((await moveFiles()) === 'vault.json', `local.leave {url} dropped the move stash: ${await moveFiles()}`);
     const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
     expect(xml.includes(`>${claim.host}<`) && /name="wgLocalMode" value="false"/.test(xml), `prefs: ${xml}`);
+    expect(!/wgJoinErase/.test(xml), `erase armed for an invite url: ${xml}`);
     await ctx.shot('claim-page');
     return p;
   });
@@ -284,6 +286,8 @@ export default async function inviteLink(ctx) {
     expect(!/wgJoinErase/.test(xml), `entering local mode kept the erase flag: ${xml}`);
     // Re-arm for the uninterrupted erase below: a fresh local marker, then Join and erase again.
     await p.evaluate(() => localStorage.setItem('qa-erase-marker', '1'));
+    // bd med-r1j2.14: the main view's own local sessionStorage, which the throwaway wipe view can't reach.
+    await p.evaluate(() => sessionStorage.setItem('qa-session-marker', '1'));
     const rejoin = await call(p, 'local.leave', { url: dWant, erase: true });
     expect(rejoin.ok && rejoin.result === true, `re-join: ${JSON.stringify(rejoin)}`);
     p = await pageOn((u) => u.host === claim.host);
@@ -302,6 +306,8 @@ export default async function inviteLink(ctx) {
     const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
     const marker = await p.evaluate(() => localStorage.getItem('qa-erase-marker'));
     expect(marker === null, `local localStorage not wiped: marker=${marker}`);
+    const session = await p.evaluate(() => [sessionStorage.getItem('qa-session-marker'), localStorage.getItem('wg-shell-session-wipe')]);
+    expect(session[0] === null && session[1] === null, `main view sessionStorage not wiped: ${JSON.stringify(session)}`);
     const left = await records(p);
     expect(left === 0, `local IndexedDB not wiped: ${left} records`);
     await ctx.shot('d-link-erased');

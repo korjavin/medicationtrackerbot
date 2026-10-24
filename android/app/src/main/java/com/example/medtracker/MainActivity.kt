@@ -604,6 +604,7 @@ class MainActivity : Activity() {
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(w, assets.open("chrome.js").bufferedReader().use { it.readText() }, rules)
+            WebViewCompat.addDocumentStartJavaScript(w, LocalWipe.SESSION_JS, setOf("https://${LocalOrigin.HOST}"))
         }
         DebugHooks.onWebView(this, w, rules, ::diag) // no-op in release (src/release) and off the qa.test base
         return w
@@ -783,7 +784,8 @@ class MainActivity : Activity() {
             enterAccount(url, h)
             // "Join and erase" (bd med-r1j2.8): nothing is erased now — only remembered for this host
             // until its unlocked boot calls local.erase. No merge either: drop any move stash.
-            if (op == "local.leave" && leaveArgs.optBoolean("erase")) {
+            // Only for an add-device claim link (/claim#…); erase on an invite is a plain leave (bd med-r1j2.14).
+            if (op == "local.leave" && leaveArgs.optBoolean("erase") && Invite.armsErase(url)) {
                 move.clear()
                 prefs.edit().putString(Invite.ERASE_HOST_KEY, h).putLong(Invite.ERASE_AT_KEY, System.currentTimeMillis()).apply()
             }

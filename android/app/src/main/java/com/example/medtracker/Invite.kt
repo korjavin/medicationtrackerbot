@@ -37,6 +37,13 @@ object Invite {
 
     fun eraseDue(eraseHost: String?, at: Long, host: String?, nowMs: Long) =
         eraseHost != null && eraseHost == host && nowMs - at in 0..ERASE_TTL_MS
+
+    /**
+     * local.leave {url, erase: true} arms the erase only for an add-device claim link
+     * (https://<sub>.<base>/claim#<slot>.<TK>), never an invite (bd med-r1j2.14, iOS Shell.swift's
+     * url.path == "/claim"). [url] is AccountUrl.parse's output; anything else is a plain leave.
+     */
+    fun armsErase(url: String) = runCatching { java.net.URI(url).path == "/claim" }.getOrDefault(false)
 }
 
 /**

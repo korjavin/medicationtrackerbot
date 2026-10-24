@@ -14,7 +14,7 @@ import java.io.ByteArrayInputStream
  * local.erase's wipe (bd med-r1j2.8): the local origin's storage, and only that origin's — the
  * joined account's origin shares the WebView profile and must survive. A throwaway WebView (no
  * bridge) loads one page on the asset origin that clears localStorage, every IndexedDB database,
- * Cache Storage and service workers from inside it, and reports completion through its title.
+ * Cache Storage and service workers from inside it (sessionStorage: [SESSION_KEY]), and reports completion through its title.
  * Nothing else: WebStorage.deleteOrigin leaves localStorage and can't be awaited (bd med-r1j2.12 —
  * a sweep still pending after [done] could delete what a local page writes next), and androidx.webkit's
  * site deletion needs a newer WebView than the shell's minimum.
@@ -26,12 +26,26 @@ object LocalWipe {
     /** Process-wide: an activity recreated mid-wipe still waits for the old one's wipe. */
     val gate = WipeGate()
 
+    /**
+     * sessionStorage belongs to each WebView, so this one's is empty: the wipe leaves this
+     * localStorage marker and [SESSION_JS], a document-start script in the shell's own WebView,
+     * clears that view's local-origin sessionStorage (first-run step, leave/pickup keys) at its next
+     * local page, before any app script (bd med-r1j2.14, iOS Shell.sessionWipeJS's twin).
+     */
+    const val SESSION_KEY = "wg-shell-session-wipe"
+    const val SESSION_JS = """if (location.host === '${LocalOrigin.HOST}') try {
+  if (localStorage.getItem('$SESSION_KEY')) {
+    sessionStorage.clear();
+    localStorage.removeItem('$SESSION_KEY');
+  }
+} catch (_) {}"""
+
     private const val PATH = "/__wg_local_wipe"
     private const val PAGE = """<!doctype html><title>wiping</title><script>
 (async () => {
   try {
     localStorage.clear();
-    sessionStorage.clear();
+    localStorage.setItem('$SESSION_KEY', '1');
     for (const d of await indexedDB.databases()) {
       // Blocked: keep waiting for success; the native timeout fails it. An error fails the wipe.
       await new Promise((ok, fail) => { const q = indexedDB.deleteDatabase(d.name); q.onsuccess = ok; q.onerror = () => fail(q.error); });
