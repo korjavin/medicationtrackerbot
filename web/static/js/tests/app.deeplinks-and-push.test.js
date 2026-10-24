@@ -449,9 +449,19 @@ describe('handleDeepLinks – push-action query params', () => {
         // Below the take sheet's time row, never between the user and Take.
         expect(hint.closest('.wg-sheet__body')).not.toBeNull();
 
+        // A failed save (apiCall answers null after its own alert) puts the line back.
+        api.mockImplementationOnce(async () => null);
         hint.querySelector('[data-reminder-hint-action="details"]').click();
         expect(window.document.querySelector('[data-reminder-hint]')).toBeNull();
+        await vi.advanceTimersByTimeAsync(10);
+        expect(window.document.querySelector('#med-confirm-hint [data-reminder-hint]')).not.toBeNull();
+        expect(toast.mock.calls.some((c) => c[0] === 'Lock screen now shows medication names')).toBe(false);
+
+        hint.querySelector('[data-reminder-hint-action="details"]').click();
+        expect(window.document.querySelector('[data-reminder-hint]')).toBeNull();
+        await vi.advanceTimersByTimeAsync(10);
         expect(api).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
+        expect(window.document.querySelector('[data-reminder-hint]')).toBeNull();
         const [msg, type, opts] = toast.mock.calls.at(-1);
         expect([msg, type, opts.detail, opts.action.label])
           .toEqual(['Lock screen now shows medication names', 'success', 'Change in Settings → Reminders', 'Undo']);

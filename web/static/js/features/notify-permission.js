@@ -147,11 +147,15 @@
         }
     }
 
+    // Resolves true once the pref reads back as value. apiCall already tells
+    // the user about a failed write (and answers null), so this only reports.
     function saveVerbosity(value) {
-        return Promise.resolve(window.apiCall(DELIVERY_PATH, 'PUT', { verbosity: value })).catch(function (e) {
-            console.error('[notify-permission] lock-screen choice save failed', e);
-            if (typeof window.safeToast === 'function') window.safeToast('Could not save the lock-screen choice.', 'error');
-        });
+        return Promise.resolve(window.apiCall(DELIVERY_PATH, 'PUT', { verbosity: value }))
+            .then(function (pref) { return !!(pref && pref.verbosity === value); })
+            .catch(function (e) {
+                console.error('[notify-permission] lock-screen choice save failed', e);
+                return false;
+            });
     }
 
     // S8's preview line for a dose; Detailed names one of the user's own meds.
@@ -409,9 +413,13 @@
         hydrate(row);
 
         dismiss.addEventListener('click', function () { row.remove(); });
-        link.addEventListener('click', function () {
+        link.addEventListener('click', async function () {
             row.remove();
-            saveVerbosity('detailed');
+            // A failed save puts the line back, so the tap can be retried.
+            if (!(await saveVerbosity('detailed'))) {
+                slot.replaceChildren(row);
+                return;
+            }
             if (typeof window.safeToast === 'function') {
                 window.safeToast('Lock screen now shows medication names', 'success', {
                     detail: 'Change in Settings → Reminders',
