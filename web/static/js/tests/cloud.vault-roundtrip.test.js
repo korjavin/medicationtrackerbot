@@ -172,6 +172,11 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(exported({ clientTs: 0, delivery: 'webpush', lockscreen_default: 'detailed' })).not.toHaveProperty('reminder_delivery');
     expect(exported(null)).not.toHaveProperty('reminder_delivery');
 
+    // Telegram-only restores as 'both': the target may have no linked chat.
+    const tg = JSON.parse(JSON.stringify(fixture));
+    tg.data.settings.reminder_delivery = { delivery: 'telegram', verbosity: 'detailed' };
+    expect(of(vaultToRecords(tg, { now: NOW }))).toEqual([rec({ clientTs: NOW, delivery: 'both', verbosity: 'detailed' })]);
+
     const legacy = JSON.parse(JSON.stringify(fixture));
     delete legacy.data.settings.reminder_delivery;
     expect(of(vaultToRecords(legacy, { now: NOW }))).toEqual([]);

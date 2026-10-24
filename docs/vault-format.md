@@ -439,7 +439,11 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   the floor, or no record, omits the key. Import writes `{delivery, verbosity}`
   at import time, so it beats any floor (CLAUDE.md rule 12); a block whose
   `delivery` or `verbosity` is not one of the listed values is ignored, never
-  fatal. A file without a valid block (every backup before med-5vy0.4) leaves
+  fatal. An imported `"telegram"` is stored as `"both"`: the target may have no
+  linked Telegram chat, and Telegram-only would silently stop every reminder;
+  web push keeps working until the user links Telegram. On a merge import the
+  receiver's record wins, the clientTs-1 Generic default included; only the
+  Detailed floor (clientTs 0) gives way to the file's block. A file without a valid block (every backup before med-5vy0.4) leaves
   the destination's record alone on replace, like `protection`. Older importers
   read named `settings` fields only and drop the key.
 - **integrations** — the user's own provider keys, stored **unmasked**:

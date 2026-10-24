@@ -293,11 +293,13 @@ export function managedTypesForImport(vault) {
 }
 
 // settings.reminder_delivery -> the record body, or null when absent or not
-// a valid {delivery, verbosity} pair (ignored, never fatal).
+// a valid {delivery, verbosity} pair (ignored, never fatal). 'telegram'
+// lands as 'both': the target may have no linked chat, and Telegram-only
+// would then silently stop every reminder (no web push, relay drops them).
 function deliveryPrefFromVault(settings) {
   const p = settings && settings.reminder_delivery;
   if (!p || !DELIVERY_CHANNELS.includes(p.delivery) || !VERBOSITIES.includes(p.verbosity)) return null;
-  return { delivery: p.delivery, verbosity: p.verbosity };
+  return { delivery: p.delivery === 'telegram' ? 'both' : p.delivery, verbosity: p.verbosity };
 }
 
 // A protection block with a backup stamp or a dismissal; anything else
