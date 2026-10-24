@@ -26,9 +26,10 @@
 // med-5vy0): the ask sheet and, after the first-run one-tap grant, a "What
 // should reminders show?" sheet carry S8's Generic / Detailed pair. Saved
 // however the sheet closes (Not now too), through the same PUT
-// /api/settings/reminder-delivery S8 uses. Local mode writes only a change;
-// account mode always writes, so the account holds an explicit choice and the
-// existing-account Detailed floor (web/cloud/js/reminders.js) never applies.
+// /api/settings/reminder-delivery S8 uses. A changed pick is a real write.
+// Closed untouched, local mode writes nothing and account mode stores Generic
+// as a floored default ({floor: 'generic'}: clientTs 0, only when no pref is
+// stored), so skipping never overwrites another device's pick.
 (function () {
     'use strict';
 
@@ -151,12 +152,18 @@
         }
     }
 
-    // A sheet closing with value: local mode stores only a change, account
-    // mode always stores it (med-5vy0, see the header). An unread pref (the
-    // sheet showed Generic) is stored only when changed: an untouched Generic
-    // must not overwrite a Detailed it never saw.
+    // A sheet closing with value: a change is the user's pick, stored as a
+    // real write. Untouched is not a choice: local mode stores nothing, and
+    // account mode stores Generic as a FLOORED default (med-5vy0, see the
+    // header), which never overwrites a pick another device already made.
     function keepVerbosity(value, initial) {
-        if (value !== (initial || 'generic') || (initial && !isLocal())) saveVerbosity(value);
+        if (value !== (initial || 'generic')) {
+            saveVerbosity(value);
+        } else if (!isLocal()) {
+            Promise.resolve(window.apiCall(DELIVERY_PATH, 'PUT', { floor: 'generic' })).catch(function (e) {
+                console.error('[notify-permission] lock-screen default save failed', e);
+            });
+        }
     }
 
     // Resolves true once the pref reads back as value. apiCall already tells

@@ -209,9 +209,10 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(requestPermission).toHaveBeenCalledTimes(1);
         await expect(first).resolves.toBe(true);
         expect(document.getElementById('notify-permission-sheet')).toBeNull();
-        // Account mode always stores the choice, an untouched Generic included,
-        // so the account never falls to the existing-account Detailed floor.
-        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/reminder-delivery', 'PUT', { verbosity: 'generic' });
+        // Untouched is not a choice: account mode stores only a floored Generic
+        // (kept by the shim only when no pref exists), never a real write.
+        const puts = window.apiCall.mock.calls.filter((c) => c[1] === 'PUT');
+        expect(puts).toEqual([['/api/settings/reminder-delivery', 'PUT', { floor: 'generic' }]]);
 
         // Answered: never again on this device, even if still 'default'.
         await expect(window.NotifyPermission.maybeAsk()).resolves.toBe(false);
@@ -234,8 +235,10 @@ describe('Medication editor page (kit M5–M6)', () => {
         document.querySelector('#notify-permission-sheet [data-notify-choice="not-now"]').click();
         await expect(asking).resolves.toBe(false);
         expect(window.LocalNotifications.requestPermission).not.toHaveBeenCalled();
-        // An account already on Detailed (e.g. the upgrade floor) keeps it on Not now.
-        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/reminder-delivery', 'PUT', { verbosity: 'detailed' });
+        // Not now on an account already on Detailed: only the floored default,
+        // which the shim drops because a pref is stored (cloud.shim-contract.reminders).
+        expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT'))
+            .toEqual([['/api/settings/reminder-delivery', 'PUT', { floor: 'generic' }]]);
         window.apiCall = realApiCall;
 
         window.showAddModal();
@@ -337,9 +340,10 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(window.apiCall).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
         });
 
-        // med-5vy0: an account whose pref could not be read shows Generic but
-        // never stores an untouched Generic over a Detailed it never saw.
-        it('RD1 in account mode with an unreadable pref: Not now writes nothing', async () => {
+        // med-5vy0: an account whose pref could not be read shows Generic and,
+        // closed untouched, sends only the floored default — never a real
+        // Generic over a Detailed it never saw.
+        it('RD1 in account mode with an unreadable pref: Not now sends only the floored default', async () => {
             const { document, window } = env;
             window.apiCall = vi.fn(async (url, method, body) => (method === 'PUT' ? body : null));
             window.LocalNotifications = { isSupported: () => true, permission: vi.fn(async () => 'default'), requestPermission: vi.fn() };
@@ -350,11 +354,11 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(pressed(sheet)).toBe('generic');
             sheet.querySelector('[data-notify-choice="not-now"]').click();
             await expect(asking).resolves.toBe(false);
-            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([]);
+            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([[DELIVERY, 'PUT', { floor: 'generic' }]]);
         });
 
-        // med-5vy0: account mode gets RD2 too and always stores the pick.
-        it('RD2 in account mode: the grant opens the same sheet; Done stores even an untouched Generic', async () => {
+        // med-5vy0: account mode gets RD2 too; a changed pick is a real write.
+        it('RD2 in account mode: the grant opens the same sheet; Done untouched floors, a pick writes', async () => {
             const { document, window } = env;
             window.apiCall = vi.fn(async (url, method, body) => (method === 'PUT' ? body : { verbosity: 'generic' }));
             const permission = vi.fn(async () => 'default');
@@ -372,7 +376,20 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(pressed(sheet)).toBe('generic');
             sheet.querySelector('[data-notify-choice="done"]').click();
             expect(document.getElementById('notify-detail-sheet')).toBeNull();
-            expect(window.apiCall).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'generic' });
+            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([[DELIVERY, 'PUT', { floor: 'generic' }]]);
+
+            // The ask sheet with a changed pick: a real write of that pick.
+            window.apiCall.mockClear();
+            window.localStorage.removeItem('wg.notifyPermission.asked');
+            permission.mockResolvedValue('default');
+            const asking = window.NotifyPermission.maybeAsk();
+            await flush();
+            await flush();
+            const ask = document.getElementById('notify-permission-sheet');
+            ask.querySelector('[data-notify-verbosity] .wg-choice[data-value="detailed"]').click();
+            ask.querySelector('[data-notify-choice="not-now"]').click();
+            await expect(asking).resolves.toBe(false);
+            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([[DELIVERY, 'PUT', { verbosity: 'detailed' }]]);
         });
 
         afterEach(() => {
