@@ -176,20 +176,25 @@ async function pickUpMovedVault(win) {
 // AD9 "Join and erase", account side (bd med-r1j2.4). The local page asked
 // local.leave {url, erase: true} and erased nothing. Only here — the joined
 // account booted unlocked right after this tab enrolled its passkey (claim.js
-// sets the one-shot sessionStorage 'wg-join-enrolled'; bd med-r1j2.7) — is the
+// sets the one-shot sessionStorage 'wg-join-enrolled', takeJoinEnrolled reads
+// and drops it at the top of every boot; bd med-r1j2.7) — is the
 // shell told to finish: local.erase wipes the local vault (the Settings →
 // Erase data on this device effects) if, and only if, it still holds that
 // join's erase for this host; otherwise a no-op. A cancel, an expired code, a
 // 409/410 (whose Close lands here too, unlocked by an older session), another
 // account or a crash never get the marker. Inert on the web and on shells
 // whose shell.ops lacks local.erase.
-async function finishJoinErase(win) {
-    let enrolled = false;
+function takeJoinEnrolled(win) {
     try {
-        enrolled = win.sessionStorage.getItem('wg-join-enrolled') === '1';
+        const enrolled = win.sessionStorage.getItem('wg-join-enrolled') === '1';
         win.sessionStorage.removeItem('wg-join-enrolled');
-    } catch { /* no storage: never erase */ }
-    if (!enrolled) return;
+        return enrolled;
+    } catch {
+        return false; // no storage: never erase
+    }
+}
+
+async function finishJoinErase(win) {
     const doc = win.document;
     if (doc && doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
     const native = win.LocalNotifications && win.LocalNotifications.__native;
@@ -252,6 +257,10 @@ window.MedTrackerCloudReady = (async function boot() {
     // fragments forward — anything else (notably #claim=, which has its own
     // branch above) must not, or the claim redirect ping-pongs.
     const sharePlanHash = /^#share-(?:plan|gym)=/.test(location.hash) ? location.hash : '';
+    // claim.js's one-shot enrollment marker (bd med-r1j2.7), consumed by THIS
+    // boot whatever happens next: a boot that fails before finishJoinErase must
+    // not leave it for a later, unrelated one.
+    const joinEnrolled = takeJoinEnrolled(window);
     // --- Warm-unlock decision. This is the ONLY block allowed to redirect to
     // /unlock, and only on "there is no usable local key" — no cached LDK record
     // (warmUnlock → null) or the read itself failing. Everything that decides
@@ -533,7 +542,7 @@ window.MedTrackerCloudReady = (async function boot() {
         // runs alongside it exactly as a Settings → Restore would. A no-op on
         // the web.
         pickUpMovedVault(window).catch((e) => console.error('[cloud-boot] move pickup failed', e));
-        finishJoinErase(window).catch((e) => console.error('[cloud-boot] join erase failed', e));
+        if (joinEnrolled) finishJoinErase(window).catch((e) => console.error('[cloud-boot] join erase failed', e));
         // med-deq.2: the sync-status re-auth affordance lives in the unlock
         // shell, but a device with a warm LDK cache never sees that shell
         // (/unlock redirects straight back to /), so the real app must surface

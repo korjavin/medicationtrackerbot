@@ -986,7 +986,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
 
   async function boot({
     platform = 'android', ops = ['shell.ops', 'move.take', 'move.clear'], stash = { vault: VAULT },
-    content = false, choice = 'replace', confirm = true, importAll, warmUnlock = UNLOCKED, live,
+    content = false, choice = 'replace', confirm = true, importAll, warmUnlock = UNLOCKED, live, pull,
   } = {}) {
     const { window } = env;
     const log = [];
@@ -1007,7 +1007,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
       'unlock.js': { warmUnlock },
       'apishim.js': { installApiShim: () => async () => null },
       'sync.js': {
-        pullOnOpen: () => pulled,
+        pullOnOpen: pull || (() => pulled),
         startReconnectAutoDrain() {},
         getSyncStatus: async () => ({}),
         readAllLiveRecords: async () => live || [],
@@ -1259,6 +1259,17 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     const { call, log } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null });
     await vi.waitFor(() => expect(log).toContain('shell.ops'));
     await settle();
+    expect(call).not.toHaveBeenCalledWith('local.erase');
+  });
+
+  // The marker belongs to the boot right after the enroll: one that fails
+  // before finishJoinErase (pullOnOpen rejects) still drops it, so a later
+  // unrelated boot erases nothing.
+  it('join and erase: a boot whose pull fails consumes the marker and erases nothing', async () => {
+    env.window.sessionStorage.setItem('wg-join-enrolled', '1');
+    const { window, call } = await boot({ ops: ['shell.ops', 'local.erase'], stash: null, pull: async () => { throw new Error('pull failed'); } });
+    await settle();
+    expect(window.sessionStorage.getItem('wg-join-enrolled')).toBeNull();
     expect(call).not.toHaveBeenCalledWith('local.erase');
   });
 });
