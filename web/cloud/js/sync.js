@@ -1392,7 +1392,9 @@ async function flushPendingUnlocked(ctx) {
     // Cleared on the first batch the server accepts: the quota was raised, or
     // the user freed space. Reset the permanent-error streak too — the server is
     // accepting writes again, so the budget starts fresh.
-    await writeMeta({ lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0 });
+    // syncWedged too: a flush only gets here past a wedge when that wedge was an
+    // old tab's 426 (readMeta ignores it), and the server now takes the queue.
+    await writeMeta({ lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0, syncWedged: false });
     if (assigned[0] === meta.localLastSeq + 1) {
       // Assigned contiguously from our cursor — predicted seqs equal assigned
       // seqs, so every op's AAD is correct and other devices can decrypt them.
