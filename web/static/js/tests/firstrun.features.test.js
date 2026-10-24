@@ -183,6 +183,24 @@ describe('firstrun W1 module picker', () => {
         } finally { cleanup(); }
     });
 
+    // med-5vy0: a new account stores its lock-screen pref (Generic when none)
+    // before any medication exists, so the existing-account Detailed floor
+    // never fires for it. Local mode and a re-run with medications write nothing.
+    it('account mode stores the reminder text pref on finish; local mode and a re-run with meds do not', async () => {
+        for (const [opts, meds, expected] of [[{}, [], 1], [{ local: true }, [], 0], [{}, [{ id: 1 }], 0]]) {
+            const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), ...opts });
+            try {
+                window.medications = meds;
+                window.apiCall = vi.fn(async () => ({ delivery: 'webpush', verbosity: 'generic' }));
+                window.WGFirstRun.mount();
+                action(document, 'skip-all').click();
+                await flush();
+                const puts = window.apiCall.mock.calls.filter((c) => c[0] === '/api/settings/reminder-delivery');
+                expect(puts).toEqual(expected ? [['/api/settings/reminder-delivery', 'PUT', {}]] : []);
+            } finally { cleanup(); }
+        }
+    });
+
     // bd med-ta2n.21: Diary's notes live in Vitals, so Diary without Sleep
     // still keeps `health` on; Diary has no flag of its own but is a pick.
     it('Diary picked without Sleep keeps health on', async () => {

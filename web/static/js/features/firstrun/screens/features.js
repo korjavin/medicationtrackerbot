@@ -55,6 +55,20 @@
         return el;
     }
 
+    // Account mode (med-5vy0): a new account starts on Generic lock-screen
+    // text, as local mode does. The empty PUT stores the current pref (Generic
+    // when none is stored) before any medication exists, so the Detailed floor
+    // for existing accounts (web/cloud/js/reminders.js) never fires for it. A
+    // re-run with medications skips it: that account keeps what it has.
+    function _keepReminderText() {
+        if (document.documentElement.classList.contains('wg-local-vault')) return;
+        if (typeof window.apiCall !== 'function') return;
+        if (Array.isArray(window.medications) && window.medications.length) return;
+        Promise.resolve(window.apiCall('/api/settings/reminder-delivery', 'PUT', {})).catch(function (e) {
+            console.error('[firstrun] reminder text default failed', e);
+        });
+    }
+
     function _isEnabled(key) {
         var flags = window.featureSettings;
         if (!flags || typeof flags !== 'object' || typeof flags[key] !== 'boolean') return true;
@@ -235,7 +249,7 @@
             busy(true);
             error.textContent = '';
             _persistAll(picked)
-                .then(function () { return helpers.finishPicker(picked); })
+                .then(function () { _keepReminderText(); return helpers.finishPicker(picked); })
                 .catch(function () {
                     // Moving on now would leave unpicked sections silently ON
                     // (an unwritten flag falls back to DEFAULT_FEATURES).

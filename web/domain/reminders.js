@@ -736,7 +736,7 @@ function findSingleton(all, recordId) {
 
 // createRemindersDomain builds the enable/disable preference + horizon-build
 // API over the injected ports:
-//   records — { list(type), put(type, record), del(type, id) }
+//   records — { list(type), put(type, record), putIfAbsent(type, record), del(type, id) }
 //   now()   — current time in ms epoch
 // The shim layer reads medication/intake/tzplan records itself and calls
 // buildHorizon with them, then uploads the result via web/cloud/js/push.js's
@@ -860,6 +860,19 @@ export function createRemindersDomain({ records, now }) {
     return getDeliveryPref();
   }
 
+  // Account reminders always named what was due until med-5vy0 let the
+  // lock-screen pref govern them too, and an absent record reads 'generic'.
+  // An account that holds medications but never stored a pref keeps Detailed:
+  // a DERIVED write, so it takes the floor (CLAUDE.md rule 12) — putIfAbsent
+  // at clientTs 0, so any real choice on any device wins and a stored value
+  // (a Telegram user's 'generic' included) is never touched.
+  async function floorDetailedDeliveryPref() {
+    if (findSingleton(await records.list(DELIVERYPREF_RECORD_TYPE), DELIVERYPREF_RECORD_ID)) return;
+    await records.putIfAbsent(DELIVERYPREF_RECORD_TYPE, {
+      recordId: DELIVERYPREF_RECORD_ID, clientTs: 0, deleted: false, delivery: 'webpush', verbosity: 'detailed',
+    });
+  }
+
   // buildHorizon returns [] when reminders are disabled — the caller uploads
   // that empty med portion via a replace-all pushSchedule, per the plan's
   // "disabled -> upload empty med portion" rule.
@@ -912,6 +925,6 @@ export function createRemindersDomain({ records, now }) {
   return {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
-    getDeliveryPref, setDeliveryPref, buildHorizon,
+    getDeliveryPref, setDeliveryPref, floorDetailedDeliveryPref, buildHorizon,
   };
 }

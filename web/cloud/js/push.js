@@ -368,7 +368,8 @@ export function pushSchedule(ctx, reminders, pref = {}) {
 }
 
 // pushScheduleInner uploads the reminder horizon to the blind relay. pref picks
-// the delivery channel and, for Telegram, how much the message says — a Telegram
+// the delivery channel and how much each message says (the lock screen and
+// Telegram alike, med-5vy0) — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
 // Mirrors maxScheduleTGMedIDsLen in internal/cloudserver/push.go: a list the
@@ -394,8 +395,10 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
       // ciphertext — never on tg_text, which reaches the relay in plaintext.
       // `url` (the tap target, med-9d1a) is sealed here too, so the relay never
       // sees which meds or section a reminder points at. An older SW picks only
-      // title/body/kind and ignores it.
-      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.pushText || r.text, kind: r.kind, url: reminderDeeplink(r) }));
+      // title/body/kind and ignores it. The body follows the lock-screen pref
+      // like tg_text below (med-5vy0): 'generic' shows only "Medication time".
+      const body = verbosity === 'generic' ? (r.genericText || r.text) : (r.pushText || r.text);
+      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body, kind: r.kind, url: reminderDeeplink(r) }));
       entry.ct = toBase64(await encryptPushPayload(nk, plaintext));
     }
     if (needsText) {

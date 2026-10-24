@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pushSchedule } from '../push.js';
-import { recomputeAndPush, localNotificationItems, scheduleReminderRecompute, cancelReminderRecompute } from '../reminders.js';
+import { recomputeAndPush, localNotificationItems, scheduleReminderRecompute, cancelReminderRecompute, remindersDomain } from '../reminders.js';
 
 vi.mock('../push.js', () => ({ pushSchedule: vi.fn(async () => {}), sendTestPush: vi.fn() }));
 
@@ -120,6 +120,91 @@ describe('recomputeAndPush hands the horizon to LocalNotifications in the iOS ap
     await recomputeAndPush(ctx, { records: fakeRecords(seed('telegram', 'detailed')), timeZone: 'UTC', relay: false });
     expect(schedule.mock.calls[1][0].find((i) => i.section === 'meds').body).toContain('Time to take: A');
     expect(pushSchedule).not.toHaveBeenCalled();
+  });
+});
+
+// med-5vy0 — account mode honours the lock-screen pref on the shell rows and
+// hands it to the relay upload (push.weigh-in.test.js pins the sealed body).
+// An account with medications and no stored pref is floored to Detailed:
+// putIfAbsent at clientTs 0, so any real choice wins and a stored value stays.
+describe('account mode: lock-screen pref, floored Detailed default', () => {
+  const ctx = { accountId: 'acct-pref' };
+  const MED = { recordId: 2, deleted: false, name: 'A', dosage: '10mg', schedule: '{"type":"daily","times":["09:00","21:00"]}' };
+
+  // Stores writes; putIfAbsent mirrors sync.js recordsPort (raw slot decides).
+  function storingRecords(seedRows = {}) {
+    const store = JSON.parse(JSON.stringify(seedRows));
+    const put = async (type, record) => {
+      store[type] = (store[type] || []).filter((r) => r.recordId !== record.recordId).concat([{ ...record }]);
+      return record;
+    };
+    return {
+      store,
+      list: async (type) => (store[type] || []).filter((r) => !r.deleted).map((r) => ({ ...r })),
+      listRaw: async (type) => (store[type] || []).map((r) => ({ ...r })),
+      put,
+      putIfAbsent: async (type, record) => (store[type] || []).find((r) => r.recordId === record.recordId) || put(type, record),
+      del: async () => {},
+      listRange: async () => [],
+    };
+  }
+  const medBodies = (schedule, call = 0) => schedule.mock.calls[call][0].filter((i) => i.section === 'meds').map((i) => i.body);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_MS);
+    pushSchedule.mockReset();
+    pushSchedule.mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete globalThis.LocalNotifications;
+    vi.restoreAllMocks();
+  });
+
+  it('stored generic: shell rows say "Medication time" and the upload gets generic; detailed names the med', async () => {
+    const schedule = vi.fn(async () => 0);
+    globalThis.LocalNotifications = { isSupported: () => true, schedule };
+    const generic = storingRecords(seed('webpush', 'generic'));
+    await recomputeAndPush(ctx, { records: generic, timeZone: 'UTC' });
+    expect(medBodies(schedule).length).toBeGreaterThan(0);
+    for (const b of medBodies(schedule)) expect(b).toBe('\u{1F48A} Medication time');
+    expect(pushSchedule.mock.calls[0][2]).toEqual({ delivery: 'webpush', verbosity: 'generic' });
+    // A stored generic is never rewritten by the floor.
+    expect(generic.store.reminderdeliverypref).toEqual(seed('webpush', 'generic').reminderdeliverypref);
+
+    await recomputeAndPush(ctx, { records: storingRecords(seed('webpush', 'detailed')), timeZone: 'UTC' });
+    for (const b of medBodies(schedule, 1)) expect(b).toContain('Time to take: A');
+    expect(pushSchedule.mock.calls[1][2]).toEqual({ delivery: 'webpush', verbosity: 'detailed' });
+  });
+
+  it('meds and no stored pref: floored Detailed record; a later explicit choice wins and stays', async () => {
+    const schedule = vi.fn(async () => 0);
+    globalThis.LocalNotifications = { isSupported: () => true, schedule };
+    const records = storingRecords({ medication: [MED] });
+    await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
+    expect(records.store.reminderdeliverypref).toEqual([
+      { recordId: 'reminderdeliverypref', clientTs: 0, deleted: false, delivery: 'webpush', verbosity: 'detailed' },
+    ]);
+    for (const b of medBodies(schedule)) expect(b).toContain('Time to take: A');
+    expect(pushSchedule.mock.calls[0][2]).toEqual({ delivery: 'webpush', verbosity: 'detailed' });
+
+    await remindersDomain(ctx, { records }).setDeliveryPref({ verbosity: 'generic' });
+    await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
+    const [rec] = records.store.reminderdeliverypref;
+    expect(rec.verbosity).toBe('generic');
+    expect(rec.clientTs).toBeGreaterThan(0);
+    for (const b of medBodies(schedule, 1)) expect(b).toBe('\u{1F48A} Medication time');
+  });
+
+  it('no medications, or local mode: nothing is floored', async () => {
+    const empty = storingRecords({});
+    await recomputeAndPush(ctx, { records: empty, timeZone: 'UTC' });
+    expect(empty.store.reminderdeliverypref).toBeUndefined();
+
+    const local = storingRecords({ medication: [MED] });
+    await recomputeAndPush(ctx, { records: local, timeZone: 'UTC', relay: false });
+    expect(local.store.reminderdeliverypref).toBeUndefined();
   });
 });
 
