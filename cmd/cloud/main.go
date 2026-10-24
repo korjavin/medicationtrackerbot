@@ -366,6 +366,7 @@ func main() {
 	router.SetAppleAppSiteAssociation(os.Getenv("IOS_TEAM_ID"), os.Getenv("IOS_BUNDLE_ID"))
 	router.SetAndroidAssetLinks(os.Getenv("ANDROID_PACKAGE"), os.Getenv("ANDROID_CERT_SHA256S"))
 	router.SetInviteStoreIDs(os.Getenv("IOS_APP_STORE_ID"), os.Getenv("ANDROID_PACKAGE"))
+	router.SetHandoffAppLinks(os.Getenv("HANDOFF_APP_LINKS") == "1")
 	// Android shell WebAuthn origins (android:apk-key-hash:…, bd med-nt9p.14);
 	// unset env = https origin only, as before.
 	webauthnAPI.SetAndroidAppOrigins(os.Getenv("ANDROID_CERT_SHA256S"))

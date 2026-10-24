@@ -65,10 +65,17 @@
             <!-- Meds sub-tabs: kit .wg-seg (med-xso6.10); `.med-tabs`/`.med-tab`
                  are the TabController hooks, aria-pressed is the selection. -->
             <div class="wg-seg wg-subnav med-tabs" id="med-subtabs" role="group" aria-label="Meds view">
-                <button type="button" class="wg-seg__opt med-tab active" data-tab="history" aria-pressed="true">History</button>
+                <button type="button" class="wg-seg__opt med-tab active" data-tab="timeline" aria-pressed="true">Timeline</button>
                 <button type="button" class="wg-seg__opt med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
-                <button type="button" class="wg-seg__opt med-tab" data-tab="upcoming" aria-pressed="false">Upcoming</button>
                 <button type="button" class="wg-seg__opt med-tab" data-tab="inventory" aria-pressed="false">Stock</button>
+            </div>
+
+            <!-- Timeline sub-tab (kit v2 MT1, bd med-wi09.3): Tomorrow, Today
+                 (Next / Pending / Done) and earlier days from GET /api/doses.
+                 Painted by renderTimeline() in features/meds.js; replaces the
+                 History and Upcoming panes. -->
+            <div id="med-timeline-tab" class="med-tab-content active">
+                <div id="med-timeline-list" class="wg-timeline"></div>
             </div>
 
             <div id="med-schedule-tab" class="med-tab-content">
@@ -81,52 +88,6 @@
                      directly under the sub-tab strip. -->
                 <div id="med-list">
                     <!-- Meds injected here -->
-                </div>
-            </div>
-
-            <div id="med-history-tab" class="med-tab-content active">
-                <!-- Stale-data chip (Task 6 of local-first read resilience).
-                     Mounted by loadHistory() from the active history cache key
-                     (history_<days>_<medId>); hidden until populated. -->
-                <!-- Round-2 Task 8 (#11a): "Next scheduled intake" pane is the
-                     first block on History — the most actionable info. Filters
-                     and the list follow below. `renderNextIntakeTrigger` owns
-                     the card markup; the container is empty until data lands. -->
-                <div id="next-intake-trigger" class="wg-meds-next-intake-trigger"></div>
-                <!-- Intake history filter strip (Phase 5, Task 5). Two select
-                     wraps styled as `.wg-gloss--inset` — the medication filter
-                     keeps its `history-filter-med` id (populateMedFilter fills
-                     options; the bound change-handler wires refresh). The
-                     legacy `.filters` class is retained so the existing
-                     jsdom characterization test that dispatches a change on
-                     `#history-filter-days` still finds the row. -->
-                <div class="wg-meds-filters filters">
-                    <label class="wg-gloss--inset wg-meds-filters__field">
-                        <span class="wg-meds-filters__label">Medication</span>
-                        <select id="history-filter-med" class="wg-meds-filters__select">
-                            <option value="0">All Medications</option>
-                        </select>
-                    </label>
-                    <label class="wg-gloss--inset wg-meds-filters__field">
-                        <span class="wg-meds-filters__label">Range</span>
-                        <select id="history-filter-days" class="wg-meds-filters__select">
-                            <option value="1">Last 24 Hours</option>
-                            <option value="3" selected>Last 3 Days</option>
-                            <option value="7">Last 7 Days</option>
-                        </select>
-                    </label>
-                </div>
-                <div id="history-list" class="wg-meds-history"></div>
-            </div>
-
-            <!-- Upcoming sub-tab (bd med-4oxj): the 7-day plan-aware forecast,
-                 promoted out of the Schedule list into its own pill. The id
-                 must stay `med-upcoming-tab` — switchMedTab() derives the
-                 content id as `med-<tab>-tab`. Painted by
-                 renderUpcomingDoses() in features/meds.js. -->
-            <div id="med-upcoming-tab" class="med-tab-content">
-                <div id="med-upcoming-list">
-                    <!-- Forecast injected here -->
                 </div>
             </div>
 
@@ -2663,7 +2624,7 @@
 
     <!-- Take sheet (kit M2, med-xso6.19): confirm / edit / log_past modes,
          opened from push, Today's Take, the Schedule bucket "Take N" and
-         History rows. features/meds.js showMedicationConfirmModal fills it;
+         timeline rows. features/meds.js showMedicationConfirmModal fills it;
          the hidden datetime input is the picker the "Time taken" row opens. -->
     <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-sheet wg-med-confirm-modal">
         <div class="wg-sheet__grab"></div>
@@ -2678,6 +2639,15 @@
         </header>
         <div class="wg-sheet__body wg-med-confirm-modal__body">
             <div id="med-confirm-list" class="wg-choices"></div>
+            <!-- Edit mode only (MT3): the state the checked doses get. -->
+            <div id="med-confirm-state" class="wg-field hidden">
+                <span class="wg-label">This dose was</span>
+                <div class="wg-seg">
+                    <button type="button" class="wg-seg__opt" data-dose-state="taken" aria-pressed="true">Taken</button>
+                    <button type="button" class="wg-seg__opt" data-dose-state="skipped" aria-pressed="false">Skipped</button>
+                    <button type="button" class="wg-seg__opt" data-dose-state="pending" aria-pressed="false">Not taken</button>
+                </div>
+            </div>
             <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time">
                 <button type="button" id="med-confirm-time-btn" class="wg-setting wg-setting--boxed">
                     <span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span>

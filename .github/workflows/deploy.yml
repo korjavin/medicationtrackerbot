@@ -4,19 +4,24 @@ on:
   push:
     branches:
       - master
-    paths-ignore:
-      - '**/*_test.go'
-      - '**/testdata/**'
-      - 'web/static/js/tests/**'
-      - 'docs/**'
-      - '**/*.md'
+    # paths, not paths-ignore: GitHub only honors a trailing re-include
+    # (the embedded privacy policy, bd med-9u3s) under `paths`.
+    paths:
+      - '**'
+      - '!**/*_test.go'
+      - '!**/testdata/**'
+      - '!web/static/js/tests/**'
+      - '!docs/**'
+      - '!**/*.md'
       # iOS-only merges must not redeploy production (bd med-w6gx.9).
-      - 'ios/**'
-      - '.github/workflows/ios.yml'
+      - '!ios/**'
+      - '!.github/workflows/ios.yml'
       # Android-only merges must not redeploy production (bd med-nt9p.3).
-      - 'android/**'
-      - '.github/workflows/android.yml'
-      - '.github/workflows/android-qa.yml' # QA harness (bd med-nt9p.23)
+      - '!android/**'
+      - '!.github/workflows/android.yml'
+      - '!.github/workflows/android-qa.yml' # QA harness (bd med-nt9p.23)
+      # Runtime content: embedded and served at /privacy (bd med-9u3s).
+      - 'docs/privacy-policy.md'
   pull_request:
     branches:
       - master
@@ -24,6 +29,7 @@ on:
       - '**/*.go'
       - 'go.mod'
       - 'go.sum'
+      - 'docs/privacy-policy.md'
       - 'Dockerfile'
       - 'entrypoint.sh'
       - 'web/**'

@@ -302,12 +302,11 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
 
   // Feature modules extracted from app.js (meds, food, bp, weight, health).
   evalFileCached(window, MEDS_JS);
-  // meds-history.js owns the medication add modal + form helpers, the Meds →
-  // History load + next-intake card, and the medication-confirm modal flow
-  // (Plan 2026-06-10 finish-app-js-split, Task 1). Loaded right after meds.js
-  // because the two cross-reference each other's globals at call time
-  // (meds.js → loadHistory / optimistic helpers; meds-history.js →
-  // renderHistory / showMedicationConfirmModal).
+  // meds-history.js owns the medication add modal + form helpers and the
+  // medication-confirm modal flow (Plan 2026-06-10 finish-app-js-split,
+  // Task 1). Loaded right after meds.js because the two cross-reference each
+  // other's globals at call time (meds-history.js → loadTimeline /
+  // showMedicationConfirmModal).
   evalFileCached(window, MEDS_HISTORY_JS);
   // tz-plan-banner.js owns window.TZPlanBanner (Today's timezone-transition
   // plan card, C2b). Only needs window.apiCall / window.reloadCurrentTab at

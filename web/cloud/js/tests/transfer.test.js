@@ -240,7 +240,9 @@ describe('Add a device — AD2 waiting: QR, link, typed code', () => {
     expect(tk).toHaveLength(16);
     expect(slot).toBe(await transferSlotId(tk));
     expect(create.body.slot_id).toBe(slot);
-    expect(qrData.startsWith('https://acct.example.test/claim#')).toBe(true);
+    // The base-domain hand-off (med-r1j2.4), and the typed code's hint names it.
+    expect(qrData.startsWith('https://example.test/d/acct#')).toBe(true);
+    expect(app.querySelector('#transfer-claim-host').textContent).toBe('example.test/d/acct');
   });
 
   it('shows the typed code as 28 letters in 3-letter groups, decoding to the same TK', async () => {

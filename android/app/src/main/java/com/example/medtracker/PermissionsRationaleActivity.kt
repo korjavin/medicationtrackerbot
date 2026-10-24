@@ -41,6 +41,6 @@ class PermissionsRationaleActivity : Activity() {
 
     companion object {
         /** docs/privacy-policy.md, as ios/App/App.swift links it. */
-        const val PRIVACY_POLICY = "https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md"
+        const val PRIVACY_POLICY = "https://cloud.myhealthbot.ai/privacy"
     }
 }

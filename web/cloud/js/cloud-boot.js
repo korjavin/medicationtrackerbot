@@ -173,6 +173,23 @@ async function pickUpMovedVault(win) {
     });
 }
 
+// AD9 "Join and erase", account side (bd med-r1j2.4). The local page asked
+// local.leave {url, erase: true} and erased nothing. Only here — the joined
+// account booted unlocked, so this device enrolled (or opened it with its own
+// passkey) — is the shell told to finish: local.erase wipes the local vault
+// (the Settings → Erase data on this device effects) if, and only if, it
+// still holds that join's erase for this host; otherwise a no-op. A cancel,
+// an expired code, a 409/410, another account or a crash never reach this
+// boot. Inert on the web and on shells whose shell.ops lacks local.erase.
+async function finishJoinErase(win) {
+    const doc = win.document;
+    if (doc && doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
+    const native = win.LocalNotifications && win.LocalNotifications.__native;
+    if (!native || (native.platform !== 'ios' && native.platform !== 'android') || typeof win.nativeHas !== 'function') return;
+    if ((await withinMs(win.nativeHas('local.erase').catch(() => false), MOVE_PROBE_MS)) !== true) return;
+    await withinMs(native.call('local.erase').catch(() => null), MOVE_PROBE_MS);
+}
+
 function installReminderActionHandler(shimCall) {
     const allowed = new Set(Object.values(REMINDER_ACTION_ROUTES));
     const apply = (route) => {
@@ -508,6 +525,7 @@ window.MedTrackerCloudReady = (async function boot() {
         // runs alongside it exactly as a Settings → Restore would. A no-op on
         // the web.
         pickUpMovedVault(window).catch((e) => console.error('[cloud-boot] move pickup failed', e));
+        finishJoinErase(window).catch((e) => console.error('[cloud-boot] join erase failed', e));
         // med-deq.2: the sync-status re-auth affordance lives in the unlock
         // shell, but a device with a warm LDK cache never sees that shell
         // (/unlock redirects straight back to /), so the real app must surface
