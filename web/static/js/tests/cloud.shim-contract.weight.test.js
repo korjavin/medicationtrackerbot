@@ -381,15 +381,16 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             await submitWeightLog(window, document, { daysAgo: 3, weight: 90 });
             await submitWeightLog(window, document, { daysAgo: 1, weight: 82.4 });
 
+            // latest_kg is reported without a height: the Settings field's live hint.
             expect(await getBmi(window)).toEqual({
-                height_cm: null, bmi: null, band: null, borders_kg: null, ...DEFAULT_BODY, ed_safe: false, nudge: true,
+                height_cm: null, latest_kg: 82.4, bmi: null, band: null, borders_kg: null, ...DEFAULT_BODY, ed_safe: false, nudge: true,
             });
 
             expect(await patchBody(window, { height_cm: 180 })).toEqual({
                 height_cm: 180, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false,
             });
             expect(await getBmi(window)).toEqual({
-                height_cm: 180, bmi: 25.4, band: 'overweight', borders_kg: [59.9, 81.0, 97.2, 113.4, 129.6],
+                height_cm: 180, latest_kg: 82.4, bmi: 25.4, band: 'overweight', borders_kg: [59.9, 81.0, 97.2, 113.4, 129.6],
                 ...DEFAULT_BODY, ed_safe: false, nudge: false,
             });
 
@@ -400,6 +401,15 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             expect((await getBmi(window)).height_cm).toBeNull();
             const general = (await env.records.list('settings')).find((r) => r.recordId === 'settings');
             expect(general).not.toHaveProperty('height_cm');
+        });
+
+        it('latest_kg is the newest log by measured_at, and null with no log', async () => {
+            const { window, document } = env;
+            await patchBody(window, { height_cm: 180 });
+            expect(await getBmi(window)).toMatchObject({ latest_kg: null, bmi: null });
+            await submitWeightLog(window, document, { daysAgo: 1, weight: 80 });
+            await submitWeightLog(window, document, { daysAgo: 5, weight: 95 });
+            expect(await getBmi(window)).toMatchObject({ latest_kg: 80, bmi: 24.7 });
         });
 
         it('a partial patch touches only the fields sent; show_bmi=false still reports bmi', async () => {
@@ -462,7 +472,7 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             await window.apiCall('/api/gamification/mode', 'PUT', { ed_safe: true });
             await window.apiCall('/api/settings/features/gamification', 'POST', { enabled: false });
             expect(await getBmi(window)).toEqual({
-                height_cm: null, bmi: null, band: null, borders_kg: null, ...DEFAULT_BODY, ed_safe: true, nudge: false,
+                height_cm: null, latest_kg: null, bmi: null, band: null, borders_kg: null, ...DEFAULT_BODY, ed_safe: true, nudge: false,
             });
             const summary = await window.apiCall('/api/weight/goal');
             for (const k of ['height_cm', 'bmi', 'bmi_band']) expect(summary).not.toHaveProperty(k);

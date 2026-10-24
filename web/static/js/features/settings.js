@@ -1443,6 +1443,7 @@ function openSettingsPage(name) {
     });
     _openSettingsPages.set(name, page);
     if (name === 'devices') mountCloudDevices();
+    if (name === 'units') refreshBmiHint();
     return page;
 }
 
@@ -1947,6 +1948,44 @@ function paintBodySettings(body) {
     const toggle = document.getElementById('settings-show-bmi-toggle');
     if (toggle) toggle.checked = _body.show_bmi !== false;
     setSettingsSummary('body', `Height · ${formatHeight(_body.height_cm ?? null, unit)}`);
+    paintBmiHint();
+}
+
+// Live BMI hint under the height field (BM2): the typed height against the
+// latest log. GET /api/weight/bmi nulls latest_kg under ED-safe and has none
+// without a log; the formula is the domain's bmi() (web/domain/weight.js).
+let _bmiFacts = null; // module-state: last GET /api/weight/bmi payload
+let _weightDomain = null; // module-state: web/domain/weight.js once imported
+// Test seam (as loadPrivacyModule): tests swap in the module by path.
+function loadWeightDomain() { return import('/domain/weight.js'); }
+
+async function refreshBmiHint() {
+    try {
+        const [facts, domain] = await Promise.all([
+            apiCall('/api/weight/bmi', 'GET'),
+            _weightDomain || loadWeightDomain(),
+        ]);
+        _bmiFacts = facts || null;
+        _weightDomain = domain;
+    } catch (_) {
+        _bmiFacts = null; // no hint is the safe failure
+    }
+    paintBmiHint();
+}
+
+function paintBmiHint() {
+    const hint = document.getElementById('settings-height-bmi-hint');
+    if (!hint) return;
+    const kg = _bmiFacts && !_bmiFacts.ed_safe && Number.isFinite(_bmiFacts.latest_kg) ? _bmiFacts.latest_kg : null;
+    const typed = kg === null || _body.show_bmi === false || !_weightDomain ? null : readHeightInput();
+    const value = typed && !typed.error && typed.cm !== null ? _weightDomain.bmi(kg, typed.cm) : null;
+    hint.classList.toggle('wg-settings-hidden', value === null);
+    if (value === null) {
+        hint.textContent = '';
+        return;
+    }
+    const w = formatWeight(kg, window.weightUnitPreference);
+    hint.textContent = `BMI ${value.toFixed(1)} at your latest weight, ${w.value.toFixed(1)} ${w.label}.`;
 }
 
 // The typed height → { cm } (null when cleared) or { error }.
@@ -2056,7 +2095,10 @@ function openHeightField() {
         _heightDirty = false;
         saveBodySettings({ height_unit: unit });
     });
-    const markDirty = () => { _heightDirty = true; };
+    const markDirty = () => {
+        _heightDirty = true;
+        paintBmiHint();
+    };
     const cmInput = document.getElementById('settings-height-input');
     cmInput?.addEventListener('input', markDirty);
     cmInput?.addEventListener('change', commitHeight);

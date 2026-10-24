@@ -2999,7 +2999,9 @@ body:has(.wg-callbar--dock) .wg-toasts {
     border-top: 1px solid var(--wg-line);
 }
 
-.wg-weight-bmi-nudge__go {
+/* .wg-btn doubled: components.css loads after this file and its
+   .wg-btn{justify-content:center} would win a tie (start-aligned per BM1). */
+.wg-btn.wg-weight-bmi-nudge__go {
     flex: 1;
     justify-content: flex-start;
 }

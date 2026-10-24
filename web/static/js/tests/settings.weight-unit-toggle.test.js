@@ -498,10 +498,71 @@ describe('Settings Units & body height field (med-a6fb.4)', () => {
         input.dispatchEvent(new env.window.Event('change', { bubbles: true }));
     }
 
+    let bmiFacts;
     beforeEach(() => {
         env = loadFrontendEnv();
-        env.window.apiCall = vi.fn(async (url, method, body) => (method === 'PATCH' ? { ...body } : { ok: true }));
+        bmiFacts = { latest_kg: 77, ed_safe: false };
+        env.window.apiCall = vi.fn(async (url, method, body) => {
+            if (url === '/api/weight/bmi') return bmiFacts;
+            return method === 'PATCH' ? { ...body } : { ok: true };
+        });
+        env.window.loadWeightDomain = () => import('../../../domain/weight.js');
         env.window.reloadCurrentTab = vi.fn();
+    });
+
+    const hint = () => env.document.getElementById('settings-height-bmi-hint');
+    const hintShown = () => !hint().classList.contains('wg-settings-hidden');
+    function liveType(value) {
+        const input = env.document.getElementById('settings-height-input');
+        input.value = value;
+        input.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    }
+    async function openUnits() {
+        await import('../../../domain/weight.js'); // warm, so the page's import resolves at once
+        env.window.SettingsView.openSettingsPage('units');
+        await vi.waitFor(() => expect(env.window.apiCall.mock.calls.some((c) => c[0] === '/api/weight/bmi')).toBe(true));
+        await new Promise((r) => setTimeout(r, 10));
+    }
+
+    it('the live BMI hint shows for a typed height with a weight log and follows the typing', async () => {
+        await openUnits();
+        expect(hintShown()).toBe(false); // no height yet
+        liveType('178');
+        expect(hint().textContent).toBe('BMI 24.3 at your latest weight, 77.0 kg.');
+        expect(hintShown()).toBe(true);
+        liveType('180');
+        expect(hint().textContent).toBe('BMI 23.8 at your latest weight, 77.0 kg.');
+        liveType('90');
+        expect(hintShown()).toBe(false); // invalid height
+    });
+
+    it('the hint gives the latest weight in lb when the weight unit is lb', async () => {
+        env.window.weightUnitPreference = 'lb';
+        await openUnits();
+        liveType('178');
+        expect(hint().textContent).toBe('BMI 24.3 at your latest weight, 169.8 lb.');
+    });
+
+    for (const [label, facts] of [
+        ['under ED-safe', { latest_kg: null, ed_safe: true }],
+        ['with no weight log', { latest_kg: null, ed_safe: false }],
+    ]) {
+        it(`the hint stays hidden ${label}`, async () => {
+            bmiFacts = facts;
+            await openUnits();
+            liveType('178');
+            expect(hintShown()).toBe(false);
+        });
+    }
+
+    it('the hint hides when Show BMI on Weight is off', async () => {
+        await openUnits();
+        liveType('178');
+        expect(hintShown()).toBe(true);
+        const toggle = env.document.getElementById('settings-show-bmi-toggle');
+        toggle.checked = false;
+        toggle.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+        expect(hintShown()).toBe(false);
     });
 
     afterEach(() => {
