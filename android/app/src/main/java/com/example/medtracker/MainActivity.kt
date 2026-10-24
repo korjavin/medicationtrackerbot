@@ -438,14 +438,16 @@ class MainActivity : Activity() {
      * X-Account-Gone, account.leave without args — lands in local mode on
      * home?invite=1, where the web opens F1 (bd med-ta2n.12, contract med-ta2n.7 §7; it replaced the
      * native first run). With [thenLocal] (account.leave {then: "local"}, bd med-nt9p.32.13) the
-     * plain home, and leave.clear {back: true} can reopen the account left. Entering local mode
+     * plain home, and leave.clear {back: true} can reopen the account left — unless [drop]
+     * (account.leave {then: "local", forget: true}, bd med-r1j2.19, iOS twin med-r1j2.18): the plain
+     * home with the account forgotten, no "Return to account". Entering local mode
      * drops a pending move stash (setLocal), from local mode too (bd med-nt9p.49): only the page's
      * own local.leave hands one off. WebView data is per origin and kept.
      */
-    private fun forget(thenLocal: Boolean = false) {
+    private fun forget(thenLocal: Boolean = false, drop: Boolean = false) {
         // The account a leave left (bd med-o7zq.42): leave.clear {back: true} reopens it.
         val left = host
-        prefs.edit().apply { if (thenLocal && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
+        prefs.edit().apply { if (thenLocal && !drop && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
         setLocal(true)
         Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
@@ -802,9 +804,12 @@ class MainActivity : Activity() {
             // Leave the account (account mode only); the account and this origin's data stay. Settings
             // → Account "Use this phone without an account" passes {then: "local"} → local mode; after
             // an account delete (no args) → local mode with F1, as Switch account (forget()).
+            // {then: "local", forget: true} (bd med-r1j2.19): local mode, no F1, no way back.
             "account.leave" -> {
                 answer(true)
-                forget(thenLocal = msg.optJSONObject("args")?.optString("then") == "local")
+                val args = msg.optJSONObject("args")
+                val thenLocal = args?.optString("then") == "local"
+                forget(thenLocal, drop = thenLocal && args?.optBoolean("forget") == true)
             }
             "chrome" -> {
                 val args = msg.optJSONObject("args") ?: return
@@ -919,6 +924,12 @@ class MainActivity : Activity() {
                 answer(true)
                 reopen(Invite.withInvite(home))
             }
+            // The camera-denied "Allow camera in Settings" (bd med-r1j2.19, media-capture.js openSettings):
+            // this app's page in system Settings. Replies once launched, not on return. No NEW_TASK:
+            // from the activity it stacks on our task, so Back returns to the app (a new task did not).
+            "app.openSettings" -> runCatching {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+            }.fold({ answer(true) }, { answer(null, "no settings screen") })
             // Settings → App lock (local-policy.js mountLocalLockRow); available: the phone has a screen lock.
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))
             "lock.set" -> setLock(msg.optJSONObject("args")?.optBoolean("on") == true) { answer(it == null) }

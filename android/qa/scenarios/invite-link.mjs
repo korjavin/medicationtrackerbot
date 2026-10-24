@@ -5,6 +5,8 @@
 // opens → cold local launch → invite.pending → warm local → home?invite=1 → local.leave {url}
 // (invalid urls refused, the move stash kept, the slot consumed) → warm account → home?invite=1 →
 // account.leave {url} (the move stash dropped) → local.reset clears the slot.
+// Then (bd med-r1j2.19) app.openSettings → system Settings, /claim#scan gets the camera, and
+// account.leave {then: local, forget: true} → plain local home, no way back.
 // Opens the run's invite but never claims it: in `all`, retryable. results.inviteLink has the checks.
 
 /** A raw bridge round trip (window.wgNative, any page of the open vault, /unlock included). */
@@ -95,7 +97,8 @@ export default async function inviteLink(ctx) {
     await expectSlot(p, 'after the first launch');
     await clear(p);
     const ops = await call(p, 'shell.ops');
-    expect(ops.ok && ['invite.pending', 'invite.clear', 'clipboard.read'].every((o) => ops.result.includes(o)), `shell.ops ${JSON.stringify(ops)}`);
+    expect(ops.ok && ['invite.pending', 'invite.clear', 'clipboard.read', 'app.openSettings'].every((o) => ops.result.includes(o)), `shell.ops ${JSON.stringify(ops)}`);
+    expect(!ops.result.includes('account.leave.forget'), `local lists account.leave.forget: ${ops.result}`);
     const clip = await call(p, 'clipboard.read');
     expect(clip.ok && (clip.result === null || typeof clip.result === 'string'), `clipboard.read: ${JSON.stringify(clip)}`);
     return p;
@@ -297,7 +300,7 @@ export default async function inviteLink(ctx) {
     return p;
   });
 
-  await ctx.step('local.erase on the joined account: the local origin wiped, the account origin kept, the flag spent', async () => {
+  page = await ctx.step('local.erase on the joined account: the local origin wiped, the account origin kept, the flag spent', async () => {
     await page.evaluate(() => localStorage.setItem('qa-account-marker', '1'));
     const res = await call(page, 'local.erase', { enrolled: true });
     expect(res.ok && res.result === true, `local.erase: ${JSON.stringify(res)}`);
@@ -327,6 +330,61 @@ export default async function inviteLink(ctx) {
     const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
     expect(!/wgJoinErase/.test(xml), `erase flag not spent: ${xml}`);
     r.handoff = true;
+    return a;
+  });
+
+  // bd med-r1j2.19: the camera-denied "Allow camera in Settings" op, in account mode (local listed above).
+  await ctx.step('account: app.openSettings is listed and opens this app in system Settings', async () => {
+    const ops = await call(page, 'shell.ops');
+    expect(ops.ok && ops.result.includes('app.openSettings') && ops.result.includes('account.leave.forget'), `shell.ops ${JSON.stringify(ops)}`);
+    const marker = await call(page, 'account.leave.forget');
+    expect(!marker.ok && marker.error === 'unsupported: account.leave.forget', `marker: ${JSON.stringify(marker)}`);
+    const res = await call(page, 'app.openSettings');
+    expect(res.ok && res.result === true, `app.openSettings: ${JSON.stringify(res)}`);
+    let resumed = '';
+    for (let i = 0; i < 10 && !resumed.includes('com.android.settings/'); i++, await sleep(1000)) {
+      resumed = (await shell('dumpsys activity activities')).split('\n').find((l) => /ResumedActivity/.test(l)) || '';
+    }
+    expect(resumed.includes('com.android.settings/'), `resumed: ${resumed.trim()}`);
+    await ctx.shot('app-settings');
+    await shell('input keyevent KEYCODE_BACK');
+    for (let i = 0; i < 10 && !(await ctx.inForeground()); i++) await sleep(1000);
+    expect(await ctx.inForeground(), 'Back did not return to the app');
+    r.openSettings = true;
+  });
+
+  // /claim#scan on the account host gets the camera (Files.kt onPermissionRequest). The emulator has a
+  // camera only when the workflow starts it with -camera-back emulated (invite-link, local-spike).
+  page = await ctx.step('account: /claim#scan gets the camera', async () => {
+    await shell(`pm grant ${pkg} android.permission.CAMERA`);
+    const p = (await ctx.attachPage()) || page;
+    await p.goto(`https://${claim.host}/claim#scan`, { waitUntil: 'load', timeout: 30_000 });
+    const cams = await p.evaluate(async () => (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput').length);
+    if (!cams) { r.camera = 'skipped: no emulator camera in this run'; return p; }
+    await p.waitForFunction(() => {
+      const v = document.getElementById('claim-scan-video');
+      return !!v && v.readyState >= 2 && !!v.srcObject && v.srcObject.getVideoTracks().some((t) => t.readyState === 'live');
+    }, null, { timeout: 30_000 });
+    await ctx.shot('claim-scan-camera');
+    r.camera = true;
+    return p;
+  });
+
+  // account.leave {then: local, forget: true} (bd med-r1j2.19, iOS twin med-r1j2.18): a plain local
+  // Today, no invite sheet, the account forgotten — no leaveHost, so no "Return to account".
+  await ctx.step('account.leave {then: local, forget: true}: plain local home, no F1, no way back', async () => {
+    await call(page, 'account.leave', { then: 'local', forget: true });
+    const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    await ctx.waitLocalReady(p);
+    expect(!/invite=1/.test(p.url()), `reopened with invite=1: ${p.url()}`);
+    await sleep(3000);
+    expect((await p.locator('[data-invite-action="paste"]').count()) === 0, 'the F1 invite sheet is showing');
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/accountHost|leaveHost/.test(xml) && /name="wgLocalMode" value="true"/.test(xml), `prefs: ${xml}`);
+    const back = await call(p, 'leave.clear', { back: true });
+    expect(back.ok && back.result === true, `leave.clear {back}: ${JSON.stringify(back)}`);
+    await ctx.shot('leave-forget-local');
+    r.leaveForget = true;
     r.ok = true;
   });
 }
