@@ -38,10 +38,11 @@ const (
 // syncStore is the subset of *cloudstore.Repo the sync (oplog) endpoints
 // need.
 type syncStore interface {
-	AppendOps(ctx context.Context, accountID string, ops []cloudstore.OpInput, quotaBytes int64, now time.Time) ([]int64, error)
+	AppendOps(ctx context.Context, accountID string, ops []cloudstore.OpInput, quotaBytes int64, ledgerV2 bool, now time.Time) ([]int64, error)
 	ListOps(ctx context.Context, accountID string, since int64, limit int, now time.Time) ([]cloudstore.Op, error)
 	CompactionFloor(ctx context.Context, accountID string) (int64, error)
-	PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error
+	GetLedgerCut(ctx context.Context, accountID string) (cloudstore.LedgerCut, error)
+	PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, ledgerV2 bool, now time.Time) error
 	GetSnapshot(ctx context.Context, accountID string, now time.Time) (*cloudstore.Snapshot, error)
 	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
@@ -83,6 +84,18 @@ func (a *SyncAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/sync/ops", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetOps)))
 	mux.Handle("POST /api/sync/snapshot", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostSnapshot)))
 	mux.Handle("GET /api/sync/snapshot", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetSnapshot)))
+}
+
+// ledgerV2 reports whether the writer declared the v2 dose ledger
+// (X-Ledger: 2, bd med-wi09.8/.12).
+func ledgerV2(r *http.Request) bool { return r.Header.Get("X-Ledger") == "2" }
+
+// writeUpdateRequired answers the writer gate: 426 + {error:"update_required"},
+// which the client (med-wi09.5) turns into "Update required — reload" with its
+// queued writes kept.
+func writeUpdateRequired(w http.ResponseWriter, accountID, route string) {
+	slog.Info("sync: writer gate refused pre-v2 write", "accountID", accountID, "route", route)
+	writeJSON(w, http.StatusUpgradeRequired, map[string]string{"error": "update_required"})
 }
 
 // opWire is the wire shape of one op in a POST /api/sync/ops batch.
@@ -136,8 +149,12 @@ func (a *SyncAPI) PostOps(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	assigned, err := a.store.AppendOps(r.Context(), session.AccountID, ops, a.quotaBytes, time.Now().UTC())
+	assigned, err := a.store.AppendOps(r.Context(), session.AccountID, ops, a.quotaBytes, ledgerV2(r), time.Now().UTC())
 	if err != nil {
+		if errors.Is(err, cloudstore.ErrUpdateRequired) {
+			writeUpdateRequired(w, session.AccountID, "ops")
+			return
+		}
 		if errors.Is(err, cloudstore.ErrQuotaExceeded) {
 			// The only trace this leaves. Without it an operator grepping for a
 			// user's "my entries stopped syncing" finds nothing at all: the 413
@@ -171,6 +188,10 @@ type getOpsResponse struct {
 	// a client whose cursor is below it must re-bootstrap, since the ops between
 	// its cursor and the floor have been compacted away.
 	SnapshotSeq int64 `json:"snapshot_seq"`
+	// LedgerCutSeq/LedgerCutAt are the account's dose-ledger cut (bd
+	// med-wi09.8), null until the first ledgercut op lands.
+	LedgerCutSeq *int64  `json:"ledger_cut_seq"`
+	LedgerCutAt  *string `json:"ledger_cut_at"`
 }
 
 // GetOps returns an ordered page of the caller's session account's oplog
@@ -213,6 +234,12 @@ func (a *SyncAPI) GetOps(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
+	cut, err := a.store.GetLedgerCut(r.Context(), session.AccountID)
+	if err != nil {
+		slog.Error("sync: ledger cut", "accountID", session.AccountID, "error", err)
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
 	out := make([]opListItem, len(ops))
 	for i, o := range ops {
 		out[i] = opListItem{Seq: o.Seq, RecordTypeTag: o.RecordTypeTag, Nonce: o.Nonce, CT: o.CT}
@@ -222,7 +249,7 @@ func (a *SyncAPI) GetOps(w http.ResponseWriter, r *http.Request) {
 		n := ops[len(ops)-1].Seq
 		next = &n
 	}
-	writeJSON(w, http.StatusOK, getOpsResponse{Ops: out, Next: next, SnapshotSeq: floor})
+	writeJSON(w, http.StatusOK, getOpsResponse{Ops: out, Next: next, SnapshotSeq: floor, LedgerCutSeq: cut.Seq, LedgerCutAt: cut.At})
 }
 
 type putSnapshotRequest struct {
@@ -253,8 +280,12 @@ func (a *SyncAPI) PostSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := a.store.PutSnapshot(r.Context(), session.AccountID, req.SnapshotSeq, req.Nonce, req.CT, time.Now().UTC())
+	err := a.store.PutSnapshot(r.Context(), session.AccountID, req.SnapshotSeq, req.Nonce, req.CT, ledgerV2(r), time.Now().UTC())
 	if err != nil {
+		if errors.Is(err, cloudstore.ErrUpdateRequired) {
+			writeUpdateRequired(w, session.AccountID, "snapshot")
+			return
+		}
 		if errors.Is(err, cloudstore.ErrSnapshotSeqAhead) {
 			http.Error(w, "snapshot_seq ahead of last_seq", http.StatusBadRequest)
 			return

@@ -179,6 +179,14 @@ migration; add a new one.
   page load (pulls continue, `pending` kept and exportable, no streak, no
   snapshot error) and shows "Update required — reload to keep syncing" with a
   Reload action instead of the reset hint; the reloaded build re-posts the queue.
+- **Ledger cut + writer gate** (bd `med-wi09.8`). `accounts.ledger_cut_seq/_at`
+  is set once, by the first op tagged `ledgercut:*` (its seq + server time),
+  and returned on every `GET /api/sync/ops` page. After the cut, an op batch
+  containing an `intake|medication|settings|tzplan|stock|medsched|tztransition`
+  tag, or a snapshot POST, without `X-Ledger: 2` → 426 `update_required`,
+  nothing written; pulls and everything else stay open. Inert until the
+  activation release (`med-wi09.12`) writes the first `ledgercut`. Details:
+  [cloud-mode.md → Sync protocol](cloud-mode.md#sync-protocol).
 
 ## 5. Reminders
 
