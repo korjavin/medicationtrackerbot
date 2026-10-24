@@ -17,7 +17,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const WEB_MC_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
 
-function loadEnv({ mediaDevices } = {}) {
+function loadEnv({ mediaDevices, bridge } = {}) {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
         url: 'http://app.example.test/',
         runScripts: 'outside-only',
@@ -38,6 +38,8 @@ function loadEnv({ mediaDevices } = {}) {
         const src = fs.readFileSync(file, 'utf8');
         window.eval(`${src}\n//# sourceURL=file://${file}`);
     };
+    // An iOS shell bridge (index.js reads it at load): postMessage(msg) → reply.
+    if (bridge) window.webkit = { messageHandlers: { wgNative: { postMessage: bridge } } };
     evalFile(NATIVE_INDEX_JS);
     evalFile(WEB_MC_JS);
     return { window, cleanup: () => dom.window.close() };
@@ -370,5 +372,28 @@ describe('native/web/media-capture.js — web impl', () => {
         expect(caught).toBeDefined();
         expect(caught.name).toBe('MediaCaptureError');
         expect(caught.code).toBe('PERMISSION_DENIED');
+    });
+
+    // bd med-r1j2.10 (AD13): "Allow camera in Settings".
+    it('openSettings on the web opens nothing and returns the browser hint', async () => {
+        env = loadEnv();
+        const res = await env.window.MediaCapture.openSettings();
+        expect(res.opened).toBe(false);
+        expect(res.hint).toContain('browser settings');
+    });
+
+    it('openSettings in a shell with app.openSettings calls the op', async () => {
+        const sent = [];
+        env = loadEnv({ bridge: (msg) => { sent.push(msg.op); return Promise.resolve(msg.op === 'shell.ops' ? ['shell.ops', 'app.openSettings'] : null); } });
+        expect(await env.window.MediaCapture.openSettings()).toEqual({ opened: true });
+        expect(sent).toEqual(['shell.ops', 'app.openSettings']);
+    });
+
+    it('openSettings in a shell without the op returns the platform hint', async () => {
+        const sent = [];
+        env = loadEnv({ bridge: (msg) => { sent.push(msg.op); return Promise.resolve(['shell.ops']); } });
+        const res = await env.window.MediaCapture.openSettings();
+        expect(res).toEqual({ opened: false, hint: 'Turn on Camera in iOS Settings → Med Tracker.' });
+        expect(sent).toEqual(['shell.ops']);
     });
 });

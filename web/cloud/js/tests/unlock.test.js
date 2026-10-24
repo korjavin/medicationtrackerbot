@@ -419,12 +419,17 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       let appended = [];
       const lookup = app.querySelector;
       app.querySelector = (sel) => (sel === 'section' ? { appendChild: (n) => appended.push(n) } : lookup(sel));
-      setGlobal('document', { getElementById: () => app, createElement: () => ({}) });
+      setGlobal('document', { getElementById: () => app, createElement: () => ({ addEventListener(type, fn) { this.onclick = fn; } }) });
       setGlobal('location', { hash: '', href: '' });
       await runUnlockFlow();
       await app._listeners['unlock:click']();
-      await vi.waitFor(() => expect(appended.map((n) => n.id || n.className)).toEqual(['wizard-error', 'unlock-no-passkey']));
+      // On the web: no shell, so no "Back to local mode".
+      await vi.waitFor(() => expect(appended.map((n) => n.id || n.className)).toEqual(['wizard-error', 'unlock-no-passkey', 'unlock-add-device']));
       expect(appended[1].textContent).toMatch(/^No passkey for this account on this device\? .*Settings → Devices & connectors → Add a device\.$/);
+      // bd med-r1j2.10: the sun opens /claim's in-app scanner.
+      expect(appended[2].textContent).toBe('Add this device from another device');
+      appended[2].onclick();
+      expect(globalThis.location.href).toBe('/claim#scan');
 
       appended = [];
       fail = new Error('Unlock failed. Please try again.');

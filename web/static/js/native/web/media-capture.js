@@ -229,11 +229,35 @@
             });
     }
 
+    // "Allow camera in Settings" (bd med-r1j2.10, AD13). Inside an app shell
+    // that answers app.openSettings, opens this app's page in the system
+    // Settings → { opened: true }. Everywhere else (the web, an older shell)
+    // → { opened: false, hint }: where to turn the camera on, in the
+    // platform's words. Never rejects.
+    var CAMERA_HINT = {
+        ios: 'Turn on Camera in iOS Settings → Med Tracker.',
+        android: 'Turn on Camera in Android Settings → Apps → Med Tracker → Permissions.',
+        web: 'Allow the camera for this site in your browser settings, then reload.',
+    };
+    function openSettings() {
+        var f = window.MediaCapture && window.MediaCapture.__native;
+        var platform = f && f.platform ? f.platform : 'web';
+        var miss = { opened: false, hint: CAMERA_HINT[platform] || CAMERA_HINT.web };
+        if (!f || typeof f.has !== 'function') return Promise.resolve(miss);
+        return Promise.resolve(f.has('app.openSettings'))
+            .then(function (has) {
+                if (!has) return miss;
+                return Promise.resolve(f.call('app.openSettings')).then(function () { return { opened: true }; });
+            })
+            .catch(function () { return miss; });
+    }
+
     var impl = {
         openCameraStream: openCameraStream,
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
         recordAudio: recordAudio,
+        openSettings: openSettings,
     };
 
     if (window.MediaCapture && window.MediaCapture.__native && typeof window.MediaCapture.__native.registerImpl === 'function') {

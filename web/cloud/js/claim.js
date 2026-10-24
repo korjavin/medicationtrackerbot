@@ -4,7 +4,8 @@
 //
 // Reached at /claim with `#<slot>.<base64url TK>` from the QR/link, or with
 // the typed "Code for a computer" (TK as 28 letters; the slot id is derived
-// from it). The device reads the slot's commit, claims it with an ephemeral
+// from it), or with `#scan` for the in-app scanner (AD13 when there is no
+// camera; bd med-r1j2.10). The device reads the slot's commit, claims it with an ephemeral
 // ECDH key and a MAC proving it holds TK, then waits: once the origin reveals
 // its key, the commit and MAC are checked and both screens show the same
 // 6-digit code. Only after the owner approves on the origin does a ciphertext
@@ -120,6 +121,11 @@ export async function runClaimFlow() {
     renderClaimForm(app);
     return;
   }
+  // /claim#scan: the in-app scanner (/unlock AD10 · none, the /d/ landing).
+  if (raw === 'scan') {
+    renderScanner(app);
+    return;
+  }
   let parsed;
   try {
     parsed = await parseFragment(raw);
@@ -131,12 +137,15 @@ export async function runClaimFlow() {
   else renderClaimForm(app, OLD_CODE_ERROR);
 }
 
-// One kit screen: the shell column, then the docked footer.
-function render(app, shell, buttons = []) {
+// One kit screen: an optional page bar, the shell column, then the docked
+// footer (`foot`: its class, the kit's .wg-shell__foot unless a page bar
+// makes it a .wg-pagefoot page).
+function render(app, shell, buttons = [], { bar = null, foot: footClass = 'wg-shell__foot' } = {}) {
   const screen = el('div', 'wg-app claim-page');
+  if (bar) screen.append(bar);
   screen.append(shell);
   if (buttons.length) {
-    const foot = el('footer', 'wg-shell__foot');
+    const foot = el('footer', footClass);
     foot.append(...buttons);
     screen.append(foot);
   }
@@ -154,11 +163,10 @@ function button(id, label, kind, onClick, iconName) {
   return btn;
 }
 
-// The typed "Code for a computer" (AD8 · desktop layout).
-function renderClaimForm(app, errorText) {
-  const shell = el('div', 'wg-shell wg-shell--center');
-  const mark = el('span', 'wg-mark');
-  mark.append(icon('pill'));
+// The typed "Code for a computer": its field, Continue and error line, shared
+// by the form (AD8 · desktop) and the camera-off scanner (AD13). Call sync()
+// once the nodes are in the page.
+function codeEntry(app, errorText, submitClass) {
   const field = el('div', 'wg-field');
   const label = el('label', 'wg-label', 'Code for a computer');
   label.htmlFor = 'claim-code-input';
@@ -168,20 +176,12 @@ function renderClaimForm(app, errorText) {
   input.placeholder = 'KXR QDW BMT LPA ZRE HNV CUG YSF TJO W';
   input.autocomplete = 'off';
   input.spellcheck = false;
+  input.setAttribute('autocapitalize', 'characters');
   field.append(label, input);
-  const col = el('div', 'wg-vstack');
-  const submit = button('claim-code-submit', 'Continue', 'wg-btn--primary wg-btn--lg wg-btn--block', onSubmit);
+  const submit = button('claim-code-submit', 'Continue', submitClass, onSubmit);
   // Error text is rendered as text, never HTML: this page ends up holding the DEK.
   const error = el('p', 'wg-error', errorText || '');
   error.id = 'claim-error';
-  col.append(field, submit, error, el('p', 'wg-hint', 'Works once · expires 10 minutes after it was made'));
-  shell.append(
-    mark,
-    el('h1', 'wg-shell__title wg-shell__title--md', 'Add this device to your account'),
-    el('p', 'wg-shell__lede', 'Type the code your other device shows under the QR.'),
-    col,
-  );
-  render(app, shell);
 
   // Continue waits for all 28 letters; a pasted link or an old code (has a
   // dot) is let through so it gets its own answer.
@@ -190,7 +190,6 @@ function renderClaimForm(app, errorText) {
     submit.disabled = !(v.includes('.') || v.replace(/[^a-z]/gi, '').length >= 28);
   };
   input.addEventListener('input', sync);
-  sync();
 
   async function onSubmit() {
     submit.disabled = true;
@@ -201,6 +200,202 @@ function renderClaimForm(app, errorText) {
       sync();
     }
   }
+  return { field, submit, error, sync };
+}
+
+// The typed "Code for a computer" (AD8 · desktop layout).
+function renderClaimForm(app, errorText) {
+  const shell = el('div', 'wg-shell wg-shell--center');
+  const mark = el('span', 'wg-mark');
+  mark.append(icon('pill'));
+  const code = codeEntry(app, errorText, 'wg-btn--primary wg-btn--lg wg-btn--block');
+  const col = el('div', 'wg-vstack');
+  col.append(code.field, code.submit, code.error, el('p', 'wg-hint', 'Works once · expires 10 minutes after it was made'));
+  shell.append(
+    mark,
+    el('h1', 'wg-shell__title wg-shell__title--md', 'Add this device to your account'),
+    el('p', 'wg-shell__lede', 'Type the code your other device shows under the QR.'),
+    col,
+  );
+  render(app, shell);
+  code.sync();
+}
+
+// ---- In-app Scan (bd med-r1j2.10; AD7 "Scan a new code", AD13) ------------
+// Camera and decode go through window.MediaCapture / window.Barcode, never the
+// browser APIs (CLAUDE.md rule 10). No camera, a denied one, or no live
+// decoder → AD13: the typed code, plus "Allow camera in Settings".
+
+const SCAN_MS = 200;
+const HANDOFF_RE = /^(?:https?:\/\/[^/?#]+\/d\/|medtracker:\/\/d\/)([a-z0-9-]+)#([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i;
+const CLAIM_LINK_RE = /^https?:\/\/([a-z0-9-]+)\.[^/?#]+\/claim#([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i;
+
+// A scanned QR → { sub, frag } for an add-device code (the /d/ hand-off link,
+// its medtracker:// twin, or a /claim link), else null.
+function parseScanned(raw) {
+  const text = String(raw || '').trim();
+  const m = HANDOFF_RE.exec(text) || CLAIM_LINK_RE.exec(text);
+  return m ? { sub: m[1].toLowerCase(), frag: m[2] } : null;
+}
+
+// The ZXing decoder Barcode falls back to where the platform has no native
+// one (WebKit), loaded on first use: it is too big for every ceremony page.
+let zxingLoad = null;
+function loadZxing() {
+  if (globalThis.ZXing) return Promise.resolve();
+  if (!zxingLoad) {
+    zxingLoad = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = '/static/vendor/zxing.min.js';
+      s.onload = resolve;
+      s.onerror = () => { zxingLoad = null; resolve(); };
+      document.head.append(s);
+    });
+  }
+  return zxingLoad;
+}
+
+function scanBar(onBack) {
+  const bar = el('header', 'wg-pagebar');
+  const back = el('button', 'wg-back');
+  back.type = 'button';
+  back.id = 'claim-scan-back';
+  back.append(icon('chev-l'), 'Back');
+  back.addEventListener('click', onBack);
+  const center = el('div', 'wg-pagebar__center');
+  center.append(el('div', 'wg-pagebar__title', 'Scan code'));
+  bar.append(back, center, el('span'));
+  return bar;
+}
+
+function stopTracks(stream) {
+  try {
+    stream.getTracks().forEach((t) => t.stop());
+  } catch {
+    // already stopped
+  }
+}
+
+async function renderScanner(app) {
+  const media = globalThis.MediaCapture;
+  const barcode = globalThis.Barcode;
+  const scan = { stopped: false, stream: null, timer: null };
+  const stop = () => {
+    scan.stopped = true;
+    clearTimeout(scan.timer);
+    if (scan.stream) stopTracks(scan.stream);
+    scan.stream = null;
+    globalThis.removeEventListener?.('pagehide', stop);
+  };
+  globalThis.addEventListener?.('pagehide', stop);
+
+  const shell = el('div', 'wg-shell');
+  const video = el('video', 'claim-scan-video');
+  video.id = 'claim-scan-video';
+  video.muted = true;
+  video.setAttribute('playsinline', '');
+  const status = el('p', 'wg-hint', 'Point the camera at the QR code on your other device.');
+  status.id = 'claim-scan-status';
+  shell.append(video, status);
+  const back = () => { stop(); renderClaimForm(app); };
+  render(app, shell, [button('claim-scan-type', 'Type the code instead', 'wg-btn--ghost', back)], { bar: scanBar(back), foot: 'wg-pagefoot' });
+
+  let stream;
+  try {
+    const live = () => !!barcode && typeof barcode.supportsLiveScan === 'function' && barcode.supportsLiveScan();
+    if (barcode && !live()) await loadZxing();
+    if (!live()) throw Object.assign(new Error('no live scan'), { code: 'UNAVAILABLE' });
+    if (scan.stopped) return;
+    stream = await media.openCameraStream({ facingMode: 'environment' });
+  } catch (err) {
+    if (scan.stopped) return;
+    stop();
+    renderCameraOff(app, err && err.code === 'PERMISSION_DENIED');
+    return;
+  }
+  if (scan.stopped) {
+    stopTracks(stream);
+    return;
+  }
+  scan.stream = stream;
+  video.srcObject = stream;
+  try {
+    await video.play();
+  } catch {
+    // the decoder reads the stream either way
+  }
+  loop();
+
+  function loop() {
+    if (scan.stopped) return;
+    Promise.resolve()
+      .then(() => barcode.scan({ source: video, formats: ['qr_code'] }))
+      .catch(() => null) // an unready frame: try again
+      .then((result) => {
+        if (scan.stopped) return;
+        if (result && result.rawValue) {
+          const code = parseScanned(result.rawValue);
+          if (code) {
+            stop();
+            openScanned(app, code);
+            return;
+          }
+          status.textContent = "That QR code isn't from Add a device. Scan the one on your other device.";
+        }
+        scan.timer = setTimeout(loop, SCAN_MS);
+      });
+  }
+}
+
+// A scanned code for this account claims here; another account's opens its
+// own /claim (the same place its /d/ link leads).
+async function openScanned(app, { sub, frag }) {
+  const [here, ...base] = location.host.split('.');
+  if (sub !== here.toLowerCase()) {
+    location.href = `${location.protocol}//${sub}.${base.join('.')}/claim#${frag}`;
+    return;
+  }
+  let parsed;
+  try {
+    parsed = await parseFragment(frag);
+  } catch (err) {
+    renderClaimForm(app, err.message);
+    return;
+  }
+  startClaim(app, parsed);
+}
+
+// AD13: in-app Scan without a camera — the AD8 · no code layout.
+function renderCameraOff(app, denied) {
+  const shell = el('div', 'wg-shell');
+  const ico = el('span', 'wg-shell__icon wg-shell__icon--warn');
+  ico.append(icon('camera'));
+  const head = el('div', 'wg-vstack');
+  const title = el('h1', 'wg-shell__title wg-shell__title--md', denied ? 'The camera is off for this app' : "Scanning isn't available here");
+  title.id = 'claim-camera-off';
+  head.append(title, el('p', 'wg-shell__lede', 'Type the code shown under the QR on your other device instead.'));
+  const code = codeEntry(app, '', 'wg-btn--primary wg-btn--lg');
+  shell.append(ico, head, code.field, code.error);
+  if (denied) {
+    // Appended on the first miss (the kit's display rules beat [hidden]).
+    const hint = el('p', 'wg-hint');
+    hint.id = 'claim-camera-hint';
+    const allow = button('claim-camera-settings', 'Allow camera in Settings', 'wg-btn--ghost wg-btn--sm', async () => {
+      const media = globalThis.MediaCapture;
+      let res = { opened: false, hint: '' };
+      try {
+        if (media && typeof media.openSettings === 'function') res = await media.openSettings();
+      } catch {
+        // the hint below still says where
+      }
+      if (res.opened) return;
+      hint.textContent = res.hint || 'Allow the camera in your settings, then try again.';
+      allow.after(hint);
+    });
+    shell.append(allow);
+  }
+  render(app, shell, [code.submit], { bar: scanBar(() => renderClaimForm(app)), foot: 'wg-pagefoot' });
+  code.sync();
 }
 
 function startClaim(app, code) {
@@ -457,10 +652,9 @@ function renderEnd(app, { id, iconName, tone, title, lede, chip }) {
   const chipEl = el('span', `wg-chip wg-chip--${chip.tone}`);
   chipEl.append(icon(iconName), chip.text);
   shell.append(ico, h1, el('p', 'wg-shell__lede', lede), chipEl, el('p', 'wg-hint', NEW_CODE_HINT));
-  // ponytail: no "Scan a new code" here — the in-app scanner lands with
-  // med-r1j2.10; until then the new code is typed (or the QR rescanned).
+  // The sun reopens the in-app scanner (med-r1j2.10); it offers the typed code.
   render(app, shell, [
-    button('claim-new-code', 'Enter a new code', 'wg-btn--primary wg-btn--lg', () => renderClaimForm(app)),
+    button('claim-new-code', 'Scan a new code', 'wg-btn--primary wg-btn--lg', () => renderScanner(app), 'scan'),
     button('claim-close', 'Close', 'wg-btn--ghost', () => { location.href = '/'; }),
   ]);
 }
