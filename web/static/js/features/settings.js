@@ -1255,6 +1255,7 @@ async function loadSettings() {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
         window.WeightUnitState.applyAuthoritative(bundle.weightUnitPreference);
+        applyBundleBody(bundle.body);
         updateFeatureToggles();
         updateFeatureTabVisibility();
 
@@ -1335,6 +1336,7 @@ async function loadSettings() {
             serverTimezone: settingsRes?.server_timezone || '',
             dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',
             weightUnitPreference: settingsRes?.weight_unit_preference || window.weightUnitPreference || 'kg',
+            body: window.AuthBootstrap.normalizeSettingsBundle({ settings: settingsRes }).body,
             foodTargets: {
                 calories: foodTargetsData?.calories || 0,
                 carbs: foodTargetsData?.carbs || 0,
@@ -1430,12 +1432,18 @@ function openSettingsPage(name) {
         onClose: () => {
             _openSettingsPages.delete(name);
             store.appendChild(body);
+            if (name === 'units' && _heightDirty) {
+                // An unsaved (invalid) height is dropped with the page.
+                _heightDirty = false;
+                paintBodySettings();
+            }
             refreshSettingsSummaries();
             if (name === 'backup' && document.documentElement.classList.contains('wg-local-vault')) paintSyncCard();
         },
     });
     _openSettingsPages.set(name, page);
     if (name === 'devices') mountCloudDevices();
+    if (name === 'units') refreshBmiHint().catch(() => {});
     return page;
 }
 
@@ -1872,12 +1880,256 @@ function updateFeatureTabVisibility() {
     refreshSettingsSummaries();
 }
 
+// ---- Units & body: height for BMI (med-a6fb.4, kit BM2) ---------------------
+// One value, stored in whole cm (PATCH /api/settings/body), shown in its own
+// unit (cm | ft + in) — not the weight unit. Read from settings_bundle
+// (GET /api/settings, bootstrap.settings), never /api/weight/bmi, which nulls
+// values under ED-safe.
+const HEIGHT_MIN_CM = 100;
+const HEIGHT_MAX_CM = 250;
+const HEIGHT_RANGE_ERROR = {
+    cm: `Enter a height between ${HEIGHT_MIN_CM} and ${HEIGHT_MAX_CM} cm.`,
+    ftin: 'Enter a height between 3′ 3″ and 8′ 2″.',
+};
+let _body = { height_cm: null, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false }; // module-state: last painted body settings
+let _heightDirty = false; // module-state: mid-edit, so a bundle repaint must not overwrite the typed value
+
+function cmToFtIn(cm) {
+    const total = Math.round(cm / 2.54);
+    return { ft: Math.floor(total / 12), inch: total % 12 };
+}
+
+function formatHeight(cm, unit) {
+    if (cm === null) return 'Not set';
+    if (unit !== 'ftin') return `${cm} cm`;
+    const { ft, inch } = cmToFtIn(cm);
+    return `${ft}′ ${inch}″`;
+}
+
+function setInputValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+}
+
+function showHeightError(message) {
+    const err = document.getElementById('settings-height-error');
+    if (err) {
+        err.textContent = message;
+        err.classList.toggle('wg-settings-hidden', !message);
+    }
+    document.getElementById('settings-height-field')?.classList.toggle('wg-field--error', !!message);
+    for (const id of ['settings-height-input', 'settings-height-ft', 'settings-height-in']) {
+        const input = document.getElementById(id);
+        if (!input) continue;
+        if (message) input.setAttribute('aria-invalid', 'true');
+        else input.removeAttribute('aria-invalid');
+    }
+}
+
+function paintBodySettings(body) {
+    if (body) _body = { ..._body, ...body };
+    const unit = _body.height_unit === 'ftin' ? 'ftin' : 'cm';
+    document.querySelectorAll('#height-unit-segmented [data-height-unit]').forEach((btn) => {
+        const on = btn.dataset.heightUnit === unit;
+        btn.classList.toggle('wg-settings-segmented__btn--active', on);
+        btn.classList.toggle('wg-gloss--sun', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    document.getElementById('settings-height-cm')?.classList.toggle('wg-settings-hidden', unit === 'ftin');
+    document.getElementById('settings-height-ftin')?.classList.toggle('wg-settings-hidden', unit !== 'ftin');
+    if (!_heightDirty) {
+        const cm = typeof _body.height_cm === 'number' ? _body.height_cm : null;
+        const ftin = cm === null ? null : cmToFtIn(cm);
+        setInputValue('settings-height-input', cm === null ? '' : String(cm));
+        setInputValue('settings-height-ft', ftin ? String(ftin.ft) : '');
+        setInputValue('settings-height-in', ftin ? String(ftin.inch) : '');
+        showHeightError('');
+    }
+    const toggle = document.getElementById('settings-show-bmi-toggle');
+    if (toggle) toggle.checked = _body.show_bmi !== false;
+    setSettingsSummary('body', `Height · ${formatHeight(_body.height_cm ?? null, unit)}`);
+    paintBmiHint();
+}
+
+// Live BMI hint under the height field (BM2): the typed height against the
+// latest log. GET /api/weight/bmi nulls latest_kg under ED-safe and has none
+// without a log; the formula is the domain's bmi() (web/domain/weight.js).
+let _bmiFacts = null; // module-state: last GET /api/weight/bmi payload
+let _weightDomain = null; // module-state: web/domain/weight.js once imported
+// Test seam (as loadPrivacyModule): tests swap in the module by path.
+function loadWeightDomain() { return import('/domain/weight.js'); }
+
+async function refreshBmiHint() {
+    try {
+        const [facts, domain] = await Promise.all([
+            apiCall('/api/weight/bmi', 'GET'),
+            _weightDomain || loadWeightDomain(),
+        ]);
+        _bmiFacts = facts || null;
+        _weightDomain = domain;
+    } catch (_) {
+        _bmiFacts = null; // no hint is the safe failure
+    }
+    paintBmiHint();
+}
+
+function paintBmiHint() {
+    // The fetch can land after the page (or a test's jsdom) is gone.
+    if (typeof document === 'undefined' || !document) return;
+    const hint = document.getElementById('settings-height-bmi-hint');
+    if (!hint) return;
+    const kg = _bmiFacts && !_bmiFacts.ed_safe && Number.isFinite(_bmiFacts.latest_kg) ? _bmiFacts.latest_kg : null;
+    // Untouched: the stored cm, not the rounded ft + in display read back.
+    const stored = typeof _body.height_cm === 'number' ? _body.height_cm : null;
+    const typed = kg === null || _body.show_bmi === false || !_weightDomain ? null
+        : (_heightDirty ? readHeightInput() : { cm: stored });
+    const value = typed && !typed.error && typed.cm !== null ? _weightDomain.bmi(kg, typed.cm) : null;
+    hint.classList.toggle('wg-settings-hidden', value === null);
+    if (value === null) {
+        hint.textContent = '';
+        return;
+    }
+    const w = formatWeight(kg, window.weightUnitPreference);
+    hint.textContent = `BMI ${value.toFixed(1)} at your latest weight, ${w.value.toFixed(1)} ${w.label}.`;
+}
+
+// The typed height → { cm } (null when cleared) or { error }.
+function readHeightInput() {
+    const text = (id) => (document.getElementById(id)?.value || '').trim().replace(',', '.');
+    if (_body.height_unit === 'ftin') {
+        const ft = text('settings-height-ft');
+        const inch = text('settings-height-in');
+        if (!ft && !inch) return { cm: null };
+        const f = Number(ft || 0);
+        const i = Number(inch || 0);
+        const total = f * 12 + i;
+        // 3′ 3″ (39 in) – 8′ 2″ (98 in); 39 in is 99.06 cm, so clamp into the stored range.
+        if (!Number.isFinite(total) || f < 0 || i < 0 || i >= 12 || total < 39 || total > 98) {
+            return { error: HEIGHT_RANGE_ERROR.ftin };
+        }
+        return { cm: Math.min(HEIGHT_MAX_CM, Math.max(HEIGHT_MIN_CM, Math.round(total * 2.54))) };
+    }
+    const raw = text('settings-height-input');
+    if (!raw) return { cm: null };
+    const cm = Math.round(Number(raw));
+    if (!Number.isFinite(cm) || cm < HEIGHT_MIN_CM || cm > HEIGHT_MAX_CM) return { error: HEIGHT_RANGE_ERROR.cm };
+    return { cm };
+}
+
+let _bodyWrites = Promise.resolve(); // module-state: body PATCHes run one at a time
+let _bodyPending = 0; // module-state: body writes painted but not yet settled
+let _bodyFailed = false; // module-state: a write in the current run of pending writes failed
+let _bodyConfirmed = { ..._body }; // module-state: the last server-confirmed body settings
+
+// A bundle repaint with no body write in flight is the confirmed state.
+function applyBundleBody(body) {
+    if (_bodyPending === 0 && body) _bodyConfirmed = { ..._bodyConfirmed, ...body };
+    paintBodySettings(body);
+}
+
+// Optimistic partial patch (rule 9): paint at once, then settings_bundle +
+// PATCH on one serial queue, each settling before the next starts. A failure
+// never restores a snapshot: once every pending write has settled, the form
+// repaints from the confirmed baseline (successes merged in, failures not).
+function saveBodySettings(patch) {
+    paintBodySettings(patch);
+    _bodyPending++;
+    const run = _bodyWrites.then(async () => {
+        const ds = window.DataStore;
+        let handle = null;
+        let ok = false;
+        try {
+            if (ds && typeof ds.applyOptimistic === 'function') {
+                handle = await ds.applyOptimistic('settings_bundle',
+                    (prev) => (prev ? { ...prev, body: { ...(prev.body || {}), ...patch } } : prev),
+                    ['settings', 'food_targets', 'feature_settings']);
+            }
+            // apiCall surfaces its own failure (null).
+            ok = !!(await apiCall('/api/settings/body', 'PATCH', patch));
+            if (ok) {
+                await handle?.commit();
+                _bodyConfirmed = { ..._bodyConfirmed, ...patch };
+            } else {
+                await handle?.rollback();
+            }
+        } catch (e) {
+            ok = false;
+            await handle?.rollback();
+            console.error('Failed to save body settings:', e);
+            safeToast('Failed to save', 'error');
+        }
+        if (!ok) _bodyFailed = true;
+        if (--_bodyPending === 0 && _bodyFailed) {
+            _bodyFailed = false;
+            paintBodySettings(_bodyConfirmed);
+        }
+        return ok;
+    });
+    _bodyWrites = run.catch(() => {});
+    return run;
+}
+
+async function commitHeight() {
+    // Untouched fields never write: 179 cm shows as 5′ 10″, which reads back as 178.
+    if (!_heightDirty) return true;
+    const typed = readHeightInput();
+    if (typed.error) {
+        showHeightError(typed.error);
+        return false;
+    }
+    _heightDirty = false;
+    if (typed.cm === _body.height_cm) {
+        paintBodySettings();
+        return true;
+    }
+    return saveBodySettings({ height_cm: typed.cm });
+}
+
+// Units & body with the height field focused: the Weight page's "Add your
+// height" nudge (med-a6fb.7) and ?tab=settings&page=units&focus=height.
+function openHeightField() {
+    if (!_openSettingsPages.has('units')) openSettingsPage('units');
+    const id = _body.height_unit === 'ftin' ? 'settings-height-ft' : 'settings-height-input';
+    document.getElementById(id)?.focus();
+}
+
+(function bindBodySettings() {
+    document.getElementById('height-unit-segmented')?.addEventListener('click', (event) => {
+        const unit = event.target.closest('[data-height-unit]')?.dataset.heightUnit;
+        if (!unit || unit === _body.height_unit) return;
+        _heightDirty = false;
+        saveBodySettings({ height_unit: unit });
+    });
+    const markDirty = () => {
+        _heightDirty = true;
+        paintBmiHint();
+    };
+    const cmInput = document.getElementById('settings-height-input');
+    cmInput?.addEventListener('input', markDirty);
+    cmInput?.addEventListener('change', commitHeight);
+    // ft + in commits once focus leaves the pair, not between the two fields.
+    const ftin = document.getElementById('settings-height-ftin');
+    ftin?.addEventListener('input', markDirty);
+    ftin?.addEventListener('focusout', (event) => {
+        if (!ftin.contains(event.relatedTarget)) commitHeight();
+    });
+    for (const input of document.querySelectorAll('#settings-height-field .wg-input')) {
+        input.addEventListener('keydown', (event) => { if (event.key === 'Enter') input.blur(); });
+    }
+    // Delegated: the toggle's input is built by <mt-setting-toggle>.
+    document.querySelector('.wg-settings-body')?.addEventListener('change', (event) => {
+        if (event.target.id === 'settings-show-bmi-toggle') saveBodySettings({ show_bmi: event.target.checked });
+    });
+    paintBodySettings();
+})();
+
 // Public surface mirror — bare names above are the live call path; this object
 // documents the module's API and satisfies the globals allowlist.
 window.SettingsView = {
     loadSettings,
     openSettingsPage,
     openDevicesDeeplink,
+    openHeightField,
     saveTargets,
     mintInvite,
     updateFeatureToggles,

@@ -264,6 +264,9 @@ export function createWeightDomain({ records, now, timeZone }) {
     const value = height && latest ? bmi(latest.weight, height) : null;
     return {
       height_cm: height,
+      // The latest log's kg, with or without a height: the Settings height
+      // field recomputes a live BMI from it as the user types (med-a6fb.4).
+      latest_kg: latest && Number.isFinite(latest.weight) ? latest.weight : null,
       bmi: value,
       band: bmiBand(value),
       borders_kg: height ? bmiBordersKg(height) : null,

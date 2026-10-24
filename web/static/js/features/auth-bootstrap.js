@@ -131,6 +131,8 @@ window.AuthBootstrap = (function () {
         const tabOrderRaw = raw?.tabOrder || raw?.tab_order || raw?.settings?.tab_order || null;
         const weightUnitRaw = raw?.weightUnitPreference || raw?.weight_unit_preference || raw?.settings?.weight_unit_preference || 'kg';
         const weightUnit = weightUnitRaw === 'lb' ? 'lb' : 'kg';
+        // Body settings (med-a6fb): flat on GET /api/settings and bootstrap.settings.
+        const bodyRaw = raw?.body || raw?.settings || raw || {};
 
         return {
             featureSettings: raw?.featureSettings || raw?.features || {},
@@ -140,6 +142,12 @@ window.AuthBootstrap = (function () {
             serverTimezone: raw?.serverTimezone || raw?.server_timezone || raw?.settings?.server_timezone || '',
             dismissedTzSuggestion: raw?.dismissedTzSuggestion || raw?.dismissed_tz_suggestion || raw?.settings?.dismissed_tz_suggestion || '',
             weightUnitPreference: weightUnit,
+            body: {
+                height_cm: typeof bodyRaw.height_cm === 'number' ? bodyRaw.height_cm : null,
+                height_unit: bodyRaw.height_unit === 'ftin' ? 'ftin' : 'cm',
+                show_bmi: bodyRaw.show_bmi !== false,
+                bmi_nudge_dismissed: bodyRaw.bmi_nudge_dismissed === true,
+            },
             foodTargets: {
                 calories: Number(foodTargetsRaw.calories) || 0,
                 carbs: Number(foodTargetsRaw.carbs) || 0,

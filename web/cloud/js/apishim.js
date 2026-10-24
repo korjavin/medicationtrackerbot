@@ -360,7 +360,7 @@ export function createApiRouter(ctx, {
   async function bmiPayload() {
     const [ed, g] = await Promise.all([edSafe(), settings.getGeneral()]);
     const facts = ed
-      ? { height_cm: null, bmi: null, band: null, borders_kg: null }
+      ? { height_cm: null, latest_kg: null, bmi: null, band: null, borders_kg: null }
       : await weight.getBmi(g.height_cm);
     return {
       ...facts,
