@@ -23,7 +23,10 @@
     const qa = { scene, done: null, probe };
     window.__wgQA = qa;
     if (!scene) return;
-    pinClock();
+    // A load the shell made for a captured link (?invite=1, add-device-from-link)
+    // keeps the real clock: the page judges the slot's receivedAt (shell time)
+    // against Date.now(), and a join's 10 minutes would never hold at 23:00.
+    if (!new URLSearchParams(window.location.search).has('invite')) pinClock();
     // Document loads in this launch (the seed import reloads once): a scene
     // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
     let loads = 1;

@@ -363,7 +363,7 @@ func main() {
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 	router.SetRequestInviteEmail(cfg.requestInviteEmail)
 	router.SetFeedbackRecipient(cfg.feedbackAgeRecipient)
-	router.SetAppleAppSiteAssociation(os.Getenv("IOS_TEAM_ID"), os.Getenv("IOS_BUNDLE_ID"))
+	router.SetAppleAppSiteAssociation(os.Getenv("IOS_TEAM_ID"), os.Getenv("IOS_BUNDLE_ID"), os.Getenv("HANDOFF_APP_LINKS") == "1")
 	router.SetAndroidAssetLinks(os.Getenv("ANDROID_PACKAGE"), os.Getenv("ANDROID_CERT_SHA256S"))
 	router.SetInviteStoreIDs(os.Getenv("IOS_APP_STORE_ID"), os.Getenv("ANDROID_PACKAGE"))
 	router.SetHandoffAppLinks(os.Getenv("HANDOFF_APP_LINKS") == "1")

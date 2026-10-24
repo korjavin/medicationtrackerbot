@@ -28,27 +28,45 @@ enum AccountURL {
     /// An invite the app was opened with (bd med-ta2n.11, contract med-ta2n.7
     /// §1/§5) as the claim URL https://<sub>.<base>/#claim=<token>: the landing
     /// page https://<base>/i/<sub>#<token> (universal link), the scheme
-    /// medtracker://i/<sub>#<token>, or anything parse() accepts. nil otherwise.
+    /// medtracker://i/<sub>#<token>, or anything parse() accepts. The add-device
+    /// hand-off https://<base>/d/<sub>#<slot>.<TK> (and medtracker://d/…, bd
+    /// med-r1j2.7) becomes https://<sub>.<base>/claim#<slot>.<TK>. nil otherwise.
     static func parseInvite(_ raw: String, base: String) -> URL? {
         let base = base.lowercased()
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty, let parts = URLComponents(string: line) else { return nil }
         let scheme = parts.scheme?.lowercased(), host = parts.host?.lowercased()
         let landing = scheme == "https" && host == base && parts.port == nil
-        let custom = scheme == "medtracker" && host == "i"
+        let custom = scheme == "medtracker" && (host == "i" || host == "d")
         guard landing || custom else { return parse(raw, base: base) }
-        // Landing path "/i/<sub>"; the scheme's host is "i", so its path is "/<sub>".
-        // RAW path and fragment (no percent-decoding): sub ^[a-z0-9-]+$ after
-        // lowercasing, token ^[0-9a-f]+$ (the server's hex claim token,
-        // cloudserver.NewClaimToken). Twin: Android AccountUrl.parseInvite.
-        let path = parts.percentEncodedPath, prefix = landing ? "/i/" : "/"
+        // Landing path "/i/<sub>" or "/d/<sub>"; the scheme's host is the kind,
+        // so its path is "/<sub>". RAW path and fragment (no percent-decoding):
+        // sub ^[a-z0-9-]+$ after lowercasing; an invite token ^[0-9a-f]+$ (the
+        // server's hex claim token, cloudserver.NewClaimToken), a hand-off code
+        // ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ (<slot>.<TK>, web/cloud/js/transfer.js).
+        // Twin: Android AccountUrl.parseInvite, web InviteSheet.parse.
+        let path = parts.percentEncodedPath
+        let kind = custom ? host ?? "" : (path.hasPrefix("/d/") ? "d" : "i")
+        let prefix = landing ? "/\(kind)/" : "/"
         let sub = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)).lowercased() : ""
         let tok = parts.percentEncodedFragment ?? ""
+        let tokOK = kind == "d" ? isHandoffCode(tok)
+            : !tok.isEmpty && tok.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) })
         guard parts.user == nil, parts.port == nil, parts.password == nil, parts.query == nil,
               !sub.isEmpty, sub.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }),
-              !tok.isEmpty, tok.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) })
+              tokOK
         else { return nil }
-        return parse("https://\(sub).\(base)/#claim=\(tok)", base: base)
+        return parse(kind == "d" ? "https://\(sub).\(base)/claim#\(tok)" : "https://\(sub).\(base)/#claim=\(tok)", base: base)
+    }
+
+    /// <slot>.<TK>: two non-empty base64url runs joined by one dot.
+    private static func isHandoffCode(_ s: String) -> Bool {
+        let runs = s.split(separator: ".", omittingEmptySubsequences: false)
+        return runs.count == 2 && runs.allSatisfy { run in
+            !run.isEmpty && run.unicodeScalars.allSatisfy {
+                $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-")
+            }
+        }
     }
 
     /// The server's own "no such account" 404 (bd med-w6gx.22, twin of Android's
@@ -87,6 +105,34 @@ enum InviteSlot {
 
     static func store(_ url: URL, at: Date = Date(), _ defaults: UserDefaults = .standard) {
         defaults.set(["url": url.absoluteString, "receivedAt": Int64(at.timeIntervalSince1970 * 1000)], forKey: key)
+    }
+
+    static func clear(_ defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
+    }
+}
+
+/// "Join and erase" (bd med-r1j2.7, AD9; twin of Android med-r1j2.8): the
+/// erase local.leave {url, erase: true} asked for, held for that claim URL's
+/// host until the joined account's unlocked boot sends local.erase
+/// (cloud-boot.js finishJoinErase). It lives only as long as the add-device
+/// code (the transfer slot's 10-minute TTL) and is dropped on entering local
+/// mode, on opening any account and once used: a later unlock never erases.
+enum JoinErase {
+    static let key = "wgJoinErase"
+    static let ttl: TimeInterval = 10 * 60
+
+    static func remember(_ host: String, at: Date = Date(), _ defaults: UserDefaults = .standard) {
+        defaults.set(["host": host, "at": at.timeIntervalSince1970], forKey: key)
+    }
+
+    /// Whether local.erase may wipe now, `host` being the open account. A clock
+    /// set back to before the remember never counts.
+    static func due(_ host: String?, at: Date = Date(), _ defaults: UserDefaults = .standard) -> Bool {
+        guard let host, let held = defaults.dictionary(forKey: key), held["host"] as? String == host,
+              let since = (held["at"] as? NSNumber)?.doubleValue else { return false }
+        let age = at.timeIntervalSince1970 - since
+        return age >= 0 && age < ttl
     }
 
     static func clear(_ defaults: UserDefaults = .standard) {

@@ -22,7 +22,8 @@ import XCTest
 ///   {"type": "app"}            typeText into the tapped element (real keyboard)
 ///   {"clear": true}            delete the tapped field's text
 ///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label
-///   {"waitFor": "Start"}       any element by label or id, 10 s
+///   {"openURL": "medtracker://d/…"}  open a link in the app (XCUIApplication.open)
+///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds)
 ///   {"keyboard": true}         the software keyboard must be up (implied after "type")
 ///
 /// One scene: `TEST_RUNNER_WG_QA_SCENES=food-add-sheet-keyboard xcodebuild test ...`
@@ -186,10 +187,14 @@ final class VisualQATests: XCTestCase {
                 let button = app.buttons[label]
                 guard button.waitForExistence(timeout: 10) else { return "no button \"\(label)\"" }
                 button.tap()
+            } else if let link = step["openURL"] as? String {
+                guard let url = URL(string: link) else { return "bad openURL \(link)" }
+                app.open(url) // as a scanned link or a tapped medtracker:// would: onOpenURL → Shell.capture
             } else if let label = step["waitFor"] as? String {
                 let el = app.descendants(matching: .any)
                     .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
-                guard el.waitForExistence(timeout: 10) else { return "\"\(label)\" never appeared" }
+                let timeout = step["timeout"] as? Double ?? 10
+                guard el.waitForExistence(timeout: timeout) else { return "\"\(label)\" never appeared" }
             } else if step["keyboard"] as? Bool == true {
                 typed = true
             } else {

@@ -752,6 +752,24 @@ changes for it.
   removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set).
   Older shells ignore `url` and land on their first run; the web probes
   `shell.ops` for `invite.pending`.
+- **Add-device hand-off** (bd med-r1j2.7, web med-r1j2.4, Android twin
+  med-r1j2.8): `https://<base>/d/<sub>#<slot>.<TK>` (a universal link once the
+  AASA lists `/d/*`, i.e. with `HANDOFF_APP_LINKS=1`) and
+  `medtracker://d/<sub>#<slot>.<TK>` take the invite path above:
+  `parseInvite` maps them to `https://<sub>.<base>/claim#<slot>.<TK>` (code
+  `^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`, no query) into the same slot; the page
+  offers the join. `local.leave {url, erase: true}` with a `/claim` URL also
+  drops the move stash (no merge) and remembers the erase for that host
+  (`JoinErase`, UserDefaults `wgJoinErase` `{host, at}`); it expires after 10
+  minutes (the code's TTL) and is dropped on entering local mode, on opening
+  any account and once used. `local.erase` (listed in both modes, because the
+  local page probes it before offering the erase) → `true`; only in account
+  mode with `JoinErase` naming the open host does it wipe: the local.reset
+  effects (host mirror, `wgLeaveHost`, move/leave stashes, slot, local
+  reminders) plus `wgapp://local`'s IndexedDB, localStorage, sessionStorage
+  and Cache Storage, from a throwaway web view on that origin
+  (`Shell.eraseLocalOrigin`; `fetchDataRecords` lists no custom-scheme
+  origin). The diag log notes `wiped` or what was left; never the host.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are
@@ -1259,7 +1277,8 @@ cloud env (docs/environment.md) and check that
 `https://<base>/.well-known/apple-app-site-association` and the same path on an
 account subdomain return
 `{"applinks":{"details":[{"appIDs":["<TEAM>.<bundle>"],"components":[{"/":"/i/*","comment":"invite landing"}]}]},"webcredentials":{"apps":["<TEAM>.<bundle>"]}}`
-(applinks claims the invite landing `/i/*`; the entitlement lists
+(applinks claims the invite landing `/i/*`, plus `{"/":"/d/*","comment":"add-device hand-off"}`
+with `HANDOFF_APP_LINKS=1`, med-r1j2.7; the entitlement lists
 `applinks:<base>` only — never `*.<base>` — med-ta2n.11).
 Apple fetches it through its CDN
 (`https://app-site-association.cdn-apple.com/a/v1/<host>`), which can lag by

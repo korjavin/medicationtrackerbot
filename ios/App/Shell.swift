@@ -33,7 +33,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // Entering local mode again (forget(), the Settings toggle,
             // account.leave {then: "local"}) abandons a pending move; the next
             // move stashes afresh (bd med-o7zq.35).
-            if local { move.clear() }
+            if local {
+                move.clear()
+                JoinErase.clear() // a join's erase never outlives a return to local mode (bd med-r1j2.7)
+            }
         }
     }
     /// The local → cloud move's stash (bd med-o7zq.35, Move.swift).
@@ -182,6 +185,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         defaults.set(host, forKey: Shell.hostKey)
         defaults.set(false, forKey: LocalOrigin.modeKey)
         defaults.removeObject(forKey: Shell.leaveHostKey)
+        JoinErase.clear() // opening any account drops a pending join's erase; local.leave {erase} re-arms it
         setInvite(nil) // whatever invite was waiting, this open consumed or superseded it
         self.host = host
         local = false
@@ -565,6 +569,26 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         case "invite.clear":
             setInvite(nil)
             replyHandler(true, nil)
+        // "Join and erase" (bd med-r1j2.7, AD9; contract with Android med-r1j2.8:
+        // {} → true). The joined account's unlocked boot sends it (cloud-boot.js
+        // finishJoinErase). Only while JoinErase still holds this account (the
+        // add-device code's 10 minutes): the local vault's erase — the local
+        // origin's website data plus local.reset's share. Anywhere else, local
+        // mode included (listed there for invite.js's probe), a no-op.
+        case "local.erase":
+            guard !local, JoinErase.due(host) else { return replyHandler(true, nil) }
+            JoinErase.clear() // once: a second boot of this account erases nothing
+            UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
+            UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
+            move.clear()
+            leaveStash.clear()
+            setInvite(nil)
+            Task {
+                await Notifications.shared.remove(vault: LocalOrigin.host)
+                let left = await Shell.eraseLocalOrigin()
+                diag("shell local.erase " + (left == 0 ? "wiped" : "incomplete (\(left))")) // no host, no data
+                replyHandler(true, nil)
+            }
         // {url} (bd med-ta2n.11, contract med-ta2n.7 §7): open that account's
         // claim link from either mode — validated, else "invalid url" and
         // nothing changes; the slot is consumed. account.leave ignores then.
@@ -579,8 +603,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 replyHandler(true, nil)
                 // Only local.leave's move stash is for the new account; from
                 // an account, a stale one must not land in the next account.
-                if !local { move.clear() }
+                // "Join and erase" (bd med-r1j2.7) is no merge: no stash either.
+                // Only for an add-device claim link (/claim#<slot>.<TK>), never an invite.
+                let erase = local && args["erase"] as? Bool == true && url.path == "/claim"
+                if !local || erase { move.clear() }
                 enter(url, host: h)
+                if erase { JoinErase.remember(h) }
             } else if local {
                 // Without a url (bd med-ta2n.17): no web caller since the
                 // Settings Move row went (#1255; the P3 sheet always passes
@@ -697,6 +725,59 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         case let op:
             replyHandler(nil, "unsupported: \(op ?? "")")
         }
+    }
+
+    /// local.erase's wipe of wgapp://local's website data, what the local
+    /// page's eraseDevice clears itself (local-policy.js): IndexedDB (the
+    /// vault), localStorage, sessionStorage, Cache Storage. WKWebsiteDataStore
+    /// lists no custom-scheme origin in fetchDataRecords, so a throwaway web
+    /// view on that origin does it with the page's own APIs; its document is
+    /// the scheme handler's 404 for a path no bundle file has, so no app code
+    /// runs there. Returns what is left (databases + localStorage keys): 0 =
+    /// wiped, -1 = the wipe never ran. A delete blocked by a connection the
+    /// shell's page still holds completes once that closes.
+    static func eraseLocalOrigin() async -> Int {
+        let config = WKWebViewConfiguration()
+        config.limitsNavigationsToAppBoundDomains = true // as the shell's own view
+        config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
+        let view = WKWebView(frame: .zero, configuration: config)
+        let loaded = Loaded()
+        view.navigationDelegate = loaded
+        let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            loaded.done = { done.resume(returning: $0) }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(15))
+                loaded.finish(false)
+            }
+            view.load(URLRequest(url: URL(string: "wgapp://local/__erase__")!))
+        }
+        guard ok, view.url?.host?.lowercased() == LocalOrigin.host else { return -1 }
+        let left = try? await view.callAsyncJavaScript("""
+            const settle = (q) => new Promise((r) => { q.onsuccess = q.onerror = q.onblocked = () => r(); });
+            const names = async () => ((await indexedDB.databases()) || []).map((d) => d.name);
+            await Promise.race([
+                Promise.all((await names()).map((n) => settle(indexedDB.deleteDatabase(n)))),
+                new Promise((r) => setTimeout(r, 10000)),
+            ]);
+            try { localStorage.clear(); } catch (_) {}
+            try { sessionStorage.clear(); } catch (_) {}
+            if (self.caches) for (const k of await caches.keys()) await caches.delete(k);
+            return (await names()).length + localStorage.length;
+            """, arguments: [:], in: nil, contentWorld: .page)
+        return (left as? NSNumber)?.intValue ?? -1
+    }
+
+    /// The throwaway view's load outcome, once (didFinish, a failure, or the timeout).
+    @MainActor
+    private final class Loaded: NSObject, WKNavigationDelegate {
+        var done: ((Bool) -> Void)?
+        func finish(_ ok: Bool) {
+            done?(ok)
+            done = nil
+        }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(true) }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(false) }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(false) }
     }
 
     // MARK: diagnostics (bd med-w6gx.24, twin of Android med-nt9p.22)

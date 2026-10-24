@@ -54,6 +54,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Status/navigation band colour sampled in paint order (sheet backdrops) | ✓ `Shell.pageJS` (med-o7zq.44) | ✓ `chrome.js` → `chrome` op | parity |
 | Invite capture (applinks/App Links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 2 (med-ta2n.11, med-ta2n.17) | ✓ phase 2 (med-ta2n.12.1 #1240, med-ta2n.12 #1251) | parity; Android owner device check med-ta2n.12.2 open |
 | `clipboard.read` (F1 Paste) | n/a (`navigator.clipboard` from the tap) | ✓ | Android-only: WebView has no clipboard-read prompt |
+| Add-device hand-off: `/d/` + `medtracker://d/` capture into the invite slot, `local.leave {url, erase}`, `local.erase` (shared op, wipes only for the remembered host within 10 min) | ✓ (med-r1j2.7) | pending (med-r1j2.8) | gap until med-r1j2.8; `local.erase` in the parity test's PLATFORM_ONLY until then |
 | `base.post` (local-mode invite request + feedback POST through the shell) | ✓ (med-ta2n.26) | ✓ (med-ta2n.27, med-nt9p.53, med-nt9p.54) | parity: contract med-ta2n.24 §A; allowlist identity in the parity test |
 | Play Install Referrer → pending slot | n/a | ✓ (true first install only) | Android-only: Play |
 | First launch = local mode (W1); native exits (Switch account, N4, account gone, `account.leave` no args) → local mode + `home?invite=1` (F1); no-url `local.leave` stays local | ✓ (med-ta2n.17) | ✓ (med-ta2n.12) | parity |
