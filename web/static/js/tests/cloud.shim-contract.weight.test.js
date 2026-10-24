@@ -6,7 +6,10 @@
 // `?replaces=` edit path. Additive suite — the original (network-mocked)
 // features.weight.test.js keeps running unshimmed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { calculateWeightTrend, createWeightDomain } from '../../../domain/weight.js';
+import {
+    bmi, bmiBand, bmiBordersKg, calculateWeightTrend, createWeightDomain,
+} from '../../../domain/weight.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
 import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
@@ -351,5 +354,138 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
         expect(await records.list('weightgoal')).toHaveLength(0);
         const ok = await weight.setGoal({ target_weight: 72.5 });
         expect(ok.goal).toBe(72.5);
+    });
+
+    // Epic med-a6fb (.1): BMI helpers + routes. ED-safe is decided by the route.
+    describe('BMI', () => {
+        it('pure helpers: 180 cm / 82.4 kg → 25.4 overweight, WHO borders', () => {
+            expect(bmi(82.4, 180)).toBe(25.4);
+            expect(bmiBand(25.4)).toBe('overweight');
+            expect(bmiBordersKg(180)).toEqual([59.9, 81.0, 97.2, 113.4, 129.6]);
+            expect([18.4, 18.5, 24.9, 25, 29.9, 30, 35, 40].map(bmiBand))
+                .toEqual(['underweight', 'healthy', 'healthy', 'overweight', 'overweight', 'obesity_1', 'obesity_2', 'obesity_3']);
+            // The rounded one-decimal BMI decides the class: 24.95 → 25.0 → overweight.
+            expect(bmi(99.8, 200)).toBe(25);
+            expect(bmiBand(bmi(99.8, 200))).toBe('overweight');
+            expect(bmi(82.4, null)).toBeNull();
+            expect(bmiBand(null)).toBeNull();
+            expect(bmiBordersKg(undefined)).toBeNull();
+        });
+
+        const DEFAULT_BODY = { height_unit: 'cm', show_bmi: true, nudge_dismissed: false };
+        const patchBody = (window, body) => window.apiCall('/api/settings/body', 'PATCH', body);
+        const getBmi = (window) => window.apiCall('/api/weight/bmi');
+
+        it('GET /api/weight/bmi: no height → bmi null + nudge; height + latest log → read-out; null clears', async () => {
+            const { window, document } = env;
+            await submitWeightLog(window, document, { daysAgo: 3, weight: 90 });
+            await submitWeightLog(window, document, { daysAgo: 1, weight: 82.4 });
+
+            expect(await getBmi(window)).toEqual({
+                height_cm: null, bmi: null, band: null, borders_kg: null, ...DEFAULT_BODY, ed_safe: false, nudge: true,
+            });
+
+            expect(await patchBody(window, { height_cm: 180 })).toEqual({
+                height_cm: 180, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false,
+            });
+            expect(await getBmi(window)).toEqual({
+                height_cm: 180, bmi: 25.4, band: 'overweight', borders_kg: [59.9, 81.0, 97.2, 113.4, 129.6],
+                ...DEFAULT_BODY, ed_safe: false, nudge: false,
+            });
+
+            // Stored in whole cm.
+            expect((await patchBody(window, { height_cm: 180.4 })).height_cm).toBe(180);
+
+            await patchBody(window, { height_cm: null });
+            expect((await getBmi(window)).height_cm).toBeNull();
+            const general = (await env.records.list('settings')).find((r) => r.recordId === 'settings');
+            expect(general).not.toHaveProperty('height_cm');
+        });
+
+        it('a partial patch touches only the fields sent; show_bmi=false still reports bmi', async () => {
+            const { window, document } = env;
+            await submitWeightLog(window, document, { daysAgo: 1, weight: 82.4 });
+            await patchBody(window, { height_cm: 180, height_unit: 'ftin' });
+            await patchBody(window, { show_bmi: false });
+            const res = await getBmi(window);
+            expect(res).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false, bmi: 25.4, band: 'overweight' });
+            await patchBody(window, { bmi_nudge_dismissed: true });
+            expect(await getBmi(window)).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false, nudge_dismissed: true });
+        });
+
+        it('overlapping disjoint writes to the settings singleton keep every field', async () => {
+            const { window } = env;
+            await Promise.all([
+                patchBody(window, { height_cm: 180 }),
+                patchBody(window, { show_bmi: false }),
+                patchBody(window, { height_unit: 'ftin' }),
+                window.apiCall('/api/tz-suggestion/dismiss', 'POST', { detected_tz: 'Europe/Berlin' }),
+            ]);
+            expect(await getBmi(window)).toMatchObject({ height_cm: 180, show_bmi: false, height_unit: 'ftin' });
+            expect((await window.apiCall('/api/settings')).dismissed_tz_suggestion).toBe('Europe/Berlin');
+        });
+
+        it('nudge turns off for height set, dismissed, show_bmi off and ED-safe', async () => {
+            const { window } = env;
+            expect((await getBmi(window)).nudge).toBe(true);
+            await patchBody(window, { height_cm: 175 });
+            expect((await getBmi(window)).nudge).toBe(false);
+            await patchBody(window, { height_cm: null, bmi_nudge_dismissed: true });
+            expect((await getBmi(window)).nudge).toBe(false);
+            await patchBody(window, { bmi_nudge_dismissed: false, show_bmi: false });
+            expect((await getBmi(window)).nudge).toBe(false);
+            await patchBody(window, { show_bmi: true });
+            expect((await getBmi(window)).nudge).toBe(true);
+            await window.apiCall('/api/gamification/mode', 'PUT', { ed_safe: true });
+            expect((await getBmi(window)).nudge).toBe(false);
+        });
+
+        it('PATCH /api/settings/body rejects invalid values and unknown keys, writing nothing', async () => {
+            allowConsoleNoise();
+            const { window } = env;
+            const bad = [
+                { height_cm: 99 }, { height_cm: 251 }, { height_cm: '180' }, { height_cm: NaN },
+                { height_unit: 'in' }, { show_bmi: 'no' }, { bmi_nudge_dismissed: 1 }, { weight: 80 }, {},
+                { height_cm: 180, show_bmi: 'no' },
+            ];
+            for (const body of bad) {
+                await expect(patchBody(window, body)).rejects.toMatchObject({ code: 'invalid_request' });
+            }
+            expect((await getBmi(window)).height_cm).toBeNull();
+        });
+
+        it('ED-safe on (even with Journey off) → every value null, ed_safe true; weight summary omits BMI', async () => {
+            const { window, document } = env;
+            await submitWeightLog(window, document, { daysAgo: 1, weight: 82.4 });
+            await patchBody(window, { height_cm: 180 });
+            expect(await window.apiCall('/api/weight/goal')).toMatchObject({ height_cm: 180, bmi: 25.4, bmi_band: 'overweight' });
+            await window.apiCall('/api/gamification/mode', 'PUT', { ed_safe: true });
+            await window.apiCall('/api/settings/features/gamification', 'POST', { enabled: false });
+            expect(await getBmi(window)).toEqual({
+                height_cm: null, bmi: null, band: null, borders_kg: null, ...DEFAULT_BODY, ed_safe: true, nudge: false,
+            });
+            const summary = await window.apiCall('/api/weight/goal');
+            for (const k of ['height_cm', 'bmi', 'bmi_band']) expect(summary).not.toHaveProperty(k);
+        });
+
+        it('GET /api/settings reports the body fields as stored, even under ED-safe', async () => {
+            const { window } = env;
+            expect(await window.apiCall('/api/settings')).toMatchObject({
+                height_cm: null, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false,
+            });
+            await patchBody(window, { height_cm: 180, height_unit: 'ftin', bmi_nudge_dismissed: true });
+            await window.apiCall('/api/gamification/mode', 'PUT', { ed_safe: true });
+            const expected = { height_cm: 180, height_unit: 'ftin', show_bmi: true, bmi_nudge_dismissed: true };
+            expect(await window.apiCall('/api/settings')).toMatchObject(expected);
+            expect((await window.apiCall('/api/bootstrap')).settings).toMatchObject(expected);
+        });
+
+        it('weight summary (MCP health.weight.goal.read) omits BMI without height', async () => {
+            const { window, document } = env;
+            await submitWeightLog(window, document, { daysAgo: 1, weight: 82.4 });
+            const summary = await window.apiCall('/api/weight/goal');
+            expect(summary.highest_weight).toBe(82.4);
+            for (const k of ['height_cm', 'bmi', 'bmi_band']) expect(summary).not.toHaveProperty(k);
+        });
     });
 });

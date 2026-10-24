@@ -10,6 +10,29 @@ const GOAL_RECORD_TYPE = 'weightgoal';
 const GOAL_MIN_KG = 20;
 const GOAL_MAX_KG = 500;
 
+// BMI (epic med-a6fb): adult WHO bands, kg / m². Pure helpers — the route
+// (apishim GET /api/weight/bmi) owns the ED-safe decision.
+const BMI_BORDERS = [18.5, 25, 30, 35, 40];
+const BMI_BANDS = ['underweight', 'healthy', 'overweight', 'obesity_1', 'obesity_2', 'obesity_3'];
+const round1 = (x) => Math.round(x * 10) / 10;
+
+export function bmi(kg, cm) {
+  if (!Number.isFinite(kg) || !Number.isFinite(cm) || kg <= 0 || cm <= 0) return null;
+  return round1(kg / (cm / 100) ** 2);
+}
+
+// bmiBand bins the displayed (one-decimal) value, so "24.9" is normal and
+// "25.0" overweight — what the user reads matches the band.
+export function bmiBand(value) {
+  if (!Number.isFinite(value)) return null;
+  return BMI_BANDS[BMI_BORDERS.filter((b) => value >= b).length];
+}
+
+export function bmiBordersKg(cm) {
+  if (!Number.isFinite(cm) || cm <= 0) return null;
+  return BMI_BORDERS.map((b) => round1(b * (cm / 100) ** 2));
+}
+
 // Single-account cloud mode has exactly one user; user_id is echoed back only
 // where the server's JSON shape carries it (goal history). See workout.js.
 const CLOUD_USER_ID = 1;
@@ -205,7 +228,8 @@ export function createWeightDomain({ records, now, timeZone }) {
   }
 
   async function setGoal(goal) {
-    // No height record exists, so no BMI floor — plain sanity bounds (kg).
+    // Plain sanity bounds (kg). The BMI 18.5 floor is a non-blocking UI
+    // warning, never a validation error (epic med-a6fb, bead .8).
     const target = goal && goal.target_weight;
     if (typeof target !== 'number' || !Number.isFinite(target)
       || target < GOAL_MIN_KG || target > GOAL_MAX_KG) {
@@ -230,7 +254,23 @@ export function createWeightDomain({ records, now, timeZone }) {
     return getGoal();
   }
 
+  // getBmi: height (settings general singleton) + the latest weight log.
+  // heightCm comes from the caller (settings.getGeneral()) so this module
+  // stays free of the settings record shape. No ED-safe logic here.
+  async function getBmi(heightCm) {
+    const height = Number.isFinite(heightCm) ? heightCm : null;
+    const latest = (await records.list(RECORD_TYPE)).filter((r) => !r.deleted)
+      .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at))[0];
+    const value = height && latest ? bmi(latest.weight, height) : null;
+    return {
+      height_cm: height,
+      bmi: value,
+      band: bmiBand(value),
+      borders_kg: height ? bmiBordersKg(height) : null,
+    };
+  }
+
   return {
-    create, list, remove, getGoal, setGoal, listGoals,
+    create, list, remove, getGoal, setGoal, listGoals, getBmi,
   };
 }

@@ -345,6 +345,44 @@ export function createApiRouter(ctx, {
     await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
   }
 
+  // edSafe is THE ED-safe rule (Miles 4148/4151): gamificationmode.ed_safe
+  // alone, whatever the gamification (Journey) flag says — the Safety toggle is
+  // its own Settings section. GET /api/weight/bmi and the Goal Line payload
+  // (which Today's weight cells read) both route through it.
+  async function edSafe() {
+    return (await gamification.getMode()).ed_safe;
+  }
+
+  // bmiPayload backs GET /api/weight/bmi and the BMI fields of GET
+  // /api/weight/goal (epic med-a6fb). The ED-safe decision is made here, once:
+  // every surface (card, chart bands, nudge, goal warning, MCP) obeys it.
+  // show_bmi=false nulls nothing: it is reported, and the Weight UI hides.
+  async function bmiPayload() {
+    const [ed, g] = await Promise.all([edSafe(), settings.getGeneral()]);
+    const facts = ed
+      ? { height_cm: null, bmi: null, band: null, borders_kg: null }
+      : await weight.getBmi(g.height_cm);
+    return {
+      ...facts,
+      height_unit: g.height_unit,
+      show_bmi: g.show_bmi,
+      nudge_dismissed: g.bmi_nudge_dismissed,
+      ed_safe: ed,
+      // The one flag the "Add your height" nudge reads (Iris 4160).
+      nudge: g.height_cm === null && !g.bmi_nudge_dismissed && !ed && g.show_bmi,
+    };
+  }
+
+  // goalLinePayload backs GET /api/gamification/goal-line and the bootstrap
+  // warm. With Journey off it still carries ed_safe so Today hides its weight
+  // cells (med-njny).
+  async function goalLinePayload(flags) {
+    if (!flags.gamification) return { enabled: false, ed_safe: await edSafe() };
+    // getGoalLineCard = getGoalLine + `milestone` (the newest unacknowledged
+    // goal milestone, materialized floored on this read — med-8tur.5).
+    return gamification.getGoalLineCard({ features: flags });
+  }
+
   // settingsResponse builds the {settings, features} subset shared by
   // GET /api/settings and the bootstrap payload — the settings-only reads,
   // without the heavy bp/weight aggregate reads that /api/settings discards.
@@ -365,6 +403,12 @@ export function createApiRouter(ctx, {
       timezone: general.timezone,
       weight_unit_preference: weightUnit,
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
+      // Body settings (med-a6fb): the Settings height field's read source —
+      // reported as stored, never nulled by ED-safe (unlike /api/weight/bmi).
+      height_cm: general.height_cm,
+      height_unit: general.height_unit,
+      show_bmi: general.show_bmi,
+      bmi_nudge_dismissed: general.bmi_nudge_dismissed,
     };
     if (tabOrder) block.tab_order = tabOrder;
     return { settings: block, features: clampFeatures(features) };
@@ -397,13 +441,11 @@ export function createApiRouter(ctx, {
       settings: settingsPart.settings,
     };
     // The Today Goal Line hero warms 'gamification_goal_line' from this
-    // (auth-bootstrap.js applyBootstrapPayload). Only included when the feature
-    // is on, so a disabled toggle leaves the cache untouched.
-    if (settingsPart.features.gamification) {
-      // getGoalLineCard, not getGoalLine: byte-identical to a live GET /goal-line
-      // (incl. the unacknowledged `milestone`, med-8tur.5).
-      payload.gamification_goal_line = await gamification.getGoalLineCard({ features: settingsPart.features });
-    }
+    // (auth-bootstrap.js applyBootstrapPayload). Byte-identical to a live GET
+    // /goal-line (incl. the unacknowledged `milestone`, med-8tur.5); with
+    // Journey off it is {enabled:false, ed_safe} so Today's weight cells obey
+    // ED-safe on a cold start too (med-njny).
+    payload.gamification_goal_line = await goalLinePayload(settingsPart.features);
     return payload;
   }
 
@@ -512,13 +554,22 @@ export function createApiRouter(ctx, {
       const m = /^\/api\/weight\/([^/]+)$/.exec(path);
       if (m) { await weight.remove(m[1]); return true; }
     }
-    if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
+    if (path === '/api/weight/goal' && method === 'GET') {
+      // The weight summary (MCP health.weight.goal.read) also carries
+      // height_cm / bmi / bmi_band — omitted together when there is no height,
+      // no weight log, or ED-safe (the same bmiPayload decision, med-a6fb.3).
+      const [goal, b] = await Promise.all([weight.getGoal(), bmiPayload()]);
+      return b.bmi === null ? goal : { ...goal, height_cm: b.height_cm, bmi: b.bmi, bmi_band: b.band };
+    }
     if (path === '/api/weight/goal' && method === 'POST') {
       const res = await weight.setGoal(body);
       // The queued weigh-in push carries the goal's distance (Web Push only).
       scheduleReminderRecompute(ctx, { records, timeZone });
       return res;
     }
+    // BMI (epic med-a6fb). The ED-safe decision is made HERE, once: every
+    // surface (card, chart bands, nudge, goal warning, MCP) obeys the payload.
+    if (path === '/api/weight/bmi' && method === 'GET') return bmiPayload();
     if (path === '/api/weight/goals/history' && method === 'GET') {
       // max 200: the domain's own append-only-history cap, so a deeper offset
       // legitimately runs out of rows rather than being an error.
@@ -578,6 +629,10 @@ export function createApiRouter(ctx, {
       scheduleReminderRecompute(ctx, { records, timeZone });
       return { unit };
     }
+
+    // Partial patch of the body settings (height_cm, height_unit, show_bmi,
+    // bmi_nudge_dismissed — settings.js BODY_FIELDS); null resets a field.
+    if (path === '/api/settings/body' && method === 'PATCH') return settings.setBodySettings(body);
 
     if (path === '/api/settings' && method === 'POST') {
       // Mirrors handleUpdateSettings: a timezone change goes through the tz
@@ -1377,11 +1432,7 @@ export function createApiRouter(ctx, {
     // on the gamification flag (its card lives on Today); the
     // workout/BP rows carry their own feature_on from the same flag map.
     if (path === '/api/gamification/goal-line' && method === 'GET') {
-      const flags = clampFeatures(await settings.getFeatures());
-      if (!flags.gamification) return { enabled: false };
-      // getGoalLineCard = getGoalLine + `milestone` (the newest unacknowledged
-      // goal milestone, materialized floored on this read — med-8tur.5).
-      return gamification.getGoalLineCard({ features: flags });
+      return goalLinePayload(clampFeatures(await settings.getFeatures()));
     }
     // Acknowledging a goal milestone is the user write that retires its line
     // on the Goal Line card; the record stays in the Journey keystones.

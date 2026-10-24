@@ -586,7 +586,10 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
 
             window.featureSettings = { gamification: false };
             window.SettingsView.updateFeatureToggles();
-            for (const id of ids) expect(row(id).classList.contains('wg-settings-hidden')).toBe(true);
+            // ED-safe is its own promise and stays reachable with Journey off (med-njny).
+            for (const id of ids) {
+                expect(row(id).classList.contains('wg-settings-hidden')).toBe(id !== 'gam-mode-ed-safe-toggle');
+            }
             window.featureSettings = { gamification: true };
             window.SettingsView.updateFeatureToggles();
             for (const id of ids) expect(row(id).classList.contains('wg-settings-hidden')).toBe(false);

@@ -394,6 +394,9 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 "settings": {
   "timezone": "Europe/Berlin",
   "dismissed_tz_suggestion": "",
+  "height_cm": 180,                          // absent when unset
+  "height_unit": "ftin",                     // absent when unset
+  "show_bmi": false,                         // absent when unset
   "features": { "food": false, "bp": true, ... },
   "tab_order": ["bp","weight","food","health","workouts","meds"],
   "food_targets": { "calories": int, "carbs": int, "protein": int, "fat": int } | null,
@@ -404,6 +407,13 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 }
 ```
 
+- **height_cm** / **height_unit** / **show_bmi** — body settings for the adult BMI
+  (epic med-a6fb), fields on the `settings` general singleton (`web/domain/settings.js`
+  `BODY_FIELDS`). `height_cm`: integer cm, 100–250. `height_unit`: `"cm"` | `"ftin"`
+  (display only; storage is always cm). `show_bmi`: bool. Each is **absent when unset**
+  (the default applies: no height, `cm`, `true`) — never `null`; legacy files omit them
+  and import with no height. An invalid value (e.g. non-numeric height) is ignored on
+  import. `bmi_nudge_dismissed` lives on the same singleton but is **not** exported.
 - **features** — object map of feature-flag booleans (`food`, `bp`, `weight`,
   `medication`, `workout`, `health`, `gamification`, `weekly_digest`, …). Mirrors the
   `features` singleton `flags`.
