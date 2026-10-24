@@ -28,7 +28,8 @@ object LocalWipe {
     localStorage.clear();
     sessionStorage.clear();
     for (const d of await indexedDB.databases()) {
-      await new Promise((r) => { const q = indexedDB.deleteDatabase(d.name); q.onsuccess = q.onerror = q.onblocked = r; });
+      // Blocked: keep waiting for success; the native timeout fails it. An error fails the wipe.
+      await new Promise((ok, fail) => { const q = indexedDB.deleteDatabase(d.name); q.onsuccess = ok; q.onerror = () => fail(q.error); });
     }
     if (self.caches) for (const k of await caches.keys()) await caches.delete(k);
     if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();

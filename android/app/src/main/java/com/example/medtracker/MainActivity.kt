@@ -824,20 +824,27 @@ class MainActivity : Activity() {
             // account booted unlocked. Only for the host local.leave {erase} remembered, within the code's
             // 10 minutes: wipe the local origin's website data plus local.reset's native share. Reminders
             // and the slot were already cleared by enterAccount; clearing them here would hit this
-            // account's own. Otherwise a no-op. Either way the flag is spent.
+            // account's own. Not due: a no-op that spends the flag. A failed wipe answers "erase failed"
+            // and keeps the flag for the next boot.
             // Listed in both modes (the local page's Join-and-erase probe); in local mode a no-op.
             "local.erase" -> {
                 if (local) return answer(true) // the flag cannot exist here (setLocal(true) clears it)
                 val due = Invite.eraseDue(prefs.getString(Invite.ERASE_HOST_KEY, null), prefs.getLong(Invite.ERASE_AT_KEY, 0), host, System.currentTimeMillis())
-                clearErase()
-                if (!due) return answer(true)
-                prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
-                move.clear()
-                leave.clear()
-                // The reply waits for the wipe; the page's caller times out on its own.
+                if (!due) {
+                    clearErase()
+                    return answer(true)
+                }
+                // The reply waits for the wipe; the page's caller times out on its own. A failed wipe
+                // keeps the (host- and TTL-bound) flag, so the next unlocked boot retries.
                 LocalWipe.run(this) { ok ->
                     diag("shell local erase ${if (ok) "done" else "failed"}")
-                    if (!isDestroyed) runCatching { answer(true) }
+                    if (ok) {
+                        clearErase()
+                        prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
+                        move.clear()
+                        leave.clear()
+                    }
+                    if (!isDestroyed) runCatching { if (ok) answer(true) else answer(null, "erase failed") }
                 }
             }
             // The pending-invite slot: the page reads it once per boot; clear on "Keep this account" or stale.
