@@ -201,6 +201,41 @@ describe('firstrun W1 module picker', () => {
         }
     });
 
+    // The pref write is part of the W1 save: first run completes only once it
+    // reads back, so a failed write can never leave a new account to the floor.
+    it('account mode: a failed pref write keeps W1 open with its error; a delayed one holds completion', async () => {
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch() });
+        try {
+            window.medications = [];
+            let release;
+            const delayed = new Promise((resolve) => { release = resolve; });
+            const pref = vi.fn()
+                .mockResolvedValueOnce(null) // apiCall's failure answer, after its own alert
+                .mockReturnValueOnce(delayed);
+            window.apiCall = vi.fn((url) => (url === '/api/settings/reminder-delivery'
+                ? pref()
+                : Promise.resolve({ ok: true })));
+            const completed = () => window.apiCall.mock.calls.some((c) => c[0] === '/api/firstrun/complete');
+            window.WGFirstRun.mount();
+
+            action(document, 'skip-all').click();
+            await flush();
+            expect(completed()).toBe(false);
+            expect(document.getElementById('wg-firstrun-overlay')).not.toBeNull();
+            expect(document.getElementById('wg-firstrun-overlay').textContent).toContain('Couldn’t save your choices');
+
+            // Retry: completion waits for the slow write.
+            action(document, 'skip-all').click();
+            await flush();
+            expect(pref).toHaveBeenCalledTimes(2);
+            expect(completed()).toBe(false);
+            release({ delivery: 'webpush', verbosity: 'generic' });
+            await flush();
+            await flush();
+            expect(completed()).toBe(true);
+        } finally { cleanup(); }
+    });
+
     // bd med-ta2n.21: Diary's notes live in Vitals, so Diary without Sleep
     // still keeps `health` on; Diary has no flag of its own but is a pick.
     it('Diary picked without Sleep keeps health on', async () => {

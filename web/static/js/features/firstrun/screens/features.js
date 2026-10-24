@@ -59,13 +59,15 @@
     // text, as local mode does. The empty PUT stores the current pref (Generic
     // when none is stored) before any medication exists, so the Detailed floor
     // for existing accounts (web/cloud/js/reminders.js) never fires for it. A
-    // re-run with medications skips it: that account keeps what it has.
+    // re-run with medications skips it: that account keeps what it has. Part
+    // of the W1 save: a failed write (apiCall answers null or rejects) keeps
+    // W1 open with its error, so first run never completes without the pref.
     function _keepReminderText() {
-        if (document.documentElement.classList.contains('wg-local-vault')) return;
-        if (typeof window.apiCall !== 'function') return;
-        if (Array.isArray(window.medications) && window.medications.length) return;
-        Promise.resolve(window.apiCall('/api/settings/reminder-delivery', 'PUT', {})).catch(function (e) {
-            console.error('[firstrun] reminder text default failed', e);
+        if (document.documentElement.classList.contains('wg-local-vault')) return Promise.resolve();
+        if (typeof window.apiCall !== 'function') return Promise.resolve();
+        if (Array.isArray(window.medications) && window.medications.length) return Promise.resolve();
+        return Promise.resolve(window.apiCall('/api/settings/reminder-delivery', 'PUT', {})).then(function (pref) {
+            if (!pref || !pref.verbosity) throw new Error('reminder text pref not saved');
         });
     }
 
@@ -249,7 +251,8 @@
             busy(true);
             error.textContent = '';
             _persistAll(picked)
-                .then(function () { _keepReminderText(); return helpers.finishPicker(picked); })
+                .then(_keepReminderText)
+                .then(function () { return helpers.finishPicker(picked); })
                 .catch(function () {
                     // Moving on now would leave unpicked sections silently ON
                     // (an unwritten flag falls back to DEFAULT_FEATURES).
