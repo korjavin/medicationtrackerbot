@@ -190,6 +190,9 @@ final class VisualQATests: XCTestCase {
             } else if let link = step["openURL"] as? String {
                 guard let url = URL(string: link) else { return "bad openURL \(link)" }
                 app.open(url) // as a scanned link or a tapped medtracker:// would: onOpenURL → Shell.capture
+                // iOS may ask "Open in "MedTracker"?" for a link from another app (the runner).
+                let confirm = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"]
+                if confirm.waitForExistence(timeout: 3) { confirm.tap() }
             } else if let label = step["waitFor"] as? String {
                 let el = app.descendants(matching: .any)
                     .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
