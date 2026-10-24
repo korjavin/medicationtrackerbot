@@ -39,7 +39,11 @@ enum LocalOrigin {
                             "notifications.permission", "notifications.requestPermission",
                             "notifications.schedule", "notifications.test",
                             "notifications.openSettings", // the denied note's "Open iOS Settings" (bd med-ckm5.15)
-                            "invite.pending", "invite.clear"] // the pending-invite slot (bd med-ta2n.11, InviteSlot)
+                            "invite.pending", "invite.clear", // the pending-invite slot (bd med-ta2n.11, InviteSlot)
+                            // "Join and erase" (bd med-r1j2.7, JoinErase): listed in local mode too,
+                            // where invite.js probes it before offering the erase; it wipes from the
+                            // joined account only (a no-op replying true anywhere else).
+                            "local.erase"]
 
     /// The bridge op shell.ops (bd med-o7zq.35, twin of Android LocalOrigin.ops):
     /// what this shell answers in this mode, for the page's capability probe.

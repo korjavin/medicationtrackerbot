@@ -75,6 +75,38 @@ let inviteVectors: [(String, String)] = [
     ("otherapp://i/abc#0a1b2c", ""),
     ("wgapp://local/", ""),
     ("", ""),
+    // The add-device hand-off (bd med-r1j2.7, web med-r1j2.4): /d/<sub>#<slot>.<TK> → /claim#<slot>.<TK>.
+    ("https://app.example.com/d/abc#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("https://APP.example.com/d/ABC#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("medtracker://d/abc#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("MedTracker://D/my-sub-9#s.t", "https://my-sub-9.app.example.com/claim#s.t"),
+    ("https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("https://app.example.com/d/abc", ""), // no code
+    ("https://app.example.com/d/abc#", ""),
+    ("https://app.example.com/d/abc#nodot", ""),
+    ("https://app.example.com/d/abc#a.b.c", ""),
+    ("https://app.example.com/d/abc#.b", ""),
+    ("https://app.example.com/d/abc#a.", ""),
+    ("https://app.example.com/d/abc#a+b.c", ""),
+    ("https://app.example.com/d/abc#a%2Eb", ""), // raw fragment
+    ("https://app.example.com/d/abc?x=1#s.t", ""),
+    ("https://app.example.com/d/abc?#s.t", ""),
+    ("https://app.example.com/d/#s.t", ""),
+    ("https://app.example.com/d/a.b#s.t", ""),
+    ("https://app.example.com/d/a/b#s.t", ""),
+    ("https://app.example.com:8443/d/abc#s.t", ""),
+    ("https://u@app.example.com/d/abc#s.t", ""),
+    ("http://app.example.com/d/abc#s.t", ""),
+    ("https://evil.com/d/abc#s.t", ""),
+    ("https://app.example.com.evil.com/d/abc#s.t", ""),
+    ("https://evilapp.example.com/d/abc#s.t", ""),
+    ("https://app.example.com/i/abc#s.t", ""), // an invite token stays hex
+    ("https://app.example.com/d/abc#0a1b2c", ""), // a hex invite token is no hand-off code
+    ("medtracker://d/abc", ""),
+    ("medtracker://d/abc?x=1#s.t", ""),
+    ("medtracker://d:1/abc#s.t", ""),
+    ("medtracker://u@d/abc#s.t", ""),
+    ("medtracker://d/a/b#s.t", ""),
 ]
 for (input, want) in inviteVectors {
     let got = AccountURL.parseInvite(input, base: base)?.absoluteString ?? ""
@@ -96,6 +128,33 @@ precondition(JSONSerialization.isValidJSONObject(slot!))
 InviteSlot.clear(slotDefaults)
 precondition(InviteSlot.pending(slotDefaults) == nil)
 slotDefaults.removePersistentDomain(forName: "wg-invite-slot-test")
+
+// JoinErase (bd med-r1j2.7): only the remembered host, only within the code's 10 minutes.
+let eraseDefaults = UserDefaults(suiteName: "wg-join-erase-test")!
+eraseDefaults.removePersistentDomain(forName: "wg-join-erase-test")
+let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+precondition(!JoinErase.due("abc.app.example.com", at: t0, eraseDefaults), "nothing remembered")
+JoinErase.remember("abc.app.example.com", at: t0, eraseDefaults)
+precondition(JoinErase.due("abc.app.example.com", at: t0, eraseDefaults))
+precondition(JoinErase.due("abc.app.example.com", at: t0 + 9 * 60, eraseDefaults))
+precondition(!JoinErase.due("abc.app.example.com", at: t0 + 10 * 60, eraseDefaults), "expired with the code")
+precondition(!JoinErase.due("abc.app.example.com", at: t0 - 1, eraseDefaults), "clock set back")
+precondition(!JoinErase.due("xyz.app.example.com", at: t0, eraseDefaults), "another account")
+precondition(!JoinErase.due(nil, at: t0, eraseDefaults))
+// local.erase re-checks the intent it started with: a newer one (or none) stops it.
+let held = JoinErase.stamp(eraseDefaults)
+precondition(held == t0.timeIntervalSince1970)
+precondition(JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 60, eraseDefaults))
+JoinErase.remember("abc.app.example.com", at: t0 + 30, eraseDefaults)
+precondition(!JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 60, eraseDefaults), "a newer intent")
+precondition(!JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 11 * 60, eraseDefaults), "expired mid-wipe")
+JoinErase.clear(eraseDefaults)
+precondition(JoinErase.stamp(eraseDefaults) == nil)
+precondition(!JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 60, eraseDefaults), "cancelled mid-wipe")
+JoinErase.remember("abc.app.example.com", at: t0, eraseDefaults)
+JoinErase.clear(eraseDefaults)
+precondition(!JoinErase.due("abc.app.example.com", at: t0, eraseDefaults), "cleared")
+eraseDefaults.removePersistentDomain(forName: "wg-join-erase-test")
 print("AccountURL: ok")
 
 // LocalOrigin (bd med-o7zq.4): request routing, CSP, the bridge's host list.
@@ -228,6 +287,7 @@ precondition(!accountOps.contains("lock.status") && !accountOps.contains("lock.s
 precondition(localOps.contains("base.post") && !accountOps.contains("base.post"))
 // push.token (bd med-erq1.4): account only; local mode never reports a token.
 precondition(accountOps.contains("push.token") && !localOps.contains("push.token"))
+precondition(accountOps.contains("local.erase") && localOps.contains("local.erase"), "invite.js probes it in local mode") // bd med-r1j2.7
 print("LocalOrigin.ops: ok")
 
 // Push (bd med-erq1.4): the page event, the token encoding, the Diag fingerprint.
