@@ -137,7 +137,7 @@ button.wg-card{width:100%;text-align:left;cursor:pointer;font:inherit;color:inhe
 button.wg-row{cursor:pointer}button.wg-row:hover{background:var(--wg-bg-card-hi)}
 .wg-row--pad{padding-right:14px}
 .wg-row__lead{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;background:rgba(255,255,255,.06);color:var(--wg-fg-2)}
-.wg-row__lead--sun{background:var(--wg-warn-bg);color:var(--wg-sun)}.wg-row__lead--ok{background:var(--wg-ok-bg);color:var(--wg-ok-fg)}.wg-row__lead--danger{background:var(--wg-danger-bg);color:var(--wg-danger-fg)}.wg-row__lead--sky{background:var(--wg-pending-bg);color:var(--wg-pending-fg)}
+.wg-row__lead--sun{background:var(--wg-warn-bg);color:var(--wg-sun)}.wg-row__lead--ok{background:var(--wg-ok-bg);color:var(--wg-ok-fg)}.wg-row__lead--danger{background:var(--wg-danger-bg);color:var(--wg-danger-fg)}.wg-row__lead--sky{background:var(--wg-pending-bg);color:var(--wg-pending-fg)}.wg-row__lead--warn{background:var(--wg-warn-bg);color:var(--wg-warn-fg)}.wg-row__lead--stale{background:var(--wg-stale-bg);color:var(--wg-stale-fg);border:1px dashed var(--wg-stale-line)}
 .wg-row__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .wg-row__title{font:500 var(--wg-fs-md)/1.3 var(--wg-font-ui);color:var(--wg-fg-1);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .wg-row__title--mono{font-family:var(--wg-font-mono);font-size:var(--wg-fs-md)}
@@ -592,6 +592,13 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
    confirm layer with its tap-catching backdrop, so it opens over the W1
    overlay; the kit's display rules (.wg-field, .wg-error) beat UA [hidden]. */
 .wg-modal.wg-invite-sheet {
+    z-index: var(--z-confirm);
+}
+
+/* Notification ask + RD2 lock-screen choice (features/notify-permission.js,
+   med-mt0l): same confirm layer as their backdrop, so the backdrop never
+   swallows a tap on the sheet and RD2 opens over the W1 overlay. */
+.wg-modal.wg-notify-ask {
     z-index: var(--z-confirm);
 }
 

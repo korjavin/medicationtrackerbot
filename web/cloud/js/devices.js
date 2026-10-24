@@ -92,9 +92,25 @@ export function renderDeviceList(mount, ctx, hooks = {}) {
   });
 }
 
+// A redeploy blip (network error / 5xx) gets one quiet retry before the
+// owner sees anything (med-e92o); a 4xx answer is final. The copy stays calm:
+// a list that won't load says nothing about the vault itself.
+const LIST_RETRY_MS = 1500;
+const LIST_ERROR = "Couldn't reach the server. Your data is safe — try again.";
+
+async function fetchDeviceList() {
+  const get = () => fetch('/api/devices').catch(() => null);
+  let res = await get();
+  if (!res || res.status >= 500) {
+    await new Promise((resolve) => setTimeout(resolve, LIST_RETRY_MS));
+    res = await get();
+  }
+  if (!res || !res.ok) throw new Error(LIST_ERROR);
+  return res;
+}
+
 async function loadDevices(mount, ctx, hooks) {
-  const res = await fetch('/api/devices');
-  if (!res.ok) throw new Error('Could not load your devices.');
+  const res = await fetchDeviceList();
   const devices = await res.json();
 
   // Verify-only K_mac leaf key from the warm ctx (unlock.js warmUnlock).

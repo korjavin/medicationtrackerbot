@@ -1531,11 +1531,10 @@ function refreshIntegrationsSummary() {
     const filled = (id) => !!document.getElementById(id)?.value.trim();
     const set = [
         filled('integrations-openai-api-key') && 'OpenAI',
-        (filled('integrations-food-api-key') || filled('integrations-food-url')) && 'Food DB',
         filled('integrations-elevenlabs-api-key') && 'Voice',
         document.getElementById('telegram-settings-mount')?.dataset.tgState === 'linked' && 'Telegram',
     ].filter(Boolean);
-    setSettingsSummary('integrations', set.length ? set.join(' · ') : 'AI, food database, voice, Telegram');
+    setSettingsSummary('integrations', set.length ? set.join(' · ') : 'AI, voice, Telegram');
 }
 
 async function refreshDevicesSummary() {

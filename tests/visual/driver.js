@@ -196,6 +196,15 @@
             // seeded records → "Turn on sync?"; account mode → "Switch account?".
             // Nothing leaves until a tap.
             window.InviteSheet.offer(step.offer);
+        } else if (step.reminderHint) {
+            // Kit RD3 (bd med-mt0l): the take sheet as a reminder tap opens it
+            // (the deeplink's ids + slot), with the one-time lock-screen hint
+            // re-armed for this device. Nothing is written until a tap.
+            try { window.localStorage.removeItem('wg.reminderDetailHint.shown'); } catch (_) { /* hint just won't show */ }
+            const meds = (await window.apiCall('/api/medications')) || [];
+            const med = meds.find((m) => !m.archived);
+            if (!med) throw new Error('reminderHint: no active medication in the seed');
+            window.handlePushAction('medication_confirm', new URLSearchParams({ ids: String(med.id), scheduled: new Date().toISOString() }));
         } else if (step.inviteRequest) {
             // The W5 "Request an invite" sheet (bd med-ta2n.14). Its button
             // needs the shell's base.post op, which no QA pass has: open it

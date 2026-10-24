@@ -214,7 +214,7 @@ describe('Food Add sheet', () => {
         expect(document.getElementById('food-modal-more').open).toBe(true);
         expect(posts()).toHaveLength(0);
         // No food database to ask: the miss says why, not "No product found".
-        expect(window.safeToast).toHaveBeenCalledWith('Barcode lookup needs the food database. Add one in Settings → Integrations.', 'info');
+        expect(window.safeToast).toHaveBeenCalledWith('Barcode lookup needs the food database, which isn’t available right now.', 'info');
     });
 
     it('a miss with a food database configured keeps "No product found"; a remoteHint replaces the not-configured copy', async () => {

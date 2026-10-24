@@ -1,5 +1,5 @@
 // features/settings/integrations.js — owns the Settings → Integrations
-// section that lets the user configure OpenAI / Food DB / ElevenLabs
+// section that lets the user configure OpenAI / ElevenLabs
 // credentials from inside the app (Task 3 of the local-only-mode
 // foundation plan). The section is invisible to the MCP agent and only
 // reachable via the Settings screen.
@@ -33,16 +33,12 @@
             vision_url: 'integrations-openai-vision-url',
             vision_model: 'integrations-openai-vision-model'
         },
-        // No `domain` entry: it was a hostname-shorthand duplicate of `url`,
-        // ignored whenever `url` was set, and nobody could tell the two apart
-        // (med-xrr). The field is gone from the UI; the resolvers still read a
-        // stored food.domain, and leaving it out of FIELD_IDS is what preserves
-        // it — readDOMIntoPayload would otherwise send '' for the absent input
-        // and both patch paths treat '' as "clear this".
-        food: {
-            api_key: 'integrations-food-api-key',
-            url: 'integrations-food-url'
-        },
+        // No `food` group (med-bpp9) and no food.domain (med-xrr): the custom
+        // food-DB server UI is gone, but the resolvers still read a stored
+        // food.{api_key,url,domain}. Leaving the group out of FIELD_IDS is what
+        // preserves it — readDOMIntoPayload would otherwise send '' for absent
+        // inputs and both patch paths treat '' as "clear this"; patchIntegrations
+        // leaves omitted groups untouched.
         elevenlabs: {
             api_key: 'integrations-elevenlabs-api-key',
             agent_id: 'integrations-elevenlabs-agent-id'
@@ -53,7 +49,6 @@
     // web/domain/settings.js and the server's handleGetIntegrations masking.
     const SECRET_FIELDS = {
         openai: new Set(['api_key', 'vision_api_key']),
-        food: new Set(['api_key']),
         elevenlabs: new Set(['api_key'])
     };
 
@@ -93,7 +88,6 @@
                 input.value = typeof value === 'string' ? value : '';
             }
         }
-        applyCloudFoodDbPlaceholder();
         applyTrialHints();
     }
 
@@ -322,7 +316,7 @@
 
     // The "Your own keys · replace the trial" rows: Set / Not set from the
     // masked GET values, and a tap jumps to that provider's key field.
-    const OWN_KEY_INPUTS = { openai: FIELD_IDS.openai.api_key, food: FIELD_IDS.food.api_key, elevenlabs: FIELD_IDS.elevenlabs.api_key };
+    const OWN_KEY_INPUTS = { openai: FIELD_IDS.openai.api_key, elevenlabs: FIELD_IDS.elevenlabs.api_key };
     function syncOwnKeyRows() {
         document.querySelectorAll('#integrations-trial [data-own-key]').forEach((row) => {
             const input = getInput(OWN_KEY_INPUTS[row.getAttribute('data-own-key')]);
@@ -445,14 +439,6 @@
             if (fresh && typeof fresh === 'object') _trialConsent = fresh;
         } catch (_) { /* aborted — keep prior state */ }
         renderTrialConsentRows();
-    }
-
-    // applyCloudFoodDbPlaceholder shows static copy: the operator's host is
-    // private and never sent to the browser (only a boolean flag is).
-    function applyCloudFoodDbPlaceholder() {
-        const input = getInput(FIELD_IDS.food.url);
-        if (!input) return;
-        input.placeholder = document.querySelector('meta[name="medtracker-food-db"]') ? "Operator's food database" : '';
     }
 
     // Model-id suggestions (bd med-byom). Strictly a typing aid: the inputs stay

@@ -398,20 +398,6 @@ html, body {
     --wg-meds-next-subtitle-size: 11px;
     --wg-meds-next-names-size: 15px;
 
-    /* Meds history sub-tab tokens (Phase 5, Task 5) — filter strip geometry,
-       day-group label size, log-row padding, trailing time + status sizes. */
-    --wg-meds-filter-gap: 8px;
-    --wg-meds-filter-field-pad-y: 4px;
-    --wg-meds-filter-field-pad-x: 10px;
-    --wg-meds-filter-label-size: 10px;
-    --wg-meds-history-row-pad: 12px;
-    --wg-meds-history-row-gap: 8px;
-    --wg-meds-history-day-size: 11px;
-    --wg-meds-history-time-size: 12px;
-    --wg-meds-history-name-size: 14px;
-    --wg-meds-next-intake-pad-y: 6px;
-    --wg-meds-next-intake-pad-x: 10px;
-
     /* Wandergeek — Weight screen (Phase 6, Task 1). Dimensional tokens for
        the big current-weight card, trend arrow + delta, optional goal card,
        range selector, single-series chart, and day-grouped history rows.
@@ -1067,46 +1053,6 @@ select {
 .form-label {
     display: block;
     margin-bottom: var(--space-sm);
-}
-
-/* History Grouping. Rendered as `.wg-card .history-group`: the surface
-   (background/padding/border/radius) comes from the zero-specificity
-   :where(.wg-card) base in components.css, so this companion must not set it
-   (med-xso6.35 — it painted the light paper card over the dark kit card). */
-.history-group {
-    margin-bottom: var(--space-md);
-}
-
-.history-header {
-    font-size: var(--font-size-sm);
-    margin-bottom: var(--space-sm);
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.history-items {
-    padding-left: 28px;
-    /* Indent under icon */
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-}
-
-.history-subitem {
-    background: rgba(0, 0, 0, 0.05);
-    /* slightly clearer than bg */
-    padding: var(--space-xs) var(--space-md);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    display: inline-block;
-}
-
-/* Dark mode adjustment if needed */
-@media (prefers-color-scheme: dark) {
-    .history-subitem {
-        background: rgba(255, 255, 255, 0.1);
-    }
 }
 
 /* BP Section */
@@ -1994,67 +1940,6 @@ svg.chart-svg {
 .med-action-icons {
     display: flex;
     gap: var(--space-sm);
-}
-
-/* ========== Next Intake Card (Meds, History) ==========
-   Round-2 Task 8, defect 11b: restyled from the legacy purple-gradient
-   plus translucent-pill look to Wandergeek tokens. Card surface matches
-   the Today "Next up" pattern (elevated teal on the stage, hairline
-   border, --wg-radius-card); kicker label is muted-uppercase small
-   caption; the countdown uses the display-numeric typeface; meta line
-   carries the medication names and `at DD.MM., HH:MM`. The Take Now
-   CTA is a kit .wg-btn--sm so its size
-   matches the other primary actions across the app — color is the
-   only emphasis. */
-
-.wg-meds-next-intake-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-md);
-    padding: var(--space-md) var(--space-lg);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    box-sizing: border-box;
-}
-
-.wg-meds-next-intake-card__text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.wg-meds-next-intake-card__kicker {
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: 600;
-}
-
-.wg-meds-next-intake-card__time {
-    font-family: var(--wg-font-display);
-    font-size: var(--font-size-xl);
-    line-height: 1.1;
-    color: var(--wg-fg-1);
-    margin-top: 2px;
-}
-
-.wg-meds-next-intake-card__meta {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.wg-meds-next-intake-card__cta {
-    white-space: nowrap;
 }
 
 /* ========== Health Overview Charts ========== */
@@ -6722,202 +6607,17 @@ body:has(.wg-callbar--dock) .wg-toasts {
     outline: none;
 }
 
-/* Meds schedule sub-tab — "Upcoming" forecast (bd med-gut.2). Read-only list
-   of the next 7 days of doses, grouped by day in the tracked timezone. Each
-   row is a compact `.wg-card` (mono time gutter + name/dosage), and doses that
-   came from an approved tz transition plan carry a `.wg-tag--mono` step badge
-   plus the plan step's own explanatory note. */
-.wg-meds-upcoming {
-    margin-top: var(--space-lg);
-}
-
-.wg-meds-upcoming__day {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-4);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin: var(--space-md) 0 var(--space-xs);
-}
-
-.wg-meds-upcoming__row {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-md);
-    padding: var(--space-sm) var(--space-md);
-    margin-bottom: var(--space-xs);
-}
-
-.wg-meds-upcoming__time {
-    flex-shrink: 0;
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-}
-
-.wg-meds-upcoming__body {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-meds-upcoming__title {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    min-width: 0;
-}
-
-.wg-meds-upcoming__name {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-1);
-}
-
-.wg-meds-upcoming__dosage {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.02em;
-}
-
-.wg-meds-upcoming__note {
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-4);
-}
-
-/* Meds history sub-tab (Phase 5, Task 5). Two `.wg-gloss--inset` select
-   wraps sit atop a muted next-intake link row, followed by a day-grouped
-   list where each minute-cluster of intakes is a `.wg-card` row. Status
-   tokens come from `.wg-tag` + `.wg-tag--mono` variants so the paper-era
-   ✅/⏳/❌ icons become mono-label pills. */
-.wg-meds-filters {
-    display: flex;
-    gap: var(--wg-meds-filter-gap);
-    margin-bottom: var(--space-md);
-}
-
-.wg-meds-filters__field {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding: var(--wg-meds-filter-field-pad-y) var(--wg-meds-filter-field-pad-x);
-    min-width: 0;
-}
-
-.wg-meds-filters__label {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-meds-filter-label-size);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--wg-fg-4);
-}
-
-.wg-meds-filters__select {
-    appearance: none;
-    background: transparent;
-    border: none;
-    padding: 0;
-    color: var(--wg-fg-1);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    width: 100%;
-    cursor: pointer;
-}
-
-.wg-meds-filters__select:focus {
-    outline: none;
-}
-
-.wg-meds-next-intake-trigger {
-    display: block;
-    padding: var(--wg-meds-next-intake-pad-y) var(--wg-meds-next-intake-pad-x);
-    margin-bottom: var(--space-md);
-    color: var(--wg-fg-3);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-}
-
-.wg-meds-next-intake-trigger:empty {
-    display: none;
-}
-
-.wg-meds-history {
+/* Meds timeline (kit v2 MT1, bd med-wi09.3). Kit markup throughout — day
+   sections are .wg-section, rows .wg-row; this only spaces the days and sets
+   the Tomorrow "N more" reveal under its list. */
+.wg-timeline {
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
 }
 
-.wg-meds-history__day {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-meds-history__day-label {
-    font-size: var(--wg-meds-history-day-size);
-}
-
-.wg-meds-history__rows {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-meds-history__row {
-    display: flex;
-    align-items: center;
-    gap: var(--wg-meds-history-row-gap);
-    padding: var(--wg-meds-history-row-pad);
-}
-
-.wg-meds-history__row.cursor-pointer {
-    cursor: pointer;
-}
-
-.wg-meds-history__row-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-meds-history__names {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-}
-
-.wg-meds-history__name {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-meds-history-name-size);
-    color: var(--wg-fg-1);
-}
-
-.wg-meds-history__meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    flex-wrap: wrap;
-}
-
-.wg-meds-history__time {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-meds-history-time-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.04em;
-}
-
-.wg-meds-history__actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    flex-shrink: 0;
-}
-
-.wg-meds-history__status {
-    white-space: nowrap;
+.wg-timeline__more-btn {
+    align-self: flex-start;
 }
 
 /* Food day navigator (kit .wg-daynav, F1). The hidden <input type="date">
@@ -7232,6 +6932,11 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 .wg-med-confirm-modal__time {
     position: relative;
+}
+
+/* RD3 hint slot (med-mt0l): no extra flex gap while empty. */
+.wg-med-confirm-modal__hint:empty {
+    display: none;
 }
 
 .wg-med-confirm-modal__input {
