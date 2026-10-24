@@ -29,8 +29,8 @@ creates a new category of data leaving your device.
 - **You can use the app with no account at all.** In "Only on this device"
   mode nothing is synced and we receive nothing, unless you add your own
   provider key or switch on the free trial.
-- **Deleting is real and immediate** on our server; backups, where they run,
-  expire within 7 days; a copy of your records exported to your device, or
+- **Deleting is real and immediate** on our server; encrypted backups, where
+  they run, are deleted on a rolling schedule (section 7); a copy of your records exported to your device, or
   sent to a third party by a feature you used, is yours or theirs, not ours.
 
 ## Who we are, and how to reach us
@@ -196,7 +196,7 @@ categories of service providers that handle data on our behalf are:
 | Provider category | What reaches them | When |
 |---|---|---|
 | Hosting | The encrypted database and the metadata in section 2 | Always |
-| Backup storage | A copy of the encrypted database; ciphertext and metadata only, expiring within 7 days | Where backups are enabled |
+| Backup storage | A copy of the encrypted database; ciphertext and metadata only, kept for a limited time and deleted on a rolling schedule | Where backups are enabled |
 | Push services (Apple, Google, browser vendors) | Reminder times and an opaque encrypted payload | When you enable reminders |
 | Email relay | The email address and the invite email | When we approve an emailed invite request |
 | AI providers (OpenAI, Anthropic, or the one you chose) | The text or photo of one request | Section 3a, 3b |
@@ -216,8 +216,8 @@ key.
   all your devices.
 - **Deleting your account:** **Settings → Account & privacy → Delete account**
   removes your account and all its data from our server immediately, in one
-  transaction, and wipes this device's copy. Backups, where they run, expire
-  within 7 days. Invite-request rows expire on their own schedule (section
+  transaction, and wipes this device's copy. Encrypted backups, where they
+  run, age out on the rolling schedule in section 7 and are not restored. Invite-request rows expire on their own schedule (section
   2). Data already sent to a third party through a feature you used stays
   under that party's policy.
 - **No recovery after deletion:** the keys were only ever yours, so neither we
