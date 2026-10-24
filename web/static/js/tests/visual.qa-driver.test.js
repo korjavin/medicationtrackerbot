@@ -57,7 +57,7 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         const realLoadToday = env.window.loadToday;
         env.window.loadToday = (...args) => {
             const p = realLoadToday(...args);
-            pendingLoads.push(p.catch(() => {}));
+            pendingLoads.push(p.then(() => null, (err) => err || new Error('loadToday rejected')));
             return p;
         };
         env.window.eval(TODAY_SRC);
@@ -76,10 +76,15 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
     });
 
     afterEach(async () => {
-        await Promise.all(pendingLoads);
-        cancelReminderRecompute({ accountId: 'local' });
-        env.cleanup();
-        vi.unstubAllGlobals();
+        try {
+            // A loader exception still fails the test; teardown runs regardless.
+            const failures = (await Promise.all(pendingLoads)).filter(Boolean);
+            if (failures.length) throw failures[0];
+        } finally {
+            cancelReminderRecompute({ accountId: 'local' });
+            env.cleanup();
+            vi.unstubAllGlobals();
+        }
     });
 
     async function load(scene) {
