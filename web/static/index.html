@@ -1194,10 +1194,15 @@
                 <section id="importexport-sync-group" class="wg-section wg-local-only">
                     <div class="wg-section__head"><span class="wg-eyebrow">Sync</span></div>
                     <div class="wg-card wg-vstack">
-                        <ul class="wg-facts wg-facts--sm">
-                            <li><i class="wg-ico" data-icon="device"></i><span><b>Your records on every device</b>Sign in once, then add a tablet or a browser.</span></li>
-                            <li><i class="wg-ico" data-icon="lock"></i><span><b>Private by design</b>The server stores your log but can't read it.</span></li>
+                        <!-- IM3 (bd med-er5x): the same four facts as the
+                             Request an invite sheet (features/invite.js). -->
+                        <ul id="settings-sync-facts" class="wg-facts wg-facts--sm">
+                            <li><i class="wg-ico" data-icon="device"></i><span><b>Your records on every device</b>Phone and tablet stay in step. To add one, scan a code from this phone.</span></li>
+                            <li><i class="wg-ico" data-icon="cloud-up"></i><span><b>A copy off this phone</b>Lose or reset it, sign back in, and it's all there.</span></li>
+                            <li><i class="wg-ico" data-icon="lock"></i><span><b>Only you can open it</b>Encrypted on your device before it syncs. We store it but can't read it.</span></li>
+                            <li><i class="wg-ico" data-icon="globe"></i><span><b>Open it in any browser</b>On a laptop or a work computer, whenever you need it.</span></li>
                         </ul>
+                        <div class="wg-divider"></div>
                         <div id="settings-sync-none" class="wg-vstack">
                             <p class="wg-hint">Sync needs an invite for now.</p>
                             <div class="wg-hstack">
@@ -1205,7 +1210,7 @@
                                 <span class="wg-spacer"></span>
                                 <button type="button" id="settings-sync-scan" class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Scan</button>
                             </div>
-                            <button type="button" id="settings-sync-request" class="wg-btn wg-btn--block" hidden><i class="wg-ico wg-ico--sm" data-icon="message"></i>Request an invite</button>
+                            <button type="button" id="settings-sync-request" class="wg-link" hidden>No invite? Request one</button>
                             <a id="settings-sync-how" class="wg-link" target="_blank" rel="noopener" hidden>How to get an invite</a>
                             <!-- AD10 · entry (bd med-r1j2.5): Path 0, a synced passkey
                                  opens an existing account (InviteSheet.openAccount). -->

@@ -176,6 +176,15 @@
             // session does, skipping W1's gate.
             window.WGFirstRun.state.clear();
             if (step.firstrun === 'trial') window.WGFirstRun.state.setStep('trial');
+            // firstrun: "invite" answers a placeholder shell base first, so the
+            // W1 footnote's "Want it on every device? Get an invite" (IM1,
+            // med-er5x) shows in local mode; the link is never followed.
+            if (step.firstrun === 'invite') {
+                window.Attest = {
+                    isSupported: () => true,
+                    status: async () => ({ supported: false, base: 'app.example.com', attested: false }),
+                };
+            }
             window.WGFirstRun.mount({ needs_first_run: true });
         } else if (step.invite) {
             // The F1 "Have an invite?" sheet (bd med-ta2n.6). Its W1 footer
@@ -192,8 +201,11 @@
             // needs the shell's base.post op, which no QA pass has: open it
             // directly with a placeholder base and a stub POST, so nothing
             // leaves the page.
-            // inviteRequest: "sent" fills an email and sends (stub 202).
+            // inviteRequest: "sent" fills an email and sends (stub 202); "w4"
+            // opens it the way the W4 protect sheet does (IM2 · W4, med-er5x).
+            const w4 = step.inviteRequest === 'w4' ? { lead: 'copy', eyebrow: '43 records on this phone' } : {};
             const ui = window.InviteSheet.request({
+                ...w4,
                 base: 'app.example.com',
                 post: async () => new Response('{"status":"sent"}', { status: 202 }),
             });

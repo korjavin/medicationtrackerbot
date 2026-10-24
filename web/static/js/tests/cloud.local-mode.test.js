@@ -1183,6 +1183,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await window.paintSyncSection();
                 const button = document.getElementById('settings-sync-request');
                 expect(button.hidden).toBe(false);
+                // IM3 (bd med-er5x): one invite link on the Sync card.
+                expect(button.textContent).toBe('No invite? Request one');
+                expect(document.getElementById('settings-sync-how').hidden).toBe(true);
                 button.click();
                 return requestSheet(document);
             }
@@ -1212,12 +1215,41 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 requestAct(document, 'not-now').click();
             });
 
+            it('IM3 Sync card carries the four facts; IM2 · W4 (lead copy) leads with the copy and its privacy fact', async () => {
+                const { window, document } = env;
+                const cardFacts = [...document.querySelectorAll('#settings-sync-facts li b')].map((b) => b.textContent);
+                expect(cardFacts).toEqual(['Your records on every device', 'A copy off this phone', 'Only you can open it', 'Open it in any browser']);
+                expect(document.querySelector('#settings-sync-facts li').textContent)
+                    .toBe('Your records on every devicePhone and tablet stay in step. To add one, scan a code from this phone.');
+                window.InviteSheet.request({ lead: 'copy', eyebrow: '43 records on this phone' });
+                const sheet = requestSheet(document);
+                expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('43 records on this phone');
+                expect([...sheet.querySelectorAll('[data-invite-facts] li b')].map((b) => b.textContent))
+                    .toEqual(['A copy off this phone', 'Only you can open it', 'Your records on every device', 'Open it in any browser']);
+                requestAct(document, 'close').click();
+                expect(requestSheet(document)).toBeNull();
+            });
+
             it('the shell sends email + note, 202 → "Request sent", Done closes; the page fetches nothing', async () => {
                 answer = { status: 202, headers: {}, body: '' };
                 const sheet = await openRequest(env);
                 const { document } = env;
                 expect(sheet.textContent).toMatch(/Request an invite/);
-                expect(sheet.textContent).toMatch(/Your email and your note. Nothing from your records./);
+                // IM2 (bd med-er5x): what an account adds, every device first,
+                // then the corrected hint, the form and the batches fine print.
+                expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('Sync');
+                const facts = [...sheet.querySelectorAll('[data-invite-facts] li')].map((li) => li.textContent);
+                expect(facts).toEqual([
+                    'Your records on every devicePhone and tablet stay in step. To add one, scan a code from this phone.',
+                    "A copy off this phoneLose or reset it, sign back in, and it's all there.",
+                    "Only you can open itEncrypted on your device before it syncs. We store it but can't read it.",
+                    'Open it in any browserOn a laptop or a work computer, whenever you need it.',
+                ]);
+                expect(sheet.querySelector('[data-invite-facts] + .wg-hint').textContent)
+                    .toBe('Telegram, AI-assistant connectors and sharing need an account too. Everything else works on this phone.');
+                expect(sheet.querySelector('.wg-sheet__body .wg-shell__fine').textContent)
+                    .toBe("Invites go out in small batches. We'll write to this address when yours is ready.");
+                expect(sheet.textContent).not.toMatch(/Sync is invite-only for now/);
                 expect(document.getElementById('invite-request-note').maxLength).toBe(500);
                 const before = fetched.length;
                 fill(document, '  Someone@Example.org ', 'friend of the admin');

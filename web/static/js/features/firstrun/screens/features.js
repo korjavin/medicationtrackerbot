@@ -133,8 +133,8 @@
     }
 
     // W1 footnote (bd med-ta2n.28, contract med-ta2n.24 §D): the disclaimer and
-    // links the deleted native first-run screens carried. "How to get an
-    // invite" is local mode only: the W5 request sheet when the shell can
+    // links the deleted native first-run screens carried. "Want it on every
+    // device? Get an invite" (IM1, bd med-er5x) is local mode only: the W5 request sheet when the shell can
     // base.post, else the base landing page, else nothing.
     var PRIVACY_URL = 'https://cloud.myhealthbot.ai/privacy';
     var DISCLAIMER = 'Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.';
@@ -171,14 +171,18 @@
                 if (!links.isConnected) return;
                 var link;
                 if (how.request) {
-                    link = _el('button', 'wg-link', 'How to get an invite');
+                    link = _el('button', 'wg-link', 'Get an invite');
                     link.type = 'button';
                     link.addEventListener('click', function () { sheet.request(); });
                 } else if (how.base) {
-                    link = _externalLink('How to get an invite', 'https://' + how.base + '/');
+                    link = _externalLink('Get an invite', 'https://' + how.base + '/');
                 } else return;
                 link.setAttribute('data-firstrun-link', 'invite-howto');
-                links.appendChild(link);
+                // IM1 (bd med-er5x): one line of value, the first fact.
+                var line = _el('span', 'wg-shell__fine', 'Want it on every device? ');
+                line.setAttribute('data-firstrun-invite-line', '');
+                line.appendChild(link);
+                links.appendChild(line);
             })
             .catch(function () { /* no invite path: Privacy policy only */ });
     }

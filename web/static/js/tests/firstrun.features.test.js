@@ -708,7 +708,7 @@ describe('firstrun W1 footnote', () => {
         } finally { cleanup(); }
     });
 
-    it('has no "How to get an invite" on the web or in account mode', async () => {
+    it('has no "Get an invite" line on the web or in account mode', async () => {
         for (const opts of [
             { local: false, invite: true, base: 'qa.example.test' }, // the web / account mode, no shell
             { local: false, invite: true, base: 'qa.example.test', native: shell(['base.post']) }, // account mode in a shell
@@ -722,12 +722,12 @@ describe('firstrun W1 footnote', () => {
                 await flush();
                 expect(link(document, 'invite-howto')).toBeNull();
                 expect(link(document, 'privacy')).not.toBeNull();
-                expect(document.getElementById('wg-firstrun-overlay').textContent).not.toContain('How to get an invite');
+                expect(document.getElementById('wg-firstrun-overlay').textContent).not.toContain('Get an invite');
             } finally { cleanup(); }
         }
     });
 
-    it('local shell with base.post: "How to get an invite" opens the W5 request sheet', async () => {
+    it('local shell with base.post: "Want it on every device? Get an invite" (IM1) opens the request sheet', async () => {
         const native = shell(['base.post']);
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), local: true, invite: true, native, base: 'qa.example.test' });
         try {
@@ -736,10 +736,13 @@ describe('firstrun W1 footnote', () => {
             await flush();
             await flush();
             const how = link(document, 'invite-howto');
-            expect(how.textContent).toBe('How to get an invite');
+            expect(how.textContent).toBe('Get an invite');
             expect(how.tagName).toBe('BUTTON');
             expect(how.classList.contains('wg-link')).toBe(true);
-            expect(how.parentElement).toBe(link(document, 'privacy').parentElement);
+            const line = how.parentElement;
+            expect(line.classList.contains('wg-shell__fine')).toBe(true);
+            expect(line.textContent).toBe('Want it on every device? Get an invite');
+            expect(line.parentElement).toBe(link(document, 'privacy').parentElement);
             expect(native.has).toHaveBeenCalledWith('base.post');
             how.click();
             expect(request).toHaveBeenCalledTimes(1);
@@ -756,6 +759,7 @@ describe('firstrun W1 footnote', () => {
             await flush();
             const how = link(document, 'invite-howto');
             expect(how.tagName).toBe('A');
+            expect(how.parentElement.textContent).toBe('Want it on every device? Get an invite');
             expect(how.getAttribute('href')).toBe('https://qa.example.test/');
             expect(how.target).toBe('_blank');
             expect(how.rel).toBe('noopener');
