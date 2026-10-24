@@ -24,6 +24,10 @@ const SLOT_UNIX = 1767225600; // 2026-01-01T00:00:00Z
 const SLOT_ISO = new Date(SLOT_UNIX * 1000).toISOString();
 const TAP_UNIX = SLOT_UNIX + 600; // tapped 10 minutes after the dose was due
 const DRAIN_MS = (SLOT_UNIX + 4 * 3600) * 1000; // app first opened 4h later
+// The account's ledger cut, a day before the slot: regeneration starts at the
+// cut instant (bd med-wi09.12), so a vault with no cut row regenerates nothing
+// before "now".
+const CUT_BEFORE_SLOT = [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date((SLOT_UNIX - 86400) * 1000).toISOString() }];
 
 // Records port over an in-memory map, keyed by recordId within each type.
 function fakeRecords(seed = {}) {
@@ -144,6 +148,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 { recordId: 'med-b', deleted: false, name: 'Metformin', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 20 },
             ],
             intake: [],
+            ledgercut: CUT_BEFORE_SLOT,
         });
         const now = () => DRAIN_MS;
         await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
@@ -162,13 +167,13 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const now = () => DRAIN_MS;
 
         // Device A drained the Telegram tap and holds the confirmed dose.
-        const deviceA = fakeRecords({ medication: [med], intake: [] });
+        const deviceA = fakeRecords({ medication: [med], intake: [], ledgercut: CUT_BEFORE_SLOT });
         await applyIntakeSlotAction(confirmEvent, { intake: domainFor(deviceA, now), records: deviceA, now });
         const confirmed = (await deviceA.list('intake')).find((i) => i.scheduled_at === SLOT_ISO);
         expect(confirmed.status).toBe('TAKEN');
 
         // Device B was closed through all of it: same med, no intake rows yet.
-        const deviceB = fakeRecords({ medication: [med], intake: [] });
+        const deviceB = fakeRecords({ medication: [med], intake: [], ledgercut: CUT_BEFORE_SLOT });
         const due = await domainFor(deviceB, now).occurrences({ fromMs: SLOT_UNIX * 1000, toMs: DRAIN_MS });
         expect(due.map((r) => [r.occId, r.state])).toEqual([[confirmed.recordId, 'due']]);
         expect(await deviceB.list('intake')).toEqual([]);
