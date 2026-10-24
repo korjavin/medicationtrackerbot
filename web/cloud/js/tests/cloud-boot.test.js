@@ -1234,7 +1234,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     for (const warmUnlock of [async () => null, async () => { throw new Error('ldk read failed'); }]) {
       env.cleanup();
       env = loadFrontendEnv();
-      const { call } = await boot({ warmUnlock, ops: ['shell.ops', 'move.take', 'move.clear', 'local.erase'] });
+      const { call, log } = await boot({ warmUnlock, ops: ['shell.ops', 'move.take', 'move.clear', 'local.erase'] });
       await settle();
       expect(call).not.toHaveBeenCalledWith('move.take');
       expect(call).not.toHaveBeenCalledWith('move.clear');
