@@ -66,7 +66,7 @@ function slotId(medId, scheduledAtMs) {
 //   3. equal rev: via app = mcp > telegram = native > legacy;
 //   4. then the later acted_at, then clientTs, then the body — a total order,
 //      so every device picks the same winner whatever the apply order. Two
-//      explicit (app/mcp) rows tied on rev with different bodies flag the
+//      explicit (app/mcp) rows tied on rev with different statuses flag the
 //      winner with the loser's summary in `conflict`;
 //   5. snoozed_until rides its own snoozed_at branch: the newer snooze is kept
 //      on whichever row wins, and a snooze never changes status.
@@ -119,7 +119,9 @@ export function mergeIntake(local, incoming) {
     // The conflict flag is the greatest piece of evidence across both rows (a
     // fixed key), so three tied edits agree whatever order they arrive in. A
     // lower-rev row's flag was resolved by the action that outranked it.
-    const tie = ib !== lb && viaRank(win) === 3 && viaRank(lose) === 3;
+    // Only a disagreement on status is a conflict: two devices both taking the
+    // same dose differ in acted_at/taken_at, not in what happened.
+    const tie = win.status !== lose.status && viaRank(win) === 3 && viaRank(lose) === 3;
     const candidates = [win.conflict, lose.conflict, tie && {
       status: lose.status, taken_at: lose.taken_at ?? null, acted_at: lose.acted_at ?? null, via: lose.via,
     }].filter(Boolean);

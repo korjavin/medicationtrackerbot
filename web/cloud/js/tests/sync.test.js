@@ -3151,6 +3151,15 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect(b).toEqual(a);
   });
 
+  it('two devices taking the same dose at equal rev converge with no conflict flag', async () => {
+    const take = (via, at) => row({ clientTs: 1, status: 'TAKEN', taken_at: `2026-01-01T0${at}:00:00.000Z`, rev: 1, via, acted_at: `2026-01-01T0${at}:00:00.000Z` });
+    const [phone, laptop] = [take('app', 1), take('mcp', 2)];
+    const a = await converge(phone, laptop);
+    expect(a).toMatchObject({ status: 'TAKEN', via: 'mcp' });
+    expect(a.conflict).toBeUndefined();
+    expect(await converge(laptop, phone)).toEqual(a);
+  });
+
   it('three tied explicit edits converge on one flag whatever the arrival order', async () => {
     const e = (status, via, at) => row({ clientTs: 1, status, taken_at: null, rev: 2, via, acted_at: `2026-01-01T0${at}:00:00.000Z` });
     const [A, B, C] = [e('SKIPPED', 'app', 1), e('TAKEN', 'app', 2), e('UNTAKEN', 'mcp', 3)];

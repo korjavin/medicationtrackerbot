@@ -24,6 +24,25 @@
       "intakes": [
         {
           "medication_id": 1,
+          "scheduled_at": "2026-07-06T19:00:00Z",
+          "taken_at": null,
+          "status": "UNTAKEN",
+          "snoozed_until": null,
+          "source": "schedule",
+          "rev": 2,
+          "acted_at": "2026-07-06T20:00:00Z",
+          "via": "app",
+          "tz": "Europe/Berlin",
+          "note": "Undone; was taken at 2026-07-06T19:05:00Z",
+          "conflict": {
+            "status": "TAKEN",
+            "taken_at": "2026-07-06T19:05:00Z",
+            "acted_at": "2026-07-06T19:30:00Z",
+            "via": "mcp"
+          }
+        },
+        {
+          "medication_id": 1,
           "scheduled_at": "2026-07-07T07:00:00Z",
           "taken_at": "2026-07-07T07:05:00Z",
           "status": "TAKEN",

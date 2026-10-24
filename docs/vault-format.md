@@ -690,7 +690,8 @@ Export → import → export (and each single hop) must be
 ## The golden fixture
 
 `tests/fixtures/vault-v1.json` is a small hand-curated vault exercising every domain,
-every deterministic-id case (scheduled + manual intake, tz transition plan, workout
+every deterministic-id case (scheduled + manual intake — plus an `UNTAKEN` intake
+carrying the merge fields, an undo `note` and a `conflict` flag, med-wi09.11 — tz transition plan, workout
 scheduled session + rotation), a vitals day-batch boundary (samples spanning two calendar
 days), an integrations key, two derived-slot tombstones (a deleted workout day +
 a deleted dose, med-jtaj), and a `protection` block (no backup, one old
