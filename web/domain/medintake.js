@@ -492,7 +492,7 @@ function historyResponse(r) {
 //     intake written since the last read; each one's old and new days are
 //     dropped. A port without a journal, or a journal that lost track (a store
 //     replace, an overflow), rebuilds the index and drops every day. So does a
-//     list whose row count or newest clientTs the index doesn't match (a
+//     list whose row count or clientTs sum the index doesn't match (a
 //     write no journal named, e.g. an old bundle's tab).
 //   - every other input — the meds minus their stock, history, the tz plan,
 //     the cut, the evidence zones — is one key; any change drops every day.
@@ -546,18 +546,28 @@ function indexRemove(c, id) {
   }
 }
 
-// Row count and newest clientTs: what a write the journal never named still
-// changes (a new row, or a re-stamp of one — every write stamps a fresh clientTs).
+// Row count and the sum of clientTs: what a write the journal never named still
+// changes. A row's clientTs only goes up, so every write — a new row, or an
+// edit of one, even below the newest stamp — moves the sum. Summed modulo a
+// prime so 13k epoch-ms stamps stay exact integers (a plain float sum would
+// round a +1 away past 2^53); a write misses only if it moves a stamp by an
+// exact multiple of the prime (~24.8 days to the ms).
+const FP_MOD = 2147483647;
+function stampSum(sum, row) {
+  const t = Number(row.clientTs);
+  return Number.isFinite(t) ? (sum + (((Math.trunc(t) % FP_MOD) + FP_MOD) % FP_MOD)) % FP_MOD : sum;
+}
+
 function rowsFingerprint(rows) {
-  let max = -Infinity;
-  for (const r of rows) if (r.clientTs > max) max = r.clientTs;
-  return `${rows.length}|${max}`;
+  let sum = 0;
+  for (const r of rows) sum = stampSum(sum, r);
+  return `${rows.length}|${sum}`;
 }
 
 function indexFingerprint(c) {
-  let max = -Infinity;
-  for (const e of c.index.values()) if (e.row.clientTs > max) max = e.row.clientTs;
-  return `${c.index.size}|${max}`;
+  let sum = 0;
+  for (const e of c.index.values()) sum = stampSum(sum, e.row);
+  return `${c.index.size}|${sum}`;
 }
 
 function syncIndex(c, changes, intakes) {

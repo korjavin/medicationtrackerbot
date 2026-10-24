@@ -1373,7 +1373,10 @@ async function flushPendingUnlocked(ctx) {
         await writeMeta({
           writeError: { status: res.status, at: Date.now() },
           writeErrorStreak: streak,
-          ...(streak >= WRITE_ERROR_BUDGET ? { syncWedged: true } : {}),
+          // Explicit both ways: an old tab's 426 wedge may still be stored
+          // (readMeta ignored it and reset the streak), and one strike of this
+          // build's own must not inherit it (bd med-wi09.12 r5).
+          syncWedged: streak >= WRITE_ERROR_BUDGET,
           // Quota exhausted: drop the compaction cooldown so pullOnOpen's
           // maybeSnapshot can reclaim retained oplog bytes before the streak
           // wedges syncing (med-356i).

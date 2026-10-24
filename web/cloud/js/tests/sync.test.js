@@ -1981,6 +1981,24 @@ describe('a 426 from the writer gate asks for a reload, never wedges (med-wi09.5
     expect((await getSyncStatus(ctx)).pendingCount).toBe(2);
   });
 
+  // Round 5: the old tab's syncWedged: true is still stored when v2's own
+  // flush gets a permanent 4xx. That is strike one of three, not a wedge.
+  it('one v2 400 after an old tab\'s 426 wedge does not wedge', async () => {
+    await seed({ records: oldTabQueue, meta: wedgedByOldTab });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') return new Response('', { status: 400 });
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot') return new Response(null, { status: 204 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    await pullOnOpen(ctx);
+    const status = await getSyncStatus(ctx);
+    expect(status.wedged).toBe(false);
+    expect(status.writeError).toMatchObject({ status: 400 });
+    expect(await describeSyncStatus(ctx)).not.toMatch(/reset local sync/i);
+  });
+
   it('a write that hits 426 fires the update-required surface once', async () => {
     await seed();
     vi.stubGlobal('window', new EventTarget());

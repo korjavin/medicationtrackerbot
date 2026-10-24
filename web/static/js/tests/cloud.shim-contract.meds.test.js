@@ -829,6 +829,20 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         // Take on the same dose here: already taken, nothing written, stock kept.
         expect(await domain.act({ occIds: [slot(day(19, 8))], action: 'take' })).toMatchObject({ updated: 0, unchanged: 1 });
         expect(rows('medication')[0].inventory_count).toBe(30);
+
+        // Round 5: a same-count edit below the newest stamp. Sunday's PENDING
+        // row exists (journaled); a future-skewed row pins the newest clientTs.
+        // The old tab then confirms Sunday straight into the store: same row
+        // count, same max — only the clientTs sum moves.
+        put('intake', { ...pending(slot(day(18, 8)), day(18, 8)), clientTs: 5 });
+        put('intake', { ...pending('intake-7-skewed', day(18, 9)), status: 'SKIPPED', clientTs: day(30, 0) });
+        expect(shape(await domain.occurrences(span))[0]).toEqual([iso(day(18, 8)), 'due']);
+        store.set(`intake|${slot(day(18, 8))}`, {
+            ...pending(slot(day(18, 8)), day(18, 8)), recordType: 'intake', status: 'TAKEN', taken_at: iso(day(18, 8, 5)), clientTs: 6
+        });
+        expect(shape(await domain.occurrences(span))[0]).toEqual([iso(day(18, 8)), 'taken']);
+        expect(await domain.act({ occIds: [slot(day(18, 8))], action: 'take' })).toMatchObject({ updated: 0, unchanged: 1 });
+        expect(rows('medication')[0].inventory_count).toBe(30);
     });
 });
 
