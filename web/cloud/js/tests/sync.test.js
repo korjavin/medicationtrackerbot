@@ -2812,6 +2812,25 @@ describe('pending overlay on a re-bootstrapped snapshot applies LWW (med-z2dq)',
     expect(await readPendingIds()).toEqual([]);
   });
 
+  // med-5vy0: the reminder delivery pref's Generic default is floored at
+  // clientTs 1. Queued offline, it loses to a newer explicit pref compacted
+  // into the snapshot and its op is dropped; it still beats the Detailed floor.
+  it('a pending clientTs-1 Generic default loses to a newer explicit pref in the snapshot; its op is dropped', async () => {
+    const PREF = 'reminderdeliverypref';
+    const generic = { recordId: PREF, recordType: PREF, clientTs: 1, deleted: false, delivery: 'webpush', verbosity: 'generic' };
+    await seedPending([generic]);
+    const explicit = { recordId: PREF, recordType: PREF, clientTs: 8000, deleted: false, delivery: 'telegram', verbosity: 'detailed' };
+    await replaceAllRecords([explicit]);
+    expect(await getRaw(PREF)).toEqual(explicit);
+    expect(await readPendingIds()).toEqual([]);
+
+    // Against the Detailed floor (clientTs 0) the Generic default stands and stays queued.
+    await seedPending([generic]);
+    await replaceAllRecords([{ recordId: PREF, recordType: PREF, clientTs: 0, deleted: false, delivery: 'webpush', lockscreen_default: 'detailed' }]);
+    expect(await getRaw(PREF)).toEqual(generic);
+    expect(await readPendingIds()).toEqual([PREF]);
+  });
+
   it('a newer pending row still overlays the snapshot and stays queued', async () => {
     await seedPending([
       { recordId: SLOT, recordType: 'workoutsession', clientTs: 9000, deleted: false, status: 'completed' },
