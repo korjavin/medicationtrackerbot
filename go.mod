@@ -15,6 +15,7 @@ require (
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/pressly/goose/v3 v3.26.0
+	github.com/yuin/goldmark v1.7.8
 	golang.org/x/crypto v0.52.0
 	modernc.org/sqlite v1.42.2
 )

@@ -46,7 +46,7 @@ Also normative, narrower in scope:
 | [ios.md](ios.md) | iOS app CI: macOS-runner build, TestFlight upload, the repo secrets/variables the owner sets; App Store submission checklist and reviewer access. |
 | [android.md](android.md) | Android app CI: ubuntu-runner Gradle build, debug APK artifact, signed AAB to Play internal testing, the repo secrets/variables the owner sets. |
 | [mobile-parity.md](mobile-parity.md) | iOS/Android parity rules (twins, `parity:n/a`, `for:<platform>` notes) and the feature matrix. |
-| [privacy-policy.md](privacy-policy.md) | The public privacy policy (App Store privacy policy URL). |
+| [privacy-policy.md](privacy-policy.md) | The public privacy policy, served rendered at `https://<base>/privacy` (embedded via `docs/embed.go`; App Store / Play privacy policy URL). |
 | [features.md](features.md) | User-visible feature behavior. |
 | [technical-decisions.md](technical-decisions.md) | Standing frontend decisions: offline writes, 5xx-as-offline, the write-ahead queue, vanilla JS. |
 | [mcp-evals.md](mcp-evals.md) | Can a real LLM drive the discover-then-run surface to finish a task. |

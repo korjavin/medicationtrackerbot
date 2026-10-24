@@ -700,7 +700,7 @@ describe('firstrun W1 footnote', () => {
             const privacy = link(document, 'privacy');
             expect(privacy.textContent).toBe('Privacy policy');
             expect(privacy.getAttribute('href'))
-                .toBe('https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md');
+                .toBe('https://cloud.myhealthbot.ai/privacy');
             expect(privacy.target).toBe('_blank');
             expect(privacy.rel).toBe('noopener');
             expect(privacy.classList.contains('wg-link')).toBe(true);

@@ -136,7 +136,7 @@
     // links the deleted native first-run screens carried. "How to get an
     // invite" is local mode only: the W5 request sheet when the shell can
     // base.post, else the base landing page, else nothing.
-    var PRIVACY_URL = 'https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md';
+    var PRIVACY_URL = 'https://cloud.myhealthbot.ai/privacy';
     var DISCLAIMER = 'Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.';
 
     function _externalLink(text, href) {
