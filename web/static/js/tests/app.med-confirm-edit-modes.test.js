@@ -148,18 +148,34 @@ describe('app.js medication confirm edit/log modes', () => {
         ['Med A', 'Med B'],
         '2026-02-28T11:00:00Z',
         'edit',
-        [100, 200]
+        [100, 200],
+        ['taken', 'skipped']
       );
-      document.getElementById('med-confirm-datetime').value = '2026-02-28T11:45';
-      const checks = document.querySelectorAll('.med-confirm-check');
-      checks[0].setAttribute('aria-pressed', 'true');
-      checks[1].setAttribute('aria-pressed', 'false');
-
+      // The segment starts on the first dose's state; Taken shows the time row.
+      expect(document.querySelector('#med-confirm-state').classList.contains('hidden')).toBe(false);
+      expect(document.querySelector('#med-confirm-state [aria-pressed="true"]').textContent).toBe('Taken');
+      expect(document.getElementById('med-confirm-time-edit').classList.contains('hidden')).toBe(false);
+      // Update with the time untouched sends nothing for the taken dose
+      // (a group's doses keep their own times) — only the skipped one moves.
       window.apiCall = vi.fn().mockResolvedValue({ ok: true });
       await window.updateIntakeHistory();
-      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST',
-        { action: 'edit_time', occ_ids: [100], taken_at: new Date('2026-02-28T11:45').toISOString() });
-      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST', { action: 'undo', occ_ids: [200] });
+      expect(window.apiCall.mock.calls.map((c) => c[2].action)).toEqual(['undo', 'take']);
+
+      window.showMedicationConfirmModal([10, 20], ['Med A', 'Med B'], '2026-02-28T11:00:00Z', 'edit', [100, 200], ['taken', 'skipped']);
+      const timeInput = document.getElementById('med-confirm-datetime');
+      timeInput.value = '2026-02-28T11:45';
+      timeInput.dispatchEvent(new window.Event('change'));
+      const at = new Date('2026-02-28T11:45').toISOString();
+
+      // Both → Taken at 11:45: the taken dose gets its time edited, the
+      // skipped one is undone and taken at that time.
+      window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+      await window.updateIntakeHistory();
+      expect(window.apiCall.mock.calls.map((c) => c[2])).toEqual([
+        { action: 'undo', occ_ids: [200] },
+        { action: 'take', occ_ids: [200], taken_at: at },
+        { action: 'edit_time', occ_ids: [100], taken_at: at },
+      ]);
       expect(window.safeAlert).toHaveBeenCalledWith('Updated!');
       expect(window.loadMeds).toHaveBeenCalled();
       expect(window.loadTimeline).toHaveBeenCalled();

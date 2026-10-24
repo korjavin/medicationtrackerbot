@@ -2624,7 +2624,7 @@
 
     <!-- Take sheet (kit M2, med-xso6.19): confirm / edit / log_past modes,
          opened from push, Today's Take, the Schedule bucket "Take N" and
-         History rows. features/meds.js showMedicationConfirmModal fills it;
+         timeline rows. features/meds.js showMedicationConfirmModal fills it;
          the hidden datetime input is the picker the "Time taken" row opens. -->
     <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-sheet wg-med-confirm-modal">
         <div class="wg-sheet__grab"></div>
@@ -2639,6 +2639,15 @@
         </header>
         <div class="wg-sheet__body wg-med-confirm-modal__body">
             <div id="med-confirm-list" class="wg-choices"></div>
+            <!-- Edit mode only (MT3): the state the checked doses get. -->
+            <div id="med-confirm-state" class="wg-field hidden">
+                <span class="wg-label">This dose was</span>
+                <div class="wg-seg">
+                    <button type="button" class="wg-seg__opt" data-dose-state="taken" aria-pressed="true">Taken</button>
+                    <button type="button" class="wg-seg__opt" data-dose-state="skipped" aria-pressed="false">Skipped</button>
+                    <button type="button" class="wg-seg__opt" data-dose-state="pending" aria-pressed="false">Not taken</button>
+                </div>
+            </div>
             <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time">
                 <button type="button" id="med-confirm-time-btn" class="wg-setting wg-setting--boxed">
                     <span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span>

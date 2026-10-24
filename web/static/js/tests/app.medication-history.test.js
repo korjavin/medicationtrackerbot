@@ -211,11 +211,12 @@ describe('app.js medication, history and intake flows', () => {
       // Edit modal for a 2-med TAKEN cluster: Aspirin=intake100, Magnesium=intake101.
       window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date(), 'edit', [100, 101]);
 
-      // Uncheck Magnesium (index 1) → revert intake 101 to PENDING.
+      // Leave Aspirin (index 0) as it was; Magnesium → Not taken (intake 101).
       const checks = document.querySelectorAll('.med-confirm-check');
-      checks[1].setAttribute('aria-pressed', 'false');
+      checks[0].setAttribute('aria-pressed', 'false');
+      document.querySelector('#med-confirm-state [data-dose-state="pending"]').click();
 
-      // The time edit persists; the explicit undo of 101 does NOT.
+      // The explicit undo of 101 does NOT persist.
       window.apiCall = vi.fn(async (_endpoint, _method, body) => (body.action === 'undo'
         ? { updated: 0, unchanged: 0, failed: 1, failures: [{ id: 101, reason: 'not_found' }] }
         : { updated: 1, unchanged: 0, failed: 0, failures: [] }));
@@ -227,10 +228,9 @@ describe('app.js medication, history and intake flows', () => {
 
       await window.updateIntakeHistory();
 
-      // Explicit actions on explicit ids (bd med-wi09.2): the checked dose
-      // gets its time edited, the unchecked one an undo.
-      expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST',
-        expect.objectContaining({ action: 'edit_time', occ_ids: [100] }));
+      // Explicit actions on explicit ids (bd med-wi09.2): only the checked
+      // dose, and the unchecked one is never touched.
+      expect(window.apiCall).toHaveBeenCalledTimes(1);
       expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST',
         { action: 'undo', occ_ids: [101] });
 
@@ -254,11 +254,13 @@ describe('app.js medication, history and intake flows', () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
-      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date(), 'edit', [100, 101]);
-      const checks = document.querySelectorAll('.med-confirm-check');
-      checks[1].setAttribute('aria-pressed', 'false');
+      // Both taken; the segment's Skipped applies to both: undo, then skip.
+      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date(), 'edit', [100, 101], ['taken', 'taken']);
+      document.querySelector('#med-confirm-state [data-dose-state="skipped"]').click();
+      expect(document.getElementById('med-confirm-time-edit').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('med-confirm-action-btn').textContent.replace(/\s+/g, ' ').trim()).toBe('Update 2');
 
-      window.apiCall = vi.fn().mockResolvedValue({ updated: 1, unchanged: 0, failed: 0, failures: [] });
+      window.apiCall = vi.fn().mockResolvedValue({ updated: 2, unchanged: 0, failed: 0, failures: [] });
 
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
       const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
@@ -267,7 +269,10 @@ describe('app.js medication, history and intake flows', () => {
 
       await window.updateIntakeHistory();
 
-      expect(window.apiCall).toHaveBeenCalledTimes(2);
+      expect(window.apiCall.mock.calls.map((c) => c[2])).toEqual([
+        { action: 'undo', occ_ids: [100, 101] },
+        { action: 'skip', occ_ids: [100, 101] },
+      ]);
       expect(commitSpy).toHaveBeenCalled();
       expect(rollbackSpy).not.toHaveBeenCalled();
       const messages = safeAlertSpy.mock.calls.map((c) => c[0]);
@@ -285,9 +290,8 @@ describe('app.js medication, history and intake flows', () => {
       // Edit modal for a single TAKEN dose: Lercanidipine = intake 4851.
       window.showMedicationConfirmModal([7], ['Lercanidipin'], new Date(), 'edit', [4851]);
 
-      // Uncheck it → "Update" must revert that intake to PENDING.
-      const checks = document.querySelectorAll('.med-confirm-check');
-      checks[0].setAttribute('aria-pressed', 'false');
+      // Not taken → "Update" must revert that intake to PENDING.
+      document.querySelector('#med-confirm-state [data-dose-state="pending"]').click();
 
       const endpoints = [];
       window.apiCall = vi.fn(async (endpoint, _method, body) => {
@@ -317,7 +321,7 @@ describe('app.js medication, history and intake flows', () => {
     }
   });
 
-  it('un-checking one med in a TAKEN cluster reverts only that row to Pending after the round-trip', async () => {
+  it('Not taken on one med of a TAKEN timeline row reverts only that dose to Pending after the round-trip', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -382,14 +386,15 @@ describe('app.js medication, history and intake flows', () => {
       const timeline = document.getElementById('med-timeline-list');
       expect(Array.from(timeline.querySelectorAll('.wg-timeline__row')).map((r) => r.dataset.state)).toEqual(['taken']);
 
-      // The edit sheet over that cluster (opened from the Today/take flows
-      // until timeline rows get their own actions, med-wi09.17).
-      window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], scheduledAt, 'edit', [100, 101]);
+      // Tapping the Taken row opens the edit sheet over that cluster (MT3).
+      timeline.querySelector('.wg-timeline__row[data-state="taken"]').click();
+      expect(document.getElementById('med-confirm-eyebrow').textContent).toBe('Edit intake');
       const checks = document.querySelectorAll('.med-confirm-check');
       expect(checks.length).toBe(2);
 
-      // Uncheck Magnesium (index 1 → intake 101) and submit the edit.
-      checks[1].setAttribute('aria-pressed', 'false');
+      // Leave Aspirin as it was; Magnesium (index 1 → intake 101) → Not taken.
+      checks[0].setAttribute('aria-pressed', 'false');
+      document.querySelector('#med-confirm-state [data-dose-state="pending"]').click();
       await window.updateIntakeHistory();
 
       // refreshMedsAfterMutation() already kicks loadTimeline(), but await an
