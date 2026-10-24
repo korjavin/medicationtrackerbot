@@ -96,6 +96,7 @@ const MOVE_NOTICE_KEY = 'wg-move-picked-up';
 const MOVE_PICKED_AT_KEY = 'wg-move-picked-at';
 const MOVE_JUST_PICKED_MS = 5 * 60 * 1000;
 const MOVE_PROBE_MS = 5000;
+const JOIN_ERASE_MS = 60000; // a wipe of a large local vault
 function withinMs(promise, ms) {
     return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
 }
@@ -200,7 +201,17 @@ async function finishJoinErase(win) {
     const native = win.LocalNotifications && win.LocalNotifications.__native;
     if (!native || (native.platform !== 'ios' && native.platform !== 'android') || typeof win.nativeHas !== 'function') return;
     if ((await withinMs(win.nativeHas('local.erase').catch(() => false), MOVE_PROBE_MS)) !== true) return;
-    await withinMs(native.call('local.erase').catch(() => null), MOVE_PROBE_MS);
+    // {enrolled: true}: a shell acts on nothing less, so an older cached
+    // cloud-boot.js sending a bare local.erase on every boot erases nothing.
+    // A failed wipe keeps the shell's intent: offer it again while it is due.
+    const device = win.LocalNotifications.copy?.device || 'device';
+    for (;;) {
+        const failed = await withinMs(native.call('local.erase', { enrolled: true }).then(() => false, () => true), JOIN_ERASE_MS);
+        if (failed !== true || typeof win.safeConfirm !== 'function') return;
+        const again = await win.safeConfirm(`The records that were on this ${device} before could not be erased.`, null,
+            { title: "Erase didn't finish", confirmLabel: 'Try again', cancelLabel: 'Not now' });
+        if (!again) return;
+    }
 }
 
 function installReminderActionHandler(shimCall) {

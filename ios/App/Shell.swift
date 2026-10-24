@@ -75,6 +75,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// What the lock held back: a load and a notification tap, run on unlock.
     private var deferredURL: URL?
     private var deferredReminder: (String, String?)?
+    /// local.erase is wiping wgapp://local; reopen() holds its page until done.
+    private var erasing = false
+    private var heldReopen: URL??
+
+    private func endErase() {
+        erasing = false
+        if let held = heldReopen {
+            heldReopen = nil
+            reopen(to: held)
+        }
+    }
 
     /// The lock holds: the page is out of the window, loads wait, the bridge says "locked".
     var concealed: Bool { lock.holds(local: local) }
@@ -91,6 +102,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // page scalable again, and a double-tap on a card zoomed it (build 351).
         config.userContentController.addUserScript(
             WKUserScript(source: Shell.pageJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .page))
+        config.userContentController.addUserScript(
+            WKUserScript(source: Shell.sessionWipeJS, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         Downloads.shared.install(on: config)
         config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
         webView = WKWebView(frame: .zero, configuration: config)
@@ -137,8 +150,18 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         }
         #if DEBUG
         if let link = Shell.qaCapture { capture(link) } // nothing committed yet: only the slot
-        #endif
+        // native-local-erased: local.erase's wipe on the seeded store before
+        // the first page, which then has nothing left (W1).
+        if UserDefaults.standard.bool(forKey: "wgQAEraseLocal") {
+            Task {
+                let left = await Shell.eraseLocalOrigin(proceed: { true })
+                diag("qa local erase \(left.map(String.init) ?? "cancelled")")
+                if !qa { retry() }
+            }
+        } else if !qa { retry() }
+        #else
         if !qa { retry() }
+        #endif
         Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
 
@@ -371,6 +394,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     /// Mode or account changed: open the new home (or `url` on it), or stop the old page.
     private func reopen(to url: URL? = nil) {
+        // local.erase is wiping wgapp://local: the mode/account change already
+        // happened (state, and the erase's re-check sees it); its page waits.
+        if erasing {
+            heldReopen = .some(url)
+            return
+        }
         lastURL = nil
         committedHost = nil
         loadError = nil
@@ -584,23 +613,43 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // add-device code's 10 minutes): the local vault's erase — the local
         // origin's website data plus local.reset's share. Anywhere else, local
         // mode included (listed there for invite.js's probe), a no-op.
+        // The intent (host + its stamp) is captured here and re-checked right
+        // before each destructive step: a switch to local mode, another
+        // account, a newer intent or the TTL running out in between cancels
+        // the wipe. Mode changes made while it runs wait for it (reopen), so
+        // the local page never loads beside a half-done wipe. Native state is
+        // spent only after a verified wipe; a failed one answers "erase
+        // failed" and keeps the intent for the page's retry (twin of Android).
+        // Only {enrolled: true} acts: the boot right after this tab's claim
+        // enrolled (cloud-boot.js). The #1336 page's bare {} ran on every
+        // unlocked boot, a failed join's included, so it is a no-op.
         case "local.erase":
-            guard !local, JoinErase.due(host) else { return replyHandler(true, nil) }
-            JoinErase.clear() // once: a second boot of this account erases nothing
-            UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
-            UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
-            move.clear()
-            leaveStash.clear()
-            setInvite(nil)
+            let enrolled = (body["args"] as? [String: Any])?["enrolled"] as? Bool == true
+            guard enrolled, !local, !erasing, let from = host, JoinErase.due(from), let at = JoinErase.stamp() else {
+                return replyHandler(true, nil)
+            }
+            let due = { [weak self] () -> Bool in
+                guard let self else { return false }
+                return !self.local && self.host == from && JoinErase.due(from, stamp: at)
+            }
+            erasing = true
             Task {
-                await Notifications.shared.remove(vault: LocalOrigin.host)
                 // One retry: a delete blocked by the shell page's old connection
-                // has usually finished by then. ponytail: still incomplete → only
-                // logged; the data stays visible in local mode for Settings → Erase.
-                var left = await Shell.eraseLocalOrigin()
-                if left != 0 { left = await Shell.eraseLocalOrigin() }
-                diag("shell local.erase " + (left == 0 ? "wiped" : "incomplete (\(left))")) // no host, no data
-                replyHandler(true, nil)
+                // has usually finished by then.
+                var left = await Shell.eraseLocalOrigin(proceed: due)
+                if let l = left, l != 0 { left = await Shell.eraseLocalOrigin(proceed: due) }
+                if left == 0, due() {
+                    JoinErase.clear() // spent: a second boot of this account erases nothing
+                    UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
+                    UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
+                    move.clear()
+                    leaveStash.clear()
+                    await Notifications.shared.remove(vault: LocalOrigin.host)
+                }
+                // No host, no data in the log.
+                diag("shell local.erase " + (left.map { $0 == 0 ? "wiped" : "incomplete (\($0))" } ?? "cancelled"))
+                endErase()
+                if let l = left, l != 0 { replyHandler(nil, "erase failed") } else { replyHandler(true, nil) }
             }
         // {url} (bd med-ta2n.11, contract med-ta2n.7 §7): open that account's
         // claim link from either mode — validated, else "invalid url" and
@@ -746,10 +795,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// lists no custom-scheme origin in fetchDataRecords, so a throwaway web
     /// view on that origin does it with the page's own APIs; its document is
     /// the scheme handler's 404 for a path no bundle file has, so no app code
-    /// runs there. Returns what is left (databases + localStorage keys): 0 =
-    /// wiped, -1 = the wipe never ran. A delete blocked by a connection the
-    /// shell's page still holds completes once that closes.
-    static func eraseLocalOrigin() async -> Int {
+    /// runs there. sessionStorage belongs to each web view, so the wipe leaves
+    /// a localStorage marker that Shell.sessionWipeJS turns into a
+    /// sessionStorage.clear() in the shell's own view on its next local page,
+    /// before any app script. `proceed` is asked once the view has loaded,
+    /// right before anything is deleted. Returns what is left (databases +
+    /// localStorage keys besides the marker): 0 = wiped, -1 = the wipe failed
+    /// to run, nil = `proceed` said no (nothing touched). A delete blocked by
+    /// a connection still open waits up to 10 s, then counts as left.
+    static func eraseLocalOrigin(proceed: () -> Bool) async -> Int? {
         let config = WKWebViewConfiguration()
         config.limitsNavigationsToAppBoundDomains = true // as the shell's own view
         config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
@@ -765,18 +819,19 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             view.load(URLRequest(url: URL(string: "wgapp://local/__erase__")!))
         }
         guard ok, view.url?.host?.lowercased() == LocalOrigin.host else { return -1 }
+        guard proceed() else { return nil }
         let left = try? await view.callAsyncJavaScript("""
-            const settle = (q) => new Promise((r) => { q.onsuccess = q.onerror = q.onblocked = () => r(); });
+            const settle = (q) => new Promise((r) => { q.onsuccess = q.onerror = () => r(); });
             const names = async () => ((await indexedDB.databases()) || []).map((d) => d.name);
             await Promise.race([
                 Promise.all((await names()).map((n) => settle(indexedDB.deleteDatabase(n)))),
                 new Promise((r) => setTimeout(r, 10000)),
             ]);
-            try { localStorage.clear(); } catch (_) {}
-            try { sessionStorage.clear(); } catch (_) {}
+            localStorage.clear();
+            localStorage.setItem(marker, '1');
             if (self.caches) for (const k of await caches.keys()) await caches.delete(k);
-            return (await names()).length + localStorage.length;
-            """, arguments: [:], in: nil, contentWorld: .page)
+            return (await names()).length + localStorage.length - 1;
+            """, arguments: ["marker": Shell.sessionWipeKey], in: nil, contentWorld: .page)
         return (left as? NSNumber)?.intValue ?? -1
     }
 
@@ -847,6 +902,19 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         guard n.count == 3 || (n.count == 4 && n[3] > 0) else { return nil }
         return UIColor(red: n[0] / 255, green: n[1] / 255, blue: n[2] / 255, alpha: 1)
     }
+
+    /// local.erase's marker (eraseLocalOrigin): wgapp://local was wiped, so the
+    /// shell view's sessionStorage there (first-run step, pickup markers) goes
+    /// too, once, at the next local document's start, before any app script.
+    static let sessionWipeKey = "wg-shell-session-wipe"
+    static let sessionWipeJS = """
+        if (location.protocol === '\(LocalOrigin.scheme):') try {
+            if (localStorage.getItem('\(sessionWipeKey)')) {
+                sessionStorage.clear();
+                localStorage.removeItem('\(sessionWipeKey)');
+            }
+        } catch (_) {}
+        """
 
     /// Page world, main frame, every page the shell loads. Asks for persistent
     /// storage (the spike found storage.persisted false: evictable under storage

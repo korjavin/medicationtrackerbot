@@ -762,13 +762,25 @@ changes for it.
   (`JoinErase`, UserDefaults `wgJoinErase` `{host, at}`); it expires after 10
   minutes (the code's TTL) and is dropped on entering local mode, on opening
   any account and once used. `local.erase` (listed in both modes, because the
-  local page probes it before offering the erase) → `true`; only in account
-  mode with `JoinErase` naming the open host does it wipe: the local.reset
-  effects (host mirror, `wgLeaveHost`, move/leave stashes, slot, local
-  reminders) plus `wgapp://local`'s IndexedDB, localStorage, sessionStorage
-  and Cache Storage, from a throwaway web view on that origin
+  local page probes it before offering the erase) acts only on
+  `{enrolled: true}` (cloud-boot.js, the boot right after this tab's claim
+  enrolled); `{}` (the #1336 page sent it on every unlocked boot) and any
+  call outside account mode with `JoinErase` naming the open host answer
+  `true` and touch nothing. The wipe clears `wgapp://local`'s IndexedDB,
+  localStorage and Cache Storage from a throwaway web view on that origin
   (`Shell.eraseLocalOrigin`; `fetchDataRecords` lists no custom-scheme
-  origin). The diag log notes `wiped` or what was left; never the host.
+  origin) and leaves the localStorage marker `wg-shell-session-wipe`, which
+  `Shell.sessionWipeJS` turns into a `sessionStorage.clear()` in the shell's
+  own view at the next local document's start (sessionStorage is per view).
+  The intent (host + stamp) is re-checked once the throwaway view has loaded,
+  right before deleting, and again before the native effects: a switch to local
+  mode or another account, a newer intent or the TTL running out cancels it;
+  a mode change while it runs holds its page reload until it ends. Only a
+  verified wipe (nothing left, one retry) spends the intent and runs the
+  local.reset effects (host mirror, `wgLeaveHost`, move/leave stashes, local
+  reminders); anything left answers `"erase failed"`, the intent stays and
+  the page offers Try again. The diag log notes `wiped`, what was left or
+  `cancelled`; never the host.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are

@@ -127,12 +127,18 @@ enum JoinErase {
     }
 
     /// Whether local.erase may wipe now, `host` being the open account. A clock
-    /// set back to before the remember never counts.
-    static func due(_ host: String?, at: Date = Date(), _ defaults: UserDefaults = .standard) -> Bool {
+    /// set back to before the remember never counts. `stamp` (from stamp()):
+    /// only that same intent, not one remembered again since.
+    static func due(_ host: String?, stamp: Double? = nil, at: Date = Date(), _ defaults: UserDefaults = .standard) -> Bool {
         guard let host, let held = defaults.dictionary(forKey: key), held["host"] as? String == host,
-              let since = (held["at"] as? NSNumber)?.doubleValue else { return false }
+              let since = (held["at"] as? NSNumber)?.doubleValue, stamp == nil || stamp == since else { return false }
         let age = at.timeIntervalSince1970 - since
         return age >= 0 && age < ttl
+    }
+
+    /// The held intent's identity (its remember time), or nil.
+    static func stamp(_ defaults: UserDefaults = .standard) -> Double? {
+        (defaults.dictionary(forKey: key)?["at"] as? NSNumber)?.doubleValue
     }
 
     static func clear(_ defaults: UserDefaults = .standard) {
