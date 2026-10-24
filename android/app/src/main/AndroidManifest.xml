@@ -96,7 +96,9 @@
              https://<base>/i/<sub>#<token> (App Link; the server's assetlinks.json already lists
              handle_all_urls for the base) and medtracker://i/<sub>#<token>. The host is the build's
              CLOUD_BASE_DOMAIN (build.gradle.kts manifestPlaceholders), never committed. The
-             trampoline (Invite.kt) hands them to MainActivity like a reminder tap. -->
+             trampoline (Invite.kt) hands them to MainActivity like a reminder tap. The add-device
+             hand-off https://<base>/d/<sub>#<slot>.<TK> and medtracker://d/… (bd med-r1j2.8) take
+             the same path; the <data> elements of a filter combine, so /d/ shares /i/'s scheme+host. -->
         <activity
             android:name=".InviteLinkActivity"
             android:theme="@android:style/Theme.NoDisplay"
@@ -109,12 +111,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${baseDomain}" android:pathPrefix="/i/" />
+                <data android:pathPrefix="/d/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="medtracker" android:host="i" />
+                <data android:host="d" />
             </intent-filter>
         </activity>
         <!-- directBootAware (bd med-nt9p.57): reminders fire on a rebooted phone before the first

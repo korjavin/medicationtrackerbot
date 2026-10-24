@@ -196,6 +196,50 @@ export default async function inviteLink(ctx) {
     await p.locator('[data-invite-action="sign-in"]').waitFor({ state: 'visible', timeout: 60_000 });
     expect(!(await p.locator('[data-firstrun-action="invite"]').isVisible()), 'W1 offers an invite while one waits');
     await ctx.shot('w1-invited');
+    page = p;
+  });
+
+  // bd med-r1j2.8: the add-device hand-off /d/<sub>#<slot>.<TK> fills the same slot as the claim page's
+  // URL; local.leave {url, erase: true} opens it and remembers the erase for that host only; the
+  // account's local.erase wipes the local origin and spends the flag. The code is fake: never claimed.
+  await ctx.step('/d/ hand-off: slot, local.leave {erase}, local.erase wipes the local origin', async () => {
+    const code = 'QaSlot_1-x.QaTk_2-y';
+    const dWant = `https://${claim.host}/claim#${code}`;
+    const expectD = async (pg, what) => {
+      const slot = await pending(pg);
+      expect(slot && slot.url === dWant, `${what}: ${JSON.stringify(slot)}`);
+    };
+    await page.evaluate(() => localStorage.setItem('qa-erase-marker', '1'));
+    await warm(page, `medtracker://d/${sub}#${code}`, `${LOCAL_ORIGIN}/`);
+    let p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    await expectD(p, 'medtracker://d/');
+    await clear(p);
+    await warm(p, `https://${base}/d/${sub}#${code}`, `${LOCAL_ORIGIN}/`, true);
+    p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    await expectD(p, 'landing /d/');
+    await ctx.shot('d-link-local');
+    const bad = await call(p, 'local.leave', { url: `https://${base}/d/${sub}#${code}`, erase: true });
+    expect(!bad.ok && bad.error === 'invalid url', `local.leave landing /d/: ${JSON.stringify(bad)}`);
+    await call(p, 'local.leave', { url: dWant, erase: true });
+    p = await pageOn((u) => u.host === claim.host);
+    expect((await pending(p)) === null, 'the slot outlived local.leave {erase}');
+    await sleep(1500);
+    let xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(xml.includes(`name="wgJoinEraseHost">${claim.host}<`), `erase not remembered: ${xml}`);
+    const ops = await call(p, 'shell.ops');
+    expect(ops.ok && ops.result.includes('local.erase'), `shell.ops ${JSON.stringify(ops)}`);
+    const res = await call(p, 'local.erase');
+    expect(res.ok && res.result === true, `local.erase: ${JSON.stringify(res)}`);
+    await sleep(1500);
+    xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/wgJoinErase/.test(xml), `erase flag not spent: ${xml}`);
+    const again = await call(p, 'local.erase'); // spent: a no-op
+    expect(again.ok && again.result === true, `second local.erase: ${JSON.stringify(again)}`);
+    await call(p, 'account.leave', { then: 'local' });
+    p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    const marker = await p.evaluate(() => localStorage.getItem('qa-erase-marker'));
+    expect(marker === null, `local origin not wiped: marker=${marker}`);
+    r.handoff = true;
     r.ok = true;
   });
 }
