@@ -209,6 +209,12 @@ describe('projection resolves evidence through declared aliases only', () => {
         expect(applyLineage(rows, t, tapped).map((r) => r.occId)).toEqual(['intake-1-100']);
     });
 
+    it('until the past is regenerated, a canonical the projection does not list leaves the cancelled row as stand-in', () => {
+        const rows = [{ occId: 'intake-1-100', medId: 1, plannedAt: new Date(100_000).toISOString(), source: 'schedule', state: 'due' }];
+        const t = lineageTable([{ recordId: 'tztransition-1-a', switch_at: '2026-07-01T00:00:00Z', boundary: [{ medId: 1, kept: ['intake-1-300'], cancelled: ['intake-1-100'], replacement: { 'intake-1-100': 'intake-1-300' } }] }]);
+        expect(applyLineage(rows, t, []).map((r) => r.occId)).toEqual(['intake-1-100']);
+    });
+
     it('a later boundary that moves back revives the id (back-and-forth zones)', () => {
         const t = lineageTable([
             { recordId: 'tztransition-1-a', switch_at: '2026-07-01T06:00:00Z', boundary: [{ medId: 1, kept: [], cancelled: ['X'], replacement: { X: 'Y' } }] },

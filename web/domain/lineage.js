@@ -293,7 +293,8 @@ function canonical(table, id) {
 }
 
 // Projection pass over projectOccurrences' rows. Per cancelled id C with
-// canonical K: no evidence at C → C's row is hidden; evidence at C and at K →
+// canonical K: no evidence at C → C's row is hidden (when K is listed or
+// there is no K); evidence at C and at K →
 // both rows stay, flagged `loggedTwice` (the partner's occId), never settled;
 // evidence at C only → C's row is the dose and K's row is hidden (one row, one
 // consumption). `intakes` RAW, so a tombstone counts as evidence.
@@ -307,8 +308,13 @@ export function applyLineage(rows, table, intakes = []) {
   const twice = new Map();
   for (const c of table.keys()) {
     const k = canonical(table, c);
-    if (!ev.has(c)) hidden.add(c);
-    else if (k && ev.has(k)) {
+    if (!ev.has(c)) {
+      // ponytail: until bd med-wi09.12 regenerates kept old instants, a
+      // canonical the projection doesn't list (an old instant kept after the
+      // switch) would leave the slot empty — so C stays as the stand-in. The
+      // check is per call, so a window that cuts K off shows C.
+      if (!k || occOf.has(k)) hidden.add(c);
+    } else if (k && ev.has(k)) {
       twice.set(c, occOf.get(k) ?? k);
       twice.set(k, occOf.get(c) ?? c);
     } else if (k) hidden.add(k);
