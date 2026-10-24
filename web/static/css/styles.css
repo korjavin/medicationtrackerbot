@@ -6934,6 +6934,11 @@ body:has(.wg-callbar--dock) .wg-toasts {
     position: relative;
 }
 
+/* RD3 hint slot (med-mt0l): no extra flex gap while empty. */
+.wg-med-confirm-modal__hint:empty {
+    display: none;
+}
+
 .wg-med-confirm-modal__input {
     position: absolute;
     inset: 0;
