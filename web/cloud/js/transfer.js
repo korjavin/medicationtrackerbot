@@ -57,8 +57,15 @@ function bytesField(value) {
   }
 }
 
-// https://<base>/d/<sub> for this account host <sub>.<base> (http in dev).
+// Where a scan lands. The server stamps <meta medtracker-handoff-app> on the
+// app document only with HANDOFF_APP_LINKS=1 (shipped apps take /d/ links).
+// On: https://<base>/d/<sub> for this host <sub>.<base> (http in dev). Off:
+// the pre-#1336 <sub>.<base>/claim, the only form shipped app scanners
+// (InviteSheet.parse) accept (med-r1j2.13). /d/ links already out there keep
+// working: the landing is served regardless of the flag.
 function handoffPath() {
+  const on = document.querySelector('meta[name="medtracker-handoff-app"]')?.content === '1';
+  if (!on) return `${location.origin}/claim`;
   const [sub, ...base] = location.host.split('.');
   return `${location.protocol}//${base.join('.')}/d/${sub}`;
 }
