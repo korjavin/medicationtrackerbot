@@ -301,6 +301,152 @@ describe('/claim — AD6: approval, then this device\'s own passkey', () => {
   });
 });
 
+// bd med-r1j2.10: the in-app Scan, through window.MediaCapture / window.Barcode
+// (stubbed here; CLAUDE.md rule 10). AD13 when the camera is off.
+describe('/claim — in-app Scan and AD13 (camera off)', () => {
+  const denied = () => Object.assign(new Error('denied'), { name: 'MediaCaptureError', code: 'PERMISSION_DENIED' });
+  let stopped;
+
+  function installCamera({ open, decoded = [] } = {}) {
+    stopped = 0;
+    const stream = { getTracks: () => [{ stop: () => { stopped++; } }] };
+    globalThis.MediaCapture = {
+      openCameraStream: vi.fn(open || (async () => stream)),
+      openSettings: vi.fn(async () => ({ opened: false, hint: 'Allow the camera for this site in your browser settings, then reload.' })),
+    };
+    globalThis.Barcode = {
+      supportsLiveScan: () => true,
+      scan: vi.fn(async () => (decoded.length ? { format: 'qr_code', rawValue: decoded.shift() } : null)),
+    };
+    dom.window.HTMLMediaElement.prototype.play = vi.fn(async () => {});
+  }
+
+  function scanAt(hash) {
+    globalThis.location = { hostname: 'acct.example.test', host: 'acct.example.test', protocol: 'https:', pathname: '/claim', hash, href: '' };
+    return runClaimFlow();
+  }
+
+  afterEach(() => {
+    delete globalThis.MediaCapture;
+    delete globalThis.Barcode;
+  });
+
+  it('camera denied: AD13 — the typed code field, Allow camera in Settings, and a typed code claims', async () => {
+    installCamera({ open: async () => { throw denied(); } });
+    await scanAt('#scan');
+    await until(() => app.querySelector('#claim-camera-off'));
+
+    expect(text()).toContain('Scan code');
+    expect(text()).toContain('The camera is off for this app');
+    expect(text()).toContain('Type the code shown under the QR on your other device instead.');
+    expect(app.querySelector('label[for="claim-code-input"]').textContent).toBe('Code for a computer');
+    expect(app.querySelector('.wg-pagefoot #claim-code-submit')).not.toBeNull();
+    expect(globalThis.Barcode.scan).not.toHaveBeenCalled();
+
+    // The ghost link: no shell to open Settings here, so it says where.
+    app.querySelector('#claim-camera-settings').click();
+    await until(() => app.querySelector('#claim-camera-hint'));
+    expect(globalThis.MediaCapture.openSettings).toHaveBeenCalledTimes(1);
+    expect(app.querySelector('#claim-camera-hint').textContent).toContain('browser settings');
+
+    const input = app.querySelector('#claim-code-input');
+    const submit = app.querySelector('#claim-code-submit');
+    expect(submit.disabled).toBe(true);
+    input.value = encodeTransferCode(origin.tk);
+    input.dispatchEvent(new dom.window.Event('input'));
+    expect(submit.disabled).toBe(false);
+    submit.click();
+    await until(() => server.slot.state === 'claimed');
+    await originReveals();
+  });
+
+  it('no camera or decoder at all: the same typed code, without the Settings link', async () => {
+    await scanAt('#scan'); // no MediaCapture / Barcode installed
+    await until(() => app.querySelector('#claim-camera-off'));
+    expect(text()).toContain("Scanning isn't available here");
+    expect(app.querySelector('#claim-code-input')).not.toBeNull();
+    expect(app.querySelector('#claim-camera-settings')).toBeNull();
+  });
+
+  it('AD7 "Scan a new code" scans this account\'s QR, releases the camera and claims', async () => {
+    server.slot.state = 'deleted';
+    await openAt(linkHash());
+    await until(() => app.querySelector('#claim-ended'));
+    const sun = app.querySelector('#claim-new-code');
+    expect(sun.textContent).toBe('Scan a new code');
+    expect(sun.className).toContain('wg-btn--primary');
+
+    origin = await newOrigin();
+    installCamera({ decoded: ['not an add-device code', `https://example.test/d/acct${linkHash()}`] });
+    globalThis.location = { hostname: 'acct.example.test', host: 'acct.example.test', protocol: 'https:', pathname: '/claim', hash: '', href: '' };
+    sun.click();
+    await vi.advanceTimersByTimeAsync(500);
+    await until(() => server.slot.state === 'claimed');
+    expect(stopped).toBe(1);
+    expect(globalThis.Barcode.scan).toHaveBeenCalledWith(expect.objectContaining({ formats: ['qr_code'] }));
+    await originReveals();
+  });
+
+  // med-r1j2.13: while HANDOFF_APP_LINKS is off the origin's QR is the plain
+  // https://<sub>.<base>/claim#… link; it claims the same way as /d/<sub>#….
+  it('scans the /claim#… QR form for this account and claims', async () => {
+    installCamera({ decoded: [`https://acct.example.test/claim${linkHash()}`] });
+    await scanAt('#scan');
+    await until(() => server.slot.state === 'claimed');
+    expect(stopped).toBe(1);
+    expect(globalThis.location.href).toBe('');
+    await originReveals();
+  });
+
+  it('scans the /d/<sub>#… QR form for this account and claims', async () => {
+    installCamera({ decoded: [`https://example.test/d/acct${linkHash()}`] });
+    await scanAt('#scan');
+    await until(() => server.slot.state === 'claimed');
+    expect(globalThis.location.href).toBe('');
+    await originReveals();
+  });
+
+  // In a shell, navigation off this account host would open the system
+  // browser: the switch goes through account.leave {url}.
+  it('in a shell, another account\'s QR switches via account.leave {url}', async () => {
+    const call = vi.fn(async () => null);
+    globalThis.LocalNotifications = { __native: { platform: 'ios', call } };
+    try {
+      installCamera({ decoded: [`https://example.test/d/other${linkHash()}`] });
+      await scanAt('#scan');
+      await until(() => call.mock.calls.length > 0);
+      expect(call).toHaveBeenCalledWith('account.leave', { url: `https://other.example.test/claim${linkHash()}` });
+      expect(globalThis.location.href).toBe('');
+      expect(calls).toEqual([]);
+    } finally {
+      delete globalThis.LocalNotifications;
+    }
+  });
+
+  it('in a shell without account.leave {url}, the form says so and nothing navigates', async () => {
+    const call = vi.fn(async () => { throw new Error('unsupported: account.leave'); });
+    globalThis.LocalNotifications = { __native: { platform: 'android', call } };
+    try {
+      installCamera({ decoded: [`https://example.test/d/other${linkHash()}`] });
+      await scanAt('#scan');
+      await until(() => text().includes('This code is for another account'));
+      expect(app.querySelector('#claim-code-input')).not.toBeNull();
+      expect(globalThis.location.href).toBe('');
+      expect(calls).toEqual([]);
+    } finally {
+      delete globalThis.LocalNotifications;
+    }
+  });
+
+  it('on the web, another account\'s QR opens that account\'s /claim', async () => {
+    installCamera({ decoded: [`medtracker://d/other${linkHash()}`] });
+    await scanAt('#scan');
+    await until(() => globalThis.location.href !== '');
+    expect(globalThis.location.href).toBe(`https://other.example.test/claim${linkHash()}`);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('/claim — AD7: end states', () => {
   it('409 on claim: the code was already used', async () => {
     server.slot.state = 'claimed'; // someone else claimed between our GET and POST

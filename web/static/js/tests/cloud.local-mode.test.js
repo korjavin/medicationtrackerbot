@@ -1046,6 +1046,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                 expect(window.Barcode.scan).toHaveBeenCalledWith(expect.objectContaining({ formats: ['qr_code'] }));
             });
+
+            // bd med-r1j2.10 (AD13): a denied camera says so, offers the system
+            // setting (its hint where the shell can't open it), and the paste
+            // field takes the link instead.
+            it('Scan with the camera denied: AD13 note + Allow camera in Settings, then the pasted link still works', async () => {
+                const { window, document } = env;
+                const denied = Object.assign(new Error('denied'), { name: 'MediaCaptureError', code: 'PERMISSION_DENIED' });
+                const openSettings = vi.fn(async () => ({ opened: false, hint: 'Turn on Camera in iOS Settings → Med Tracker.' }));
+                window.MediaCapture = { openCameraStream: vi.fn(async () => { throw denied; }), openSettings };
+                window.Barcode = { supportsLiveScan: () => true, scan: vi.fn() };
+                openSheet(window);
+                act(document, 'scan').click();
+                const off = await vi.waitFor(() => {
+                    const n = document.getElementById('invite-camera-off');
+                    if (!n) throw new Error('no AD13 note yet');
+                    return n;
+                });
+                expect(off.textContent).toContain('The camera is off for this app.');
+                expect(off.textContent).toContain('Paste the link from your other device instead.');
+                expect(window.Barcode.scan).not.toHaveBeenCalled();
+                tap(off, 'camera-settings');
+                await vi.waitFor(() => expect(off.textContent).toContain('Turn on Camera in iOS Settings → Med Tracker.'));
+                expect(openSettings).toHaveBeenCalledTimes(1);
+                const input = document.getElementById('invite-sheet-input');
+                expect(input.closest('[hidden]')).toBeNull();
+                input.value = 'https://app.example.com/i/abc#0a1b2c';
+                act(document, 'submit').click();
+                tap(await ready(document), 'sign-in');
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+            });
         });
 
         it('with records: "Turn on sync?" with the live count, then move.stash, then local.leave {url}', async () => {
