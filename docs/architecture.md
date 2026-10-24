@@ -220,9 +220,13 @@ So (bd med-kbpf):
 
 - a **Confirm tap cancels the chain server-side, immediately** — the tap is the
   user's explicit statement, and the event names the doses;
-- the **drain confirms by identity**: per named med, the deterministic
-  `intake-<medId>-<slotUnix>` row, else that med's nearest PENDING dose within
-  its own `minDoseInterval` (the drift fallback);
+- the **drain confirms by exact identity** (bd med-wi09.4): per named med, the
+  deterministic `intake-<medId>-<slotUnix>` row (tombstoned → no-op), else the
+  dose projection's row for that med at that very second — never a
+  neighbouring dose. A med that resolves to nothing gets nothing; the message
+  becomes "This reminder is out of date — open the app to log it" and the app
+  opens Meds → Timeline at that med with the reminder's time, nothing
+  preselected (MT6);
 - the drain **re-arms one re-fire** (`POST /api/telegram/rearm-refire`) only if
   a named med is still due afterwards. An in-app confirm, which produces no
   tap, still cancels via `POST /api/telegram/cancel-refire`.

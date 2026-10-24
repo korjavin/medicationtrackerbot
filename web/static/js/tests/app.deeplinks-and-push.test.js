@@ -372,11 +372,16 @@ describe('handleDeepLinks – push-action query params', () => {
     const { window, cleanup } = loadFrontendEnv({ url: DOSE_URL });
 
     try {
-      const apiSpy = vi.spyOn(window, 'apiCall').mockResolvedValue([
-        { id: 2, name: 'Aspirin' },
-        { id: 9, name: 'Magnesium' },
-        { id: 5, name: 'Old', archived: true },
-      ]);
+      const apiSpy = vi.spyOn(window, 'apiCall').mockImplementation(async (url) => (url.startsWith('/api/doses')
+        ? [
+          { occId: 'intake-2-1772352000', medId: 2, plannedAt: '2026-03-01T08:00:00.000Z', state: 'due' },
+          { occId: 'intake-9-1772352000', medId: 9, plannedAt: '2026-03-01T08:00:00.000Z', state: 'due' },
+        ]
+        : [
+          { id: 2, name: 'Aspirin' },
+          { id: 9, name: 'Magnesium' },
+          { id: 5, name: 'Old', archived: true },
+        ]));
       const modalSpy = vi.spyOn(window, 'showMedicationConfirmModal').mockImplementation(() => {});
       const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
 
