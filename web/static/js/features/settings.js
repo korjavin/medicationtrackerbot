@@ -1443,7 +1443,7 @@ function openSettingsPage(name) {
     });
     _openSettingsPages.set(name, page);
     if (name === 'devices') mountCloudDevices();
-    if (name === 'units') refreshBmiHint();
+    if (name === 'units') refreshBmiHint().catch(() => {});
     return page;
 }
 
@@ -1974,6 +1974,8 @@ async function refreshBmiHint() {
 }
 
 function paintBmiHint() {
+    // The fetch can land after the page (or a test's jsdom) is gone.
+    if (typeof document === 'undefined' || !document) return;
     const hint = document.getElementById('settings-height-bmi-hint');
     if (!hint) return;
     const kg = _bmiFacts && !_bmiFacts.ed_safe && Number.isFinite(_bmiFacts.latest_kg) ? _bmiFacts.latest_kg : null;
