@@ -279,15 +279,39 @@ function stopTracks(stream) {
 async function renderScanner(app) {
   const media = globalThis.MediaCapture;
   const barcode = globalThis.Barcode;
-  const scan = { stopped: false, stream: null, timer: null };
-  const stop = () => {
-    scan.stopped = true;
+  const scan = { stopped: false, stream: null, timer: null, opening: false, gen: 0 };
+  const doc = globalThis.document;
+  // Camera off, scanner kept: backgrounding, or a bfcache freeze.
+  const release = () => {
+    scan.gen++; // invalidates any pending play()/decode continuation
     clearTimeout(scan.timer);
     if (scan.stream) stopTracks(scan.stream);
     scan.stream = null;
-    globalThis.removeEventListener?.('pagehide', stop);
+    video.srcObject = null;
   };
-  globalThis.addEventListener?.('pagehide', stop);
+  const stop = () => {
+    scan.stopped = true;
+    release();
+    globalThis.removeEventListener?.('pagehide', onHide);
+    globalThis.removeEventListener?.('pageshow', onShow);
+    doc?.removeEventListener?.('visibilitychange', onVisibility);
+  };
+  const onVisibility = () => {
+    if (scan.stopped) return;
+    if (doc.hidden) release();
+    else open();
+  };
+  // A bfcache restore brings back a frozen screen: reopen the camera.
+  const onShow = (e) => {
+    if (scan.stopped || !e.persisted) return;
+    release();
+    open();
+  };
+  // Going into the bfcache keeps the scanner resumable; a real unload ends it.
+  const onHide = (e) => (e && e.persisted ? release() : stop());
+  globalThis.addEventListener?.('pagehide', onHide);
+  globalThis.addEventListener?.('pageshow', onShow);
+  doc?.addEventListener?.('visibilitychange', onVisibility);
 
   const shell = el('div', 'wg-shell');
   const video = el('video', 'claim-scan-video');
@@ -300,39 +324,57 @@ async function renderScanner(app) {
   const back = () => { stop(); renderClaimForm(app); };
   render(app, shell, [button('claim-scan-type', 'Type the code instead', 'wg-btn--ghost', back)], { bar: scanBar(back), foot: 'wg-pagefoot' });
 
-  let stream;
-  try {
-    const live = () => !!barcode && typeof barcode.supportsLiveScan === 'function' && barcode.supportsLiveScan();
-    if (barcode && !live()) await loadZxing();
-    if (!live()) throw Object.assign(new Error('no live scan'), { code: 'UNAVAILABLE' });
-    if (scan.stopped) return;
-    stream = await media.openCameraStream({ facingMode: 'environment' });
-  } catch (err) {
-    if (scan.stopped) return;
-    stop();
-    renderCameraOff(app, err && err.code === 'PERMISSION_DENIED');
-    return;
-  }
-  if (scan.stopped) {
-    stopTracks(stream);
-    return;
-  }
-  scan.stream = stream;
-  video.srcObject = stream;
-  try {
-    await video.play();
-  } catch {
-    // the decoder reads the stream either way
-  }
-  loop();
+  await open();
 
-  function loop() {
-    if (scan.stopped) return;
+  // Once `opening` clears: retry if the page is visible again.
+  function again() {
+    Promise.resolve().then(() => { if (!scan.stopped && !doc?.hidden) open(); });
+  }
+
+  async function open() {
+    if (scan.opening || scan.stream || scan.stopped || doc?.hidden) return;
+    scan.opening = true;
+    const gen = scan.gen;
+    let stream;
+    try {
+      const live = () => !!barcode && typeof barcode.supportsLiveScan === 'function' && barcode.supportsLiveScan();
+      if (barcode && !live()) await loadZxing();
+      if (!live()) throw Object.assign(new Error('no live scan'), { code: 'UNAVAILABLE' });
+      if (scan.stopped) return;
+      if (doc?.hidden || gen !== scan.gen) return again(); // hidden while loading
+      stream = await media.openCameraStream({ facingMode: 'environment' });
+    } catch (err) {
+      if (scan.stopped) return;
+      if (doc?.hidden || gen !== scan.gen) return again(); // a stale attempt failing is not the user's answer
+      stop();
+      renderCameraOff(app, err && err.code === 'PERMISSION_DENIED');
+      return;
+    } finally {
+      scan.opening = false;
+    }
+    if (scan.stopped || doc?.hidden || gen !== scan.gen) {
+      stopTracks(stream);
+      again();
+      return;
+    }
+    scan.stream = stream;
+    video.srcObject = stream;
+    try {
+      await video.play();
+    } catch {
+      // the decoder reads the stream either way
+    }
+    if (gen !== scan.gen) return;
+    loop(gen);
+  }
+
+  function loop(gen) {
+    if (scan.stopped || gen !== scan.gen) return;
     Promise.resolve()
       .then(() => barcode.scan({ source: video, formats: ['qr_code'] }))
       .catch(() => null) // an unready frame: try again
       .then((result) => {
-        if (scan.stopped) return;
+        if (scan.stopped || gen !== scan.gen) return;
         if (result && result.rawValue) {
           const code = parseScanned(result.rawValue);
           if (code) {
@@ -342,7 +384,7 @@ async function renderScanner(app) {
           }
           status.textContent = "That QR code isn't from Add a device. Scan the one on your other device.";
         }
-        scan.timer = setTimeout(loop, SCAN_MS);
+        scan.timer = setTimeout(() => loop(gen), SCAN_MS);
       });
   }
 }
@@ -363,7 +405,7 @@ async function openScanned(app, { sub, frag }) {
     try {
       await native.call('account.leave', { url });
     } catch {
-      renderClaimForm(app, 'This code is for another account. Update Med Tracker to switch to it from here.');
+      renderClaimForm(app, "This code is for an account this app can't open. Type the code shown under the QR instead.");
     }
     return;
   }
