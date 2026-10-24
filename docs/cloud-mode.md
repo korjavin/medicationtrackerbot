@@ -569,6 +569,10 @@ Both channels drop into the same blind queue whose only reader is `cmd/feedbackp
 
 **One queued item, one DM.** `AppendFeedback` returns `queued bool` and the web ping only fires when it inserted, so the reliable-retry client re-POSTing the same `client_id` over a flaky connection doesn't announce "new feedback" again. `FEEDBACK_ADMIN_CHAT_ID` unset (or unparseable — logged and treated as unset) means no relay at all.
 
+### Privacy policy page: `/privacy` (med-9u3s)
+
+The base domain serves [privacy-policy.md](privacy-policy.md) rendered to static HTML at `https://<base>/privacy` (prod: `https://cloud.myhealthbot.ai/privacy`, the URL the store listings, the native shells and the web first-run footnote link). The markdown is embedded by `docs/embed.go` and rendered once at startup (`internal/cloudserver/privacy.go`, goldmark, raw HTML escaped, repo-relative links unwrapped to text); strict default CSP, no script, `Cache-Control: public, max-age=3600`. Edit the markdown; the page follows on the next deploy.
+
 ### Web feedback reader: `/feedback` (med-rbl)
 
 The metadata ping told the developer *when* to run `feedbackpull` — a chore needing the server's SQLite file, the age private key (which must not be on that server), and a Go toolchain, so in practice nobody ran it. The reader page moves the read to the phone the DM already arrived on, **without moving the key to the server**.

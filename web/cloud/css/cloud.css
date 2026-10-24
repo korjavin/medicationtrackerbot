@@ -130,6 +130,29 @@ body {
   line-height: 1.5;
 }
 
+/* /privacy (bd med-9u3s): docs/privacy-policy.md rendered server-side. */
+.landing.privacy {
+  max-width: 44rem;
+}
+
+.privacy a {
+  color: var(--wg-sage);
+}
+
+.privacy table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.privacy th,
+.privacy td {
+  border: 1px solid var(--wg-border-strong);
+  padding: 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
 .wizard-step {
   max-width: 32rem;
   margin: 4rem auto;
