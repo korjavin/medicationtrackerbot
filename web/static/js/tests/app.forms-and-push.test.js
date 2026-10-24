@@ -41,12 +41,12 @@ describe('app.js form submissions and push modal behavior', () => {
     try {
       const apiCallSpy = vi.fn().mockResolvedValue({ ok: true });
       const loadMedsSpy = vi.fn();
-      const loadHistorySpy = vi.fn();
+      const loadTimelineSpy = vi.fn();
       const alertSpy = vi.fn();
 
       window.apiCall = apiCallSpy;
       window.loadMeds = loadMedsSpy;
-      window.loadHistory = loadHistorySpy;
+      window.loadTimeline = loadTimelineSpy;
       window.safeAlert = alertSpy;
 
       window.showMedicationConfirmModal(['10', '20'], ['A', 'B'], '2026-02-27T10:00:00Z');
@@ -65,7 +65,7 @@ describe('app.js form submissions and push modal behavior', () => {
         occ_ids: [`intake-10-${Date.parse('2026-02-27T10:00:00Z') / 1000}`]
       });
       expect(loadMedsSpy).toHaveBeenCalledTimes(1);
-      expect(loadHistorySpy).toHaveBeenCalledTimes(1);
+      expect(loadTimelineSpy).toHaveBeenCalledTimes(1);
       expect(alertSpy).toHaveBeenCalledTimes(1);
       expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(true);
     } finally {
@@ -79,12 +79,12 @@ describe('app.js form submissions and push modal behavior', () => {
     try {
       const apiCallSpy = vi.fn().mockResolvedValue({ ok: true });
       const loadMedsSpy = vi.fn();
-      const loadHistorySpy = vi.fn();
+      const loadTimelineSpy = vi.fn();
       const alertSpy = vi.fn();
 
       window.apiCall = apiCallSpy;
       window.loadMeds = loadMedsSpy;
-      window.loadHistory = loadHistorySpy;
+      window.loadTimeline = loadTimelineSpy;
       window.safeAlert = alertSpy;
 
       window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
@@ -112,12 +112,12 @@ describe('app.js form submissions and push modal behavior', () => {
         return { ok: true };
       });
       const loadMedsSpy = vi.fn();
-      const loadHistorySpy = vi.fn();
+      const loadTimelineSpy = vi.fn();
       const alertSpy = vi.fn();
 
       window.apiCall = apiCallSpy;
       window.loadMeds = loadMedsSpy;
-      window.loadHistory = loadHistorySpy;
+      window.loadTimeline = loadTimelineSpy;
       window.safeAlert = alertSpy;
 
       window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
@@ -132,7 +132,7 @@ describe('app.js form submissions and push modal behavior', () => {
       expect(apiCallSpy.mock.calls[0][1]).toBe('POST');
       expect(apiCallSpy.mock.calls[0][2]).toEqual({ action: 'skip', occ_ids: [100] });
       expect(loadMedsSpy).toHaveBeenCalledTimes(1);
-      expect(loadHistorySpy).toHaveBeenCalledTimes(1);
+      expect(loadTimelineSpy).toHaveBeenCalledTimes(1);
       expect(alertSpy).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();

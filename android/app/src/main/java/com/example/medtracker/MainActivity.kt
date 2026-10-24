@@ -423,6 +423,7 @@ class MainActivity : Activity() {
         setLocal(false) // leaving local mode keeps the move stash for the new account
         leave.clear() // opening an account abandons a pending leave stash; the next leave stashes afresh
         prefs.edit().putString(HOST_KEY, h).remove(LEAVE_HOST_KEY).apply()
+        clearErase() // opening an account drops a pending join erase; local.leave {erase} re-arms it after
         setInvite(null) // whatever invite was waiting, this open consumed or superseded it
         host = h
         reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
@@ -453,9 +454,12 @@ class MainActivity : Activity() {
         if (on != local) Notifications.clear(this)
         // Entering local mode (or a native exit within it) abandons a pending move; the next move stashes afresh.
         if (on) move.clear()
+        if (on) clearErase() // back in local mode: the join erase (bd med-r1j2.8) must never fire later
         prefs.edit().putBoolean(LocalOrigin.MODE_KEY, on).apply()
         local = on
     }
+
+    private fun clearErase() = prefs.edit().remove(Invite.ERASE_HOST_KEY).remove(Invite.ERASE_AT_KEY).apply()
 
     private fun reopen(url: String = home) {
         deferredUrl = null
@@ -770,7 +774,14 @@ class MainActivity : Activity() {
             val h = Uri.parse(url).host ?: return answer(null, "invalid url")
             answer(true)
             if (op == "account.leave") move.clear()
-            return enterAccount(url, h)
+            enterAccount(url, h)
+            // "Join and erase" (bd med-r1j2.8): nothing is erased now — only remembered for this host
+            // until its unlocked boot calls local.erase. No merge either: drop any move stash.
+            if (op == "local.leave" && leaveArgs.optBoolean("erase")) {
+                move.clear()
+                prefs.edit().putString(Invite.ERASE_HOST_KEY, h).putLong(Invite.ERASE_AT_KEY, System.currentTimeMillis()).apply()
+            }
+            return
         }
         when (op) {
             "ping" -> answer("pong")
@@ -808,6 +819,38 @@ class MainActivity : Activity() {
                 setInvite(null) // A4: no claim token left behind after Erase
                 Notifications.clear(this)
                 answer(true)
+            }
+            // "Join and erase", account side (bd med-r1j2.8, cloud-boot.js finishJoinErase): the joined
+            // account booted unlocked. Only for the host local.leave {erase} remembered, within the code's
+            // 10 minutes: wipe the local origin's website data plus local.reset's native share. Reminders
+            // and the slot were already cleared by enterAccount; clearing them here would hit this
+            // account's own. Not due: a no-op that spends the flag. A failed wipe answers "erase failed"
+            // and keeps the flag for the next boot.
+            // Listed in both modes (the local page's Join-and-erase probe); in local mode a no-op.
+            "local.erase" -> {
+                if (local) return answer(true) // the flag cannot exist here (setLocal(true) clears it)
+                val due = Invite.eraseDue(prefs.getString(Invite.ERASE_HOST_KEY, null), prefs.getLong(Invite.ERASE_AT_KEY, 0), host, System.currentTimeMillis())
+                if (!due) {
+                    clearErase()
+                    return answer(true)
+                }
+                // The reply waits for the wipe; the page's caller times out on its own. A failed wipe
+                // keeps the (host- and TTL-bound) flag, so the next unlocked boot retries.
+                val from = host
+                val at = prefs.getLong(Invite.ERASE_AT_KEY, 0)
+                LocalWipe.run(this) { ok ->
+                    diag("shell local erase ${if (ok) "done" else "failed"}")
+                    // Native state only if nothing changed during the wipe (mode, account, erase intent).
+                    val same = !local && host == from && prefs.getString(Invite.ERASE_HOST_KEY, null) == from &&
+                        prefs.getLong(Invite.ERASE_AT_KEY, 0) == at
+                    if (ok && same) {
+                        clearErase()
+                        prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
+                        move.clear()
+                        leave.clear()
+                    }
+                    if (!isDestroyed) runCatching { if (ok) answer(true) else answer(null, "erase failed") }
+                }
             }
             // The pending-invite slot: the page reads it once per boot; clear on "Keep this account" or stale.
             "invite.pending" -> answer(pendingInvite() ?: JSONObject.NULL)

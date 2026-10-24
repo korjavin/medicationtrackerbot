@@ -17,11 +17,11 @@ describe('app.js refresh dispatch behavior', () => {
 
     try {
       const loadMedsSpy = vi.fn();
-      const loadHistorySpy = vi.fn();
+      const loadTimelineSpy = vi.fn();
       const loadWeightSpy = vi.fn();
 
       window.loadMeds = loadMedsSpy;
-      window.loadHistory = loadHistorySpy;
+      window.loadTimeline = loadTimelineSpy;
       window.loadWeightLogs = loadWeightSpy;
 
       window.AppStore.set('currentTab', 'meds');
@@ -33,12 +33,12 @@ describe('app.js refresh dispatch behavior', () => {
 
       window.reloadCurrentTab();
       expect(loadMedsSpy).toHaveBeenCalledTimes(1);
-      expect(loadHistorySpy).toHaveBeenCalledTimes(0);
+      expect(loadTimelineSpy).toHaveBeenCalledTimes(0);
 
       document.querySelectorAll('.med-tab').forEach((t) => t.classList.remove('active'));
-      document.querySelector('.med-tab[data-tab="history"]').classList.add('active');
+      document.querySelector('.med-tab[data-tab="timeline"]').classList.add('active');
       window.reloadCurrentTab();
-      expect(loadHistorySpy).toHaveBeenCalledTimes(1);
+      expect(loadTimelineSpy).toHaveBeenCalledTimes(1);
 
       window.AppStore.set('currentTab', 'weight');
       document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));

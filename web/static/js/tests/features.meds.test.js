@@ -42,6 +42,12 @@ function deferred() {
     return { promise, resolve: resolveFn, reject: rejectFn };
 }
 
+// One occurrence-projection row as the timeline caches it (doses_timeline).
+function occ(occId, medId, state, plannedAt, extra = {}) {
+    return { occId, medId: String(medId), state, plannedAt, tz: 'UTC', localDate: plannedAt.slice(0, 10), localTime: plannedAt.slice(11, 16), source: 'schedule', ...extra };
+}
+const byOcc = (rows, id) => rows.find((r) => r.occId === id);
+
 describe('features/meds.js + app.js — optimistic write conversion', () => {
     let env;
 
@@ -54,19 +60,20 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         env = null;
     });
 
-    it('confirmSelectedMedications flips the matched intake_log to TAKEN in cached history before the POST resolves', async () => {
+    it('confirmSelectedMedications flips the matched timeline rows to taken before the POST resolves', async () => {
         const { window, document } = env;
         const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 101, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-17T08:00:00.000Z' },
-                { id: 102, medication_id: 2, status: 'PENDING', scheduled_at: '2026-05-17T08:00:00.000Z' }
+            doses_timeline: [
+                occ(101, 1, 'due', '2026-05-17T08:00:00.000Z'),
+                occ(102, 2, 'due', '2026-05-17T08:00:00.000Z'),
+                occ(103, 3, 'due', '2026-05-17T08:00:00.000Z')
             ],
             next_intake: { scheduled_at: '2026-05-17T08:00:00.000Z', medication_names: ['Aspirin'] }
         });
 
         window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Vitamin D'], '2026-05-17T08:00:00.000Z', 'confirm', [101, 102]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -83,12 +90,13 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const handlerDone = window.confirmSelectedMedications();
         await postCalled;
 
-        const history = cache.get('history_3_0');
-        expect(history).toBeTruthy();
-        expect(history.length).toBe(2);
-        expect(history[0].status).toBe('TAKEN');
-        expect(history[0]._optimistic).toBe(true);
-        expect(history[1].status).toBe('TAKEN');
+        const rows = cache.get('doses_timeline');
+        expect(rows).toHaveLength(3);
+        expect(byOcc(rows, 101).state).toBe('taken');
+        expect(byOcc(rows, 101).takenAt).toBeTruthy();
+        expect(byOcc(rows, 102).state).toBe('taken');
+        // Not on the sheet → untouched.
+        expect(byOcc(rows, 103).state).toBe('due');
         // next_intake cleared because scheduled_at matches the confirm
         const next = cache.get('next_intake');
         expect(next.scheduled_at).toBe(null);
@@ -117,7 +125,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         checks[1].setAttribute('aria-pressed', 'false');
 
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -146,37 +154,31 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
     it('confirmSelectedMedications rolls back the optimistic flip when the POST returns null', async () => {
         const { window } = env;
         const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 101, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-17T08:00:00.000Z' }
-            ]
+            doses_timeline: [occ(101, 1, 'due', '2026-05-17T08:00:00.000Z')]
         });
 
         window.showMedicationConfirmModal([1], ['Aspirin'], '2026-05-17T08:00:00.000Z', 'confirm', [101]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
         await window.confirmSelectedMedications();
 
-        const history = cache.get('history_3_0');
-        if (history) {
-            expect(history.length).toBe(1);
-            expect(history[0].status).toBe('PENDING');
-        }
+        const rows = cache.get('doses_timeline');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].state).toBe('due');
     });
 
-    it('skipSelectedMedications flips matched intake_log entries to SKIPPED before the POST resolves', async () => {
+    it('skipSelectedMedications flips the matched timeline rows to skipped before the POST resolves', async () => {
         const { window } = env;
         const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 201, medication_id: 5, status: 'PENDING', scheduled_at: '2026-05-17T09:00:00.000Z' }
-            ]
+            doses_timeline: [occ(201, 5, 'due', '2026-05-17T09:00:00.000Z')]
         });
 
         window.showMedicationConfirmModal([5], ['Med E'], '2026-05-17T09:00:00.000Z', 'confirm', [201]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -193,9 +195,7 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const handlerDone = window.skipSelectedMedications();
         await postCalled;
 
-        const history = cache.get('history_3_0');
-        expect(history[0].status).toBe('SKIPPED');
-        expect(history[0]._optimistic).toBe(true);
+        expect(cache.get('doses_timeline')[0].state).toBe('skipped');
 
         pending.resolve({ status: 'ok' });
         await handlerDone;
@@ -204,42 +204,36 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
     it('skipSelectedMedications rolls back when the POST returns null', async () => {
         const { window } = env;
         const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 201, medication_id: 5, status: 'PENDING', scheduled_at: '2026-05-17T09:00:00.000Z' }
-            ]
+            doses_timeline: [occ(201, 5, 'due', '2026-05-17T09:00:00.000Z')]
         });
 
         window.showMedicationConfirmModal([5], ['Med E'], '2026-05-17T09:00:00.000Z', 'confirm', [201]);
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
         await window.skipSelectedMedications();
 
-        const history = cache.get('history_3_0');
-        if (history) {
-            expect(history[0].status).toBe('PENDING');
-        }
+        expect(cache.get('doses_timeline')[0].state).toBe('due');
     });
 
-    it('updateIntakeHistory flips matched logs to TAKEN/PENDING in cached history before POST resolves', async () => {
+    it('updateIntakeHistory flips the checked timeline rows to the picked state before the POST resolves', async () => {
         const { window, document } = env;
         const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 301, medication_id: 7, status: 'PENDING', scheduled_at: '2026-05-17T10:00:00.000Z' },
-                { id: 302, medication_id: 8, status: 'TAKEN', scheduled_at: '2026-05-17T10:00:00.000Z', taken_at: '2026-05-17T10:05:00.000Z' }
+            doses_timeline: [
+                occ(301, 7, 'taken', '2026-05-17T10:00:00.000Z', { takenAt: '2026-05-17T10:05:00.000Z' }),
+                occ(302, 8, 'taken', '2026-05-17T10:00:00.000Z', { takenAt: '2026-05-17T10:05:00.000Z' })
             ]
         });
 
-        window.showMedicationConfirmModal([7, 8], ['Med G', 'Med H'], '2026-05-17T10:00:00.000Z', 'edit', [301, 302]);
-        document.getElementById('med-confirm-datetime').value = '2026-05-17T10:30';
+        window.showMedicationConfirmModal([7, 8], ['Med G', 'Med H'], '2026-05-17T10:05:00.000Z', 'edit', [301, 302], ['taken', 'taken']);
         const checks = document.querySelectorAll('.med-confirm-check');
-        checks[0].setAttribute('aria-pressed', 'true');   // 301 → TAKEN
-        checks[1].setAttribute('aria-pressed', 'false');  // 302 → PENDING (revert)
+        checks[0].setAttribute('aria-pressed', 'false');  // 301 left as it was
+        document.querySelector('#med-confirm-state [data-dose-state="pending"]').click(); // 302 → Not taken
 
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
 
         let postCalledSignal;
@@ -256,32 +250,27 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const handlerDone = window.updateIntakeHistory();
         await postCalled;
 
-        const history = cache.get('history_3_0');
-        const row301 = history.find((l) => l.id === 301);
-        const row302 = history.find((l) => l.id === 302);
-        expect(row301.status).toBe('TAKEN');
-        expect(row302.status).toBe('PENDING');
-        expect(row302.taken_at).toBe(null);
+        const rows = cache.get('doses_timeline');
+        expect(byOcc(rows, 301).state).toBe('taken');
+        expect(byOcc(rows, 302).state).toBe('due');
+        expect(byOcc(rows, 302).takenAt).toBe(null);
+        expect(window.apiCall).toHaveBeenCalledWith('/api/doses/act', 'POST', { action: 'undo', occ_ids: [302] });
 
         pending.resolve({ ok: true });
         await handlerDone;
     });
 
-    it('confirmLogPast prepends a TAKEN log into matching cached history payloads before POST resolves', async () => {
+    it('confirmLogPast adds a taken manual row to the cached timeline before POST resolves', async () => {
         const { window, document } = env;
         const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 901, medication_id: 99, status: 'TAKEN', scheduled_at: '2026-05-10T08:00:00.000Z' }
-            ],
-            'history_3_77': [],
-            'history_3_42': []
+            doses_timeline: [occ(901, 99, 'taken', '2026-05-10T08:00:00.000Z', { takenAt: '2026-05-10T08:00:00.000Z' })]
         });
 
         window.showMedicationConfirmModal([77], ['Med X'], '2026-05-17T11:00:00.000Z', 'log_past', []);
         document.getElementById('med-confirm-datetime').value = '2026-05-17T11:00';
 
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn(async () => ({ fresh: [] }));
+        window.loadTimeline = vi.fn(async () => ({ fresh: [] }));
         window.safeAlert = vi.fn();
         window.renderInventory = vi.fn();
 
@@ -299,21 +288,13 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         const handlerDone = window.confirmLogPast();
         await postCalled;
 
-        // history_3_0 is "all meds" — should include the optimistic log.
-        const all = cache.get('history_3_0');
-        expect(all.length).toBe(2);
-        expect(all[0].status).toBe('TAKEN');
-        expect(all[0].medication_id).toBe(77);
-        expect(all[0]._optimistic).toBe(true);
-
-        // history_3_77 is for med 77 — should include the optimistic log.
-        const own = cache.get('history_3_77');
-        expect(own.length).toBe(1);
-        expect(own[0].medication_id).toBe(77);
-
-        // history_3_42 is for med 42 — should NOT include the optimistic log.
-        const other = cache.get('history_3_42');
-        expect(other.length).toBe(0);
+        const rows = cache.get('doses_timeline');
+        expect(rows).toHaveLength(2);
+        const added = rows[1];
+        expect(added).toMatchObject({ medId: '77', state: 'taken', source: 'manual' });
+        expect(added.takenAt).toBe(new Date('2026-05-17T11:00').toISOString());
+        expect(added.localDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(added.localTime).toMatch(/^\d{2}:\d{2}$/);
 
         pending.resolve({ id: 12345 });
         await handlerDone;
@@ -322,84 +303,21 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
     it('confirmLogPast rolls back the optimistic insert when the POST returns null', async () => {
         const { window, document } = env;
         const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 901, medication_id: 99, status: 'TAKEN', scheduled_at: '2026-05-10T08:00:00.000Z' }
-            ]
+            doses_timeline: [occ(901, 99, 'taken', '2026-05-10T08:00:00.000Z', { takenAt: '2026-05-10T08:00:00.000Z' })]
         });
 
         window.showMedicationConfirmModal([77], ['Med X'], '2026-05-17T11:00:00.000Z', 'log_past', []);
         document.getElementById('med-confirm-datetime').value = '2026-05-17T11:00';
         window.loadMeds = vi.fn();
-        window.loadHistory = vi.fn();
+        window.loadTimeline = vi.fn();
         window.safeAlert = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
         await window.confirmLogPast();
 
-        const all = cache.get('history_3_0');
-        if (all) {
-            expect(all.length).toBe(1);
-            expect(all[0].id).toBe(901);
-        }
-    });
-
-    it('deleteFutureIntakes drops the target rows from cached history before the POST resolves', async () => {
-        const { window } = env;
-        const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 11, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-18T08:00:00.000Z' },
-                { id: 12, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-19T08:00:00.000Z' },
-                { id: 13, medication_id: 1, status: 'TAKEN', scheduled_at: '2026-05-17T08:00:00.000Z' }
-            ]
-        });
-
-        window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
-        window.refreshMedsAfterMutation = vi.fn();
-        window.safeAlert = vi.fn();
-
-        let postCalledSignal;
-        const postCalled = new Promise((r) => { postCalledSignal = r; });
-        const pending = deferred();
-        window.apiCall = vi.fn(async (url, method) => {
-            if (method === 'POST' && url === '/api/medications/delete-intake') {
-                postCalledSignal();
-                return pending.promise;
-            }
-            return null;
-        });
-
-        const handlerDone = window.deleteFutureIntakes([11, 12]);
-        await postCalled;
-
-        const history = cache.get('history_3_0');
-        expect(history.length).toBe(1);
-        expect(history[0].id).toBe(13);
-
-        pending.resolve({ deleted_count: 2 });
-        await handlerDone;
-    });
-
-    it('deleteFutureIntakes rolls back when the POST returns null', async () => {
-        const { window } = env;
-        const cache = installApiCache(window, {
-            'history_3_0': [
-                { id: 11, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-18T08:00:00.000Z' },
-                { id: 12, medication_id: 1, status: 'PENDING', scheduled_at: '2026-05-19T08:00:00.000Z' }
-            ]
-        });
-
-        window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
-        window.refreshMedsAfterMutation = vi.fn();
-        window.safeAlert = vi.fn();
-        window.apiCall = vi.fn(async () => null);
-
-        await window.deleteFutureIntakes([11]);
-
-        const history = cache.get('history_3_0');
-        if (history) {
-            expect(history.length).toBe(2);
-            expect(history.map((l) => l.id).sort()).toEqual([11, 12]);
-        }
+        const rows = cache.get('doses_timeline');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].occId).toBe(901);
     });
 
     it('saveMedication (create) appends an optimistic row into cached medications before POST resolves', async () => {
