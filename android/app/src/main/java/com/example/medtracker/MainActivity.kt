@@ -925,10 +925,10 @@ class MainActivity : Activity() {
                 reopen(Invite.withInvite(home))
             }
             // The camera-denied "Allow camera in Settings" (bd med-r1j2.19, media-capture.js openSettings):
-            // this app's page in system Settings. Replies once launched, not on return.
+            // this app's page in system Settings. Replies once launched, not on return. No NEW_TASK:
+            // from the activity it stacks on our task, so Back returns to the app (a new task did not).
             "app.openSettings" -> runCatching {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
             }.fold({ answer(true) }, { answer(null, "no settings screen") })
             // Settings → App lock (local-policy.js mountLocalLockRow); available: the phone has a screen lock.
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))

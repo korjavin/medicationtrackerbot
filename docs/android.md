@@ -1315,7 +1315,7 @@ Twin of iOS `Shell.swift` (bd med-o7zq.5, .9), in
   `invite.pending` / `invite.clear` / `clipboard.read` ([Invite links](#the-shell-bd-med-nt9p5)),
   `app.openSettings` (no args → `true` once launched; bd med-r1j2.19: the camera-denied
   *Allow camera in Settings*, `media-capture.js` `openSettings`) — this app's page in system
-  Settings (`ACTION_APPLICATION_DETAILS_SETTINGS`, `package:` Uri, `FLAG_ACTIVITY_NEW_TASK`),
+  Settings (`ACTION_APPLICATION_DETAILS_SETTINGS`, `package:` Uri; no `FLAG_ACTIVITY_NEW_TASK`, so it stacks on the app's task and Back returns to the app),
   and `shell.ops`, which replies the array of op names this shell answers in
   the current mode (`LocalOrigin.ops`, one source with `opAllowed`) — the
   page's capability probe, so a row whose op an older APK lacks stays hidden
