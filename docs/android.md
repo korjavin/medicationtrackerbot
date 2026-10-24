@@ -482,7 +482,8 @@ Reminders stay local notifications (above).
   device is waiting · approve it before the code expires" (`Push.text`, the
   server's `nativeWakeTitleFor`). cloud-boot does not take it, so it is
   posted even in front, like the web. Its tap — the shell's notification
-  (launcher intent + extra `kind`, `CLEAR_TOP|SINGLE_TOP`) or the server's
+  (launcher intent + extra `kind`, `CLEAR_TOP|SINGLE_TOP`, one PendingIntent
+  requestCode per kind so a later wake never rewrites it) or the server's
   block (FCM delivers the launcher intent with the data payload as extras, no
   click action) — opens `https://<account host>/?tab=settings&page=add-device`
   (`Push.tappedPath`, then `openPath` like a reminder tap: the open page's

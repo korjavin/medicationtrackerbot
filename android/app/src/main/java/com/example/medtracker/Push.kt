@@ -115,7 +115,9 @@ object Push {
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
-            .setContentIntent(PendingIntent.getActivity(c, 0, tap,PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            // Extras don't tell PendingIntents apart: one requestCode per kind, or the next wake's
+            // FLAG_UPDATE_CURRENT rewrites the kind on a notification still in the shade.
+            .setContentIntent(PendingIntent.getActivity(c, kind.hashCode(), tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .build())
     }
 

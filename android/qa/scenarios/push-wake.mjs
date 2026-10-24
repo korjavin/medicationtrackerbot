@@ -87,11 +87,15 @@ export default async function pushWake(ctx) {
   await ctx.shot('background-notification');
   await shell('cmd statusbar collapse');
 
+  // Each kind has its own PendingIntent: a later wake must not rewrite the kind a shade entry
+  // carries (Argus #1361). Order 1: dry-queue after transfer_claimed, then tap Approve.
   await ctx.step('in the background: transfer_claimed posts "Approve the new device?"; its tap opens Add a device', async () => {
     await wake('transfer_claimed');
     await sleep(2000);
     r.transferPosted = (await shade()).includes(TRANSFER_TITLE);
     expect(r.transferPosted, 'no transfer_claimed notification');
+    await wake('dry-queue');
+    await sleep(1500);
     await shell('cmd statusbar expand-notifications');
     await sleep(1500);
     await device.tap({ text: TRANSFER_TITLE });
@@ -99,4 +103,26 @@ export default async function pushWake(ctx) {
     await page.getByText("This request isn't open here").waitFor({ state: 'visible', timeout: 30_000 });
   });
   await ctx.shot('transfer-tap');
+
+  // Order 2: transfer_claimed after dry-queue, then tap the dry-queue entry: no add-device route.
+  await ctx.step('in the background: a dry-queue tap after a later transfer_claimed does not open Add a device', async () => {
+    await page.evaluate(() => {
+      window.__qaDeeplink = [];
+      const open = window.SettingsView.openDevicesDeeplink;
+      window.SettingsView.openDevicesDeeplink = (p) => { window.__qaDeeplink.push(p); return open(p); };
+    });
+    await shell('input keyevent KEYCODE_HOME');
+    await sleep(2000);
+    await wake('dry-queue');
+    await sleep(1000);
+    await wake('transfer_claimed');
+    await sleep(1500);
+    await shell('cmd statusbar expand-notifications');
+    await sleep(1500);
+    await device.tap({ text: DRY_TEXT });
+    await sleep(3000);
+    r.dryTapDeeplinks = await page.evaluate(() => window.__qaDeeplink);
+    expect(r.dryTapDeeplinks.length === 0, `the dry-queue tap routed: ${JSON.stringify(r.dryTapDeeplinks)}`);
+  });
+  await shell('cmd statusbar collapse');
 }
