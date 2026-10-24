@@ -70,7 +70,15 @@
           "medication_id": 1,
           "schedule": "{\"type\":\"daily\",\"times\":[\"09:00\"]}",
           "tz_shift_policy": "flexible",
-          "from": "2026-06-20T18:30:00Z"
+          "from": "2026-06-20T18:30:00Z",
+          "boundary": [
+            {
+              "medId": 1,
+              "kept": [],
+              "cancelled": ["intake-1-1782028800"],
+              "replacement": { "intake-1-1782028800": "intake-1-1782032400" }
+            }
+          ]
         }
       ]
     },
@@ -599,7 +607,14 @@
               "note": "shift 1h later"
             }
           ],
-          "boundary": null
+          "boundary": [
+            {
+              "medId": 1,
+              "kept": [],
+              "cancelled": ["intake-1-1777723200"],
+              "replacement": { "intake-1-1777723200": "intake-1-1777795200" }
+            }
+          ]
         }
       ]
     },

@@ -222,7 +222,8 @@ describe('zone history — tztransition-* on every zone change and plan approve 
         const rows = await env.records.list('tztransition');
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({
-            old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', steps: [], boundary: null
+            // No meds, so the lineage (bd med-wi09.10) cancels nothing.
+            old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', steps: [], boundary: []
         });
         const sec = Math.floor(Date.parse(rows[0].switch_at) / 1000);
         expect(rows[0].recordId).toMatch(new RegExp(`^tztransition-${sec}-[a-z0-9]+$`));
@@ -236,7 +237,7 @@ describe('zone history — tztransition-* on every zone change and plan approve 
         env = loadCloudShimFrontendEnv({ seedRecords: { tzplan: [seedPendingPlan()] } });
         await env.window.apiCall('/api/tz-plan/tzplan-current/approve', 'POST');
         const [row] = await env.records.list('tztransition');
-        expect(row).toMatchObject({ old_tz: 'America/New_York', new_tz: 'Asia/Tokyo', boundary: null });
+        expect(row).toMatchObject({ old_tz: 'America/New_York', new_tz: 'Asia/Tokyo', boundary: [] });
         expect(row.steps.map((s) => s.stepNumber)).toEqual([1, 2]);
 
         env.cleanup();

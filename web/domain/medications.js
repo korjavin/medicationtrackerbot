@@ -20,6 +20,7 @@
 // only *read* here, to compute last_taken_at and to cancel pending intakes
 // on archive — this module never writes intake status.
 import { getDaysOfStockRemaining, listLowOnStock, historyRecordId } from './medschedule.js';
+import { boundary } from './lineage.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -29,12 +30,15 @@ const RESTOCK_RECORD_TYPE = 'restock';
 // (ISO). The generation a med was created with lives at the `base` suffix
 // (from = created_at): written on create, and backfilled at the clientTs floor
 // on the first edit of a med that predates history (CLAUDE.md rule 12), so
-// the edit's old generation is never lost. Nothing reads these yet.
+// the edit's old generation is never lost. An edit row also carries
+// `boundary` (lineage.js, bd med-wi09.10): the old→new slot lineage decided
+// at the edit; the base row has none.
 export const MEDSCHED_RECORD_TYPE = 'medsched';
 
-function medschedRecord(medId, { schedule, tz_shift_policy: policy }, fromIso, clientTs, suffix) {
+function medschedRecord(medId, { schedule, tz_shift_policy: policy }, fromIso, clientTs, suffix, lineage) {
   const fromMs = Date.parse(fromIso);
   return {
+    ...(lineage ? { boundary: lineage } : {}),
     recordId: historyRecordId(`${MEDSCHED_RECORD_TYPE}-${medId}`, Number.isFinite(fromMs) ? fromMs : 0, suffix),
     clientTs,
     deleted: false,
@@ -305,7 +309,11 @@ export function createMedicationsDomain({
       // Floored backfill of the pre-history generation (no-op when the base
       // row already exists), then the edit itself at a real stamp.
       await records.putIfAbsent(MEDSCHED_RECORD_TYPE, medschedRecord(existing.recordId, existing, existing.created_at, 0, 'base'));
-      await records.put(MEDSCHED_RECORD_TYPE, medschedRecord(existing.recordId, updated, new Date(nowMs).toISOString(), nowMs));
+      const evidence = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
+      const lineage = boundary({
+        oldGen: { timeZone, medications: [existing] }, newGen: { timeZone, medications: [updated] }, switchAt: nowMs, evidence,
+      });
+      await records.put(MEDSCHED_RECORD_TYPE, medschedRecord(existing.recordId, updated, new Date(nowMs).toISOString(), nowMs, undefined, lineage));
     }
 
     const warning = archived ? '' : await computeWarning(rxcui);
