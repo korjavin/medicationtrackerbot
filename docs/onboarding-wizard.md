@@ -56,8 +56,11 @@ hints and keeps `health` on even without Sleep (`med-ta2n.21`). Continue/Skip wr
 flags**, sequentially (`DEFAULT_FEATURES` is all-on, so an unwritten flag would come back on). Picking Medications
 while notifications are off for the device shows the O3 "Reminders won't fire" note and asks in context.
 
-The footer has the "not a medical device" footnote, the Privacy policy link and, in local mode, *How to get an invite*
-(the request sheet when the shell has `base.post`, else the base landing, else nothing; `med-ta2n.28`). In a v3 shell in
+The footer has the "not a medical device" footnote, the Privacy policy link and, in local mode, *Want it on every
+device? Get an invite* (IM1, `med-er5x`; the request sheet when the shell has `base.post`, else the base landing, else
+nothing; `med-ta2n.28`). The request sheet opens with the four facts of what an account adds (every device · a copy off
+this phone · only you can open it · any browser) and a line that Telegram, AI-assistant connectors and sharing need an
+account too (IM2; from the W4 sheet the copy leads, IM2 · W4). In a v3 shell in
 local mode with no invite already waiting, the footer also shows **F1** "Have an invite?".
 
 After W1, `finishPicker` stores the picks and either completes (POST above, overlay dismissed) or moves to W2.
@@ -83,15 +86,17 @@ and the first-run BYO-key form are gone; the key form lives in Settings → AI &
   (carried in `data.protection`). Written only by deliberate actions (a confirmed backup Share, the card's × / Later) with
   `now()` + `put` — never lazily created, so the derived-writer floor rule does not apply. Shown at 20 records or 7 days
   since first run; × snoozes 14 days; the second dismissal stops it. Replaces the weekly backup toast. The Settings chip
-  reads the same status.
+  reads the same status. Its sync choice reads "An encrypted copy only you can open. Needs an invite." (IM4); picked with
+  no invite waiting it opens the request sheet in the W4 order where the shell has `base.post`, else the W5 page.
 
 ## The local-first path (P1: installed from a store)
 
 1. Store install → shell enters local mode, no native screen → **W1** → (**W2**) → Today with **W3** hints.
 2. Notifications are asked in context (O3), not here.
 3. Later **W4** nudges to back up or turn on sync.
-4. Settings slot ① **Sync & backup** (**W5**): Backup first, then Sync — two facts, *Sync needs an invite for now* with
-   Paste / Scan (F1) and *How to get an invite*, or *An invite is waiting → Turn on sync* when the shell slot holds one.
+4. Settings slot ① **Sync & backup** (**W5**): Backup first, then Sync — the same four facts (IM3), *Sync needs an
+   invite for now* with Paste / Scan (F1) and *No invite? Request one* (or *How to get an invite* where the shell has
+   only a base), or *An invite is waiting → Turn on sync* when the shell slot holds one.
    The old Settings *Move to a cloud account* row is gone; the move runs from P3. Cloud mode keeps the S6 cloud card.
 
 *Sync needs an invite* is deliberate: registration is invite-only ([cloud-mode.md](cloud-mode.md#onboarding--invite--wizard--installed-pwa)).

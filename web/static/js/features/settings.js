@@ -1186,13 +1186,15 @@ async function paintSyncSection() {
     _syncInvite = invite || null;
     none.hidden = !!_syncInvite;
     waiting.hidden = !_syncInvite;
-    how.hidden = !base;
+    // IM3 (bd med-er5x): one invite link. "No invite? Request one" opens the
+    // request sheet where the shell can POST; else the base landing.
+    const request = document.getElementById('settings-sync-request');
+    if (request) request.hidden = canRequest !== true;
+    how.hidden = !base || (!!request && canRequest === true);
     if (base) how.href = `https://${base}/`;
     // The address check needs the base: without it, no Path 0 entry.
     const openGroup = document.getElementById('settings-sync-open-group');
     if (openGroup) openGroup.hidden = !base;
-    const request = document.getElementById('settings-sync-request');
-    if (request) request.hidden = canRequest !== true;
 }
 
 // Load settings (BP reminders status, etc.)
@@ -1529,11 +1531,10 @@ function refreshIntegrationsSummary() {
     const filled = (id) => !!document.getElementById(id)?.value.trim();
     const set = [
         filled('integrations-openai-api-key') && 'OpenAI',
-        (filled('integrations-food-api-key') || filled('integrations-food-url')) && 'Food DB',
         filled('integrations-elevenlabs-api-key') && 'Voice',
         document.getElementById('telegram-settings-mount')?.dataset.tgState === 'linked' && 'Telegram',
     ].filter(Boolean);
-    setSettingsSummary('integrations', set.length ? set.join(' · ') : 'AI, food database, voice, Telegram');
+    setSettingsSummary('integrations', set.length ? set.join(' · ') : 'AI, voice, Telegram');
 }
 
 async function refreshDevicesSummary() {

@@ -1807,6 +1807,8 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     const list = document.getElementById('med-confirm-list');
     list.replaceChildren(...ids.map((id, index) => _buildMedConfirmChoice(
         index, names[index] || ('Medication ' + id), medById.get(String(id)), mode, states[index])));
+    // The RD3 hint belongs to one reminder-opened sheet (app.js handlePushAction).
+    document.getElementById('med-confirm-hint')?.replaceChildren();
     _syncMedConfirmPrimary(mode);
 
     document.getElementById('med-confirm-state').classList.toggle('hidden', mode !== 'edit');

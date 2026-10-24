@@ -90,8 +90,7 @@ there is nothing to search but the products they have already logged.
 
 If left unset, remote search degrades to local-only (products already logged).
 That degradation is no longer silent: `fooddb.js`'s `remoteConfigured()` reports
-false and the search UI renders an explicit "Food database not configured. Add
-one in Settings → Integrations." instead of "Found 0 result(s)." (med-1j1). A
+false and the search UI renders an explicit "Food database not available right now." instead of "Found 0 result(s)." (med-1j1). A
 user who typed a query is told the database is missing, not that their food
 doesn't exist.
 

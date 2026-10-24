@@ -89,8 +89,17 @@ export function renderAddDevice(mount, ctx, onExit) {
     stop();
     flow.s = null;
   };
+  // keepalive: a delete sent as the page goes away still reaches the server.
   const deleteSlot = (slotId) =>
-    fetch(`/api/transfer/${encodeURIComponent(slotId)}`, { method: 'DELETE' });
+    fetch(`/api/transfer/${encodeURIComponent(slotId)}`, { method: 'DELETE', keepalive: true });
+  // AD4 (med-e92o): the tab closing, reloading or navigating away must not
+  // leave a live slot — after Approve it holds the wrapped DEK until expiry.
+  // Best effort; an enrolled or ended flow is no longer live and sends nothing.
+  const onPageHide = () => {
+    if (flow.live) deleteSlot(flow.slotId).catch(() => {});
+  };
+  const win = document.defaultView;
+  if (win) win.addEventListener('pagehide', onPageHide);
 
   // med-5h1t.3: the warm ctx carries no raw DEK, and an unlocked tab left open
   // must not be enough to hand the vault to a new device. Every code starts
@@ -601,6 +610,7 @@ export function renderAddDevice(mount, ctx, onExit) {
     // Back / Cancel) still must not leave a claimable slot behind: best-effort
     // delete it.
     stop() {
+      if (win) win.removeEventListener('pagehide', onPageHide);
       if (flow.live) deleteSlot(flow.slotId).catch(() => {});
       flow.closed = true;
       finish();
