@@ -2951,6 +2951,59 @@ body:has(.wg-callbar--dock) .wg-toasts {
     fill: var(--wg-sun);
 }
 
+/* BMI borders (med-a6fb.6, BM1): solid pale hairlines, never mistaken for the
+   dashed sun goal or the coloured lines; label above-right. */
+.wg-weight-chart__band {
+    stroke: var(--wg-fg-5);
+    stroke-width: 1;
+    fill: none;
+}
+
+.wg-weight-chart__band-label {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-chart-axis-tick-size);
+    font-weight: 600;
+    fill: var(--wg-fg-3);
+}
+
+/* BMI read-out beside the Current badge (med-a6fb.5, BM1). */
+.wg-weight-chart-panel__current--bmi {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.wg-weight-bmi {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-left: auto;
+}
+
+.wg-weight-bmi__value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+}
+
+.wg-weight-bmi-fine {
+    margin: var(--space-xs) 2px 0;
+}
+
+/* No-height nudge (med-a6fb.7, BM1 · no height): ghost row closing the card. */
+.wg-weight-bmi-nudge {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-line);
+}
+
+.wg-weight-bmi-nudge__go {
+    flex: 1;
+    justify-content: flex-start;
+}
+
 .wg-weight-chart-legend {
     display: flex;
     justify-content: center;
