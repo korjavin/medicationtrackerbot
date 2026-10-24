@@ -871,7 +871,7 @@ a Web Push subscription.
 
 ### Native push (APNs) (bd med-erq1.4)
 
-The relay's content-free wakes (`inbox-wake`, `dry-queue`;
+The relay's content-free wakes (`inbox-wake`, `dry-queue`, `transfer_claimed`;
 `internal/cloudserver/nativepush.go`) reach the shell over APNs, twin of
 Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15);
 [`Push.swift`](../ios/App/Push.swift)). Reminders stay local notifications (above).
@@ -896,8 +896,10 @@ Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15)
   `willPresent` shows the alert only when no listener took it (the SW's rule);
   the page has 5 s to answer. In the background the system already showed
   the server's fixed alert; `content-available` also hands a live page the
-  wake, with a 10 s grace before completing. Tap: Today, like a reminder
-  without a url. The shell reads `kind` only.
+  wake, with a 10 s grace before completing. Tap: the kind's `Push.paths`
+  entry — `transfer_claimed` (the add-device claim, bd med-r1j2.16; no page
+  takes it, so it always shows) opens `/?tab=settings&page=add-device` —
+  else Today, like a reminder without a url. The shell reads `kind` only.
 - **Check:** `Tests/main.swift` (op gates, the event script, token encoding);
   a real delivery is an owner device check after med-erq1.7: a Telegram
   message to the bot with the app in the background shows "Open the app to
