@@ -602,7 +602,7 @@ function _describeIntakeUpdateFailures(failures) {
 // occIds; unchecked doses stay as they were. Each dose's current state (the
 // choice's data-state, default taken) decides the explicit actions: leaving
 // taken/skipped is an undo first, then take or skip; a taken dose that stays
-// taken only gets its time edited.
+// taken only gets its time edited, and only once the user picked a time.
 async function updateIntakeHistory() {
     const targetOpt = document.querySelector('#med-confirm-state [data-dose-state][aria-pressed="true"]');
     const target = targetOpt ? targetOpt.dataset.doseState : 'taken';
@@ -619,7 +619,8 @@ async function updateIntakeHistory() {
         const raw = c.dataset.state || 'taken';
         const from = raw === 'taken' || raw === 'skipped' ? raw : 'pending';
         if (from === target) {
-            if (target !== 'taken' || !takenAt) return;
+            // A group's doses keep their own times unless the user picked one.
+            if (target !== 'taken' || !takenAt || !timeInput.dataset.edited) return;
             plan.edit_time.push(id);
         } else {
             if (from !== 'pending') plan.undo.push(id);

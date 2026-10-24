@@ -155,7 +155,16 @@ describe('app.js medication confirm edit/log modes', () => {
       expect(document.querySelector('#med-confirm-state').classList.contains('hidden')).toBe(false);
       expect(document.querySelector('#med-confirm-state [aria-pressed="true"]').textContent).toBe('Taken');
       expect(document.getElementById('med-confirm-time-edit').classList.contains('hidden')).toBe(false);
-      document.getElementById('med-confirm-datetime').value = '2026-02-28T11:45';
+      // Update with the time untouched sends nothing for the taken dose
+      // (a group's doses keep their own times) — only the skipped one moves.
+      window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+      await window.updateIntakeHistory();
+      expect(window.apiCall.mock.calls.map((c) => c[2].action)).toEqual(['undo', 'take']);
+
+      window.showMedicationConfirmModal([10, 20], ['Med A', 'Med B'], '2026-02-28T11:00:00Z', 'edit', [100, 200], ['taken', 'skipped']);
+      const timeInput = document.getElementById('med-confirm-datetime');
+      timeInput.value = '2026-02-28T11:45';
+      timeInput.dispatchEvent(new window.Event('change'));
       const at = new Date('2026-02-28T11:45').toISOString();
 
       // Both → Taken at 11:45: the taken dose gets its time edited, the
