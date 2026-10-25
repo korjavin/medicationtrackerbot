@@ -28,7 +28,7 @@
       {
         "hooks": [
           {
-            "command": "python3 .claude/hooks/no-local-frontend-tests.py",
+            "command": "python3 \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)/.claude/hooks/no-local-frontend-tests.py\"",
             "statusMessage": "no-local-frontend-tests guard",
             "timeout": 10,
             "type": "command"

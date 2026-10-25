@@ -20,10 +20,10 @@ for seg in re.split(r"[;&|\n()]+|\$\(|`", cmd):
     is_test = False
     args = []
     if words[0] in ("npx", "pnpm", "npm", "yarn") and len(words) > 1:
-        if words[1] in ("vitest", "test"):
+        if words[1] in ("vitest", "test") or words[1].startswith("test:"):
             is_test = True
             args = words[2:]
-        elif words[1:3] in (["run", "test"], ["exec", "vitest"]):
+        elif words[1:3] in (["run", "test"], ["exec", "vitest"]) or (words[1] == "run" and len(words) > 2 and words[2].startswith("test:")):
             is_test = True
             args = words[3:]
     elif re.search(r"(^|/)vitest$", words[0]):
@@ -31,14 +31,14 @@ for seg in re.split(r"[;&|\n()]+|\$\(|`", cmd):
         args = words[1:]
 
     if is_test:
-        # Check if any explicit test file path or pattern was provided.
-        # Remove flags (e.g. -r, --reporter, -t, etc.), '--', and subcommand words ('run').
+        # Check if explicit test file targets were provided.
+        # Strip flags (e.g. -r, --reporter, -t, etc.), '--', and subcommand 'run'.
         targets = [
             a for a in args
             if not a.startswith("-") and a not in ("run", "--")
         ]
-        # Allow if at least one target test file or path is specified.
-        if any(re.search(r"\.(test|spec)\.[cm]?[jt]sx?$|\.test$|tests?/|web/", t) for t in targets):
+        # Allow only if all targets explicitly point to a test file (.test.js, .spec.ts, etc.)
+        if targets and all(re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", t) for t in targets):
             continue
 
         sys.stderr.write(

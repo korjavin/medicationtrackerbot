@@ -20,11 +20,6 @@ on:
   pull_request:
     branches: [master]
     types: [opened, synchronize, reopened, labeled]
-    paths:
-      - 'web/**'
-      - 'tests/visual/**'
-      - 'ios/bundle-web.sh'
-      - '.github/workflows/visual-web.yml'
   workflow_dispatch:
 
 concurrency:
