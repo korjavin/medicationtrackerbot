@@ -233,7 +233,7 @@ describe('modal-history.js in BrowserAdapter mode', () => {
         it.each([
             ['its Confirm button', (d) => d.querySelector('.mt-confirm-modal__confirm').click(), true],
             ['its Cancel button', (d) => d.querySelector('.mt-confirm-modal__cancel').click(), false],
-            ['Escape', (d, w) => d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape' })), false],
+            ['Escape', (d, w) => d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), false],
             ['the backdrop', (d) => d.querySelector('.mt-confirm-backdrop').click(), false],
         ])('closing a dialog via %s pops exactly its entry and does not bounce to Today', async (_label, close, expected) => {
             const { window, document, cleanup } = createBrowserEnv();

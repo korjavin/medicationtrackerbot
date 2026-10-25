@@ -15,8 +15,11 @@
 // browser Back (back-button.js, modal-history.js popstate), Esc
 // (core/modal-manager.js), the page bar's Back (app-nav.js) and the shells'
 // system Back (NativeBack.onStep, native/back.js). canStep() is what step()
-// would answer right now; NativeBack.setState hears it once on load and on
-// every change (a modal opens or closes, the section changes).
+// would answer right now; NativeBack.setState hears it once on every full load,
+// on every change (a modal opens or closes, the section changes) and again on a
+// bfcache restore (pageshow persisted). The trail starts when bootstrap calls
+// ready() after startup routing, so a restored section plus a deep link is not
+// history: Back from there goes to Today.
 //
 // Switching between the Health tab's segments (bp / weight / health) replaces
 // the trail's top instead of stacking: Back leaves the Health tab, not the
@@ -31,6 +34,8 @@
     let current = null;
     let stepping = false;
     let lastState = null;
+    let started = false;
+    let observers = [];
 
     function currentTab() {
         const t = window.AppStore && window.AppStore.get('currentTab');
@@ -49,8 +54,14 @@
         return i;
     }
 
+    // Startup routing (the restored section, then a deep link) is where the
+    // session starts, not history: bootstrap calls ready() once it is done.
+    function ready() {
+        started = true;
+    }
+
     function onTab(tab) {
-        if (!stepping && current && tab !== current && !(isHealth(current) && isHealth(tab))) {
+        if (started && !stepping && current && tab !== current && !(isHealth(current) && isHealth(tab))) {
             trail.push(current);
             if (trail.length > MAX_TRAIL) trail.shift();
         }
@@ -77,9 +88,17 @@
         return true;
     }
 
-    function publish() {
+    // force: report even when unchanged (a bfcache restore — the shell re-arms
+    // its back callback on every navigation).
+    function publish(force) {
+        // A closing window tears the document down before its last mutations land.
+        if (!window.document) {
+            observers.forEach((o) => o.disconnect());
+            observers = [];
+            return;
+        }
         const now = canStep();
-        if (now === lastState) return;
+        if (now === lastState && force !== true) return;
         lastState = now;
         try { window.NativeBack.setState(now); } catch (_) { /* no native layer (tests, shells) */ }
     }
@@ -90,15 +109,19 @@
     try { window.NativeBack.onStep(step); } catch (_) { /* no native layer */ }
 
     // Modals open and close by class (mt-modal, #modal-overlay) or by mounting
-    // on <body> (in-page dialogs, WGPages).
+    // on <body> (in-page dialogs, WGPages). Every full load reports once here.
     function watch() {
-        new MutationObserver(publish).observe(document.body, { childList: true });
-        new MutationObserver((records) => {
+        const body = new MutationObserver(() => publish());
+        body.observe(document.body, { childList: true });
+        const modals = new MutationObserver((records) => {
             if (records.some((r) => r.target.tagName === 'MT-MODAL' || r.target.id === 'modal-overlay')) publish();
-        }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+        });
+        modals.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+        observers = [body, modals];
         publish();
     }
     document.body ? watch() : document.addEventListener('DOMContentLoaded', watch);
+    window.addEventListener('pageshow', (e) => { if (e.persisted) publish(true); });
 
-    window.AppBack = { step, canStep };
+    window.AppBack = { step, canStep, ready };
 })();

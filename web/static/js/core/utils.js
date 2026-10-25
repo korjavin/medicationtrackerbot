@@ -540,7 +540,10 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
 
     function onKeydown(e) {
         if (e.key === 'Escape') {
+            // The dialog owns this Esc: the app's Esc (AppBack.step,
+            // modal-manager.js) must not also step back under it.
             e.preventDefault();
+            e.stopPropagation();
             settle(cancelValue);
         } else if (e.key === 'Enter' && input && e.target === input && !e.isComposing) {
             e.preventDefault();

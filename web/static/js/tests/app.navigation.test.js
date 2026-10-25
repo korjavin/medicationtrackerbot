@@ -36,15 +36,15 @@ async function until(predicate, rounds = 200) {
     throw new Error('until: condition never became true');
 }
 
-async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, pageOrigin = null } = {}) {
+async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, pageOrigin = null, url, realDeepLinks = false } = {}) {
     allowConsoleNoise();
-    const env = loadFrontendEnv();
+    const env = loadFrontendEnv(url ? { url } : undefined);
     const { window } = env;
     vi.spyOn(window, 'fetch').mockImplementation(async (url) => {
         if (url === '/api/bootstrap') return createMockResponse({ json: { features } });
         return createMockResponse({ json: {} });
     });
-    window.handleDeepLinks = vi.fn();
+    if (!realDeepLinks) window.handleDeepLinks = vi.fn();
     // Navigation is under test, not the section loaders: stub what switchTab
     // fans out to so no async render outlives the test's window.
     for (const loader of ['loadToday', 'loadFoodLogs', 'loadBPReadings', 'loadWeightLogs', 'switchHealthTab',
@@ -319,6 +319,16 @@ describe('AppBack.step — one back order', () => {
         } finally { cleanup(); }
     });
 
+    it('3. startup routing is not history: a restored section plus a deep link goes back to Today', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food', url: 'https://example.test/?tab=workouts', realDeepLinks: true });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'workouts-view');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
     it('4. Today with nothing open: false, nothing happens', async () => {
         const { window, cleanup } = await boot();
         const { document } = window;
@@ -341,7 +351,7 @@ describe('AppBack.step — one back order', () => {
             window.dispatchEvent(new window.PopStateEvent('popstate'));
             expect(step).toHaveBeenCalledTimes(1);
             expect(view(document)).toBe('food');
-            document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+            document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
             expect(step).toHaveBeenCalledTimes(2);
             expect(view(document)).toBe('today');
         } finally { cleanup(); }
@@ -386,6 +396,20 @@ describe('AppBack.step — one back order', () => {
             tab(document, 'food').click();
             tab(document, 'meds').click(); // still true: no new report
             expect(setState.mock.calls.map((c) => c[0])).toEqual([true, false, true]);
+        } finally { cleanup(); }
+    });
+
+    it('back.state: a bfcache restore reports again even when unchanged; a plain pageshow does not', async () => {
+        const { window, cleanup } = await boot();
+        try {
+            const setState = vi.spyOn(window.NativeBack, 'setState');
+            const pageshow = (persisted) => (typeof window.PageTransitionEvent === 'function'
+                ? new window.PageTransitionEvent('pageshow', { persisted })
+                : Object.assign(new window.Event('pageshow'), { persisted }));
+            window.dispatchEvent(pageshow(false));
+            expect(setState).not.toHaveBeenCalled();
+            window.dispatchEvent(pageshow(true));
+            expect(setState.mock.calls.map((c) => c[0])).toEqual([false]);
         } finally { cleanup(); }
     });
 });
