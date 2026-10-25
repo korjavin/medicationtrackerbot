@@ -1,7 +1,7 @@
 // System Back walks the page's own back stack (bd med-y7b4.5, web AppBack med-y7b4.3): the shell asks
 // the page (wg:native-back) while it reported back.state {canStep: true}, and registers no callback at
 // the root, so Back there leaves the app. Local mode: a sheet, a Settings sub-page, the section trail,
-// then Today leaves. Account mode: the section trail, then Today leaves.
+// then Today leaves. Account mode (dispatched alone): the section trail, then Today leaves.
 import { claimAccount } from './smoke.mjs';
 
 export default async function backStack(ctx) {
@@ -86,7 +86,9 @@ export default async function backStack(ctx) {
   await ctx.step('local: Back at Today leaves the app', leaves);
   await ctx.shot('local-left');
 
-  // Account mode: the run's invite, claimed with the soft authenticator (smoke.mjs).
+  // Account mode: the run's one invite, claimed with the soft authenticator (smoke.mjs). Dispatched
+  // alone only: in `all` it would spend the invite claim-page, invite-link and smoke run on.
+  if (ctx.inputs.scenario !== 'back-stack') return;
   page = await ctx.step('account: invite opens the signup wizard', () => ctx.openClaim({ softAuthn: true }));
   await claimAccount(ctx, page);
   await go('today');
