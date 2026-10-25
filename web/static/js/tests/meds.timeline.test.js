@@ -545,6 +545,44 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             expect(scrolled).toHaveLength(0);
         });
 
+        it('the paging floor: no "Show 3 earlier days" below the day the first medication was created', async () => {
+            const { document, window } = env;
+            serveRange(window, []);
+            window.medications = [{ ...MEDS[0], created_at: new Date(NOW - 5 * DAY).toISOString() }];
+            await window.loadTimeline();
+            const more = () => button(document.getElementById('med-timeline-list').lastElementChild, 'Show 3 earlier days');
+            // Yesterday + the day before; 10-20 is still on or after the floor (10-18).
+            expect(historyDays(document)).toEqual(['2026-10-22', '2026-10-21']);
+            expect(more()).toBeDefined();
+            more().click();
+            await settle();
+            await settle();
+            expect(historyDays(document)).toEqual(['2026-10-22', '2026-10-21', '2026-10-20', '2026-10-19', '2026-10-18']);
+            expect(more()).toBeUndefined();
+            // A day inside the med's lifetime with nothing scheduled still says so.
+            expect(text(document.querySelector('section[data-local-date="2026-10-18"] .wg-section__head .wg-meta'))).toBe('No doses');
+        });
+
+        it('the paging floor reaches an archived medication\'s oldest stored intake', async () => {
+            const { document, window } = env;
+            const old = berlin(1, '2026-09-23', '08:20', 'taken', { takenAt: '2026-09-23T06:25:00.000Z' });
+            serveRange(window, [old]);
+            window.medications = [{ ...MEDS[0], archived: true, created_at: new Date(NOW - 2 * DAY).toISOString() }];
+            await window.loadTimeline();
+            const more = () => button(document.getElementById('med-timeline-list').lastElementChild, 'Show 3 earlier days');
+            let pages = 0;
+            while (more()) {
+                more().click();
+                pages++;
+                await settle();
+                await settle();
+            }
+            // back runs 2 -> 29 (button still shown: day 30 is the floor) -> 32 (gone).
+            expect(pages).toBe(10);
+            expect(historyDays(document)).toContain('2026-09-23');
+            expect(document.querySelector('section[data-local-date="2026-09-23"] .wg-timeline__row')).not.toBeNull();
+        });
+
         it('a revisit starts short again: default window, everything folded, opened at the top', async () => {
             const { document, window } = env;
             const scrolled = [];

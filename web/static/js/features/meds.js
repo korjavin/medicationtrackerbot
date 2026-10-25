@@ -510,7 +510,24 @@ const MEDS_TIMELINE_PENDING_KEY = 'doses_pending'; // DataStore key of the pendi
 // Window rows, pending rows, the shown window (days ahead / back, reset on
 // every visit), unfolded planned days, the latest read's sequence number +
 // the read queue, the MT6 note.
-let _medsTimelineState = { rows: null, pending: null, ahead: MEDS_TIMELINE_AHEAD_DAYS, back: MEDS_TIMELINE_BACK_DAYS, open: new Set(), seq: 0, chain: null, ctx: null, outOfDate: null }; // module-state: the timeline's rows, window and read queue
+let _medsTimelineState = { rows: null, pending: null, ahead: MEDS_TIMELINE_AHEAD_DAYS, back: MEDS_TIMELINE_BACK_DAYS, open: new Set(), seq: 0, chain: null, ctx: null, outOfDate: null, intakeFloor: null }; // module-state: the timeline's rows, window and read queue
+
+// The paging floor: the first day History can show anything real on. The
+// earliest of every medication's start_date ?? created_at (archived included)
+// and the earliest stored intake (state.intakeFloor, read before the meds'
+// floor; pending rows count too). Null while any medication has no date.
+function _tlFloor(meds, pending, tz) {
+    const dates = [];
+    for (const m of meds) {
+        const at = Date.parse((m && (m.start_date || m.created_at)) || '');
+        if (!Number.isFinite(at)) return null;
+        dates.push(_tlDatePart(at, tz));
+    }
+    if (!dates.length) return null;
+    (Array.isArray(pending) ? pending : []).forEach((r) => dates.push(r.localDate));
+    if (_medsTimelineState.intakeFloor) dates.push(_medsTimelineState.intakeFloor);
+    return dates.reduce((a, b) => (b < a ? b : a));
+}
 
 // 'YYYY-MM-DD' of an instant on the tracked zone's calendar.
 function _tlDatePart(ms, tz) {
@@ -1099,7 +1116,8 @@ function renderTimeline({ anchor = false } = {}) {
         lastDay = _tlPastSection(date, listGroups.filter((g) => g.localDate === date), rows.filter((r) => r.localDate === date), ctx);
         list.appendChild(lastDay);
     }
-    if (lastDay) lastDay.appendChild(_tlMoreButton('Show 3 earlier days', 'chev-d', () => _tlPage((s) => { s.back += MEDS_TIMELINE_PAGE_DAYS; })));
+    const floor = _tlFloor(meds, state.pending, tz);
+    if (lastDay && !(floor && _tlShiftDate(ctx.todayDate, -(state.back + 1)) < floor)) lastDay.appendChild(_tlMoreButton('Show 3 earlier days', 'chev-d', () => _tlPage((s) => { s.back += MEDS_TIMELINE_PAGE_DAYS; })));
 
     // A visit opens at the page's top — or, under an MT6 note, on that med's
     // first pending row in Today, else its first row there (nothing selected).
@@ -1195,6 +1213,24 @@ async function loadTimeline({ anchor = false } = {}) {
     return run;
 }
 
+// The earliest stored intake day before the medications' own floor, so an
+// archived or backdated med keeps its history reachable. One read per load of
+// the (normally empty) range [ledger start, the meds' floor day]: cost is the
+// projection's days in that range, not the full ledger. Offline / failed: the
+// floor stays on the medications alone.
+async function _tlReadIntakeFloor(rows, nowMs) {
+    const state = _medsTimelineState;
+    state.intakeFloor = null;
+    const meds = Array.isArray(medications) ? medications : [];
+    const tz = rows.length ? rows[rows.length - 1].tz : Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const medFloor = _tlFloor(meds, null, tz);
+    if (!medFloor) return;
+    const to = new Date(_tlDayMs(medFloor) + 86400000).toISOString();
+    const old = await Promise.resolve().then(() => apiCall(`/api/doses?status=taken,skipped&from=${new Date(0).toISOString()}&to=${to}`)).catch(() => null);
+    if (!Array.isArray(old) || !old.length) return;
+    state.intakeFloor = old.reduce((a, r) => (r.localDate < a ? r.localDate : a), old[0].localDate);
+}
+
 async function _tlRead(list, seq, anchor) {
     const state = _medsTimelineState;
     if (!Array.isArray(medications) || medications.length === 0) await loadMeds();
@@ -1222,6 +1258,8 @@ async function _tlRead(list, seq, anchor) {
     }
     state.rows = rows;
     state.pending = Array.isArray(pending) ? pending : null;
+    await _tlReadIntakeFloor(rows, nowMs);
+    if (seq !== state.seq || !list.isConnected) return rows;
     renderTimeline({ anchor });
     return rows;
 }
