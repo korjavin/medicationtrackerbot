@@ -71,13 +71,14 @@ export function createAttestClient({
 
   // { challenge } or, when none could be had, { res } to hand back as is
   // (trial_not_configured, the per-IP limit).
-  async function takeChallenge() {
+  // `signal` (the request's) covers the challenge fetch too.
+  async function takeChallenge(signal) {
     if (challenge) {
       const c = challenge;
       challenge = '';
       return { challenge: c };
     }
-    const res = await send('/api/attest/challenge', {});
+    const res = await send('/api/attest/challenge', signal ? { signal } : {});
     challenge = '';
     if (!res.ok) return { res };
     const body = await res.json();
@@ -153,7 +154,7 @@ export function createAttestClient({
     // A pending enrollment decides which key signs: wait for it.
     if (enrolling) await enrolling.catch(() => {});
     const gen = granted;
-    const got = await takeChallenge();
+    const got = await takeChallenge(signal);
     if (got.res) return { res: got.res, gen };
     const digest = new Uint8Array(await subtle.digest('SHA-256', new TextEncoder().encode(`${pathAndQuery}\n${body}`)));
     let signed;
