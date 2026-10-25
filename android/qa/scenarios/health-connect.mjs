@@ -9,7 +9,7 @@
 // If #2 does not arrive, the toggle off/on rescan is tried too, for the evidence.
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
-const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE'];
+export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE'];
 
 export default async function healthConnect(ctx) {
   const { shell, pkg, sleep } = ctx;
