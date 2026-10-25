@@ -10,10 +10,13 @@ import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ChangesTokenRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -29,6 +32,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.Period
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -44,6 +50,7 @@ import kotlin.reflect.KClass
  *   health.authorize {types}               → Boolean (false: no Health Connect on this device)
  *   health.query {type, anchor?, limit?}   → {samples, anchor, returned, more}
  *   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
+ *   health.query {type: "steps", from, to?} → {samples: [{day, steps, tz}], returned, more: false}
  *
  * Kinds: "bp" {uuid, start, systolic, diastolic}, "weight" {uuid, start, kg},
  * "sleep" {uuid, start, end, value, source, tz?} (value = HealthKit's
@@ -51,10 +58,16 @@ import kotlin.reflect.KClass
  * covers, padded like Health.swift) and "workout" {uuid, start, end, activity,
  * duration, hr?, energy?, distance?} (activity = HealthKit's
  * HKWorkoutActivityType raw value, so the page's name table applies).
+ * "hr" {uuid, start, value} (bpm; one sample per HeartRateRecord series point,
+ * uuid "<recordId>-<index>"), "spo2" {uuid, start, value} (percent 0-100) and
+ * "steps", a windowed daily aggregate (bd med-0xad.3): one {day: "YYYY-MM-DD",
+ * steps, tz} per local day in this device's zone, Health Connect's own
+ * cross-app dedupe (aggregateGroupByPeriod) — never a sum of records.
  * The page stores these as `source: 'apple_health'` on purpose: healthsource.js derives the stable -hk- recordId only for that value — do not "fix" it to a Health Connect source.
  *
  * Anchor = "hc1:" + a Health Connect Changes token. No anchor (or an expired
- * token) reads the last 30 days and starts a token; older history needs
+ * token) reads from `from` (ms; the page sends 90 days back for hr/spo2), else
+ * the last 30 days, and starts a token; older history needs
  * READ_HEALTH_DATA_HISTORY, out of v1. Reads happen only when the page asks,
  * i.e. while the app is in the foreground — never in the background.
  */
@@ -148,6 +161,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             return page(JSONArray(), null, 0, false)
         }
 
+        if (kind == "steps") return steps(args)
+
         if (kind == "sleep") {
             val from = args.optDouble("from"); val to = args.optDouble("to")
             if (!from.isNaN() && !to.isNaN()) {
@@ -178,7 +193,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             anchor = PREFIX + client.getChangesToken(ChangesTokenRequest(setOf(type)))
             // ponytail: the whole 30-day window in one answer (limit ignored) — a
             // month of readings is small; page it if a scale's history ever isn't.
-            readAll(type, TimeRangeFilter.after(Instant.now().minus(HISTORY_DAYS, ChronoUnit.DAYS)))
+            val from = args.optDouble("from").takeUnless { it.isNaN() }?.let { Instant.ofEpochMilli(it.toLong()) }
+            readAll(type, TimeRangeFilter.after(from ?: Instant.now().minus(HISTORY_DAYS, ChronoUnit.DAYS)))
                 .also { returned = it.size }
         }
 
@@ -199,7 +215,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             "workout" -> JSONArray().apply {
                 records.filterIsInstance<ExerciseSessionRecord>().forEach { put(workout(it, granted)) }
             }.let { page(it, anchor, returned, more) }
-            else -> JSONArray().apply { records.forEach { r -> sample(r)?.let { put(it) } } }
+            else -> JSONArray().apply { records.forEach { r -> samples(r).forEach { put(it) } } }
                 .let { page(it, anchor, returned, more) }
         }
     }
@@ -222,12 +238,41 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         JSONObject().put("samples", samples).put("returned", returned).put("more", more)
             .apply { if (anchor != null) put("anchor", anchor) }
 
-    private fun sample(r: Record): JSONObject? = when (r) {
-        is BloodPressureRecord -> JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
-            .put("systolic", r.systolic.inMillimetersOfMercury).put("diastolic", r.diastolic.inMillimetersOfMercury)
-        is WeightRecord -> JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
-            .put("kg", r.weight.inKilograms)
-        else -> null
+    private fun samples(r: Record): List<JSONObject> = when (r) {
+        is BloodPressureRecord -> listOf(JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
+            .put("systolic", r.systolic.inMillimetersOfMercury).put("diastolic", r.diastolic.inMillimetersOfMercury))
+        is WeightRecord -> listOf(JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
+            .put("kg", r.weight.inKilograms))
+        // A series: the page merges by instant, so a series that grows re-sends its points harmlessly.
+        is HeartRateRecord -> r.samples.mapIndexed { i, p ->
+            JSONObject().put("uuid", "${r.metadata.id}-$i").put("start", p.time.toEpochMilli()).put("value", p.beatsPerMinute)
+        }
+        is OxygenSaturationRecord -> listOf(JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
+            .put("value", r.percentage.value))
+        else -> emptyList()
+    }
+
+    /** Daily step totals over [from, to] (default: the last 7 days to now), whole local days in the device zone. */
+    private suspend fun steps(args: JSONObject): JSONObject {
+        val zone = ZoneId.systemDefault()
+        val now = Instant.now()
+        val from = args.optDouble("from").takeUnless { it.isNaN() }?.let { Instant.ofEpochMilli(it.toLong()) }
+            ?: now.minus(7, ChronoUnit.DAYS)
+        val to = args.optDouble("to").takeUnless { it.isNaN() }?.let { Instant.ofEpochMilli(it.toLong()) } ?: now
+        val start = from.atZone(zone).toLocalDate().atStartOfDay()
+        val end = LocalDateTime.ofInstant(to, zone)
+        val out = JSONArray()
+        if (end.isAfter(start)) {
+            client.aggregateGroupByPeriod(
+                AggregateGroupByPeriodRequest(setOf(StepsRecord.COUNT_TOTAL), TimeRangeFilter.between(start, end), Period.ofDays(1))
+            ).forEach { g ->
+                g.result[StepsRecord.COUNT_TOTAL]?.let {
+                    out.put(JSONObject().put("day", g.startTime.toLocalDate().toString()).put("steps", it).put("tz", zone.id))
+                }
+            }
+        }
+        diag("health steps aggregate days=${out.length()}")
+        return page(out, null, out.length(), false)
     }
 
     /**
@@ -283,6 +328,9 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         val KINDS: Map<String, List<KClass<out Record>>> = mapOf(
             "bp" to listOf(BloodPressureRecord::class),
             "weight" to listOf(WeightRecord::class),
+            "steps" to listOf(StepsRecord::class),
+            "hr" to listOf(HeartRateRecord::class),
+            "spo2" to listOf(OxygenSaturationRecord::class),
             "sleep" to listOf(SleepSessionRecord::class),
             "workout" to listOf(
                 ExerciseSessionRecord::class, HeartRateRecord::class,

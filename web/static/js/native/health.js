@@ -16,6 +16,12 @@
 //     returns every sleep sample around the new ones, plus the window's
 //     { from, to } (ms). query({ type: 'sleep', from, to }) (ms, no anchor)
 //     re-reads every sleep sample in that window.
+//   'hr' / 'spo2' (bd med-0xad): anchored like 'bp', samples { uuid, start (ms), value }
+//     (bpm; SpO2 percent 0-100); a heart-rate series gives one sample per point, uuid
+//     '<recordId>-<index>'. query({ type, anchor: null, from }) bounds the first read.
+//   query({ type: 'steps', from, to }) → { samples: [{ day: 'YYYY-MM-DD', steps, tz }],
+//     returned, more: false }: a windowed daily aggregate, one per local day in the device
+//     zone, the store's own cross-app dedupe (HK statistics / HC aggregate); no anchor.
 //
 // Load order: after native/index.js.
 (function () {
