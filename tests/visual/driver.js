@@ -154,7 +154,14 @@
             // lands is undone (workouts-stats shot showed Plans).
             await settle();
         } else if (step.click) {
-            await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
+            // optional: tap it if it shows within 3 s (a sheet only some
+            // devices open, e.g. the notification ask after a dose write).
+            try {
+                await until(() => firstVisible(step.click), step.optional ? 3000 : STEP_MS, `click ${step.click}`);
+            } catch (e) {
+                if (step.optional) return;
+                throw e;
+            }
             firstVisible(step.click).click();
         } else if (step.api) {
             // Writes through the app's own API, e.g. PATCH /api/settings/body.
