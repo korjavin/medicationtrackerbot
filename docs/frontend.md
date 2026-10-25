@@ -490,10 +490,11 @@ Rules for adding tests:
 - **Do not add coverage-driven tests.** Files named `*-branches`, `*-edges`, `*-characterization`, `*-extended`, or otherwise written to lift coverage numbers (rather than to pin a real user-visible behavior) are not added. The 2026-05 prune removed the existing ones; they made the suite brittle without catching regressions the integration suites already caught.
 - **No standalone "pin defect #N" or task-stamp files.** A regression for a fixed bug is added as one more `it()` in the owning feature suite, not as `<feature>.<defect-name>-removed.test.js` or `<view>.task<N>.test.js`. The pinned assertion travels with the rest of the feature's coverage and stays discoverable when the feature is rewritten.
 - **Parameterize structurally identical suites.** When several modal/section tests differ only by selectors and ids (the original 11 `modals.*.header-actions.test.js` files were the canonical example), collapse them into one `describe.each([...])` table. The consolidated `modals.header-actions.test.js` is the reference.
-- **Never run vitest / `pnpm test` locally** — CI is the frontend gate
-  (`.claude/hooks/no-local-frontend-tests.py` and `.codex/hooks.json` block
-  it). One plain-`node` run of one test file, with the `vitest` import shimmed,
-  is allowed as a final check; a shim edit-run loop is not.
+- **Full-suite vitest / `pnpm test` runs are CI-only** —
+  (`.claude/hooks/no-local-frontend-tests.py` and `.codex/hooks.json` block bare
+  `pnpm test`). Running a single touched test file locally before pushing (e.g.
+  `pnpm test web/static/js/tests/<file>.test.js`) is permitted to verify syntax
+  and assertions quickly without waiting on CI.
 - **A green feature suite is not green CI.** The repo-wide
   `architecture.*.test.js` guards catch what feature suites miss — new
   `window.*` globals (`globals`), unannotated top-level `let`/`var` and
