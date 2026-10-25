@@ -35,8 +35,12 @@ per-subdomain names).
 
 Open `https://portainer.<base>`, finish the initial admin setup, then:
 
-1. Create a stack from a Git repository: this repo, `deploy` branch,
-   compose path `docker-compose.cloud.yml`.
+1. Create a stack from a Git repository: this repo, `deploy` branch
+   (`refs/heads/deploy`), compose path `docker-compose.cloud.yml`.
+   > [!IMPORTANT]
+   > Ensure the repository reference is explicitly set to `refs/heads/deploy`. Leaving
+   > the reference empty defaults to `master`, where `docker-compose.cloud.yml` specifies
+   > `:latest` instead of the pinned image SHA that CI maintains on `deploy`.
 2. Set stack env vars: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET` (≥32 chars,
    Shannon entropy ≥3.5 — same rule as the bot's session secret). Push is
    zero-config: each account gets its own VAPID keypair generated
@@ -69,6 +73,45 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
 Operators who don't want gitops can instead run
 `docker compose -f docker-compose.cloud.yml up -d` directly against the same
 external `proxy` network.
+
+### Changing stack env (Runbook)
+
+When editing or adding stack environment variables in Portainer (either via the
+web UI or the Portainer API), follow these exact steps to ensure the running image
+tag is preserved and does not silently roll back:
+
+1. **Announce before triggering**: Post in your coordination/ops topic (e.g.
+   in Zulip) that an env update / redeploy is starting (Spark standing order).
+2. **Record the current build ID**:
+   ```bash
+   PREV_BUILD=$(curl -fsS https://<base-domain>/api/version | sed -n 's/.*"build_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+   echo "Pre-change build: $PREV_BUILD"
+   ```
+3. **Verify the Git Reference**:
+   The stack MUST track `refs/heads/deploy` (not `master` or empty). The `deploy`
+   branch is where CI writes the pinned SHA image tag (`ghcr.io/korjavin/medicationtrackerbot:<sha>`).
+   In `master`, the compose template specifies `:latest`, which CI never builds or pushes.
+   Pointing to `master` or leaving the reference empty will pull an outdated cached `:latest` image.
+4. **Update stack environment**:
+   - **Via Portainer UI**: Navigate to Stacks → `cloud-server` → Editor. Update or add
+     environment variables. Ensure the repository reference stays set to
+     `refs/heads/deploy`. Click **Apply changes**.
+   - **Via Portainer API**: Use `POST /api/stacks/<id>/git?endpointId=<endpoint-id>`
+     providing the full `Env` list, `AutoUpdate` configuration (preserving the webhook
+     UUID), and `RepositoryReferenceName: "refs/heads/deploy"`. Then trigger the
+     redeploy webhook via `POST /api/stacks/webhooks/<token>`.
+5. **Verify deployment and build ID**:
+   Poll `/api/version` until the service responds:
+   ```bash
+   CURR_BUILD=$(curl -fsS https://<base-domain>/api/version | sed -n 's/.*"build_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+   echo "Post-change build: $CURR_BUILD"
+   ```
+   The `build_id` MUST be greater than or equal to `$PREV_BUILD`. If it drops to an
+   older timestamp, the redeploy resolved an untracked branch or stale tag — immediately
+   restore `RepositoryReferenceName: "refs/heads/deploy"` and re-trigger the webhook.
+6. **Verify relevant endpoints and post confirmation**:
+   Verify `/readyz` and any affected endpoints (e.g. `/privacy`), then post the verified
+   `build_id` to the Zulip topic.
 
 ### Food-DB Configuration
 
