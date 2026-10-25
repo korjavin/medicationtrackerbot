@@ -83,7 +83,7 @@ list of categories; each is stored only as long as stated.
 | Hosted AI-assistant connector (if enabled) | The connector's access token and pairing credentials, stored encrypted under a server key | Until you disconnect it |
 | Free trial | Usage counters, on the account or on the anonymous install record of section 4 | Account counters for the life of the account; install records until erased — they have no automatic expiry today |
 | Telegram (if linked) | Your chat id and your bot's token, stored encrypted on the server under a server key (this is server-side encryption, not vault-grade) | Until you unlink |
-| Invite request | The email address and note you sent us, or your Telegram name and id, and our decision | Deleted within a day after 90 days; the copy shown to the developer in their Telegram chat stays there (section 3h) |
+| Invite request | The email address and note you sent us, or your Telegram name and id, and our decision | Deleted within an hour after 90 days; the copy shown to the developer in their Telegram chat stays there (section 3h) |
 | Feedback | What you write and attach, encrypted on your device to the developer; the app version and feedback kind are readable | Until the developer collects it |
 | Logs | Structured application logs: account address, timestamps, request outcomes, fingerprints. Secrets, provider keys, tokens and request bodies are never logged (enforced by tests). The reverse proxy's access log is off | Bounded by size, not time: the server keeps about 30 MB of recent log lines and drops older ones; a redeploy wipes them |
 
@@ -150,7 +150,7 @@ temporary file, encrypted into your vault, and the temporary file deleted when
 the import finishes.
 
 **g. Sharing.** A workout plan or gym you share by link is stored encrypted on
-our server and deleted within a day after 30 days; the key is in the link
+our server and deleted within an hour after 30 days; the key is in the link
 itself and never reaches us.
 Anyone with the link can read the plan.
 
