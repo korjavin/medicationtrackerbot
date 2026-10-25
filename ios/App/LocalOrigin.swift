@@ -47,7 +47,19 @@ enum LocalOrigin {
                             // where invite.js probes it before offering the erase; it wipes from the
                             // joined account only (a no-op replying true anywhere else).
                             "local.erase",
+                            "back.state", // the page's AppBack.canStep(): the left-edge swipe only while true (bd med-y7b4.4)
                             "app.openSettings"] // AD13 "Allow camera in Settings" (bd med-r1j2.18, media-capture.js)
+
+    /// The left-edge swipe (bd med-y7b4.4, contract in web/static/js/native/back.js):
+    /// the page's AppBack.step(); true = it stepped back, false = at the root,
+    /// where the shell does nothing (no WebView history, never Safari).
+    static let backJS = "!document.dispatchEvent(new CustomEvent('wg:native-back',{cancelable:true}))"
+
+    /// A finished edge pan counts as Back when it went far enough, or was a
+    /// quick flick that clearly moved right.
+    static func backFires(dx: Double, vx: Double) -> Bool {
+        dx >= 60 || (dx >= 20 && vx >= 500)
+    }
 
     /// Where account.leave without a url lands (bd med-r1j2.18). No args:
     /// local home?invite=1 ("Have an invite?"), no way back. {then: "local"}:

@@ -17,7 +17,6 @@ const ANDROID = path.join(ANDROID_DIR, fs.readdirSync(ANDROID_DIR, { recursive: 
 
 const PLATFORM_ONLY = {
     chrome: 'Android system bars',
-    'back.state': 'Android only until med-y7b4.4 (iOS twin) lands',
     'clipboard.read': 'Android: WebView has no clipboard-read permission UI; iOS and the web read navigator.clipboard from the tap',
 };
 
