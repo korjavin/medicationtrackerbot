@@ -330,3 +330,73 @@ func TestNativeTokens_Routes(t *testing.T) {
 		t.Fatalf("after DELETE, tokens = %+v, want none", got)
 	}
 }
+
+// TestPutSchedule_WriterGate guards bd med-wi09.20: PUT /api/push/schedule
+// takes the sync writer gate. Before the account's ledger cut any writer
+// replaces the schedule; after it, a writer without X-Ledger: 2 gets 426 and
+// the schedule is untouched, while an X-Ledger: 2 writer still gets 204.
+func TestPutSchedule_WriterGate(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	fireAt := time.Now().Add(time.Hour).Unix()
+	put := func(v2 bool, ct string) int {
+		raw, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{{FireAtUnix: fireAt, CT: []byte(ct)}}})
+		r := httptest.NewRequest(http.MethodPut, "/api/push/schedule", bytes.NewReader(raw))
+		r.Host = host
+		r.AddCookie(session)
+		if v2 {
+			r.Header.Set("X-Ledger", "2")
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	scheduled := func() string {
+		due, err := store.DueScheduledPushes(t.Context(), time.Now().Add(2*time.Hour))
+		if err != nil {
+			t.Fatalf("DueScheduledPushes: %v", err)
+		}
+		var cts []string
+		for _, p := range due {
+			if p.AccountID == account.ID {
+				cts = append(cts, string(p.CT))
+			}
+		}
+		return strings.Join(cts, ",")
+	}
+
+	// No cut yet: both writers pass, as with sync.
+	if code := put(false, "old-1"); code != http.StatusNoContent {
+		t.Fatalf("pre-cut PUT without header = %d, want 204", code)
+	}
+	if code := put(true, "new-1"); code != http.StatusNoContent {
+		t.Fatalf("pre-cut PUT with header = %d, want 204", code)
+	}
+
+	if _, err := store.AppendOps(t.Context(), account.ID, []cloudstore.OpInput{{RecordTypeTag: "ledgercut:cut-1", Nonce: []byte("n"), CT: []byte("c")}}, 0, true, time.Now().UTC()); err != nil {
+		t.Fatalf("AppendOps ledgercut: %v", err)
+	}
+
+	if code := put(false, "old-2"); code != http.StatusUpgradeRequired {
+		t.Fatalf("post-cut PUT without header = %d, want 426", code)
+	}
+	if got := scheduled(); got != "new-1" {
+		t.Fatalf("schedule after refused PUT = %q, want new-1 untouched", got)
+	}
+	if code := put(true, "new-2"); code != http.StatusNoContent {
+		t.Fatalf("post-cut PUT with header = %d, want 204", code)
+	}
+	if got := scheduled(); got != "new-2" {
+		t.Fatalf("schedule after v2 PUT = %q, want new-2", got)
+	}
+}

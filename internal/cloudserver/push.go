@@ -57,6 +57,7 @@ type pushStore interface {
 	DeletePushSubscription(ctx context.Context, accountID, endpoint string) error
 	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 	ReplaceSchedule(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, now time.Time) error
+	GetLedgerCut(ctx context.Context, accountID string) (cloudstore.LedgerCut, error)
 	GetByEndpoint(ctx context.Context, accountID, endpoint string) (*cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
@@ -323,11 +324,27 @@ type putScheduleRequest struct {
 // every not-yet-sent entry is dropped and the batch is inserted in its place
 // (replace-all). Entries the relay
 // has already fired are untouched.
+//
+// The schedule encodes the dose engine's view, so it takes the sync writer
+// gate (bd med-wi09.20): once the account's ledger cut is set, a writer
+// without X-Ledger: 2 gets 426 and the schedule stays as it is.
 func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+	if !ledgerV2(r) {
+		cut, err := a.store.GetLedgerCut(r.Context(), session.AccountID)
+		if err != nil {
+			slog.Error("push: schedule ledger cut", "accountID", session.AccountID, "error", err)
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if cut.Seq != nil {
+			writeUpdateRequired(w, session.AccountID, "push/schedule")
+			return
+		}
 	}
 
 	var req putScheduleRequest
