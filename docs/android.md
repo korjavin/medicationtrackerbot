@@ -449,6 +449,10 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
   `/?tab=<section>`. An open page gets `history.replaceState` +
   `window.handleDeepLinks()`; otherwise the vault loads on the path. A tap
   under the lock opens after unlock; another vault's tap is ignored.
+  The shell never rewrites the url or adds a target (bd med-wi09.7): a stale
+  tap gets the web's answer — a dose already logged shows the "Already
+  logged" toast, a slot that no longer has a dose shows the Meds timeline's
+  MT6 "out of date" note (`app.js handlePushAction`, `slotStates`).
   Switching account clears the previous account's alarms; the newly opened
   page schedules its own.
 - **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
@@ -847,10 +851,16 @@ daily med due at the next whole minute ≥ 90 s ahead, its row in the shell's
 store → HOME + `am kill` (+ `kill -9`), **not** `am force-stop`, which drops
 the app's alarms → the notification is posted with no app process → its tap
 opens the take sheet for that dose (`med-confirm-modal` naming the med) →
+stale taps (bd med-wi09.7): that dose taken in-app (the TAKEN count +1), then
+two rows with the page's own `reminderDeeplink` urls scheduled through
+`window.LocalNotifications` and tapped in the shade — the exact slot → the
+"Already logged" toast, no take sheet, TAKEN count unchanged; a minute off it
+(a moved slot) → MT6; both must reach `handleDeepLinks` with the url
+unchanged →
 offline cold start: airplane mode + wifi/data off, force-stop, relaunch → the
 app renders from the Service Worker (`navigator.onLine` false, SW-controlled,
 no N4), network restored. Shots: `reminders-offline-*` (system screens, the
-shade, the take sheet, the offline start). Not covered yet: a reminder tap
+shade, the take sheet, `stale-taken-toast`, `stale-moved-mt6`, the offline start). Not covered yet: a reminder tap
 under local mode's app lock (the lock exists in local mode only). Turning the
 lock on needs the system credential screen, which the harness could not
 drive (see the ponytail note in the scenario).
