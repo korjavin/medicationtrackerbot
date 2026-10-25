@@ -1157,10 +1157,9 @@ func (r *Repo) CountLiveShareLinks(ctx context.Context, accountID string, now ti
 	return n, nil
 }
 
-// SweepExpiredShareLinks deletes expired share links, called opportunistically
-// on every share-create rather than from a background job (transfer-slot
-// precedent: link volume is trivial; add a ticker only if that stops being
-// true).
+// SweepExpiredShareLinks deletes expired share links, called on every
+// share-create and from the relay's hourly tick, so a quiet server still
+// deletes them (med-wz0o).
 func (r *Repo) SweepExpiredShareLinks(ctx context.Context, now time.Time) (int, error) {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM share_links WHERE expires_at_unix < ?`, storedb.TimeToUnix(now))
