@@ -159,13 +159,28 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(await load('today')).toBeNull();
         expect(await load('today')).toMatchObject({ ok: true });
 
+        let pan = 0;
         vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
-            const top = this.classList.contains('wg-appbar') ? -30 : 0;
+            let top = 0;
+            if (this.style.position === 'fixed') top = -pan; // layout-top marker
+            else if (this.classList.contains('wg-appbar')) top = -30 - pan;
             return { top, bottom: top + 40, left: 0, right: 100, width: 100, height: 40, x: 0, y: top };
         });
-        Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+        const scrollTo = (y) => Object.defineProperty(window, 'scrollY', { configurable: true, value: y });
+        scrollTo(0);
         expect(window.__wgQA.probe().probes.clippedTop).toContain('header.wg-appbar');
-        Object.defineProperty(window, 'scrollY', { configurable: true, value: 100 });
+        scrollTo(100);
+        expect(window.__wgQA.probe().probes.clippedTop).toEqual([]);
+        // Above the document origin: still clipped, scrolled or not.
+        scrollTo(10);
+        expect(window.__wgQA.probe().probes.clippedTop).toContain('header.wg-appbar');
+        // WebKit: rects from the visual viewport, panned 300px by the keyboard.
+        pan = 300;
+        Object.defineProperty(window, 'visualViewport', {
+            configurable: true,
+            value: { offsetTop: pan, height: 400, scale: 1, addEventListener() {} },
+        });
+        scrollTo(100);
         expect(window.__wgQA.probe().probes.clippedTop).toEqual([]);
     });
 
