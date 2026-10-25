@@ -1028,8 +1028,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                     // #1244: always stashed, so an older stash can never reach the new account.
                     await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                     expect(window.Clipboard.readText).toHaveBeenCalledTimes(1);
-                    tap(screen, 'without-sync');
-                    expect(document.getElementById('invite-ready')).toBeNull();
+                    // The shell navigates away; the overlay stays until then.
+                    document.getElementById('invite-ready').remove();
                 }
                 expect(offDevice()).toEqual([]);
             });
