@@ -339,6 +339,30 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(document.querySelector('section[data-local-date="2026-10-19"], section[data-local-date="2026-10-20"]')).toBeNull();
     });
 
+    // Archie 4709: pending never expires, so the pending read has no age cap.
+    it('a stored dose left pending 120 days ago is in the count, and the card when it is the only one', async () => {
+        const { document } = env;
+        const ancient = berlin(1, '2026-06-25', '08:20', 'due');
+        const recent = berlin(2, '2026-10-19', '08:20', 'due');
+        const later = longRange({ back: 3, ahead: 2 }).filter((r) => r.localDate > '2026-10-20');
+        const reads = serveRange(env.window, [ancient, recent, ...later]);
+        env.window.medications = MEDS;
+        await env.window.loadTimeline();
+        const pendingRead = reads.find((p) => p.includes('status=due,snoozed'));
+        expect(new URL(pendingRead, 'https://x.test').searchParams.has('from')).toBe(false);
+        let focus = card(document);
+        expect(focus.querySelector('.wg-timeline__row').dataset.occIds).toBe(recent.occId);
+        expect(text(focus.querySelector('.wg-tl-focus__label .wg-meta'))).toBe('+1 more pending');
+
+        serveRange(env.window, [ancient, ...later]);
+        await env.window.loadTimeline({ anchor: true });
+        focus = card(document);
+        const [now] = focus.querySelectorAll('.wg-timeline__row');
+        expect(now.dataset.occIds).toBe(ancient.occId);
+        expect(text(now.querySelector('.wg-chip--pending'))).toBe('120 days ago');
+        expect(focus.querySelector('.wg-tl-focus__label .wg-meta')).toBeNull();
+    });
+
     it('TL3: nothing pending, nothing left today → All done, the next dose named, no accent, no buttons', async () => {
         const { document } = env;
         env.window.Date.now = () => Date.UTC(2026, 9, 23, 20, 5); // 22:05 Berlin

@@ -900,8 +900,8 @@ export function createApiRouter(ctx, {
     // The one occurrence projection (bd med-wi09.1): every dose in [from, to]
     // with its state. Defaults: the last 24 h through the next 7 days.
     // status=due,snoozed (bd med-ry7b.3, the timeline's focus card) keeps only
-    // those states and reaches back 90 days by default — pending never
-    // expires, but nothing older is listed.
+    // those states and reaches back to the start of the ledger by default:
+    // pending never expires (Archie 4709, no age cap).
     if (path === '/api/doses' && method === 'GET') {
       const nowMs = now();
       const isoParam = (name, fallback) => {
@@ -910,7 +910,7 @@ export function createApiRouter(ctx, {
       };
       const states = (params.get('status') || '').split(',').filter(Boolean);
       return intake.occurrences({
-        fromMs: isoParam('from', nowMs - (states.length ? 90 * 24 : 24) * 3600_000),
+        fromMs: isoParam('from', states.length ? 0 : nowMs - 24 * 3600_000),
         toMs: isoParam('to', nowMs + 7 * 24 * 3600_000),
         states: states.length ? states : null,
       });

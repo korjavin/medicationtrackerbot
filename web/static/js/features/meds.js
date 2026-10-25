@@ -1167,8 +1167,9 @@ async function _tlRead(list, seq, anchor) {
         read(MEDS_TIMELINE_KEY, `/api/doses?from=${iso(-(state.back + MEDS_TIMELINE_PAGE_DAYS + 1))}&to=${iso(Math.max(state.ahead + MEDS_TIMELINE_PAGE_DAYS + 1, 8))}`),
         read(MEDS_TIMELINE_PENDING_KEY, `/api/doses?status=due,snoozed&to=${iso(0)}`),
     ]);
-    // A newer read (a later tap or refresh) owns the screen.
-    if (seq !== state.seq) return Array.isArray(rows) ? rows : null;
+    // A newer read (a later tap or refresh) owns the screen; a page torn down
+    // meanwhile has none.
+    if (seq !== state.seq || !document || !list.isConnected) return Array.isArray(rows) ? rows : null;
     if (!Array.isArray(rows)) {
         if (state.rows === null) {
             list.replaceChildren(createOfflineEmptyState());

@@ -704,23 +704,24 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
     });
 
     // bd med-ry7b.3 — the timeline's focus card reads every pending dose, not
-    // just its shown days: status keeps only those states, from defaults to 90
-    // days back.
-    it('GET /api/doses?status=due,snoozed: only pending rows, reaching back 90 days by default', async () => {
+    // just its shown days: status keeps only those states, and pending never
+    // expires, so from defaults to the start of the ledger.
+    it('GET /api/doses?status=due,snoozed: only pending rows, of any age by default', async () => {
         const old = Date.UTC(2026, 6, 17, 8, 0); // 30 days back
-        const tooOld = Date.UTC(2026, 4, 1, 8, 0); // 107 days back
+        const veryOld = Date.UTC(2026, 3, 18, 8, 0); // 120 days back
         env.cleanup();
         const seed = seedRecords();
-        seed.intake.push(intake(slotId(2, old), 2, old), intake(slotId(2, tooOld), 2, tooOld));
+        seed.intake.push(intake(slotId(2, old), 2, old), intake(slotId(2, veryOld), 2, veryOld));
         env = loadCloudShimFrontendEnv({ seedRecords: seed, now: () => NOW, timeZone: TZ });
 
         const pending = await call(`/api/doses?status=due,snoozed&to=${iso(NOW)}`);
         expect(pending.map((d) => [d.occId, d.state])).toEqual([
+            [slotId(2, veryOld), 'due'],
             [slotId(2, old), 'due'],
             [slotId(1, at(8)), 'due'],
             [slotId(2, at(9)), 'snoozed']
         ]);
-        expect((await call(`/api/doses?status=due&to=${iso(NOW)}`)).map((d) => d.state)).toEqual(['due', 'due']);
+        expect((await call(`/api/doses?status=due&to=${iso(NOW)}`)).map((d) => d.state)).toEqual(['due', 'due', 'due']);
     });
 
     it('next-intake, upcoming, the badge, history and the reminder horizon read the same rows', async () => {
