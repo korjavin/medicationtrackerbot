@@ -216,7 +216,7 @@ export function createApiRouter(ctx, {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
-  const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;
+  const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmSnoozedSlot } = reminderEffects;
   // Only the user's own writes may ask for notification permission (bd
   // med-ckm5.4): an agent's or the inbox drain's write must not open a sheet,
   // least of all right after launch.
@@ -961,18 +961,20 @@ export function createApiRouter(ctx, {
           if (!slotRows.some((row) => row.status === 'PENDING')) cancelMedRefire(slotMs);
         }
       }
-      // A snoozed due dose is in no reminder horizon (it is not upcoming), so
-      // its reminder re-arms on the relay's Telegram chain for the slot, at the
-      // snooze end (bd med-4j49). A future slot keeps its primary fire.
+      // A snoozed dose is in no reminder horizon (act snoozes only due doses),
+      // so its reminder re-arms on the relay's Telegram chain for the slot (bd
+      // med-4j49). The chain is slot-wide: it keeps naming every still-open
+      // dose of the slot and fires at the earliest one's next nag — a snooze's
+      // end, or the usual hour for an unsnoozed slot-mate.
       if (body.action === 'snooze') {
-        const bySlot = new Map();
-        for (const d of res.doses) {
-          const slotMs = Date.parse(d.scheduled_at);
-          if (!(slotMs <= now())) continue;
-          if (!bySlot.has(slotMs)) bySlot.set(slotMs, { medIds: [], fireAtMs: Date.parse(d.snoozed_until) });
-          bySlot.get(slotMs).medIds.push(d.medication_id);
+        const nowMs = now();
+        for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
+          const open = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs }))
+            .filter((r) => r.state === 'due' || r.state === 'snoozed');
+          if (!open.length) continue;
+          const fireAtMs = Math.min(...open.map((r) => (r.state === 'snoozed' ? Date.parse(r.snoozedUntil) : nowMs + 3600_000)));
+          rearmSnoozedSlot(ctx, { records, slotMs, medIds: open.map((r) => r.medId), fireAtMs });
         }
-        for (const [slotMs, { medIds, fireAtMs }] of bySlot) rearmMedRefire(slotMs, medIds, { fireAtMs });
       }
       scheduleReminderRecompute(ctx, { records, timeZone });
       return res;

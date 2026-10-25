@@ -1046,8 +1046,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   //   undo      TAKEN/SKIPPED → UNTAKEN (reads as PENDING), +1 inventory when
   //             it was TAKEN
   //   edit_time TAKEN → taken_at only
-  //   snooze    PENDING or absent → snoozed_until = `until`, else now +
-  //             `minutes` (default 10); status and rev unchanged (snooze())
+  //   snooze    PENDING or absent, already due → snoozed_until = `until`,
+  //             else now + `minutes` (default 10); status and rev unchanged
+  //             (snoozed()); a dose not due yet fails not_due
   // A row already in the target state is `unchanged` (a repeated bulk take is
   // idempotent: no second decrement, taken_at kept). Anything else is a
   // per-id failure {id, reason}, so the UI rolls back only those.
@@ -1110,6 +1111,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       let delta = 0;
       if (action === 'snooze') {
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
+        // A dose not due yet has nothing to snooze, and a snoozed row would
+        // drop out of the reminder horizon (only upcoming rows fire).
+        if (Date.parse(intake.scheduled_at) > nowMs) { fail(occId, 'not_due'); continue; }
         const record = snoozed(intake, snoozeIso, nowMs);
         if (!(await putIntake(record))) { fail(occId, 'not_found'); continue; }
         result.updated++;

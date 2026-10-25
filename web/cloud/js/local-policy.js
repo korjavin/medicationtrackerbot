@@ -90,7 +90,7 @@ export const LOCAL_EFFECTS = {
   // The re-fire chains live in the relay; there is none.
   cancelMedRefire() {},
   cancelReminderRefire() {},
-  rearmMedRefire() {},
+  rearmSnoozedSlot() {},
   async sendTestPush() {
     const local = localNotifications();
     if (!local) throw new Error('Notifications are not available on this device.');

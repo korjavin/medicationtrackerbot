@@ -430,16 +430,24 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 .filter((d) => d.occId === 'intake-a');
             expect(row).toMatchObject({ state: 'snoozed', snoozedUntil: a.snoozed_until });
             expect(await stateOf(window)).toEqual({ a: 'PENDING', b: 'TAKEN', stockA: 5, stockB: 5 });
-            // The due dose's reminder re-arms on the relay chain at the snooze end.
-            const rearm = globalThis.fetch.mock.calls.find(([url]) => url === '/api/telegram/rearm-refire');
-            expect(JSON.parse(rearm[1].body)).toEqual({
-                callback: `s:${Math.floor(Date.parse(slotIso) / 1000)}`, med_ids: '1', fire_at: Math.floor(Date.parse(a.snoozed_until) / 1000),
-            });
+            // Web-push-only delivery (the default) has no relay chain to re-arm.
+            const rearms = () => globalThis.fetch.mock.calls.filter(([url]) => url === '/api/telegram/rearm-refire');
+            await new Promise((r) => setTimeout(r, 0));
+            expect(rearms()).toHaveLength(0);
 
-            // `until` sets the end directly; a past or unparseable one is a 400.
+            // `until` sets the end directly; with Telegram delivery the slot's
+            // chain re-arms at the snooze end.
+            await env.records.put('reminderdeliverypref', {
+                recordId: 'reminderdeliverypref', clientTs: Date.now(), deleted: false, delivery: 'telegram', verbosity: 'generic'
+            });
             const until = new Date(Date.now() + 2 * HOUR_MS).toISOString();
             await act(window, { action: 'snooze', occ_ids: ['intake-a'], until });
             expect((await env.records.list('intake')).find((i) => i.recordId === 'intake-a').snoozed_until).toBe(until);
+            await vi.waitFor(() => expect(rearms()).toHaveLength(1));
+            expect(JSON.parse(rearms()[0][1].body)).toEqual({
+                callback: `s:${Math.floor(Date.parse(slotIso) / 1000)}`, med_ids: '1', fire_at: Math.floor(Date.parse(until) / 1000),
+            });
+            // A past or unparseable `until` is a 400.
             await expect(window.offlineAwareApiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-a'], until: new Date(Date.now() - HOUR_MS).toISOString() }))
                 .rejects.toMatchObject({ status: 400 });
 
@@ -467,6 +475,10 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
             const doses = await window.apiCall(`/api/doses?from=${new Date(Date.now() + 60 * 1000).toISOString()}`);
             const [first, second] = doses.filter((d) => d.state === 'upcoming');
             expect(first.occId).toBe(`intake-1-${Date.parse(first.plannedAt) / 1000}`);
+            // A dose not due yet has nothing to snooze (bd med-4j49).
+            expect(await act(window, { action: 'snooze', occ_ids: [first.occId] })).toMatchObject({
+                updated: 0, failed: 1, failures: [{ id: first.occId, reason: 'not_due' }]
+            });
 
             expect(await act(window, { action: 'take', occ_ids: [first.occId] })).toMatchObject({ updated: 1, failed: 0 });
             expect(await act(window, { action: 'take', occ_ids: [first.occId] })).toMatchObject({ updated: 0, unchanged: 1 });

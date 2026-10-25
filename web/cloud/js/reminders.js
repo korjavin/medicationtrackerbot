@@ -422,6 +422,20 @@ export function rearmMedRefire(slotMs, medIds = [], { fetchImpl, fireAtMs } = {}
   postRefire('rearm-refire', medStem(slotMs), extra, fetchImpl);
 }
 
+// rearmSnoozedSlot re-arms a slot's Telegram chain after an in-app snooze (bd
+// med-4j49) — only when the account delivers reminders to Telegram at all, so
+// a web-push-only account never gets a Telegram message out of a snooze.
+// Fire-and-forget like postRefire: the snooze is already durable.
+export async function rearmSnoozedSlot(ctx, { records, slotMs, medIds, fireAtMs, fetchImpl } = {}) {
+  try {
+    const pref = await remindersDomain(ctx, { records }).getDeliveryPref();
+    if (pref.delivery === 'webpush') return;
+    rearmMedRefire(slotMs, medIds, { fetchImpl, fireAtMs });
+  } catch (e) {
+    console.warn('[reminders] snooze re-arm failed', e);
+  }
+}
+
 // Drops a pending debounced recompute for `ctx` without running it. A live page
 // never needs this — the timer is short and a reload kills it — but anything
 // that tears an account context down while a write is still settling does: the
