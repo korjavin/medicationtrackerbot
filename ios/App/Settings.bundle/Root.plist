@@ -28,7 +28,7 @@
 			<key>Title</key>
 			<string>Privacy</string>
 			<key>FooterText</key>
-			<string>Privacy policy: https://cloud.myhealthbot.ai/privacy. In the app: Settings → Account &amp; privacy.</string>
+			<string>In the app: Settings → Account &amp; privacy.</string>
 		</dict>
 		<dict>
 			<key>Type</key>

@@ -21,7 +21,6 @@ const projectDomainB64 = "bXloZWFsdGhib3QuYWk="
 
 // Known hits owned by other beads, one line each.
 var pendingNative = map[string]bool{
-	"ios/App/Settings.bundle/Root.plist":                                               true, // remove when med-ffuu.3 ships
 	"android/app/src/main/java/com/example/medtracker/PermissionsRationaleActivity.kt": true, // remove when med-ffuu.4 ships
 }
 
