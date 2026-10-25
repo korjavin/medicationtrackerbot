@@ -432,9 +432,10 @@
         const healthEnabled = pickFeature(features, 'health');
         const gamificationEnabled = pickFeature(features, 'gamification');
         // ED-safe (med-8tur.12) rides the Goal Line payload: no weight numbers
-        // on Today — the Weight tab itself stays the user's own data.
+        // on Today — the Weight tab itself stays the user's own data. Not gated
+        // on the Journey flag: the route carries ed_safe either way (med-njny).
         const goalLinePayload = caches.gamification_goal_line;
-        const edSafe = gamificationEnabled && !!(goalLinePayload && goalLinePayload.ed_safe);
+        const edSafe = !!(goalLinePayload && goalLinePayload.ed_safe);
 
         const nextMed = nextMedCell(bootstrap, nowMs, medEnabled, opts);
         const result = {
@@ -1802,12 +1803,14 @@
     }
 
     // Two kit choices; the primary follows the pick. Later = the card's ×.
-    // "Turn on sync" opens P3 when the shell holds an invite, else the Backup
-    // page (the W5 page, med-ta2n.5, takes over that route when it lands).
+    // "Turn on sync" opens P3 when the shell holds an invite, else the Request
+    // an invite sheet led by the copy (IM2 · W4, bd med-er5x) where the shell
+    // can POST it, else the Backup page (W5).
     function openProtectSheet(status) {
         const sheet = mountTrackerModal(PROTECT_SHEET_ID, null, 'Protect your records');
         sheet.replaceChildren();
-        const head = trackerSheetHead(`${recordsLabel((status && status.records) || 0)} on this ${deviceWord()}`, 'Protect your records', closeProtectSheet);
+        const eyebrow = `${recordsLabel((status && status.records) || 0)} on this ${deviceWord()}`;
+        const head = trackerSheetHead(eyebrow, 'Protect your records', closeProtectSheet);
         const choice = (value, title, sub) => {
             const b = el('button', 'wg-choice');
             b.type = 'button';
@@ -1819,7 +1822,7 @@
             return { b, subEl };
         };
         const backup = choice('backup', 'Save a backup file', 'To Files or Drive. Works now, no account.');
-        const sync = choice('sync', 'Turn on sync', 'Keeps a copy on your account. Needs an invite.');
+        const sync = choice('sync', 'Turn on sync', 'An encrypted copy only you can open. Needs an invite.');
         const choices = el('div', 'wg-choices');
         choices.append(backup.b, sync.b);
         const body = el('div', 'wg-sheet__body');
@@ -1831,12 +1834,14 @@
         body.append(choices, el('p', 'wg-hint', lastTime ? "Pick Later and we won't ask again." : "Pick Later and we'll remind you again in 2 weeks."));
         let picked = 'backup';
         let invite = null;
+        let canRequest = false;
         const primary = btn('Save backup', {
             primary: true,
             action: 'protect-go',
             onClick: () => {
                 closeProtectSheet();
                 if (picked === 'sync' && invite && window.InviteSheet) window.InviteSheet.offer(invite, { kit: true });
+                else if (picked === 'sync' && canRequest) window.InviteSheet.request({ lead: 'copy', eyebrow });
                 else if (picked === 'sync') openBackupPage();
                 else {
                     openBackupPage();
@@ -1861,8 +1866,12 @@
         if (pending) {
             Promise.resolve().then(pending).catch(() => null).then((url) => {
                 invite = typeof url === 'string' && url ? url : null;
-                if (invite) sync.subEl.textContent = 'Keeps a copy on your account. An invite is waiting.';
+                if (invite) sync.subEl.textContent = 'An encrypted copy only you can open. An invite is waiting.';
             });
+        }
+        const sheetApi = window.InviteSheet;
+        if (sheetApi && typeof sheetApi.canRequest === 'function' && typeof sheetApi.request === 'function') {
+            Promise.resolve().then(() => sheetApi.canRequest()).catch(() => false).then((can) => { canRequest = can === true; });
         }
         return sheet;
     }

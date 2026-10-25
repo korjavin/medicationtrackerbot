@@ -118,7 +118,7 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
             const hint = await remoteHint();
             if (myRequestId !== window.FoodProducts._getRequestId()) return;
             renderFoodAutocomplete(local, false, null);
-            setFoodSearchStatus('error', hint || 'Food database not configured. Add one in Settings → Integrations.');
+            setFoodSearchStatus('error', hint || 'Food database not available right now.');
             return;
         }
 

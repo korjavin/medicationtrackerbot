@@ -58,7 +58,7 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
    same secret the bot stack already uses).
 4. Set the `CLOUD_BASE_DOMAIN` GitHub **repository variable** (Settings →
    Secrets and variables → Actions → Variables) to the same base domain, e.g.
-   `<base domain>`. Portainer answers a redeploy webhook `204` and then
+   `cloud.example.com`. Portainer answers a redeploy webhook `204` and then
    fetches asynchronously, so the webhook alone cannot tell CI whether the
    deploy landed — bd med-m391 is five days of green deploys over a stack that
    never moved. With the variable set, `deploy.yml`'s last step polls
@@ -90,8 +90,7 @@ there is nothing to search but the products they have already logged.
 
 If left unset, remote search degrades to local-only (products already logged).
 That degradation is no longer silent: `fooddb.js`'s `remoteConfigured()` reports
-false and the search UI renders an explicit "Food database not configured. Add
-one in Settings → Integrations." instead of "Found 0 result(s)." (med-1j1). A
+false and the search UI renders an explicit "Food database not available right now." instead of "Found 0 result(s)." (med-1j1). A
 user who typed a query is told the database is missing, not that their food
 doesn't exist.
 

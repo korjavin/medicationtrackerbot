@@ -508,7 +508,7 @@
                     </button>
                     <button type="button" class="wg-setting" data-settings-open="units">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Units</span></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Units &amp; body</span><span class="wg-setting__desc" data-settings-summary="body">Height · Not set</span></span>
                         <span class="wg-setting__value" data-settings-summary="units"></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
@@ -518,7 +518,7 @@
                 <div class="wg-list">
                     <button type="button" class="wg-setting" data-settings-open="integrations">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="bolt"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">AI &amp; integrations</span><span class="wg-setting__desc" data-settings-summary="integrations">AI, food database, voice, Telegram</span></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">AI &amp; integrations</span><span class="wg-setting__desc" data-settings-summary="integrations">AI, voice, Telegram</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                     <button type="button" class="wg-setting" data-settings-open="devices">
@@ -599,12 +599,12 @@
                     </div>
                 </section>
                 <section class="wg-section">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Telegram reminder text</span></div>
-                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Telegram reminder detail level">
-                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">Says only that a reminder is due</span></span></button>
-                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Also sends medication names</span></span></button>
+                    <div class="wg-section__head"><span class="wg-eyebrow">Reminder text</span></div>
+                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Reminder text on the lock screen and in Telegram">
+                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">"Medication time"</span></span></button>
+                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Shows the medication or measurement</span></span></button>
                     </div>
-                    <p class="wg-hint">Telegram reminders pass through the server as readable text.</p>
+                    <p class="wg-hint">Applies to the lock screen and to Telegram. Anyone holding your phone can read the lock screen, even while it is locked. Telegram reminders pass through the server as readable text.</p>
                     <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
                 </section>
             </div>
@@ -718,15 +718,62 @@
                             <div class="wg-settings-row__desc">Stored in kilograms; only display and input default change</div>
                         </div>
                         <div class="wg-settings-row__control">
-                            <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Weight unit"
+                            <div class="wg-seg wg-seg--sm" role="radiogroup" aria-label="Weight unit"
                                 id="weight-unit-segmented">
-                                <button type="button" class="wg-gloss wg-settings-segmented__btn wg-settings-segmented__btn--active wg-gloss--sun"
+                                <button type="button" class="wg-seg__opt"
                                     data-unit="kg" aria-pressed="true">kg</button>
-                                <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                                <button type="button" class="wg-seg__opt"
                                     data-unit="lb" aria-pressed="false">lb</button>
                             </div>
                         </div>
                     </div>
+                    <!-- Height has its own unit, not the weight unit (med-a6fb.4, BM2). -->
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title">Height</div>
+                            <div class="wg-settings-row__desc">Stored in centimetres</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <div class="wg-seg wg-seg--sm" role="radiogroup" aria-label="Height unit"
+                                id="height-unit-segmented">
+                                <button type="button" class="wg-seg__opt"
+                                    data-height-unit="cm" aria-pressed="true">cm</button>
+                                <button type="button" class="wg-seg__opt"
+                                    data-height-unit="ftin" aria-pressed="false">ft + in</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wg-section wg-settings-body">
+                <div class="wg-section__head"><span class="wg-eyebrow">Height</span><span class="wg-meta">for BMI</span></div>
+                <div class="wg-card wg-vstack" id="settings-height-field">
+                    <label class="wg-field" id="settings-height-cm">
+                        <span class="wg-label">Height · cm</span>
+                        <input class="wg-input" id="settings-height-input" type="text" inputmode="numeric"
+                            autocomplete="off" placeholder="Not set" aria-describedby="settings-height-error">
+                    </label>
+                    <div class="wg-fieldrow wg-settings-hidden" id="settings-height-ftin">
+                        <label class="wg-field">
+                            <span class="wg-label">ft</span>
+                            <input class="wg-input" id="settings-height-ft" type="text" inputmode="numeric"
+                                autocomplete="off" placeholder="–" aria-describedby="settings-height-error">
+                        </label>
+                        <label class="wg-field">
+                            <span class="wg-label">in</span>
+                            <input class="wg-input" id="settings-height-in" type="text" inputmode="numeric"
+                                autocomplete="off" placeholder="–" aria-describedby="settings-height-error">
+                        </label>
+                    </div>
+                    <p class="wg-error wg-settings-hidden" id="settings-height-error" role="alert"></p>
+                    <p class="wg-hint wg-settings-hidden" id="settings-height-bmi-hint" aria-live="polite"></p>
+                    <p class="wg-shell__fine">Adult ranges; not meant for under-18s.</p>
+                </div>
+                <div class="wg-list">
+                    <mt-setting-toggle title="Show BMI on Weight"
+                        description="The read-out and the borders on the chart"
+                        input-id="settings-show-bmi-toggle"></mt-setting-toggle>
                 </div>
             </section>
 
@@ -939,7 +986,6 @@
                         <div class="wg-section__head"><span class="wg-eyebrow">Your own keys</span><span class="wg-meta">replace the trial</span></div>
                         <div class="wg-list">
                             <button type="button" class="wg-setting" data-own-key="openai"><span class="wg-row__lead"><i class="wg-ico" data-icon="key"></i></span><span class="wg-setting__body"><span class="wg-setting__title">OpenAI</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
-                            <button type="button" class="wg-setting" data-own-key="food"><span class="wg-row__lead"><i class="wg-ico" data-icon="search"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Food database</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                             <button type="button" class="wg-setting wg-cloud-only" data-own-key="elevenlabs"><span class="wg-row__lead"><i class="wg-ico" data-icon="mic"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Voice (ElevenLabs)</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                         </div>
                     </section>
@@ -1005,27 +1051,6 @@
                                 </div>
                             </div>
                         </details>
-                    </div>
-                </section>
-
-                <section class="wg-section">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Food database</span></div>
-                    <div class="wg-card wg-vstack">
-                        <p class="wg-hint">Used for barcode scanning and food info. Leave it empty to use our default database; your own server must speak the FastFoodDB API.</p>
-                        <a href="https://github.com/korjavin/fastfooddb" target="_blank" rel="noopener noreferrer" class="wg-link">About the FastFoodDB API<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></a>
-                        <div class="wg-field">
-                            <label for="integrations-food-api-key" class="wg-label">API key</label>
-                            <div class="wg-code wg-secret">
-                                <input type="password" id="integrations-food-api-key" class="wg-secret__input" autocomplete="off">
-                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
-                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
-                            </div>
-                        </div>
-                        <div class="wg-field">
-                            <label for="integrations-food-url" class="wg-label">API URL</label>
-                            <input type="text" id="integrations-food-url" class="wg-input" placeholder="https://food.example.com">
-                            <p class="wg-hint">Full base URL of your food database server. Leave empty to use the default.</p>
-                        </div>
                     </div>
                 </section>
 
@@ -1155,10 +1180,15 @@
                 <section id="importexport-sync-group" class="wg-section wg-local-only">
                     <div class="wg-section__head"><span class="wg-eyebrow">Sync</span></div>
                     <div class="wg-card wg-vstack">
-                        <ul class="wg-facts wg-facts--sm">
-                            <li><i class="wg-ico" data-icon="device"></i><span><b>Your records on every device</b>Sign in once, then add a tablet or a browser.</span></li>
-                            <li><i class="wg-ico" data-icon="lock"></i><span><b>Private by design</b>The server stores your log but can't read it.</span></li>
+                        <!-- IM3 (bd med-er5x): the same four facts as the
+                             Request an invite sheet (features/invite.js). -->
+                        <ul id="settings-sync-facts" class="wg-facts wg-facts--sm">
+                            <li><i class="wg-ico" data-icon="device"></i><span><b>Your records on every device</b>Phone and tablet stay in step. To add one, scan a code from this phone.</span></li>
+                            <li><i class="wg-ico" data-icon="cloud-up"></i><span><b>A copy off this phone</b>Lose or reset it, sign back in, and it's all there.</span></li>
+                            <li><i class="wg-ico" data-icon="lock"></i><span><b>Only you can open it</b>Encrypted on your device before it syncs. We store it but can't read it.</span></li>
+                            <li><i class="wg-ico" data-icon="globe"></i><span><b>Open it in any browser</b>On a laptop or a work computer, whenever you need it.</span></li>
                         </ul>
+                        <div class="wg-divider"></div>
                         <div id="settings-sync-none" class="wg-vstack">
                             <p class="wg-hint">Sync needs an invite for now.</p>
                             <div class="wg-hstack">
@@ -1166,7 +1196,7 @@
                                 <span class="wg-spacer"></span>
                                 <button type="button" id="settings-sync-scan" class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Scan</button>
                             </div>
-                            <button type="button" id="settings-sync-request" class="wg-btn wg-btn--block" hidden><i class="wg-ico wg-ico--sm" data-icon="message"></i>Request an invite</button>
+                            <button type="button" id="settings-sync-request" class="wg-link" hidden>No invite? Request one</button>
                             <a id="settings-sync-how" class="wg-link" target="_blank" rel="noopener" hidden>How to get an invite</a>
                             <!-- AD10 · entry (bd med-r1j2.5): Path 0, a synced passkey
                                  opens an existing account (InviteSheet.openAccount). -->
@@ -2658,6 +2688,8 @@
                 <input type="datetime-local" id="med-confirm-datetime" class="wg-input wg-med-confirm-modal__input"
                     aria-label="Time taken" tabindex="-1">
             </div>
+            <!-- Kit RD3 (med-mt0l): NotifyPermission.reminderHint's one-time line. -->
+            <div id="med-confirm-hint" class="wg-med-confirm-modal__hint"></div>
         </div>
         <div class="wg-sheet__foot">
             <button type="button" id="med-confirm-skip-btn" class="wg-btn wg-btn--ghost">Skip</button>

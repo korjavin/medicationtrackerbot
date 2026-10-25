@@ -151,7 +151,11 @@ func (h *Handler) SetHandoffAppLinks(on bool) {
 	if !on {
 		return
 	}
-	h.handoffIndex = bytes.Replace(h.handoffIndex, []byte("<head>"), []byte("<head>\n<meta name=\"medtracker-handoff-app\" content=\"1\">"), 1)
+	const meta = "<head>\n<meta name=\"medtracker-handoff-app\" content=\"1\">"
+	h.handoffIndex = bytes.Replace(h.handoffIndex, []byte("<head>"), []byte(meta), 1)
+	// The account app too: the add-device origin (transfer.js) emits /d/ only
+	// when the flag is on, else the old <sub>.<base>/claim URL (med-r1j2.13).
+	h.appIndex = bytes.Replace(h.appIndex, []byte("<head>"), []byte(meta), 1)
 }
 
 // SetRequestInviteEmail adds a "request an invite" contact line (a mailto:

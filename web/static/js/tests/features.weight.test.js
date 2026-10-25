@@ -374,3 +374,195 @@ describe('features/weight.js — deleting rows never shows the offline state (me
         expect(seen.some((t) => /No cached data|back online|Nothing to show/.test(t))).toBe(false);
     });
 });
+
+// Epic med-a6fb (BM1, BM1 · no height, BM3): BMI read-out + class chip, WHO
+// border hairlines on the chart, the no-height nudge and the goal warning, all
+// driven by GET /api/weight/bmi through the real loader.
+describe('features/weight.js — BMI on the weight graph (med-a6fb.5–.8)', () => {
+    let env;
+    const day = (n) => new Date(Date.now() - n * 86400000).toISOString();
+    const LOGS = [
+        { id: 1, weight: 80.0, measured_at: day(10) },
+        { id: 2, weight: 82.4, measured_at: day(1) },
+    ];
+    const BMI_180 = {
+        height_cm: 180, bmi: 25.4, band: 'overweight', borders_kg: [59.9, 81.0, 97.2, 113.4, 129.6],
+        height_unit: 'cm', show_bmi: true, nudge_dismissed: false, ed_safe: false, nudge: false,
+    };
+    const ED_SAFE = {
+        height_cm: null, bmi: null, band: null, borders_kg: null,
+        height_unit: 'cm', show_bmi: true, nudge_dismissed: false, ed_safe: true, nudge: false,
+    };
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+        env.window.weightUnitPreference = 'kg';
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    // Routes the loader's GETs; `state.bmi` is what GET /api/weight/bmi answers.
+    async function load(window, state) {
+        installApiCache(window);
+        window.apiCall = vi.fn(async (url, method) => {
+            if (method === 'PATCH' && url === '/api/settings/body') {
+                state.bmi = { ...state.bmi, nudge_dismissed: true, nudge: false };
+                return { bmi_nudge_dismissed: true };
+            }
+            if (method && method !== 'GET') return null;
+            if (url.startsWith('/api/weight?')) return LOGS.slice();
+            if (url === '/api/weight/goal') return { goal: 78 };
+            if (url === '/api/weight/bmi') return state.bmi;
+            return {};
+        });
+        await window.loadWeightLogs();
+    }
+
+    const q = (document, sel) => document.querySelector(`#weightChart ${sel}`);
+    const bands = (document) => [...document.querySelectorAll('#weightChart .wg-weight-chart__band')];
+    const bandLabels = (document) => [...document.querySelectorAll('#weightChart .wg-weight-chart__band-label')].map((t) => t.textContent);
+
+    it('180 cm / 82.4 kg → "BMI 25.4" with a neutral Overweight chip, the 25 border only, and the fine print', async () => {
+        const { window, document } = env;
+        await load(window, { bmi: BMI_180 });
+
+        const readout = q(document, '.wg-weight-bmi');
+        expect(readout.getAttribute('aria-label')).toBe('BMI 25.4, Overweight');
+        expect(readout.querySelector('.wg-weight-bmi__value').textContent).toBe('25.4');
+        const chip = readout.querySelector('.wg-chip');
+        expect(chip.textContent).toBe('Overweight');
+        expect(chip.classList.contains('wg-chip--ok')).toBe(false);
+        expect(chip.className).not.toMatch(/warn|danger/);
+        // Data + goal span 78–82.4 kg: only the 81.0 kg border is inside.
+        expect(bands(document).map((l) => l.dataset.weightBand)).toEqual(['81.0']);
+        expect(bandLabels(document)).toEqual(['Overweight · 25']);
+        expect(q(document, '.wg-weight-bmi-fine').textContent).toBe('Adult ranges; not meant for under-18s.');
+        expect(q(document, '.wg-weight-bmi-nudge')).toBeNull();
+        // No legend entry for the borders.
+        expect(document.getElementById('weight-chart-legend').textContent).not.toMatch(/BMI|Overweight/);
+    });
+
+    it('Healthy is the only class with the ok chip', async () => {
+        const { window, document } = env;
+        await load(window, { bmi: { ...BMI_180, bmi: 24.3, band: 'healthy' } });
+        const chip = q(document, '.wg-weight-bmi .wg-chip');
+        expect(chip.textContent).toBe('Healthy');
+        expect(chip.classList.contains('wg-chip--ok')).toBe(true);
+    });
+
+    it('every border inside the data-plus-goal range is drawn and labelled, none outside it, and the axis never stretches', async () => {
+        const { window, document } = env;
+        // Data + goal span 78–82.4 kg.
+        await load(window, { bmi: { ...BMI_180, borders_kg: [70, 79, 82, 100, 110] } });
+        expect(bands(document).map((l) => l.dataset.weightBand)).toEqual(['79.0', '82.0']);
+        expect(bandLabels(document)).toEqual(['Overweight · 25', 'Obesity I · 30']);
+        const svg = q(document, 'svg.wg-weight-chart');
+        expect(Number(svg.dataset.weightYMin)).toBeGreaterThan(70);
+        expect(Number(svg.dataset.weightYMax)).toBeLessThan(100);
+    });
+
+    it('a flat series draws no border its padding happens to cover, in kg or lb', async () => {
+        const { window, document } = env;
+        installApiCache(window);
+        const flat = [{ id: 1, weight: 80.0, measured_at: day(1) }];
+        window.apiCall = vi.fn(async (url) => {
+            if (url.startsWith('/api/weight?')) return flat.slice();
+            if (url === '/api/weight/goal') return {};
+            if (url === '/api/weight/bmi') return BMI_180;
+            return {};
+        });
+        await window.loadWeightLogs();
+        expect(bands(document)).toHaveLength(0);
+        window.weightUnitPreference = 'lb';
+        await window.loadWeightLogs();
+        expect(bands(document)).toHaveLength(0);
+    });
+
+    it('lb display draws the borders in lb', async () => {
+        const { window, document } = env;
+        window.weightUnitPreference = 'lb';
+        await load(window, { bmi: BMI_180 });
+        expect(bands(document).map((l) => l.dataset.weightBand)).toEqual([(81.0 / 0.45359237).toFixed(1)]);
+        expect(bandLabels(document)).toEqual(['Overweight · 25']);
+    });
+
+    it('ED-safe payload → no BMI, no borders, no nudge, no goal warning', async () => {
+        const { window, document } = env;
+        await load(window, { bmi: ED_SAFE });
+        expect(q(document, '.wg-weight-bmi')).toBeNull();
+        expect(bands(document)).toHaveLength(0);
+        expect(q(document, '.wg-weight-bmi-nudge')).toBeNull();
+        expect(q(document, '.wg-weight-bmi-fine')).toBeNull();
+
+        document.querySelector('.wg-weight-goal-card__action').click();
+        const input = document.querySelector('.mt-confirm-modal__input');
+        input.value = '55';
+        input.dispatchEvent(new window.Event('input'));
+        expect(document.querySelector('.mt-confirm-modal .wg-note--warn')).toBeNull();
+    });
+
+    it('show_bmi false → no read-out, borders or nudge', async () => {
+        const { window, document } = env;
+        await load(window, { bmi: { ...BMI_180, show_bmi: false } });
+        expect(q(document, '.wg-weight-bmi')).toBeNull();
+        expect(bands(document)).toHaveLength(0);
+        expect(q(document, '.wg-weight-bmi-nudge')).toBeNull();
+        // The Current badge itself stays.
+        expect(q(document, '.wg-weight-chart-panel__current-value').textContent).toMatch(/^82\.4/);
+    });
+
+    it('no height → the nudge closes the chart card and opens Settings → Units & body; × PATCHes and it stays gone after reload', async () => {
+        const { window, document } = env;
+        const state = { bmi: { ...ED_SAFE, ed_safe: false, nudge: true } };
+        await load(window, state);
+
+        const nudge = q(document, '.wg-weight-bmi-nudge');
+        expect(document.getElementById('weightChart').lastElementChild).toBe(nudge);
+        expect(nudge.querySelector('.wg-weight-bmi-nudge__go').textContent).toBe('Add your height to see BMI');
+        expect(q(document, '.wg-weight-bmi')).toBeNull();
+        expect(bands(document)).toHaveLength(0);
+
+        window.switchTab = vi.fn();
+        window.SettingsView.openHeightField = vi.fn();
+        nudge.querySelector('.wg-weight-bmi-nudge__go').click();
+        expect(window.switchTab).toHaveBeenCalledWith('settings');
+        expect(window.SettingsView.openHeightField).toHaveBeenCalledTimes(1);
+
+        nudge.querySelector('.wg-weight-bmi-nudge__close').click();
+        expect(q(document, '.wg-weight-bmi-nudge')).toBeNull();
+        await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith('/api/settings/body', 'PATCH', { bmi_nudge_dismissed: true }));
+
+        await window.loadWeightLogs();
+        expect(q(document, '.wg-weight-bmi-nudge')).toBeNull();
+    });
+
+    it('goal target 55 kg at 180 cm → the warn note, and Save still posts; 65 kg → no note', async () => {
+        const { window, document } = env;
+        await load(window, { bmi: BMI_180 });
+
+        document.querySelector('.wg-weight-goal-card__action').click();
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        const input = modal.querySelector('.mt-confirm-modal__input');
+        const type = (v) => { input.value = v; input.dispatchEvent(new window.Event('input')); };
+
+        type('55');
+        const note = modal.querySelector('.wg-note--warn');
+        expect(note.querySelector('b').textContent).toBe('Below the healthy BMI range.');
+        expect(note.textContent).toContain('At 180 cm, 55.0 kg is a BMI of 17.0. The range starts at 59.9 kg.');
+        expect(note.textContent).toContain('You can still save this goal.');
+        expect(modal.querySelector('.wg-shell__fine').textContent).toBe('Adult ranges; not meant for under-18s.');
+
+        type('65');
+        expect(modal.querySelector('.wg-note--warn')).toBeNull();
+
+        type('55');
+        const confirm = modal.querySelector('.mt-confirm-modal__confirm');
+        expect(confirm.disabled).toBe(false);
+        confirm.click();
+        await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith('/api/weight/goal', 'POST', { target_weight: 55 }));
+    });
+});

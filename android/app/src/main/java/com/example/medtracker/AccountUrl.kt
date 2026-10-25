@@ -40,7 +40,9 @@ object AccountUrl {
      * page https://<base>/i/<sub>#<token> (app link), the scheme medtracker://i/<sub>#<token>, or
      * anything [parse] accepts. RAW path and fragment (java.net.URI, never android.net.Uri, which
      * decodes): sub ^[a-z0-9-]+$ after lowercasing, token ^[0-9a-f]+$ (the server's hex claim
-     * token), no userinfo, port or query. null otherwise.
+     * token), no userinfo, port or query. null otherwise. The add-device hand-off (bd med-r1j2.8)
+     * https://<base>/d/<sub>#<slot>.<TK> and medtracker://d/<sub>#<slot>.<TK> become
+     * https://<sub>.<base>/claim#<slot>.<TK>, the code two base64url halves.
      */
     fun parseInvite(raw: String, base: String): String? {
         val b = base.lowercase()
@@ -53,19 +55,23 @@ object AccountUrl {
         val scheme = uri.scheme?.lowercase()
         val host = uri.host?.lowercase()
         val landing = scheme == "https" && host == b && uri.port == -1
-        val custom = scheme == "medtracker" && host == "i"
+        val custom = scheme == "medtracker" && (host == "i" || host == "d")
         if (!landing && !custom) return parse(raw, base)
-        // Landing path "/i/<sub>"; the scheme's host is "i", so its path is "/<sub>".
+        // Landing path "/i/<sub>" or "/d/<sub>"; the scheme's host is the kind, so its path is "/<sub>".
         val path = uri.rawPath.orEmpty()
-        val prefix = if (landing) "/i/" else "/"
+        val kind = if (custom) host!! else if (path.startsWith("/d/")) "d" else "i"
+        val prefix = if (landing) "/$kind/" else "/"
         val sub = if (path.startsWith(prefix)) path.substring(prefix.length).lowercase() else ""
         val tok = uri.rawFragment.orEmpty()
+        val tokOk = if (kind == "d") HANDOFF_CODE.matches(tok) else tok.isNotEmpty() && tok.all { it in '0'..'9' || it in 'a'..'f' }
         if (uri.rawUserInfo != null || uri.port != -1 || uri.rawQuery != null ||
-            sub.isEmpty() || !sub.all { it in 'a'..'z' || it in '0'..'9' || it == '-' } ||
-            tok.isEmpty() || !tok.all { it in '0'..'9' || it in 'a'..'f' }
+            sub.isEmpty() || !sub.all { it in 'a'..'z' || it in '0'..'9' || it == '-' } || !tokOk
         ) return null
-        return parse("https://$sub.$b/#claim=$tok", b)
+        return parse(if (kind == "d") "https://$sub.$b/claim#$tok" else "https://$sub.$b/#claim=$tok", b)
     }
+
+    /** The add-device code <slot>.<TK>, two base64url halves (web invite.js parse's twin). */
+    private val HANDOFF_CODE = Regex("[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+")
 
     /**
      * The Play Install Referrer string (contract med-ta2n.7 §4): a form query whose "invite" value

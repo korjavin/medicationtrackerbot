@@ -171,7 +171,7 @@ function openFeedbackModal() {
                 refreshSend();
                 return;
             }
-            // A second tap while getUserMedia is still resolving would open a
+            // A second tap while the mic stream is still opening would open a
             // second mic stream and orphan the first (never stopped). Guard it.
             if (starting) return;
             starting = true;
@@ -179,7 +179,7 @@ function openFeedbackModal() {
             try {
                 const handle = await w().MediaCapture.recordAudio();
                 // The modal may have been dismissed (cancel/escape/send) while
-                // getUserMedia was still resolving. settle() couldn't cancel a
+                // the mic stream was still opening. settle() couldn't cancel a
                 // handle that didn't exist yet, so release the mic here — else
                 // it records forever behind a closed modal.
                 if (settled) {

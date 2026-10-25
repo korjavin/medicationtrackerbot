@@ -133,7 +133,12 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   into the claim URL `https://<sub>.<base>/#claim=<token>`, checking the raw
   path and fragment (`java.net.URI`): sub `^[a-z0-9-]+$` after lowercasing,
   token `^[0-9a-f]+$`, no port, userinfo or query; `AccountUrlTest` runs iOS's
-  `inviteVectors` unchanged. The claim URL goes into the **pending slot**
+  `inviteVectors` unchanged. The **add-device hand-off** (bd med-r1j2.8, web
+  med-r1j2.4) takes the same filters and path: `https://<base>/d/<sub>#<slot>.<TK>`
+  (a second `pathPrefix` in the App Link filter) and `medtracker://d/<sub>#<slot>.<TK>`
+  become `https://<sub>.<base>/claim#<slot>.<TK>` — code `^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`,
+  same sub/port/userinfo/query rules (a query, a missing code or another host is
+  rejected); the fragment is never logged. The claim URL goes into the **pending slot**
   (`shell` prefs `wgPendingInvite` + `wgPendingInviteAt`, epoch ms, written
   with `commit()`; newest wins, never expired by the shell) — only on a fresh
   delivery (`savedInstanceState == null`, not `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`),
@@ -442,7 +447,7 @@ section, url}`, the last one the "Open the app to keep reminders running" notice
 
 ### Native push (FCM) (bd med-erq1.5)
 
-The relay's content-free wakes (`inbox-wake`, `dry-queue`;
+The relay's content-free wakes (`inbox-wake`, `dry-queue`, `transfer_claimed`;
 `internal/cloudserver/nativepush.go`) reach the shell over FCM, twin of the
 iOS APNs bead med-erq1.4 ([`Push.kt`](../android/app/src/main/java/com/example/medtracker/Push.kt)).
 Reminders stay local notifications (above).
@@ -472,11 +477,30 @@ Reminders stay local notifications (above).
   (tag = kind, the same tag the server sets: one shade entry per kind). Tap
   opens the app home. No WorkManager drain: only
   the unlocked page has the key.
+- **`transfer_claimed`** (bd med-r1j2.15, server med-r1j2.9): a device claimed
+  an add-device slot. Its own title, "Approve the new device?", body "A new
+  device is waiting · approve it before the code expires" (`Push.text`, the
+  server's `nativeWakeTitleFor`). cloud-boot does not take it, so it is
+  posted even in front, like the web. Its tap — the shell's notification
+  (launcher intent + extra `kind`, `CLEAR_TOP|SINGLE_TOP`, one PendingIntent
+  requestCode per kind so a later wake never rewrites it) or the server's
+  block (FCM delivers the launcher intent + `CLEAR_TOP` with the data payload
+  as extras, no click action; `MainActivity` is `singleTop` so that reaches
+  the live activity's `onNewIntent` instead of recreating it and losing the
+  page's in-memory flow) — opens `https://<account host>/?tab=settings&page=add-device`
+  (`Push.tappedPath`, then `openPath` like a reminder tap: the open page's
+  router warm, a load cold, deferred behind the app lock). Only the open
+  account's host; nothing in local mode or on a Recents relaunch. The other
+  kinds' taps still open the home.
 - **QA:** `android-qa` scenario `push-wake` (claims the invite: dispatch it
   alone) checks the op gates, null without Firebase, and a fake message via
   the debug-only `QaPush` receiver in front (page event, no notification) and
-  in the background (the notification). A real FCM delivery is an owner
-  device check after med-erq1.7.
+  in the background (the notification); `transfer_claimed` acked in front
+  (nothing posted), tapped from the shade in the background (Add a device's
+  "not open here" state) in both posting orders against `dry-queue`, and a
+  server-style launch (`am start` launcher + `--activity-clear-top` + kind)
+  over a live flow (same page, flow resumed). A real FCM delivery is an owner device check after
+  med-erq1.7.
 
 ### Health Connect import (bd med-nt9p.8, med-nt9p.9)
 
@@ -1235,7 +1259,7 @@ Twin of iOS `Shell.swift` (bd med-o7zq.5, .9), in
   |---|---|
   | `setEgressHosts {hosts}` | `LocalOrigin.validHosts` (≤ 8 bare DNS names, whole list or `invalid hosts`), stored under `wgLocalEgressHosts`; replies `{changed}` — the page reloads itself when true and the next document's CSP `connect-src` lists the hosts |
   | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, deletes the move and leave stashes and the invite slot (A4), replies `true` |
-  | `local.leave {url?}` | without `url`: replies `true`, stays in local mode and reloads home with `?invite=1` (F1; nothing else changes, the move stash stays; bd med-ta2n.12). With `url` (bd med-ta2n.12.1): `AccountUrl.parse` or `invalid url` (nothing changes; a `null`/empty/non-string `url` too), else `true` and `enterAccount` — the account opens on that URL, the move stash is **kept** for it, the leave stash and the invite slot go |
+  | `local.leave {url?}` | without `url`: replies `true`, stays in local mode and reloads home with `?invite=1` (F1; nothing else changes, the move stash stays; bd med-ta2n.12). With `url` (bd med-ta2n.12.1): `AccountUrl.parse` or `invalid url` (nothing changes; a `null`/empty/non-string `url` too), else `true` and `enterAccount` — the account opens on that URL, the move stash is **kept** for it, the leave stash and the invite slot go. With `erase: true` too ("Join and erase", bd med-r1j2.8) **and a `/claim` path** (the add-device hand-off `https://<sub>.<base>/claim#<slot>.<TK>`; `Invite.armsErase`, bd med-r1j2.14, as iOS): the same open, nothing erased yet; the move stash is dropped (no merge) and the shell remembers the erase for that URL's host only (`wgJoinEraseHost` + `wgJoinEraseAt`) for 10 minutes, the add-device code's life — see `local.erase`. `erase: true` on any other URL (an invite) is a plain leave: nothing armed, the move stash kept |
   | `move.stash {vault}` | the local → cloud move (bd med-nt9p.32.17, [`Move.kt`](../android/app/src/main/java/com/example/medtracker/Move.kt)): writes the vault v1 JSON string to `no_backup/move/vault.json` (temp file + rename, one stash at a time, replaces the old one); `invalid vault` when missing, empty or not a string, `too large` above 64 MB (UTF-8 bytes); replies `true` |
   | `leave.take` | local pickup (bd med-o7zq.36.3): replies `{vault}` or `null`; does not delete (same as `move.take`) |
   | `leave.clear {back?}` | deletes the leave stash, replies `true`; with `back: true` (the page's pickup was cancelled, bd med-o7zq.42) and an account remembered by `account.leave {then: "local"}` (`leaveHost`), replies `{back: true}` and reopens that account |
@@ -1249,9 +1273,10 @@ Twin of iOS `Shell.swift` (bd med-o7zq.5, .9), in
 
   | op | does |
   |---|---|
-  | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args local mode with F1 and no way back (`leaveHost` removed; after an account delete, bd med-ta2n.12). Nothing is erased: the account and its origin's WebView data stay. With `{url}` (bd med-ta2n.12.1): as `local.leave {url}`, `then` ignored, and the move stash is **deleted** (a stale one must not land in the next account) |
+  | `account.leave {then?, forget?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*); with `{then: "local", forget: true}` (bd med-r1j2.19, iOS twin med-r1j2.18) the same plain local home but `leaveHost` removed, so no *Return to account* (`forget` without `then: "local"` is the no-arg leave; `shell.ops` lists the marker `account.leave.forget`, which itself answers `unsupported`); without args local mode with F1 and no way back (`leaveHost` removed; after an account delete, bd med-ta2n.12). Nothing is erased: the account and its origin's WebView data stay. With `{url}` (bd med-ta2n.12.1): as `local.leave {url}`, `then` ignored, and the move stash is **deleted** (a stale one must not land in the next account) |
   | `move.take` | the new account's pickup (bd med-nt9p.32.17): replies `{vault}` (the stashed string) or `null` when there is none; does not delete, so a failed import retries on the next open |
   | `move.clear` | deletes the stash once the page imported it, replies `true` |
+  | `local.erase` | **listed in both modes** (`SHARED_OPS`: the local page's Join-and-erase probe, `invite.js` `join`); in local mode a no-op replying `true`. Account side, "Join and erase" (bd med-r1j2.8; the page calls it from `cloud-boot.js` `finishJoinErase` once the joined account booted unlocked): only when the open account's host is the one `local.leave {url, erase: true}` remembered and that was ≤ 10 minutes ago (`Invite.eraseDue`), it clears `local.reset`'s native share — host mirror, `leaveHost`, move and leave stashes — and wipes the local origin's storage with [`LocalWipe.kt`](../android/app/src/main/java/com/example/medtracker/LocalWipe.kt): a throwaway WebView (no bridge) loads one shell-served page on `https://appassets.androidplatform.net` that clears localStorage, every IndexedDB database, Cache Storage and service workers from inside the origin and reports completion through its title (10 s timeout). sessionStorage belongs to each WebView, so the wipe leaves the localStorage marker `wg-shell-session-wipe` (iOS's name and semantics) and a document-start script in the shell's own WebView (`LocalWipe.SESSION_JS`, `addDocumentStartJavaScript` scoped to the asset origin; bd med-r1j2.14) clears that view's sessionStorage — first-run step, leave/pickup keys — and removes the marker at the next local page, before any app script. Only that origin: the joined account's origin shares the profile and is kept. No `WebStorage.deleteOrigin` (bd med-r1j2.12): it leaves localStorage and can't be awaited, so a sweep still pending after the reply could delete what a local page writes next; androidx.webkit's site deletion needs a newer WebView than minSdk guarantees. The reply waits for the wipe: `true` once done (flag spent); an IndexedDB delete error, a still-blocked delete or the timeout answer error `erase failed`, the native share stays and the flag is **kept**, so the next unlocked boot within the 10 minutes retries. Reminders and the invite slot are not touched: `enterAccount` already cleared the local ones, and these now belong to the account. When not due: a no-op replying `true` that spends the flag. Entering local mode again or opening any account also clears the flag, so a later unlock never erases. Only `{enrolled: true}` acts (bd med-r1j2.12, same contract as iOS #1347): a bare `{}` — what an older cached `cloud-boot.js` sends on every unlocked boot, failed joins included — is a no-op replying `true` that keeps the flag. While a wipe runs (`LocalWipe.gate`, process-wide, max 10 s) every load of the local origin waits for it (`load()`), so a switch to local mode, its import or restore never writes data the wipe then deletes. A second wipe while one runs answers `erase failed` |
   | `leave.stash {vault}` | account → local (bd med-o7zq.36.3, a second `Move` over `no_backup/leave/vault.json`): same contract and errors as `move.stash` (`invalid vault`, `too large`, `write failed`), but **account mode only** |
 
   **The move stash** (`Move.kt`, `MoveTest`): the two origins share no
@@ -1288,6 +1313,9 @@ Twin of iOS `Shell.swift` (bd med-o7zq.5, .9), in
 
   Both modes: `ping`, `chrome`, `diag.append`, `notifications.*`, `health.*`,
   `invite.pending` / `invite.clear` / `clipboard.read` ([Invite links](#the-shell-bd-med-nt9p5)),
+  `app.openSettings` (no args → `true` once launched; bd med-r1j2.19: the camera-denied
+  *Allow camera in Settings*, `media-capture.js` `openSettings`) — this app's page in system
+  Settings (`ACTION_APPLICATION_DETAILS_SETTINGS`, `package:` Uri; no `FLAG_ACTIVITY_NEW_TASK`, so it stacks on the app's task and Back returns to the app),
   and `shell.ops`, which replies the array of op names this shell answers in
   the current mode (`LocalOrigin.ops`, one source with `opAllowed`) — the
   page's capability probe, so a row whose op an older APK lacks stays hidden

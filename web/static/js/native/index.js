@@ -174,7 +174,7 @@
         has: has,
     };
 
-    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio']);
+    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio', 'openSettings']);
     window.Barcode = makeStub('Barcode', ['scan', 'supportsLiveScan']);
     window.Bluetooth = makeStub('Bluetooth', ['isSupported', 'requestHeartRateDevice', 'subscribeHeartRate', 'unsubscribe']);
     window.LocalNotifications = makeStub('LocalNotifications', ['isSupported']);

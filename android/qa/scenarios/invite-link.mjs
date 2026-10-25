@@ -5,6 +5,8 @@
 // opens → cold local launch → invite.pending → warm local → home?invite=1 → local.leave {url}
 // (invalid urls refused, the move stash kept, the slot consumed) → warm account → home?invite=1 →
 // account.leave {url} (the move stash dropped) → local.reset clears the slot.
+// Then (bd med-r1j2.19) app.openSettings → system Settings, /claim#scan gets the camera, and
+// account.leave {then: local, forget: true} → plain local home, no way back.
 // Opens the run's invite but never claims it: in `all`, retryable. results.inviteLink has the checks.
 
 /** A raw bridge round trip (window.wgNative, any page of the open vault, /unlock included). */
@@ -95,7 +97,8 @@ export default async function inviteLink(ctx) {
     await expectSlot(p, 'after the first launch');
     await clear(p);
     const ops = await call(p, 'shell.ops');
-    expect(ops.ok && ['invite.pending', 'invite.clear', 'clipboard.read'].every((o) => ops.result.includes(o)), `shell.ops ${JSON.stringify(ops)}`);
+    expect(ops.ok && ['invite.pending', 'invite.clear', 'clipboard.read', 'app.openSettings'].every((o) => ops.result.includes(o)), `shell.ops ${JSON.stringify(ops)}`);
+    expect(!ops.result.includes('account.leave.forget'), `local lists account.leave.forget: ${ops.result}`);
     const clip = await call(p, 'clipboard.read');
     expect(clip.ok && (clip.result === null || typeof clip.result === 'string'), `clipboard.read: ${JSON.stringify(clip)}`);
     return p;
@@ -133,12 +136,14 @@ export default async function inviteLink(ctx) {
 
   page = await ctx.step('local.leave {url}: the claim page, the move stash kept, the slot consumed', async () => {
     await seedMove();
-    await call(page, 'local.leave', { url: ctx.claimUrl }); // the page goes away right after the reply
+    // bd med-r1j2.14: erase on an invite (not /claim) is a plain leave: nothing armed, the stash kept.
+    await call(page, 'local.leave', { url: ctx.claimUrl, erase: true }); // the page goes away right after the reply
     const p = await pageOn((u) => u.host === claim.host);
     expect((await pending(p)) === null, 'the slot outlived local.leave {url}');
     expect((await moveFiles()) === 'vault.json', `local.leave {url} dropped the move stash: ${await moveFiles()}`);
     const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
     expect(xml.includes(`>${claim.host}<`) && /name="wgLocalMode" value="false"/.test(xml), `prefs: ${xml}`);
+    expect(!/wgJoinErase/.test(xml), `erase armed for an invite url: ${xml}`);
     await ctx.shot('claim-page');
     return p;
   });
@@ -196,6 +201,190 @@ export default async function inviteLink(ctx) {
     await p.locator('[data-invite-action="sign-in"]').waitFor({ state: 'visible', timeout: 60_000 });
     expect(!(await p.locator('[data-firstrun-action="invite"]').isVisible()), 'W1 offers an invite while one waits');
     await ctx.shot('w1-invited');
+    page = p;
+  });
+
+  // bd med-r1j2.8: the add-device hand-off /d/<sub>#<slot>.<TK> fills the same slot as the claim page's
+  // URL; local.leave {url, erase: true} opens it and remembers the erase for that host only; the
+  // account's local.erase wipes the local origin and spends the flag. The code is fake: never claimed.
+  const code = 'QaSlot_1-x.QaTk_2-y';
+  const dWant = `https://${claim.host}/claim#${code}`;
+  const expectD = async (pg, what) => {
+    const slot = await pending(pg);
+    expect(slot && slot.url === dWant, `${what}: ${JSON.stringify(slot)}`);
+  };
+  /** The local vault's record count (CloudVault, local-policy.js), once the app's boot defined it. */
+  const records = async (pg) => {
+    await pg.waitForFunction(() => !!(window.CloudVault && window.CloudVault.userContentCount), null, { timeout: 60_000 });
+    return pg.evaluate(() => window.CloudVault.userContentCount());
+  };
+
+  await ctx.step('/d/ landing link: the slot holds the account\'s /claim URL', async () => {
+    await warm(page, `https://${base}/d/${sub}#${code}`, `${LOCAL_ORIGIN}/`, true);
+    const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    await expectD(p, 'landing /d/');
+    await clear(p);
+    const bad = await call(p, 'local.leave', { url: `https://${base}/d/${sub}#${code}`, erase: true });
+    expect(!bad.ok && bad.error === 'invalid url', `local.leave landing /d/: ${JSON.stringify(bad)}`);
+  });
+
+  // The real UI: seeded local records, medtracker://d/ → the page's boot reads the slot, probes
+  // shell.ops for local.erase and asks "Join … and erase this phone?"; the tap is local.leave {url, erase: true}.
+  page = await ctx.step('/d/ in local mode with records: the page offers Join and erase; the tap opens /claim and arms the erase', async () => {
+    await ctx.launchLocal('today'); // seeds the golden vault into the local origin
+    let p = await ctx.launchLocal(null); // the plain home, the seeded records kept
+    const seeded = await records(p);
+    expect(seeded > 0, `no seeded records: ${seeded}`);
+    await p.evaluate(() => localStorage.setItem('qa-erase-marker', '1'));
+    const ops = await call(p, 'shell.ops');
+    expect(ops.ok && ops.result.includes('local.erase'), `local shell.ops: ${JSON.stringify(ops)}`);
+    const noop = await call(p, 'local.erase'); // local mode: a no-op
+    expect(noop.ok && noop.result === true, `local-mode local.erase: ${JSON.stringify(noop)}`);
+    await warm(p, `medtracker://d/${sub}#${code}`, `${LOCAL_ORIGIN}/`);
+    p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    const title = p.locator('.mt-confirm-modal__title');
+    await title.waitFor({ state: 'visible', timeout: 60_000 });
+    const text = await title.textContent();
+    expect(/^Join .+ and erase this /.test(text || ''), `not the erase confirm: ${text}`);
+    expect((await records(p)) === seeded, 'records changed before the join');
+    await expectD(p, 'medtracker://d/');
+    await ctx.shot('d-link-join-erase');
+    await p.locator('.mt-confirm-modal__confirm').click();
+    p = await pageOn((u) => u.host === claim.host);
+    expect((await pending(p)) === null, 'the slot outlived local.leave {erase}');
+    await sleep(1500);
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(xml.includes(`name="wgJoinEraseHost">${claim.host}<`), `erase not remembered: ${xml}`);
+    return p;
+  });
+
+  // bd med-r1j2.12: a bare local.erase {} (an old cached cloud-boot.js, failed joins included) never
+  // wipes; and a switch to local mode mid-wipe waits for it, so what the local page writes afterwards
+  // survives (no wipe step may still run once the local page loaded).
+  /** An IndexedDB database written now on the local page is still there after any late sweep. */
+  const survives = async (p, name) => {
+    await p.evaluate((n) => new Promise((ok, fail) => {
+      const q = indexedDB.open(n, 1);
+      q.onupgradeneeded = () => q.result.createObjectStore('s');
+      q.onsuccess = () => { q.result.close(); ok(); };
+      q.onerror = () => fail(q.error);
+    }), name);
+    await sleep(12_000); // past the wipe's 10 s cap
+    await p.reload({ waitUntil: 'load' });
+    const dbs = await p.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
+    expect(dbs.includes(name), `${name}: data written after the switch was deleted: ${JSON.stringify(dbs)}`);
+  };
+  page = await ctx.step('erase guard: bare local.erase is a no-op; a switch to local mid-wipe keeps data written after it', async () => {
+    const bare = await call(page, 'local.erase');
+    expect(bare.ok && bare.result === true, `bare local.erase: ${JSON.stringify(bare)}`);
+    let xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(xml.includes(`name="wgJoinEraseHost">${claim.host}<`), `bare local.erase spent the flag: ${xml}`);
+    // The wipe starts, then the switch arrives before it ends (same main-thread queue, in order).
+    await page.evaluate(() => window.wgNative.postMessage(JSON.stringify({ op: 'local.erase', args: { enrolled: true }, id: 'qa-race' })));
+    await call(page, 'account.leave', { then: 'local' });
+    let p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    expect((await records(p)) === 0, 'the wipe did not finish before the local page loaded');
+    await survives(p, 'qa-after-switch');
+    xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/wgJoinErase/.test(xml), `entering local mode kept the erase flag: ${xml}`);
+    // Re-arm for the uninterrupted erase below: a fresh local marker, then Join and erase again.
+    await p.evaluate(() => localStorage.setItem('qa-erase-marker', '1'));
+    // bd med-r1j2.14: the main view's own local sessionStorage, which the throwaway wipe view can't reach.
+    await p.evaluate(() => sessionStorage.setItem('qa-session-marker', '1'));
+    const rejoin = await call(p, 'local.leave', { url: dWant, erase: true });
+    expect(rejoin.ok && rejoin.result === true, `re-join: ${JSON.stringify(rejoin)}`);
+    p = await pageOn((u) => u.host === claim.host);
+    await sleep(1500);
+    xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(xml.includes(`name="wgJoinEraseHost">${claim.host}<`), `re-join did not arm the erase: ${xml}`);
+    return p;
+  });
+
+  page = await ctx.step('local.erase on the joined account: the local origin wiped, the account origin kept, the flag spent', async () => {
+    await page.evaluate(() => localStorage.setItem('qa-account-marker', '1'));
+    const res = await call(page, 'local.erase', { enrolled: true });
+    expect(res.ok && res.result === true, `local.erase: ${JSON.stringify(res)}`);
+    // bd med-r1j2.12: straight into local mode, no pause — nothing the erase started may still sweep.
+    await call(page, 'account.leave', { then: 'local' });
+    const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    const marker = await p.evaluate(() => localStorage.getItem('qa-erase-marker'));
+    expect(marker === null, `local localStorage not wiped: marker=${marker}`);
+    const session = await p.evaluate(() => [sessionStorage.getItem('qa-session-marker'), localStorage.getItem('wg-shell-session-wipe')]);
+    expect(session[0] === null && session[1] === null, `main view sessionStorage not wiped: ${JSON.stringify(session)}`);
+    const left = await records(p);
+    expect(left === 0, `local IndexedDB not wiped: ${left} records`);
+    await ctx.shot('d-link-erased');
+    await survives(p, 'qa-after-erase');
+    // Back to the account left (leave.clear {back}): its origin kept, the erase spent.
+    const back = await call(p, 'leave.clear', { back: true });
+    expect(back.ok && back.result && back.result.back === true, `leave.clear back: ${JSON.stringify(back)}`);
+    const a = await pageOn((u) => u.host === claim.host);
+    let kept;
+    for (let i = 0; i < 5 && kept === undefined; i++) {
+      kept = await a.evaluate(() => localStorage.getItem('qa-account-marker')).catch(() => undefined);
+      if (kept === undefined) await sleep(2000); // / → /unlock may still be redirecting
+    }
+    expect(kept === '1', `the account origin lost its storage: ${kept}`);
+    const again = await call(a, 'local.erase', { enrolled: true }); // spent: a no-op
+    expect(again.ok && again.result === true, `second local.erase: ${JSON.stringify(again)}`);
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/wgJoinErase/.test(xml), `erase flag not spent: ${xml}`);
+    r.handoff = true;
+    return a;
+  });
+
+  // bd med-r1j2.19: the camera-denied "Allow camera in Settings" op, in account mode (local listed above).
+  await ctx.step('account: app.openSettings is listed and opens this app in system Settings', async () => {
+    const ops = await call(page, 'shell.ops');
+    expect(ops.ok && ops.result.includes('app.openSettings') && ops.result.includes('account.leave.forget'), `shell.ops ${JSON.stringify(ops)}`);
+    const marker = await call(page, 'account.leave.forget');
+    expect(!marker.ok && marker.error === 'unsupported: account.leave.forget', `marker: ${JSON.stringify(marker)}`);
+    const res = await call(page, 'app.openSettings');
+    expect(res.ok && res.result === true, `app.openSettings: ${JSON.stringify(res)}`);
+    let resumed = '';
+    for (let i = 0; i < 10 && !resumed.includes('com.android.settings/'); i++, await sleep(1000)) {
+      resumed = (await shell('dumpsys activity activities')).split('\n').find((l) => /ResumedActivity/.test(l)) || '';
+    }
+    expect(resumed.includes('com.android.settings/'), `resumed: ${resumed.trim()}`);
+    await ctx.shot('app-settings');
+    await shell('input keyevent KEYCODE_BACK');
+    for (let i = 0; i < 10 && !(await ctx.inForeground()); i++) await sleep(1000);
+    expect(await ctx.inForeground(), 'Back did not return to the app');
+    r.openSettings = true;
+  });
+
+  // /claim#scan on the account host gets the camera (Files.kt onPermissionRequest). The emulator has a
+  // camera only when the workflow starts it with -camera-back emulated (invite-link, local-spike).
+  page = await ctx.step('account: /claim#scan gets the camera', async () => {
+    await shell(`pm grant ${pkg} android.permission.CAMERA`);
+    const p = (await ctx.attachPage()) || page;
+    await p.goto(`https://${claim.host}/claim#scan`, { waitUntil: 'load', timeout: 30_000 });
+    const cams = await p.evaluate(async () => (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput').length);
+    if (!cams) { r.camera = 'skipped: no emulator camera in this run'; return p; }
+    await p.waitForFunction(() => {
+      const v = document.getElementById('claim-scan-video');
+      return !!v && v.readyState >= 2 && !!v.srcObject && v.srcObject.getVideoTracks().some((t) => t.readyState === 'live');
+    }, null, { timeout: 30_000 });
+    await ctx.shot('claim-scan-camera');
+    r.camera = true;
+    return p;
+  });
+
+  // account.leave {then: local, forget: true} (bd med-r1j2.19, iOS twin med-r1j2.18): a plain local
+  // Today, no invite sheet, the account forgotten — no leaveHost, so no "Return to account".
+  await ctx.step('account.leave {then: local, forget: true}: plain local home, no F1, no way back', async () => {
+    await call(page, 'account.leave', { then: 'local', forget: true });
+    const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    await ctx.waitLocalReady(p);
+    expect(!/invite=1/.test(p.url()), `reopened with invite=1: ${p.url()}`);
+    await sleep(3000);
+    expect((await p.locator('[data-invite-action="paste"]').count()) === 0, 'the F1 invite sheet is showing');
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/accountHost|leaveHost/.test(xml) && /name="wgLocalMode" value="true"/.test(xml), `prefs: ${xml}`);
+    const back = await call(p, 'leave.clear', { back: true });
+    expect(back.ok && back.result === true, `leave.clear {back}: ${JSON.stringify(back)}`);
+    await ctx.shot('leave-forget-local');
+    r.leaveForget = true;
     r.ok = true;
   });
 }

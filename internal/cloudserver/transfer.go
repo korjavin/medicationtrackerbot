@@ -63,7 +63,15 @@ type TransferAPI struct {
 	store         transferStore
 	sessionSecret string
 	limiter       *rateLimiter
+	// onClaimed, when set, runs once per slot on its pending→claimed transition
+	// (bd med-r1j2.9): the content-free "approve the new device?" push.
+	onClaimed func(ctx context.Context, accountID string)
 }
+
+// SetClaimNotifier installs the claim push. A setter because cmd/cloud builds
+// the relay that owns the push fan-out after this API; unset = the origin
+// learns of a claim from its own poll only.
+func (a *TransferAPI) SetClaimNotifier(f func(ctx context.Context, accountID string)) { a.onClaimed = f }
 
 // NewTransferAPI builds the transfer-slot handlers.
 func NewTransferAPI(store transferStore, sessionSecret string) *TransferAPI {
@@ -244,6 +252,11 @@ func (a *TransferAPI) ClaimTransfer(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		http.Error(w, "server error", http.StatusInternalServerError)
 	default:
+		// Only a successful claim gets here, and the store refuses a second
+		// claim of the slot (409 above): at most one push per slot.
+		if a.onClaimed != nil {
+			a.onClaimed(r.Context(), account.ID)
+		}
 		writeJSON(w, http.StatusOK, claimTransferResponse{Status: cloudstore.TransferSlotClaimed, ClaimToken: token})
 	}
 }

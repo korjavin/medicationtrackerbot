@@ -218,7 +218,7 @@ document.getElementById('live-hr-feature-toggle').addEventListener('change', asy
     const root = document.getElementById('weight-unit-segmented');
     if (!root) return;
     root.addEventListener('click', async (event) => {
-        const btn = event.target.closest('.wg-settings-segmented__btn');
+        const btn = event.target.closest('[data-unit]');
         if (!btn || !root.contains(btn)) return;
         const unit = btn.getAttribute('data-unit');
         if (unit !== 'kg' && unit !== 'lb') return;
@@ -790,6 +790,8 @@ function handlePushAction(action, params) {
                 }
             }
             showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
+            // Kit RD3 (med-mt0l, med-5vy0): once per device, Generic pref, both modes.
+            if (fromReminder) window.NotifyPermission?.reminderHint(document.getElementById('med-confirm-hint'));
         }, 500);
     } else if (action === 'workout_start') {
         // Coerce to Number — cached workout_next.session.id is numeric, and

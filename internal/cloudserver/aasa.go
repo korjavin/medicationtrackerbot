@@ -17,15 +17,22 @@ const aasaPath = "/.well-known/apple-app-site-association"
 // served on every subdomain too, so the app's entitlement (ios/project.yml,
 // added by med-ta2n.11) MUST list applinks for the base domain only — never
 // "applinks:*.<base>" — or account subdomains' /i/* become universal links.
-func (h *Handler) SetAppleAppSiteAssociation(teamID, bundleID string) {
+// handoff (HANDOFF_APP_LINKS, bd med-r1j2.7) also claims the add-device
+// hand-off /d/*: only once the shipped app takes /d/ links, because an older
+// app opened by one drops it and the camera never reaches the browser landing.
+func (h *Handler) SetAppleAppSiteAssociation(teamID, bundleID string, handoff bool) {
 	if teamID == "" || bundleID == "" {
 		return
 	}
 	appID := teamID + "." + bundleID
+	components := []any{map[string]string{"/": "/i/*", "comment": "invite landing"}}
+	if handoff {
+		components = append(components, map[string]string{"/": "/d/*", "comment": "add-device hand-off"})
+	}
 	h.aasa, _ = json.Marshal(map[string]any{
 		"applinks": map[string]any{"details": []any{map[string]any{
 			"appIDs":     []string{appID},
-			"components": []any{map[string]string{"/": "/i/*", "comment": "invite landing"}},
+			"components": components,
 		}}},
 		"webcredentials": map[string]any{"apps": []string{appID}},
 	})

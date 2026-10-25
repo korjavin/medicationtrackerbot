@@ -1046,6 +1046,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                 expect(window.Barcode.scan).toHaveBeenCalledWith(expect.objectContaining({ formats: ['qr_code'] }));
             });
+
+            // bd med-r1j2.10 (AD13): a denied camera says so, offers the system
+            // setting (its hint where the shell can't open it), and the paste
+            // field takes the link instead.
+            it('Scan with the camera denied: AD13 note + Allow camera in Settings, then the pasted link still works', async () => {
+                const { window, document } = env;
+                const denied = Object.assign(new Error('denied'), { name: 'MediaCaptureError', code: 'PERMISSION_DENIED' });
+                const openSettings = vi.fn(async () => ({ opened: false, hint: 'Turn on Camera in iOS Settings → Med Tracker.' }));
+                window.MediaCapture = { openCameraStream: vi.fn(async () => { throw denied; }), openSettings };
+                window.Barcode = { supportsLiveScan: () => true, scan: vi.fn() };
+                openSheet(window);
+                act(document, 'scan').click();
+                const off = await vi.waitFor(() => {
+                    const n = document.getElementById('invite-camera-off');
+                    if (!n) throw new Error('no AD13 note yet');
+                    return n;
+                });
+                expect(off.textContent).toContain('The camera is off for this app.');
+                expect(off.textContent).toContain('Paste the link from your other device instead.');
+                expect(window.Barcode.scan).not.toHaveBeenCalled();
+                tap(off, 'camera-settings');
+                await vi.waitFor(() => expect(off.textContent).toContain('Turn on Camera in iOS Settings → Med Tracker.'));
+                expect(openSettings).toHaveBeenCalledTimes(1);
+                const input = document.getElementById('invite-sheet-input');
+                expect(input.closest('[hidden]')).toBeNull();
+                input.value = 'https://app.example.com/i/abc#0a1b2c';
+                act(document, 'submit').click();
+                tap(await ready(document), 'sign-in');
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+            });
         });
 
         it('with records: "Turn on sync?" with the live count, then move.stash, then local.leave {url}', async () => {
@@ -1183,6 +1213,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await window.paintSyncSection();
                 const button = document.getElementById('settings-sync-request');
                 expect(button.hidden).toBe(false);
+                // IM3 (bd med-er5x): one invite link on the Sync card.
+                expect(button.textContent).toBe('No invite? Request one');
+                expect(document.getElementById('settings-sync-how').hidden).toBe(true);
                 button.click();
                 return requestSheet(document);
             }
@@ -1201,7 +1234,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(document.getElementById('settings-sync-how').hidden).toBe(false); // the landing link stays
                 // Opened anyway (the W1 entry, a stale page): "not open here" + the landing link, no op call.
                 window.InviteSheet.request();
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = requestSheet(document).querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1212,12 +1245,44 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 requestAct(document, 'not-now').click();
             });
 
+            it('IM3 Sync card carries the four facts; IM2 · W4 (lead copy) leads with the copy and its privacy fact', async () => {
+                const { window, document } = env;
+                const cardFacts = [...document.querySelectorAll('#settings-sync-facts li b')].map((b) => b.textContent);
+                expect(cardFacts).toEqual(['Your records on every device', 'A copy off this phone', 'Only you can open it', 'Open it in any browser']);
+                expect(document.querySelector('#settings-sync-facts li').textContent)
+                    .toBe('Your records on every devicePhone and tablet stay in step. To add one, scan a code from this phone.');
+                window.InviteSheet.request({ lead: 'copy', eyebrow: '43 records on this phone' });
+                const sheet = requestSheet(document);
+                expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('43 records on this phone');
+                expect([...sheet.querySelectorAll('[data-invite-facts] li b')].map((b) => b.textContent))
+                    .toEqual(['A copy off this phone', 'Only you can open it', 'Your records on every device', 'Open it in any browser']);
+                // No header ×: Not now is the one close (Iris, PR #1346).
+                expect(requestAct(document, 'close')).toBeNull();
+                requestAct(document, 'not-now').click();
+                expect(requestSheet(document)).toBeNull();
+            });
+
             it('the shell sends email + note, 202 → "Request sent", Done closes; the page fetches nothing', async () => {
                 answer = { status: 202, headers: {}, body: '' };
                 const sheet = await openRequest(env);
                 const { document } = env;
                 expect(sheet.textContent).toMatch(/Request an invite/);
-                expect(sheet.textContent).toMatch(/Your email and your note. Nothing from your records./);
+                // IM2 (bd med-er5x): what an account adds, every device first,
+                // then the corrected hint, the form and the fine print, which is
+                // the request's privacy statement (what we get) + the batches line.
+                expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('Sync');
+                const facts = [...sheet.querySelectorAll('[data-invite-facts] li')].map((li) => li.textContent);
+                expect(facts).toEqual([
+                    'Your records on every devicePhone and tablet stay in step. To add one, scan a code from this phone.',
+                    "A copy off this phoneLose or reset it, sign back in, and it's all there.",
+                    "Only you can open itEncrypted on your device before it syncs. We store it but can't read it.",
+                    'Open it in any browserOn a laptop or a work computer, whenever you need it.',
+                ]);
+                expect(sheet.querySelector('[data-invite-facts] + .wg-hint').textContent)
+                    .toBe('Telegram, AI-assistant connectors and sharing need an account too. Everything else works on this phone.');
+                expect(sheet.querySelector('.wg-sheet__body .wg-shell__fine').textContent)
+                    .toBe("We get your email and note, nothing from your records. Invites go out in small batches; we'll write to this address when yours is ready.");
+                expect(sheet.textContent).not.toMatch(/Sync is invite-only for now/);
                 expect(document.getElementById('invite-request-note').maxLength).toBe(500);
                 const before = fetched.length;
                 fill(document, '  Someone@Example.org ', 'friend of the admin');
@@ -1243,7 +1308,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 fill(document, 'not an email');
                 expect(sheet.querySelector('.wg-field--error').textContent).toMatch(/Enter an email address like name@example.com/);
                 expect(posts()).toEqual([]);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(posts()).toHaveLength(1));
                 await vi.waitFor(() => expect(sheet.querySelector('.wg-field--error')).not.toBeNull());
                 expect(sheet.querySelector('[data-invite-request="sent"]')).toBeNull();
@@ -1253,11 +1318,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 const { document } = env;
                 answer = { status: 429, headers: { 'Retry-After': '3600' }, body: '{"error":"rate_limited"}' };
                 const sheet = await openRequest(env);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Too many requests right now — try again in an hour./));
 
                 answer = { status: 404, headers: {}, body: '{"error":"not_enabled"}' };
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = sheet.querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1267,7 +1332,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
 
                 answer = new Error('network');
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Couldn't send the request. Check your connection and try again./));
                 expect(sheet.querySelector('[data-invite-request="off"]')).toBeNull();
                 requestAct(document, 'not-now').click();
@@ -2113,7 +2178,7 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         || (/^https?:/.test(url) && new URL(url).hostname === TRIAL_BASE));
     const foodGets = () => fetched.filter(({ url, method }) => method === 'GET'
         && url.startsWith(`https://${TRIAL_BASE}/api/attest/food/`));
-    const OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
+    const OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations to use it.';
 
     it('off: an unknown barcode says the food database is missing, opens the manual form, and asks no server', async () => {
         const { window, document } = env;

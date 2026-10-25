@@ -953,9 +953,9 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/weight/goal",
     "risk": "read",
-    "description": "Get the user's weight goal (goal weight in kg), plus the highest weight ever logged as the reference point the trajectory is measured from.",
-    "response_summary": "Object {goal (kg), goal_set_at (RFC3339), goal_date (YYYY-MM-DD, optional), goal_start_weight (kg, optional), highest_weight (kg), highest_date (RFC3339)}. Every field is omitted when unset, so an empty object means no goal and no readings.",
-    "response_example": "{\"goal\": 75.0, \"goal_set_at\": \"2026-02-01T08:00:00Z\", \"highest_weight\": 82.5, \"highest_date\": \"2026-01-04T07:30:00Z\"}"
+    "description": "Get the user's weight goal (goal weight in kg), plus the highest weight ever logged as the reference point the trajectory is measured from, and the adult BMI at the latest weight when the user has set a height.",
+    "response_summary": "Object {goal (kg), goal_set_at (RFC3339), goal_date (YYYY-MM-DD, optional), goal_start_weight (kg, optional), highest_weight (kg), highest_date (RFC3339), height_cm, bmi (one decimal, latest weight), bmi_band (underweight|healthy|overweight|obesity_1|obesity_2|obesity_3, adult WHO bands)}. Every field is omitted when unset, so an empty object means no goal and no readings. height_cm/bmi/bmi_band are omitted together when there is no height, no weight log, or the user enabled ED-safe mode — do not ask for or compute BMI then.",
+    "response_example": "{\"goal\": 75.0, \"goal_set_at\": \"2026-02-01T08:00:00Z\", \"highest_weight\": 82.5, \"highest_date\": \"2026-01-04T07:30:00Z\", \"height_cm\": 180, \"bmi\": 25.4, \"bmi_band\": \"overweight\"}"
   },
   {
     "id": "health.weight.list",

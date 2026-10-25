@@ -156,7 +156,7 @@ class MainActivity : Activity() {
 
     /**
      * Native push (bd med-erq1.5, Push.kt): cancelable document event wg:native-push {kind} on the
-     * account page. A wake ('inbox-wake', 'dry-queue') goes in only while this activity is in front;
+     * account page. A wake ('inbox-wake', 'dry-queue', 'transfer_claimed') goes in only while this activity is in front;
      * done(true) only when a listener cancelled it (NativePush.onWake's receipt, installed by
      * cloud-boot after unlock; twin of iOS Push.swift, bd med-erq1.10), else Push posts the
      * notification. 'token' whenever an account page is open; it has no fallback.
@@ -209,7 +209,7 @@ class MainActivity : Activity() {
         if (!local && host == null) setLocal(true)
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
         if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
-        else reopen(Notifications.tappedPath(intent, vaultHost)?.let { pathUrl(it) } ?: home)
+        else reopen(tappedPath(intent)?.let { pathUrl(it) } ?: home)
         if (DebugHooks.qaLocalError(this)) showError(LoadError.LOCAL, "local · bundle failed to load")
     }
 
@@ -243,9 +243,13 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         if (intent.action == ACTION_SWITCH) forget()
         if (intent.action == ACTION_DIAG) copyDiagnostics()
-        Notifications.tappedPath(intent, vaultHost)?.let { openPath(it) }
+        tappedPath(intent)?.let { openPath(it) }
         if (capture(intent, fresh = true)) deliverInvite()
     }
+
+    /** A reminder tap, or a push tap with a path (Push.tappedPath, bd med-r1j2.15) — that one only into the open account. */
+    private fun tappedPath(intent: Intent?) =
+        Notifications.tappedPath(intent, vaultHost) ?: Push.tappedPath(intent)?.takeUnless { local }
 
     // MARK: invites (bd med-ta2n.12.1, contract med-ta2n.7 §4–§7)
 
@@ -423,6 +427,7 @@ class MainActivity : Activity() {
         setLocal(false) // leaving local mode keeps the move stash for the new account
         leave.clear() // opening an account abandons a pending leave stash; the next leave stashes afresh
         prefs.edit().putString(HOST_KEY, h).remove(LEAVE_HOST_KEY).apply()
+        clearErase() // opening an account drops a pending join erase; local.leave {erase} re-arms it after
         setInvite(null) // whatever invite was waiting, this open consumed or superseded it
         host = h
         reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
@@ -433,14 +438,16 @@ class MainActivity : Activity() {
      * X-Account-Gone, account.leave without args — lands in local mode on
      * home?invite=1, where the web opens F1 (bd med-ta2n.12, contract med-ta2n.7 §7; it replaced the
      * native first run). With [thenLocal] (account.leave {then: "local"}, bd med-nt9p.32.13) the
-     * plain home, and leave.clear {back: true} can reopen the account left. Entering local mode
+     * plain home, and leave.clear {back: true} can reopen the account left — unless [drop]
+     * (account.leave {then: "local", forget: true}, bd med-r1j2.19, iOS twin med-r1j2.18): the plain
+     * home with the account forgotten, no "Return to account". Entering local mode
      * drops a pending move stash (setLocal), from local mode too (bd med-nt9p.49): only the page's
      * own local.leave hands one off. WebView data is per origin and kept.
      */
-    private fun forget(thenLocal: Boolean = false) {
+    private fun forget(thenLocal: Boolean = false, drop: Boolean = false) {
         // The account a leave left (bd med-o7zq.42): leave.clear {back: true} reopens it.
         val left = host
-        prefs.edit().apply { if (thenLocal && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
+        prefs.edit().apply { if (thenLocal && !drop && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
         setLocal(true)
         Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
@@ -453,9 +460,12 @@ class MainActivity : Activity() {
         if (on != local) Notifications.clear(this)
         // Entering local mode (or a native exit within it) abandons a pending move; the next move stashes afresh.
         if (on) move.clear()
+        if (on) clearErase() // back in local mode: the join erase (bd med-r1j2.8) must never fire later
         prefs.edit().putBoolean(LocalOrigin.MODE_KEY, on).apply()
         local = on
     }
+
+    private fun clearErase() = prefs.edit().remove(Invite.ERASE_HOST_KEY).remove(Invite.ERASE_AT_KEY).apply()
 
     private fun reopen(url: String = home) {
         deferredUrl = null
@@ -476,6 +486,12 @@ class MainActivity : Activity() {
         lastUrl = url
         if (concealed) {
             deferredUrl = url // loaded after the unlock
+            return
+        }
+        // bd med-r1j2.12: the local origin waits for an in-flight local.erase wipe (max 10 s), so a
+        // switch to local mode, or its import/restore, can't write data the wipe then deletes.
+        if (LocalWipe.gate.busy && Uri.parse(url).host == LocalOrigin.HOST) {
+            LocalWipe.gate.after { if (!isDestroyed && lastUrl == url) load(url) }
             return
         }
         web.loadUrl(url)
@@ -594,6 +610,7 @@ class MainActivity : Activity() {
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(w, assets.open("chrome.js").bufferedReader().use { it.readText() }, rules)
+            WebViewCompat.addDocumentStartJavaScript(w, LocalWipe.SESSION_JS, setOf("https://${LocalOrigin.HOST}"))
         }
         DebugHooks.onWebView(this, w, rules, ::diag) // no-op in release (src/release) and off the qa.test base
         return w
@@ -770,7 +787,15 @@ class MainActivity : Activity() {
             val h = Uri.parse(url).host ?: return answer(null, "invalid url")
             answer(true)
             if (op == "account.leave") move.clear()
-            return enterAccount(url, h)
+            enterAccount(url, h)
+            // "Join and erase" (bd med-r1j2.8): nothing is erased now — only remembered for this host
+            // until its unlocked boot calls local.erase. No merge either: drop any move stash.
+            // Only for an add-device claim link (/claim#…); erase on an invite is a plain leave (bd med-r1j2.14).
+            if (op == "local.leave" && leaveArgs.optBoolean("erase") && Invite.armsErase(url)) {
+                move.clear()
+                prefs.edit().putString(Invite.ERASE_HOST_KEY, h).putLong(Invite.ERASE_AT_KEY, System.currentTimeMillis()).apply()
+            }
+            return
         }
         when (op) {
             "ping" -> answer("pong")
@@ -779,9 +804,12 @@ class MainActivity : Activity() {
             // Leave the account (account mode only); the account and this origin's data stay. Settings
             // → Account "Use this phone without an account" passes {then: "local"} → local mode; after
             // an account delete (no args) → local mode with F1, as Switch account (forget()).
+            // {then: "local", forget: true} (bd med-r1j2.19): local mode, no F1, no way back.
             "account.leave" -> {
                 answer(true)
-                forget(thenLocal = msg.optJSONObject("args")?.optString("then") == "local")
+                val args = msg.optJSONObject("args")
+                val thenLocal = args?.optString("then") == "local"
+                forget(thenLocal, drop = thenLocal && args?.optBoolean("forget") == true)
             }
             "chrome" -> {
                 val args = msg.optJSONObject("args") ?: return
@@ -808,6 +836,41 @@ class MainActivity : Activity() {
                 setInvite(null) // A4: no claim token left behind after Erase
                 Notifications.clear(this)
                 answer(true)
+            }
+            // "Join and erase", account side (bd med-r1j2.8, cloud-boot.js finishJoinErase): the joined
+            // account booted unlocked. Only for the host local.leave {erase} remembered, within the code's
+            // 10 minutes: wipe the local origin's website data plus local.reset's native share. Reminders
+            // and the slot were already cleared by enterAccount; clearing them here would hit this
+            // account's own. Not due: a no-op that spends the flag. A failed wipe answers "erase failed"
+            // and keeps the flag for the next boot.
+            // Listed in both modes (the local page's Join-and-erase probe); in local mode a no-op.
+            // Only {enrolled: true} wipes (bd med-r1j2.12, iOS #1347's contract): an old cached cloud-boot.js
+            // sends a bare {} on every unlocked boot, failed joins included — a no-op that keeps the flag.
+            "local.erase" -> {
+                if (local) return answer(true) // the flag cannot exist here (setLocal(true) clears it)
+                if (msg.optJSONObject("args")?.optBoolean("enrolled") != true) return answer(true)
+                val due = Invite.eraseDue(prefs.getString(Invite.ERASE_HOST_KEY, null), prefs.getLong(Invite.ERASE_AT_KEY, 0), host, System.currentTimeMillis())
+                if (!due) {
+                    clearErase()
+                    return answer(true)
+                }
+                // The reply waits for the wipe; the page's caller times out on its own. A failed wipe
+                // keeps the (host- and TTL-bound) flag, so the next unlocked boot retries.
+                val from = host
+                val at = prefs.getLong(Invite.ERASE_AT_KEY, 0)
+                LocalWipe.run(this) { ok ->
+                    diag("shell local erase ${if (ok) "done" else "failed"}")
+                    // Native state only if nothing changed during the wipe (mode, account, erase intent).
+                    val same = !local && host == from && prefs.getString(Invite.ERASE_HOST_KEY, null) == from &&
+                        prefs.getLong(Invite.ERASE_AT_KEY, 0) == at
+                    if (ok && same) {
+                        clearErase()
+                        prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
+                        move.clear()
+                        leave.clear()
+                    }
+                    if (!isDestroyed) runCatching { if (ok) answer(true) else answer(null, "erase failed") }
+                }
             }
             // The pending-invite slot: the page reads it once per boot; clear on "Keep this account" or stale.
             "invite.pending" -> answer(pendingInvite() ?: JSONObject.NULL)
@@ -861,6 +924,12 @@ class MainActivity : Activity() {
                 answer(true)
                 reopen(Invite.withInvite(home))
             }
+            // The camera-denied "Allow camera in Settings" (bd med-r1j2.19, media-capture.js openSettings):
+            // this app's page in system Settings. Replies once launched, not on return. No NEW_TASK:
+            // from the activity it stacks on our task, so Back returns to the app (a new task did not).
+            "app.openSettings" -> runCatching {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+            }.fold({ answer(true) }, { answer(null, "no settings screen") })
             // Settings → App lock (local-policy.js mountLocalLockRow); available: the phone has a screen lock.
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))
             "lock.set" -> setLock(msg.optJSONObject("args")?.optBoolean("on") == true) { answer(it == null) }

@@ -271,6 +271,17 @@ a.wg-btn {
   display: none;
 }
 
+/* /claim's in-app Scan (bd med-r1j2.10): the live camera frame. */
+.claim-scan-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 60vh;
+  object-fit: cover;
+  border-radius: var(--wg-r-md);
+  background: var(--wg-ink);
+}
+
 /* Pure white, not --wg-paper: this is the QR code's quiet zone, and its
    contrast against the black modules is a scanner requirement, not a design
    choice. */

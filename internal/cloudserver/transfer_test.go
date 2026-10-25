@@ -646,3 +646,54 @@ func TestTransferV2_OtherAccountLearnsNothing(t *testing.T) {
 	wantCode(t, "DELETE another account's slot (no oracle)", transferReq(t, h, http.MethodDelete, attackerHost, "/api/transfer/"+victimSlot, nil, attackerSession, ""), http.StatusNoContent)
 	mustClaimToken(t, claimSlot(t, h, victimHost, victimSlot))
 }
+
+// TestTransferV2_ClaimPushOncePerSlot (bd med-r1j2.9): the claim transition —
+// and only it — sends the content-free "approve the new device?" push to every
+// web-push subscription and native token of the account, once per slot. A
+// refused second claim, reveal, approve, enroll and delete send nothing.
+func TestTransferV2_ClaimPushOncePerSlot(t *testing.T) {
+	store := setupStore(t)
+	account, invite := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	ctx := t.Context()
+	if err := store.UpsertPushSubscription(ctx, account.ID, "https://push.example/a", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertNativePushToken(ctx, account.ID, cloudstore.NativePushIOS, "ios-1", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	sender, native := &fakeSender{}, &fakeNativeSender{}
+	relay := NewRelay(store, sender, nil, 0)
+	relay.SetNativePush(map[string]NativePushSender{cloudstore.NativePushIOS: native})
+
+	transfer := NewTransferAPI(store, testSessionSecret)
+	transfer.SetClaimNotifier(relay.NotifyTransferClaimed) // synchronous here; cmd/cloud detaches it
+	mux := http.NewServeMux()
+	NewWebAuthnAPI(store, testSessionSecret).RegisterRoutes(mux)
+	transfer.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, invite)
+
+	pushes := func() int { return len(sender.sent) + len(native.sent) }
+	slotID := createSlot(t, h, host, session)
+	if n := pushes(); n != 0 {
+		t.Fatalf("create sent %d pushes, want 0", n)
+	}
+	token := mustClaimToken(t, claimSlot(t, h, host, slotID))
+	if len(sender.sent) != 1 || len(native.sent) != 1 || native.sent[0] != "ios-1/"+transferClaimedKind {
+		t.Fatalf("claim pushes: web %+v native %v, want one each", sender.sent, native.sent)
+	}
+	if got := string(sender.sent[0].ct); got != `{"kind":"transfer_claimed"}` {
+		t.Fatalf("web payload = %s, want the bare kind tag (no slot data)", got)
+	}
+
+	wantCode(t, "second claim", claimSlot(t, h, host, slotID), http.StatusConflict)
+	wantCode(t, "reveal", revealSlot(t, h, host, slotID, session), http.StatusNoContent)
+	wantCode(t, "approve", approveSlot(t, h, host, slotID, session), http.StatusNoContent)
+	wantCode(t, "register/finish", enrollViaToken(t, h, host, token, testConfN), http.StatusOK)
+	other := createSlot(t, h, host, session)
+	wantCode(t, "delete", transferReq(t, h, http.MethodDelete, host, "/api/transfer/"+other, nil, session, ""), http.StatusNoContent)
+	if n := pushes(); n != 2 {
+		t.Fatalf("pushes after the other transitions = %d, want still 2", n)
+	}
+}

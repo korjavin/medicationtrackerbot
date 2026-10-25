@@ -33,13 +33,55 @@ enum LocalOrigin {
     ]
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
     static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash",
-                             "push.token"] // native push (bd med-erq1.4, Push.swift): never in local mode
+                             "push.token", // native push (bd med-erq1.4, Push.swift): never in local mode
+                             // Capability marker, not a callable op (bd med-r1j2.18): this shell
+                             // takes account.leave {then: "local", forget: true} (see leave(_:)).
+                             "account.leave.forget"]
     /// Every other op the shell answers, in both modes.
     static let sharedOps = ["ping", "shell.ops", "diag.append", "health.authorize", "health.query",
                             "notifications.permission", "notifications.requestPermission",
                             "notifications.schedule", "notifications.test",
                             "notifications.openSettings", // the denied note's "Open iOS Settings" (bd med-ckm5.15)
-                            "invite.pending", "invite.clear"] // the pending-invite slot (bd med-ta2n.11, InviteSlot)
+                            "invite.pending", "invite.clear", // the pending-invite slot (bd med-ta2n.11, InviteSlot)
+                            // "Join and erase" (bd med-r1j2.7, JoinErase): listed in local mode too,
+                            // where invite.js probes it before offering the erase; it wipes from the
+                            // joined account only (a no-op replying true anywhere else).
+                            "local.erase",
+                            "app.openSettings"] // AD13 "Allow camera in Settings" (bd med-r1j2.18, media-capture.js)
+
+    /// Where account.leave without a url lands (bd med-r1j2.18). No args:
+    /// local home?invite=1 ("Have an invite?"), no way back. {then: "local"}:
+    /// local home, the account kept for leave.clear {back}. {then: "local",
+    /// forget: true} (/unlock AD10 "Back to local mode"): local home, no way back.
+    enum Leave: Equatable { case invite, local, forgetLocal }
+
+    static func leave(_ args: [String: Any]) -> Leave {
+        guard args["then"] as? String == "local" else { return .invite }
+        return args["forget"] as? Bool == true ? .forgetLocal : .local
+    }
+
+    /// The page this shell has open (bd med-r1j2.18): the main frame of the
+    /// account host, or in local mode of wgapp://local. The bridge and the
+    /// camera grant both ask this. The whole origin: WKSecurityOrigin.port is
+    /// 0 for the scheme's default, so https://<account>:8443 is not the account.
+    static func isOwn(scheme: String, host: String, port: Int, mainFrame: Bool, local: Bool, account: String?) -> Bool {
+        let s = scheme.lowercased(), h = host.lowercased()
+        guard mainFrame else { return false }
+        if local { return s == LocalOrigin.scheme && h == LocalOrigin.host && port == 0 }
+        return s == "https" && account != nil && h == account && (port == 0 || port == 443)
+    }
+
+    /// getUserMedia's permission (WKUIDelegate, bd med-r1j2.18): the camera
+    /// alone is granted to the shell's own page (iOS still asks for the app's
+    /// camera access once); anything with the microphone keeps WebKit's own
+    /// prompt there (the voice assistant uses it); every other origin and
+    /// every subframe is denied.
+    enum Media: Equatable { case grant, prompt, deny }
+
+    static func media(cameraOnly: Bool, own: Bool) -> Media {
+        guard own else { return .deny }
+        return cameraOnly ? .grant : .prompt
+    }
 
     /// The bridge op shell.ops (bd med-o7zq.35, twin of Android LocalOrigin.ops):
     /// what this shell answers in this mode, for the page's capability probe.

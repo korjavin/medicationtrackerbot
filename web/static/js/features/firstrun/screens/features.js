@@ -55,6 +55,21 @@
         return el;
     }
 
+    // Account mode (med-5vy0): a new account starts on Generic lock-screen
+    // text, as local mode does. {floor: 'auto'} stores a default only when no
+    // pref exists, and the shim picks it from the vault: Generic with no
+    // medication, Detailed when one exists (an existing account seeing W1
+    // keeps the names it always saw). Part of the W1 save: a failed write
+    // (apiCall answers null or rejects) keeps W1 open with its error, so
+    // first run never completes without the pref.
+    function _keepReminderText() {
+        if (document.documentElement.classList.contains('wg-local-vault')) return Promise.resolve();
+        if (typeof window.apiCall !== 'function') return Promise.resolve();
+        return Promise.resolve(window.apiCall('/api/settings/reminder-delivery', 'PUT', { floor: 'auto' })).then(function (pref) {
+            if (!pref || !pref.verbosity) throw new Error('reminder text pref not saved');
+        });
+    }
+
     function _isEnabled(key) {
         var flags = window.featureSettings;
         if (!flags || typeof flags !== 'object' || typeof flags[key] !== 'boolean') return true;
@@ -133,10 +148,14 @@
     }
 
     // W1 footnote (bd med-ta2n.28, contract med-ta2n.24 §D): the disclaimer and
-    // links the deleted native first-run screens carried. "How to get an
-    // invite" is local mode only: the W5 request sheet when the shell can
+    // links the deleted native first-run screens carried. "Want it on every
+    // device? Get an invite" (IM1, bd med-er5x) is local mode only: the W5 request sheet when the shell can
     // base.post, else the base landing page, else nothing.
-    var PRIVACY_URL = 'https://cloud.myhealthbot.ai/privacy';
+    // The privacy page lives on the base host (bd med-ffuu.1, no literal domain
+    // in git): account mode strips the account label off this page's host, the
+    // rule baseDomainURL (web/cloud/js/account-delete.js) uses; local mode takes
+    // the shell's base (InviteSheet.base(), the one base.post targets); no base
+    // → the line renders without a link.
     var DISCLAIMER = 'Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.';
 
     function _externalLink(text, href) {
@@ -150,11 +169,28 @@
     function _renderFootnote(body) {
         body.appendChild(_el('p', 'wg-shell__fine', DISCLAIMER));
         var links = _el('div', 'wg-hstack wg-firstrun-links');
-        var privacy = _externalLink('Privacy policy', PRIVACY_URL);
+        var privacy = _el('span', 'wg-shell__fine', 'Privacy policy');
         privacy.setAttribute('data-firstrun-link', 'privacy');
         links.append(privacy, _el('span', 'wg-spacer'));
         body.appendChild(links);
+        _privacyOrigin().then(function (origin) {
+            if (!origin || !privacy.isConnected) return;
+            var a = _externalLink('Privacy policy', origin + '/privacy');
+            a.setAttribute('data-firstrun-link', 'privacy');
+            privacy.replaceWith(a);
+        }, function () { /* no base: the line stays unlinked */ });
         _showInviteHowTo(links);
+    }
+
+    function _privacyOrigin() {
+        var loc = window.location;
+        if (!document.documentElement.classList.contains('wg-local-vault')) {
+            var parts = loc.host.split('.');
+            return Promise.resolve(loc.protocol + '//' + (parts.length > 1 ? parts.slice(1).join('.') : loc.host));
+        }
+        var sheet = window.InviteSheet;
+        return Promise.resolve(sheet && typeof sheet.base === 'function' ? sheet.base() : '')
+            .then(function (base) { return base ? 'https://' + base : ''; });
     }
 
     function _showInviteHowTo(links) {
@@ -171,14 +207,18 @@
                 if (!links.isConnected) return;
                 var link;
                 if (how.request) {
-                    link = _el('button', 'wg-link', 'How to get an invite');
+                    link = _el('button', 'wg-link', 'Get an invite');
                     link.type = 'button';
                     link.addEventListener('click', function () { sheet.request(); });
                 } else if (how.base) {
-                    link = _externalLink('How to get an invite', 'https://' + how.base + '/');
+                    link = _externalLink('Get an invite', 'https://' + how.base + '/');
                 } else return;
                 link.setAttribute('data-firstrun-link', 'invite-howto');
-                links.appendChild(link);
+                // IM1 (bd med-er5x): one line of value, the first fact.
+                var line = _el('span', 'wg-shell__fine', 'Want it on every device? ');
+                line.setAttribute('data-firstrun-invite-line', '');
+                line.appendChild(link);
+                links.appendChild(line);
             })
             .catch(function () { /* no invite path: Privacy policy only */ });
     }
@@ -231,6 +271,7 @@
             busy(true);
             error.textContent = '';
             _persistAll(picked)
+                .then(_keepReminderText)
                 .then(function () { return helpers.finishPicker(picked); })
                 .catch(function () {
                     // Moving on now would leave unpicked sections silently ON

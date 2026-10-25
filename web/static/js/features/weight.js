@@ -351,7 +351,8 @@ async function handleWeightSubmit(event) {
             return {
                 logsRes: [optimisticLog, ...filtered],
                 goalRes: base.goalRes || null,
-                lineRes: base.lineRes || null
+                lineRes: base.lineRes || null,
+                bmiRes: base.bmiRes || null
             };
         }, ['weight']);
     }
@@ -445,7 +446,53 @@ function setWeightValue(weight) {
 // surfaces on Today's weight tile, the chart below, and the history list.
 
 
-function renderWeightGoalCard(logs, goalData, goalLine) {
+// "178 cm" or "5 ft 10 in", per the height unit the user picked.
+function formatWeightBmiHeight(cm, unit) {
+    if (unit !== 'ftin') return `${Math.round(cm)} cm`;
+    const inches = Math.round(cm / 2.54);
+    return `${Math.floor(inches / 12)} ft ${inches % 12} in`;
+}
+
+// BM3: the warn note under the goal target when it sits below the BMI 18.5
+// border. Save is never blocked. Hidden without borders (ED-safe, no height);
+// show_bmi does not gate it.
+function buildWeightGoalBmiNote(raw, bmiRes) {
+    const borders = bmiRes && Array.isArray(bmiRes.borders_kg) ? bmiRes.borders_kg : null;
+    const cm = bmiRes && Number(bmiRes.height_cm);
+    if (!borders || !Number.isFinite(cm) || cm <= 0) return null;
+    const pref = getPreferredWeightUnit();
+    const num = parseDecimal(raw);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    const kg = pref === 'lb' ? num * WEIGHT_KG_PER_LB : num;
+    const floorKg = Number(borders[0]);
+    if (!(kg < floorKg)) return null;
+    const fmt = (v) => { const d = formatWeight(v, pref); return `${d.value.toFixed(1)} ${d.label}`; };
+    const bmiValue = (Math.round((kg / (cm / 100) ** 2) * 10) / 10).toFixed(1);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'wg-vstack wg-weight-goal-bmi';
+    const note = document.createElement('div');
+    note.className = 'wg-note wg-note--warn';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg('alert', { size: 18 });
+        icon.setAttribute('class', 'wg-ico');
+        note.appendChild(icon);
+    }
+    const body = document.createElement('span');
+    body.className = 'wg-note__body';
+    const first = document.createElement('span');
+    const lead = document.createElement('b');
+    lead.textContent = 'Below the healthy BMI range.';
+    first.append(lead, ` At ${formatWeightBmiHeight(cm, bmiRes.height_unit)}, ${fmt(kg)} is a BMI of ${bmiValue}. The range starts at ${fmt(floorKg)}.`);
+    const second = document.createElement('span');
+    second.textContent = 'You can still save this goal.';
+    body.append(first, second);
+    note.appendChild(body);
+    wrap.append(note, buildWeightBmiFinePrint());
+    return wrap;
+}
+
+function renderWeightGoalCard(logs, goalData, goalLine, bmiRes) {
     const container = document.getElementById('weight-goal-card');
     if (!container) return;
     container.replaceChildren();
@@ -481,6 +528,7 @@ function renderWeightGoalCard(logs, goalData, goalLine) {
             value: currentDisplay,
             inputMode: 'decimal',
             emptyError: 'Enter a target weight.',
+            note: (raw) => buildWeightGoalBmiNote(raw, bmiRes),
         });
         if (valStr !== null) {
             const num = parseDecimal(valStr);
@@ -662,7 +710,7 @@ function renderWeightChartLegend(goalData) {
 // honours the active range (7d / 30d / 90d / all) from localStorage, and
 // renders the goal overlay when a goal is set. Empty input or no match in
 // the active window falls back to the component's empty-state card.
-function renderWeightChart(logs, goalData) {
+function renderWeightChart(logs, goalData, bmiRes) {
     const container = document.getElementById('weightChart');
     if (!container) return;
 
@@ -672,9 +720,20 @@ function renderWeightChart(logs, goalData) {
     const activeRange = getActiveWeightRange();
     container.setAttribute('data-weight-range', activeRange);
 
+    // BMI (epic med-a6fb): the payload decides ED-safe (nulls); show_bmi=false
+    // only hides the read-out, borders and nudge here.
+    const showBmi = !!bmiRes && bmiRes.show_bmi !== false;
+    const readout = showBmi ? buildWeightBmiReadout(bmiRes) : null;
+
     const list = Array.isArray(logs) ? logs : [];
     const current = buildWeightChartCurrentBadge(list);
-    if (current) container.appendChild(current);
+    if (current) {
+        if (readout) {
+            current.classList.add('wg-weight-chart-panel__current--bmi');
+            current.appendChild(readout);
+        }
+        container.appendChild(current);
+    }
 
     if (!window.WGWeightChart || typeof window.WGWeightChart.render !== 'function') {
         container.appendChild(createErrorState('Chart unavailable'));
@@ -686,8 +745,102 @@ function renderWeightChart(logs, goalData) {
         range: activeRange,
         goal: goalData || null,
         unit: getPreferredWeightUnit(),
+        bands: showBmi && Array.isArray(bmiRes.borders_kg) ? bmiRes.borders_kg : null,
     });
     if (node) container.appendChild(node);
+
+    if (current && readout) container.appendChild(buildWeightBmiFinePrint());
+    if (bmiRes && bmiRes.nudge === true) container.appendChild(buildWeightBmiNudge());
+}
+
+// WHO class names (INDEX 2026-10-24 (3)): "Healthy" for WHO's "Normal weight".
+const WEIGHT_BMI_BAND_LABELS = {
+    underweight: 'Underweight', healthy: 'Healthy', overweight: 'Overweight',
+    obesity_1: 'Obesity I', obesity_2: 'Obesity II', obesity_3: 'Obesity III',
+};
+
+function buildWeightBmiFinePrint() {
+    const fine = document.createElement('p');
+    fine.className = 'wg-shell__fine wg-weight-bmi-fine';
+    fine.textContent = 'Adult ranges; not meant for under-18s.';
+    return fine;
+}
+
+// BM1: "BMI 24.3" + the class chip beside the Now badge. Only Healthy gets the
+// ok chip; every other class is neutral, never warn. Null without a value.
+function buildWeightBmiReadout(bmiRes) {
+    const value = Number(bmiRes && bmiRes.bmi);
+    const band = bmiRes && WEIGHT_BMI_BAND_LABELS[bmiRes.band];
+    if (!bmiRes || bmiRes.bmi == null || !Number.isFinite(value) || !band) return null;
+    const wrap = document.createElement('span');
+    wrap.className = 'wg-weight-bmi';
+    wrap.setAttribute('aria-label', `BMI ${value.toFixed(1)}, ${band}`);
+    const label = document.createElement('span');
+    label.className = 'wg-weight-chart-panel__current-label';
+    label.textContent = 'BMI';
+    const num = document.createElement('span');
+    num.className = 'wg-weight-bmi__value';
+    num.textContent = value.toFixed(1);
+    const chip = document.createElement('span');
+    chip.className = bmiRes.band === 'healthy' ? 'wg-chip wg-chip--sm wg-chip--ok' : 'wg-chip wg-chip--sm';
+    chip.textContent = band;
+    wrap.append(label, num, chip);
+    return wrap;
+}
+
+// Settings → Units & body with the height field focused (med-a6fb.4 owns
+// SettingsView.openHeightField; the page alone until that lands).
+function openWeightBmiHeightSettings() {
+    if (typeof window.switchTab === 'function') window.switchTab('settings');
+    const settings = window.SettingsView;
+    if (!settings) return;
+    if (typeof settings.openHeightField === 'function') settings.openHeightField();
+    else if (typeof settings.openSettingsPage === 'function') settings.openSettingsPage('units');
+}
+
+// BM1 · no height: a ghost row at the end of the chart card. × dismisses it
+// for good (bmi_nudge_dismissed), optimistically.
+function buildWeightBmiNudge() {
+    const row = document.createElement('div');
+    row.className = 'wg-weight-bmi-nudge';
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'wg-btn wg-btn--ghost wg-btn--sm wg-weight-bmi-nudge__go';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg('plus', { size: 14 });
+        if (icon) go.appendChild(icon);
+    }
+    go.append('Add your height to see BMI');
+    go.addEventListener('click', openWeightBmiHeightSettings);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm wg-weight-bmi-nudge__close';
+    close.setAttribute('aria-label', "Don't show again");
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg('close', { size: 14 });
+        if (icon) close.appendChild(icon);
+    }
+    close.addEventListener('click', () => { row.remove(); dismissWeightBmiNudge(); });
+    row.append(go, close);
+    return row;
+}
+
+async function dismissWeightBmiNudge() {
+    const handle = await window.DataStore.applyOptimistic('weight', (prev) => (prev && typeof prev === 'object'
+        ? { ...prev, bmiRes: { ...(prev.bmiRes || {}), nudge: false, nudge_dismissed: true } }
+        : prev), ['weight']);
+    let res = null;
+    try {
+        res = await apiCall('/api/settings/body', 'PATCH', { bmi_nudge_dismissed: true });
+    } catch (e) {
+        console.error('Failed to dismiss the BMI nudge:', e);
+    }
+    if (res) {
+        await handle.commit(null);
+    } else {
+        await handle.rollback();
+        loadWeightLogs();
+    }
 }
 
 // Current-weight badge shown at the top of the chart panel. The old Latest
@@ -775,24 +928,26 @@ async function loadWeightLogs() {
             // the 100-row default so the 90d / All range-selector options can
             // actually plot older history for long-term users.
             // goal-line answers {enabled:false} when gamification is off.
-            const [logsResult, goalResult, lineResult] = await Promise.allSettled([
+            const [logsResult, goalResult, lineResult, bmiResult] = await Promise.allSettled([
                 apiCall('/api/weight?days=0&limit=1000'),
                 apiCall('/api/weight/goal'),
-                apiCall('/api/gamification/goal-line')
+                apiCall('/api/gamification/goal-line'),
+                apiCall('/api/weight/bmi')
             ]);
             const logsRes = logsResult.status === 'fulfilled' ? logsResult.value : null;
             const goalRes = goalResult.status === 'fulfilled' ? goalResult.value : null;
             const lineRes = lineResult.status === 'fulfilled' ? lineResult.value : null;
+            const bmiRes = bmiResult.status === 'fulfilled' ? bmiResult.value : null;
             if (logsRes === null) return null;
-            return { logsRes, goalRes, lineRes };
+            return { logsRes, goalRes, lineRes, bmiRes };
         },
         onCached: async (cached) => {
             renderedSomething = true;
-            await _renderWeightData(cached.logsRes, cached.goalRes, cached.lineRes);
+            await _renderWeightData(cached.logsRes, cached.goalRes, cached.lineRes, cached.bmiRes);
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
-            await _renderWeightData(fresh.logsRes, fresh.goalRes, fresh.lineRes);
+            await _renderWeightData(fresh.logsRes, fresh.goalRes, fresh.lineRes, fresh.bmiRes);
         },
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
@@ -809,7 +964,7 @@ async function loadWeightLogs() {
     }
 }
 
-async function _renderWeightData(logsRes, goalRes, lineRes) {
+async function _renderWeightData(logsRes, goalRes, lineRes, bmiRes) {
     const list = document.getElementById('weight-list');
 
     const allLogs = logsRes || [];
@@ -829,15 +984,15 @@ async function _renderWeightData(logsRes, goalRes, lineRes) {
     cachedWeightLogs = allLogs;
 
     const goalData = goalRes || {};
-    renderWeightGoalCard(allLogs, goalData, lineRes);
+    renderWeightGoalCard(allLogs, goalData, lineRes, bmiRes);
     renderWeightRangeSelector({
         active: getActiveWeightRange(),
         onChange: (range) => {
             setActiveWeightRange(range);
-            _renderWeightData(logsRes, goalRes, lineRes);
+            _renderWeightData(logsRes, goalRes, lineRes, bmiRes);
         }
     });
-    renderWeightChart(allLogs, goalData);
+    renderWeightChart(allLogs, goalData, bmiRes);
     renderWeightChartLegend(goalData);
     renderWeightPrognosisCard(lineRes);
 
@@ -1073,7 +1228,8 @@ function _weightWithoutLog(prev, id) {
     return {
         logsRes: prevLogs.filter((l) => l && l.id !== numericId && l.id !== id),
         goalRes: prev.goalRes || null,
-        lineRes: prev.lineRes || null
+        lineRes: prev.lineRes || null,
+        bmiRes: prev.bmiRes || null
     };
 }
 

@@ -174,6 +174,17 @@ async function inviteLandingShots() {
     await shot('handoff-ad8', `${handoff}#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA`,
       device === 'desktop-1280' ? '#handoff-continue:not([disabled])' : '#handoff-browser');
     await shot('handoff-no-code', handoff, '#handoff-code');
+    // /claim's in-app Scan with the camera denied (bd med-r1j2.10, AD13): the
+    // page's getUserMedia answers NotAllowedError, as after a refused prompt.
+    // Last: the init script stays on this page. Chromium only: it resolves
+    // the account host <sub>.localhost to loopback.
+    if (engine === chromium) {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'mediaDevices', { configurable: true,
+          value: { getUserMedia: () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')) } });
+      });
+      await shot('claim-camera-denied', `http://${sub}.localhost:${PORT}/claim#scan`, '#claim-camera-off');
+    }
     await context.close();
     await browser.close();
   }

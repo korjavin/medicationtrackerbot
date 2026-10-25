@@ -40,10 +40,8 @@ window.WeightUnitState = (function () {
         const root = document.getElementById('weight-unit-segmented');
         if (!root) return;
         const target = unit === 'lb' ? 'lb' : 'kg';
-        root.querySelectorAll('.wg-settings-segmented__btn').forEach((btn) => {
+        root.querySelectorAll('[data-unit]').forEach((btn) => {
             const isActive = btn.getAttribute('data-unit') === target;
-            btn.classList.toggle('wg-settings-segmented__btn--active', isActive);
-            btn.classList.toggle('wg-gloss--sun', isActive);
             btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         });
     }

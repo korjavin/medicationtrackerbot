@@ -23,7 +23,10 @@
     const qa = { scene, done: null, probe };
     window.__wgQA = qa;
     if (!scene) return;
-    pinClock();
+    // &clock=real (the iOS shell's -wgQACapture, add-device-from-link) keeps the
+    // real clock: the page judges the slot's receivedAt (shell time) against
+    // Date.now(), and a join's 10 minutes would never hold at 23:00.
+    if (new URLSearchParams(window.location.search).get('clock') !== 'real') pinClock();
     // Document loads in this launch (the seed import reloads once): a scene
     // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
     let loads = 1;
@@ -153,6 +156,16 @@
         } else if (step.click) {
             await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
             firstVisible(step.click).click();
+        } else if (step.api) {
+            // Writes through the app's own API, e.g. PATCH /api/settings/body.
+            // The write stays in the store for later scenes.
+            await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.fill) {
+            // Types into an input the way a user does (fires `input`).
+            await until(() => firstVisible(step.fill), STEP_MS, `fill ${step.fill}`);
+            const el = firstVisible(step.fill);
+            el.value = step.value;
+            el.dispatchEvent(new window.Event('input', { bubbles: true }));
         } else if (step.tag) {
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.
@@ -176,6 +189,15 @@
             // session does, skipping W1's gate.
             window.WGFirstRun.state.clear();
             if (step.firstrun === 'trial') window.WGFirstRun.state.setStep('trial');
+            // firstrun: "invite" answers a placeholder shell base first, so the
+            // W1 footnote's "Want it on every device? Get an invite" (IM1,
+            // med-er5x) shows in local mode; the link is never followed.
+            if (step.firstrun === 'invite') {
+                window.Attest = {
+                    isSupported: () => true,
+                    status: async () => ({ supported: false, base: 'app.example.com', attested: false }),
+                };
+            }
             window.WGFirstRun.mount({ needs_first_run: true });
         } else if (step.invite) {
             // The F1 "Have an invite?" sheet (bd med-ta2n.6). Its W1 footer
@@ -187,13 +209,25 @@
             // seeded records → "Turn on sync?"; account mode → "Switch account?".
             // Nothing leaves until a tap.
             window.InviteSheet.offer(step.offer);
+        } else if (step.reminderHint) {
+            // Kit RD3 (bd med-mt0l): the take sheet as a reminder tap opens it
+            // (the deeplink's ids + slot), with the one-time lock-screen hint
+            // re-armed for this device. Nothing is written until a tap.
+            try { window.localStorage.removeItem('wg.reminderDetailHint.shown'); } catch (_) { /* hint just won't show */ }
+            const meds = (await window.apiCall('/api/medications')) || [];
+            const med = meds.find((m) => !m.archived);
+            if (!med) throw new Error('reminderHint: no active medication in the seed');
+            window.handlePushAction('medication_confirm', new URLSearchParams({ ids: String(med.id), scheduled: new Date().toISOString() }));
         } else if (step.inviteRequest) {
             // The W5 "Request an invite" sheet (bd med-ta2n.14). Its button
             // needs the shell's base.post op, which no QA pass has: open it
             // directly with a placeholder base and a stub POST, so nothing
             // leaves the page.
-            // inviteRequest: "sent" fills an email and sends (stub 202).
+            // inviteRequest: "sent" fills an email and sends (stub 202); "w4"
+            // opens it the way the W4 protect sheet does (IM2 · W4, med-er5x).
+            const w4 = step.inviteRequest === 'w4' ? { lead: 'copy', eyebrow: '43 records on this phone' } : {};
             const ui = window.InviteSheet.request({
+                ...w4,
                 base: 'app.example.com',
                 post: async () => new Response('{"status":"sent"}', { status: 202 }),
             });

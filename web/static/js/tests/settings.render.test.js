@@ -152,7 +152,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
             row(document, 'units').click();
             const pushed = document.querySelector('mt-modal.wg-page[id^="wg-page-"]');
             expect(pushed).not.toBeNull();
-            expect(pushed.querySelector('.wg-pagebar__title').textContent).toBe('Units');
+            expect(pushed.querySelector('.wg-pagebar__title').textContent).toBe('Units & body');
             expect(pushed.querySelector('.wg-back').textContent).toContain('Settings');
             expect(pushed.querySelector('#weight-unit-segmented')).not.toBeNull();
             expect(page(document, 'units')).toBeNull(); // moved, not cloned

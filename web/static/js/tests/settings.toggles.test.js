@@ -586,7 +586,10 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
 
             window.featureSettings = { gamification: false };
             window.SettingsView.updateFeatureToggles();
-            for (const id of ids) expect(row(id).classList.contains('wg-settings-hidden')).toBe(true);
+            // ED-safe is its own promise and stays reachable with Journey off (med-njny).
+            for (const id of ids) {
+                expect(row(id).classList.contains('wg-settings-hidden')).toBe(id !== 'gam-mode-ed-safe-toggle');
+            }
             window.featureSettings = { gamification: true };
             window.SettingsView.updateFeatureToggles();
             for (const id of ids) expect(row(id).classList.contains('wg-settings-hidden')).toBe(false);
@@ -650,7 +653,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     hooks.onLoaded([{}, {}]);
                 }),
             };
-            const transfer = { renderAddDevice: vi.fn(() => flow) };
+            const transfer = { renderAddDevice: vi.fn(() => flow), resumeLiveTransfer: vi.fn(() => false) };
             const connectors = { renderConnectors: vi.fn(), claudeConnectorMode: vi.fn(async () => 'remote') };
             window.loadCloudDevicesModule = () => Promise.resolve(devices);
             window.loadCloudTransferModule = () => Promise.resolve(transfer);
@@ -772,6 +775,34 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 await vi.waitFor(() => expect(topTitle(document)).toBe('Claude connector'));
                 expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).map((p) => p.querySelector('.wg-pagebar__title').textContent))
                     .toEqual(['Devices & connectors', 'Claude connector']);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // med-r1j2.9: the "Approve the new device?" tap. A live flow in this
+        // window is resumed in place (its page is already up); none here opens
+        // Devices → Add a device on the AD4 "not open here" state.
+        it('the add-device deeplink resumes a live flow, else opens Add a device on AD4', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const m = installCloudModules(window);
+                await mountCloud(window);
+
+                m.transfer.resumeLiveTransfer.mockReturnValueOnce(true);
+                window.SettingsView.openDevicesDeeplink('add-device');
+                await vi.waitFor(() => expect(m.transfer.resumeLiveTransfer).toHaveBeenCalledTimes(1));
+                await new Promise((r) => setTimeout(r, 0));
+                expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
+                expect(m.transfer.renderAddDevice).not.toHaveBeenCalled();
+
+                window.SettingsView.openDevicesDeeplink('add-device');
+                await vi.waitFor(() => expect(topTitle(document)).toBe('Add a device'));
+                expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).map((p) => p.querySelector('.wg-pagebar__title').textContent))
+                    .toEqual(['Devices & connectors', 'Add a device']);
+                expect(m.transfer.renderAddDevice.mock.calls[0][3]).toEqual({ notHere: true });
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();

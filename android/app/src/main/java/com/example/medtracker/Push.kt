@@ -33,7 +33,27 @@ object Push {
     private val BODY = mapOf(
         "inbox-wake" to "Open the app to record what you sent",
         "dry-queue" to "Open the app to keep reminders running",
+        TRANSFER_CLAIMED to "A new device is waiting · approve it before the code expires",
     )
+
+    /** The add-device claim (bd med-r1j2.15, server med-r1j2.9): its own title, and its tap opens [ADD_DEVICE_PATH]. */
+    const val TRANSFER_CLAIMED = "transfer_claimed"
+    /** sw.js TRANSFER_CLAIMED_NOTIFICATION.url: Settings → Devices → Add a device. */
+    const val ADD_DEVICE_PATH = "/?tab=settings&page=add-device"
+
+    /** Title and text for a kind (nativeWakeTitleFor + nativeWakeBody); null = not the server's, dropped. */
+    fun text(kind: String): Pair<String, String>? =
+        BODY[kind]?.let { (if (kind == TRANSFER_CLAIMED) "Approve the new device?" else "Med Tracker") to it }
+
+    /**
+     * The path a push tap opens, null = the vault's home. Both taps carry the kind as the extra "kind":
+     * the shell's own notification ([notify]) and the server's notification block, whose tap FCM
+     * delivers as the launcher intent with the data payload as extras. Never on a Recents relaunch.
+     */
+    fun tappedPath(kind: String?, fromHistory: Boolean) = ADD_DEVICE_PATH.takeIf { kind == TRANSFER_CLAIMED && !fromHistory }
+    fun tappedPath(intent: Intent?) = intent?.let {
+        tappedPath(it.getStringExtra("kind"), (it.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0)
+    }
 
     val configured get() = BuildConfig.FIREBASE_APP_ID.isNotEmpty()
 
@@ -74,26 +94,30 @@ object Push {
      * notification — the same text whether the app was alive or not. Unknown kinds are dropped.
      */
     fun deliver(c: Context, kind: String) {
-        val body = BODY[kind] ?: return
-        val a = live?.get() ?: return notify(c, kind, body)
-        a.pushEvent(kind) { delivered -> if (!delivered) notify(c, kind, body) }
+        val (title, body) = text(kind) ?: return
+        val a = live?.get() ?: return notify(c, kind, title, body)
+        a.pushEvent(kind) { delivered -> if (!delivered) notify(c, kind, title, body) }
     }
 
     /**
      * Tag = kind, id 0: the same shade slot as the server's notification block (android.notification.tag
      * in nativepush.go), so a repeated wake replaces the last one whichever side posted it.
      */
-    private fun notify(c: Context, kind: String, body: String) {
+    private fun notify(c: Context, kind: String, title: String, body: String) {
         Notifications.channel(c)
-        // Tap: the launcher entry, which opens the vault's home (Today).
+        // Tap: the launcher entry plus the kind, like the server's block ([tappedPath]); a live activity
+        // gets it in onNewIntent. The vault's home (Today) unless the kind has a path.
         val tap = Intent(c, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra("kind", kind)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         c.getSystemService(NotificationManager::class.java).notify(kind, 0, Notification.Builder(c, Notifications.CHANNEL)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle("Med Tracker")
+            .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
-            .setContentIntent(PendingIntent.getActivity(c, 0, tap,PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            // Extras don't tell PendingIntents apart: one requestCode per kind, or the next wake's
+            // FLAG_UPDATE_CURRENT rewrites the kind on a notification still in the shade.
+            .setContentIntent(PendingIntent.getActivity(c, kind.hashCode(), tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .build())
     }
 
