@@ -47,7 +47,7 @@ gh run download <run> -n ios-visual-web-compare -D /tmp/claude-vw/<run>-webcmp
 
 ## Add a scene
 
-1. Add an entry to `tests/visual/scenes.json`: `name`, `steps` (`tab` / `click` / `tag` / `settingsPage` / `consent` — opens `TrialConsent.request(<scope>)`, a sheet with no tap path on CI), `ready` (selectors that must be visible), optional `native` (XCUITest `tap`, `type`, `clear`, `tapButton`, `waitFor`, `keyboard`, `allowNotifications`, `notification` — tap a real local notification's banner, as `reminder-stale-*` do) and `mask` (fraction rects blanked in diffs for volatile pixels). Names starting `native-` are SwiftUI-only.
+1. Add an entry to `tests/visual/scenes.json`: `name`, `steps` (`tab` / `click` / `tag` / `settingsPage` / `consent` — opens `TrialConsent.request(<scope>)`, a sheet with no tap path on CI), `ready` (selectors that must be visible), optional `native` (XCUITest `tap`, `type`, `clear`, `tapButton`, `waitFor`, `keyboard`, `allowNotifications`, `notification` — tap a real local notification's banner, as `reminder-stale-*` do; their Allow leaves notifications granted on that Simulator, so a local re-run on it shows `settings-notifications` granted) and `mask` (fraction rects blanked in diffs for volatile pixels). Names starting `native-` are SwiftUI-only.
 2. No Swift change: `ios/UITests/VisualQATests.swift` and `driver.js` read the same file. The Playwright tiers pick it up too.
 3. Label a PR and check the new PNG by eye before trusting it.
 

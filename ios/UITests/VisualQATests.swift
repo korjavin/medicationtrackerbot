@@ -22,12 +22,12 @@ import XCTest
 ///   {"type": "app"}            typeText into the tapped element (real keyboard)
 ///   {"clear": true}            delete the tapped field's text
 ///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label
-///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds)
+///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds; "contains": true matches part of the label)
 ///   {"keyboard": true}         the software keyboard must be up (implied after "type")
 ///   {"edgeSwipe": true, "closes": "#id"}  the shell's left-edge pan
 ///   {"pullDown": true}         a real finger pull down from the upper middle (pull to refresh)
 ///   {"allowNotifications": true}  tap the system permission alert's Allow, if it shows within 3 s
-///   {"notification": "body"}   tap the banner of a delivered notification with that text, 20 s
+///   {"notification": "body"}   tap the banner of a delivered notification with that text, 30 s
 ///
 /// One scene: `TEST_RUNNER_WG_QA_SCENES=food-add-sheet-keyboard xcodebuild test ...`
 /// (comma-separated).
@@ -192,8 +192,8 @@ final class VisualQATests: XCTestCase {
                 guard button.waitForExistence(timeout: 10) else { return "no button \"\(label)\"" }
                 button.tap()
             } else if let label = step["waitFor"] as? String {
-                let el = app.descendants(matching: .any)
-                    .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
+                let format = step["contains"] as? Bool == true ? "label CONTAINS %@ OR identifier == %@" : "label == %@ OR identifier == %@"
+                let el = app.descendants(matching: .any).matching(NSPredicate(format: format, label, label)).firstMatch
                 let timeout = step["timeout"] as? Double ?? 10
                 guard el.waitForExistence(timeout: timeout) else { return "\"\(label)\" never appeared" }
             } else if step["edgeSwipe"] as? Bool == true {
@@ -232,7 +232,7 @@ final class VisualQATests: XCTestCase {
                 // through Notifications.didReceive → ReminderPath → Shell.openReminder.
                 let banner = springboard.descendants(matching: .any)
                     .matching(NSPredicate(format: "label CONTAINS %@", body)).firstMatch
-                guard banner.waitForExistence(timeout: step["timeout"] as? Double ?? 20) else { return "no notification \"\(body)\"" }
+                guard banner.waitForExistence(timeout: step["timeout"] as? Double ?? 30) else { return "no notification \"\(body)\"" }
                 banner.tap()
             } else if step["keyboard"] as? Bool == true {
                 typed = true

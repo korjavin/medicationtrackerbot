@@ -240,27 +240,42 @@
             const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
             const row = (Array.isArray(rows) ? rows : [])[0];
             if (!row) throw new Error('staleReminder: no due dose in the seed');
-            if (step.staleReminder === 'taken') await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [row.occId] });
+            if (step.staleReminder === 'taken') {
+                // The take's own reschedule (2 s debounce) replaces every pending
+                // notification: let it land before ours (local-policy.js fires
+                // this after every device schedule attempt).
+                const rescheduled = new Promise((ok) => document.addEventListener('wg:local-reminders-scheduled', ok, { once: true }));
+                await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [row.occId] });
+                await Promise.race([rescheduled, sleep(STEP_MS)]);
+            }
             const slotUnix = Date.parse(row.plannedAt) / 1000 + (step.staleReminder === 'moved' ? 60 : 0);
             const { reminderDeeplink } = await import('/js/reminder-deeplink.js');
             const url = reminderDeeplink({ kind: 'medication', medicationIds: [row.medId], fireAtUnix: slotUnix, slotUnix });
             const sm = window.SyncManager;
             const show = sm.showToast.bind(sm);
             sm.showToast = (m, t, o) => show(m, t, { ...o, duration: 0 });
+            // A real notification for the native `notification` step to tap,
+            // on the real clock (the page's is pinned), 15 s out: past the
+            // ready wait and the permission alert. Resolves how many the shell
+            // scheduled (Playwright's stub bridge: 0).
             const ln = window.LocalNotifications;
+            const schedule = () => ln.schedule([{
+                fireAtUnix: Math.floor((window.performance.timeOrigin + window.performance.now()) / 1000) + 15,
+                title: 'Med Tracker', body: 'QA stale reminder', url,
+            }]);
+            let scheduled = 0;
             if (ln && ln.isSupported()) {
-                // A real notification for the native `notification` step to tap.
-                // The take's own reschedule (2 s debounce) replaces every
-                // pending one: let it land first. Not awaited: iOS asks for the
-                // permission first (the native allowNotifications step), and
-                // the fire time is on the real clock, not the pinned one.
-                await sleep(3000);
-                ln.requestPermission().then(() => ln.schedule([{
-                    fireAtUnix: Math.floor((window.performance.timeOrigin + window.performance.now()) / 1000) + 6,
-                    title: 'Med Tracker', body: 'QA stale reminder', url,
-                }]));
-            } else {
-                // No shell (Playwright): what Shell.openReminder runs on a tap.
+                // Not granted yet: iOS shows its alert (the native
+                // allowNotifications step answers it), so this is not awaited.
+                if (await ln.permission() !== 'granted') {
+                    ln.requestPermission().then(schedule);
+                    scheduled = 1;
+                } else {
+                    scheduled = await schedule();
+                }
+            }
+            if (!scheduled) {
+                // No shell that delivers (Playwright): what Shell.openReminder runs on a tap.
                 window.history.replaceState({}, '', url);
                 window.handleDeepLinks();
                 await until(() => firstVisible('.wg-toast, .wg-timeline__stale, #med-confirm-modal'), STEP_MS, 'reminder landing');
