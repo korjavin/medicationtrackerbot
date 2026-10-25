@@ -91,8 +91,8 @@ const DAY_ROW_ID = /^sleep-hk-\d{4}-\d{2}-\d{2}$/;
 // legacy sleep rows (every live row not at a sleep-hk-<day> id: Mi Band
 // sessions, bot-era rows, restores by older clients) into one day row per
 // sleep day, the shape healthimport.js writes. Per day, the converted body
-// goes to sleep-hk-<day> unless a live row already there has at least as many
-// asleep minutes (a tie keeps it); either way every legacy row of the day is
+// goes to sleep-hk-<day> unless a live row already there has more asleep
+// minutes (a tie: see below); either way every legacy row of the day is
 // deleted. A row without a parseable end_time is no night and stays. No
 // legacy rows → nothing to do, so a second run writes nothing.
 export function unifySleep(rows) {
@@ -110,9 +110,20 @@ export function unifySleep(rows) {
   const dels = [];
   for (const day of [...days.keys()].sort()) {
     const sessions = days.get(day);
-    const body = sleepDayBody(day, sessions);
+    // A Health day restored under a fresh id is one source, the band
+    // sessions another: fold each on its own and keep one, by visibleSleep's
+    // rule (more asleep minutes, a tie to the band), never their sum.
+    const health = sessions.filter((r) => healthImportRecordId('sleep', r));
+    const other = sessions.filter((r) => !healthImportRecordId('sleep', r));
+    const bodies = [health, other].filter((g) => g.length).map((g) => sleepDayBody(day, g));
+    const body = bodies.length === 2 && asleepMinutes(bodies[0]) <= asleepMinutes(bodies[1]) ? bodies[1] : bodies[0];
     const have = byId.get(body.recordId);
-    if (!have || asleepMinutes(body) > asleepMinutes(have)) puts.push(body);
+    // A tie against a Health day goes to the converted sessions, as
+    // visibleSleep shows it today; against an earlier conversion (equal
+    // minutes, same rows) the existing row stays.
+    const mine = asleepMinutes(body);
+    const theirs = have ? asleepMinutes(have) : -1;
+    if (mine > theirs || (mine === theirs && have.source === HEALTH_SOURCE)) puts.push(body);
     for (const r of sessions) dels.push(r.recordId);
   }
   return { puts, dels };

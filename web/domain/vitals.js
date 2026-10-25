@@ -528,8 +528,10 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // and deletes every live stress batch. Triggered by the rows themselves,
   // never a flag: with none left it writes nothing. The day rows are a
   // deliberate put at now(), not the putIfAbsent floor: the body is a pure
-  // function of the synced legacy rows, so two devices converting at once
-  // write the same bytes, and a Health floor it overwrites is re-derivable.
+  // function of the synced legacy rows, so two devices converting the same
+  // rows write the same bytes (callers run it only on a mirror pulled this
+  // session). A Health day it beats is discarded on purpose: the Health
+  // importer then meets the day as present and never re-imports it.
   async function unifyLegacy() {
     const { puts, dels } = unifySleep(await records.list(SLEEP_RECORD_TYPE));
     for (const body of puts) await records.put(SLEEP_RECORD_TYPE, { ...body, clientTs: now(), deleted: false });

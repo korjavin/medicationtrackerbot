@@ -278,7 +278,15 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         const withoutBackup = (d) => { const c = { ...d }; delete c.protection; return c; };
         expect(exported.data.protection).toEqual({ ...VAULT_FIXTURE.data.protection, last_backup_at: expect.any(String) });
         expect(Date.parse(exported.data.protection.last_backup_at)).toBeLessThanOrEqual(now);
-        expect(withoutBackup(exported.data)).toEqual(withoutBackup(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data));
+        // The restore ends with the legacy pass (bd med-0xad.4): the fixture's
+        // bot-era sleep session comes back as its sleep day.
+        const [night] = VAULT_FIXTURE.data.vitals.sleep;
+        expect(exported.data.vitals.sleep).toEqual([{
+            ...night, timezone_offset: -120, total_minutes: 450, source: 'miband', source_id: night.day,
+        }]);
+        const want = withoutBackup(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data);
+        want.vitals = { ...want.vitals, sleep: exported.data.vitals.sleep };
+        expect(withoutBackup(exported.data)).toEqual(want);
         const weights = (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight);
         expect(weights.sort()).toEqual(VAULT_FIXTURE.data.weight.logs.map((r) => r.weight).sort());
         // The cloud's importAll runs this same conversion on the file.

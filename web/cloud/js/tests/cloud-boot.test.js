@@ -113,9 +113,6 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     // pullOnOpen runs AFTER the wrapper install; if the install threw (the bug),
     // this spy would never be called — so it also guards "boot didn't abort".
     let pullOnOpenCalled = false;
-    // bd med-0xad.4: the legacy sleep/stress conversion runs once the boot pull is in.
-    let unifiedAfterPull = null;
-    shimCall.unifyLegacy = async () => { unifiedAfterPull = pullOnOpenCalled; };
     let autoDrainStarted = false;
     const { window } = await runBoot({
       setupWindow,
@@ -136,7 +133,6 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(pullOnOpenCalled).toBe(true);
     // med-deq.2: the reconnect listeners are wired unconditionally on boot.
     expect(autoDrainStarted).toBe(true);
-    await vi.waitFor(() => expect(unifiedAfterPull).toBe(true));
     // A workout read now routes to the shim, not the network...
     await window.apiCallDirect('/api/workout/groups');
     expect(shimCalls).toContain('/api/workout/groups');
@@ -213,6 +209,41 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
       expect(mounted).toEqual([true]);
       expect(asked.filter((a) => a === 'GET /api/bootstrap')).toHaveLength(1);
     }
+  });
+
+  // bd med-0xad.4: the legacy sleep/stress conversion writes at now(), so it
+  // never runs on a mirror no pull of this page load brought to the tail.
+  it('converts legacy sleep only after a pull in this page load reached the tail, once', async () => {
+    let pulled = false;
+    let drainOpts;
+    let runs = 0;
+    const shimCall = async () => null;
+    shimCall.unifyLegacy = async () => { runs++; };
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': {
+          pullOnOpen: async () => {}, // offline: returns without reaching the tail
+          pulledThisSession: () => pulled,
+          hasCaughtUp: async () => true,
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(0); // offline boot: no writes
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(0); // a drain that still did not reach the tail
+    pulled = true;
+    await drainOpts.onSettled();
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(1);
   });
 
   it('a failed first-run re-ask is retried on the next drain', async () => {

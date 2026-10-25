@@ -644,7 +644,8 @@ describe('Apple Health import', () => {
             it.each([
                 ['a Health day with fewer asleep minutes is replaced', 400, 'converted'],
                 ['a Health day with more asleep minutes is kept', 500, 'health'],
-                ['a tie keeps the existing Health day', 480, 'health'],
+                // visibleSleep showed the band on a tie, so the screen does not change.
+                ['a tie goes to the converted sessions', 480, 'converted'],
             ])('%s; the legacy rows go either way', async (_name, healthTotal, winner) => {
                 await seed([hk(healthTotal), a, b, nap]);
                 await vitals().unifyLegacy();
@@ -656,6 +657,19 @@ describe('Apple Health import', () => {
                 storage.setItem('wg.health.anchors', '{}');
                 expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 0 });
                 expect(records.rows.get(DAY_ID)).toEqual(row);
+            });
+
+            it('a Health day restored under a fresh id is not summed with the band sessions of its day', async () => {
+                const alias = (total) => ({ ...hk(total), recordId: `sleep-${N0}`, clientTs: 7 });
+                await seed([alias(500), a, b, nap]); // Health 500 vs band 480: Health
+                await vitals().unifyLegacy();
+                expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'apple_health', total_minutes: 500, light_minutes: null });
+
+                const other = memRecords();
+                await seed([alias(480), a, b, nap], other); // a tie goes to the band, as visibleSleep shows it
+                await vitals(other).unifyLegacy();
+                expect(other.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 480, light_minutes: 250 });
+                expect(await other.list('sleep')).toHaveLength(1);
             });
 
             it('stress batches are deleted; no legacy rows means no writes', async () => {
