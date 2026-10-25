@@ -172,7 +172,68 @@ type ScheduledPushInput struct {
 // carried entries (0) — so the dry-queue predicate can tell 'reminders
 // deliberately off' from 'browser stopped re-uploading'.
 func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []ScheduledPushInput, now time.Time) error {
+	return r.ReplaceScheduleFenced(ctx, accountID, entries, nil, now)
+}
+
+// ScheduleFence is what a fenced PUT /api/push/schedule says it was built
+// from (med-wi09.14): Generation is the dose-ledger generation (the X-Ledger
+// number, 2 today) and BasedOnSeq the account seq the device had pulled with
+// an empty pending queue.
+type ScheduleFence struct {
+	BasedOnSeq int64
+	Generation int64
+}
+
+// ErrScheduleStale: the fenced PUT was built from an older acknowledged seq
+// than the stored horizon under the same generation. Nothing was changed.
+var ErrScheduleStale = errors.New("cloudstore: schedule built from a stale seq")
+
+// ReplaceScheduleFenced is ReplaceSchedule with relay fencing. A nil fence
+// (a legacy client) replaces as before and leaves the stored fence alone.
+// Otherwise the fence is compared and stored in the same upsert that stamps
+// last_schedule_unix, before anything is deleted: a different generation
+// always wins and overwrites both values (the stored generation is only the
+// epoch the seq compare runs in — never a reason to refuse, so a rollback
+// cannot fence every device out); the same generation needs based_on_seq >=
+// the stored seq (equal = renewal), else ErrScheduleStale.
+func (r *Repo) ReplaceScheduleFenced(ctx context.Context, accountID string, entries []ScheduledPushInput, fence *ScheduleFence, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		// Stamp the upload itself (med-ei2): every replace-all PUT records when
+		// the client last pushed a schedule and whether the batch was empty,
+		// so the dry-queue predicate can tell 'reminders deliberately off'
+		// (last PUT empty, however stale) from 'browser stopped re-uploading'
+		// (last PUT carried entries, stamp gone stale, queue dry). Same lazy
+		// upsert shape as the last_sync_unix touches in sync.go.
+		empty := 0
+		if len(entries) == 0 {
+			empty = 1
+		}
+		if fence == nil {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO sync_state (account_id, last_seq, last_schedule_unix, last_schedule_empty) VALUES (?, 0, ?, ?)
+				 ON CONFLICT(account_id) DO UPDATE SET last_schedule_unix = excluded.last_schedule_unix,
+				 last_schedule_empty = excluded.last_schedule_empty`,
+				accountID, storedb.TimeToUnix(now), empty); err != nil {
+				return err
+			}
+		} else {
+			res, err := tx.ExecContext(ctx,
+				`INSERT INTO sync_state (account_id, last_seq, last_schedule_unix, last_schedule_empty, schedule_seq, schedule_generation) VALUES (?, 0, ?, ?, ?, ?)
+				 ON CONFLICT(account_id) DO UPDATE SET last_schedule_unix = excluded.last_schedule_unix,
+				 last_schedule_empty = excluded.last_schedule_empty,
+				 schedule_seq = excluded.schedule_seq, schedule_generation = excluded.schedule_generation
+				 WHERE excluded.schedule_generation != sync_state.schedule_generation
+				    OR excluded.schedule_seq >= sync_state.schedule_seq`,
+				accountID, storedb.TimeToUnix(now), empty, fence.BasedOnSeq, fence.Generation)
+			if err != nil {
+				return err
+			}
+			if n, err := res.RowsAffected(); err != nil {
+				return err
+			} else if n == 0 {
+				return ErrScheduleStale
+			}
+		}
 		// Only wipe the account's own client rows: relay-inserted workout snooze
 		// re-fires (origin = 'relay_refire') must survive a client re-upload so a
 		// pending snooze isn't erased by the next sync.
@@ -196,24 +257,6 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 				accountID, storedb.TimeToUnix(e.FireAt), ct, delivery, e.TGText, e.TGCallback, e.TGMedIDs); err != nil {
 				return err
 			}
-		}
-		// Stamp the upload itself (med-ei2): every replace-all PUT records when
-		// the client last pushed a schedule and whether the batch was empty,
-		// so the dry-queue predicate can tell 'reminders deliberately off'
-		// (last PUT empty, however stale) from 'browser stopped re-uploading'
-		// (last PUT carried entries, stamp gone stale, queue dry). Same lazy
-		// upsert shape as the last_sync_unix touches in sync.go: only these
-		// two columns move.
-		empty := 0
-		if len(entries) == 0 {
-			empty = 1
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO sync_state (account_id, last_seq, last_schedule_unix, last_schedule_empty) VALUES (?, 0, ?, ?)
-			 ON CONFLICT(account_id) DO UPDATE SET last_schedule_unix = excluded.last_schedule_unix,
-			 last_schedule_empty = excluded.last_schedule_empty`,
-			accountID, storedb.TimeToUnix(now), empty); err != nil {
-			return err
 		}
 		return nil
 	})
