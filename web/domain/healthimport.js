@@ -24,8 +24,16 @@
 // longest wins, ties to the smaller UUID). Sleep does not — see importSleep:
 // one record per sleep day, written with a content-derived clientTs so the
 // most complete version wins on every device (docs/ios.md).
+//
+// Steps, heart rate and SpO2 (bd med-0xad.1) go through the EXISTING vitals
+// writer (vitals.js importSamples) into the same daystats / hrsample /
+// spo2sample rows the .nxk import fills: steps as one daily total per local
+// day (monotonic max, so a partial day never lowers a stored one), HR/SpO2
+// day-batched and merged by instant (a re-read adds nothing). No new shape,
+// no new id, never stress.
 import { createBPDomain, offsetMsAt } from './bp.js';
 import { createWeightDomain } from './weight.js';
+import { createVitalsDomain } from './vitals.js';
 import {
   HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId, healthNumericId, sleepDayOf,
 } from './healthsource.js';
@@ -347,7 +355,39 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // written (counts only, for the diagnostics line in health-import.js). `bounds` is the whole query result ({from, to} for sleep). Malformed
   // samples are skipped, never thrown on — one odd entry in Health must not
   // stall every later import behind the same anchor.
+  // importVitals(kind, samples) → { added, skip }: steps / hr / spo2 into the
+  // vitals rows. `added` counts rows written (a day total raised, a day batch
+  // that gained samples), so an unchanged re-read reports 0.
+  const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const VITALS = {
+    steps: {
+      valid: (s) => DAY_RE.test(s.day) && positive(s.steps),
+      map: (s) => ({ day: s.day, steps: Math.round(s.steps) }),
+      key: 'daystats',
+    },
+    hr: {
+      valid: (s) => Number.isFinite(s.start) && positive(s.value),
+      map: (s) => ({ date_time: rfc3339(s.start), value: Math.round(s.value) }),
+      key: 'hr',
+    },
+    spo2: {
+      valid: (s) => Number.isFinite(s.start) && positive(s.value) && s.value <= 100,
+      map: (s) => ({ date_time: rfc3339(s.start), value: Math.round(s.value) }),
+      key: 'spo2',
+    },
+  };
+  async function importVitals(kind, samples) {
+    const v = VITALS[kind];
+    const given = Array.isArray(samples) ? samples : [];
+    const fresh = given.filter((s) => s && v.valid(s));
+    let added = 0;
+    const counted = { ...records, put: (type, r) => { added++; return records.put(type, r); } };
+    await createVitalsDomain({ records: counted, now, timeZone }).importSamples({ [v.key]: fresh.map(v.map) });
+    return { added, skip: { invalid: given.length - fresh.length } };
+  }
+
   async function importSamples(kind, samples, bounds) {
+    if (VITALS[kind]) return importVitals(kind, samples);
     const type = TYPE[kind];
     if (!type) throw new Error(`healthimport: unknown kind ${kind}`);
     if (kind === 'sleep') return importSleep(samples, bounds);

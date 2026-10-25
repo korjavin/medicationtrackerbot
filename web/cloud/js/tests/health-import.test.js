@@ -38,6 +38,7 @@ function memRecords() {
         rows,
         list: async (type) => of(type).filter((r) => !r.deleted),
         listRaw: async (type) => of(type),
+        listRange: async (type, from, to) => of(type).filter((r) => !r.deleted && r.recordId >= from && r.recordId <= to),
         put: async (type, r) => { rows.set(r.recordId, { ...r, recordType: type }); return r; },
         putIfAbsent: async (type, r) => {
             if (!rows.has(r.recordId)) rows.set(r.recordId, { ...r, recordType: type });
@@ -355,11 +356,11 @@ describe('Apple Health import', () => {
             const afterImport = vi.fn(async () => {});
             await startHealthImport({}, { health, storage, doc: document, run, afterImport });
             expect(toggle().checked).toBe(false);
-            expect(desc()).toBe('Import blood pressure, weight, sleep and workouts');
+            expect(desc()).toBe('Import blood pressure, weight, sleep, workouts, steps, heart rate and SpO2');
 
             await flip(true);
             await new Promise((r) => setTimeout(r, 0));
-            expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout']);
+            expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2']);
             expect(records.rows.has(`bp-hk-${U1}`)).toBe(true);
             expect(afterImport).toHaveBeenCalledTimes(1);
             expect(desc()).toMatch(/^Checked .* · 1 reading so far \(last new .*\)\. No sleep found: .*\.$/); // BP only: the Sleep switch hint
@@ -370,7 +371,8 @@ describe('Apple Health import', () => {
             const before = health.calls.length;
             await flip(true);
             await new Promise((r) => setTimeout(r, 0));
-            expect(health.calls.slice(before).map((c) => c.anchor)).toEqual([null, null, null, null]);
+            // Steps are read by window, never by anchor.
+            expect(health.calls.slice(before).map((c) => c.anchor)).toEqual([null, null, null, null, undefined, null, null]);
         });
 
         it('flips back with a message when this device has no Health store', async () => {
@@ -407,9 +409,11 @@ describe('Apple Health import', () => {
 
         it('a toggle switched on by an older build asks once for the new kinds', async () => {
             storage.setItem('wg.health.enabled', 'true');
+            // A med-w6gx.7 build asked for these; steps/HR/SpO2 (med-0xad.1) are new.
+            storage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout']));
             const health = fakeHealth({});
             await startHealthImport({}, { health, storage, doc: document, run: vi.fn(async () => null) });
-            expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout']);
+            expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2']);
             await startHealthImport({}, { health, storage, doc: document, run: vi.fn(async () => null) });
             expect(health.requestAuthorization).toHaveBeenCalledTimes(1);
         });
@@ -829,6 +833,9 @@ describe('Apple Health import', () => {
                 '[health] sleep returned=6 samples=6 values={0:1,2:1,3:2,4:1,5:1} nights=1 written=1 '
                     + 'skip{inBed:1,unsettled:0,clipped:0,exists:0} anchor=moved',
                 '[health] workout returned=0 samples=0 written=0 skip{invalid:0,exists:0,overlap:0} anchor=kept',
+                '[health] steps returned=0 samples=0 written=0 skip{invalid:0} anchor=kept',
+                '[health] hr returned=0 samples=0 written=0 skip{invalid:0} anchor=kept',
+                '[health] spo2 returned=0 samples=0 written=0 skip{invalid:0} anchor=kept',
             ]);
             storage.setItem('wg.health.anchors', '{}');
             await runHealthImport({}, { ...opts(data), diag: (l) => lines.push(l) });
@@ -911,6 +918,112 @@ describe('Apple Health import', () => {
             const health = healthOf({});
             health.query = async () => { throw new Error('Health Connect unavailable'); };
             await expect(runHealthImport({}, { health, storage, records, flush })).rejects.toThrow('Health Connect unavailable');
+        });
+    });
+
+    // bd med-0xad.1: steps, heart rate and SpO2 into the existing vitals rows.
+    describe('steps, heart rate and SpO2', () => {
+        const D = 86_400_000;
+        const NOW = Date.parse('2026-10-10T12:00:00Z');
+        // Like the bridges: steps answer a time window with one total per
+        // local day; hr/spo2 page by anchor like bp. Every query's args are kept.
+        function vitalsHealth(data) {
+            const h = fakeHealth(data);
+            const page = h.query.bind(h);
+            h.args = [];
+            h.query = async (args) => {
+                h.args.push(args);
+                if (args.type !== 'steps') return page(args);
+                const samples = data.steps || [];
+                return { samples, returned: samples.length, more: false };
+            };
+            return h;
+        }
+        const opts = (health) => ({ health, storage, records, flush, now: () => NOW });
+        const steps = (today) => [
+            { day: '2026-10-08', steps: 4000, tz: 'Europe/Berlin' },
+            { day: '2026-10-09', steps: 9000, tz: 'Europe/Berlin' },
+            { day: '2026-10-10', steps: today, tz: 'Europe/Berlin' },
+        ];
+        const at = (iso) => Date.parse(iso);
+
+        it('writes one daystats row per day, and a re-read only ever raises a day', async () => {
+            const h1 = vitalsHealth({ steps: steps(1200) });
+            expect(await runHealthImport({}, opts(h1))).toEqual({ added: 3 });
+            expect(records.rows.get('daystats-2026-10-08')).toMatchObject({ recordType: 'daystats', day: '2026-10-08', steps: 4000 });
+            expect(records.rows.get('daystats-2026-10-10')).toMatchObject({ steps: 1200 });
+
+            const h2 = vitalsHealth({ steps: steps(3000) });
+            expect(await runHealthImport({}, opts(h2))).toEqual({ added: 1 });
+            expect(records.rows.get('daystats-2026-10-10')).toMatchObject({ steps: 3000 });
+
+            const h3 = vitalsHealth({ steps: steps(2500) });
+            expect(await runHealthImport({}, opts(h3))).toEqual({ added: 0 });
+            expect(records.rows.get('daystats-2026-10-10')).toMatchObject({ steps: 3000 });
+
+            // Read by window, never by anchor: a year back until steps were
+            // seen, then a week.
+            const windows = [h1, h2, h3].map((h) => h.args.find((a) => a.type === 'steps'));
+            expect(windows).toEqual([
+                { type: 'steps', from: NOW - 365 * D, to: NOW },
+                { type: 'steps', from: NOW - 7 * D, to: NOW },
+                { type: 'steps', from: NOW - 7 * D, to: NOW },
+            ]);
+        });
+
+        it('day-batches HR and SpO2 by UTC day; a re-read of the same instants adds nothing', async () => {
+            const data = {
+                hr: [
+                    { uuid: U1, start: at('2026-10-09T23:59:00Z'), value: 61.4 },
+                    { uuid: U2, start: at('2026-10-10T00:01:00Z'), value: 64 },
+                ],
+                spo2: [{ uuid: U3, start: at('2026-10-10T03:00:00Z'), value: 97 }],
+            };
+            const h = vitalsHealth(data);
+            expect(await runHealthImport({}, opts(h))).toEqual({ added: 3 });
+            expect(records.rows.get('hrsample-2026-10-09')).toMatchObject({
+                recordType: 'hrsample', day: '2026-10-09', samples: [{ date_time: '2026-10-09T23:59:00Z', value: 61 }],
+            });
+            expect(records.rows.get('hrsample-2026-10-10').samples).toEqual([{ date_time: '2026-10-10T00:01:00Z', value: 64 }]);
+            expect(records.rows.get('spo2sample-2026-10-10').samples).toEqual([{ date_time: '2026-10-10T03:00:00Z', value: 97 }]);
+            // The first read has no anchor: it starts 90 days back.
+            expect(h.args.find((a) => a.type === 'hr')).toEqual({ type: 'hr', anchor: null, limit: 500, from: NOW - 90 * D });
+            expect(JSON.parse(storage.getItem('wg.health.anchors'))).toMatchObject({ hr: '2', spo2: '1' });
+
+            // A lost anchor re-reads everything: nothing new is written.
+            storage.setItem('wg.health.anchors', '{}');
+            expect(await runHealthImport({}, opts(vitalsHealth(data)))).toEqual({ added: 0 });
+            // Never stress.
+            expect([...records.rows.values()].some((r) => r.recordType === 'stresssample')).toBe(false);
+        });
+
+        it('the Vitals overview reads what the import wrote, through the existing readers', async () => {
+            await runHealthImport({}, opts(vitalsHealth({
+                steps: steps(3000),
+                hr: [
+                    { uuid: U1, start: at('2026-10-09T23:59:00Z'), value: 61 },
+                    { uuid: U2, start: at('2026-10-10T00:01:00Z'), value: 64 },
+                ],
+                spo2: [{ uuid: U3, start: at('2026-10-10T03:00:00Z'), value: 97 }],
+            })));
+            const ov = await createVitalsDomain({ records, now: () => NOW, timeZone: 'UTC' }).overview();
+            expect(ov.average_steps_7d).toBe(5333);
+            expect(ov.heart_rate_history_7d).toEqual([
+                { timestamp: at('2026-10-09T23:00:00Z'), min: 61, max: 61, avg: 61 },
+                { timestamp: at('2026-10-10T00:00:00Z'), min: 64, max: 64, avg: 64 },
+            ]);
+            expect(ov.spo2_history_7d).toEqual([{ timestamp: at('2026-10-10T03:00:00Z'), min: 97, max: 97, avg: 97 }]);
+        });
+
+        it('skips malformed samples (a day without steps, SpO2 as a fraction above 100)', async () => {
+            const h = vitalsHealth({
+                steps: [{ day: '10/08/2026', steps: 10 }, { day: '2026-10-08', steps: 0 }, { day: '2026-10-09', steps: 50 }],
+                spo2: [{ uuid: U1, start: at('2026-10-10T03:00:00Z'), value: 970 }],
+            });
+            const lines = [];
+            expect(await runHealthImport({}, { ...opts(h), diag: (l) => lines.push(l) })).toEqual({ added: 1 });
+            expect(lines).toContain('[health] steps returned=3 samples=3 written=1 skip{invalid:2} anchor=kept');
+            expect(lines).toContain('[health] spo2 returned=1 samples=1 written=0 skip{invalid:1} anchor=moved');
         });
     });
 });

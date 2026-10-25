@@ -17,6 +17,24 @@
 //     { from, to } (ms). query({ type: 'sleep', from, to }) (ms, no anchor)
 //     re-reads every sleep sample in that window.
 //
+// Steps, heart rate and SpO2 (bd med-0xad.1; iOS med-0xad.2, Android med-0xad.3).
+// requestAuthorization takes 'steps', 'hr', 'spo2' like the other types.
+//   query({ type: 'steps', from, to }) (ms, no anchor) → { samples, returned,
+//     more: false }: one DAILY TOTAL per LOCAL day in the device zone,
+//     samples [{ day: 'YYYY-MM-DD', steps: <int>, tz: <zone name> }]. `from`
+//     is aligned down to its local midnight so the first day is whole; the
+//     count is the store's own deduped aggregate across sources (HealthKit
+//     statistics query / Health Connect aggregate), never a sum of raw
+//     samples. Days with no steps may be left out.
+//   query({ type: 'hr' | 'spo2', anchor, limit[, from] }) → anchored pages
+//     like 'bp': samples [{ uuid, start (ms), value }], value in bpm for 'hr'
+//     and percent 0-100 for 'spo2' (not a 0-1 fraction). `from` (ms) comes
+//     only with anchor null, on the first read: return only samples starting
+//     at or after it (90 days back), the anchor then covers what follows.
+//
+// Where it lands: web/domain/healthimport.js → vitals.js importSamples
+// (daystats / hrsample / spo2sample, the rows the Vitals cards read).
+//
 // Load order: after native/index.js.
 (function () {
     'use strict';

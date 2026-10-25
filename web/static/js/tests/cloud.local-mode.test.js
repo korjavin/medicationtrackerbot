@@ -696,7 +696,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             }),
         };
         if (healthOn) env.window.localStorage.setItem('wg.health.enabled', 'true');
-        env.window.localStorage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout']));
+        env.window.localStorage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2']));
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;

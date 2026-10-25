@@ -20,8 +20,17 @@ import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed } from './sync.js';
 import { createHealthImportDomain } from '../../domain/healthimport.js';
 import { diagLine } from './passkey-diag.js';
 
-// Sleep and workouts: bd med-w6gx.7.
-export const HEALTH_KINDS = ['bp', 'weight', 'sleep', 'workout'];
+// Sleep and workouts: bd med-w6gx.7. Steps, HR and SpO2: bd med-0xad.1.
+export const HEALTH_KINDS = ['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2'];
+const DAY_MS = 24 * 3600 * 1000;
+// Steps are daily totals read by time window, not by anchor: the whole last
+// year until a run has seen any, then the last week (a day's total keeps
+// growing, and a late sync can raise an earlier day; the writer keeps the max).
+const STEPS_FIRST_DAYS = 365;
+const STEPS_DAYS = 7;
+// HR/SpO2 are dense: the first anchored read (no anchor yet) starts this far back.
+const SAMPLES_FIRST_DAYS = 90;
+const WINDOWED_FIRST = { hr: SAMPLES_FIRST_DAYS, spo2: SAMPLES_FIRST_DAYS };
 const ENABLED_KEY = 'wg.health.enabled';
 const ANCHORS_KEY = 'wg.health.anchors';
 const LAST_KEY = 'wg.health.last';
@@ -146,8 +155,14 @@ export async function runHealthImport(ctx, {
                     pending.push(since);
                 }
             }
-            for (let page = 0; page < MAX_PAGES; page++) {
-                const res = await health.query({ type: kind, anchor: anchors[kind] || null, limit: PAGE });
+            if (kind === 'steps') {
+                const days = seen.steps > 0 ? STEPS_DAYS : STEPS_FIRST_DAYS;
+                await take(await health.query({ type: 'steps', from: now() - days * DAY_MS, to: now() }));
+            }
+            for (let page = 0; kind !== 'steps' && page < MAX_PAGES; page++) {
+                const q = { type: kind, anchor: anchors[kind] || null, limit: PAGE };
+                if (!q.anchor && WINDOWED_FIRST[kind]) q.from = now() - WINDOWED_FIRST[kind] * DAY_MS;
+                const res = await health.query(q);
                 await take(res);
                 // Only an anchor that moved past something we saw is kept: while
                 // read access is denied Health returns nothing, and an anchor
@@ -198,7 +213,7 @@ function healthLabel(health) {
 }
 
 export function healthStatusText(storage = globalThis.localStorage, health = globalThis.Health) {
-    if (!isHealthImportEnabled(storage)) return 'Import blood pressure, weight, sleep and workouts';
+    if (!isHealthImportEnabled(storage)) return 'Import blood pressure, weight, sleep, workouts, steps, heart rate and SpO2';
     const last = readJSON(storage, LAST_KEY, {});
     if (!last.checkedAt) return 'Importing…';
     const hint = (health && health.accessHint) || 'Settings → Health → Data Access & Devices';
