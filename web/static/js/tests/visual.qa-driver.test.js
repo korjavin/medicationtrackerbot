@@ -152,6 +152,23 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.__wgQA.probe().probes.clippedTop).toEqual(['header.wg-sheethead']);
     });
 
+    // med-y5xx.15: the meds timeline scrolls to today and a scene step scrolls
+    // a Settings row into view; the in-flow app bar above was scrolled past.
+    it('clippedTop ignores an in-flow header the document scrolled past', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('today')).toMatchObject({ ok: true });
+
+        vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+            const top = this.classList.contains('wg-appbar') ? -30 : 0;
+            return { top, bottom: top + 40, left: 0, right: 100, width: 100, height: 40, x: 0, y: top };
+        });
+        Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+        expect(window.__wgQA.probe().probes.clippedTop).toContain('header.wg-appbar');
+        Object.defineProperty(window, 'scrollY', { configurable: true, value: 100 });
+        expect(window.__wgQA.probe().probes.clippedTop).toEqual([]);
+    });
+
     // med-y5xx.11: a shot of another view must not pass (workouts-stats showed
     // Plans with ok:true): the report re-checks the ready selectors.
     it('re-publishes a failed report when the scene view goes away after ready', async () => {
