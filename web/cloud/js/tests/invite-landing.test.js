@@ -50,7 +50,7 @@ function okFetch(body) {
 
 const PENDING = { state: 'pending', expires_at: '2026-11-03T10:00:00Z' };
 
-function seed({ ios = '1234567890', pkg = 'ai.myhealthbot.app' } = {}) {
+function seed({ ios = '1234567890', pkg = 'com.example.app' } = {}) {
   document.head.innerHTML = '';
   if (ios) document.head.insertAdjacentHTML('beforeend', `<meta name="medtracker-ios-app-store-id" content="${ios}">`);
   if (pkg) document.head.insertAdjacentHTML('beforeend', `<meta name="medtracker-android-package" content="${pkg}">`);
@@ -111,9 +111,9 @@ describe('parseInviteLink (contract A2 vectors)', () => {
 
 describe('URL builders (pinned contract)', () => {
   it('Play referrer = encodeURIComponent("invite=" + encodeURIComponent(landingUrl))', () => {
-    const href = playHref('ai.myhealthbot.app', LANDING);
+    const href = playHref('com.example.app', LANDING);
     const want = encodeURIComponent('invite=' + encodeURIComponent(LANDING));
-    expect(href).toBe(`https://play.google.com/store/apps/details?id=ai.myhealthbot.app&referrer=${want}`);
+    expect(href).toBe(`https://play.google.com/store/apps/details?id=com.example.app&referrer=${want}`);
     // What Play hands the app (decoded once): invite=<percent-encoded URL>.
     const referrer = new URL(href).searchParams.get('referrer');
     expect(referrer).toBe('invite=' + encodeURIComponent(LANDING));
@@ -206,7 +206,7 @@ describe('invite landing page', () => {
     });
 
     it('no App Store id meta: no store button, browser path stays', async () => {
-      await setup({ metas: { ios: '', pkg: 'ai.myhealthbot.app' } });
+      await setup({ metas: { ios: '', pkg: 'com.example.app' } });
       expect($('invite-get')).toBeNull();
       expect($('invite-browser')).not.toBeNull();
     });
@@ -220,7 +220,7 @@ describe('invite landing page', () => {
       expect(clipboard.writeText).toHaveBeenCalledWith(LANDING);
       expect(title()).toBe(COPY.opening);
       await flush();
-      expect(location.href).toBe(playHref('ai.myhealthbot.app', LANDING));
+      expect(location.href).toBe(playHref('com.example.app', LANDING));
     });
 
     it('a ?query never reaches the referrer, the clipboard or the QR (canonical landing URL)', async () => {
@@ -229,7 +229,7 @@ describe('invite landing page', () => {
       $('invite-get').click();
       expect(clipboard.writeText).toHaveBeenCalledWith(LANDING);
       await flush();
-      expect(location.href).toBe(playHref('ai.myhealthbot.app', LANDING));
+      expect(location.href).toBe(playHref('com.example.app', LANDING));
       expect(location.href).not.toContain('fbclid');
 
       const qr = fakeQr();
@@ -280,7 +280,7 @@ describe('invite landing page', () => {
     it('Android "anyway" is the Play link without a referrer', async () => {
       const { location } = await setup({ platform: 'android', body: { state: 'expired' } });
       $('invite-anyway').click();
-      expect(location.href).toBe('https://play.google.com/store/apps/details?id=ai.myhealthbot.app');
+      expect(location.href).toBe('https://play.google.com/store/apps/details?id=com.example.app');
     });
 
     it('Ask uses the share sheet when there is one', async () => {

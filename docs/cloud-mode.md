@@ -582,7 +582,7 @@ Both channels drop into the same blind queue whose only reader is `cmd/feedbackp
 
 ### Privacy policy page: `/privacy` (med-9u3s)
 
-The base domain serves [privacy-policy.md](privacy-policy.md) rendered to static HTML at `https://<base>/privacy` (prod: `https://cloud.myhealthbot.ai/privacy`, the URL the store listings, the native shells and the web first-run footnote link). The markdown is embedded by `docs/embed.go` and rendered once at startup (`internal/cloudserver/privacy.go`, goldmark, raw HTML escaped, repo-relative links unwrapped to text); strict default CSP, no script, `Cache-Control: public, max-age=3600`. Edit the markdown; the page follows on the next deploy.
+The base domain serves [privacy-policy.md](privacy-policy.md) rendered to static HTML at `https://<base>/privacy` (prod: the deployment's own base, the URL the store listings, the native shells and the web first-run footnote link). The markdown is embedded by `docs/embed.go` and rendered once at startup (`internal/cloudserver/privacy.go`, goldmark, raw HTML escaped, repo-relative links unwrapped to text); strict default CSP, no script, `Cache-Control: public, max-age=3600`. Edit the markdown; the page follows on the next deploy.
 
 ### Web feedback reader: `/feedback` (med-rbl)
 

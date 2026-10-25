@@ -292,7 +292,7 @@ in `PrivacyInfo.xcprivacy`.
 
 ### Listing text
 
-- **Privacy policy URL:** `https://<base>/privacy`
+- **Privacy policy URL:** `https://<base>/privacy` (the deployment's `CLOUD_BASE_DOMAIN`)
   ([privacy-policy.md](privacy-policy.md); iOS
   Settings → Med Tracker → Privacy names it, and
   the signed-in app shows its disclosures under Settings → Account & privacy;
