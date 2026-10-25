@@ -420,12 +420,27 @@ window.MedTrackerCloudReady = (async function boot() {
             // import, and if not why (sync.js forceSnapshot; bd med-o7zq.6): a
             // move from another device must not be called done while the only
             // durable copy is still elsewhere.
+            let upload;
             try {
-                return { upload: await forceSnapshot(ctx) };
+                upload = await forceSnapshot(ctx);
             } catch (err) {
                 console.warn('[cloud] import applied locally; sync to other devices deferred', err);
-                return { upload: 'retrying' };
+                upload = 'retrying';
             }
+            // One sleep model, no stress (bd med-0xad.4): the file may carry
+            // legacy sleep sessions, and a replace keeps the (no longer
+            // managed) stress rows. Converted here as ordinary ops on top of
+            // the snapshot; a failure is left to the next boot's pass.
+            try {
+                const [{ recordsPort }, { createVitalsDomain }] = await Promise.all([
+                    import('/js/sync.js'),
+                    import('/domain/vitals.js'),
+                ]);
+                await createVitalsDomain({ records: recordsPort(ctx), now: Date.now, timeZone: 'UTC' }).unifyLegacy();
+            } catch (err) {
+                console.warn('[cloud] legacy sleep/stress conversion deferred to the next boot', err);
+            }
+            return { upload };
         },
         async resetLocalSync() {
             // Clear the server inbox backlog FIRST — while sync is still wedged.
@@ -556,6 +571,11 @@ window.MedTrackerCloudReady = (async function boot() {
         const pulled = Promise.resolve(pullOnOpen(ctx));
         if (window.MedTrackerCloud) window.MedTrackerCloud.pulled = pulled.then(() => {}, () => {});
         await pulled;
+        // One sleep model, no stress (bd med-0xad.4): now that the mirror
+        // holds the account, convert whatever legacy rows it has (none: no
+        // writes). Not awaited; materializing() keeps it off a store replace.
+        Promise.resolve().then(() => shimCall.unifyLegacy())
+            .catch((e) => console.error('[cloud-boot] legacy sleep/stress conversion failed', e));
         // bd med-ejgf: the shim reports needs_first_run false until this
         // device has pulled the account once, so W1 never writes flags or the
         // reminder default over an existing account from an empty mirror. The

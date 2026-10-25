@@ -581,6 +581,125 @@ describe('Apple Health import', () => {
             });
         });
 
+        // bd med-0xad.4: one sleep model. vitals.unifyLegacy turns the legacy
+        // per-session rows into one sleep-hk-<day> row and drops stress.
+        describe('legacy sleep sessions convert to day rows', () => {
+            const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
+            const NOW = W0 + 24 * H;
+            const vitals = (recs = records) => createVitalsDomain({ records: recs, now: () => NOW, timeZone: 'UTC' });
+            const legacy = (start, end, extra = {}) => ({
+                recordId: `sleep-${start}`, clientTs: 5, deleted: false, start_time: iso(start), end_time: iso(end),
+                timezone_offset: -120, day: '2026-10-02', total_minutes: (end - start) / 60_000, user_modified: false, notes: '', ...extra,
+            });
+            // Two sessions of one night and an afternoon nap: one sleep day (2 Oct, Berlin).
+            const a = legacy(N0 - 30 * 60_000, N0 + 3 * H, { light_minutes: 100, deep_minutes: 60, rem_minutes: 30, awake_minutes: 20, heart_rate_avg: 60 });
+            const b = legacy(N0 + 3.5 * H, N0 + 8 * H, { light_minutes: 150, deep_minutes: 50, rem_minutes: 40, awake_minutes: 30, heart_rate_avg: 54 });
+            const nap = legacy(N0 + 15 * H, N0 + 16 * H, { awake_minutes: 10, notes: 'nap' });
+            const seed = async (rows, recs = records) => { for (const r of rows) await recs.put('sleep', r); };
+            const writes = (recs) => {
+                const n = { put: 0, del: 0 };
+                const { put, del } = recs;
+                recs.put = (...args) => { n.put++; return put(...args); };
+                recs.del = (...args) => { n.del++; return del(...args); };
+                return n;
+            };
+            const hk = (total) => ({
+                recordId: DAY_ID, clientTs: 0, deleted: false, start_time: iso(N0), end_time: iso(N0 + 8 * H),
+                timezone_offset: -120, day: '2026-10-02', light_minutes: null, deep_minutes: null, rem_minutes: null,
+                awake_minutes: 10, total_minutes: total, user_modified: false, source: 'apple_health', source_id: '2026-10-02',
+            });
+
+            it('two sessions and a nap become one day row; the legacy rows go; a second run writes nothing', async () => {
+                await seed([a, b, nap]);
+                const daysBefore = (await vitals().sleepDaily({ from: N0 - 24 * H })).map((d) => d.date);
+                await vitals().unifyLegacy();
+                expect(records.rows.get(DAY_ID)).toEqual({
+                    recordId: DAY_ID, recordType: 'sleep', clientTs: NOW, deleted: false,
+                    start_time: '2026-10-01T20:30:00Z', end_time: '2026-10-02T13:00:00Z', timezone_offset: -120, day: '2026-10-02',
+                    light_minutes: 250, deep_minutes: 110, rem_minutes: 70, awake_minutes: 60,
+                    // asleep: 190 + 240 (phases) + 50 (nap: total − awake)
+                    total_minutes: 480, turn_over_count: null,
+                    heart_rate_avg: 57, spo2_avg: null, // (60·210 + 54·270) / 480 min
+                    user_modified: false, notes: 'nap', source: 'miband', source_id: '2026-10-02',
+                });
+                for (const r of [a, b, nap]) expect(records.rows.get(r.recordId).deleted).toBe(true);
+                // Same nights on screen, one row per day.
+                expect((await vitals().sleepDaily({ from: N0 - 24 * H })).map((d) => d.date)).toEqual(daysBefore);
+                const shown = await vitals().sleep({ from: iso(N0 - 48 * H) });
+                expect(shown).toEqual([expect.objectContaining({ id: DAY_ID, total_minutes: 480, deep_minutes: 110 })]);
+
+                const n = writes(records);
+                await vitals().unifyLegacy();
+                expect(n).toEqual({ put: 0, del: 0 });
+            });
+
+            it('a bot-era row (seconds east) lands on its own sleep day, offset normalized', async () => {
+                // Ends 16:30Z = 18:30 at UTC+2: past the 18:00 boundary, so the next day.
+                const end = Date.parse('2026-10-02T16:30:00Z');
+                await seed([legacy(end - H, end, { timezone_offset: 7200 })]);
+                await vitals().unifyLegacy();
+                expect(records.rows.get('sleep-hk-2026-10-03')).toMatchObject({ day: '2026-10-03', timezone_offset: -120, total_minutes: 60 });
+            });
+
+            it.each([
+                ['a Health day with fewer asleep minutes is replaced', 400, 'converted'],
+                ['a Health day with more asleep minutes is kept', 500, 'health'],
+                ['a tie keeps the existing Health day', 480, 'health'],
+            ])('%s; the legacy rows go either way', async (_name, healthTotal, winner) => {
+                await seed([hk(healthTotal), a, b, nap]);
+                await vitals().unifyLegacy();
+                const row = records.rows.get(DAY_ID);
+                if (winner === 'health') expect(row).toMatchObject({ clientTs: 0, source: 'apple_health', total_minutes: healthTotal });
+                else expect(row).toMatchObject({ clientTs: NOW, source: 'miband', total_minutes: 480 });
+                for (const r of [a, b, nap]) expect(records.rows.get(r.recordId).deleted).toBe(true);
+                // The Health importer meets the converted day as present and skips it.
+                storage.setItem('wg.health.anchors', '{}');
+                expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 0 });
+                expect(records.rows.get(DAY_ID)).toEqual(row);
+            });
+
+            it('stress batches are deleted; no legacy rows means no writes', async () => {
+                await records.put('stresssample', { recordId: 'stresssample-2026-10-01', clientTs: 5, deleted: false, day: '2026-10-01', samples: [] });
+                await records.put('stresssample', { recordId: 'stresssample-2026-10-01#1', clientTs: 5, deleted: false, day: '2026-10-01', samples: [] });
+                await seed([hk(470)]);
+                await vitals().unifyLegacy();
+                expect(await records.list('stresssample')).toEqual([]);
+                expect(records.rows.get(DAY_ID).clientTs).toBe(0);
+                const n = writes(records);
+                await vitals().unifyLegacy();
+                expect(n).toEqual({ put: 0, del: 0 });
+            });
+
+            it('an export after conversion carries one sleep_log per day keyed by its day and no stress; a restore keeps the ids', async () => {
+                await seed([a, b, nap]);
+                await records.put('stresssample', { recordId: 'stresssample-2026-10-01', clientTs: 5, deleted: false, day: '2026-10-01', samples: [{ date_time: iso(N0), tz_offset: 0, value: 30 }] });
+                await vitals().unifyLegacy();
+                const vault = recordsToVault([...records.rows.values()], { now: W0 });
+                expect('stress' in vault.data.vitals).toBe(false);
+                expect(vault.data.vitals.sleep).toEqual([expect.objectContaining({ day: '2026-10-02', source_id: '2026-10-02', source: 'miband' })]);
+                const restored = memRecords();
+                for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
+                expect((await restored.list('sleep')).map((r) => r.recordId)).toEqual([DAY_ID]);
+                const n = writes(restored);
+                await vitals(restored).unifyLegacy();
+                expect(n).toEqual({ put: 0, del: 0 });
+                expect(await vitals(restored).sleep({ from: iso(N0 - 48 * H) })).toEqual(await vitals().sleep({ from: iso(N0 - 48 * H) }));
+            });
+
+            it('an older client restoring a new export (fresh id) is converted back onto the day id', async () => {
+                await seed([a, b, nap]);
+                await vitals().unifyLegacy();
+                const day = records.rows.get(DAY_ID);
+                const restored = memRecords();
+                // Older clients key a sleep restore on source === 'apple_health' only: a converted day lands at sleep-<start>.
+                await restored.put('sleep', { ...day, recordId: `sleep-${Date.parse(day.start_time)}`, clientTs: W0 });
+                await vitals(restored).unifyLegacy();
+                const { clientTs, recordType, ...body } = day;
+                expect(restored.rows.get(DAY_ID)).toMatchObject(body);
+                expect(await restored.list('sleep')).toHaveLength(1);
+            });
+        });
+
         it('every device writes the same night body, whatever its own time zone', async () => {
             const bodies = [];
             for (const timeZone of ['UTC', 'America/New_York']) {

@@ -12,14 +12,17 @@ export function healthRecordId(kind, uuid) {
 
 // The recordId an imported body maps back to (vault restore re-mints leaf ids),
 // or null for anything that did not come from Apple Health.
-// A Health sleep record is keyed by its sleep day (YYYY-MM-DD, healthimport.js
-// importSleep), every other kind by the sample UUID.
+// A sleep record is keyed by its sleep day (YYYY-MM-DD): a Health day
+// (healthimport.js importSleep) and a converted Mi Band day (unifySleep below,
+// source 'miband') alike, so it keys on the day-shaped source_id, not the
+// source. Every other kind is a Health sample keyed by its UUID.
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function healthImportRecordId(kind, body) {
-  if (!body || body.source !== HEALTH_SOURCE) return null;
-  const ok = kind === 'sleep' ? DAY_RE.test(body.source_id) : UUID_RE.test(body.source_id);
-  return ok ? healthRecordId(kind, body.source_id) : null;
+  if (!body) return null;
+  if (kind === 'sleep') return DAY_RE.test(body.source_id) ? healthRecordId(kind, body.source_id) : null;
+  if (body.source !== HEALTH_SOURCE) return null;
+  return UUID_RE.test(body.source_id) ? healthRecordId(kind, body.source_id) : null;
 }
 
 // A sleep day runs from 18:00 to 18:00 local, by when a night ENDS: a night
@@ -80,6 +83,89 @@ export function visibleSleep(rows) {
     for (const r of sum(health) > sum(other) ? other : health) hidden.add(r);
   }
   return rows.filter((r) => !r.deleted && !hidden.has(r));
+}
+
+const DAY_ROW_ID = /^sleep-hk-\d{4}-\d{2}-\d{2}$/;
+
+// unifySleep (bd med-0xad.4) → { puts, dels }: the one-off conversion of
+// legacy sleep rows (every live row not at a sleep-hk-<day> id: Mi Band
+// sessions, bot-era rows, restores by older clients) into one day row per
+// sleep day, the shape healthimport.js writes. Per day, the converted body
+// goes to sleep-hk-<day> unless a live row already there has at least as many
+// asleep minutes (a tie keeps it); either way every legacy row of the day is
+// deleted. A row without a parseable end_time is no night and stays. No
+// legacy rows → nothing to do, so a second run writes nothing.
+export function unifySleep(rows) {
+  const live = rows.filter((r) => !r.deleted);
+  const byId = new Map(live.map((r) => [r.recordId, r]));
+  const days = new Map();
+  for (const r of live) {
+    const end = Date.parse(r.end_time);
+    if (DAY_ROW_ID.test(r.recordId) || !Number.isFinite(end)) continue;
+    const day = sleepDayOf(end, recordOffsetMs(r.timezone_offset));
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push(r);
+  }
+  const puts = [];
+  const dels = [];
+  for (const day of [...days.keys()].sort()) {
+    const sessions = days.get(day);
+    const body = sleepDayBody(day, sessions);
+    const have = byId.get(body.recordId);
+    if (!have || asleepMinutes(body) > asleepMinutes(have)) puts.push(body);
+    for (const r of sessions) dels.push(r.recordId);
+  }
+  return { puts, dels };
+}
+
+// One day's body from its legacy sessions; built from the rows alone, so every
+// device converting the same rows writes the same bytes.
+function sleepDayBody(day, sessions) {
+  const startOf = (r) => { const s = Date.parse(r.start_time); return Number.isFinite(s) ? s : Date.parse(r.end_time); };
+  const list = [...sessions].sort((a, b) => startOf(a) - startOf(b) || Date.parse(a.end_time) - Date.parse(b.end_time)
+    || String(a.recordId).localeCompare(String(b.recordId)));
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const sum = (k) => {
+    const vals = list.map((r) => num(r[k])).filter((v) => v !== null);
+    return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
+  };
+  // Averages weighted by session length.
+  const weighted = (k) => {
+    let w = 0;
+    let acc = 0;
+    for (const r of list) {
+      const v = num(r[k]);
+      if (v === null) continue;
+      const d = Math.max(Date.parse(r.end_time) - startOf(r), 0) || 1;
+      w += d;
+      acc += v * d;
+    }
+    return w ? Math.round(acc / w) : null;
+  };
+  const first = list[0];
+  const last = list.reduce((a, r) => (Date.parse(r.end_time) > Date.parse(a.end_time) ? r : a));
+  const notes = list.map((r) => r.notes).filter((n) => typeof n === 'string' && n.trim()).join('\n');
+  return {
+    recordId: healthRecordId('sleep', day),
+    start_time: Number.isFinite(Date.parse(first.start_time)) ? first.start_time : first.end_time,
+    end_time: last.end_time,
+    // Minutes west of UTC, as healthimport.js stores it.
+    timezone_offset: -Math.round(recordOffsetMs(last.timezone_offset) / 60_000) || 0,
+    day,
+    light_minutes: sum('light_minutes'),
+    deep_minutes: sum('deep_minutes'),
+    rem_minutes: sum('rem_minutes'),
+    awake_minutes: sum('awake_minutes'),
+    total_minutes: list.reduce((a, r) => a + asleepMinutes(r), 0),
+    turn_over_count: sum('turn_over_count'),
+    heart_rate_avg: weighted('heart_rate_avg'),
+    spo2_avg: weighted('spo2_avg'),
+    user_modified: list.some((r) => !!r.user_modified),
+    notes,
+    // A Health day an older client restored under a fresh id stays Health.
+    source: list.every((r) => r.source === HEALTH_SOURCE) ? HEALTH_SOURCE : 'miband',
+    source_id: day,
+  };
 }
 
 // deleteHealthAlias: a Health row restored by an older client sits under a

@@ -1740,7 +1740,7 @@ export function createApiRouter(ctx, {
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
-      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, now, aiClient,
+      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, vitals, now, aiClient,
     }),
   });
   shimCall.ensureTimeZone = ensureTimeZone;
@@ -1891,6 +1891,11 @@ export function installApiShim(ctx, {
   // timezone-resolve instances for every consumer of the installed seam.
   Object.defineProperty(offlineAwareApiCall, 'domains', { enumerable: true, get: () => shimCall.domains });
   offlineAwareApiCall.ensureTimeZone = shimCall.ensureTimeZone;
+  // One sleep model, no stress (bd med-0xad.4, vitals.js unifyLegacy): the
+  // boot calls it once the mirror holds the account (cloud-boot.js after
+  // pullOnOpen, local-boot.js after the leave pickup). A no-op once nothing
+  // legacy is left; skipped during a store replace (importAll runs its own).
+  offlineAwareApiCall.unifyLegacy = () => materializing(() => bgCall.domains.vitals.unifyLegacy());
 
   targetWindow.offlineAwareApiCall = offlineAwareApiCall;
   return offlineAwareApiCall;

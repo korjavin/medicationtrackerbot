@@ -6,7 +6,9 @@
 //
 // Record shapes (C2e import targets — no cloud ingestion path yet, so these
 // lists are normally empty until the migration importer lands):
-//   'sleep'    — one record per sleep session (store.SleepLog fields verbatim:
+//   'sleep'    — one record per sleep day at sleep-hk-<day> (bd med-0xad.4;
+//                legacy per-session rows are converted by unifyLegacy) with
+//                store.SleepLog fields:
 //                start_time, end_time, timezone_offset, day, light_minutes,
 //                deep_minutes, rem_minutes, awake_minutes, total_minutes,
 //                turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes)
@@ -20,7 +22,7 @@
 //                density. Decided while implementing C2a Task 4.
 
 import { dayStartMs } from './bp.js';
-import { visibleSleep } from './healthsource.js';
+import { unifySleep, visibleSleep } from './healthsource.js';
 
 // The vault holds one user's data; handleListSleepLogs stamps the row's
 // user_id, so the wire shape carries it too.
@@ -521,7 +523,23 @@ export function createVitalsDomain({ records, now, timeZone }) {
     }
   }
 
+  // unifyLegacy (bd med-0xad.4): one sleep model and no stress. Converts the
+  // legacy sleep rows into sleep-hk-<day> rows (healthsource.js unifySleep)
+  // and deletes every live stress batch. Triggered by the rows themselves,
+  // never a flag: with none left it writes nothing. The day rows are a
+  // deliberate put at now(), not the putIfAbsent floor: the body is a pure
+  // function of the synced legacy rows, so two devices converting at once
+  // write the same bytes, and a Health floor it overwrites is re-derivable.
+  async function unifyLegacy() {
+    const { puts, dels } = unifySleep(await records.list(SLEEP_RECORD_TYPE));
+    for (const body of puts) await records.put(SLEEP_RECORD_TYPE, { ...body, clientTs: now(), deleted: false });
+    for (const id of dels) await records.del(SLEEP_RECORD_TYPE, id);
+    for (const r of await records.list(STRESS_RECORD_TYPE)) {
+      if (!r.deleted) await records.del(STRESS_RECORD_TYPE, r.recordId);
+    }
+  }
+
   return {
-    overview, sleep, sleepDaily, importSamples, listHeart, listSpO2, listDayStats,
+    overview, sleep, sleepDaily, importSamples, listHeart, listSpO2, listDayStats, unifyLegacy,
   };
 }

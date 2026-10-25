@@ -113,6 +113,9 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     // pullOnOpen runs AFTER the wrapper install; if the install threw (the bug),
     // this spy would never be called — so it also guards "boot didn't abort".
     let pullOnOpenCalled = false;
+    // bd med-0xad.4: the legacy sleep/stress conversion runs once the boot pull is in.
+    let unifiedAfterPull = null;
+    shimCall.unifyLegacy = async () => { unifiedAfterPull = pullOnOpenCalled; };
     let autoDrainStarted = false;
     const { window } = await runBoot({
       setupWindow,
@@ -133,6 +136,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(pullOnOpenCalled).toBe(true);
     // med-deq.2: the reconnect listeners are wired unconditionally on boot.
     expect(autoDrainStarted).toBe(true);
+    await vi.waitFor(() => expect(unifiedAfterPull).toBe(true));
     // A workout read now routes to the shim, not the network...
     await window.apiCallDirect('/api/workout/groups');
     expect(shimCalls).toContain('/api/workout/groups');
