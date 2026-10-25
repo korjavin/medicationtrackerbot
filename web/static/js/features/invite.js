@@ -439,15 +439,28 @@
     // move (stash + local.leave {url}). While it runs it cannot be called back.
     function leaver(url, error) {
         var state = { moving: false };
-        state.go = async function () {
+        state.go = async function (ev) {
             if (state.moving) return;
             error.hidden = true;
             if (window.navigator.onLine === false) { error.textContent = OFFLINE; error.hidden = false; return; }
             state.moving = true;
+            // Busy until the shell navigates away; restored on error below.
+            var btn = ev && ev.currentTarget;
+            var idle = btn ? Array.from(btn.childNodes) : [];
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('wg-btn--busy');
+                btn.replaceChildren(document.createTextNode('Moving your data…'));
+            }
             try {
                 await window.CloudVault.moveToCloud({ win: window, url: url });
                 // The shell is navigating to the account; nothing left to do here.
             } catch (e) {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('wg-btn--busy');
+                    btn.replaceChildren.apply(btn, idle);
+                }
                 var msg = (e && e.message) || '';
                 error.textContent = /invalid url/.test(msg) ? NOT_INVITE : 'The invite could not be opened: ' + (msg || 'unknown error') + '.';
                 error.hidden = false;

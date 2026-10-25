@@ -616,6 +616,22 @@ html{overscroll-behavior-y:contain}
     display: none;
 }
 
+/* Busy leave button (bd med-ta2n.31): the wizard-spinner ring, shared keyframes. */
+.wg-btn--busy::before {
+    content: "";
+    width: 1em;
+    height: 1em;
+    margin-right: var(--space-sm);
+    border: 2px solid var(--wg-border-strong);
+    border-top-color: var(--wg-mint-soft);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wg-btn--busy::before { animation-duration: 3s; }
+}
+
 /* W1 footer (bd med-ta2n.1): the kit .wg-shell__foot docked to the bottom of
    the scrolling overlay — primary on top, Skip / "Have an invite?" below. */
 .wg-firstrun-foot {
