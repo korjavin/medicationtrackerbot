@@ -69,7 +69,7 @@ func renderPrivacyPage(md []byte, host, contact string) []byte {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Med Tracker — Privacy Policy</title>
+<title>MyHealthBot — Privacy Policy</title>
 <link rel="stylesheet" href="/css/cloud.css">
 <link rel="stylesheet" href="/static/css/fonts.css">
 </head>
