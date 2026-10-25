@@ -339,7 +339,8 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 - **stress** — older files carry `vitals.stress` samples: import accepts and ignores
   them, export never writes the key. No version bump (still v1).
 - **day_stat** — `day` (`YYYY-MM-DD`), `steps`, `calories`, `distance` (num).
-- **sample** (heart/spo2) — `date_time` (RFC3339), `tz_offset` (seconds),
+- **sample** (heart/spo2) — `date_time` (RFC3339), `tz_offset` (seconds;
+  absent on samples imported from Apple Health / Health Connect, no reader uses it),
   `value` (num), optional `type` (int sample-kind discriminator, omitted when 0), and
   optional `info` (str). Storage is unix-seconds INTEGER server-side;
   the format uses RFC3339, matching the vitals wire form and the cloud sample body.
