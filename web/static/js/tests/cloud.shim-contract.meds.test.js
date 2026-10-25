@@ -1089,7 +1089,9 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
                     { ...med(3, 'Aspirin', { type: 'daily', times: ['08:00'] }), archived: true }
                 ],
                 intake: [
-                    intake(slotId(1, at(8)), 1, at(8)),
+                    // Ledger v2 (bd med-wi09.12): a post-cut PENDING row is no
+                    // evidence, so the untaken 08:00 is stored as UNTAKEN.
+                    intake(slotId(1, at(8)), 1, at(8), { status: 'UNTAKEN' }),
                     intake(slotId(2, at(7)), 2, at(7), { deleted: true }),
                     intake(slotId(3, at(8)), 3, at(8))
                 ]
