@@ -399,7 +399,7 @@ const FLOOR_MAX_CLIENT_TS = 1;
 
 // `reduceAcked` (bd med-0xad.9, snapshot bootstrap only): an acknowledged
 // local row REPAIR_TYPES selects (sleep: a live sleep-hk-<day> row; intake:
-// every row, bd med-wi09.23) is
+// a live row, bd med-wi09.23) is
 // reduced against its snapshot copy too,
 // not only a pending one, so an older bundle's compacted snapshot cannot bury
 // a fuller row this device already pushed; a local winner is re-stamped and
@@ -784,9 +784,10 @@ const MERGE_POLICY = { intake: mergeIntake, sleep: mergeSleep };
 // ordinary op. After one repair the winner is also the newest, and an
 // incoming copy with the same body is never repaired, so repairs stop. The
 // value picks the acknowledged rows a snapshot bootstrap reduces (reduceAcked).
-// Intake (bd med-wi09.23): every row; mergeIntake rules all intake ids alike,
-// tombstones winning either side, so there is no ledger/projection split.
-const REPAIR_TYPES = { sleep: isLiveSleepDayRow, intake: () => true };
+// Intake (bd med-wi09.23): live rows only. A local tombstone against a live
+// snapshot copy has no legitimate source (v2 compacters keep tombstones), but
+// an old tab's restore looks like one, so the snapshot stands there.
+const REPAIR_TYPES = { sleep: isLiveSleepDayRow, intake: (r) => !r.deleted };
 
 function lwwWinner(existing, record) {
   return !existing || record.clientTs > existing.clientTs ? record : existing;

@@ -3444,16 +3444,16 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect((await getRaw('pending', (s) => s.getAll())).map((p) => p.recordId)).toEqual([id]);
   });
 
-  // Every intake row is eligible, tombstones included: a tombstone wins either side.
-  it('a bootstrap keeps an acknowledged tombstone over a live snapshot row, and takes a snapshot tombstone', async () => {
+  // Only live acknowledged intake rows are reduced (breakage F1): a local
+  // tombstone against a live snapshot copy is what an old tab's restore looks
+  // like, so the snapshot stands; a snapshot tombstone still wins.
+  it('a bootstrap replaces an acknowledged tombstone with a live snapshot row, and takes a snapshot tombstone', async () => {
     const tomb = { recordId: id, recordType: 'intake', clientTs: 100, deleted: true };
     const live = row({ clientTs: 500, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
     await converge(tomb, tomb);
     await replaceAllRecords([live], { reduceAcked: true });
-    const kept = await getRaw();
-    expect(kept.deleted).toBe(true);
-    expect(kept.clientTs).toBeGreaterThan(500);
-    expect((await getRaw('pending', (s) => s.getAll())).map((p) => p.recordId)).toEqual([id]);
+    expect(await getRaw()).toMatchObject({ deleted: false, status: 'TAKEN', clientTs: 500 });
+    expect(await getRaw('pending', (s) => s.getAll())).toEqual([]);
 
     await converge(live, live);
     await replaceAllRecords([tomb], { reduceAcked: true });
