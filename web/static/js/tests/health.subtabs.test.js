@@ -6,8 +6,10 @@
 // `overview`, and that clicking a sub-tab routes through switchHealthTab()
 // to toggle the active-state classes.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadFrontendEnv, pullToRefresh as pull } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
+import { macrotask, signal } from './helpers/settle.js';
 
 describe('Health sub-tab strip (Phase 8, Task 2)', () => {
     let env;
@@ -126,5 +128,140 @@ describe('Health sub-tab strip (Phase 8, Task 2)', () => {
         const buttons = document.querySelectorAll('#health-subtabs .health-tab');
         const notesBtn = Array.from(buttons).find((b) => b.dataset.tab === 'notes');
         expect(notesBtn.getAttribute('aria-pressed')).toBe('true');
+    });
+});
+
+// Pull to refresh on Health (bd med-y7b4.6, kit PR1–PR3): the gesture runs the
+// Health import, then the sync pull; never a dialog, one refresh at a time.
+describe('Health pull to refresh (med-y7b4.6)', () => {
+    let env;
+    let calls;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+        env.window.AppStore.set('currentTab', 'health');
+        env.window.safeToast = vi.fn();
+        calls = [];
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    const register = (window, { importer, syncer } = {}) => {
+        if (importer !== null) {
+            window.AppRefresh.setImport(importer || (async () => { calls.push('import'); return { added: 0 }; }), 'Health Connect', () => true);
+        }
+        if (syncer !== null) {
+            window.AppRefresh.setSync(syncer || (async () => { calls.push('pull'); return { arrived: false }; }));
+        }
+    };
+
+    it('the pill names the source, flips at the threshold, and below it a release does nothing', () => {
+        const { window, document } = env;
+        register(window);
+        pull(window, 30, { release: false });
+        const pill = document.querySelector('#health-view .wg-ptr');
+        expect(pill.textContent).toBe('Pull to check Health Connect');
+        expect(pill.classList.contains('wg-ptr--ready')).toBe(false);
+        // It sits under the segment strips, above the content.
+        expect(pill.previousElementSibling.id).toBe('health-subtabs');
+        window.document.dispatchEvent(new window.Event('touchend'));
+        expect(document.querySelector('.wg-ptr')).toBeNull();
+        expect(calls).toEqual([]);
+
+        pull(window, 90, { release: false });
+        expect(document.querySelector('.wg-ptr').textContent).toBe('Release to check Health Connect');
+        expect(document.querySelector('.wg-ptr').classList.contains('wg-ptr--ready')).toBe(true);
+    });
+
+    it('a release past the threshold imports, then pulls; nothing new shows no toast', async () => {
+        const { window, document } = env;
+        register(window);
+        pull(window);
+        expect(document.querySelector('.wg-ptr').classList.contains('wg-ptr--busy')).toBe(true);
+        await window.AppRefresh.run();
+        await macrotask();
+        expect(calls).toEqual(['import', 'pull']);
+        expect(window.safeToast).not.toHaveBeenCalled();
+        expect(document.querySelector('.wg-ptr')).toBeNull();
+    });
+
+    it('new readings show one ok toast naming the store', async () => {
+        const { window } = env;
+        register(window, { importer: async () => ({ added: 12 }) });
+        pull(window);
+        await window.AppRefresh.run();
+        expect(window.safeToast).toHaveBeenCalledWith('12 new readings from Health Connect', 'success');
+    });
+
+    it('a second pull while one is in flight is ignored', async () => {
+        const { window } = env;
+        const entered = signal();
+        let finish;
+        register(window, {
+            importer: () => {
+                calls.push('import');
+                entered.fire();
+                return new Promise((resolve) => { finish = () => resolve({ added: 0 }); });
+            },
+        });
+        pull(window);
+        await entered.wait;
+        pull(window);
+        expect(window.document.querySelectorAll('.wg-ptr')).toHaveLength(1);
+        finish();
+        await window.AppRefresh.run();
+        await macrotask();
+        expect(calls).toEqual(['import', 'pull']);
+    });
+
+    it('a failed import shows a danger toast with the fix and skips the pull, no dialog', async () => {
+        allowConsoleNoise();
+        const { window } = env;
+        const confirmSpy = vi.spyOn(window, 'confirm');
+        register(window, { importer: async () => { throw new Error('denied'); } });
+        pull(window);
+        await window.AppRefresh.run();
+        expect(window.safeToast).toHaveBeenCalledWith("Couldn't read Health Connect · check its access in Settings", 'error');
+        expect(calls).toEqual([]);
+        expect(confirmSpy).not.toHaveBeenCalled();
+    });
+
+    it('a failed pull shows its message as a danger toast', async () => {
+        allowConsoleNoise();
+        const { window } = env;
+        register(window, { syncer: async () => { throw new Error('Offline · showing what\'s on this device'); } });
+        pull(window);
+        await window.AppRefresh.run();
+        expect(calls).toEqual(['import']);
+        expect(window.safeToast).toHaveBeenCalledWith('Offline · showing what\'s on this device', 'error');
+    });
+
+    it('local mode (no account) imports only', async () => {
+        const { window } = env;
+        register(window, { syncer: null });
+        pull(window);
+        await window.AppRefresh.run();
+        expect(calls).toEqual(['import']);
+    });
+
+    it('no gesture while a sheet is open', () => {
+        const { window, document } = env;
+        register(window);
+        document.getElementById('importexport-export-sheet').classList.remove('hidden');
+        pull(window);
+        expect(document.querySelector('.wg-ptr')).toBeNull();
+        expect(calls).toEqual([]);
+    });
+
+    it('no gesture when the page is scrolled down', () => {
+        const { window, document } = env;
+        register(window);
+        Object.defineProperty(window, 'scrollY', { value: 200, configurable: true });
+        pull(window);
+        expect(document.querySelector('.wg-ptr')).toBeNull();
+        expect(calls).toEqual([]);
     });
 });

@@ -814,5 +814,12 @@ describe('Apple Health import', () => {
             expect(await runHealthImport({}, { health, storage, records, flush })).toEqual({ added: 1 });
             expect(JSON.parse(storage.getItem('wg.health.anchors'))).toEqual({ weight: '1' });
         });
+
+        it('every kind failing rejects, so pull to refresh can name the fix (med-y7b4.6)', async () => {
+            allowConsoleNoise(); // the failed kinds are logged by design
+            const health = healthOf({});
+            health.query = async () => { throw new Error('Health Connect unavailable'); };
+            await expect(runHealthImport({}, { health, storage, records, flush })).rejects.toThrow('Health Connect unavailable');
+        });
     });
 });
