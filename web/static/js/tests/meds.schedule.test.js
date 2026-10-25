@@ -410,17 +410,17 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(editSpy).not.toHaveBeenCalled();
     });
 
-    it('Add medication is the kit primary in the Meds app bar, not inside a sub-tab pane', () => {
+    it('Add medication is the ghost icon button in the Meds app bar, not inside a sub-tab pane', () => {
         const { document } = env;
         const btn = document.getElementById('add-btn');
         expect(btn).not.toBeNull();
         expect(btn.classList.contains('wg-btn')).toBe(true);
-        expect(btn.classList.contains('wg-btn--primary')).toBe(true);
+        expect(btn.classList.contains('wg-btn--ghost')).toBe(true);
         expect(btn.classList.contains('wg-toolbar-btn')).toBe(false);
         expect(document.querySelector('#meds-view .wg-appbar').contains(btn)).toBe(true);
         expect(document.getElementById('med-schedule-tab').contains(btn)).toBe(false);
         expect(document.querySelector('.wg-meds-schedule-header')).toBeNull();
-        expect(btn.textContent.trim()).toBe('Add');
+        expect(btn.textContent.trim()).toBe('');
     });
 
 
