@@ -49,6 +49,13 @@ func sweepInviteRequests(ctx context.Context, tx storedb.TX, now time.Time) erro
 	return err
 }
 
+// SweepExpiredInviteRequests runs the retention sweep on its own, so a quiet
+// server still honours the retention with no new requests (med-wz0o; the
+// relay's hourly tick calls it).
+func (r *Repo) SweepExpiredInviteRequests(ctx context.Context, now time.Time) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error { return sweepInviteRequests(ctx, tx, now) })
+}
+
 // CreateEmailInviteRequest sweeps rows past retention, then refuses with
 // ErrInviteRequestsFull once dailyCap email rows were made in the last 24h —
 // checked FIRST, so a full cap answers a known and an unknown address alike —

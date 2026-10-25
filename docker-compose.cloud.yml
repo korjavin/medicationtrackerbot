@@ -6,10 +6,19 @@ version: '3'
 # `proxy` network created by docker-compose.infra.cloud.yml. See
 # docs/cloud-deployment.md.
 
+# Log rotation on every service (med-wz0o): Docker's json-file driver does
+# not rotate by itself. ~30 MB per container; docs/cloud-operations-security.md §1.2.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   cloud:
     image: ghcr.io/korjavin/medicationtrackerbot:latest
     container_name: medtracker-cloud
+    logging: *default-logging
     restart: unless-stopped
     command: ["./cloud"]
     volumes:
@@ -157,6 +166,7 @@ services:
     image: ghcr.io/korjavin/telegram-bot-api:2026-02-28
     pull_policy: if_not_present
     container_name: medtracker-cloud-telegram-api
+    logging: *default-logging
     restart: on-failure
     user: "0:0"
     # Default entrypoint forces user 101. We override it to run our own setup.
@@ -222,6 +232,7 @@ services:
     image: ghcr.io/korjavin/litestream:0.3.13
     pull_policy: if_not_present
     container_name: medtracker-cloud-litestream
+    logging: *default-logging
     restart: on-failure
     entrypoint: /bin/sh
     command:

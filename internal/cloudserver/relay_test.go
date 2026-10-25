@@ -3,7 +3,9 @@ package cloudserver
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -967,5 +969,47 @@ func TestRelay_SentRefireLeavesAuditRow(t *testing.T) {
 	// exactly one successor.
 	if got := countRefires("sent_at_unix IS NULL"); got != 1 {
 		t.Fatalf("expected exactly 1 pending re-fire after the tick, got %d", got)
+	}
+}
+
+// med-wz0o: invite requests and share links past retention are deleted by the
+// relay's own sweep, with no new insert to trigger the insert-time sweep.
+func TestRelay_RetentionSweepWithoutInserts(t *testing.T) {
+	store := setupStore(t)
+	account, _ := setupInvite(t, store)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	longAgo := now.Add(-100 * 24 * time.Hour) // past the 90-day invite retention
+
+	newReq, _, err := store.CreateEmailInviteRequest(ctx, "new@example.test", "", now, time.Hour, 10)
+	if err != nil {
+		t.Fatalf("new invite request: %v", err)
+	}
+	// Inserted last: an insert sweeps, so a later one would mask the relay's.
+	oldReq, _, err := store.CreateEmailInviteRequest(ctx, "old@example.test", "", longAgo, time.Hour, 10)
+	if err != nil {
+		t.Fatalf("old invite request: %v", err)
+	}
+	if err := store.CreateShareLink(ctx, "OldLink001", account.ID, []byte("c"), longAgo, now.Add(-time.Minute)); err != nil {
+		t.Fatalf("old share link: %v", err)
+	}
+	if err := store.CreateShareLink(ctx, "NewLink001", account.ID, []byte("c"), now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("new share link: %v", err)
+	}
+
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, nil, 0).RetentionSweep(ctx)
+
+	if _, err := store.InviteRequestByID(ctx, oldReq); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("old invite request: err = %v; want swept", err)
+	}
+	if _, err := store.InviteRequestByID(ctx, newReq); err != nil {
+		t.Errorf("fresh invite request: err = %v; want kept", err)
+	}
+	// Reading "as of" longAgo sees the expired row if it still exists.
+	if _, _, err := store.ShareLink(ctx, "OldLink001", longAgo); !errors.Is(err, cloudstore.ErrShareLinkInvalid) {
+		t.Errorf("expired share link: err = %v; want swept", err)
+	}
+	if _, _, err := store.ShareLink(ctx, "NewLink001", now); err != nil {
+		t.Errorf("live share link: err = %v; want kept", err)
 	}
 }

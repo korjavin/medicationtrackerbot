@@ -169,6 +169,8 @@ type relayStore interface {
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
 	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback, tgMedIDs string, supersedesMessageID int64) error
 	ScrubSentPushIdentity(ctx context.Context, before time.Time) (int64, error)
+	SweepExpiredInviteRequests(ctx context.Context, now time.Time) error
+	SweepExpiredShareLinks(ctx context.Context, now time.Time) (int, error)
 	ListNativePushTokens(ctx context.Context, accountID string) ([]cloudstore.NativePushToken, error)
 	DisableNativePushToken(ctx context.Context, platform, token string) error
 }
@@ -252,6 +254,7 @@ func (rl *Relay) Run(ctx context.Context) {
 	defer ticker.Stop()
 	staleTicker := time.NewTicker(staleSweepInterval)
 	defer staleTicker.Stop()
+	rl.RetentionSweep(ctx) // at startup: a restart must not wait an hour
 	for {
 		select {
 		case <-ctx.Done():
@@ -259,8 +262,25 @@ func (rl *Relay) Run(ctx context.Context) {
 		case <-ticker.C:
 			rl.Tick(ctx)
 		case <-staleTicker.C:
+			rl.RetentionSweep(ctx)
 			rl.StaleSyncSweep(ctx)
 		}
+	}
+}
+
+// RetentionSweep deletes invite requests and share links past their retention
+// (med-wz0o). The insert paths sweep too, but only when a row is created; this
+// keeps the documented retention on a quiet server. Both are idempotent DELETEs
+// by age, so racing an insert-time sweep is harmless. Exported for tests.
+func (rl *Relay) RetentionSweep(ctx context.Context) {
+	now := time.Now().UTC()
+	if err := rl.store.SweepExpiredInviteRequests(ctx, now); err != nil {
+		slog.Error("retention sweep: invite requests", "error", err)
+	}
+	if n, err := rl.store.SweepExpiredShareLinks(ctx, now); err != nil {
+		slog.Error("retention sweep: share links", "error", err)
+	} else if n > 0 {
+		slog.Info("retention sweep: share links", "deleted", n)
 	}
 }
 
