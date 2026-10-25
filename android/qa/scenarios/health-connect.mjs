@@ -22,7 +22,8 @@ export default async function healthConnect(ctx) {
   const sys = 150 + Math.floor(Math.random() * 40);
   const FIRST = [sys, 90 + Math.floor(Math.random() * 10)];
   const SECOND = [sys + 1, FIRST[1] + 1];
-  const VITALS = { steps: 1000 + Math.floor(Math.random() * 5000), hr: 60 + Math.floor(Math.random() * 30), spo2: 90 + Math.floor(Math.random() * 9) };
+  // Outside the local QA fixture's ranges, so the cards can only move from this import.
+  const VITALS = { steps: 20_000 + Math.floor(Math.random() * 5000), hr: 150 + Math.floor(Math.random() * 20), spo2: 80 + Math.floor(Math.random() * 5) };
   const SPO2N = 120; // more than HealthConnect.DENSE_PAGE records: the scan pages
   const r = (ctx.results.health = { readings: [FIRST, SECOND], vitals: VITALS });
 
@@ -65,6 +66,16 @@ export default async function healthConnect(ctx) {
     }
     return false;
   };
+  // What the Vitals cards read: today's steps, the 7-day HR / SpO2 history and averages.
+  const overview = () => ctx.page.evaluate(async () => {
+    const o = await window.apiCall('/api/health/overview');
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
+    return o && {
+      steps: ((o.step_stats_7d || []).find((d) => d.day === today) || {}).steps || 0,
+      hr: JSON.stringify([o.average_heart_rate_7d, o.heart_rate_history_7d]),
+      spo2: JSON.stringify([o.average_spo2_7d, o.spo2_history_7d]),
+    };
+  });
   const toggle = () => ctx.page.evaluate(() => document.getElementById('health-import-toggle').click());
   const state = () => ctx.page.evaluate(() => ({
     enabled: localStorage.getItem('wg.health.enabled'),
@@ -80,6 +91,7 @@ export default async function healthConnect(ctx) {
         window.__qaVis = [];
         document.addEventListener('visibilitychange', () => window.__qaVis.push(document.visibilityState));
       });
+      r.cardsBefore = await overview();
     });
 
     await ctx.step('a reading saved before the import: #1 (+ steps, HR, SpO2)', () => write(FIRST, VITALS));
@@ -133,17 +145,11 @@ export default async function healthConnect(ctx) {
     });
 
     await ctx.step('Vitals: Steps / Heart Rate / SpO2 cards populated', async () => {
-      // The page imports these kinds from bd med-0xad.1 on; before that only the bridge is checked.
-      const seen = () => ctx.page.evaluate(() => (JSON.parse(localStorage.getItem('wg.health.last') || '{}').seen) || {});
-      const end = Date.now() + 30_000;
-      while (Date.now() < end && !('spo2' in (await seen()))) await sleep(1000);
-      r.seen = await seen();
-      if (!('steps' in r.seen)) { r.cards = 'skipped: the page does not import steps yet'; return; }
-      const overview = async () => ctx.page.evaluate(async () => {
-        const o = await window.apiCall('/api/health/overview');
-        return o && { steps: o.average_steps_7d, hr: (o.heart_rate_history_7d || []).length, spo2: (o.spo2_history_7d || []).length };
-      });
-      const full = (c) => c && c.steps > 0 && c.hr > 0 && c.spo2 > 0;
+      // The page imports these kinds (bd med-0xad.1); the vault also holds the QA fixture, so
+      // each card must have moved from this import: today's steps reach the seeded count, and the
+      // HR / SpO2 history differs from before the switch-on.
+      const b = r.cardsBefore;
+      const full = (c) => c && c.steps >= VITALS.steps && c.hr !== b.hr && c.spo2 !== b.spo2;
       for (const until = Date.now() + 30_000; !full(r.cards = await overview()) && Date.now() < until;) await sleep(1000);
       if (!full(r.cards)) throw new Error(`cards: ${JSON.stringify(r.cards)}`);
       await ctx.page.evaluate(() => window.switchTab('health'));
