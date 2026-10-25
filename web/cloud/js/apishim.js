@@ -27,7 +27,9 @@ import {
 } from '../../domain/paginate.js';
 import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
-import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp } from './sync.js';
+import {
+  recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp, notifyRecordsChanged,
+} from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -39,15 +41,37 @@ import { createVoiceLLMResponder } from './voice-llm-responder.js';
 import { registerEgressHosts } from './egress-hosts.js';
 import { materializing, materializationSettled, withMaterializationStopped } from './materialize-gate.js';
 
-// materializeTimerHandle is module-level (not per-shim-instance) because the
-// production invariant is "one shim installed per page load"; re-installing
-// (as every shim-mode test case does) simply clears and restarts the single
-// sweep instead of stacking a new setInterval on top of the previous one.
-const MATERIALIZE_INTERVAL_MS = 60_000;
-let materializeTimerHandle;
 // Re-exported for the store replacers (cloud-boot.js, local-policy.js) and the
 // tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
 export { materializationSettled, withMaterializationStopped };
+
+// Clock-driven dose refresh (Archie 4934 point 3). Ledger v2 writes nothing
+// when a dose comes due, so nothing would repaint a screen left open across
+// it (Today's missed list, the Meds tab). Every projection names its next
+// boundary (the earliest upcoming plannedAt, or a snooze's end) through the
+// intake domain's onBoundary port; one timer per page fires there and
+// invalidates the intake-derived caches exactly as an external intake write
+// would, so every mounted surface re-reads. Module-level like the old sweep's
+// handle: one shim per page load, a re-install re-arms the single timer.
+// ponytail: setTimeout caps near 24.8 days; a longer wait fires early, and the
+// re-read it causes simply re-arms.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+let doseClock = { at: Infinity, handle: null, timers: null };
+function armDoseClock(atMs, nowMs, timers, win) {
+  if (!(atMs > nowMs)) return;
+  if (doseClock.handle !== null && doseClock.at > nowMs && doseClock.at <= atMs) return;
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  const handle = timers.setTimeout(() => {
+    doseClock = { at: Infinity, handle: null, timers: null };
+    notifyRecordsChanged(['intake'], ORIGIN_EXTERNAL, win);
+  },Math.min(atMs - nowMs + 1, MAX_TIMER_MS));
+  doseClock = { at: atMs, handle, timers };
+}
+// Test teardown: no dose timer outlives its suite (cf. bd med-tc1.3).
+export function stopDoseClock() {
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  doseClock = { at: Infinity, handle: null, timers: null };
+}
 
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
@@ -153,6 +177,8 @@ function debugOnce(key, ...args) {
 // "New data is available" banner for the user's own action.
 // opts.now/opts.timeZone override the clock the domain instances read, which is
 // what lets a test drive the router across a date boundary deterministically.
+// opts.via names the channel for intake merge ranking (bd med-wi09.11):
+// 'mcp' for the MCP responder, 'telegram' for the chat agent; default app.
 // opts.timeZone stands in for the DEVICE zone specifically: a settings.timezone
 // the user pinned in Settings still wins over it (bd med-7ujt).
 //
@@ -180,10 +206,12 @@ function debugOnce(key, ...args) {
 //                 nothing to pull and is always caught up. cloud-boot.js
 //                 passes its own through installApiShim: caught up AND the
 //                 local → cloud move pickup settled (bd med-ydt2).
+//   opts.onDoseBoundary(atMs)  the intake domain's onBoundary port; only the
+//                 page's shim passes one (installApiShim's dose clock).
 export function createApiRouter(ctx, {
-  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
+  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
-  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp,
+  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -229,7 +257,7 @@ export function createApiRouter(ctx, {
     medications = createMedicationsDomain({
       records, now, timeZone, rxnorm,
     });
-    intake = createIntakeDomain({ records, now, timeZone });
+    intake = createIntakeDomain({ records, now, timeZone, via, onBoundary: onDoseBoundary });
     tzplan = createTzPlanDomain({ records, now, timeZone });
     foodDb = createFoodDbClient({ settingsDomain: settings, operatorFoodDb });
     food = createFoodDomain({
@@ -284,7 +312,7 @@ export function createApiRouter(ctx, {
   // pinned a zone resolves to deviceTimeZone and nothing is rebuilt.
   //
   // Memoized against the records-change counter, NOT once-only: cloud-boot.js
-  // installs the shim (and fires the first materialization sweep) BEFORE
+  // installs the shim BEFORE
   // pullOnOpen has landed this account's records, so a once-only memo would pin
   // a freshly-unlocked device to its own zone for the whole session — exactly
   // the user this fix is for. Every sync pull and every local write bumps the
@@ -1668,8 +1696,7 @@ export function createApiRouter(ctx, {
   }
 
   // A getter, not a snapshot: buildDomains() replaces the instances, so a
-  // property read must land on the current set (installApiShim's materialization
-  // sweep re-reads it on every tick for exactly this reason).
+  // property read must land on the current set.
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
@@ -1682,7 +1709,7 @@ export function createApiRouter(ctx, {
 
 // installApiShim wires the router to window.offlineAwareApiCall (the seam
 // web/static/js/core/api.js delegates through) plus the browser-direct globals
-// that bypass /api entirely, and starts the materialization sweep. Signature
+// that bypass /api entirely, and writes the ledger cut. Signature
 // and return value unchanged: it resolves to the router itself.
 // now/timeZone are forwarded straight to createApiRouter (both routers, so the
 // two agree on the clock) — the same test-only override it documents, reachable
@@ -1694,8 +1721,12 @@ export function createApiRouter(ctx, {
 export function installApiShim(ctx, {
   records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
   win, now: nowOverride, timeZone: timeZoneOverride, caughtUp,
+  // Read at call time so a test's fake timers apply.
+  timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h) },
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
+  const clockNow = nowOverride || (() => Date.now());
+  const onDoseBoundary = (atMs) => armDoseClock(atMs, clockNow(), timers, targetWindow);
   // Two routers over the same records store, differing only in the origin they
   // stamp on writes (med-dvr):
   //
@@ -1704,7 +1735,7 @@ export function installApiShim(ctx, {
   //               them has already repainted.
   //   bgCall    — everything else that writes from inside this tab: the voice
   //               agent's MCP dispatcher, the browser-direct food-AI client, and
-  //               the materialization sweep. None of these is a user action on
+  //               the ledger-cut write. None of these is a user action on
   //               the current screen, so all of them must repaint it.
   //
   // A test's injected `records` port carries its own origin and is shared by
@@ -1712,13 +1743,14 @@ export function installApiShim(ctx, {
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
     recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win, caughtUp,
+    onDoseBoundary,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });
   // Snapshotted on purpose — every use below reads integrations or a product
   // search, never the wall clock, so these survive a buildDomains() rebuild when
   // the pinned settings.timezone resolves (bd med-7ujt). Anything TIME-sensitive
-  // must go through `.domains` at call time, the way runMaterializationSweep
+  // must go through `.domains` at call time, the way the ledger-cut write
   // does below.
   const {
     settings, foodDb, now, aiClient,
@@ -1766,28 +1798,19 @@ export function installApiShim(ctx, {
   // start()s it before minting the signed URL and stop()s it on hang-up.
   targetWindow.CloudVoiceLLM = createVoiceLLMResponder({ aiClient });
 
-  // Due-dose materialization + tz-plan status refresh: neither domain module
-  // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
-  // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
-  // Both compute dose slots in wall time, so they must run on the RESOLVED zone:
-  // await the settings.timezone read and re-read `.domains` each tick, since a
-  // rebuild replaces the instances (bd med-7ujt).
-  async function runMaterializationSweep() {
+  // Ledger v2 activation (bd med-wi09.12): no dose sweep, no timer — doses are
+  // derived (the projection regenerates them from the ledger cut). On install
+  // this client writes the ledgercut singleton (floored, put-if-absent), whose
+  // first op sets the account's cut and arms the server's writer gate against
+  // pre-v2 bundles. Skipped during a store replace (materialize-gate.js); the
+  // next page load writes it.
+  materializing(async () => {
     try {
-      await bgCall.ensureTimeZone();
-      const { intake, tzplan } = bgCall.domains;
-      await intake.materializeDueDoses();
-      await tzplan.refreshPlanStatus();
+      await bgCall.domains.intake.ensureLedgerCut();
     } catch (e) {
-      console.error('[cloud shim] materialization sweep failed', e);
+      console.error('[cloud shim] ledger cut write failed', e);
     }
-  }
-  // A tick during a store replace is skipped (materialize-gate.js); the next
-  // one reads the replaced store.
-  const sweep = () => { materializing(runMaterializationSweep).catch(() => {}); };
-  clearInterval(materializeTimerHandle);
-  sweep();
-  materializeTimerHandle = setInterval(sweep, MATERIALIZE_INTERVAL_MS);
+  }).catch(() => {});
 
   // Egress allowlist (CSP scoping). Tell the server which provider HOSTNAMES
   // this account connects to browser-direct so /'s connect-src can be scoped to

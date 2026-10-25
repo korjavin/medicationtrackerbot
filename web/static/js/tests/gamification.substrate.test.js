@@ -599,9 +599,14 @@ describe('read-path memoization (med-90w.2)', () => {
   it('memo invalidates when a PENDING dose crosses its due time (no write, same day)', async () => {
     // A pending dose flips to missed purely by clock (schedMs < now), moving no
     // change-count — the day-suffix key can't see it since the crossing is intraday.
+    // The dose has no row: it is derived from the med's schedule (bd med-wi09.12).
     const dueMs = RM_NOW + 2 * 3600000; // due 14:00 UTC, still RM_TODAY
     const records = createInMemoryRecordsPort({
-      intake: [{ recordId: 'i1', deleted: false, medication_id: 'm1', scheduled_at: isoAtMs(dueMs), status: 'PENDING' }],
+      medication: [{
+        recordId: 'm1', deleted: false, archived: false, name: 'M', dosage: '1',
+        schedule: JSON.stringify({ type: 'daily', times: ['14:00'] }), created_at: '2026-06-01T00:00:00.000Z',
+      }],
+      ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: isoAtMs(RM_NOW - 3600000) }],
     });
     let clock = RM_NOW;
     const gam = createGamificationDomain({ records, now: () => clock, timeZone: 'UTC', getRecordsChangeCount: () => 1 });

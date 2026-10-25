@@ -384,6 +384,13 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
             expect(await stateOf(window)).toEqual({ a: 'PENDING', b: 'PENDING', stockA: 6, stockB: 5 });
             const history = await window.apiCall('/api/history?days=2');
             expect(history.some((h) => h.taken_at)).toBe(false);
+            // Stored as UNTAKEN (bd med-wi09.11): an explicit app action at
+            // seen-rev + 1, the reverted taken_at kept in the note.
+            const a = (await env.records.list('intake')).find((i) => i.recordId === 'intake-a');
+            expect(a).toMatchObject({ status: 'UNTAKEN', rev: 2, via: 'app', note: expect.stringContaining('was taken at') });
+            const [row] = (await window.apiCall('/api/doses?from=1970-01-01T00:00:00Z&to=2100-01-01T00:00:00Z'))
+                .filter((d) => d.occId === 'intake-a');
+            expect(row).toMatchObject({ state: 'due', via: 'app' });
 
             // Undo of a pending dose is a no-op.
             expect(await act(window, { action: 'undo', occ_ids: ['intake-a'] })).toMatchObject({ updated: 0, unchanged: 1 });

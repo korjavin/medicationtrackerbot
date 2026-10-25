@@ -8,6 +8,7 @@
 import { encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
+import { mergeIntake, LEDGERCUT_RECORD_ID, LEDGERCUT_RECORD_TYPE } from '../../domain/medintake.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -99,6 +100,26 @@ function markUpdateRequired() {
 function isUpdateRequiredStatus(status) {
   return status === 426;
 }
+// Every oplog push and snapshot POST declares the v2 dose ledger (bd
+// med-wi09.12): once the account's ledger cut is set the server answers 426 to
+// a writer without it (med-wi09.8). A header only — queued legacy payloads go
+// up unchanged and the intake reducer still ranks them legacy.
+const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Ledger': '2' };
+
+// The pull's ledger_cut_at is the account's cut; the local ledgercut singleton
+// carries it as `at` for the projection (medintake.js loadCutMs). A local-only
+// overwrite — the server already holds the cut, so nothing is queued.
+async function adoptLedgerCut(cutAt) {
+  if (typeof cutAt !== 'string') return false;
+  return withRecordsLock(async () => {
+    const existing = await getRecord(LEDGERCUT_RECORD_ID);
+    if (existing && !existing.deleted && existing.at === cutAt) return false;
+    await putRecord({
+      ...(existing || {}), recordId: LEDGERCUT_RECORD_ID, recordType: LEDGERCUT_RECORD_TYPE, clientTs: 0, deleted: false, at: cutAt,
+    });
+    return true;
+  });
+}
 
 // Serializes the record-store mutations that must not interleave:
 // replaceAllRecords() clears the whole store and re-lays a snapshot, while a
@@ -189,6 +210,13 @@ async function readMeta() {
       reqToPromise(store.get('lastSnapshotAt')),
       reqToPromise(store.get('importBumpSeq')),
     ]);
+    // A 426 error/streak/wedge in the shared sync_meta was written by a pre-v2
+    // bundle's tab (this build never counts a 426: markUpdateRequired), which
+    // wedges after three. This build sends X-Ledger: 2, so the server accepts
+    // that same queue from it: ignore the gate wedge and keep flushing; if the
+    // push is still refused, it raises "Update required", never the reset hint
+    // that would discard the queue both tabs share (bd med-wi09.12 MED-3).
+    const gateWedge = writeError != null && isUpdateRequiredStatus(writeError.status);
     return {
       localLastSeq: localLastSeq ?? null,
       lastSnapshotSeq: lastSnapshotSeq ?? 0,
@@ -196,11 +224,11 @@ async function readMeta() {
       integrityErrors: integrityErrors ?? 0,
       forceSnapshotPending: forceSnapshotPending ?? false,
       snapshotError: snapshotError ?? null,
-      writeError: writeError ?? null,
+      writeError: gateWedge ? null : (writeError ?? null),
       clockSkewMs: clockSkewMs ?? 0,
       snapshotErrorSeq: snapshotErrorSeq ?? null,
-      writeErrorStreak: writeErrorStreak ?? 0,
-      syncWedged: syncWedged ?? false,
+      writeErrorStreak: gateWedge ? 0 : (writeErrorStreak ?? 0),
+      syncWedged: gateWedge ? false : (syncWedged ?? false),
       lastSnapshotAt: lastSnapshotAt ?? null,
       importBumpSeq: importBumpSeq ?? null,
     };
@@ -235,9 +263,101 @@ export function getRecordsChangeCount() {
 }
 
 function invalidateRecords(type) {
-  if (type) recordsMemo.delete(type);
-  else recordsMemo.clear();
+  if (type) {
+    recordsMemo.delete(type);
+    rawMemo.delete(type);
+  } else {
+    recordsMemo.clear();
+    rawMemo.clear();
+    journalReset();
+  }
   recordsChangeCount++;
+}
+
+// The raw (tombstones included) twin of recordsMemo, invalidated at the same
+// funnels: medintake.js's projection reads raw intakes on every dose view.
+const rawMemo = new Map();
+
+// Write journal (bd med-wi09.12): the records each physical write touched,
+// for readers that keep derived state across reads (medintake.js's projection
+// cache). changesSince(type, token) → {token, ids}: the recordIds of `type`
+// written since `token` — or ids null when that is unknown (a first ask, a
+// store replace or reset, a dropped connection, more writes than the journal
+// holds), and the reader must rebuild. Same coverage as recordsMemo: every
+// write goes through putRecord, replaceAllRecords or resetLocalSync.
+const JOURNAL_MAX = 2000;
+let journalEpoch = 0;
+let journalSeq = 0;
+let journal = [];
+
+function journalWrite(type, id) {
+  journalSeq++;
+  journal.push({ seq: journalSeq, type, id: String(id) });
+  if (journal.length > JOURNAL_MAX) journal = journal.slice(-JOURNAL_MAX / 2);
+}
+
+function journalReset() {
+  journalEpoch++;
+  journal = [];
+}
+
+// Cross-tab (bd med-wi09.12 R3-1): every tab and window of this origin shares
+// the IndexedDB store but keeps its own memos and journal, so each physical
+// write is announced to the others, which journal it and drop their memo as if
+// they had written it. A message lands a task later; a read racing it is fixed
+// by the next read. Never re-announced, so no echo.
+const recordsChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('medtracker-records') : null;
+if (recordsChannel) {
+  if (typeof recordsChannel.unref === 'function') recordsChannel.unref(); // Node (tests): don't hold the process open
+  recordsChannel.onmessage = (event) => {
+    const msg = event.data || {};
+    if (msg.reset) {
+      invalidateRecords();
+    } else if (typeof msg.type === 'string') {
+      journalWrite(msg.type, msg.id);
+      invalidateRecords(msg.type);
+    }
+  };
+}
+
+// Not every writer announces: an old bundle's tab left open after a deploy, a
+// message lost while this page sat frozen (bfcache), a browser without
+// BroadcastChannel (Safari < 15.4). So the memos are also dropped whenever the
+// page comes back into use — restored, shown, or focused (clicking into this
+// window precedes the tap). The journal is kept: the intake projection catches
+// an unnamed write by its fingerprint (medintake.js syncIndex), so this costs
+// one store read per type, not a rebuild.
+function dropMemos() {
+  recordsMemo.clear();
+  rawMemo.clear();
+  recordsChangeCount++;
+}
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('pageshow', (event) => { if (event.persisted) dropMemos(); });
+  window.addEventListener('focus', dropMemos);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') dropMemos(); });
+  }
+}
+
+function announce(msg) {
+  try {
+    if (recordsChannel) recordsChannel.postMessage(msg);
+  } catch {
+    // A closed channel (page teardown) has no one left to tell.
+  }
+}
+
+export function changesSince(recordType, token) {
+  const current = `${journalEpoch}:${journalSeq}`;
+  const [epoch, seq] = typeof token === 'string' ? token.split(':').map(Number) : [NaN, NaN];
+  if (epoch !== journalEpoch || !(seq <= journalSeq)) return { token: current, ids: null };
+  if (seq < journalSeq && (journal.length === 0 || journal[0].seq > seq + 1)) return { token: current, ids: null };
+  const ids = [];
+  for (let k = journal.length - 1; k >= 0 && journal[k].seq > seq; k--) {
+    if (journal[k].type === recordType) ids.push(journal[k].id);
+  }
+  return { token: current, ids };
 }
 
 // A dropped cached connection (versionchange / deleteDatabase / account-delete)
@@ -246,6 +366,8 @@ function invalidateRecords(type) {
 // between tests (fake-indexeddb's deleteDatabase fires onversionchange).
 onCachedDbDropped(() => {
   recordsMemo.clear();
+  rawMemo.clear();
+  journalReset();
   recordsChangeCount++;
   bootstrapped = false;
   // Harmless to clear mid-session: the next push re-learns it with one 426.
@@ -254,7 +376,9 @@ onCachedDbDropped(() => {
 
 async function putRecord(record) {
   await withStore('records', 'readwrite', (store) => store.put(record));
+  journalWrite(record && record.recordType, record && record.recordId);
   invalidateRecords(record && record.recordType);
+  announce({ type: record && record.recordType, id: String(record && record.recordId) });
 }
 
 async function readAllRecords() {
@@ -305,6 +429,15 @@ export async function replaceAllRecords(input) {
       const r = await getRecord(recordId);
       if (!r) continue;
       const snap = snapshotById.get(recordId);
+      // A semantic-merge type (intake, med-wi09.11) is reduced, not overlaid: a
+      // pending row the reducer rules stale leaves the queue like a floored one.
+      const policy = snap ? MERGE_POLICY[r.recordType] : null;
+      if (policy) {
+        const won = policy(snap, r);
+        if (won === snap) losingPending.push(recordId);
+        else overlay.push(won);
+        continue;
+      }
       // Same grow-only fold as applyIncoming (med-ooeh): the op that carried a
       // field may already be compacted into this snapshot, so neither side may
       // simply replace the other.
@@ -324,6 +457,7 @@ export async function replaceAllRecords(input) {
     if (losingPending.length > 0) await clearPending(losingPending);
   });
   invalidateRecords();
+  announce({ reset: true });
 }
 
 // Drop not-yet-flushed writes for the given record types. A destructive
@@ -367,6 +501,7 @@ export async function resetLocalSync(ctx) {
     }));
   });
   invalidateRecords();
+  announce({ reset: true });
   bootstrapped = false;
   offline = false;
   authExpired = false;
@@ -441,6 +576,8 @@ const RECORD_TAGS = {
   medication: ['medications'],
   restock: ['medications'],
   intake: ['medications', 'history'],
+  // bd med-wi09.12: the cut moves where the projection starts regenerating.
+  ledgercut: ['medications', 'history'],
   note: ['notes', 'health-notes'],
   sleep: ['health'],
   hrsample: ['health'],
@@ -502,11 +639,13 @@ export const ORIGIN_EXTERNAL = 'external';
 // toggleFeatureSetting POSTs straight through apiCall — so the guard passed,
 // the emit fired, and the user was told there was new data about the toggle
 // they had just flipped. The origin is known at the call site; use it.
-function notifyRecordsChanged(recordTypes, origin) {
+// Exported for apishim.js's dose clock: a dose coming due repaints like an
+// external intake write, on the shim's own window (`win`).
+export function notifyRecordsChanged(recordTypes, origin, win = typeof window !== 'undefined' ? window : undefined) {
   if (origin === ORIGIN_UI) return;
   const tags = [...new Set([...recordTypes].flatMap((t) => RECORD_TAGS[t] || []))];
   if (tags.length === 0) return;
-  const ds = typeof window !== 'undefined' && window.DataStore;
+  const ds = win && win.DataStore;
   if (!ds || typeof ds.requestTabRefresh !== 'function') return;
   Promise.resolve(typeof ds.invalidateTags === 'function' ? ds.invalidateTags(tags) : undefined)
     .then(() => ds.requestTabRefresh(tags, 'cloud-write'))
@@ -594,9 +733,24 @@ async function noteServerDate(res) {
 // pending row meets a snapshot row. Tombstones are never merged.
 const APPLY_MERGE = { gamificationjournal: mergeGamificationJournal };
 
+// Semantic-merge types (bd med-wi09.11): the reducer REPLACES clientTs LWW for
+// the type, on every path a row meets another copy of itself — local writes
+// (stampAndPut), incoming ops (applyIncoming) and pending-vs-snapshot
+// (replaceAllRecords). policy(local, incoming) returns `local` itself when
+// nothing changes, else the row to store. clientTs is still stamped and pushed:
+// an older client keeps merging these rows by LWW.
+const MERGE_POLICY = { intake: mergeIntake };
+
 async function applyIncoming(recordType, record) {
   return withRecordsLock(async () => {
     const existing = await getRecord(record.recordId);
+    const policy = MERGE_POLICY[recordType];
+    if (policy) {
+      const merged = policy(existing, record);
+      if (merged === existing) return null;
+      await putRecord({ ...merged, recordType });
+      return recordType;
+    }
     const incomingWins = !existing || record.clientTs > existing.clientTs;
     const merge = APPLY_MERGE[recordType];
     if (merge && existing && !existing.deleted && !record.deleted) {
@@ -740,6 +894,7 @@ async function pullTail(ctx) {
       continue;
     }
     const applied = new Set();
+    if (await adoptLedgerCut(body.ledger_cut_at)) applied.add(LEDGERCUT_RECORD_TYPE);
     for (const op of body.ops || []) {
       const { recordType, recordId } = parseTag(op.record_type_tag);
       try {
@@ -794,7 +949,7 @@ async function snapshotAt(ctx, snapshotSeq) {
   try {
     res = await timedFetch('/api/sync/snapshot', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: WRITE_HEADERS,
       body: JSON.stringify({ snapshot_seq: snapshotSeq, nonce: toBase64(nonce), ct: toBase64(ct) }),
     });
   } catch {
@@ -984,7 +1139,7 @@ async function tryForceSnapshot(ctx) {
   try {
     res = await timedFetch('/api/sync/ops', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: WRITE_HEADERS,
       body: JSON.stringify({ ops: [{ record_type_tag: makeTag('importbump', IMPORT_BUMP_RECORD_ID), nonce: toBase64(nonce), ct: toBase64(ct) }] }),
     });
   } catch {
@@ -1204,7 +1359,7 @@ async function flushPendingUnlocked(ctx) {
     try {
       res = await timedFetch('/api/sync/ops', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: WRITE_HEADERS,
         body: JSON.stringify({ ops }),
       });
     } catch {
@@ -1240,7 +1395,10 @@ async function flushPendingUnlocked(ctx) {
         await writeMeta({
           writeError: { status: res.status, at: Date.now() },
           writeErrorStreak: streak,
-          ...(streak >= WRITE_ERROR_BUDGET ? { syncWedged: true } : {}),
+          // Explicit both ways: an old tab's 426 wedge may still be stored
+          // (readMeta ignored it and reset the streak), and one strike of this
+          // build's own must not inherit it (bd med-wi09.12 r5).
+          syncWedged: streak >= WRITE_ERROR_BUDGET,
           // Quota exhausted: drop the compaction cooldown so pullOnOpen's
           // maybeSnapshot can reclaim retained oplog bytes before the streak
           // wedges syncing (med-356i).
@@ -1259,7 +1417,9 @@ async function flushPendingUnlocked(ctx) {
     // Cleared on the first batch the server accepts: the quota was raised, or
     // the user freed space. Reset the permanent-error streak too — the server is
     // accepting writes again, so the budget starts fresh.
-    await writeMeta({ lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0 });
+    // syncWedged too: a flush only gets here past a wedge when that wedge was an
+    // old tab's 426 (readMeta ignores it), and the server now takes the queue.
+    await writeMeta({ lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0, syncWedged: false });
     if (assigned[0] === meta.localLastSeq + 1) {
       // Assigned contiguously from our cursor — predicted seqs equal assigned
       // seqs, so every op's AAD is correct and other devices can decrypt them.
@@ -1493,8 +1653,8 @@ async function listLocalRecordsInRange(recordType, fromId, toId) {
 // row is itself state it must respect: the reminder horizon has to know that a
 // workout day was deliberately deleted, because a tombstoned slot means "no
 // workout that day", not "not materialized yet" (bd med-w0fe). Everything else
-// wants listRecords. Unmemoized (a once-per-recompute read; the memo holds the
-// live view every other caller shares) but sorted the SAME way, newest first —
+// wants listRecords. Memoized in rawMemo (the intake projection reads it on
+// every dose view), invalidated with recordsMemo, and sorted the SAME way, newest first —
 // a caller swapping list for listRaw must not silently pick up a different
 // last-write-wins order in whatever loop it feeds.
 export async function listRawRecords(ctx, recordType) {
@@ -1503,10 +1663,15 @@ export async function listRawRecords(ctx, recordType) {
 }
 
 async function listLocalRawRecords(recordType) {
+  const cached = rawMemo.get(recordType);
+  if (cached) return cached.slice();
+  const gen = recordsChangeCount;
   const records = await withStore('records', 'readonly', (store) => (
     reqToPromise(store.index('recordType').getAll(recordType))
   ));
-  return records.sort((a, b) => b.clientTs - a.clientTs);
+  records.sort((a, b) => b.clientTs - a.clientTs);
+  if (recordsChangeCount === gen) rawMemo.set(recordType, records);
+  return records.slice();
 }
 
 // flushConfirmed is the ack barrier for the inbound mailbox drain: it resolves
@@ -1587,6 +1752,16 @@ async function stampAndPut(recordType, record, { ifAbsent, skewMs, pending }) {
       clientTs: ifAbsent ? record.clientTs : nextClientTs(existing, record.clientTs, skewMs),
       recordType,
     };
+    const policy = existing && MERGE_POLICY[recordType];
+    if (policy) {
+      const merged = policy(existing, stamped);
+      if (merged === existing) {
+        stamped = existing;
+        wrote = false;
+        return;
+      }
+      stamped = { ...merged, clientTs: stamped.clientTs, recordType };
+    }
     await putRecord(stamped);
     if (pending) await markPending(record.recordId, recordType);
   });
@@ -1616,6 +1791,7 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     // Tombstones included — only for readers that must respect a deliberate
     // delete (see listRawRecords).
     listRaw: (recordType) => listRawRecords(ctx, recordType),
+    changesSince,
     put: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush }),
     // Derived materialization (see writeRecord's `ifAbsent`): writes only into an
     // EMPTY raw slot and always resolves to the stored winner, so a read path can
@@ -1642,6 +1818,7 @@ export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
     list: (recordType) => listLocalRecords(recordType),
     listRange: (recordType, fromId, toId) => listLocalRecordsInRange(recordType, fromId, toId),
     listRaw: (recordType) => listLocalRawRecords(recordType),
+    changesSince,
     put: (recordType, record) => write(recordType, record, false),
     putIfAbsent: (recordType, record) => write(recordType, record, true),
     del: (recordType, recordId) => write(recordType, { recordId, clientTs: Date.now(), deleted: true }, false),

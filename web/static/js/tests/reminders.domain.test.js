@@ -621,3 +621,21 @@ describe('domain/reminders.js — tracker reminder kind', () => {
         }
     });
 });
+
+// bd med-wi09.12 (codex review): no stored row carries a dose a zone switch
+// KEPT on the old generation, so the horizon regenerates it from history.
+describe('computeReminderHorizon — a dose kept past a zone switch', () => {
+    it('pushes the kept old-generation dose and not the slot the switch cancelled', () => {
+        const H = 3600000;
+        const day = Date.UTC(2026, 9, 20);
+        const keptMs = day + 8 * H;
+        const med = { recordId: 1, deleted: false, name: 'M', dosage: '1', schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }), tz_shift_policy: 'flexible', created_at: '2026-10-01T00:00:00Z' };
+        const transitions = [{
+            recordId: 't', switch_at: new Date(day + 6 * H).toISOString(), old_tz: 'UTC', new_tz: 'Europe/Moscow',
+            boundary: [{ kept: [`intake-1-${keptMs / 1000}`], cancelled: [`intake-1-${(day + 5 * H) / 1000}`] }],
+        }];
+        const fires = computeReminderHorizon({ medications: [med], timeZone: 'Europe/Moscow', now: day + 6.5 * H, transitions })
+            .filter((e) => e.kind === 'medication').map((e) => e.fireAtUnix * 1000);
+        expect(fires.slice(0, 2)).toEqual([keptMs, day + 29 * H]);
+    });
+});

@@ -61,38 +61,38 @@ export function parseSchedule(schedule) {
 // scan needs the identical local-calendar-day + wall-clock-to-UTC conversion
 // this file already uses for dose targets.
 export function localDateParts(ms, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date(ms));
-  const map = {};
-  for (const p of parts) map[p.type] = p.value;
-  return { year: +map.year, month: +map.month, day: +map.day };
+  const { year, month, day } = localDateTimeParts(ms, timeZone);
+  return { year, month, day };
 }
 
 // localDateParts plus the wall-clock hour/minute (h23). tzplan.js's step math
 // and medintake.js's upcoming-dose forecast both need the full wall-clock
 // breakdown in the tracked zone, so it lives here with the rest of the
 // zone-conversion helpers instead of being redeclared per module.
+// The wall clock is the instant shifted by the zone's offset there (bp.js's
+// offsetMsAt, cached per zone and quarter hour), read back in UTC: the same
+// answer Intl formatting gives, without a formatter call per instant.
 export function localDateTimeParts(ms, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).formatToParts(new Date(ms));
-  const map = {};
-  for (const p of parts) map[p.type] = p.value;
+  const wall = new Date(ms + offsetMsAt(ms, timeZone));
+  if (Number.isNaN(wall.getTime())) throw new RangeError('Invalid time value');
   return {
-    year: +map.year, month: +map.month, day: +map.day, hour: +map.hour, minute: +map.minute,
+    year: wall.getUTCFullYear(), month: wall.getUTCMonth() + 1, day: wall.getUTCDate(),
+    hour: wall.getUTCHours(), minute: wall.getUTCMinutes(),
   };
 }
 
-// Two-pass refine, same technique as bp.js's dayStartMs: guess the offset,
-// convert, then re-derive the offset at the guessed instant (handles DST
-// transitions landing on the target wall-clock time).
+// Wall clock in `timeZone` -> UTC instant, with a NAMED DST policy (bd
+// med-wi09.10): a wall time inside a spring-forward gap moves forward by the
+// gap (Berlin 2026-03-29 02:30 -> 03:30 CEST); a wall time inside a fall-back
+// fold takes the EARLIER instant (Berlin 2026-10-25 02:30 -> 00:30Z, CEST).
+// The offsets a day either side are the two candidates around any transition;
+// a candidate is valid when the zone really shows that offset at it.
 export function localWallToUtcMs(wallAsUtc, timeZone) {
-  const guess = wallAsUtc - offsetMsAt(wallAsUtc, timeZone);
-  return wallAsUtc - offsetMsAt(guess, timeZone);
+  const before = offsetMsAt(wallAsUtc - DAY_MS, timeZone);
+  const after = offsetMsAt(wallAsUtc + DAY_MS, timeZone);
+  const valid = [before, after].filter((o) => offsetMsAt(wallAsUtc - o, timeZone) === o);
+  // No valid candidate = the gap: the pre-gap offset lands past it.
+  return wallAsUtc - (valid.length ? Math.max(...valid) : before);
 }
 
 function weekdayAllowed(weekday, days) {
@@ -102,7 +102,7 @@ function weekdayAllowed(weekday, days) {
 // "HH:MM" -> {hour, minute}, or null for anything candidateNormalTargets would
 // skip. Shared with scheduleYieldsDoses so the two cannot disagree about what
 // counts as a usable time entry.
-function parseTimeOfDay(ts) {
+export function parseTimeOfDay(ts) {
   if (typeof ts !== 'string' || ts.length !== 5) return null;
   const hour = parseInt(ts.slice(0, 2), 10);
   const minute = parseInt(ts.slice(3, 5), 10);
