@@ -3431,6 +3431,36 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect((await getRaw('pending', (s) => s.getAll())).map((p) => p.recordId)).toEqual([id]);
   });
 
+  // mergeIntake can return a merge of both rows: the snapshot's TAKEN wins,
+  // the acknowledged local snooze rides along, and the merge is repaired.
+  it('a bootstrap keeps an acknowledged snooze riding on the snapshot\'s TAKEN and repairs the merge', async () => {
+    const snoozed = row({ clientTs: 50, status: 'PENDING', taken_at: null, rev: 0, via: 'app', snoozed_until: '2026-01-01T00:20:00.000Z', snoozed_at: '2026-01-01T00:10:00.000Z' });
+    const v2Take = row({ clientTs: 500, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
+    await converge(snoozed, snoozed);
+    await replaceAllRecords([v2Take], { reduceAcked: true });
+    const kept = await getRaw();
+    expect(kept).toMatchObject({ status: 'TAKEN', rev: 1, snoozed_until: '2026-01-01T00:20:00.000Z' });
+    expect(kept.clientTs).toBeGreaterThan(500);
+    expect((await getRaw('pending', (s) => s.getAll())).map((p) => p.recordId)).toEqual([id]);
+  });
+
+  // Every intake row is eligible, tombstones included: a tombstone wins either side.
+  it('a bootstrap keeps an acknowledged tombstone over a live snapshot row, and takes a snapshot tombstone', async () => {
+    const tomb = { recordId: id, recordType: 'intake', clientTs: 100, deleted: true };
+    const live = row({ clientTs: 500, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
+    await converge(tomb, tomb);
+    await replaceAllRecords([live], { reduceAcked: true });
+    const kept = await getRaw();
+    expect(kept.deleted).toBe(true);
+    expect(kept.clientTs).toBeGreaterThan(500);
+    expect((await getRaw('pending', (s) => s.getAll())).map((p) => p.recordId)).toEqual([id]);
+
+    await converge(live, live);
+    await replaceAllRecords([tomb], { reduceAcked: true });
+    expect(await getRaw()).toMatchObject({ deleted: true, clientTs: 100 });
+    expect(await getRaw('pending', (s) => s.getAll())).toEqual([]);
+  });
+
   it('no repair when the reducer and clientTs agree, on bootstrap or on a pull', async () => {
     const placeholder = row({ clientTs: 10, status: 'PENDING', taken_at: null, rev: 0 });
     const v2Take = row({ clientTs: 500, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
