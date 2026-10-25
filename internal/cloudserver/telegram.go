@@ -1964,7 +1964,16 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 	stem := strings.TrimSuffix(cq.Data, ":"+action)
 	// ref IS the account id (see BotByWebhookRef). Read the identity BEFORE any
 	// cancel below deletes the row that holds it.
-	medIDs, err := t.store.MedIDsForCallback(r.Context(), ref, stem)
+	// The tapped message's own sent row first (med-4j49): a slot can hold rows
+	// naming different doses at once.
+	var medIDs string
+	var err error
+	if messageID != 0 {
+		medIDs, err = t.store.MedIDsForMessage(r.Context(), ref, stem, messageID)
+	}
+	if err == nil && medIDs == "" {
+		medIDs, err = t.store.MedIDsForCallback(r.Context(), ref, stem)
+	}
 	if err != nil {
 		// A store error is NOT "no row": sealing an id-less event would make the
 		// drain apply nothing while the confirm branch below kills the chain —

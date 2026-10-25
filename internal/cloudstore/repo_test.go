@@ -1201,6 +1201,42 @@ func TestAccountsNeedingStaleSyncWarning_ScheduleUploadSignal(t *testing.T) {
 	}
 }
 
+// TestMedIDsForMessage pins med-4j49: when a slot holds a sent reminder and a
+// newer future row (a snooze-end reminder) naming different doses, the tapped
+// message's own row answers, not the newest row for the callback.
+func TestMedIDsForMessage(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-msgids", "keen-heron-msg021", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: now.Add(-time.Minute), Delivery: DeliveryTelegram, TGText: "t", TGCallback: "s:1767225600", TGMedIDs: "2,9"},
+		{FireAt: now.Add(10 * time.Minute), Delivery: DeliveryTelegram, TGText: "t", TGCallback: "s:1767225600", TGMedIDs: "2"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("DueScheduledPushes = %+v, %v; want the one past row", due, err)
+	}
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 41); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+	if ids, err := r.MedIDsForMessage(ctx, acc.ID, "s:1767225600", 41); err != nil || ids != "2,9" {
+		t.Fatalf("MedIDsForMessage(41) = %q, %v; want \"2,9\"", ids, err)
+	}
+	if ids, err := r.MedIDsForMessage(ctx, acc.ID, "s:1767225600", 42); err != nil || ids != "" {
+		t.Fatalf("MedIDsForMessage(unknown message) = %q, %v; want \"\"", ids, err)
+	}
+	if ids, _ := r.MedIDsForCallback(ctx, acc.ID, "s:1767225600"); ids != "2" {
+		t.Fatalf("MedIDsForCallback = %q, want the newest row's \"2\" (why the message lookup comes first)", ids)
+	}
+}
+
 // TestScheduledPushMedIDs pins med-kbpf: the med identity a client uploads on a
 // reminder row reaches the relay, is copied down the re-fire chain, is readable
 // back by its callback stem while the chain is live, and is wiped on send with
