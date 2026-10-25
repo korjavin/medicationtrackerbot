@@ -3,6 +3,7 @@ package com.example.medtracker
 import android.app.Activity
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.aggregate.AggregateMetric
 import androidx.health.connect.client.changes.UpsertionChange
 import androidx.health.connect.client.permission.HealthPermission
@@ -70,8 +71,10 @@ import kotlin.reflect.KClass
  * token) reads from `from` (ms; the page sends 90 days back for hr/spo2), else
  * the last 30 days, and starts a token; hr/spo2 scans answer about `limit`
  * samples per page with more: true and an "hc1s:" scan anchor until drained, and
- * only then the Changes token; older history needs
- * READ_HEALTH_DATA_HISTORY, out of v1. Reads happen only when the page asks,
+ * only then the Changes token. Data older than 30 days before the grant needs
+ * READ_HEALTH_DATA_HISTORY, asked for with the read types where the device
+ * offers it (bd med-0xad.3); without it the reads answer what is readable.
+ * An unknown type: authorize ignores it, query rejects. Reads happen only when the page asks,
  * i.e. while the app is in the foreground — never in the background.
  */
 class HealthConnect(private val activity: Activity, private val diag: (String) -> Unit = {}) {
@@ -122,8 +125,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         if (!available()) return false
         val types = args.optJSONArray("types") ?: JSONArray()
         val kinds = (0 until types.length()).map { types.optString(it) }.filter { it in KINDS }
-        if (kinds.isEmpty()) throw IllegalArgumentException("no known types")
-        ask(kinds)
+        if (kinds.isNotEmpty()) ask(kinds)
         return true
     }
 
@@ -132,7 +134,11 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     /** Requests the read permissions of `kinds` not granted yet (one dialog), and remembers they were asked. */
     private suspend fun ask(kinds: Collection<String>) {
         prefs.edit().putStringSet(ASKED, asked() + kinds).apply()
-        val perms = kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) }.toSet() -
+        val history = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY.takeIf {
+            client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) ==
+                HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
+        }
+        val perms = (kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) } + listOfNotNull(history)).toSet() -
             client.permissionController.getGrantedPermissions()
         if (perms.isEmpty()) return
         suspendCancellableCoroutine { cont ->
@@ -149,7 +155,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
 
     private suspend fun query(args: JSONObject): JSONObject {
         val kind = args.optString("type")
-        val types = KINDS[kind] ?: return page(JSONArray(), null, 0, false)
+        val types = KINDS[kind] ?: throw IllegalArgumentException("unknown type: $kind")
         if (!available()) return page(JSONArray(), null, 0, false)
         // The med-nt9p.8 build answered authorize for sleep/workout without
         // asking, and the page then recorded them as asked (wg.health.asked),

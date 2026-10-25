@@ -12,7 +12,7 @@
 // Steps / Heart Rate / SpO2 cards must be populated (screenshot vitals-cards).
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
-export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION'];
+export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
 const WRITES = ['BLOOD_PRESSURE', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION'];
 
 export default async function healthConnect(ctx) {

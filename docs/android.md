@@ -532,8 +532,11 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
 - **Permissions:** `READ_BLOOD_PRESSURE`, `READ_WEIGHT`, `READ_SLEEP`,
   `READ_EXERCISE`, `READ_STEPS`, `READ_HEART_RATE` (its own kind and a
   workout's average), `READ_OXYGEN_SATURATION`, and a workout's totals
-  `READ_TOTAL_CALORIES_BURNED`, `READ_DISTANCE` — the Play declaration must
-  list exactly these. `health.authorize` requests the missing ones (a runtime
+  `READ_TOTAL_CALORIES_BURNED`, `READ_DISTANCE`, plus
+  `READ_HEALTH_DATA_HISTORY` (asked with the read types only where Health
+  Connect offers the feature; a later grant is picked up by the import's off/on
+  rescan) — the Play declaration must list exactly these. An unknown type:
+  `authorize` ignores it, `query` rejects. `health.authorize` requests the missing ones (a runtime
   permission dialog on Android 14) and answers `true` whenever Health Connect
   exists, `false` when it doesn't (work profile, no service); like HealthKit, a
   denied type just returns no samples.
@@ -547,7 +550,8 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   way; the asked set is persisted, so a denial is not re-asked.
 - **Anchor:** `hc1:` + a Health Connect Changes token. No anchor reads from
   the query's `from` (ms; the page sends 90 days back for `hr`/`spo2`), else the
-  last **30 days** (`READ_HEALTH_DATA_HISTORY` for older data is out of v1)
+  last **30 days** (without `READ_HEALTH_DATA_HISTORY` Health Connect returns
+  nothing older than 30 days before the grant)
   and starts a token; later queries return only upserts since it. An expired
   token (unused for 30 days) re-reads the 30 days; known readings are skipped
   by id.
