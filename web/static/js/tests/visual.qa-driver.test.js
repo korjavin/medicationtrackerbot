@@ -160,10 +160,11 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(await load('today')).toMatchObject({ ok: true });
 
         let pan = 0;
+        let hdr = -30; // app bar top in layout coordinates
         vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
             let top = 0;
             if (this.style.position === 'fixed') top = -pan; // layout-top marker
-            else if (this.classList.contains('wg-appbar')) top = -30 - pan;
+            else if (this.classList.contains('wg-appbar')) top = hdr - pan;
             return { top, bottom: top + 40, left: 0, right: 100, width: 100, height: 40, x: 0, y: top };
         });
         const scrollTo = (y) => Object.defineProperty(window, 'scrollY', { configurable: true, value: y });
@@ -182,6 +183,10 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         });
         scrollTo(100);
         expect(window.__wgQA.probe().probes.clippedTop).toEqual([]);
+        // Scrolled page, header still inside the layout viewport (layout y 10)
+        // but panned off by the keyboard: clipped, not scrolled past.
+        hdr = 10;
+        expect(window.__wgQA.probe().probes.clippedTop).toContain('header.wg-appbar');
     });
 
     // med-y5xx.11: a shot of another view must not pass (workouts-stats showed
