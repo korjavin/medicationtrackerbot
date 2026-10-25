@@ -521,8 +521,8 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 body: JSON.stringify({ callback: `s:${Date.parse(slotIso) / 1000}` })
             })));
 
-            await expect(window.apiCall('/api/medications/snooze', 'POST', { intake_id: 'intake-later', duration_minutes: 10 }))
-                .rejects.toMatchObject({ code: 'not_due' });
+            await expect(window.offlineAwareApiCall('/api/medications/snooze', 'POST', { intake_id: 'intake-later', duration_minutes: 10 }))
+                .rejects.toMatchObject({ status: 409 });
             const row = (await env.records.list('intake')).find((i) => i.recordId === 'intake-later');
             expect(row.snoozed_until).toBeFalsy();
         } finally {

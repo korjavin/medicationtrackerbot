@@ -993,6 +993,7 @@ export function createApiRouter(ctx, {
       if (res.failed) {
         const err = new Error(`intake not snoozed: ${res.failures[0].reason}`);
         err.code = res.failures[0].reason;
+        err.status = err.code === 'not_found' ? 404 : 409;
         throw err;
       }
       return { status: 'snoozed', snoozed_until: res.doses[0].snoozed_until };
