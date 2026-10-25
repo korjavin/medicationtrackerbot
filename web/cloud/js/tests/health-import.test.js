@@ -524,6 +524,7 @@ describe('Apple Health import', () => {
 
                 const other = memRecords();
                 await vitals(other).importSamples({ sleep: [full] });
+                storage.setItem('wg.health.anchors', '{}'); // a fresh vault reads Health from the start
                 expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }, other))).toEqual({ added: 2 });
                 expect(await shown(other)).toEqual(want);
                 expect(noneDeleted(other)).toBe(true);
@@ -576,7 +577,7 @@ describe('Apple Health import', () => {
                 const restored = memRecords();
                 for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
                 expect(await vitals(restored).sleep({ from: iso(N0 - 48 * H) })).toEqual(await vitals().sleep({ from: iso(N0 - 48 * H) }));
-                expect(restored.rows.size).toBe(2);
+                expect((await restored.listRaw('sleep')).length).toBe(2);
             });
         });
 
