@@ -598,24 +598,18 @@ async function openConnectorPage() {
     });
 }
 
-// Kit S6 mode card, cloud (bd med-ckm5.6): "Your vault" · <host> · N devices ·
-// synced HH:MM, off the data the app already has (the device count memo, the
-// sync engine's local status). A part it cannot read is left out. Tapping it
-// opens Devices & connectors. Repainted on every Settings open.
+// Kit S6 mode card, cloud (bd med-ckm5.6): "Your vault" · <host> · synced
+// HH:MM, off the sync engine's local status; left out when it cannot be read.
+// The device count lives on the Devices & connectors row (SC1, bd med-y7b4.1).
+// Tapping it opens Account & privacy (data-settings-open, bindSettingsPages).
+// Repainted on every Settings open.
 function loadCloudSyncModule() { return import('/js/sync.js'); }
-let _vaultCardBound = false; // module-state: bind the card click once across repeated loadSettings() calls
 async function paintVaultCard() {
     const card = document.getElementById('settings-vault-card');
     const meta = document.getElementById('settings-vault-meta');
     if (!card || !meta) return;
     card.classList.remove('wg-settings-hidden');
-    if (!_vaultCardBound) {
-        _vaultCardBound = true;
-        card.addEventListener('click', () => openSettingsPage('devices'));
-    }
     const parts = [window.location.hostname];
-    const count = await fetchDeviceCount();
-    if (typeof count === 'number') parts.push(count === 1 ? '1 device' : `${count} devices`);
     try {
         const { getSyncStatus } = await loadCloudSyncModule();
         const { lastSyncedAt } = await getSyncStatus(cloudCtx());
@@ -626,7 +620,7 @@ async function paintVaultCard() {
     meta.textContent = parts.join(' · ');
 }
 
-// Kit chip on Account & privacy (bd med-ckm5.6, epic decision 4): shown while
+// Kit chip on the vault card (SC1; bd med-ckm5.6, epic decision 4): shown while
 // the synced emergencykit record says the current kit was never saved (no
 // record, or a new code nobody confirmed saving: how 'none'). A failed read
 // hides it rather than nag on a guess — hence apiCallDirect, which throws where
@@ -851,7 +845,8 @@ function nativeHas(op) {
     return _shellOps.then((ops) => ops.includes(op));
 }
 
-// Settings → Account "Use this iPhone/phone without an account" (bd med-o7zq.32):
+// Settings home slot ② "Use this iPhone/phone without an account" (bd med-o7zq.32;
+// moved out of Account & privacy by med-y7b4.2), shown only while signed in:
 // straight into local mode (bd med-o7zq.34; a shell older than that ignores
 // `then` and shows its first-run instead). Nothing is erased: the account
 // stays on the server, this origin keeps its data, and opening the account
@@ -860,7 +855,7 @@ function nativeHas(op) {
 let _leaveAccountBound = false; // module-state: bind the button once across repeated loadSettings() calls
 function bindLeaveAccount() {
     const leave = nativeLeaveAccount();
-    if (!leave) return;
+    if (!leave || document.documentElement.classList.contains('wg-local-vault')) return;
     if (window.LocalNotifications.__native.platform === 'android') {
         nativeHas('account.leave').then((has) => { if (has) showLeaveAccount(leave); });
         return;
@@ -1427,7 +1422,7 @@ function openSettingsPage(name) {
     // The row this mode shows: local mode opens 'backup' from the W5 card.
     const rows = Array.from(document.querySelectorAll(`[data-settings-open="${name}"]`));
     const row = rows.find((r) => !isSettingsSectionHidden(r)) || rows[0];
-    const title = row?.querySelector('.wg-setting__title, .wg-row__title')?.textContent.trim() || name;
+    const title = row?.dataset.settingsTitle || row?.querySelector('.wg-setting__title, .wg-row__title')?.textContent.trim() || name;
     let page = null;
     page = window.WGPage.push({
         title,
@@ -1494,7 +1489,8 @@ function applyReminderSummaries(bp, weight) {
 // Hide a home row when every top-level section of its page is hidden.
 // Per-section gating stays the source of truth; this only rolls it up.
 function hideEmptySettingsRows() {
-    document.querySelectorAll('.wg-settings-home [data-settings-open]').forEach((row) => {
+    // Rows only: the slot-① cards have their own mode gating (paintVaultCard, .wg-local-only).
+    document.querySelectorAll('.wg-settings-home .wg-setting[data-settings-open]').forEach((row) => {
         const body = settingsPageBody(row.dataset.settingsOpen);
         if (!body) return;
         const sections = Array.from(body.children);

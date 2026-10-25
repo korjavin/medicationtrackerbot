@@ -467,10 +467,13 @@
             <div class="wg-settings-home">
                 <div class="wg-settings-slot" data-settings-slot="mode-card">
                 <!-- Cloud: "Your vault" (settings.js paintVaultCard). -->
-                <button type="button" class="wg-card wg-hstack wg-cloud-only wg-settings-hidden" id="settings-vault-card">
+                <!-- Opens Account & privacy (SC1, bd med-y7b4.1); the page keeps its own title. -->
+                <button type="button" class="wg-card wg-hstack wg-cloud-only wg-settings-hidden" id="settings-vault-card" data-settings-open="account" data-settings-title="Account &amp; privacy">
                     <span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="lock"></i></span>
                     <span class="wg-vstack wg-spacer">
-                        <span class="wg-hstack"><span class="wg-row__title">Your vault</span><span class="wg-chip wg-chip--ok wg-chip--sm">Cloud</span></span>
+                        <span class="wg-hstack"><span class="wg-row__title">Your vault</span><span class="wg-chip wg-chip--ok wg-chip--sm">Cloud</span>
+                            <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitState). -->
+                            <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-kit-chip">Kit</span></span>
                         <span class="wg-meta" id="settings-vault-meta"></span>
                     </span>
                     <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
@@ -487,7 +490,18 @@
                     <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                 </button>
                 </div>
-                <div class="wg-settings-slot" data-settings-slot="mode-actions"></div>
+                <div class="wg-settings-slot" data-settings-slot="mode-actions">
+                <!-- iOS/Android app, signed into an account (SC1, bd med-y7b4.2; med-o7zq.32,
+                     med-nt9p.32.15): settings.js bindLeaveAccount. The only way into local
+                     mode from an account; nothing erased. -->
+                <div class="wg-list wg-cloud-only wg-settings-leave-account wg-settings-hidden">
+                    <button type="button" id="settings-leave-account-btn" class="wg-setting">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="phone"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Use this <span data-device-word>iPhone</span> without an account</span><span class="wg-setting__desc">Keeps a copy here. The account stays on the server.</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                </div>
+                </div>
                 <div class="wg-settings-slot" data-settings-slot="health"></div>
                 <div class="wg-settings-slot" data-settings-slot="everyday">
                 <div class="wg-list">
@@ -537,13 +551,6 @@
                     <button type="button" class="wg-setting wg-cloud-only" data-settings-open="backup">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Backup &amp; import</span><span class="wg-setting__desc">Download or restore all your data</span></span>
-                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                    </button>
-                    <button type="button" class="wg-setting" data-settings-open="account">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="shield"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Account &amp; privacy</span><span class="wg-setting__desc">What the operator can see · delete</span></span>
-                        <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitState). -->
-                        <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-kit-chip">Kit</span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                 </div>
@@ -1284,19 +1291,6 @@
                         <span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="key"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Emergency Kit</span><span class="wg-setting__desc" id="settings-account-kit-desc">Regenerate if you lost the printed copy</span></span>
                         <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-account-kit-save">Save</span>
-                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                    </button>
-                </div>
-            </section>
-
-            <!-- iOS/Android app, signed into an account (bd med-o7zq.32, med-nt9p.32.15): settings.js
-                 bindLeaveAccount. Back to the native first-run; nothing erased. -->
-            <section class="wg-section wg-settings-leave-account wg-settings-hidden">
-                <div class="wg-section__head"><span class="wg-eyebrow">Leave</span></div>
-                <div class="wg-list">
-                    <button type="button" id="settings-leave-account-btn" class="wg-setting">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Use this <span data-device-word>iPhone</span> without an account</span><span class="wg-setting__desc">Keeps a copy here. The account stays on the server.</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                 </div>
