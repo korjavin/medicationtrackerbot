@@ -95,7 +95,7 @@ enum Health {
         let anchor = token.last
             .flatMap { Data(base64Encoded: $0) }
             .flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
-        let fromMs = token.count == 2 ? Double(token[0]) : (args["from"] as? NSNumber)?.doubleValue
+        let fromMs = (token.count == 2 ? Double(token[0]) : (args["from"] as? NSNumber)?.doubleValue).flatMap { $0.isFinite ? $0 : nil }
         let toMs = (args["to"] as? NSNumber)?.doubleValue
         if args["type"] as? String == "sleep", let f = fromMs, let t = toMs {
             let from = Date(timeIntervalSince1970: f / 1000), to = Date(timeIntervalSince1970: t / 1000)
