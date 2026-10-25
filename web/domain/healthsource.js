@@ -83,21 +83,29 @@ export function sameBody(a, b) {
 
 const DAY_ROW_ID = /^sleep-hk-(\d{4}-\d{2}-\d{2})$/;
 
+// A live sleep-hk-<day> row: the only sleep row a snapshot bootstrap reduces
+// against its snapshot copy (sync.js replaceAllRecords reduceAcked).
+export function isLiveSleepDayRow(r) {
+  return !r.deleted && DAY_ROW_ID.test(r.recordId);
+}
+
 // mergeSleep(local, incoming) (bd med-0xad.9 F): the sync reducer for
 // 'sleep' (sync.js MERGE_POLICY), replacing clientTs LWW. Returns `local`
-// itself when nothing changes. A tombstone wins on either side (a deleted
-// day or session is never resurrected). A ledger row is immutable, so plain
-// clientTs LWW. A day row is a projection, so the FULLER wins (asleep
-// minutes): a newer day row folded from a partial ledger can no longer bury
-// a fuller one. Then the newer clientTs, then the body: a total order
-// (minutes, clientTs, body), so the fold is commutative and associative and
-// never depends on arrival order. An identical copy at the same clientTs
-// keeps local.
+// itself when nothing changes. A ledger row (a session) is immutable, so plain
+// clientTs LWW, tombstones included: the fold is over the live ledger alone,
+// so a resurrected session changes nothing, and re-pushing a #1413 delete
+// over a restore would. A day row is a projection: a tombstone wins on
+// either side (a deleted day is never resurrected), else the FULLER wins
+// (asleep minutes), so a newer day row folded from a partial ledger can no
+// longer bury a fuller one. Then the newer clientTs, then the body: a total
+// order (minutes, clientTs, body), so the fold is commutative and
+// associative and never depends on arrival order. An identical copy at the
+// same clientTs keeps local.
 export function mergeSleep(local, incoming) {
   if (!local) return incoming;
-  if (!local.deleted !== !incoming.deleted) return local.deleted ? local : incoming;
-  if (!local.deleted && DAY_ROW_ID.test(local.recordId)) {
-    const d = asleepMinutes(incoming) - asleepMinutes(local);
+  if (DAY_ROW_ID.test(local.recordId)) {
+    if (!local.deleted !== !incoming.deleted) return local.deleted ? local : incoming;
+    const d = local.deleted ? 0 : asleepMinutes(incoming) - asleepMinutes(local);
     if (d) return d > 0 ? incoming : local;
   }
   const ts = (incoming.clientTs || 0) - (local.clientTs || 0);

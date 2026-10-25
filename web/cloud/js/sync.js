@@ -9,7 +9,7 @@ import { encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase6
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
 import { mergeIntake, LEDGERCUT_RECORD_ID, LEDGERCUT_RECORD_TYPE } from '../../domain/medintake.js';
-import { mergeSleep, sameBody } from '../../domain/healthsource.js';
+import { mergeSleep, sameBody, isLiveSleepDayRow } from '../../domain/healthsource.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -398,7 +398,8 @@ async function readAllRecords() {
 const FLOOR_MAX_CLIENT_TS = 1;
 
 // `reduceAcked` (bd med-0xad.9, snapshot bootstrap only): an acknowledged
-// local row of a REPAIR_TYPES type is reduced against its snapshot copy too,
+// local row REPAIR_TYPES selects (sleep: a live sleep-hk-<day> row) is
+// reduced against its snapshot copy too,
 // not only a pending one, so an older bundle's compacted snapshot cannot bury
 // a fuller row this device already pushed; a local winner is re-stamped and
 // queued as a repair. An import replace never sets it.
@@ -444,7 +445,8 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
     if (reduceAcked && !unseenImport) {
       for (const r of here) {
         const snap = snapshotById.get(r.recordId);
-        if (!snap || pendingIds.has(r.recordId) || !REPAIR_TYPES.has(r.recordType)) continue;
+        const reducible = REPAIR_TYPES[r.recordType];
+        if (!snap || pendingIds.has(r.recordId) || !reducible || !reducible(r)) continue;
         if (MERGE_POLICY[r.recordType](snap, r) === r && !sameBody(snap, r)) {
           overlay.push({ ...r, clientTs: repairStamp(snap, r) });
           repairs.push(r);
@@ -462,7 +464,7 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
         const won = policy(snap, r);
         if (won === snap) losingPending.push(recordId);
         // A repair type's pending winner must also out-stamp the snapshot.
-        else if (REPAIR_TYPES.has(r.recordType) && won.clientTs <= snap.clientTs) overlay.push({ ...won, clientTs: repairStamp(snap, won) });
+        else if (REPAIR_TYPES[r.recordType] && won.clientTs <= snap.clientTs) overlay.push({ ...won, clientTs: repairStamp(snap, won) });
         else overlay.push(won);
         continue;
       }
@@ -775,8 +777,9 @@ const MERGE_POLICY = { intake: mergeIntake, sleep: mergeSleep };
 // floor still merge by clientTs, so when the reducer keeps a row that LWW
 // would drop, this device re-stamps it above both copies and queues it as an
 // ordinary op. After one repair the winner is also the newest, and an
-// incoming copy with the same body is never repaired, so repairs stop.
-const REPAIR_TYPES = new Set(['sleep']);
+// incoming copy with the same body is never repaired, so repairs stop. The
+// value picks the acknowledged rows a snapshot bootstrap reduces (reduceAcked).
+const REPAIR_TYPES = { sleep: isLiveSleepDayRow };
 
 function repairStamp(a, b) {
   return Math.max((a.clientTs || 0) + 1, (b.clientTs || 0) + 1, Date.now());
@@ -796,7 +799,7 @@ async function applyIncoming(recordType, record) {
     if (policy) {
       const merged = policy(existing, record);
       const lwwWinner = !existing || record.clientTs > existing.clientTs ? record : existing;
-      if (REPAIR_TYPES.has(recordType) && merged !== lwwWinner && !sameBody(existing, record)) {
+      if (REPAIR_TYPES[recordType] && merged !== lwwWinner && !sameBody(existing, record)) {
         await putRepair(recordType, merged, existing, record);
         return recordType;
       }

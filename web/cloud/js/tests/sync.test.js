@@ -3758,6 +3758,26 @@ describe('sleep day rows merge by fullness and repair the clientTs order (med-0x
     expect(posted).toEqual([`sleep:${DAY}`]);
   });
 
+  // Breakage review F2: a ledger row is plain LWW, tombstones included, on both repair paths.
+  it('a newer live ledger row over a local ledger tombstone is stored, with no repair', async () => {
+    await seed([tomb('sleep-1', 100)]);
+    await pull(session('sleep-1', 450, 300));
+    expect(await row('sleep-1')).toMatchObject({ deleted: false, clientTs: 300, total_minutes: 450 });
+    expect(posted).toEqual([]);
+    expect(await getAll('pending')).toEqual([]);
+  });
+
+  it('a snapshot holding a live ledger row against an acknowledged local ledger tombstone takes the snapshot, no repair', async () => {
+    await seed([tomb('sleep-1', 100)]);
+    const snap = [session('sleep-1', 450, 90)];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: 10, plaintext: new TextEncoder().encode(JSON.stringify(snap)) });
+    snapshotBody = JSON.stringify({ snapshot_seq: 10, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    seq = 10;
+    await pullOnOpen(ctx);
+    expect(await row('sleep-1')).toMatchObject({ deleted: false, total_minutes: 450 });
+    expect(posted).toEqual([]);
+  });
+
   it('a peer\'s full-vault import this device never saw (bump compacted away) replaces, no repair', async () => {
     await seed([day(450, 100), tomb('sleep-2', 50)]);
     const bump = { recordId: '__vault_import_bump__', recordType: 'importbump', clientTs: 300, deleted: true };

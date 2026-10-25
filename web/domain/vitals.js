@@ -427,8 +427,8 @@ export function createVitalsDomain({ records, now, timeZone }) {
         const startMs = Date.parse(s.start_time);
         const recordId = `sleep-${Number.isNaN(startMs) ? s.day : startMs}`;
         const prev = rows.get(recordId);
-        // A tombstone wins the sync merge (healthsource.js mergeSleep): a
-        // deleted session is not re-put, nor folded as if it were.
+        // A deleted session (a #1413 conversion folded it before deleting)
+        // is not re-put, nor folded as if it were.
         if (prev && prev.deleted) continue;
         const base = prev || null;
         // Never downgrade a longer stored session (repo.go WHERE
