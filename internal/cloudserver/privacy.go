@@ -44,16 +44,16 @@ func privacyEnv(k, def string) string {
 // text carries no domain or address. goldmark escapes raw HTML by default (no
 // WithUnsafe), so neither the markdown nor the env values can inject markup.
 func renderPrivacyPage(md []byte, host, contact, name, operator string) []byte {
-	s := string(md)
-	if contact == "" {
-		s = strings.ReplaceAll(s, "<{{CONTACT}}>", "the in-app feedback form")
+	// One pass, so no value is re-expanded. A contact without "@" is not an
+	// autolink (goldmark would drop <...> as raw HTML): use the feedback-form text.
+	pairs := []string{"{{CONTACT}}", contact}
+	if !strings.Contains(contact, "@") {
+		pairs = []string{"<{{CONTACT}}>", "the in-app feedback form", "{{CONTACT}}", ""}
 	}
-	s = strings.ReplaceAll(s, "{{CONTACT}}", contact)
-	s = strings.ReplaceAll(s, "{{NAME}}", name)
-	s = strings.ReplaceAll(s, "{{OPERATOR}}", operator)
-	md = []byte(strings.ReplaceAll(s, "{{HOST}}", host))
+	pairs = append(pairs, "{{NAME}}", name, "{{OPERATOR}}", operator, "{{HOST}}", host)
+	src := []byte(strings.NewReplacer(pairs...).Replace(string(md)))
 	gm := goldmark.New(goldmark.WithExtensions(extension.Table))
-	doc := gm.Parser().Parse(text.NewReader(md))
+	doc := gm.Parser().Parse(text.NewReader(src))
 	// Repo-relative links (cloud-mode.md#…) resolve to nothing on this host;
 	// keep their text, drop the link.
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -70,7 +70,7 @@ func renderPrivacyPage(md []byte, host, contact, name, operator string) []byte {
 		return ast.WalkContinue, nil
 	})
 	var body bytes.Buffer
-	if err := gm.Renderer().Render(&body, md, doc); err != nil {
+	if err := gm.Renderer().Render(&body, src, doc); err != nil {
 		panic("cloudserver: render privacy policy: " + err.Error())
 	}
 	var b bytes.Buffer

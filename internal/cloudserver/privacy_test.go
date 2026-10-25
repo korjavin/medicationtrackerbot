@@ -129,3 +129,17 @@ func TestRenderPrivacyPage_NameAndOperator(t *testing.T) {
 		t.Error("unfilled placeholder")
 	}
 }
+
+func TestRenderPrivacyPage_ContactNotEmailAndNoReexpansion(t *testing.T) {
+	body := string(renderPrivacyPage(docs.PrivacyPolicy, "example.test", "not-an-email", "MyHealthBot", "its developer"))
+	if strings.Contains(body, "not-an-email") || !strings.Contains(body, "the in-app feedback form") {
+		t.Error("non-email contact must fall back to the feedback-form text")
+	}
+	body = string(renderPrivacyPage(docs.PrivacyPolicy, "example.test", "", "{{HOST}}", "its developer"))
+	if !strings.Contains(body, "<h1>{{HOST}} — Privacy Policy</h1>") {
+		t.Error("NAME value was re-expanded")
+	}
+	if !strings.Contains(body, "Last updated 2026-") {
+		t.Error("effective date lost")
+	}
+}
