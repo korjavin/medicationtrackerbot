@@ -456,6 +456,7 @@
                 await window.CloudVault.moveToCloud({ win: window, url: url });
                 // The shell is navigating to the account; nothing left to do here.
             } catch (e) {
+                state.moving = false;
                 if (btn) {
                     btn.disabled = false;
                     btn.classList.remove('wg-btn--busy');
@@ -464,8 +465,6 @@
                 var msg = (e && e.message) || '';
                 error.textContent = /invalid url/.test(msg) ? NOT_INVITE : 'The invite could not be opened: ' + (msg || 'unknown error') + '.';
                 error.hidden = false;
-            } finally {
-                state.moving = false;
             }
         };
         return state;
