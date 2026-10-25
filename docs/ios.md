@@ -497,6 +497,12 @@ manifest entry: there is no egress).
   `health.authorize` and `health.query` (anchored queries, raw samples) over the
   `wgNative` bridge; `window.Health` on iOS is
   [`native/health.js`](../web/static/js/native/health.js).
+- **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
+  `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
+  overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every
+  sample incl. workout-rate; SpO2 as percent, 50-100 kept). A first scan's
+  `from` rides in the returned anchor (`<ms>|<anchor>`), so later pages keep
+  the same start-date floor.
 - **Mapping:** [`web/domain/healthimport.js`](../web/domain/healthimport.js)
   writes the existing `bp` / `weight` record shapes plus optional
   `source: "apple_health"` and `source_id` (older clients ignore both). recordId =
