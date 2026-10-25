@@ -80,8 +80,8 @@ list of categories; each is stored only as long as stated.
 | Account | That an account exists, its address (subdomain), creation date, your passkeys' public keys, and for each device whether it is a browser, an Android phone or an iPhone | Life of the account |
 | Sync | When each device synced, the size of each encrypted blob, the IP address it came from, and each record's kind and id | Timestamps with the data; request logs per the log retention below |
 | Reminders | When a reminder should fire, and an encrypted payload we cannot read; for the phone apps, a push token issued by Apple or Google, held only for a content-free wake-up, not to carry reminder content | The payload is erased when the reminder is sent and Telegram tap ids after 48 hours; the row with its fire and sent times stays with the account; tokens until you remove the device or they expire |
-| Hosted AI-assistant connector (if enabled) | The connector's access token and pairing credentials, stored encrypted under a server key | Until you disconnect it |
-| Free trial | Usage counters, on the account or on the anonymous install record of section 4 | Account counters for the life of the account; install records until erased — they have no automatic expiry today |
+| Hosted AI-assistant connector (if enabled) | The connector's credentials: its access token, and its pairing key, which is stored encrypted under a server key | Until you disconnect it |
+| Free trial | Usage counters, on the account or on the anonymous install record of section 4 | Account counters for the life of the account; install records have no automatic expiry today and stay on the server after you erase the phone |
 | Telegram (if linked) | Your chat id and your bot's token, stored encrypted on the server under a server key (this is server-side encryption, not vault-grade) | Until you unlink |
 | Invite request | The email address and note you sent us, or your Telegram name and id, and our decision | Deleted within an hour after 90 days; the copy shown to the developer in their Telegram chat stays there (section 3h) |
 | Feedback | What you write and attach, encrypted on your device to the developer; the app version and feedback kind are readable | Until the developer collects it |
@@ -181,15 +181,16 @@ In this mode three things can leave the phone, each your choice:
   hash of the trial pass — and keeps no prompts, photos or health data. To tell
   installs apart the app uses Apple App Attest and DeviceCheck on iPhone and
   one Google Play Integrity token on Android; no health data and no account
-  are involved. The install record stays until the install is erased; it has
-  no automatic expiry today.
+  are involved. The install record has no automatic expiry today and stays on
+  our server after you erase the data on the phone; it holds no health data.
 - **Feedback and invite requests**, which reach us as in section 2. Sending
   feedback from this mode creates the same anonymous install record, without
   the trial.
 
 
 **Settings → Backup & import → Erase data on this device** deletes everything
-stored in this mode.
+stored on that phone in this mode; it does not reach the anonymous install
+record above.
 
 ## 5. Apple Health and Health Connect
 
@@ -223,7 +224,7 @@ categories of service providers that handle data on our behalf are:
 | Backup storage | A copy of the encrypted database; ciphertext and metadata only, expiring within 30 days | Where backups are enabled |
 | Push services (Apple, Google, browser vendors) | Browsers: reminder times and an opaque encrypted payload. Phone apps: a content-free wake-up only | When you enable reminders |
 | Email relay | The email address and our approval or decline notice | When we decide an emailed invite request |
-| AI providers (OpenAI, Anthropic, or the one you chose) | The text or photo of one request | Section 3a, 3b |
+| AI providers (OpenAI, Anthropic, or the one you chose) | The content of that feature's request: a meal's or exercise's text or photo; for the assistant, your message, the conversation so far, your preferences and the records fetched to answer you; for a summary, that week's figures | Section 3a, 3b |
 | Voice provider (ElevenLabs) | Audio, transcript, records read aloud | Section 3b |
 | Telegram | Reminder and message text; invite requests and bot feedback shown in the developer's chat | Sections 3c, 3h |
 | Food database, RxNav | Search terms, drug names | Section 3e |
