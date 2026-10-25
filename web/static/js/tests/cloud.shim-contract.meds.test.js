@@ -567,6 +567,35 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         ]);
     });
 
+    // bd med-ry7b.3 merge gate (Archie 4709): the pending-only read has no age
+    // cap. A stored PENDING row from long before the cut still reaches the
+    // timeline's focus card count, next to the doses regenerated after the cut.
+    it('a stored PENDING row 120 days before the cut reaches the pending read, the focus card and +N', async () => {
+        const ancient = day(18, 9) - 120 * 24 * HOUR;
+        open({
+            medication: [med('2026-06-01T00:00:00.000Z')],
+            ledgercut: [cutRow(day(18, 7))],
+            intake: [pending('intake-7-legacy-old', ancient)]
+        }, day(20, 12));
+
+        const read = await env.window.apiCall(`/api/doses?status=due,snoozed&to=${iso(nowMs)}`);
+        expect(shape(read)).toEqual([
+            [iso(ancient), 'due'],
+            [iso(day(18, 8)), 'due'],
+            [iso(day(19, 8)), 'due'],
+            [iso(day(20, 8)), 'due']
+        ]);
+
+        const { document } = env;
+        env.window.Date.now = () => nowMs;
+        env.window.loadMeds = async () => {};
+        env.window.medications = [{ id: 7, name: 'Metformin', dosage: '500mg' }];
+        await env.window.loadTimeline({ anchor: true });
+        const focus = document.querySelector('#med-timeline-list .wg-tl-focus');
+        expect(focus.querySelector('.wg-timeline__row').dataset.occIds).toBe(slot(day(20, 8)));
+        expect(focus.querySelector('.wg-tl-focus__label .wg-meta').textContent.trim()).toBe('+3 more pending');
+    });
+
     it('day one: stuck pendings show as due with their dates, and nothing writes PENDING', async () => {
         open({
             medication: [med('2026-10-01T00:00:00.000Z')],
@@ -980,6 +1009,27 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         expect(doses[1].snoozedUntil).toBe(iso(NOW + 5 * 60_000));
         expect(doses[2].takenAt).toBe(iso(at(10)));
         expect(doses[3].stepNote).toBe(STEP_NOTE);
+    });
+
+    // bd med-ry7b.3 — the timeline's focus card reads every pending dose, not
+    // just its shown days: status keeps only those states, and pending never
+    // expires, so from defaults to the start of the ledger.
+    it('GET /api/doses?status=due,snoozed: only pending rows, of any age by default', async () => {
+        const old = Date.UTC(2026, 6, 17, 8, 0); // 30 days back
+        const veryOld = Date.UTC(2026, 3, 18, 8, 0); // 120 days back
+        env.cleanup();
+        const seed = seedRecords();
+        seed.intake.push(intake(slotId(2, old), 2, old), intake(slotId(2, veryOld), 2, veryOld));
+        env = loadCloudShimFrontendEnv({ seedRecords: seed, now: () => NOW, timeZone: TZ });
+
+        const pending = await call(`/api/doses?status=due,snoozed&to=${iso(NOW)}`);
+        expect(pending.map((d) => [d.occId, d.state])).toEqual([
+            [slotId(2, veryOld), 'due'],
+            [slotId(2, old), 'due'],
+            [slotId(1, at(8)), 'due'],
+            [slotId(2, at(9)), 'snoozed']
+        ]);
+        expect((await call(`/api/doses?status=due&to=${iso(NOW)}`)).map((d) => d.state)).toEqual(['due', 'due', 'due']);
     });
 
     it('next-intake, upcoming, the badge, history and the reminder horizon read the same rows', async () => {

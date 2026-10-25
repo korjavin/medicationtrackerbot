@@ -228,10 +228,11 @@ vault, so order does not matter and one failure does not poison the rest.
 Phase 2 adds (bd med-y5xx.8): `weight`, `meds-schedule-take` (Schedule with
 the take-dose sheet open; was `meds-history-take` until bd med-wi09.3 retired
 History for `meds-timeline`), `meds-timeline-pending` (edits yesterday's
-taken dose to Not taken through the MT3 sheet, so Today's Pending shows a
-dated row and that day shows the MT4 bulk pair) and `meds-timeline-bulk-undo` (its "Mark
-all taken", with the undo toast — which also re-takes that dose, at its
-planned time, for later scenes), `settings-targets-keyboard` (number fields at
+taken dose to Not taken through the MT3 sheet, so that day lists it with its
+own Take / Skip; the MT4 bulk pair needs 2+ listed pending doses on a day,
+which the one-dose-a-day seed never has, so `meds-timeline-bulk-undo` was
+retired with bd med-ry7b and the harness suite covers bulk and its undo
+toast), `settings-targets-keyboard` (number fields at
 15px with the keyboard — focus-zoom regression check),
 `settings-ai-key-keyboard` (the BYOK key form), `settings-erase-confirm` (the
 in-page `safeConfirm` dialog; the phrase is never typed) and `journey`

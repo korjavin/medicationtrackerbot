@@ -482,6 +482,25 @@ function zoneAt(tr, timeZone, ms) {
 // wins; an uncovered one is due. Before the cut day, stored rows are the whole
 // truth. `evidence` ({transitions, initialZone}) is a caller's cached
 // evidenceTransitions over `intakes`.
+function cutDayStartMs(tr, timeZone, cut) {
+  const z = zoneAt(tr, timeZone, cut);
+  const p = localDateParts(cut, z);
+  return localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), z);
+}
+
+// Where regenerateWindow starts listing doses: local midnight of the cut day
+// (null cut = nowMs, as there). applyLineage's `regenFromMs`.
+export function regenerationStartMs({ transitions = [], intakes = [], timeZone, cutMs = null, nowMs, evidence = null }) {
+  const cut = cutMs ?? nowMs;
+  let tr = transitions.filter((t) => t && !t.deleted);
+  if (tr.length === 0) {
+    const ev = evidence || evidenceTransitions(intakes, timeZone, cut, nowMs);
+    tr = ev.transitions;
+    timeZone = ev.initialZone;
+  }
+  return cutDayStartMs(tr, timeZone, cut);
+}
+
 export function regenerateWindow({
   medications = [], scheds = [], transitions = [], intakes = [], tzPlan = null, timeZone, cutMs = null, fromMs, toMs, nowMs,
   evidence = null,
@@ -493,9 +512,7 @@ export function regenerateWindow({
     tr = ev.transitions;
     timeZone = ev.initialZone;
   }
-  const z = zoneAt(tr, timeZone, cut);
-  const p = localDateParts(cut, z);
-  const cutDayStart = localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), z);
+  const cutDayStart = cutDayStartMs(tr, timeZone, cut);
   const from = Math.max(fromMs, cutDayStart);
   if (!(from <= toMs)) return { occurrences: [] };
   let occurrences = regenerate({ medications, scheds, transitions: tr, tzPlan, timeZone, fromMs: from, toMs, nowMs });
@@ -510,7 +527,7 @@ export function regenerateWindow({
   return { occurrences };
 }
 
-function canonical(table, id) {
+export function canonical(table, id) {
   let k = table.get(id);
   const seen = new Set([id]);
   while (k && table.has(k) && !seen.has(k)) {
@@ -526,8 +543,28 @@ function canonical(table, id) {
 // both rows stay, flagged `loggedTwice` (the partner's occId), never settled;
 // evidence at C only → C's row is the dose and K's row is hidden (one row, one
 // consumption). `intakes` RAW, so a tombstone counts as evidence.
-export function applyLineage(rows, table, intakes = []) {
+//
+// `fromMs`/`toMs` is the read window the rows came from (bd med-wi09.4). A
+// canonical K outside it that some read DOES list — at or after the
+// regeneration start (`regenFromMs`, regenerationStartMs: local midnight of
+// the cut day; null = −Infinity), or with a live stored row — belongs to K's
+// own read, so its cancelled ids are hidden here too. A K that no read lists
+// (before regeneration, never stored) keeps them as stand-ins, inside the
+// window or out (Archie 5078, Argus 5086).
+export function applyLineage(rows, table, intakes = [], { fromMs = -Infinity, toMs = Infinity, regenFromMs = null } = {}) {
   if (!table || table.size === 0) return rows;
+  const cut = regenFromMs ?? -Infinity;
+  const storedSlots = new Set();
+  for (const i of intakes) {
+    const ms = Date.parse(i && i.scheduled_at);
+    if (i && !i.deleted && Number.isFinite(ms) && !String(i.recordId).startsWith('intake-manual-')) storedSlots.add(slotId(i.medication_id, ms));
+  }
+  const outsideRead = (k) => {
+    const m = SLOT_RE.exec(String(k));
+    const ms = m ? Number(m[2]) * 1000 : NaN;
+    if (!Number.isFinite(ms) || (ms >= fromMs && ms <= toMs)) return false;
+    return ms >= cut || storedSlots.has(`intake-${m[1]}-${m[2]}`);
+  };
   const ev = evidenceMap(intakes);
   const keyOf = (r) => (r.source === 'manual' ? null : slotId(r.medId, Date.parse(r.plannedAt)));
   const occOf = new Map();
@@ -555,10 +592,11 @@ export function applyLineage(rows, table, intakes = []) {
     } else if (logged.length === 1) {
       for (const m of members) if (m !== logged[0]) hidden.add(m);
     } else {
-      // A canonical the projection doesn't list (a window that cuts K off, or
-      // a switch before the ledger cut, where nothing is regenerated) would
-      // leave the slot empty — so the cancelled rows stay as stand-ins.
-      if (!k || occOf.has(k)) for (const m of members) if (m !== k) hidden.add(m);
+      // A canonical inside the read that the projection doesn't list (a switch
+      // before the ledger cut, where nothing is regenerated) would leave the
+      // slot empty — so the cancelled rows stay as stand-ins. A canonical
+      // outside the read is that read's dose, never a stand-in's here.
+      if (!k || occOf.has(k) || outsideRead(k)) for (const m of members) if (m !== k) hidden.add(m);
     }
   }
   return rows.filter((r) => !hidden.has(keyOf(r))).map((r) => {

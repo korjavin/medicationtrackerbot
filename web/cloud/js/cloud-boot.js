@@ -550,7 +550,12 @@ window.MedTrackerCloudReady = (async function boot() {
         // in place and are logged — they must NOT redirect to /unlock (the vault
         // is already unlocked). The IIFE closes just before the outer catch.
         void (async () => {
-        await pullOnOpen(ctx);
+        // A reminder deeplink that finds no dose at its slot re-reads once
+        // after this pull before it calls the reminder out of date (bd
+        // med-wi09.4): an edit synced from another device may not be local yet.
+        const pulled = Promise.resolve(pullOnOpen(ctx));
+        if (window.MedTrackerCloud) window.MedTrackerCloud.pulled = pulled.then(() => {}, () => {});
+        await pulled;
         // bd med-ejgf: the shim reports needs_first_run false until this
         // device has pulled the account once, so W1 never writes flags or the
         // reminder default over an existing account from an empty mirror. The

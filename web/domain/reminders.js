@@ -13,7 +13,7 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { projectOccurrences } from './medintake.js';
-import { lineageTable, regenerateWindow } from './lineage.js';
+import { lineageTable, regenerateWindow, regenerationStartMs } from './lineage.js';
 import {
   localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
@@ -521,6 +521,7 @@ export function computeReminderHorizon({
     lineage: lineageTable([...transitions, ...scheds]),
     regenerated,
     cutMs,
+    regenFromMs: regenerationStartMs({ transitions, intakes, timeZone, cutMs, nowMs: now }),
   // medById holds live, unarchived meds only: a stored future row of a deleted
   // or archived med is history, not a nag.
   // A dose already handled (taken early, skipped) has its evidence at its own
