@@ -189,21 +189,26 @@ In this mode three things can leave the phone, each your choice:
 
 
 **Settings → Backup & import → Erase data on this device** deletes everything
-stored in this mode except the anonymous trial pass, which stays in the phone's
-secure storage so a trial is never lost by accident. First it asks the
-operator's server to delete this phone's current anonymous install record and
-its trial budget (an Android phone restored from this phone's backup shares that
-record, so its remaining trial goes too). If the phone still holds a pass from
-an older install record (from before a reinstall), that older record stays on
-the server until the trial is switched on again and the phone is erased again.
-Anonymous feedback you sent that the operator hasn't collected yet stays on the
-server until it is collected. The daily usage counts stay, but nothing links
-them to this phone any more. If the server can't be reached (you're offline, or
-the app needs an update), you are told and can cancel. If you erase anyway, the
-install record stays on the server. Apple's DeviceCheck flags, and Google's
-device recall if the operator switches it on, are kept by Apple or Google and
-the operator can't clear them. They limit how many free trials one phone can get
-after erasing.
+this mode stored on the phone except the anonymous trial pass, which the app
+keeps (on Android it is part of the phone's backup, as above). If the phone has
+an anonymous install record on the operator's server, the app first asks the
+server to delete that record and its trial budget (an Android phone restored
+from this phone's backup shares that record, so its remaining trial goes too).
+The kept pass then no longer opens a trial. If the server can't be reached
+(you're offline, or the app needs an update), you are told and can cancel. If
+you erase anyway, the install record stays on the server. After a successful
+erase, the server still keeps:
+
+- daily usage counts, with nothing left that links them to this phone
+- anonymous feedback you sent that the operator hasn't collected yet, until it
+  is collected
+- an older install record from before a reinstall, if the phone still holds a
+  pass for it, until the trial is switched on again and the phone is erased
+  again
+
+Apple's DeviceCheck flags, and Google's device recall if the operator switches
+it on, are kept by Apple or Google and the operator can't clear them. They limit
+how many free trials one phone can get after erasing.
 
 ## 5. Apple Health and Health Connect
 
