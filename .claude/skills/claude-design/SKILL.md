@@ -72,7 +72,7 @@ round trip through DesignSync. Standalone Claude Design also closes on 2026-12-1
 - **Don't fake real-data screenshots.** Ask the owner. Agent-made shots are fine for empty states.
 - **Nothing private** goes into frames, briefs or the repo: no prod hostnames, tokens, bot
   handles or real user data.
-- **No local frontend test runs** at any stage, including in subagent briefs.
+- **No full-suite local frontend test runs**; run only targeted test files if verifying a component.
 - **Regressions the owner spots after a rollout** become new child beads under the same epic.
 - **Code-side deviations** agreed with a developer (a control the code can't build, copy the
   code already has) go into the INDEX changelog as "code-side deltas", so the frames and the
