@@ -23,6 +23,7 @@ export default async function healthConnect(ctx) {
   const FIRST = [sys, 90 + Math.floor(Math.random() * 10)];
   const SECOND = [sys + 1, FIRST[1] + 1];
   const VITALS = { steps: 1000 + Math.floor(Math.random() * 5000), hr: 60 + Math.floor(Math.random() * 30), spo2: 90 + Math.floor(Math.random() * 9) };
+  const SPO2N = 120; // more than HealthConnect.DENSE_PAGE records: the scan pages
   const r = (ctx.results.health = { readings: [FIRST, SECOND], vitals: VITALS });
 
   await shell(`pm clear ${pkg}`);
@@ -36,7 +37,7 @@ export default async function healthConnect(ctx) {
   const write = async ([sys, dia], vitals) => {
     await shell('input keyevent KEYCODE_HOME');
     await sleep(3000);
-    const extra = vitals ? ` --ei steps ${vitals.steps} --ei hr ${vitals.hr} --ei spo2 ${vitals.spo2}` : '';
+    const extra = vitals ? ` --ei steps ${vitals.steps} --ei hr ${vitals.hr} --ei spo2 ${vitals.spo2} --ei spo2n ${SPO2N}` : '';
     await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --ei sys ${sys} --ei dia ${dia}${extra}`);
     const end = Date.now() + 20_000;
     while (Date.now() < end) {
@@ -109,6 +110,26 @@ export default async function healthConnect(ctx) {
       if (!(hr.samples || []).some((s) => s.value === VITALS.hr) || !(hr.samples || []).some((s) => s.value === VITALS.hr + 1)) throw new Error(`hr: ${JSON.stringify(hr)}`);
       if (!(hr.samples || []).every((s) => /-\d+$/.test(s.uuid) && Number.isFinite(s.start))) throw new Error(`hr shape: ${JSON.stringify(hr.samples)}`);
       if (!(spo2.samples || []).some((s) => s.value === VITALS.spo2)) throw new Error(`spo2: ${JSON.stringify(spo2)}`);
+    });
+
+    await ctx.step('a dense scan pages by limit: hc1s: anchors with more, then the hc1: changes token', async () => {
+      r.paged = await ctx.page.evaluate(async (n) => {
+        const out = { pages: [], uuids: 0 };
+        const seen = new Set();
+        let res = await window.Health.query({ type: 'spo2', anchor: null, from: Date.now() - 90 * 86400_000, limit: 50 });
+        for (let i = 0; i < 20; i++) {
+          (res.samples || []).forEach((s) => seen.add(s.uuid));
+          out.pages.push({ n: (res.samples || []).length, more: res.more, anchor: String(res.anchor).slice(0, 5) });
+          if (!res.more) break;
+          res = await window.Health.query({ type: 'spo2', anchor: res.anchor, limit: 50 });
+        }
+        out.uuids = seen.size;
+        return out;
+      }, SPO2N);
+      const { pages, uuids } = r.paged;
+      const last = pages[pages.length - 1];
+      if (pages.length < 2 || !pages.slice(0, -1).every((p) => p.more && p.anchor === 'hc1s:')) throw new Error(`no paging: ${JSON.stringify(r.paged)}`);
+      if (last.more || last.anchor !== 'hc1:' || uuids < SPO2N) throw new Error(`not drained: ${JSON.stringify(r.paged)}`);
     });
 
     await ctx.step('Vitals: Steps / Heart Rate / SpO2 cards populated', async () => {
