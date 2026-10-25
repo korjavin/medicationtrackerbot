@@ -57,8 +57,8 @@ export default async function nativeScreens(ctx) {
   await ctx.shot('hc-rationale');
 
   // The privacy link is built from the build's base domain (bd med-ffuu.4); the QA build's is
-  // qa.test (android-qa.yml). Logcat's START line elides the path on some images ("/..."), so the
-  // path is asserted only when it is printed.
+  // qa.test (android-qa.yml). Logcat's START line elides the path ("https://qa.test/..."), so the
+  // path is read from Chrome's URL bar once its first-run screen is dismissed.
   await ctx.step('Health Connect rationale: Privacy policy → ACTION_VIEW https://qa.test/privacy', async () => {
     const views = async () => (await shell('logcat -d -s ActivityTaskManager'))
       .split('\n').filter((x) => x.includes('android.intent.action.VIEW') && x.includes('qa.test'));
@@ -69,6 +69,15 @@ export default async function nativeScreens(ctx) {
     if (!hit) throw new Error('no ACTION_VIEW for qa.test in logcat');
     ctx.log('intent:', hit.trim());
     if (!/dat=https:\/\/qa\.test\/(privacy\b|\.\.\.)/.test(hit)) throw new Error(`not the privacy URL: ${hit.trim()}`);
+    const seen2 = (sel) => device.wait(sel, { timeout: 1_000 }).then(() => true, () => false);
+    const end = Date.now() + 30_000;
+    while (Date.now() < end) {
+      if (await seen2({ text: /^(https:\/\/)?qa\.test\/privacy$/ })) return;
+      for (const text of ['Use without an account', 'No thanks', 'No, thanks']) {
+        if (await seen2({ text })) await device.tap({ text });
+      }
+    }
+    throw new Error('Chrome URL bar never showed qa.test/privacy');
   });
   await ctx.shot('hc-rationale-privacy');
 }
