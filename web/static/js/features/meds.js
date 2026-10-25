@@ -452,24 +452,34 @@ function syncMedsAddButton() {
     btn.hidden = !!(pane && pane.querySelector('.wg-empty .wg-btn--primary'));
 }
 
-// ==================== Timeline sub-tab (kit v2 MT1/MT5, bd med-wi09.3) ====================
-// One scrollable pane replaces History and Upcoming: Tomorrow (its first two
-// groups + "N more"), Today (Next / Pending / Done) and the earlier days, all
-// read from the occurrence projection (GET /api/doses), so every row is the
+// ==================== Timeline sub-tab (kit v2 TL1–TL4, bd med-ry7b) ====================
+// One pane in time order (screens-meds-timeline-v2.html): the future on top,
+// folded to one "Planned" row per day under "Show 3 more days ahead"; Today,
+// led by the focus card (the one pending dose to act on + the next dose due
+// today); History, Yesterday and the day before, over "Show 3 earlier days".
+// Every row is the occurrence projection's own (GET /api/doses), so it is the
 // dose — id, time, state — Telegram and the notifications show. Rows act on
 // their own occIds (data-occ-ids, bd med-wi09.17): a pending row has Take /
 // Skip and a tap opens the take sheet (M2); a taken or skipped row opens it in
-// edit mode (MT3); an earlier day with pending doses gets "Mark all taken" /
+// edit mode (MT3); a past day with pending doses gets "Mark all taken" /
 // "Skip all", undone from the toast (MT4). Every write is POST /api/doses/act
 // through _tlAct / the sheet handlers, flipped in place first (applyOptimistic
-// on MEDS_TIMELINE_KEY).
+// on MEDS_TIMELINE_KEY and MEDS_TIMELINE_PENDING_KEY).
+//
+// Two reads, both local in cloud mode: the display window (one /api/doses
+// range that widens with the "Show 3 …" rows, read a page beyond what is
+// shown so a tap renders at once) and the pending-only read the focus card
+// picks from (status=due,snoozed up to now), so no pending dose is ever out of
+// sight — at worst it is the card while its own day lies beyond the loaded
+// History. No "missed": a dose stays pending until it is taken or skipped.
 //
 // Rows group by (localDate, localTime, tz, state) exactly as the projection
 // stamped them, never by the device clock: a row keeps its own date across a
 // zone change, the same local time in two zones never merges, and a group
 // whose meds are in different states splits (Pending vs Done).
-const MEDS_TIMELINE_PAGE_DAYS = 7; // earlier days rendered per scroll page
-const MEDS_TIMELINE_TOMORROW_GROUPS = 2;
+const MEDS_TIMELINE_AHEAD_DAYS = 1; // future days on open (Tomorrow)
+const MEDS_TIMELINE_BACK_DAYS = 2; // past days on open (Yesterday + the day before)
+const MEDS_TIMELINE_PAGE_DAYS = 3; // days per "Show 3 …" tap
 const MEDS_TIMELINE_LEAD = {
     upcoming: ['', 'pill'],
     due: ['wg-row__lead--sky', 'clock'],
@@ -477,8 +487,12 @@ const MEDS_TIMELINE_LEAD = {
     taken: ['wg-row__lead--ok', 'check'],
     skipped: ['wg-row__lead--stale', 'minus'],
 };
-const MEDS_TIMELINE_KEY = 'doses_timeline'; // DataStore key of the projection rows
-let _medsTimelineState = { rows: null, pastShown: MEDS_TIMELINE_PAGE_DAYS, pastRendered: 0, past: [], byDate: new Map(), ctx: null, tomorrowOpen: false, observer: null, outOfDate: null }; // module-state: timeline rows + scroll-paging cursor + MT6 note
+const MEDS_TIMELINE_KEY = 'doses_timeline'; // DataStore key of the window's projection rows
+const MEDS_TIMELINE_PENDING_KEY = 'doses_pending'; // DataStore key of the pending-only read
+// module-state: window rows, pending rows, the shown window (days ahead /
+// back, reset on every visit), unfolded planned days, the latest read's
+// sequence number + the read queue, the MT6 note
+let _medsTimelineState = { rows: null, pending: null, ahead: MEDS_TIMELINE_AHEAD_DAYS, back: MEDS_TIMELINE_BACK_DAYS, open: new Set(), seq: 0, chain: null, ctx: null, outOfDate: null };
 
 // 'YYYY-MM-DD' of an instant on the tracked zone's calendar.
 function _tlDatePart(ms, tz) {
@@ -677,25 +691,30 @@ function _tlManualRow(medId, takenAt) {
     };
 }
 
-// Optimistic timeline write: the cached projection rows (MEDS_TIMELINE_KEY,
-// what loadTimeline reads while the write is pending) and the rows on screen
-// both take mutator(rows) at once. Returns an applyOptimistic handle whose
-// rollback also restores the screen.
+// Optimistic timeline write: the cached projection rows (MEDS_TIMELINE_KEY and
+// the pending-only MEDS_TIMELINE_PENDING_KEY, what loadTimeline reads while
+// the write is pending) and the rows on screen all take mutator(rows) at once.
+// Returns an applyOptimistic handle whose rollback also restores the screen.
 async function _applyOptimisticTimeline(mutator) {
     const state = _medsTimelineState;
-    const prior = state.rows;
+    const prior = { rows: state.rows, pending: state.pending };
     const apply = (rows) => (Array.isArray(rows) ? mutator(rows) : rows);
-    const handle = await window.DataStore.applyOptimistic(MEDS_TIMELINE_KEY, apply, ['history']);
-    if (Array.isArray(prior)) {
-        state.rows = apply(prior);
+    const handles = [
+        await window.DataStore.applyOptimistic(MEDS_TIMELINE_KEY, apply, ['history']),
+        await window.DataStore.applyOptimistic(MEDS_TIMELINE_PENDING_KEY, apply, ['history']),
+    ];
+    if (Array.isArray(prior.rows)) {
+        state.rows = apply(prior.rows);
+        state.pending = apply(prior.pending);
         renderTimeline();
     }
     return {
-        commit: (payload) => handle.commit(payload),
+        commit: (payload) => Promise.all(handles.map((h) => h.commit(payload))),
         async rollback() {
-            await handle.rollback();
-            if (Array.isArray(prior)) {
-                state.rows = prior;
+            await Promise.all(handles.map((h) => h.rollback()));
+            if (Array.isArray(prior.rows)) {
+                state.rows = prior.rows;
+                state.pending = prior.pending;
                 renderTimeline();
             }
         },
@@ -807,23 +826,141 @@ function _tlSkeletonList() {
     return list;
 }
 
-function _tlTomorrowSection(groups, ctx) {
-    const section = _medsEl('section', 'wg-section wg-timeline__day wg-timeline__tomorrow');
-    section.appendChild(_tlHead(`Tomorrow · ${_tlDayName(_tlShiftDate(ctx.todayDate, 1))}`));
-    const open = _medsTimelineState.tomorrowOpen;
-    const shown = open ? groups : groups.slice(0, MEDS_TIMELINE_TOMORROW_GROUPS);
-    section.appendChild(_tlList(shown, ctx, { chip: false }));
-    const hidden = groups.slice(shown.length);
-    if (hidden.length) {
-        const more = _medsEl('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-timeline__more-btn', `${hidden.length} more · ${hidden[0].localTime}`);
-        more.type = 'button';
-        more.addEventListener('click', () => {
-            _medsTimelineState.tomorrowOpen = true;
-            section.replaceWith(_tlTomorrowSection(groups, ctx));
+// "Show 3 more days ahead" / "Show 3 earlier days" (.wg-tl-more).
+function _tlMoreButton(label, icon, onClick) {
+    const btn = _medsEl('button', 'wg-tl-more');
+    btn.type = 'button';
+    btn.append(_medsIcon(icon, 'wg-ico--sm'), label);
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+// A "Show 3 …" tap: the window is read a page beyond what is shown, so the
+// new days render at once from rows already here; the re-read then widens the
+// window for the next tap. No spinner, nothing loads by itself.
+function _tlPage(change) {
+    change(_medsTimelineState);
+    renderTimeline();
+    loadTimeline();
+}
+
+// "Yesterday" / "3 days ago" for a past day.
+function _tlDaysAgo(date, ctx) {
+    const days = Math.round((_tlDayMs(ctx.todayDate) - _tlDayMs(date)) / 86400000);
+    return days === 1 ? 'Yesterday' : `${days} days ago`;
+}
+
+// TL1 / TL2 · the future: "Show 3 more days ahead" at the very top, then one
+// folded, dashed "Planned" row per day, farthest first ("3 doses · first
+// 08:20"). A tap unfolds that day's doses underneath, still planned: no
+// buttons, no sheet. Fold state lasts the visit.
+function _tlFutureSection(groups, ctx) {
+    const state = _medsTimelineState;
+    const section = _medsEl('section', 'wg-section wg-tl-planned wg-timeline__future');
+    section.appendChild(_tlMoreButton('Show 3 more days ahead', 'chev-u', () => _tlPage((s) => { s.ahead += MEDS_TIMELINE_PAGE_DAYS; })));
+    const list = _medsEl('div', 'wg-list');
+    for (let i = state.ahead; i >= 1; i--) {
+        const date = _tlShiftDate(ctx.todayDate, i);
+        const day = groups.filter((g) => g.localDate === date);
+        if (!day.length) continue;
+        const open = state.open.has(date);
+        const row = _medsEl('div', 'wg-row wg-tl-day');
+        row.dataset.localDate = date;
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.setAttribute('aria-expanded', String(open));
+        const lead = _medsEl('span', 'wg-row__lead');
+        lead.appendChild(_medsIcon('calendar'));
+        const body = _medsEl('span', 'wg-row__body');
+        body.appendChild(_medsEl('span', 'wg-row__title', i === 1 ? `Tomorrow · ${_tlDayName(date)}` : _tlDayName(date)));
+        body.appendChild(_medsEl('span', 'wg-row__meta', `${day.length} dose${day.length === 1 ? '' : 's'} · first ${day[0].localTime}`));
+        row.append(lead, body, _medsEl('span', 'wg-tag', 'Planned'), _medsIcon(open ? 'chev-u' : 'chev-d', 'wg-row__chev'));
+        const toggle = () => {
+            if (open) state.open.delete(date);
+            else state.open.add(date);
+            renderTimeline();
+            const again = document.querySelector(`#med-timeline-list .wg-tl-day[data-local-date="${date}"]`);
+            if (again) again.focus();
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', (e) => {
+            if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
+            e.preventDefault();
+            toggle();
         });
-        section.appendChild(more);
+        list.appendChild(row);
+        if (open) day.forEach((g) => list.appendChild(_tlRow(g, ctx, { chip: false })));
     }
+    if (list.children.length) section.appendChild(list);
     return section;
+}
+
+// The focus card's pending dose: the latest of every pending dose — the
+// pending-only read, overlaid by the window's rows (fresher where they meet:
+// a dose taken from the sheet drops out at once) — ties due before snoozed.
+// { focus: group | null, more: how many other pending doses }.
+function _tlFocus(rows, pending, ctx) {
+    const byOcc = new Map();
+    (Array.isArray(pending) ? pending : []).forEach((r) => byOcc.set(String(r.occId), r));
+    rows.forEach((r) => {
+        const id = String(r.occId);
+        if (byOcc.has(id) || r.state === 'due' || r.state === 'snoozed') byOcc.set(id, r);
+    });
+    const all = Array.from(byOcc.values())
+        .filter((r) => (r.state === 'due' || r.state === 'snoozed') && Date.parse(r.plannedAt) <= ctx.nowMs);
+    const focus = _tlGroups(all).sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state]))[0] || null;
+    return { focus, more: focus ? all.length - focus.rows.length : 0 };
+}
+
+function _tlFocusLabel(text, meta) {
+    const label = _medsEl('div', 'wg-tl-focus__label');
+    label.appendChild(_medsEl('span', 'wg-label', text));
+    if (meta) label.appendChild(_medsEl('span', 'wg-meta', meta));
+    return label;
+}
+
+// TL1 / TL4 · the focus card, the one accent card: exactly one pending dose
+// (a day chip when it isn't today's) whose Take is the sun, "+N more pending"
+// as a count only, then the next dose due today with a raised Take. TL3 ·
+// nothing pending and nothing left today: no accent, no buttons, the next dose.
+function _tlFocusCard({ focus, more, next, upcoming }, ctx) {
+    const card = _medsEl('section', 'wg-card wg-tl-focus');
+    card.setAttribute('aria-label', 'Now');
+    if (!focus && !next) {
+        card.classList.add('wg-tl-focus--done');
+        const stack = _medsEl('div', 'wg-hstack');
+        const lead = _medsEl('span', 'wg-row__lead wg-row__lead--ok');
+        lead.appendChild(_medsIcon('check'));
+        const text = _medsEl('span', 'wg-vstack wg-spacer');
+        text.appendChild(_medsEl('span', 'wg-row__title', 'All done for today'));
+        if (upcoming) {
+            const day = upcoming.localDate === _tlShiftDate(ctx.todayDate, 1) ? 'tomorrow' : _tlDayName(upcoming.localDate);
+            const n = upcoming.rows.length;
+            text.appendChild(_medsEl('span', 'wg-meta', `Next: ${day} ${upcoming.localTime} · ${n} med${n === 1 ? '' : 's'}`));
+        }
+        stack.append(lead, text);
+        card.appendChild(stack);
+        return card;
+    }
+    card.classList.add('wg-card--accent');
+    if (focus) {
+        card.appendChild(_tlFocusLabel('Pending', more ? `+${more} more pending` : ''));
+        const today = focus.localDate === ctx.todayDate;
+        const row = _tlRow(focus, ctx, { chip: today });
+        if (!today) row.querySelector('.wg-row__meta').appendChild(window.WGChip.create({ text: _tlDaysAgo(focus.localDate, ctx), state: 'pending', small: true }));
+        row.querySelector('.wg-row__trail .wg-btn:not(.wg-btn--ghost)').classList.add('wg-btn--primary');
+        card.appendChild(row);
+    }
+    if (next) {
+        card.appendChild(_tlFocusLabel('Next today'));
+        const row = _tlRow(next, ctx);
+        const occIds = next.rows.map((r) => r.occId);
+        const trail = _medsEl('span', 'wg-row__trail');
+        trail.appendChild(_tlRowButton(occIds.length > 1 ? `Take ${occIds.length}` : 'Take', false, () => _tlAct('take', [{ occIds }])));
+        row.appendChild(trail);
+        card.appendChild(row);
+    }
+    return card;
 }
 
 function _tlBlock(section, label, groups, ctx, meta) {
@@ -832,7 +969,9 @@ function _tlBlock(section, label, groups, ctx, meta) {
     section.appendChild(_tlList(groups, ctx));
 }
 
-function _tlTodaySection(groups, ctx) {
+// Today: the focus card first, then today's other doses — Pending, Later
+// today, Done. The card's doses are not repeated here.
+function _tlTodaySection(groups, ctx, card) {
     const section = _medsEl('section', 'wg-section wg-timeline__day wg-timeline__today');
     section.dataset.localDate = ctx.todayDate;
     section.appendChild(_tlHead(`Today · ${_tlDayName(ctx.todayDate)}`, {
@@ -851,88 +990,41 @@ function _tlTodaySection(groups, ctx) {
         note.appendChild(body);
         section.appendChild(note);
     }
+    section.appendChild(_tlFocusCard(card, ctx));
     const today = groups.filter((g) => g.localDate === ctx.todayDate);
-    const next = today.filter((g) => g.state === 'upcoming');
-    const pending = today.filter(_tlIsPending);
-    const done = today.filter(_tlIsDone).reverse();
-    // No pending dose may be out of sight: earlier days' due/snoozed rows are
-    // listed here too, under their own date, and stay in their own day below.
-    const earlier = new Map();
-    groups.filter((g) => g.localDate < ctx.todayDate && _tlIsPending(g)).forEach((g) => {
-        if (!earlier.has(g.localDate)) earlier.set(g.localDate, []);
-        earlier.get(g.localDate).push(g);
-    });
-
-    _tlBlock(section, 'Next', next, ctx);
-    _tlBlock(section, 'Pending', pending, ctx);
-    Array.from(earlier.keys()).sort().reverse().forEach((date) => {
-        const days = Math.round((_tlDayMs(ctx.todayDate) - _tlDayMs(date)) / 86400000);
-        _tlBlock(section, _tlDayName(date), earlier.get(date), ctx, days === 1 ? 'Yesterday' : `${days} days ago`);
-    });
-    _tlBlock(section, 'Done', done, ctx);
-    if (!next.length && !pending.length && !earlier.size && !done.length) {
-        section.appendChild(_medsEl('p', 'wg-hint', 'No doses planned today.'));
-    }
+    _tlBlock(section, 'Pending', today.filter(_tlIsPending), ctx);
+    _tlBlock(section, 'Later today', today.filter((g) => g.state === 'upcoming'), ctx);
+    _tlBlock(section, 'Done', today.filter(_tlIsDone).reverse(), ctx);
     return section;
 }
 
-function _tlPastSection(date) {
-    const state = _medsTimelineState;
-    const ctx = state.ctx;
-    const groups = (state.byDate.get(date) || []).slice().sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state]));
-    const occ = groups.flatMap((g) => g.rows);
+// One History day, newest dose first. The header counts every dose of the day
+// (so a day whose pending dose is up in the focus card says "1 pending"); the
+// list leaves out the card's doses.
+function _tlPastSection(date, groups, occ, ctx) {
     const pending = occ.filter((r) => r.state === 'due' || r.state === 'snoozed').length;
     const taken = occ.filter((r) => r.state === 'taken').length;
     const section = _medsEl('section', 'wg-section wg-timeline__day');
     section.dataset.localDate = date;
     const label = date === _tlShiftDate(ctx.todayDate, -1) ? `Yesterday · ${_tlDayName(date)}` : _tlDayName(date);
-    section.appendChild(_tlHead(label, { meta: pending ? `${pending} pending` : `${taken} of ${occ.length} taken` }));
+    const meta = !occ.length ? 'No doses' : pending ? `${pending} pending` : `${taken} of ${occ.length} taken`;
+    section.appendChild(_tlHead(label, { meta }));
     if (pending) section.appendChild(_tlBulkActions(date));
-    section.appendChild(_tlList(groups, ctx));
+    if (groups.length) {
+        section.appendChild(_tlList(groups.slice().sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state])), ctx));
+    }
     return section;
-}
-
-// Earlier days, a page of dates at a time: a skeleton day head sits below the
-// last rendered day (MT5 · loading) and the next page renders when it scrolls
-// into view.
-function _tlAppendPast(list) {
-    const state = _medsTimelineState;
-    const old = list.querySelector('.wg-timeline__more');
-    if (old) old.remove();
-    const end = Math.min(state.past.length, state.pastShown);
-    for (; state.pastRendered < end; state.pastRendered++) {
-        list.appendChild(_tlPastSection(state.past[state.pastRendered]));
-    }
-    if (state.pastRendered >= state.past.length) return;
-    if (typeof window.IntersectionObserver !== 'function') {
-        state.pastShown = state.past.length;
-        _tlAppendPast(list);
-        return;
-    }
-    const more = _medsEl('section', 'wg-section wg-timeline__more');
-    more.appendChild(_tlHead(_tlDayName(state.past[state.pastRendered]), { meta: 'loading' }));
-    more.appendChild(_tlSkeletonList());
-    list.appendChild(more);
-    state.observer = new window.IntersectionObserver((entries) => {
-        if (!entries.some((e) => e.isIntersecting)) return;
-        state.observer.disconnect();
-        state.observer = null;
-        state.pastShown += MEDS_TIMELINE_PAGE_DAYS;
-        _tlAppendPast(list);
-    }, { rootMargin: '200px 0px' });
-    state.observer.observe(more);
 }
 
 function renderTimeline({ anchor = false } = {}) {
     const list = document.getElementById('med-timeline-list');
     if (!list) return;
     const state = _medsTimelineState;
-    if (state.observer) { state.observer.disconnect(); state.observer = null; }
     list.replaceChildren();
 
     const meds = Array.isArray(medications) ? medications : [];
-    const rows = Array.isArray(state.rows) ? state.rows : [];
-    if (meds.length === 0 && rows.length === 0) {
+    const all = Array.isArray(state.rows) ? state.rows : [];
+    if (meds.length === 0 && all.length === 0) {
         const card = _medsEl('div', 'wg-card wg-card--flush');
         card.appendChild(createEmptyState({
             icon: 'pill',
@@ -948,38 +1040,43 @@ function renderTimeline({ anchor = false } = {}) {
     const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     // Every row is planned on the tracked zone; the newest (a forecast row)
     // names the current one.
-    const tz = rows.length ? rows[rows.length - 1].tz : deviceTz;
+    const tz = all.length ? all[all.length - 1].tz : deviceTz;
     const nowMs = Date.now();
     const ctx = { tz, deviceTz, nowMs, todayDate: _tlDatePart(nowMs, tz), medById: new Map(meds.map((m) => [String(m.id), m])) };
+    state.ctx = ctx;
+    // The shown days only: the read runs a page wider on each side.
+    const first = _tlShiftDate(ctx.todayDate, -state.back);
+    const last = _tlShiftDate(ctx.todayDate, state.ahead);
+    const rows = all.filter((r) => r.localDate >= first && r.localDate <= last);
     const groups = _tlGroups(rows);
+    const { focus, more } = _tlFocus(rows, state.pending, ctx);
+    const next = groups.find((g) => g.localDate === ctx.todayDate && g.state === 'upcoming' && g.at > nowMs) || null;
+    const upcoming = groups.find((g) => g.state === 'upcoming' && g.at > nowMs) || null;
+    const inCard = new Set([focus, next].filter(Boolean).flatMap((g) => g.rows.map((r) => String(r.occId))));
+    const listGroups = _tlGroups(rows.filter((r) => !inCard.has(String(r.occId))));
 
     if (state.outOfDate) list.appendChild(_tlOutOfDateNote(state.outOfDate, ctx));
-    const tomorrowDate = _tlShiftDate(ctx.todayDate, 1);
-    const tomorrow = groups.filter((g) => g.localDate === tomorrowDate && g.state === 'upcoming');
-    if (tomorrow.length) list.appendChild(_tlTomorrowSection(tomorrow, ctx));
-    const todaySection = _tlTodaySection(groups, ctx);
+    list.appendChild(_tlFutureSection(listGroups.filter((g) => g.localDate > ctx.todayDate), ctx));
+    const todaySection = _tlTodaySection(listGroups, ctx, { focus, more, next, upcoming });
     list.appendChild(todaySection);
+    let lastDay = null;
+    for (let i = 1; i <= state.back; i++) {
+        const date = _tlShiftDate(ctx.todayDate, -i);
+        lastDay = _tlPastSection(date, listGroups.filter((g) => g.localDate === date), rows.filter((r) => r.localDate === date), ctx);
+        list.appendChild(lastDay);
+    }
+    if (lastDay) lastDay.appendChild(_tlMoreButton('Show 3 earlier days', 'chev-d', () => _tlPage((s) => { s.back += MEDS_TIMELINE_PAGE_DAYS; })));
 
-    state.ctx = ctx;
-    state.byDate = new Map();
-    groups.filter((g) => g.localDate < ctx.todayDate).forEach((g) => {
-        if (!state.byDate.has(g.localDate)) state.byDate.set(g.localDate, []);
-        state.byDate.get(g.localDate).push(g);
-    });
-    state.past = Array.from(state.byDate.keys()).sort().reverse();
-    state.pastRendered = 0;
-    if (anchor) state.pastShown = MEDS_TIMELINE_PAGE_DAYS;
-    _tlAppendPast(list);
-
-    // Land on Today, with Tomorrow just above it — or, under an MT6 note, on
-    // that med's first pending row in Today, else its first row (nothing
-    // selected).
-    const medId = state.outOfDate && state.outOfDate.medId;
-    const medRows = medId ? Array.from(todaySection.querySelectorAll('.wg-timeline__row'))
-        .filter((r) => r.dataset.medIds.split(' ').includes(medId)) : [];
-    const medRow = medRows.find((r) => r.dataset.state === 'due' || r.dataset.state === 'snoozed') || medRows[0];
-    const target = medRow || todaySection;
-    if (anchor && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: medRow ? 'center' : 'start' });
+    // A visit opens at the page's top — or, under an MT6 note, on that med's
+    // first pending row in Today, else its first row there (nothing selected).
+    if (anchor) {
+        const medId = state.outOfDate && state.outOfDate.medId;
+        const medRows = medId ? Array.from(todaySection.querySelectorAll('.wg-timeline__row'))
+            .filter((r) => r.dataset.medIds.split(' ').includes(medId)) : [];
+        const medRow = medRows.find((r) => r.dataset.state === 'due' || r.dataset.state === 'snoozed') || medRows[0];
+        const target = medRow || document.getElementById('meds-view') || list;
+        if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: medRow ? 'center' : 'start' });
+    }
     syncMedsAddButton();
 }
 
@@ -1013,39 +1110,63 @@ function showMedsReminderOutOfDate({ medId, scheduled, tz } = {}) {
 }
 
 // Timeline loader (switchMedTab / reloadCurrentTab / refreshMedsAfterMutation).
-// One projection read from the start of the ledger through tomorrow: pending
-// never expires, so Today's Pending needs every due row however old, and in
-// cloud mode the read is a local shim call. Resolves the rows (null when the
-// route did not answer). Cached under MEDS_TIMELINE_KEY: while a write's
-// optimistic flip is pending fetchFresh yields null and the flipped rows are
-// read back instead of the pre-write projection.
-// ponytail: one full-ledger read, paged only in rendering; window the fetch by
-// localDate if vaults grow past ~10k intakes.
+// Two projection reads, local shim calls in cloud mode: the display window
+// (the shown days plus one page each side, so a "Show 3 …" tap renders at
+// once) and every pending dose up to now (status=due,snoozed; the route bounds
+// it) for the focus card. A visit ({anchor}) starts short again. Resolves the
+// window rows (null when the route did not answer). Cached under
+// MEDS_TIMELINE_KEY / MEDS_TIMELINE_PENDING_KEY: while a write's optimistic
+// flip is pending fetchFresh yields null and the flipped rows are read back
+// instead of the pre-write projection.
 async function loadTimeline({ anchor = false } = {}) {
     const list = document.getElementById('med-timeline-list');
     if (!list) return null;
-    if (_medsTimelineState.rows === null) {
+    const state = _medsTimelineState;
+    if (anchor) {
+        state.ahead = MEDS_TIMELINE_AHEAD_DAYS;
+        state.back = MEDS_TIMELINE_BACK_DAYS;
+        state.open = new Set();
+    }
+    const seq = ++state.seq;
+    if (state.rows === null) {
         list.replaceChildren();
         const section = _medsEl('section', 'wg-section wg-timeline__day');
         section.appendChild(_tlHead('Today', { dot: true }));
         section.appendChild(_tlSkeletonList());
         list.appendChild(section);
     }
+    // One read at a time: fetchFresh shares an in-flight read per key, so a
+    // widened window asked for mid-read would get the narrower answer.
+    const run = (state.chain || Promise.resolve()).then(() => _tlRead(list, seq, anchor));
+    state.chain = run.catch(() => null);
+    return run;
+}
+
+async function _tlRead(list, seq, anchor) {
+    const state = _medsTimelineState;
     if (!Array.isArray(medications) || medications.length === 0) await loadMeds();
-    const toIso = new Date(Date.now() + 2 * 86400000).toISOString();
-    const fetchRows = () => Promise.resolve()
-        .then(() => apiCall(`/api/doses?from=${new Date(0).toISOString()}&to=${toIso}`))
-        .catch(() => null);
-    let rows = await window.DataStore.fetchFresh(MEDS_TIMELINE_KEY, fetchRows, ['history']).catch(() => null);
-    if (!Array.isArray(rows)) rows = await window.DataStore.getCached(MEDS_TIMELINE_KEY).catch(() => null);
+    const nowMs = Date.now();
+    const iso = (days) => new Date(nowMs + days * 86400000).toISOString();
+    const read = async (key, path) => {
+        const fetchRows = () => Promise.resolve().then(() => apiCall(path)).catch(() => null);
+        const fresh = await window.DataStore.fetchFresh(key, fetchRows, ['history']).catch(() => null);
+        return Array.isArray(fresh) ? fresh : window.DataStore.getCached(key).catch(() => null);
+    };
+    const [rows, pending] = await Promise.all([
+        read(MEDS_TIMELINE_KEY, `/api/doses?from=${iso(-(state.back + MEDS_TIMELINE_PAGE_DAYS + 1))}&to=${iso(state.ahead + MEDS_TIMELINE_PAGE_DAYS + 1)}`),
+        read(MEDS_TIMELINE_PENDING_KEY, `/api/doses?status=due,snoozed&to=${iso(0)}`),
+    ]);
+    // A newer read (a later tap or refresh) owns the screen.
+    if (seq !== state.seq) return Array.isArray(rows) ? rows : null;
     if (!Array.isArray(rows)) {
-        if (_medsTimelineState.rows === null) {
+        if (state.rows === null) {
             list.replaceChildren(createOfflineEmptyState());
             syncMedsAddButton();
         }
         return null;
     }
-    _medsTimelineState.rows = rows;
+    state.rows = rows;
+    state.pending = Array.isArray(pending) ? pending : null;
     renderTimeline({ anchor });
     return rows;
 }
