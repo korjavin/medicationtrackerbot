@@ -303,6 +303,25 @@ precondition(LocalOrigin.leave(["then": "local", "forget": true]) == .forgetLoca
 precondition(LocalOrigin.leave(["then": "account", "forget": true]) == .invite)
 print("LocalOrigin.leave: ok")
 
+// local.reset {dropAttest} (bd med-egb3, Archie 4883): only a JSON true drops the key id and the
+// attested mark; nothing else. The Keychain trial pass is out of resetAttest's reach by signature
+// (no pass parameter, LocalOrigin never imports Security), so a dropAttest leaves it as it was.
+let attestDefaults = UserDefaults(suiteName: "wg-test-reset-attest")!
+attestDefaults.set("other", forKey: "wgUnrelated")
+for args: [String: Any] in [[:], ["dropAttest": false], ["dropAttest": "true"], ["dropAttest": [true]]] {
+    attestDefaults.set("kid", forKey: LocalOrigin.attestKeyIdKey)
+    attestDefaults.set("kid", forKey: LocalOrigin.attestedKey)
+    precondition(!LocalOrigin.resetAttest(args, defaults: attestDefaults), "\(args)")
+    precondition(attestDefaults.string(forKey: LocalOrigin.attestKeyIdKey) == "kid" && attestDefaults.string(forKey: LocalOrigin.attestedKey) == "kid", "\(args) dropped")
+}
+precondition(LocalOrigin.resetAttest(["dropAttest": true], defaults: attestDefaults))
+precondition(attestDefaults.string(forKey: LocalOrigin.attestKeyIdKey) == nil && attestDefaults.string(forKey: LocalOrigin.attestedKey) == nil)
+precondition(attestDefaults.string(forKey: "wgUnrelated") == "other", "dropAttest touched more than the key")
+attestDefaults.removePersistentDomain(forName: "wg-test-reset-attest")
+// The erase's delete rides base.post (bd med-egb3).
+precondition(LocalOrigin.basePostPaths.contains("/api/attest/delete"))
+print("LocalOrigin.resetAttest: ok")
+
 // The shell's own page and getUserMedia (bd med-r1j2.18).
 let acct = "abc.app.example.com"
 func own(_ scheme: String, _ host: String, port: Int = 0, main: Bool = true, local: Bool, account: String? = "abc.app.example.com") -> Bool {
@@ -590,3 +609,10 @@ let (closed, closedPort) = loopbackSocket()
 close(closed)
 precondition(post("http://127.0.0.1:\(closedPort)", ["path": "/api/attest/enroll", "body": "{}"]).error == "network")
 print("BasePost: ok")
+
+// The left-edge swipe (bd med-y7b4.4): far enough, or a clear flick; and back.state is advertised in both modes.
+precondition(LocalOrigin.backFires(dx: 60, vx: 0) && LocalOrigin.backFires(dx: 25, vx: 800))
+precondition(!LocalOrigin.backFires(dx: 59, vx: 100) && !LocalOrigin.backFires(dx: 10, vx: 2000) && !LocalOrigin.backFires(dx: -80, vx: -900))
+precondition(LocalOrigin.ops(local: true).contains("back.state") && LocalOrigin.ops(local: false).contains("back.state"))
+precondition(LocalOrigin.backJS.contains("'wg:native-back'") && LocalOrigin.backJS.hasPrefix("!document.dispatchEvent("))
+print("NativeBack: ok")

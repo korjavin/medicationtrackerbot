@@ -15,6 +15,8 @@ import { workoutScheduleOccurrences, isoWeekKey } from './reminders.js';
 import { localWallToUtcMs } from './medschedule.js';
 import { DAY_STATUS_RECORD_TYPE, isFlaggedIncomplete } from './food.js';
 import { trackerDayTotals } from './trackers.js';
+import { createIntakeDomain } from './medintake.js';
+import { visibleSleep } from './healthsource.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
@@ -1215,7 +1217,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // Sleep — total minutes + a resting-HR proxy + bedtime, bucketed on the
     // wake day. A night with a start_time but no total_minutes still has an
     // onset; one with neither contributes nothing.
-    for (const r of await records.list(SLEEP_RECORD_TYPE)) {
+    for (const r of visibleSleep(await records.list(SLEEP_RECORD_TYPE))) {
       const hasMinutes = r.total_minutes !== null && r.total_minutes !== undefined;
       const onset = r.start_time ? sleepOnsetMinutes(r.start_time, r.timezone_offset || 0) : NaN;
       if (!hasMinutes && !Number.isFinite(onset)) continue;
@@ -2246,7 +2248,6 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   const WEIGHT_RECORD_TYPE = 'weight';
   const WEIGHTGOAL_RECORD_TYPE = 'weightgoal';
   const FOODTARGETS_RECORD_TYPE = 'foodtargets';
-  const INTAKE_RECORD_TYPE = 'intake';
   const NOTE_RECORD_TYPE = 'note';
   const HR_RECORD_TYPE = 'hrsample';
   const TARGETS_RECORD_TYPE = 'gamificationtargets';
@@ -2340,7 +2341,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         push(schedMs, { status: 'skipped' });
       } else if (i.status === 'MISSED') {
         push(schedMs, { status: 'missed' });
-      } else if (i.status === 'PENDING') {
+      } else if (i.status === 'PENDING' || i.status === 'UNTAKEN') {
         const slot = slotOf(i);
         if (schedMs < nowMs && !resolved.has(slot) && !missedSlots.has(slot)) {
           missedSlots.add(slot);
@@ -2411,7 +2412,15 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       records.list(BP_RECORD_TYPE), records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
       records.list(SLEEP_RECORD_TYPE), records.list(DAYSTATS_RECORD_TYPE), records.listRange(HR_RECORD_TYPE, hrFromKey, hrToKey),
       records.list(FOOD_LOG_RECORD_TYPE), records.list(FOODTARGETS_RECORD_TYPE),
-      records.list(INTAKE_RECORD_TYPE), records.list(NOTE_RECORD_TYPE), records.list(WORKOUT_SESSION_RECORD_TYPE),
+      // The dose projection, not raw intake rows (bd med-wi09.12): nothing
+      // stores a PENDING prediction any more, so a missed dose exists only as
+      // a regenerated occurrence.
+      // A window (scoring days back, the reminder horizon's 36 h ahead for the
+      // next-pending expiry), never the whole log.
+      createIntakeDomain({ records, now, timeZone }).doseLog({
+        fromMs: nowMs - (SCORING_WINDOW_DAYS + 1) * DAY_MS, toMs: nowMs + 36 * 60 * 60 * 1000,
+      }),
+      records.list(NOTE_RECORD_TYPE), records.list(WORKOUT_SESSION_RECORD_TYPE),
       records.list(TRACKER_RECORD_TYPE), records.list(TRACKER_LOG_RECORD_TYPE),
     ]);
     const foodFlaggedLocalDays = await incompleteFoodDays();
@@ -2441,8 +2450,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // Sleep, keyed by wake-day string; onsetByDay for the regularity baseline.
     const sleepByDay = new Map();
     const onsetByDay = new Map();
-    for (const r of sleepAll) {
-      if (r.deleted) continue;
+    for (const r of visibleSleep(sleepAll)) {
       const day = r.day || (r.start_time ? msToUTCDay(Date.parse(r.start_time)) : '');
       if (!day) continue;
       const durationHours = (r.total_minutes !== null && r.total_minutes !== undefined)

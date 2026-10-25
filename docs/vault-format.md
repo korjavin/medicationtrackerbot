@@ -145,7 +145,12 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   (RFC3339|null), `source` (`schedule`|`tz_step`), plus `tz_plan_id` (number|absent →
   `tz.transition_plans[].id`) and `tz_step_number` (number|absent), set only when
   `source` is `tz_step` — such a dose that loses its plan link is permanently invisible
-  to every medication read. No stored `id`: scheduled intakes
+  to every medication read. Cloud merge fields (bd med-wi09.11, all optional — a row
+  without `rev` is legacy): `rev` (number), `acted_at` (RFC3339), `via`
+  (`app`|`mcp`|`telegram`|`native`), `tz` (IANA zone of the action), `snoozed_at`
+  (RFC3339), and on occasion `note` (str) and `conflict` (object); `status` may also be
+  `UNTAKEN` (an explicit undo, read as pending). See
+  [cloud-mode.md → Sync protocol](cloud-mode.md#sync-protocol). No stored `id`: scheduled intakes
   re-mint deterministically as `intake-<medId>-<slotUnixSeconds>` on cloud import
   (a non-`schedule` source is appended — `intake-<medId>-<slot>-tz_step` — since both
   legitimately share one slot);
@@ -157,7 +162,12 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   schedule/policy change: `id` (the recordId, `medsched-<medId>-<fromSec>-<rand>`;
   the generation a med was created with uses the suffix `base`, `from` =
   `created_at`), `medication_id` (number → medication.id), `schedule`,
-  `tz_shift_policy`, `from` (RFC3339, when it took effect). Exported in effective
+  `tz_shift_policy`, `from` (RFC3339, when it took effect), and on an edit row
+  (not `base`) `boundary` (bd med-wi09.10, see **boundary** under `tz`; absent on
+  rows written before it). An archive/unarchive writes a row too (bd
+  med-wi09.12) carrying `archived` (boolean, the state from `from` on);
+  doses are derived, so these rows are what keep an archived med's days
+  empty. Absent on every other row. Exported in effective
   order (`from`, then `id`). Import keeps the id; an id without the
   `medsched-` prefix fails the import before the wipe.
 
@@ -366,7 +376,14 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   change (a flexible-only change, or a plan's Apply): `id` (the recordId,
   `tztransition-<switchSec>-<rand>`), `old_tz`, `new_tz`, `switch_at` (RFC3339),
   `steps` (the plan's steps in the `transition_plans` step shape; `[]` for a
-  flexible-only change), `boundary` (null until the lineage bead fills it).
+  flexible-only change), `boundary` (below; null on rows written before bd
+  med-wi09.10).
+- **boundary** (bd med-wi09.10, on `transitions` and edit `schedules` rows) — the
+  dose lineage decided once at the change by `web/domain/lineage.js`: an array,
+  one entry per medication that had a slot cancelled, `{medId, kept: [occId],
+  cancelled: [occId], replacement: {cancelledOccId: occId | null}}`. occIds are
+  scheduled-intake ids (`intake-<medId>-<slotUnixSeconds>`), so they survive
+  export/import (re-minted identically). Carried verbatim; older clients ignore it.
   Exported in effective order (`switch_at`, then `id`). Import keeps the id; an
   id without the `tztransition-` prefix fails the import before the wipe.
 
@@ -564,9 +581,10 @@ the key (unknown `data` keys are skipped — pinned by a round-trip test).
 ```
 
 Derived-slot suppression signals (bd med-jtaj). `intake-<medId>-<slot>` and
-`session-<groupId>-<date>` rows are lazily materialized by readers
-(`materializeDueDoses`, `getNext`) via `putIfAbsent`, which treats any raw row —
-tombstone included — as occupying the slot. A tombstone there means "deliberately
+`session-<groupId>-<date>` slots are derived by readers — the dose projection
+(`medintake.js` `project`, which hides a tombstoned slot; bd med-wi09.12) and
+`getNext` (`putIfAbsent`, which treats any raw row — tombstone included — as
+occupying the slot). A tombstone there means "deliberately
 deleted, do not re-materialize"; dropping it on export resurrects the day and its
 reminder on the next import. Every other type is delete-by-absence (a missing row
 stays missing after the replace-only import), so only `intake` and
@@ -712,7 +730,8 @@ Export → import → export (and each single hop) must be
 ## The golden fixture
 
 `tests/fixtures/vault-v1.json` is a small hand-curated vault exercising every domain,
-every deterministic-id case (scheduled + manual intake, tz transition plan, workout
+every deterministic-id case (scheduled + manual intake — plus an `UNTAKEN` intake
+carrying the merge fields, an undo `note` and a `conflict` flag, med-wi09.11 — tz transition plan, workout
 scheduled session + rotation), a vitals day-batch boundary (samples spanning two calendar
 days), an integrations key, two derived-slot tombstones (a deleted workout day +
 a deleted dose, med-jtaj), and a `protection` block (no backup, one old

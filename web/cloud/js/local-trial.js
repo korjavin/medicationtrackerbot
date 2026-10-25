@@ -16,6 +16,7 @@
 // a feedback send the user taps (bd med-ta2n.20, local-policy.js).
 
 const STATE_KEY = 'wg:local-trial';
+const ERASE_PATH = '/api/attest/delete';
 
 function b64(bytes) {
   let s = '';
@@ -39,6 +40,8 @@ async function errorCode(res) {
 //                                      (or of the challenge fetch, when that failed)
 //   post(pathAndQuery, body, signal) → Response of the signed POST
 //   get(pathAndQuery, signal)        → Response of the signed GET (empty body)
+//   erase(signal)                    → 'deleted' | 'unknown' | 'no_key' | 'failed'
+//                                      (the install record's deletion, bd med-egb3)
 // Every response goes to onResponse(res, pathAndQuery) first.
 //
 // The signed input (attest.go chat): clientDataHash = SHA256(challenge ‖
@@ -68,13 +71,14 @@ export function createAttestClient({
 
   // { challenge } or, when none could be had, { res } to hand back as is
   // (trial_not_configured, the per-IP limit).
-  async function takeChallenge() {
+  // `signal` (the request's) covers the challenge fetch too.
+  async function takeChallenge(signal) {
     if (challenge) {
       const c = challenge;
       challenge = '';
       return { challenge: c };
     }
-    const res = await send('/api/attest/challenge', {});
+    const res = await send('/api/attest/challenge', signal ? { signal } : {});
     challenge = '';
     if (!res.ok) return { res };
     const body = await res.json();
@@ -150,7 +154,7 @@ export function createAttestClient({
     // A pending enrollment decides which key signs: wait for it.
     if (enrolling) await enrolling.catch(() => {});
     const gen = granted;
-    const got = await takeChallenge();
+    const got = await takeChallenge(signal);
     if (got.res) return { res: got.res, gen };
     const digest = new Uint8Array(await subtle.digest('SHA-256', new TextEncoder().encode(`${pathAndQuery}\n${body}`)));
     let signed;
@@ -201,8 +205,32 @@ export function createAttestClient({
     }
   }
 
+  // The erase's deletion of this install's record (bd med-egb3; server:
+  // attest.go eraseInstall). Unlike request(), it never enrolls: a key the
+  // server or the shell does not have has nothing to delete. One re-sign for
+  // an expired challenge (the cached one is usually stale by then), nothing
+  // else retried. Resolves 'deleted' (204), 'unknown' (install_unknown: the
+  // server has no such install), 'no_key' (the shell has none) or 'failed'
+  // (offline, an old shell's `invalid path`, a server without the route's
+  // 404, 5xx, `signal` aborted, …); never throws. Once `signal` aborts no
+  // further request starts (shellPost and fetch both honour it).
+  async function erase(signal) {
+    try {
+      for (let attempt = 0; attempt < 2 && !signal?.aborted; attempt += 1) {
+        const out = await signedRequest('POST', ERASE_PATH, '', signal);
+        if (out.needsKey) return 'no_key';
+        if (out.res.ok) return 'deleted';
+        const { code } = await errorCode(out.res);
+        if (code === 'install_unknown') return 'unknown';
+        if (code !== 'challenge_invalid') break;
+      }
+    } catch { /* network, op error: below */ }
+    return 'failed';
+  }
+
   return {
     enroll,
+    erase,
     feedbackRecipient,
     post: (pathAndQuery, body, signal) => request('POST', pathAndQuery, body, signal),
     // An empty body: the digest is SHA256(pathAndQuery ‖ "\n") (attest.go food routes).

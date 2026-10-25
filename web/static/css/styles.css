@@ -6663,17 +6663,76 @@ body:has(.wg-callbar--dock) .wg-toasts {
     outline: none;
 }
 
-/* Meds timeline (kit v2 MT1, bd med-wi09.3). Kit markup throughout — day
-   sections are .wg-section, rows .wg-row; this only spaces the days and sets
-   the Tomorrow "N more" reveal under its list. */
+/* Meds timeline (kit v2 TL1–TL4, bd med-ry7b). Kit markup throughout — day
+   sections are .wg-section, rows .wg-row; the .wg-tl-* additions come from
+   screens-meds-timeline-v2.html: the focus card, the folded planned days and
+   the "Show 3 …" rows. */
 .wg-timeline {
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
 }
 
-.wg-timeline__more-btn {
-    align-self: flex-start;
+.wg-tl-focus {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-s1);
+    padding: var(--wg-s2) var(--wg-s2) calc(var(--wg-s2) + var(--wg-s1) / 2);
+}
+
+.wg-tl-focus .wg-row {
+    background: transparent;
+    border: 0;
+}
+
+.wg-tl-focus__label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: calc(var(--wg-s1) * 1.5) var(--wg-s2) 0;
+}
+
+.wg-tl-focus--done {
+    padding: calc(var(--wg-s3) + var(--wg-s1) / 2);
+}
+
+.wg-tl-planned {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-s2);
+}
+
+.wg-tl-planned .wg-list {
+    background: transparent;
+    border: 1px dashed var(--wg-line-strong);
+    box-shadow: none;
+}
+
+.wg-tl-planned .wg-row {
+    opacity: 0.62;
+}
+
+.wg-tl-planned .wg-row__lead {
+    background: transparent;
+}
+
+.wg-tl-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--wg-s1) * 1.5);
+    width: 100%;
+    height: 40px;
+    border: 1px solid var(--wg-line);
+    border-radius: var(--wg-r-md);
+    background: transparent;
+    color: var(--wg-fg-2);
+    font: 600 var(--wg-fs-sm) var(--wg-font-ui);
+    cursor: pointer;
+}
+
+.wg-section > .wg-tl-more {
+    margin-top: var(--wg-s2);
 }
 
 /* Food day navigator (kit .wg-daynav, F1). The hidden <input type="date">

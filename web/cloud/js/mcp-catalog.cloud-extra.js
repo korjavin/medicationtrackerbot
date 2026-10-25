@@ -239,16 +239,18 @@ export const CLOUD_EXTRA = [
     method: 'POST',
     path: '/api/doses/act',
     risk: 'write',
-    description: 'Act on exact doses by occId (from medications.doses.list or medications.history ids); nothing else is touched. take: pending or not-yet-recorded → taken (−1 stock). skip: pending or not-yet-recorded → skipped. undo: taken/skipped → pending (+1 stock if it was taken). edit_time: change taken_at of a taken dose. A dose already in the target state is counted unchanged, so repeating a bulk take is safe.',
-    response_summary: 'Object {updated, unchanged, failed, failures: [{id, reason (not_found|not_pending|not_taken)}], doses: [the written intake rows]}. Check failed > 0.',
+    description: 'Act on exact doses by occId (from medications.doses.list or medications.history ids); nothing else is touched. take: pending or not-yet-recorded → taken (−1 stock). skip: pending or not-yet-recorded → skipped. undo: taken/skipped → pending (+1 stock if it was taken). edit_time: change taken_at of a taken dose. snooze: a due (pending or not-yet-recorded) dose → snoozed until `until`, else now + `minutes` (default 10); the dose stays pending, a dose not due yet fails not_due. A dose already in the target state is counted unchanged, so repeating a bulk take is safe.',
+    response_summary: 'Object {updated, unchanged, failed, failures: [{id, reason (not_found|not_pending|not_taken|not_due)}], doses: [the written intake rows]}. Check failed > 0.',
     required: ['occ_ids', 'action'],
     body_schema: {
       type: 'object',
       required: ['occ_ids', 'action'],
       properties: {
         occ_ids: { type: 'array', items: { type: ['string', 'integer'] }, description: 'Exact dose occIds.' },
-        action: { type: 'string', enum: ['take', 'skip', 'undo', 'edit_time'] },
+        action: { type: 'string', enum: ['take', 'skip', 'undo', 'edit_time', 'snooze'] },
         taken_at: { type: 'string', description: 'RFC3339; take: when it was taken (default now); edit_time: required.' },
+        minutes: { type: 'integer', minimum: 1, description: 'snooze: duration in minutes (default 10, at most 7 days); ignored when until is set.' },
+        until: { type: 'string', description: 'snooze: RFC3339 instant the snooze ends, in the future and within 7 days. The reminder fires then.' },
       },
     },
     response_example: {

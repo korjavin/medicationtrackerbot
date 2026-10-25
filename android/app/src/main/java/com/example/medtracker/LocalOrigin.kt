@@ -36,8 +36,14 @@ object LocalOrigin {
      * iOS LocalOrigin.basePostPaths; the trial chat/food/voice paths stay page fetch.
      */
     val BASE_POST_PATHS = setOf(
-        "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
+        "/api/attest/challenge", "/api/attest/delete", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
     )
+
+    /**
+     * local.reset {dropAttest} (bd med-egb3, contract point 4): only a JSON true (no optBoolean
+     * coercion of "true"), which the page sends only once our server deleted the install record.
+     */
+    fun dropsAttest(flag: Any?): Boolean = flag == true
 
     /**
      * Bridge ops only an account page may call (bd med-nt9p.32.13); the bundled app gets "unsupported".
@@ -60,6 +66,8 @@ object LocalOrigin {
         // "Join and erase" (bd med-r1j2.8): the local page probes it to offer the erase; only the joined
         // account, booted unlocked, makes it act (MainActivity); in local mode a no-op.
         "local.erase",
+        // The page's back stack (bd med-y7b4.5, native/back.js): Back goes to the page while it can step.
+        "back.state",
     )
 
     /** The bridge op shell.ops (bd med-nt9p.32.13): what this shell answers in this mode, for the page's capability probe. */

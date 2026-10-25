@@ -228,10 +228,13 @@ vault, so order does not matter and one failure does not poison the rest.
 Phase 2 adds (bd med-y5xx.8): `weight`, `meds-schedule-take` (Schedule with
 the take-dose sheet open; was `meds-history-take` until bd med-wi09.3 retired
 History for `meds-timeline`), `meds-timeline-pending` (edits yesterday's
-taken dose to Not taken through the MT3 sheet, so Today's Pending shows a
-dated row and that day shows the MT4 bulk pair) and `meds-timeline-bulk-undo` (its "Mark
-all taken", with the undo toast — which also re-takes that dose, at its
-planned time, for later scenes), `settings-targets-keyboard` (number fields at
+taken dose to Not taken through the MT3 sheet, so that day lists it with its
+own Take / Skip) and `meds-timeline-bulk-undo` (the MT4 bulk pair needs 2+
+listed pending doses on a day; the golden fixture has one dose a day, so the
+driver's seed adds a pending 09:00 to the day two back, next to the fixture's
+undone dose — bd med-ry7b.4 — and the scene taps that day's "Mark all taken",
+with the undo toast; the write stays, so later scenes see that day taken),
+`settings-targets-keyboard` (number fields at
 15px with the keyboard — focus-zoom regression check),
 `settings-ai-key-keyboard` (the BYOK key form), `settings-erase-confirm` (the
 in-page `safeConfirm` dialog; the phrase is never typed) and `journey`

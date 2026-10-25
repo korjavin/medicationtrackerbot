@@ -9,7 +9,7 @@ import { createSettingsDomain } from '../../domain/settings.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
 import { createRemindersDomain, measureReminderStem } from '../../domain/reminders.js';
 import { createMedicationsDomain } from '../../domain/medications.js';
-import { createIntakeDomain } from '../../domain/medintake.js';
+import { createIntakeDomain, dosesAtInstant } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
@@ -27,7 +27,9 @@ import {
 } from '../../domain/paginate.js';
 import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
-import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp } from './sync.js';
+import {
+  recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp, notifyRecordsChanged,
+} from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -39,15 +41,37 @@ import { createVoiceLLMResponder } from './voice-llm-responder.js';
 import { registerEgressHosts } from './egress-hosts.js';
 import { materializing, materializationSettled, withMaterializationStopped } from './materialize-gate.js';
 
-// materializeTimerHandle is module-level (not per-shim-instance) because the
-// production invariant is "one shim installed per page load"; re-installing
-// (as every shim-mode test case does) simply clears and restarts the single
-// sweep instead of stacking a new setInterval on top of the previous one.
-const MATERIALIZE_INTERVAL_MS = 60_000;
-let materializeTimerHandle;
 // Re-exported for the store replacers (cloud-boot.js, local-policy.js) and the
 // tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
 export { materializationSettled, withMaterializationStopped };
+
+// Clock-driven dose refresh (Archie 4934 point 3). Ledger v2 writes nothing
+// when a dose comes due, so nothing would repaint a screen left open across
+// it (Today's missed list, the Meds tab). Every projection names its next
+// boundary (the earliest upcoming plannedAt, or a snooze's end) through the
+// intake domain's onBoundary port; one timer per page fires there and
+// invalidates the intake-derived caches exactly as an external intake write
+// would, so every mounted surface re-reads. Module-level like the old sweep's
+// handle: one shim per page load, a re-install re-arms the single timer.
+// ponytail: setTimeout caps near 24.8 days; a longer wait fires early, and the
+// re-read it causes simply re-arms.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+let doseClock = { at: Infinity, handle: null, timers: null };
+function armDoseClock(atMs, nowMs, timers, win) {
+  if (!(atMs > nowMs)) return;
+  if (doseClock.handle !== null && doseClock.at > nowMs && doseClock.at <= atMs) return;
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  const handle = timers.setTimeout(() => {
+    doseClock = { at: Infinity, handle: null, timers: null };
+    notifyRecordsChanged(['intake'], ORIGIN_EXTERNAL, win);
+  },Math.min(atMs - nowMs + 1, MAX_TIMER_MS));
+  doseClock = { at: atMs, handle, timers };
+}
+// Test teardown: no dose timer outlives its suite (cf. bd med-tc1.3).
+export function stopDoseClock() {
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  doseClock = { at: Infinity, handle: null, timers: null };
+}
 
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
@@ -153,6 +177,8 @@ function debugOnce(key, ...args) {
 // "New data is available" banner for the user's own action.
 // opts.now/opts.timeZone override the clock the domain instances read, which is
 // what lets a test drive the router across a date boundary deterministically.
+// opts.via names the channel for intake merge ranking (bd med-wi09.11):
+// 'mcp' for the MCP responder, 'telegram' for the chat agent; default app.
 // opts.timeZone stands in for the DEVICE zone specifically: a settings.timezone
 // the user pinned in Settings still wins over it (bd med-7ujt).
 //
@@ -177,16 +203,20 @@ function debugOnce(key, ...args) {
 //                 so W1 never runs on an empty mirror of an existing account
 //                 (bd med-ejgf). Defaults to sync.js hasCaughtUp on the real
 //                 sync store; any injected store (local mode, tests) has
-//                 nothing to pull and is always caught up.
+//                 nothing to pull and is always caught up. cloud-boot.js
+//                 passes its own through installApiShim: caught up AND the
+//                 local → cloud move pickup settled (bd med-ydt2).
+//   opts.onDoseBoundary(atMs)  the intake domain's onBoundary port; only the
+//                 page's shim passes one (installApiShim's dose clock).
 export function createApiRouter(ctx, {
-  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
+  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
-  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp,
+  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
-  const { sendTestPush, cancelMedRefire, cancelReminderRefire } = reminderEffects;
+  const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;
   // Only the user's own writes may ask for notification permission (bd
   // med-ckm5.4): an agent's or the inbox drain's write must not open a sheet,
   // least of all right after launch.
@@ -207,6 +237,16 @@ export function createApiRouter(ctx, {
   // reads through these bindings, so reassigning them in buildDomains() is what
   // makes the resolved zone reach the whole router without touching a single
   // domain module's signature (they all take timeZone as a captured string).
+  // The relay's hourly re-fire chain for a dose slot (ReplaceSchedule keeps
+  // it) after an app write: stopped once nothing in the slot is still due — a
+  // snoozed dose is not due (bd med-4j49), its snooze-end reminder restarts
+  // the chain naming every open dose of the slot. narrow (a snooze that left
+  // slot-mates due): the pending re-fire keeps its time but names only them.
+  async function reconcileMedChain(slotMs, narrow) {
+    const due = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs })).filter((r) => r.state === 'due');
+    if (!due.length) cancelMedRefire(slotMs);
+    else if (narrow) rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true });
+  }
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
   let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment; let trackers;
@@ -227,7 +267,7 @@ export function createApiRouter(ctx, {
     medications = createMedicationsDomain({
       records, now, timeZone, rxnorm,
     });
-    intake = createIntakeDomain({ records, now, timeZone });
+    intake = createIntakeDomain({ records, now, timeZone, via, onBoundary: onDoseBoundary });
     tzplan = createTzPlanDomain({ records, now, timeZone });
     foodDb = createFoodDbClient({ settingsDomain: settings, operatorFoodDb });
     food = createFoodDomain({
@@ -282,7 +322,7 @@ export function createApiRouter(ctx, {
   // pinned a zone resolves to deviceTimeZone and nothing is rebuilt.
   //
   // Memoized against the records-change counter, NOT once-only: cloud-boot.js
-  // installs the shim (and fires the first materialization sweep) BEFORE
+  // installs the shim BEFORE
   // pullOnOpen has landed this account's records, so a once-only memo would pin
   // a freshly-unlocked device to its own zone for the whole session — exactly
   // the user this fix is for. Every sync pull and every local write bumps the
@@ -899,38 +939,73 @@ export function createApiRouter(ctx, {
     }
     // The one occurrence projection (bd med-wi09.1): every dose in [from, to]
     // with its state. Defaults: the last 24 h through the next 7 days.
+    // status=due,snoozed (bd med-ry7b.3, the timeline's focus card) keeps only
+    // those states and reaches back to the start of the ledger by default:
+    // pending never expires (Archie 4709, no age cap).
     if (path === '/api/doses' && method === 'GET') {
       const nowMs = now();
+      // ?at=<iso>: the doses planned at exactly that instant (a reminder's
+      // slot), read lineage-safe (bd med-wi09.4).
+      const atMs = Date.parse(params.get('at') || '');
+      if (Number.isFinite(atMs)) return dosesAtInstant(intake, atMs);
       const isoParam = (name, fallback) => {
         const ms = Date.parse(params.get(name) || '');
         return Number.isFinite(ms) ? ms : fallback;
       };
+      const states = (params.get('status') || '').split(',').filter(Boolean);
       return intake.occurrences({
-        fromMs: isoParam('from', nowMs - 24 * 3600_000),
+        fromMs: isoParam('from', states.length ? 0 : nowMs - 24 * 3600_000),
         toMs: isoParam('to', nowMs + 7 * 24 * 3600_000),
+        states: states.length ? states : null,
       });
     }
     // Explicit dose actions on explicit occIds (bd med-wi09.2): take / skip /
-    // undo / edit_time. Per-day bulk is the same route with many ids.
-    if (path === '/api/doses/act' && method === 'POST') {
-      const res = await intake.act({
-        occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
-        action: body && body.action,
-        takenAt: body && body.taken_at,
-      }).catch((err) => {
+    // undo / edit_time / snooze. Per-day bulk is the same route with many ids.
+    // One dose-action path for /api/doses/act and the legacy snooze route.
+    const doseAct = async (args) => {
+      const res = await intake.act(args).catch((err) => {
         if (err && err.code === 'bad_request') err.status = 400;
         throw err;
       });
-      // Same rule as confirm-schedule below: stop the relay's re-fire chain
-      // for a slot only once nothing there is left PENDING.
-      if (body.action === 'take' || body.action === 'skip') {
+      // A snooze uploads its snooze-end reminder at once, alongside the chain
+      // cancel below: a 2s debounce dropped by a quick app close (cloud-boot.js)
+      // would leave the dose with no reminder at all.
+      scheduleReminderRecompute(ctx, { records, timeZone }, args.action === 'snooze' ? 0 : undefined);
+      // A dose confirmed in the app never taps Telegram: reconcile the relay
+      // chain for each acted slot (reconcileMedChain).
+      if (['take', 'skip', 'snooze'].includes(args.action)) {
         for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          const slotRows = await intake.listWindow({ fromMs: slotMs, toMs: slotMs });
-          if (!slotRows.some((row) => row.status === 'PENDING')) cancelMedRefire(slotMs);
+          await reconcileMedChain(slotMs, args.action === 'snooze');
         }
       }
-      scheduleReminderRecompute(ctx, { records, timeZone });
       return res;
+    };
+    if (path === '/api/doses/act' && method === 'POST') {
+      return doseAct({
+        occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
+        action: body && body.action,
+        takenAt: body && body.taken_at,
+        minutes: body && body.minutes,
+        until: body && body.until,
+      });
+    }
+    // The legacy snooze route (MCP medications.snooze) is act's snooze on one
+    // intake: the same not_due guard, 7-day bound and chain reconcile. Its
+    // reply shape is kept; a refused dose throws its reason as before.
+    if (path === '/api/medications/snooze' && method === 'POST') {
+      const minutes = Number(body && body.duration_minutes);
+      const res = await doseAct({
+        occIds: [String(body && body.intake_id)],
+        action: 'snooze',
+        minutes: minutes > 0 ? minutes : undefined,
+      });
+      if (res.failed) {
+        const err = new Error(`intake not snoozed: ${res.failures[0].reason}`);
+        err.code = res.failures[0].reason;
+        err.status = err.code === 'not_found' ? 404 : 409;
+        throw err;
+      }
+      return { status: 'snoozed', snoozed_until: res.doses[0].snoozed_until };
     }
     if (path === '/api/inventory/low' && method === 'GET') return medications.listLowStock();
     if (path === '/api/history' && method === 'GET') {
@@ -944,7 +1019,6 @@ export function createApiRouter(ctx, {
         '/api/medications/log-past': () => intake.logPast(body && body.medication_id, Date.parse(body && body.taken_at)),
         '/api/medications/cancel-intake': () => intake.cancelIntakes((body && body.intake_ids) || []),
         '/api/medications/delete-intake': () => intake.deleteFutureIntakes((body && body.intake_ids) || []),
-        '/api/medications/snooze': () => intake.snooze(body && body.intake_id, body && body.duration_minutes),
         '/api/medications/skip': () => intake.skip(body && body.intake_id),
         '/api/medications/confirm-schedule': () => intake.confirmSchedule({
           scheduledAt: body && body.scheduled_at,
@@ -963,12 +1037,8 @@ export function createApiRouter(ctx, {
         // re-fire for meds still PENDING at the same instant.
         if (path === '/api/medications/confirm-schedule' && body && body.scheduled_at) {
           const slotMs = Date.parse(body.scheduled_at);
-          const slotRows = Number.isFinite(slotMs)
-            ? await intake.listWindow({ fromMs: slotMs, toMs: slotMs })
-            : [];
-          if (!slotRows.some((row) => row.status === 'PENDING')) {
-            cancelMedRefire(slotMs);
-          }
+          if (Number.isFinite(slotMs)) await reconcileMedChain(slotMs, false);
+          else cancelMedRefire(slotMs);
         }
         scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
@@ -1666,8 +1736,7 @@ export function createApiRouter(ctx, {
   }
 
   // A getter, not a snapshot: buildDomains() replaces the instances, so a
-  // property read must land on the current set (installApiShim's materialization
-  // sweep re-reads it on every tick for exactly this reason).
+  // property read must land on the current set.
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
@@ -1680,7 +1749,7 @@ export function createApiRouter(ctx, {
 
 // installApiShim wires the router to window.offlineAwareApiCall (the seam
 // web/static/js/core/api.js delegates through) plus the browser-direct globals
-// that bypass /api entirely, and starts the materialization sweep. Signature
+// that bypass /api entirely, and writes the ledger cut. Signature
 // and return value unchanged: it resolves to the router itself.
 // now/timeZone are forwarded straight to createApiRouter (both routers, so the
 // two agree on the clock) — the same test-only override it documents, reachable
@@ -1691,9 +1760,13 @@ export function createApiRouter(ctx, {
 // serves its own CSP).
 export function installApiShim(ctx, {
   records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
-  win, now: nowOverride, timeZone: timeZoneOverride,
+  win, now: nowOverride, timeZone: timeZoneOverride, caughtUp,
+  // Read at call time so a test's fake timers apply.
+  timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h) },
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
+  const clockNow = nowOverride || (() => Date.now());
+  const onDoseBoundary = (atMs) => armDoseClock(atMs, clockNow(), timers, targetWindow);
   // Two routers over the same records store, differing only in the origin they
   // stamp on writes (med-dvr):
   //
@@ -1702,21 +1775,22 @@ export function installApiShim(ctx, {
   //               them has already repainted.
   //   bgCall    — everything else that writes from inside this tab: the voice
   //               agent's MCP dispatcher, the browser-direct food-AI client, and
-  //               the materialization sweep. None of these is a user action on
+  //               the ledger-cut write. None of these is a user action on
   //               the current screen, so all of them must repaint it.
   //
   // A test's injected `records` port carries its own origin and is shared by
   // both, which keeps the harness a drop-in swap.
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
-    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win,
+    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win, caughtUp,
+    onDoseBoundary,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });
   // Snapshotted on purpose — every use below reads integrations or a product
   // search, never the wall clock, so these survive a buildDomains() rebuild when
   // the pinned settings.timezone resolves (bd med-7ujt). Anything TIME-sensitive
-  // must go through `.domains` at call time, the way runMaterializationSweep
+  // must go through `.domains` at call time, the way the ledger-cut write
   // does below.
   const {
     settings, foodDb, now, aiClient,
@@ -1764,28 +1838,19 @@ export function installApiShim(ctx, {
   // start()s it before minting the signed URL and stop()s it on hang-up.
   targetWindow.CloudVoiceLLM = createVoiceLLMResponder({ aiClient });
 
-  // Due-dose materialization + tz-plan status refresh: neither domain module
-  // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
-  // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
-  // Both compute dose slots in wall time, so they must run on the RESOLVED zone:
-  // await the settings.timezone read and re-read `.domains` each tick, since a
-  // rebuild replaces the instances (bd med-7ujt).
-  async function runMaterializationSweep() {
+  // Ledger v2 activation (bd med-wi09.12): no dose sweep, no timer — doses are
+  // derived (the projection regenerates them from the ledger cut). On install
+  // this client writes the ledgercut singleton (floored, put-if-absent), whose
+  // first op sets the account's cut and arms the server's writer gate against
+  // pre-v2 bundles. Skipped during a store replace (materialize-gate.js); the
+  // next page load writes it.
+  materializing(async () => {
     try {
-      await bgCall.ensureTimeZone();
-      const { intake, tzplan } = bgCall.domains;
-      await intake.materializeDueDoses();
-      await tzplan.refreshPlanStatus();
+      await bgCall.domains.intake.ensureLedgerCut();
     } catch (e) {
-      console.error('[cloud shim] materialization sweep failed', e);
+      console.error('[cloud shim] ledger cut write failed', e);
     }
-  }
-  // A tick during a store replace is skipped (materialize-gate.js); the next
-  // one reads the replaced store.
-  const sweep = () => { materializing(runMaterializationSweep).catch(() => {}); };
-  clearInterval(materializeTimerHandle);
-  sweep();
-  materializeTimerHandle = setInterval(sweep, MATERIALIZE_INTERVAL_MS);
+  }).catch(() => {});
 
   // Egress allowlist (CSP scoping). Tell the server which provider HOSTNAMES
   // this account connects to browser-direct so /'s connect-src can be scoped to

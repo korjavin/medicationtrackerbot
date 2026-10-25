@@ -30,10 +30,16 @@ var ErrUpdateRequired = errors.New("cloudstore: ledger v2 writer required")
 // cut; GatedRecordTypes are the types a pre-v2 writer may no longer push once
 // the cut is set. Both match the plaintext record_type_tag prefix before ':'
 // — the server never reads ciphertext.
+//
+// intake is NOT gated (bd med-wi09.12, HIGH-1): an old bundle's dose writes
+// keep landing after the cut. Its PENDING placeholders are rev 0 and its
+// TAKEN/SKIPPED rev 1, ranked legacy by the client's intake reducer
+// (medintake.js mergeIntake), so they never promote or undo a v2 action; a
+// TAKEN from an old device is real evidence and must not be lost to a 426.
 const LedgerCutTag = "ledgercut"
 
 var GatedRecordTypes = map[string]bool{
-	"intake": true, "medication": true, "settings": true, "tzplan": true,
+	"medication": true, "settings": true, "tzplan": true,
 	"stock": true, "medsched": true, "tztransition": true,
 }
 

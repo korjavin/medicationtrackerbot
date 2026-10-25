@@ -90,6 +90,7 @@ export const LOCAL_EFFECTS = {
   // The re-fire chains live in the relay; there is none.
   cancelMedRefire() {},
   cancelReminderRefire() {},
+  rearmMedRefire() {},
   async sendTestPush() {
     const local = localNotifications();
     if (!local) throw new Error('Notifications are not available on this device.');
@@ -545,10 +546,20 @@ export async function mountLocalFeedback({ win }) {
 let firstEgressSettled;
 const firstEgress = new Promise((resolve) => { firstEgressSettled = resolve; });
 
+// Registrations still running. firstEgress is one-shot; this lets a caller
+// (the test harness, before it drops the window) wait for the current ones.
+const egressInFlight = new Set();
+export async function egressIdle() {
+  while (egressInFlight.size) await Promise.allSettled([...egressInFlight]);
+}
+
 export async function registerLocalEgress(args) {
+  const run = registerLocalEgressNow(args);
+  egressInFlight.add(run);
   try {
-    return await registerLocalEgressNow(args);
+    return await run;
   } finally {
+    egressInFlight.delete(run);
     firstEgressSettled();
   }
 }
@@ -827,24 +838,70 @@ export const LOCAL_VAULT = {
   // pending and delivered reminders and the BYOK host mirror, and the app
   // starts over empty. Throws, before anything is reported done, when the
   // records could not be erased.
+  // First (bd med-egb3, contract points 3-4 in its topic), while the shell
+  // still holds the attest key: our server deletes this device's anonymous
+  // install record and trial budget. Best effort, never retried: when that
+  // fails the user is asked whether to erase anyway (Cancel keeps
+  // everything); only a 204 lets the shell drop the key and trial pass
+  // (local.reset {dropAttest: true}) — after a failed delete or an
+  // install_unknown (erased silently, Archie's ruling) they stay, so the pass
+  // to a bucket that may still be live is never thrown away.
+  // Resolves { erased, installRecord } with installRecord 'deleted' |
+  // 'unknown' | 'none' (no shell key, nothing sent) | 'failed'.
   async eraseDevice({ win = globalThis.window } = {}) {
+    const installRecord = await eraseInstallRecord(win);
+    if (installRecord === 'failed') {
+      const anyway = typeof win.safeConfirm === 'function' && await win.safeConfirm(ERASE_RECORD_FAILED_COPY, null, {
+        title: 'Erase anyway?', icon: 'trash', confirmLabel: 'Erase anyway', destructive: true,
+      });
+      if (!anyway) return { erased: false, installRecord };
+    }
     await stopHealthImport();
     await clearLocalVault(); // holds the dose writers off itself
     try { win.localStorage.clear(); } catch { /* storage blocked: nothing kept there */ }
     try { win.sessionStorage.clear(); } catch { /* same */ }
     const native = shellNative(win);
-    if (native) await native.call('local.reset').catch(() => {});
+    if (native) {
+      await (installRecord === 'deleted' ? native.call('local.reset', { dropAttest: true }) : native.call('local.reset')).catch(() => {});
+    }
     win.location.replace('/');
+    return { erased: true, installRecord };
   },
 };
 
+export const ERASE_RECORD_FAILED_COPY = 'The anonymous install record on the server could not be deleted (offline, or the app needs an update). Erase this device anyway?';
+
+// eraseDevice's server step (bd med-egb3; server: attest.go eraseInstall):
+// 'deleted' (204), 'unknown' (install_unknown: no server record for this key —
+// nothing to delete or retry, but the Keychain/backup pass may still name a
+// live bucket, e.g. an iOS reinstall whose enroll failed), 'none' (no shell
+// attest, or the shell has no key: nothing to delete) or 'failed' (an old
+// shell's `invalid path`, offline, 5xx, ERASE_RECORD_MS passed).
+// Not `bounded`: a request that outlived a race could still delete after the
+// user chose Cancel. The signal stops any further request instead, and the
+// one in flight is awaited (the shell bounds each base.post at 30 s), so the
+// answer is what the server did. Only a page fetch (an old shell, trial on)
+// aborted in flight leaves it unknown: then the record may be gone while the
+// key stays, and the next erase answers install_unknown.
+const ERASE_RECORD_MS = 45_000;
+async function eraseInstallRecord(win) {
+  const attest = await attestStatus(win);
+  // No attested key: nothing the shell could sign with (assert would answer
+  // no_key), so no challenge is fetched — offline, no false failure.
+  if (!attest || attest.attested !== true) return 'none';
+  const out = await sharedAttestClient(attest.base, win).erase(AbortSignal.timeout(ERASE_RECORD_MS));
+  if (out === 'deleted' || out === 'unknown') return out;
+  return out === 'no_key' ? 'none' : 'failed';
+}
+
 // The base-host routes the shell POSTs for the page (bridge op base.post, bd
-// med-ta2n.24 §A: an invite request, feedback, and the attest enroll they
-// need). The local CSP never lists our base domain for these; the trial's
+// med-ta2n.24 §A: an invite request, feedback, the attest enroll they need,
+// and the erase's install-record delete, bd med-egb3). The local CSP never lists our base domain for these; the trial's
 // chat/food/voice keep window.fetch under the trial-on CSP. One list, the
 // shells' basePostPaths / BASE_POST_PATHS.
 export const BASE_POST_PATHS = Object.freeze([
   '/api/attest/challenge',
+  '/api/attest/delete',
   '/api/attest/enroll',
   '/api/attest/feedback',
   '/api/invite-requests',
@@ -863,6 +920,8 @@ export function shellPost(native) {
     const given = new Headers(init.headers || {});
     const headers = {};
     for (const name of BASE_POST_HEADERS) if (given.has(name)) headers[name] = given.get(name);
+    // The op cannot be cancelled once sent; an aborted signal stops it being sent at all, as fetch does.
+    if (init.signal && init.signal.aborted) throw new TypeError('aborted');
     let reply;
     try {
       reply = await native.call('base.post', { path, body: typeof init.body === 'string' ? init.body : '', headers });

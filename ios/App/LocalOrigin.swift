@@ -29,7 +29,7 @@ enum LocalOrigin {
     /// normalization. Twin of Android LocalOrigin.BASE_POST_PATHS and the page's
     /// BASE_POST_PATHS (local-policy.js); the trial chat/food/voice stay page fetch.
     static let basePostPaths: Set<String> = [
-        "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
+        "/api/attest/challenge", "/api/attest/delete", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
     ]
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
     static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash",
@@ -47,7 +47,19 @@ enum LocalOrigin {
                             // where invite.js probes it before offering the erase; it wipes from the
                             // joined account only (a no-op replying true anywhere else).
                             "local.erase",
+                            "back.state", // the page's AppBack.canStep(): the left-edge swipe only while true (bd med-y7b4.4)
                             "app.openSettings"] // AD13 "Allow camera in Settings" (bd med-r1j2.18, media-capture.js)
+
+    /// The left-edge swipe (bd med-y7b4.4, contract in web/static/js/native/back.js):
+    /// the page's AppBack.step(); true = it stepped back, false = at the root,
+    /// where the shell does nothing (no WebView history, never Safari).
+    static let backJS = "!document.dispatchEvent(new CustomEvent('wg:native-back',{cancelable:true}))"
+
+    /// A finished edge pan counts as Back when it went far enough, or was a
+    /// quick flick that clearly moved right.
+    static func backFires(dx: Double, vx: Double) -> Bool {
+        dx >= 60 || (dx >= 20 && vx >= 500)
+    }
 
     /// Where account.leave without a url lands (bd med-r1j2.18). No args:
     /// local home?invite=1 ("Have an invite?"), no way back. {then: "local"}:
@@ -58,6 +70,26 @@ enum LocalOrigin {
     static func leave(_ args: [String: Any]) -> Leave {
         guard args["then"] as? String == "local" else { return .invite }
         return args["forget"] as? Bool == true ? .forgetLocal : .local
+    }
+
+    /// The install's App Attest key id and that id once attested (Attest.swift).
+    static let attestKeyIdKey = "wgAttestKeyId"
+    static let attestedKey = "wgAttestAttested"
+
+    /// local.reset {dropAttest: true} (bd med-egb3, contract point 4, Archie
+    /// 4883): only a JSON true, which the page sends only after our server
+    /// answered 204 for this key's bucket. Drops the key id and its attested
+    /// mark, so the next enroll mints a fresh key the server cannot link to
+    /// the erased one. The Keychain trial pass is never touched: it may name
+    /// an older bucket the delete did not reach, and a pass for a deleted
+    /// bucket is refused (trial_pass_invalid) and dropped by the page. True
+    /// when it dropped them.
+    @discardableResult
+    static func resetAttest(_ args: [String: Any], defaults: UserDefaults = .standard) -> Bool {
+        guard args["dropAttest"] as? Bool == true else { return false }
+        defaults.removeObject(forKey: attestKeyIdKey)
+        defaults.removeObject(forKey: attestedKey)
+        return true
     }
 
     /// The page this shell has open (bd med-r1j2.18): the main frame of the

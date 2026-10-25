@@ -319,6 +319,30 @@ describe('sendTestPush this-device-only send (web/cloud/js/push.js, real impleme
         const { sendTestPush } = await import('../../../../web/cloud/js/push.js');
         await expect(sendTestPush({ accountId: 'acc-1' })).rejects.toThrow(/enable push/i);
     });
+
+    // bd med-wi09.20: the schedule PUT takes the sync writer gate, so it must
+    // declare X-Ledger: 2 — the real header source in sync.js, not a mock of it.
+    it('pushSchedule PUTs /api/push/schedule with X-Ledger: 2', async () => {
+        vi.doMock('../../../../web/cloud/js/sync.js', async (importOriginal) => ({
+            ...(await importOriginal()),
+            getOrCreateNK: vi.fn().mockResolvedValue('nk-stub'),
+        }));
+        vi.doMock('../../../../web/cloud/js/crypto.js', () => ({
+            encryptPushPayload: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+            toBase64: vi.fn(() => 'ct-base64'),
+        }));
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const { pushSchedule } = await import('../../../../web/cloud/js/push.js');
+        await pushSchedule({ accountId: 'acc-1' }, [{ fireAtUnix: 1900000000, text: 'Medication time', kind: 'med' }]);
+
+        const call = fetchMock.mock.calls.find(([url]) => url === '/api/push/schedule');
+        expect(call).toBeTruthy();
+        expect(call[1].method).toBe('PUT');
+        expect(call[1].headers['X-Ledger']).toBe('2');
+        expect(JSON.parse(call[1].body).entries).toHaveLength(1);
+    });
 });
 
 // bd med-1n6 — owner report on iOS: home-screen PWA, tapped "Enable", the system

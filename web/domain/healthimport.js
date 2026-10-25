@@ -27,7 +27,7 @@
 import { createBPDomain, offsetMsAt } from './bp.js';
 import { createWeightDomain } from './weight.js';
 import {
-  HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId, healthNumericId,
+  HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId, healthNumericId, sleepDayOf,
 } from './healthsource.js';
 
 function positive(v) {
@@ -53,10 +53,6 @@ const SLEEP_RANK = { 4: 5, 5: 4, 3: 3, 2: 2, 1: 1 };
 // settled version of a day wins: putIfAbsent at the floor). The cloud side
 // re-reads unsettled nights by time window (health-import.js).
 export const SLEEP_SETTLE_MS = 3 * HOUR_MS;
-// A sleep day runs from 18:00 to 18:00 local, by when a night ENDS: a night
-// ending 07:00 belongs to that date (its wake day), a nap at 15:00 to the
-// same one, a night still going at 18:00 to the next.
-const SLEEP_DAY_SHIFT_MS = 6 * HOUR_MS;
 // HKWorkoutActivityType raw values. running/walking/cycling reuse the history
 // list's labels (web/static/js/features/workout/history.js MIBAND_ACTIVITY_META).
 const WORKOUT_NAMES = {
@@ -212,29 +208,37 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     return out;
   }
 
-  // importSleep → { added, pending }. Health sleep is one record per sleep day
-  // (SLEEP_DAY_SHIFT_MS), id `sleep-hk-<day>`: every night and nap of that day
+  // importSleep → { added, pending, nights, skip }. Health sleep is one record per sleep day
+  // (healthsource.js sleepDayOf), id `sleep-hk-<day>`: every night and nap of that day
   // from ONE source, the one with the most asleep minutes (then staged). The
   // key is the same across sources and devices, so copies of a night land on
   // one row instead of piling up. Written once, putIfAbsent at clientTs 0
   // (CLAUDE.md rule 12): the first settled version wins, an edit or delete
   // always outranks it, a tombstone keeps the day deleted.
-  // Not written: a day already there (live or deleted); a day whose best
-  // version is clipped by the window or not settled (`pending` = the earliest
-  // unsettled start, for the caller to re-read by time window); a day
-  // overlapping a non-Health sleep entry (Mi Band, manual: it wins).
+  // Not written, counted in `skip` for the diagnostics line (bd med-w6gx.30):
+  // a day already there, live or deleted (exists); a day whose best version is
+  // clipped by the window (clipped) or not settled (unsettled; `pending` = the
+  // earliest unsettled start, for the caller to re-read by time window).
+  // A day overlapping a Mi Band night is imported too (bd med-w6gx.31): the
+  // read picks one source per day (healthsource.js visibleSleep), so arrival
+  // order never matters and nothing is lost.
+  // skip.inBed = the In Bed samples sleepNights left out.
   async function importSleep(samples, bounds) {
+    const skip = { inBed: 0, unsettled: 0, clipped: 0, exists: 0 };
     const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
+    if (bounds && Number.isFinite(bounds.from) && Number.isFinite(bounds.to) && Array.isArray(samples)) {
+      skip.inBed = samples.filter((s) => s && s.value === 0).length;
+    }
     const settledBy = now() - SLEEP_SETTLE_MS;
     const open = all.filter((n) => n.end > settledBy);
     const pending = open.length ? Math.min(...open.map((n) => n.start)) : undefined;
-    if (!all.length) return { added: 0, pending };
+    if (!all.length) return { added: 0, pending, nights: 0, skip };
 
     const min = (v) => Math.round(v / MIN_MS);
     const days = new Map(); // day -> source -> nights
     for (const n of all) {
       const offset = offsetMsAt(n.end, zoneOf(n.tz));
-      const day = new Date(n.end + offset + SLEEP_DAY_SHIFT_MS).toISOString().slice(0, 10);
+      const day = sleepDayOf(n.end, offset);
       if (!days.has(day)) days.set(day, new Map());
       const bySrc = days.get(day);
       if (!bySrc.has(n.src)) bySrc.set(n.src, []);
@@ -250,11 +254,6 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const id = healthImportRecordId('sleep', r);
       if (id && id !== r.recordId) aliased.add(id);
     }
-    const others = spans(
-      raw.filter((r) => !r.deleted && !healthImportRecordId('sleep', r)),
-      (r) => Date.parse(r.start_time), (r) => Date.parse(r.end_time),
-    );
-
     let added = 0;
     for (const [day, bySrc] of days) {
       let best = null;
@@ -283,29 +282,33 @@ export function createHealthImportDomain({ records, now, timeZone }) {
         };
         const c = {
           body, start, end, rank: body.total_minutes * 2 + (staged ? 1 : 0),
-          ready: end <= settledBy && nights.every((n) => n.whole),
+          whole: nights.every((n) => n.whole),
         };
         // Sources arrive sorted by name: a tie keeps the first.
         if (!best || c.rank > best.rank) best = c;
       }
       const recordId = healthRecordId('sleep', day);
-      if (!best.ready || byId.has(recordId) || aliased.has(recordId)) continue;
-      if (overlaps(best, others)) continue;
+      // Same writes as before, each skip named: any of these leaves the day.
+      if (byId.has(recordId) || aliased.has(recordId)) { skip.exists++; continue; }
+      if (!best.whole) { skip.clipped++; continue; }
+      if (best.end > settledBy) { skip.unsettled++; continue; }
       await records.putIfAbsent('sleep', { recordId, clientTs: 0, deleted: false, ...best.body });
       added++;
     }
-    return { added, pending };
+    return { added, pending, nights: all.length, skip };
   }
 
   async function importWorkouts(samples, have) {
-    const fresh = (Array.isArray(samples) ? samples : [])
+    const given = Array.isArray(samples) ? samples : [];
+    const fresh = given
       .filter((s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && Number.isFinite(s.end)
         && s.end > s.start)
       .map((s) => {
         const uuid = s.uuid.toLowerCase();
         return { ...s, uuid, recordId: healthRecordId('miband', uuid), span: s.end - s.start };
       });
-    if (!fresh.length) return 0;
+    const skip = { invalid: given.length - fresh.length, exists: fresh.filter((w) => have.has(w.recordId)).length, overlap: 0 };
+    if (!fresh.length) return { added: 0, skip };
     const taken = spans(await records.list('miband'), (r) => r.source_start_ms, (r) => r.source_end_ms);
     const sessions = spans(
       (await records.list('workoutsession')).filter((r) => r.started_at),
@@ -314,7 +317,9 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     );
     const num = (v) => (positive(v) ? Math.round(v) : 0);
     let added = 0;
-    for (const w of pickFree(fresh, have, taken, (c) => (STRENGTH_TYPES.has(c.activity) ? sessions : []))) {
+    const free = pickFree(fresh, have, taken, (c) => (STRENGTH_TYPES.has(c.activity) ? sessions : []));
+    skip.overlap = fresh.length - skip.exists - free.length;
+    for (const w of free) {
       const durationSec = positive(w.duration) ? Math.round(w.duration) : Math.round(w.span / 1000);
       have.add(w.recordId);
       await floored('miband', w.uuid, {
@@ -334,11 +339,12 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       });
       added++;
     }
-    return added;
+    return { added, skip };
   }
 
-  // importSamples(kind, samples, bounds) → { added } (sleep adds `pending`): what was new
-  // here. `bounds` is the whole query result ({from, to} for sleep). Malformed
+  // importSamples(kind, samples, bounds) → { added, skip } (sleep adds
+  // `pending` and `nights`): what was new here, and why the rest was not
+  // written (counts only, for the diagnostics line in health-import.js). `bounds` is the whole query result ({from, to} for sleep). Malformed
   // samples are skipped, never thrown on — one odd entry in Health must not
   // stall every later import behind the same anchor.
   async function importSamples(kind, samples, bounds) {
@@ -354,22 +360,24 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const id = healthImportRecordId(type, r);
       if (id) have.add(id);
     }
-    if (kind === 'workout') return { added: await importWorkouts(samples, have) };
+    if (kind === 'workout') return importWorkouts(samples, have);
     const k = KINDS[kind];
     // Oldest first: a stable write order. (weight.create stores a derived row
     // without a trend, so every device writes the same body.)
-    const fresh = (Array.isArray(samples) ? samples : [])
+    const given = Array.isArray(samples) ? samples : [];
+    const fresh = given
       .filter((s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && k.valid(s))
       .sort((a, b) => a.start - b.start);
+    const skip = { invalid: given.length - fresh.length, exists: 0 };
     let added = 0;
     for (const s of fresh) {
       const recordId = healthRecordId(kind, s.uuid);
-      if (have.has(recordId)) continue;
+      if (have.has(recordId)) { skip.exists++; continue; }
       have.add(recordId);
       await k.create(s, { recordId, derived: true });
       added++;
     }
-    return { added };
+    return { added, skip };
   }
 
   return { importSamples };

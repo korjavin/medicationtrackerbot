@@ -621,3 +621,45 @@ describe('domain/reminders.js — tracker reminder kind', () => {
         }
     });
 });
+
+// bd med-wi09.12 (codex review): no stored row carries a dose a zone switch
+// KEPT on the old generation, so the horizon regenerates it from history.
+describe('computeReminderHorizon — a dose kept past a zone switch', () => {
+    it('pushes the kept old-generation dose and not the slot the switch cancelled', () => {
+        const H = 3600000;
+        const day = Date.UTC(2026, 9, 20);
+        const keptMs = day + 8 * H;
+        const med = { recordId: 1, deleted: false, name: 'M', dosage: '1', schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }), tz_shift_policy: 'flexible', created_at: '2026-10-01T00:00:00Z' };
+        const transitions = [{
+            recordId: 't', switch_at: new Date(day + 6 * H).toISOString(), old_tz: 'UTC', new_tz: 'Europe/Moscow',
+            boundary: [{ kept: [`intake-1-${keptMs / 1000}`], cancelled: [`intake-1-${(day + 5 * H) / 1000}`] }],
+        }];
+        const fires = computeReminderHorizon({ medications: [med], timeZone: 'Europe/Moscow', now: day + 6.5 * H, transitions })
+            .filter((e) => e.kind === 'medication').map((e) => e.fireAtUnix * 1000);
+        expect(fires.slice(0, 2)).toEqual([keptMs, day + 29 * H]);
+    });
+});
+
+// bd med-4j49: a snoozed dose enters the horizon at its own snoozed_until, on
+// its slot's callback however old the slot, naming only the slot's doses open
+// at that instant — never a mate still snoozed past it.
+describe('domain/reminders.js — snoozed doses', () => {
+    it('two snooze ends in one of yesterday\'s slots fire separately; each names the due mate and the snoozes ended by then', () => {
+        const now = Date.UTC(2026, 6, 7, 12, 0, 0);
+        const slot = now - 26 * 3600_000;
+        const med = (recordId, name) => ({ recordId, name, schedule: JSON.stringify({ type: 'as_needed' }), inventory_count: 100 });
+        const intake = (medId, snoozeMs) => ({
+            recordId: `intake-${medId}-${slot / 1000}`, deleted: false, medication_id: medId, scheduled_at: new Date(slot).toISOString(),
+            status: 'PENDING', taken_at: null, source: 'schedule', snoozed_until: snoozeMs ? new Date(snoozeMs).toISOString() : null,
+        });
+        const entries = computeReminderHorizon({
+            medications: [med(1, 'A'), med(2, 'B'), med(3, 'C')],
+            intakes: [intake(1, now + 10 * 60_000), intake(2, now + 2 * 3600_000), intake(3, null)],
+            timeZone: 'UTC', now,
+        }).filter((e) => e.kind === 'medication');
+        expect(entries.map((e) => [e.fireAtUnix, e.callback, e.slotUnix, e.medicationIds])).toEqual([
+            [(now + 10 * 60_000) / 1000, `s:${slot / 1000}`, slot / 1000, [1, 3]],
+            [(now + 2 * 3600_000) / 1000, `s:${slot / 1000}`, slot / 1000, [1, 2, 3]],
+        ]);
+    });
+});

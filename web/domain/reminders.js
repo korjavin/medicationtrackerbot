@@ -13,8 +13,9 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { projectOccurrences } from './medintake.js';
+import { lineageTable, regenerateWindow, regenerationStartMs } from './lineage.js';
 import {
-  minDoseIntervalMs, localWallToUtcMs, localDateParts,
+  localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
 } from './medschedule.js';
 import { trackerDayTotals } from './trackers.js';
@@ -492,7 +493,7 @@ export function computeReminderHorizon({
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
   workoutStatus = { enabled: false }, weighInPushText = null, weighInPausedWeeks = [],
-  trackers = [], trackerLogs = [],
+  trackers = [], trackerLogs = [], scheds = [], transitions = [], cutMs = null,
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [String(m.recordId ?? m.id), m])); // String keys: med-wi09.16
@@ -504,56 +505,74 @@ export function computeReminderHorizon({
   // app does not show. The projection already hides a tombstoned slot (a dose
   // deleted on purpose: deleteFutureIntakes, or medications.js's
   // cancelPendingIntakesForMedication on archive — bd med-x7x2), which is why
-  // `intakes` must arrive RAW.
+  // `intakes` must arrive RAW. History (`scheds` / `transitions`, bd
+  // med-wi09.12) adds the old-generation doses a boundary kept past a switch —
+  // no stored row carries them any more — and hides the slots it cancelled.
+  // A snoozed dose (bd med-4j49) fires at its snooze end with its own slot's
+  // callback, however long ago the slot was planned: the window reaches back
+  // to the oldest slot whose snooze is still ahead.
+  const fromMs = intakes.reduce((min, i) => (!i.deleted && Date.parse(i.snoozed_until) > now
+    ? Math.min(min, Date.parse(i.scheduled_at)) : min), now);
+  const { occurrences: regenerated } = regenerateWindow({
+    medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs, fromMs, toMs: now + FORECAST_DAYS * 86400000, nowMs: now,
+  });
   const targets = projectOccurrences({
-    medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
+    medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs, toMs: now + FORECAST_DAYS * 86400000,
+    lineage: lineageTable([...transitions, ...scheds]),
+    regenerated,
+    cutMs,
+    regenFromMs: regenerationStartMs({ transitions, intakes, timeZone, cutMs, nowMs: now }),
   // medById holds live, unarchived meds only: a stored future row of a deleted
   // or archived med is history, not a nag.
-  }).filter((r) => r.state === 'upcoming' && medById.has(String(r.medId)))
-    .map((r) => ({ medicationId: r.medId, medName: r.name, scheduledAtMs: Date.parse(r.plannedAt) }));
-  // A dose the user already confirmed early (via trigger-next-intake) or
-  // skipped must not resurface as a "Time to take" push. Mirrors the server
-  // scheduler's dedup, which skips a normal target already covered by a
-  // handled intake (internal/scheduler/medication.go): an exact-slot match
-  // plus the symmetric ±minDoseInterval band (same rule as medintake.js's
-  // materializeDueDoses / HasIntakeNearScheduledTime), so a schedule edit or
-  // tz-plan shift that moves the forecast target near — but not exactly onto —
-  // an already-handled intake still suppresses the duplicate push.
-  const handledByMed = new Map();
-  for (const intake of intakes) {
-    if (intake.deleted) continue;
-    if (intake.status === 'TAKEN' || intake.status === 'SKIPPED') {
-      const list = handledByMed.get(String(intake.medication_id)) || [];
-      list.push(Date.parse(intake.scheduled_at));
-      handledByMed.set(String(intake.medication_id), list);
-    }
-  }
-  // The ±band is suppression only (it avoids a nag) — actions never guess.
-  const isHandled = (t, med) => {
-    const handled = handledByMed.get(String(t.medicationId));
-    if (!handled) return false;
-    // bandMs === 0 (as_needed / unparseable) collapses to exact-slot equality.
-    const bandMs = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
-    return handled.some((ms) => Math.abs(ms - t.scheduledAtMs) <= bandMs);
-  };
+  // A dose already handled (taken early, skipped) has its evidence at its own
+  // id, so the projection lists it as taken/skipped, not upcoming: the
+  // projection is the only rule here — no ±band (bd med-wi09.12).
+  }).filter((r) => ['upcoming', 'snoozed', 'due'].includes(r.state) && medById.has(String(r.medId)))
+    .map((r) => ({
+      medicationId: r.medId,
+      medName: r.name,
+      scheduledAtMs: Date.parse(r.plannedAt),
+      // null: a due dose never fires on its own here (the relay's chain nags it).
+      fireAtMs: r.state === 'due' ? null : Date.parse(r.state === 'snoozed' ? r.snoozedUntil : r.plannedAt),
+    }));
+  // One reminder per upcoming slot, and one per (slot, snooze end) (bd
+  // med-4j49): each snoozed dose fires at its own snoozed_until, with its
+  // slot's callback. A Telegram tap resolves its doses by the tapped
+  // message's own row (MedIDsForMessage), so rows sharing a callback stay apart.
   const bySlot = new Map();
-  for (const t of targets) {
-    const med = medById.get(String(t.medicationId));
-    if (isHandled(t, med)) continue;
-    const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };
-    slot.names.push(med ? medDisplayName(med) : t.medName);
+  const add = (slot, t) => {
     // Carry the identity of every med the reminder names for this slot so
     // Confirm can act by identity, not by re-deriving from a time band. Dedupe
     // within a slot (a med can't be named twice for one instant).
-    if (t.medicationId != null && !slot.medicationIds.includes(t.medicationId)) slot.medicationIds.push(t.medicationId);
-    bySlot.set(t.scheduledAtMs, slot);
+    if (t.medicationId != null && slot.medicationIds.includes(t.medicationId)) return;
+    const med = medById.get(String(t.medicationId));
+    slot.names.push(med ? medDisplayName(med) : t.medName);
+    if (t.medicationId != null) slot.medicationIds.push(t.medicationId);
+  };
+  for (const t of targets) {
+    if (t.fireAtMs === null) continue;
+    const key = `${t.scheduledAtMs}|${t.fireAtMs}`;
+    if (!bySlot.has(key)) {
+      bySlot.set(key, { slotMs: t.scheduledAtMs, fireAtMs: t.fireAtMs, snoozed: t.fireAtMs !== t.scheduledAtMs, names: [], medicationIds: [] });
+    }
   }
-  for (const [slotMs, slot] of bySlot) {
-    const slotUnix = Math.floor(slotMs / 1000);
+  // A snooze-end reminder names the slot's doses open at that instant: the
+  // still-due ones and those whose snooze has ended by then — never a mate
+  // still snoozed past it.
+  for (const slot of bySlot.values()) {
+    for (const t of targets) {
+      if (t.scheduledAtMs !== slot.slotMs) continue;
+      if (slot.snoozed ? (t.fireAtMs === null || (t.fireAtMs !== t.scheduledAtMs && t.fireAtMs <= slot.fireAtMs)) : t.fireAtMs === slot.slotMs) add(slot, t);
+    }
+  }
+  for (const slot of bySlot.values()) {
+    const slotUnix = Math.floor(slot.slotMs / 1000);
     // callback carries the SLOT, not a medication: one Telegram message covers
     // every med due at this instant, so one Confirm tap covers all of them.
     // The relay appends ":confirm"/":snooze" to build the two buttons.
-    entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
+    // slotUnix: the planned instant, which a snooze-end fire no longer equals —
+    // the deeplink's take sheet targets the dose by it.
+    entries.push({ fireAtUnix: Math.floor(slot.fireAtMs / 1000), slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
   }
 
   // Re-reminders for still-PENDING doses are no longer client-pre-computed. For
@@ -906,11 +925,18 @@ export function createRemindersDomain({ records, now }) {
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
     weighInPushText = null, weighInPausedWeeks = [], trackers = [], trackerLogs = [],
   }) {
-    const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
+    const [{ enabled }, bpStatus, weightStatus, scheds, transitions, cuts] = await Promise.all([
       getStatus(),
       getBPStatus(),
       getWeightStatus(),
+      records.list('medsched'),
+      records.list('tztransition'),
+      records.list('ledgercut'),
     ]);
+    // The ledger cut (medintake.js LEDGERCUT_RECORD_*): the same cut the app's
+    // projection reads, so a post-cut orphan PENDING row hides here too.
+    const cut = cuts.find((r) => !r.deleted && r.recordId === 'ledgercut');
+    const cutMs = cut && Number.isFinite(Date.parse(cut.at)) ? Date.parse(cut.at) : null;
     const workoutStatus = { enabled: !!workoutEnabled };
 
     // We compute the horizon for everything enabled. If medication reminders are disabled,
@@ -926,6 +952,9 @@ export function createRemindersDomain({ records, now }) {
     return computeReminderHorizon({
       medications: medsToPass,
       intakes: intakesToPass,
+      scheds,
+      transitions,
+      cutMs,
       bps,
       weights,
       workoutGroups,

@@ -51,6 +51,7 @@ const (
 	attestFoodBarcode   = "/api/attest/food/barcode/"
 	attestVoiceStart    = "/api/attest/voice/start"
 	attestVoiceDevice   = "/api/attest/voice/device"
+	attestDeletePath    = "/api/attest/delete"
 
 	attestChallengeTTL = 5 * time.Minute
 	// attestMaxChallenges bounds the in-memory challenge map (the challenge
@@ -300,6 +301,7 @@ func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyA
 	a.mux.HandleFunc("GET "+attestFoodBarcode+"{code}", a.foodLookup)
 	a.mux.HandleFunc("POST "+attestVoiceStart, a.voiceStart)
 	a.mux.HandleFunc("GET "+attestVoiceDevice, a.voiceDevice)
+	a.mux.HandleFunc("POST "+attestDeletePath, a.eraseInstall)
 	return a
 }
 
@@ -376,6 +378,33 @@ func (a *AttestAPI) submitFeedback(w http.ResponseWriter, r *http.Request) {
 	if notify := a.feedback.notify; notify != nil && queued {
 		go notify(req.Kind, req.AppVersion)
 	}
+}
+
+// eraseInstall is the attested POST /api/attest/delete (bd med-egb3, contract
+// points 1-2 in the bead's topic): local mode's "Erase data on this device"
+// deletes the caller's whole bucket — every install of this device's trial
+// and the bucket's counters and pass hash. Empty body; the assertion binds
+// this URI, so only a key of the bucket can delete it. No trialGranted gate:
+// a feedback-only install erases too. No counter compare-and-set: the
+// challenge is single-use and the rows are gone after. Idempotent: a key
+// already gone answers assertHeaders' 401 install_unknown, which the page
+// counts as done. Under grantMu so an enrollment's DeviceCheck query →
+// insert never interleaves with the delete. Never logs the key or bucket id.
+func (a *AttestAPI) eraseInstall(w http.ResponseWriter, r *http.Request) {
+	q, ok := a.assertHeaders(w, r)
+	if !ok || !a.verifyAssertion(w, r, q, nil) {
+		return
+	}
+	a.grantMu.Lock()
+	err := a.store.DeleteAttestBucket(r.Context(), q.install.BucketID)
+	a.grantMu.Unlock()
+	if err != nil {
+		slog.Error("attest bucket erase failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "erase_unavailable"})
+		return
+	}
+	slog.Info("attest bucket erased by its holder", "kind", q.install.Kind)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // voiceConfigured is the anonymous voice master switch (attestation is already

@@ -48,6 +48,32 @@ VirtualConsole.prototype.sendTo = function sendTo(anyConsole, options) {
   return this;
 };
 
+// Node's BroadcastChannel reaches every worker thread, so test files running
+// in parallel would hear each other's sync.js write announcements (bd
+// med-wi09.12) and drop each other's memos mid-test. This stand-in keeps it
+// inside one file's run: same-name channels in this setup's scope still talk
+// (two sync.js instances = two tabs), on a microtask like the real one, and
+// nothing crosses to another file.
+{
+  const bus = new Map();
+  globalThis.BroadcastChannel = class BroadcastChannel {
+    constructor(name) {
+      this.name = String(name);
+      this.onmessage = null;
+      if (!bus.has(this.name)) bus.set(this.name, new Set());
+      bus.get(this.name).add(this);
+    }
+    postMessage(data) {
+      const msg = structuredClone(data);
+      for (const peer of bus.get(this.name) || []) {
+        if (peer !== this) queueMicrotask(() => { if (peer.onmessage) peer.onmessage({ data: msg }); });
+      }
+    }
+    close() { if (bus.has(this.name)) bus.get(this.name).delete(this); }
+    unref() {}
+  };
+}
+
 let _noiseAllowed = false;
 let _errorSpy = null;
 let _warnSpy = null;

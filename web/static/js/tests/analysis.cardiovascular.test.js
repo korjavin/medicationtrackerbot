@@ -132,7 +132,9 @@ describe('analysis.cardiovascular', () => {
 
     // total = TAKEN + SKIPPED + overdue PENDING = 3; taken = 1 → 33.33%.
     expect(resp.medications.adherence_rate).toBeCloseTo(100 / 3, 5);
-    expect(resp.medications.intake_log).toHaveLength(4);
+    // i-4 is a post-cut PENDING row on no slot history yields (bd med-wi09.12:
+    // no ledgercut row → the cut is now): no evidence, so not in the log.
+    expect(resp.medications.intake_log).toHaveLength(3);
     // intake_log carries the Go MedicationIntakeResult shape (joined med
     // name + dosage), matching the advertised response_example and bot mode —
     // and the uncapped windowed read must not drop a past-dated slice.

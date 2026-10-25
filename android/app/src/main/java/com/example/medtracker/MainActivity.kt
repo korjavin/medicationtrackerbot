@@ -151,6 +151,12 @@ class MainActivity : Activity() {
     private val leave by lazy { Move(File(noBackupFilesDir, "leave")) }
 
     private var resumed = false
+    /**
+     * invite.pending replies held while the first-install referrer read runs (bd med-ydt2): the local
+     * page mounts W1 on a null slot, so answering null before a late referrer lands flashed W1 until
+     * deliverInvite's reload. null = no read in flight, answer at once.
+     */
+    private var referrerWaits: MutableList<() -> Unit>? = null
     /** Push.allowed at the last check: its false -> true edge fires the page's 'token' event. */
     private var pushAllowed = false
 
@@ -168,7 +174,28 @@ class MainActivity : Activity() {
         ) { done(it == "true") }
     }
 
-    private val back = OnBackInvokedCallback { web.goBack() }
+    /**
+     * The page's back.state (bd med-y7b4.5, web/static/js/native/back.js): null until the current page
+     * reports it (pages without the app: /unlock, /claim, error pages), reset on every main-frame load.
+     */
+    private var pageCanStep: Boolean? = null
+    /**
+     * bd med-8bgs: the main-frame load (onPageStarted), and the load whose page sent its shell.ops probe.
+     * A page's back.state always follows its probe (native/index.js has()), so one arriving while they
+     * differ, or a wg:native-back answer from an earlier load, is the outgoing page's: ignored.
+     */
+    private var loadGen = 0
+    private var probedGen = -1
+    private val back = OnBackInvokedCallback {
+        if (pageCanStep == null) return@OnBackInvokedCallback web.goBack()
+        val gen = loadGen
+        // The page owns its history: never web.goBack() here, its popstate would step AppBack again.
+        web.evaluateJavascript("!document.dispatchEvent(new CustomEvent('wg:native-back',{cancelable:true}))") {
+            // false: a race, the page hit its root before its back.state arrived. Drop the callback and
+            // let the system own the next Back (on Android 12+ it moves the root task back, not finish()).
+            if (it != "true" && gen == loadGen) { pageCanStep = false; updateBack() }
+        }
+    }
     private var backRegistered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -297,22 +324,42 @@ class MainActivity : Activity() {
     private fun readReferrer() {
         val client = InstallReferrerClient.newBuilder(this).build()
         val writes = slotWrites // any capture, open, clear or reset after this wins over the late answer
+        val waits = mutableListOf<() -> Unit>()
+        referrerWaits = waits
+        // Main thread only. Answers the held invite.pending reads with the slot as it now stands;
+        // true when a page was waiting (it got the slot, so it needs no reload).
+        fun settle(): Boolean {
+            if (referrerWaits !== waits) return false
+            referrerWaits = null
+            waits.forEach { it() }
+            return waits.isNotEmpty()
+        }
+        // ponytail: a referrer service that never calls back releases the page after REFERRER_HOLD_MS.
+        root.postDelayed({ settle() }, REFERRER_HOLD_MS)
         runCatching {
             client.startConnection(object : InstallReferrerStateListener {
                 override fun onInstallReferrerSetupFinished(code: Int) {
                     val details = if (code == InstallReferrerClient.InstallReferrerResponse.OK) runCatching { client.installReferrer }.getOrNull() else null
                     runCatching { client.endConnection() }
-                    val url = AccountUrl.referrerInvite(details?.installReferrer, base) ?: return
+                    val url = AccountUrl.referrerInvite(details?.installReferrer, base)
                     runOnUiThread {
-                        if (slotWrites != writes || prefs.contains(Invite.URL_KEY)) return@runOnUiThread
+                        if (url == null || slotWrites != writes || prefs.contains(Invite.URL_KEY)) {
+                            settle()
+                            return@runOnUiThread
+                        }
                         // Filed even if this activity went meanwhile: the read-once flag is already set.
                         setInvite(url, Invite.referrerAt(details!!.referrerClickTimestampSeconds, System.currentTimeMillis()))
-                        if (!isDestroyed) deliverInvite()
+                        if (!settle() && !isDestroyed) deliverInvite()
                     }
                 }
-                override fun onInstallReferrerServiceDisconnected() {}
+                override fun onInstallReferrerServiceDisconnected() {
+                    runOnUiThread { settle() }
+                }
             })
-        }.onFailure { diag("shell referrer ${it.javaClass.simpleName}") }
+        }.onFailure {
+            diag("shell referrer ${it.javaClass.simpleName}")
+            settle()
+        }
     }
 
     override fun onResume() {
@@ -634,6 +681,9 @@ class MainActivity : Activity() {
 
         override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
             loadFailed = false
+            loadGen++
+            pageCanStep = null
+            updateBack()
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
@@ -773,6 +823,14 @@ class MainActivity : Activity() {
             answer(null, "forbidden")
             return
         }
+        // The page's back stack (bd med-y7b4.5): a report, not a capability, so it lands behind the lock too.
+        if (msg.optString("op") == "shell.ops") probedGen = loadGen
+        if (msg.optString("op") == "back.state") {
+            if (probedGen != loadGen) return answer(true)
+            pageCanStep = msg.optJSONObject("args")?.optBoolean("canStep") == true
+            updateBack()
+            return answer(true)
+        }
         // A page still running behind the lock gets no native capability.
         if (concealed) return answer(null, "locked")
         val op = msg.optString("op")
@@ -835,6 +893,8 @@ class MainActivity : Activity() {
                 leave.clear()
                 setInvite(null) // A4: no claim token left behind after Erase
                 Notifications.clear(this)
+                // Only after our server deleted the install record (bd med-egb3): key material goes (pass stays) before the answer.
+                if (LocalOrigin.dropsAttest(msg.optJSONObject("args")?.opt("dropAttest"))) attest.drop()
                 answer(true)
             }
             // "Join and erase", account side (bd med-r1j2.8, cloud-boot.js finishJoinErase): the joined
@@ -873,7 +933,12 @@ class MainActivity : Activity() {
                 }
             }
             // The pending-invite slot: the page reads it once per boot; clear on "Keep this account" or stale.
-            "invite.pending" -> answer(pendingInvite() ?: JSONObject.NULL)
+            // On a first install the reply waits for the Play referrer read (referrerWaits, bd med-ydt2).
+            "invite.pending" -> {
+                val reply = { answer(pendingInvite() ?: JSONObject.NULL) }
+                val held = referrerWaits
+                if (held != null) held.add { if (!isDestroyed) runCatching { reply() } } else reply()
+            }
             "invite.clear" -> {
                 setInvite(null)
                 answer(true)
@@ -1019,9 +1084,12 @@ class MainActivity : Activity() {
 
     private fun isLight(c: Int) = Color.luminance(c) > 0.5f
 
-    /** Back walks the web view's history while the page shows, then leaves the app. */
+    /**
+     * While the page shows, Back goes to the page while it can step (back.state), else — a page without
+     * the app — walks the web view's history; at the root no callback, so predictive back peeks the launcher.
+     */
     private fun updateBack() {
-        val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack()
+        val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && (pageCanStep ?: web.canGoBack())
         if (want == backRegistered) return
         if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, back)
         else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
@@ -1241,6 +1309,8 @@ class MainActivity : Activity() {
         const val BRIDGE = "wgNative"
         /** N6's cap on holding the splash for a page that never reports ready. */
         const val SPLASH_MAX_MS = 5_000L
+        /** Cap on holding invite.pending for the referrer read; below invite.js's 15 s box on that read. */
+        const val REFERRER_HOLD_MS = 10_000L
         /** BiometricPrompt errors that are a dismissal, not a failed check (N3: no note). */
         val CANCELS = setOf(
             BiometricPrompt.BIOMETRIC_ERROR_CANCELED,

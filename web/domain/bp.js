@@ -23,13 +23,44 @@ export function calculateBPCategory(systolic, diastolic) {
 // ponytail: DST-at-midnight edge case can be off by the transition delta —
 // Intl has no direct "start of local day" primitive. Acceptable for C1
 // (single device, same tz); revisit only if a bug report ties to it.
+// One formatter per zone: constructing an Intl.DateTimeFormat costs ~16x a
+// format call, and the dose projection converts thousands of instants.
+const offsetFormatters = new Map();
+function offsetFormatter(timeZone) {
+  const key = timeZone || '';
+  let f = offsetFormatters.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    offsetFormatters.set(key, f);
+  }
+  return f;
+}
+
+// Zone offsets only change on quarter-hour instants (every IANA transition
+// since 1970 sits on :00/:15/:30/:45), so one lookup per (zone, quarter hour)
+// answers every instant inside it. Whole-second offsets only (LMT-era
+// fractional offsets are pre-1970 and never reach a dose).
+// ponytail: a flat cache cleared at 50k entries; an LRU if a workload thrashes it.
+const QUARTER_MS = 15 * 60 * 1000;
+const offsetCache = new Map();
+
 export function offsetMsAt(ms, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  }).formatToParts(new Date(ms));
+  const key = `${timeZone || ''}|${Math.floor(ms / QUARTER_MS)}`;
+  const hit = offsetCache.get(key);
+  if (hit !== undefined) return hit;
+  const offset = computeOffsetMsAt(Math.floor(ms / QUARTER_MS) * QUARTER_MS, timeZone);
+  if (offsetCache.size >= 50000) offsetCache.clear();
+  offsetCache.set(key, offset);
+  return offset;
+}
+
+function computeOffsetMsAt(ms, timeZone) {
+  const parts = offsetFormatter(timeZone).formatToParts(new Date(ms));
   const map = {};
   for (const p of parts) map[p.type] = p.value;
   const wallAsUtc = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);

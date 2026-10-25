@@ -14,7 +14,7 @@ See [docs/cloud-deployment.md](cloud-deployment.md) for the full self-hosted dep
 ```bash
 # Required
 CLOUD_BASE_DOMAIN=app.example.com  # Base domain; subdomains are <sub>.<this>. Use 'localhost' for local dev (no DNS/certs needed).
-SESSION_SECRET=...                 # Required, >=32 chars with sufficient entropy (generate: openssl rand -base64 32). NOTE: both child Telegram bot tokens AND mcp_remote pairing keys are sealed at rest with a key derived from this value — rotating SESSION_SECRET orphans both (users must re-link Telegram and re-pair any hosted MCP remote).
+SESSION_SECRET=...                 # Required, >=32 chars with sufficient entropy (generate: openssl rand -base64 32). NOTE: child Telegram bot tokens, mcp_remote pairing keys AND hosted MCP connector tokens are sealed at rest with keys derived from this value — rotating SESSION_SECRET orphans all of them (users must re-link Telegram and re-enable any hosted MCP remote).
 
 # Optional
 CLOUD_DB_PATH=cloud.db             # SQLite database path (default: cloud.db)

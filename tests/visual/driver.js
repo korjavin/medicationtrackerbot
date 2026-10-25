@@ -98,7 +98,7 @@
     // empty here, so the import's replace confirm never shows (importexport.js
     // skips it when hasUserContent() === false).
     async function seed() {
-        const vault = shiftDates(await getJSON('/qa/vault-v1.json'), new Date());
+        const vault = shiftDates(withPileUp(await getJSON('/qa/vault-v1.json')), new Date());
         // The fixture is Europe/Berlin; a different device zone would raise the
         // timezone confirm over every screenshot (bootstrap.js maybeUpdateTimezone).
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -111,6 +111,23 @@
         input.dispatchEvent(new window.Event('change'));
         await window.SettingsImportExport.import();
         if (!(await window.CloudVault.hasUserContent())) throw new Error('seed import failed');
+    }
+
+    // MT4 · pile-up (bd med-ry7b.4): the golden fixture has one dose a day,
+    // so no History day ever lists 2+ pending doses and the bulk pair never
+    // shows. Add a pending 09:00 to the day of the fixture's undone 19:00
+    // (two days back once shifted): that day lists 2 pending under
+    // "Mark all taken / Skip all" (meds-timeline-bulk-undo). Visual seed only;
+    // tests/fixtures/vault-v1.json stays the vault-format pin.
+    function withPileUp(vault) {
+        const meds = vault && vault.data && vault.data.medications;
+        if (meds && Array.isArray(meds.intakes)) {
+            meds.intakes.push({
+                medication_id: 1, scheduled_at: '2026-07-06T07:00:00Z', taken_at: null,
+                status: 'PENDING', snoozed_until: null, source: 'schedule', tz: 'Europe/Berlin',
+            });
+        }
+        return vault;
     }
 
     function setFiles(input, file) {
@@ -154,12 +171,25 @@
             // lands is undone (workouts-stats shot showed Plans).
             await settle();
         } else if (step.click) {
-            await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
+            // optional: tap it if it shows within 3 s (a sheet only some
+            // devices open, e.g. the notification ask after a dose write).
+            try {
+                await until(() => firstVisible(step.click), step.optional ? 3000 : STEP_MS, `click ${step.click}`);
+            } catch (e) {
+                if (step.optional) return;
+                throw e;
+            }
             firstVisible(step.click).click();
         } else if (step.api) {
             // Writes through the app's own API, e.g. PATCH /api/settings/body.
             // The write stays in the store for later scenes.
             await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.takePending) {
+            // Takes every pending dose (the timeline focus card's own read, bd
+            // med-ry7b) so the card shows TL3 · all done. The write stays.
+            const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
+            const occIds = (Array.isArray(rows) ? rows : []).map((r) => r.occId);
+            if (occIds.length) await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: occIds });
         } else if (step.fill) {
             // Types into an input the way a user does (fires `input`).
             await until(() => firstVisible(step.fill), STEP_MS, `fill ${step.fill}`);
@@ -256,6 +286,15 @@
             // The base arrives async: a full address enables the sun once it has.
             await until(() => { type('anna.app.example.com'); return !go.disabled; }, STEP_MS, 'open account base');
             if (step.openAccount === 'invalid') type('anna.app', true);
+        } else if (step.shellSignedIn) {
+            // The iOS app signed into an account (bd med-y7b4.2), in the cloud
+            // pass: give LocalNotifications its own copy of the bridge with the
+            // shell's platform, which is what settings.js nativeLeaveAccount
+            // reads (CloudVault.leaveAccount is cloud-boot's own). The slot-②
+            // row then shows on the next Settings open; no scene taps it.
+            const ln = window.LocalNotifications;
+            if (!ln) throw new Error('shellSignedIn: no LocalNotifications');
+            ln.__native = Object.assign(Object.create(ln.__native || {}), { platform: 'ios' });
         } else if (step.localFeedback) {
             // Settings → Send feedback in local mode (bd med-ta2n.20) mounts
             // only where the shell has App Attest and base.post, which no QA
@@ -343,6 +382,30 @@
                 try { window.sessionStorage.setItem(KEY, '1'); } catch (_) { /* no storage */ }
                 window.location.reload();
                 await new Promise(() => {}); // the next load runs the scene
+            }
+        } else if (step.pull) {
+            // Pull to refresh (bd med-y7b4.6, kit PR2 / PR3). No QA pass has the
+            // Health import, and a real pull would sync: "busy" pulls over a
+            // stub import that never ends, so the pill stays in its busy state;
+            // "done" shows the ok toast a pull with new readings ends on, kept up;
+            // "stub" only registers that stub, for a real finger drag after
+            // (the iOS native pullDown step, bd med-y7b4.7).
+            if (step.pull === 'stub') {
+                window.AppRefresh.setImport(() => new Promise(() => {}), 'Apple Health', () => true);
+                window.scrollTo(0, 0);
+            } else if (step.pull === 'busy') {
+                window.AppRefresh.setImport(() => new Promise(() => {}), 'Apple Health', () => true);
+                const fire = (type, y) => {
+                    const e = new Event(type, { bubbles: true });
+                    Object.defineProperty(e, 'touches', { value: y === undefined ? [] : [{ clientY: y }] });
+                    document.dispatchEvent(e);
+                };
+                window.scrollTo(0, 0);
+                fire('touchstart', 10);
+                fire('touchmove', 110);
+                fire('touchend');
+            } else {
+                window.safeToast('12 new readings from Apple Health', 'success', { duration: 0 });
             }
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
@@ -444,13 +507,24 @@
         // header back there panned off by the iOS keyboard is not clipped UI.
         const layers = shown('mt-modal');
         const onTop = (el) => !layers.length || layers.some((m) => m.contains(el));
+        // An in-flow header above the top of a scrolled document was scrolled
+        // past, not clipped (med-y5xx.15: the meds timeline scrolls to today,
+        // a scene step scrolls a row into view). A fixed/sticky one still counts.
+        const layoutTop = top - (vv ? vv.offsetTop : 0);
+        const pinned = (el) => {
+            for (let n = el; n && n !== document.body; n = n.parentElement) {
+                if (/fixed|sticky/.test(getComputedStyle(n).position)) return true;
+            }
+            return false;
+        };
+        const scrolledPast = (el) => window.scrollY > 0 && !pinned(el) && rect(el).top - layoutTop + window.scrollY >= -0.5;
         const probes = {
             scale: vv ? vv.scale : 1,
             hOverflow: document.documentElement.scrollWidth - window.innerWidth,
             // Above the visible top: a panned visual viewport (keyboard) hides a
             // header whose layout top is still >= 0.
             clippedTop: shown('.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar')
-                .filter((el) => onTop(el) && rect(el).top < top - 0.5).map(tag),
+                .filter((el) => onTop(el) && rect(el).top < top - 0.5 && !scrolledPast(el)).map(tag),
             // Charts are <svg>; icons (small svg) are skipped.
             canvasOverflow: shown('canvas, svg').filter((el) => {
                 const w = rect(el).width;

@@ -966,7 +966,7 @@ async function reconcile() {
   const responder = createResponder({
     pairingId: pairing.pairingId,
     key: fromBase64(pairing.key),
-    router: createApiRouter(controllerCtx, {}),
+    router: createApiRouter(controllerCtx, { via: 'mcp' }),
     now: () => Date.now(),
     onStalePairing: (code) => {
       // 4409 (replaced): the account still HAS a pairing — the vault record

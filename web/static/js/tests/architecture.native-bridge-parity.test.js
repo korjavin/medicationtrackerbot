@@ -61,7 +61,8 @@ describe('native bridge op parity', () => {
             return m ? [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]).sort() : [];
         };
         const iosPaths = paths(IOS, /\bbasePostPaths\b[^=]*=\s*\[([\s\S]*?)\]/);
-        expect(iosPaths).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
+        // /api/attest/delete: the erase's install-record delete (bd med-egb3).
+        expect(iosPaths).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
         expect(paths(ANDROID, /\bBASE_POST_PATHS\s*=\s*setOf\(([\s\S]*?)\)/)).toEqual(iosPaths);
         expect(paths(path.join(ROOT, 'web/cloud/js/local-policy.js'), /\bBASE_POST_PATHS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]/)).toEqual(iosPaths);
     });

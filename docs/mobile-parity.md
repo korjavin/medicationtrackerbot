@@ -31,6 +31,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Local → cloud move (`move.stash` / `move.take` / `move.clear`, stash lifecycle; since onboarding v3 started from the web P3 sheet) | ✓ (med-o7zq.35) | ✓ (med-nt9p.32.17) | parity |
 | Account → local leave (`leave.stash` / `leave.take` / `leave.clear`, Cancel returns to the account) | ✓ (med-o7zq.36.2, med-o7zq.42) | ✓ (med-o7zq.36.3, med-nt9p.43) | parity |
 | `local.reset` forgets the remembered leave host | ✓ (med-w6gx.28, #1280) | ✓ (med-nt9p.43, #1217) | parity |
+| Erase deletes the install record (`base.post` `/api/attest/delete`; `local.reset {dropAttest: true}` drops the attest key, never the trial pass) | ✓ (med-egb3) | ✓ (med-egb3) | parity: one PR, allowlist identity in the parity test |
 | Mode-switch restore: Replace / Merge / Cancel choice, silent pickup Cancel, orphan-intake guard | ✓ | ✓ | parity: shared web (med-o7zq.37, .38, .40, .41, .42) |
 | Page downloads (blob:/data:) | Files export picker (med-o7zq.43) | `ACTION_CREATE_DOCUMENT` picker, no shell dialog (med-nt9p.48) | parity: both go straight to the system picker; Share lives in the web sheet (hidden in the Android WebView) |
 | `window.print()` → native print (incl. the offscreen print-doc iframe) | ✓ (med-w6gx.11) | ✓ (med-nt9p.10) | parity |
@@ -67,6 +68,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Passkey ceremony serialisation + discoverable gets + PRF-probe retry | n/a (ASAuthorization) | ✓ (med-nt9p.19 #1110, #1116; shell-gated web fix in flight) | Android-only: WebView WebAuthn quirks |
 | WebView tuning (textZoom 100, pinch-zoom, no overscroll glow, Safe Browsing off), portrait lock, `VIBRATE`, cookie flush on pause | n/a (WKWebView defaults / `UIRequiresFullScreen`) | ✓ (med-nt9p.28, .29, .30, .45) | Android-only: engine settings matching iOS defaults |
 | Back gesture exits app | n/a | ✓ | Android-only: back-exit |
+| System Back → the page's `AppBack.step()` (`wg:native-back`, `back.state {canStep}`; sheet → page → previous section, nothing at the root) | ✓ left-edge swipe, on only while `canStep`; never WebView history or Safari (med-y7b4.4) | ✓ OnBackInvokedCallback only while `canStep` (predictive back peeks the launcher at the root); pages that never report keep WebView history (med-y7b4.5) | parity (contract `web/static/js/native/back.js`) |
 | Store packaging, reviewer access, device verification | open: med-w6gx.8, .13, .14, .15 | open: med-nt9p.11, .13; reviewer runbook ✓ med-nt9p.12 | n/a: per-store owner work |
 | e2e flow QA scenarios | partial: local-mode flows (`ios.yml` `qa`, med-w6gx.23.x) | ✓ (`android/qa`: first-run, invite-link, native-*, lock, backup, move-ops, delete-account, not-found, load-error) | partial: iOS account flows are owner device checks ([ios.md](ios.md#owner-device-checklist-account-flows-need-a-passkey)); med-w6gx.23 |
 | Visual QA scene driver + compare against master | ✓ (Simulator, med-y5xx.1–.4) | ✓ (`android-qa` `local-visual` + `tests/visual/compare.sh`, med-y5xx.9) | parity |

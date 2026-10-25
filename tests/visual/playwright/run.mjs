@@ -259,11 +259,21 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
   if (mode === 'cloud') await context.addInitScript(driverInit);
   else await context.addInitScript(nativeStub);
   // One page per device, so the virtual authenticator (cloud) outlives scenes.
-  const page = await context.newPage();
+  // A crashed page is replaced before the next scene (bd med-y5xx.14): the
+  // crashed scene reports its error, the rest still run on the same context
+  // (the seeded store survives). A replacement page has no authenticator.
+  let page = null;
+  let crashed = false;
   let errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
-  page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+  const openPage = async () => {
+    page = await context.newPage();
+    crashed = false;
+    page.on('crash', () => { crashed = true; });
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
+    page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+  };
+  await openPage();
   let appBase = base;
   if (mode === 'cloud') {
     try {
@@ -294,10 +304,18 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
       rows.push({ device, scene: scene.name, status: 'skipped', note: 'cloud-only (an account control)' });
       continue;
     }
+    // Not page.close(): on a crashed WebKit page it never resolves. The dead
+    // page goes with context.close().
+    if (crashed) await openPage();
     errors = [];
     const row = { device, scene: scene.name };
     let report = null;
     try {
+      // Leave the last scene's document through about:blank: Playwright's
+      // WebKit dies on a libstdc++ assertion (std::optional, not engaged) when
+      // the app navigates straight to itself from some states (after
+      // meds-timeline-pending, earlier after journey); the hop never crashes.
+      await page.goto('about:blank');
       await page.goto(`${appBase}/?qa=${encodeURIComponent(scene.name)}`);
       const ready = page.locator('#wg-qa-ready');
       await ready.waitFor({ state: 'attached', timeout: 90000 }); // survives the seed's reload

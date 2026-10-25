@@ -10,7 +10,7 @@ import WebKit
 /// med-o7zq.4) puts the same web view on the bundled app at wgapp://local/
 /// instead (LocalApp.swift): no account, data only in that origin.
 @MainActor
-final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
+final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, UIGestureRecognizerDelegate {
     static let hostKey = "wgAccountHost"
     /// Settings.bundle toggle (iOS Settings → Med Tracker → Switch account).
     static let forgetKey = "wgForgetAccount"
@@ -23,6 +23,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
 
     let base = (Bundle.main.object(forInfoDictionaryKey: "WGBaseDomain") as? String ?? "").lowercased()
     let webView: WKWebView
+    /// The left-edge swipe → the page's back (bd med-y7b4.4). Not WKWebView's
+    /// allowsBackForwardNavigationGestures: the page owns the back order.
+    /// Enabled until the page's back.state says it is at the root.
+    private let edgeBack = UIScreenEdgePanGestureRecognizer()
     @Published private(set) var host: String? {
         didSet { Notifications.shared.vault = vault }
     }
@@ -116,6 +120,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgNative")
         webView.navigationDelegate = self
         webView.uiDelegate = self // getUserMedia's permission only (bd med-r1j2.18)
+        edgeBack.edges = .left
+        edgeBack.delegate = self
+        edgeBack.addTarget(self, action: #selector(edgePan(_:)))
+        webView.addGestureRecognizer(edgeBack)
         // The selector WebKit asks for must be the one implemented below (a
         // misnamed optional delegate method compiles and is never called); a
         // Debug build (the simulator QA run) traps if it is not.
@@ -530,7 +538,25 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committedHost = webView.url?.host?.lowercased()
+        edgeBack.isEnabled = true // a new page: swipe on until its back.state says otherwise
     }
+
+    // MARK: Left-edge swipe (bd med-y7b4.4)
+
+    /// A finished edge pan asks the shell's own page to step back; at the
+    /// root (false) nothing happens. Never WebView history, never Safari.
+    @objc private func edgePan(_ pan: UIScreenEdgePanGestureRecognizer) {
+        guard pan.state == .ended,
+              LocalOrigin.backFires(dx: pan.translation(in: webView).x, vx: pan.velocity(in: webView).x),
+              !concealed, loadError == nil, let url = webView.url,
+              LocalOrigin.isOwn(scheme: url.scheme ?? "", host: url.host ?? "", port: url.port ?? 0,
+                                mainFrame: true, local: local, account: host) else { return }
+        webView.evaluateJavaScript(LocalOrigin.backJS) { _, _ in }
+    }
+
+    /// The page keeps its own touches (scroll, a carousel) under the swipe.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
     private var showingAccount: Bool {
         guard let committedHost else { return false }
@@ -601,6 +627,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             replyHandler("pong", nil)
         case "shell.ops":
             replyHandler(LocalOrigin.ops(local: local), nil)
+        case "back.state":
+            // AppBack.canStep() (web/static/js/native/back.js): at the root the edge stays the system's.
+            edgeBack.isEnabled = (body["args"] as? [String: Any])?["canStep"] as? Bool ?? true
+            replyHandler(nil, nil)
         case "diag.append":
             // The passkey ceremony log (bd med-w6gx.24, web/cloud/js/passkey-diag.js); the page does not wait.
             diag("page " + ((body["args"] as? [String: Any])?["entry"] as? String ?? ""))
@@ -617,6 +647,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             move.clear()
             leaveStash.clear()
             setInvite(nil) // no claim token left behind after Erase
+            // {dropAttest: true} only after our server deleted the bucket (bd med-egb3): the key goes, the pass stays.
+            LocalOrigin.resetAttest(body["args"] as? [String: Any] ?? [:])
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)

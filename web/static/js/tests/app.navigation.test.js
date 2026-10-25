@@ -8,7 +8,7 @@
  *   - the segment strip hides with ≤1 enabled section, the Health tab only
  *     when all three are off, and a feature toggle rebuilds without reload;
  *   - gear → Settings and route → Journey, Back returns to the origin tab;
- *   - the Meds badge counts missed + overdue doses and clears once taken.
+ *   - the Meds badge counts every pending dose and clears once taken.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
@@ -36,19 +36,20 @@ async function until(predicate, rounds = 200) {
     throw new Error('until: condition never became true');
 }
 
-async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, pageOrigin = null } = {}) {
+async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, pageOrigin = null, url, realDeepLinks = false } = {}) {
     allowConsoleNoise();
-    const env = loadFrontendEnv();
+    const env = loadFrontendEnv(url ? { url } : undefined);
     const { window } = env;
     vi.spyOn(window, 'fetch').mockImplementation(async (url) => {
         if (url === '/api/bootstrap') return createMockResponse({ json: { features } });
         return createMockResponse({ json: {} });
     });
-    window.handleDeepLinks = vi.fn();
+    if (!realDeepLinks) window.handleDeepLinks = vi.fn();
     // Navigation is under test, not the section loaders: stub what switchTab
     // fans out to so no async render outlives the test's window.
     for (const loader of ['loadToday', 'loadFoodLogs', 'loadBPReadings', 'loadWeightLogs', 'switchHealthTab',
-        'loadWorkouts', 'loadSettings', 'switchMedTab', 'reloadCurrentTab']) {
+        'loadWorkouts', 'loadSettings', 'switchMedTab', 'loadTimeline', 'loadMeds', 'reloadCurrentTab',
+        'showBPRecordModal']) {
         window[loader] = vi.fn();
     }
     window.Gamification = { load: vi.fn() };
@@ -221,29 +222,277 @@ describe('Navigation v2 — app-bar actions', () => {
 });
 
 describe('Navigation v2 — Meds badge', () => {
-    it('counts missed + overdue doses and clears once they are taken', async () => {
+    // GET /api/doses as the domain answers it: status keeps only those states,
+    // from defaults to the start of the ledger. `reads` logs every path.
+    function serveDoses(window, getRows) {
+        const reads = [];
+        window.apiCall = vi.fn(async (url) => {
+            if (!String(url).startsWith('/api/doses')) return null;
+            reads.push(String(url));
+            const p = new URL(String(url), 'https://x.test').searchParams;
+            const from = Date.parse(p.get('from') || '') || -Infinity;
+            const to = Date.parse(p.get('to') || '') || Infinity;
+            const states = (p.get('status') || '').split(',').filter(Boolean);
+            return getRows()
+                .filter((r) => Date.parse(r.plannedAt) >= from && Date.parse(r.plannedAt) <= to)
+                .filter((r) => !states.length || states.includes(r.state))
+                .map((r) => ({ ...r }));
+        });
+        return reads;
+    }
+    // A history change re-counts. Re-sent until it lands: a read still in
+    // flight (the boot's tab switch) is shared, so one event can answer stale.
+    async function recount(window, predicate) {
+        for (let i = 0; i < 20; i++) {
+            window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
+            for (let j = 0; j < 10; j++) {
+                if (predicate()) return;
+                await macrotask();
+            }
+        }
+        throw new Error('recount: the badge never matched');
+    }
+
+    it('counts every pending (due or snoozed) dose and clears once they are taken', async () => {
         const { window, cleanup } = await boot();
         const { document } = window;
         try {
             const now = Date.now();
             const iso = (offsetMin) => new Date(now + offsetMin * 60_000).toISOString();
             // Occurrence-projection rows (GET /api/doses): the projection owns
-            // the due rule, the badge only counts `due`.
+            // the pending rule, the badge only counts due + snoozed.
             let rows = [
-                { occId: 1, medId: 1, plannedAt: iso(-300), state: 'due' }, // missed
-                { occId: 2, medId: 1, plannedAt: iso(-10), state: 'due' },  // overdue
+                { occId: 1, medId: 1, plannedAt: iso(-300), state: 'due' },
+                { occId: 2, medId: 1, plannedAt: iso(-10), state: 'due' },
                 { occId: 3, medId: 2, plannedAt: iso(-20), state: 'snoozed', snoozedUntil: iso(30) },
                 { occId: 5, medId: 3, plannedAt: iso(-60), state: 'taken', takenAt: iso(-55) },
             ];
-            window.apiCall = vi.fn(async (url) => (String(url).startsWith('/api/doses?from=') ? rows : null));
+            serveDoses(window, () => rows);
             const badge = () => tab(document, 'meds').querySelector('.wg-tab__badge');
 
-            window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
-            await until(() => badge() && badge().textContent === '2');
+            await recount(window, () => badge() && badge().textContent === '3');
 
-            rows = rows.map((r) => (r.occId <= 2 ? { ...r, state: 'taken', takenAt: iso(0) } : r));
-            window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
-            await until(() => badge() === null);
+            rows = rows.map((r) => ({ ...r, state: 'taken', takenAt: iso(0) }));
+            await recount(window, () => badge() === null);
+        } finally { cleanup(); }
+    });
+
+    // bd med-ry7b.4: the badge, the timeline focus card + "+N more pending",
+    // the Schedule tab's pending buckets and the app-bar sub count one set:
+    // GET /api/doses?status=due,snoozed&to=now, every day since the ledger start.
+    it('a dose due 3 days ago + one snoozed today → 2, and the app-bar sub says so; taking the old one → 1', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            const now = Date.now();
+            const iso = (offsetMin) => new Date(now + offsetMin * 60_000).toISOString();
+            window.medications = [
+                { id: 1, name: 'Lisinopril', archived: false },
+                { id: 2, name: 'Metformin', archived: false },
+                { id: 3, name: 'Old', archived: true },
+            ];
+            const rows = [
+                { occId: 'old', medId: 1, plannedAt: iso(-3 * 24 * 60), state: 'due' },
+                { occId: 'today', medId: 2, plannedAt: iso(-20), state: 'snoozed', snoozedUntil: iso(30) },
+            ];
+            const reads = serveDoses(window, () => rows);
+            const badge = () => tab(document, 'meds').querySelector('.wg-tab__badge');
+            const sub = () => document.querySelector('#meds-view [data-meds-sub]');
+
+            await recount(window, () => badge() && badge().textContent === '2');
+            expect(sub().hidden).toBe(false);
+            expect(sub().textContent).toBe('2 active · 2 pending');
+            // The one pending read: status=due,snoozed up to now, no window.
+            expect(reads.length).toBeGreaterThan(0);
+            reads.forEach((path) => {
+                const p = new URL(path, 'https://x.test').searchParams;
+                expect(p.get('status')).toBe('due,snoozed');
+                expect(p.get('from')).toBeNull();
+            });
+
+            rows[0].state = 'taken';
+            await recount(window, () => badge() && badge().textContent === '1');
+            expect(sub().textContent).toBe('2 active · 1 pending');
+
+            rows[1].state = 'taken';
+            await recount(window, () => badge() === null);
+            expect(sub().textContent).toBe('2 active · all taken');
+        } finally { cleanup(); }
+    });
+});
+
+// bd med-y7b4.3: AppBack.step() is the one back order — sheet → Settings
+// sub-page → previous section → false at Today — for the chevron, browser
+// Back, Esc and the shells' back op alike.
+describe('AppBack.step — one back order', () => {
+    const view = (document) => activeView(document).replace(/-view$/, '');
+    const hidden = (document, id) => document.getElementById(id).classList.contains('hidden');
+
+    it('1. a sheet closes first; the section stays', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            window.ModalManager.weight.open();
+            expect(window.AppBack.step()).toBe(true);
+            expect(hidden(document, 'weight-modal')).toBe(true);
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('2. an open Settings sub-page closes before Settings is left', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            document.querySelector('#food-view [data-nav-to="settings"]').click();
+            const page = window.SettingsView.openSettingsPage('integrations');
+            expect(page).not.toBeNull();
+            expect(window.AppBack.step()).toBe(true);
+            expect(page.el.isConnected).toBe(false);
+            expect(view(document)).toBe('settings');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('3. sections walk back in the order this session visited them, ending at Today', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            tab(document, 'meds').click();
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('food');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. Health segments are one stop: Back leaves the Health tab', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'health-group').click();
+            expect(view(document)).toBe('bp');
+            document.querySelector('#bp-view [data-health-seg="weight"]').click();
+            expect(view(document)).toBe('weight');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. a restored section with no trail returns to Today', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food' });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'food-view');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. startup routing is not history: a restored section plus a deep link goes back to Today', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food', url: 'https://example.test/?tab=workouts', realDeepLinks: true });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'workouts-view');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. the deferred ?start=bp_add route replaces the restored section too', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food', url: 'https://example.test/?start=bp_add', realDeepLinks: true });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'bp-view', 2000); // the route polls every 100 ms
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('4. Today with nothing open: false, nothing happens', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            const switchTab = vi.spyOn(window, 'switchTab');
+            expect(window.AppBack.canStep()).toBe(false);
+            expect(window.AppBack.step()).toBe(false);
+            expect(view(document)).toBe('today');
+            expect(switchTab).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('browser Back (popstate) and Esc run the same step', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            tab(document, 'meds').click();
+            const step = vi.spyOn(window.AppBack, 'step');
+            window.dispatchEvent(new window.PopStateEvent('popstate'));
+            expect(step).toHaveBeenCalledTimes(1);
+            expect(view(document)).toBe('food');
+            document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+            expect(step).toHaveBeenCalledTimes(2);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('browser Back over a sheet steps once: the sheet closes, the section stays', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            window.ModalManager.weight.open();
+            await macrotask(); // modal-history pushes the sheet's entry
+            const step = vi.spyOn(window.AppBack, 'step');
+            window.dispatchEvent(new window.PopStateEvent('popstate'));
+            expect(step).toHaveBeenCalledTimes(1);
+            expect(hidden(document, 'weight-modal')).toBe(true);
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('Esc in a field with nothing open stays on the section', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            const input = document.createElement('input');
+            document.getElementById('food-view').appendChild(input);
+            input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('back.state: canStep goes to the shell whenever it changes', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            const setState = vi.spyOn(window.NativeBack, 'setState');
+            window.ModalManager.weight.open();
+            await macrotask();
+            window.ModalManager.weight.close();
+            await macrotask();
+            tab(document, 'food').click();
+            tab(document, 'meds').click(); // still true: no new report
+            expect(setState.mock.calls.map((c) => c[0])).toEqual([true, false, true]);
+        } finally { cleanup(); }
+    });
+
+    it('back.state: a bfcache restore reports again even when unchanged; a plain pageshow does not', async () => {
+        const { window, cleanup } = await boot();
+        try {
+            const setState = vi.spyOn(window.NativeBack, 'setState');
+            const pageshow = (persisted) => (typeof window.PageTransitionEvent === 'function'
+                ? new window.PageTransitionEvent('pageshow', { persisted })
+                : Object.assign(new window.Event('pageshow'), { persisted }));
+            window.dispatchEvent(pageshow(false));
+            expect(setState).not.toHaveBeenCalled();
+            window.dispatchEvent(pageshow(true));
+            expect(setState.mock.calls.map((c) => c[0])).toEqual([false]);
         } finally { cleanup(); }
     });
 });

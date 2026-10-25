@@ -178,14 +178,34 @@ migration; add a new one.
   is neither: it sets an in-memory `updateRequired` that pauses pushes for the
   page load (pulls continue, `pending` kept and exportable, no streak, no
   snapshot error) and shows "Update required — reload to keep syncing" with a
-  Reload action instead of the reset hint; the reloaded build re-posts the queue.
+  Reload action instead of the reset hint (the SW is asked for the current
+  build as the banner goes up); the reloaded build re-posts the queue.
 - **Ledger cut + writer gate** (bd `med-wi09.8`). `accounts.ledger_cut_seq/_at`
   is set once, by the first op tagged `ledgercut:*` (its seq + server time),
   and returned on every `GET /api/sync/ops` page. After the cut, an op batch
-  containing an `intake|medication|settings|tzplan|stock|medsched|tztransition`
+  containing a `medication|settings|tzplan|stock|medsched|tztransition`
   tag, or a snapshot POST, without `X-Ledger: 2` → 426 `update_required`,
-  nothing written; pulls and everything else stay open. Inert until the
-  activation release (`med-wi09.12`) writes the first `ledgercut`. Details:
+  nothing written (op AADs bind client-predicted seqs, so a batch is stored
+  whole or not at all); pulls and everything else stay open. `intake` is not
+  gated: an old bundle's dose writes land and the intake reducer ranks them
+  legacy (a `PENDING` placeholder never promotes or un-takes; an old `TAKEN`
+  beats a regenerated due). Activated by
+  `med-wi09.12`: every write POST sends `X-Ledger: 2`, and each boot
+  `putIfAbsent`s the floored `ledgercut` singleton (`at` = now), whose first
+  push sets the server cut; a pull adopts the server's `ledger_cut_at` into it.
+  From then on doses are **derived, not materialized**: there is no dose
+  sweep and no `PENDING` placeholder write. `medintake.js`'s projection
+  regenerates occurrences from the cut day's local midnight out of medication
+  history (`lineage.js` `regenerateWindow`: `medsched` + `tztransition` + the
+  approved tz plan; with no transitions, each past day in the zone its
+  evidence was stamped in, never the device clock; on the cut day a stored
+  row at the same med + instant covers the slot) and stored rows are
+  evidence only — a post-cut `PENDING`
+  row on a slot history does not yield (an old client's prediction) is
+  ignored. An action on a derived dose writes at its exact id
+  (confirm-or-create). Settled past days are cached per records port and
+  zone, re-checked on every read against `sync.js`'s write journal
+  (`changesSince`), which other tabs feed over a BroadcastChannel. Details:
   [cloud-mode.md → Sync protocol](cloud-mode.md#sync-protocol).
 
 ## 5. Reminders
@@ -220,9 +240,15 @@ So (bd med-kbpf):
 
 - a **Confirm tap cancels the chain server-side, immediately** — the tap is the
   user's explicit statement, and the event names the doses;
-- the **drain confirms by identity**: per named med, the deterministic
-  `intake-<medId>-<slotUnix>` row, else that med's nearest PENDING dose within
-  its own `minDoseInterval` (the drift fallback);
+- the **drain confirms by exact identity** (bd med-wi09.4): per named med, the
+  deterministic `intake-<medId>-<slotUnix>` row (tombstoned → no-op), else the
+  dose projection's row for that med at that very second — never a
+  neighbouring dose. A med that resolves to nothing gets nothing; the message
+  becomes "This reminder is out of date — open the app to log it" and the app
+  queues the MT6 note (Meds → Timeline at that med with the reminder's time,
+  nothing preselected) for the next Timeline open, offering it in a toast — a
+  background drain never switches the section the user is on. A forecast dose
+  with no row yet (the drain beat the slot) is confirmed at its exact id;
 - the drain **re-arms one re-fire** (`POST /api/telegram/rearm-refire`) only if
   a named med is still due afterwards. An in-app confirm, which produces no
   tap, still cancels via `POST /api/telegram/cancel-refire`.

@@ -737,23 +737,39 @@ async function resolvePushMedications(ids) {
     return ids.map((id) => byId.get(String(id))).filter((m) => m && !m.archived);
 }
 
-// The meds whose dose at the slot is already logged (TAKEN or SKIPPED) — a
-// reminder tap after the dose was taken elsewhere must not offer it again.
-// An unreadable history or an unmaterialized slot counts as still due.
-async function loggedAtSlot(meds, scheduled) {
+// Each med's dose at exactly the reminder's slot (bd med-wi09.4), read off the
+// one dose projection (stored ∪ regenerated ∪ forecast): 'logged' (TAKEN/
+// SKIPPED — a tap after the dose was taken elsewhere must not offer it again),
+// 'due', or 'gone' — no dose of that med at that instant any more (a tz change
+// or schedule edit moved it), which lands on MT6 instead of guessing a
+// neighbour. An unreadable projection counts as due: the sheet acts on exact
+// ids only, so it cannot hit a neighbour either. A 'gone' verdict is re-read
+// once after the boot sync pull: an edit made on another device may not be in
+// this mirror yet on a cold start.
+async function slotStates(meds, scheduled) {
     const slotMs = Date.parse(scheduled);
-    const logged = new Set();
-    if (!Number.isFinite(slotMs)) return logged;
-    const days = Math.min(30, Math.max(1, Math.ceil((Date.now() - slotMs) / 86400000) + 1));
-    for (const m of meds) {
-        let logs = null;
+    const states = new Map(meds.map((m) => [m, 'due']));
+    if (!Number.isFinite(slotMs)) return states;
+    const read = async () => {
         try {
-            logs = await apiCall(`/api/history?days=${days}&med_id=${encodeURIComponent(m.id)}`);
-        } catch (_) { /* treat as still due */ }
-        if (Array.isArray(logs) && logs.some((l) => l && Date.parse(l.scheduled_at) === slotMs
-            && (l.status === 'TAKEN' || l.status === 'SKIPPED'))) logged.add(m);
+            // ?at= reads lineage-safe in the domain (dosesAtInstant).
+            const rows = await apiCall(`/api/doses?at=${encodeURIComponent(new Date(slotMs).toISOString())}`);
+            return Array.isArray(rows) ? rows : null;
+        } catch (_) { return null; }
+    };
+    let rows = await read();
+    const missing = (list) => meds.some((m) => !list.some((r) => r && String(r.medId) === String(m.id)));
+    const pulled = window.MedTrackerCloud && window.MedTrackerCloud.pulled;
+    if (rows && missing(rows) && pulled) {
+        await pulled;
+        rows = await read();
     }
-    return logged;
+    if (!rows) return states;
+    for (const m of meds) {
+        const row = rows.find((r) => r && String(r.medId) === String(m.id));
+        states.set(m, !row ? 'gone' : row.state === 'taken' || row.state === 'skipped' ? 'logged' : 'due');
+    }
+    return states;
 }
 
 function handlePushAction(action, params) {
@@ -761,7 +777,9 @@ function handlePushAction(action, params) {
         let ids = params.get('ids') ? params.get('ids').split(',').map(Number) : [];
         let names = params.get('names') ? params.get('names').split(',') : [];
         const scheduled = params.get('scheduled');
-        const intakeIds = params.get('intake_ids') ? params.get('intake_ids').split(',').map(Number) : [];
+        // Intake ids are opaque strings (intake-<medId>-<slotUnix>): never
+        // coerce them to numbers.
+        const intakeIds = params.get('intake_ids') ? params.get('intake_ids').split(',').filter(Boolean) : [];
 
         setTimeout(async () => {
             // A cloud reminder deeplink carries ids only (bd med-9d1a — names
@@ -769,23 +787,38 @@ function handlePushAction(action, params) {
             // deleted or archived since the reminder was scheduled, and those
             // already logged for this slot. Its confirm acts only on the
             // listed meds' exact slot ids (POST /api/doses/act), so a slot-mate
-            // absent from the sheet is never touched.
+            // absent from the sheet is never touched. A med with no dose at
+            // that exact instant any more is never offered — when nothing else
+            // is due the tap lands on the MT6 out-of-date note instead.
             const fromReminder = ids.length > 0 && !names.length;
             if (fromReminder) {
-                const live = await resolvePushMedications(ids);
+                let live = await resolvePushMedications(ids);
+                // On a cold start a med added on another device may not be in
+                // this mirror until the boot sync pull lands: resolve again
+                // after it before calling any med gone.
+                const pulled = window.MedTrackerCloud && window.MedTrackerCloud.pulled;
+                if (pulled && (!live || live.length < ids.length)) {
+                    await pulled;
+                    live = await resolvePushMedications(ids);
+                }
                 if (live && !live.length) {
                     switchTab('meds');
                     safeToast('That medication is no longer in your list.', 'info');
                     return;
                 }
                 if (live) {
-                    const logged = await loggedAtSlot(live, scheduled);
-                    const due = live.filter((m) => !logged.has(m));
+                    const states = await slotStates(live, scheduled);
+                    const due = live.filter((m) => states.get(m) === 'due');
+                    const gone = live.find((m) => states.get(m) === 'gone');
+                    if (!due.length && gone) {
+                        showMedsReminderOutOfDate({ medId: gone.id, scheduled });
+                        return;
+                    }
                     if (!due.length) {
                         safeToast('Already logged — nothing left to take for this reminder.', 'info');
                         return;
                     }
-                    ids = due.map((m) => Number(m.id));
+                    ids = due.map((m) => m.id);
                     names = due.map((m) => m.name);
                 }
             }

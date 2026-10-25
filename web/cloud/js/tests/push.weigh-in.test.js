@@ -13,6 +13,7 @@ vi.mock('../sync.js', () => ({
     getOrCreateNK: vi.fn(async () => 'nk'),
     hasRichNotifications: vi.fn(),
     disableRichNotifications: vi.fn(),
+    WRITE_HEADERS: { 'Content-Type': 'application/json', 'X-Ledger': '2' },
 }));
 vi.mock('../localdb.js', () => ({ openDb: vi.fn() }));
 

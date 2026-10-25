@@ -4,8 +4,9 @@
 // inventory, and a 09:00 tap recording 09:00 — are properties of that domain's
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
-import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, makeTGHistoryPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
+import { createIntakeDomain, dosesAtInstant } from '../../../domain/medintake.js';
+import { boundary } from '../../../domain/lineage.js';
+import { applyIntakeSlotAction, OUT_OF_DATE_TEXT, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, makeTGHistoryPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
 import { createRemindersDomain, DONT_BUG_MS } from '../../../domain/reminders.js';
 import { createTGAgent } from '../tg-agent.js';
 import { createBPDomain } from '../../../domain/bp.js';
@@ -24,6 +25,16 @@ const SLOT_UNIX = 1767225600; // 2026-01-01T00:00:00Z
 const SLOT_ISO = new Date(SLOT_UNIX * 1000).toISOString();
 const TAP_UNIX = SLOT_UNIX + 600; // tapped 10 minutes after the dose was due
 const DRAIN_MS = (SLOT_UNIX + 4 * 3600) * 1000; // app first opened 4h later
+// The account's ledger cut, a day before the slot: regeneration starts at the
+// cut instant (bd med-wi09.12), so a vault with no cut row regenerates nothing
+// before "now".
+const CUT_BEFORE_SLOT = [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date((SLOT_UNIX - 86400) * 1000).toISOString() }];
+// A cut the day after the slot: the slot's day is wholly before the cut, where
+// stored rows are the whole truth. The drift tests pin that pre-cut path — a
+// drifted row is an old client's materialization. From the cut day on a slot is
+// covered only by a row at its own instant, so a drifted row there sits next to
+// the regenerated dose (N5, known; bd med-wi09.12).
+const CUT_AFTER_SLOT_DAY = [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date((SLOT_UNIX + 86400) * 1000).toISOString() }];
 
 // Records port over an in-memory map, keyed by recordId within each type.
 function fakeRecords(seed = {}) {
@@ -113,17 +124,38 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(meds.find((m) => m.recordId === 'med-b').inventory_count).toBe(19);
     });
 
+    // bd med-wi09.11 — a reminder callback only moves rev 0 -> 1. The tap is
+    // stamped rev 1 / via telegram; after an in-app undo (rev 2, UNTAKEN) a
+    // re-drained copy of the same tap changes nothing.
+    it('a callback writes rev 1 via telegram, and a re-drained tap never undoes an in-app undo', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const tg = createIntakeDomain({ records, now, timeZone: 'UTC', via: 'telegram' });
+        const tapA = medsNamed(confirmEvent, ['med-a']);
+        const id = `intake-med-a-${SLOT_UNIX}`;
+        await applyIntakeSlotAction(tapA, { intake: tg, records, now });
+        expect((await records.list('intake')).find((i) => i.recordId === id))
+            .toMatchObject({ status: 'TAKEN', rev: 1, via: 'telegram', tz: 'UTC' });
+
+        await domainFor(records, now).act({ occIds: [id], action: 'undo' });
+        await applyIntakeSlotAction(tapA, { intake: tg, records, now });
+        expect((await records.list('intake')).find((i) => i.recordId === id))
+            .toMatchObject({ status: 'UNTAKEN', rev: 2, via: 'app' });
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-a').inventory_count).toBe(30);
+    });
+
     // Two meds due at the same instant, seeded with a REAL schedule and NO
-    // intake rows: materializeDueDoses mints them at drain, then Confirm must
-    // record BOTH. (The empty-schedule seed above pre-materializes at the exact
-    // slot, which masked the drift bug — this exercises the real path.)
-    it('materializes then confirms every med when the slot had no intake rows yet', async () => {
+    // intake rows (bd med-wi09.12: nothing stores a PENDING prediction): the
+    // projection lists both doses, and Confirm must record BOTH at their exact
+    // ids.
+    it('confirms every med at its exact id when the slot had no intake rows yet', async () => {
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
                 { recordId: 'med-b', deleted: false, name: 'Metformin', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 20 },
             ],
             intake: [],
+            ledgercut: CUT_BEFORE_SLOT,
         });
         const now = () => DRAIN_MS;
         await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
@@ -133,37 +165,33 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         for (const i of atSlot) expect(i.status).toBe('TAKEN');
     });
 
-    // The silent-revert regression (bd med-d4w): a device whose mirror predates
-    // the tap re-materializes the SAME deterministic recordId as PENDING on its
-    // next open. Materialization is derived state, so that write must LOSE the
-    // LWW merge (sync.js: `record.clientTs > existing.clientTs`) against the real
-    // TAKEN — otherwise a confirmed dose reverts to Pending on every device.
-    it('re-materializing a slot cannot outrank a confirm that already happened', async () => {
+    // The silent-revert regression (bd med-d4w) is gone at the root (bd
+    // med-wi09.12): a device whose mirror predates the tap no longer writes a
+    // PENDING row for the slot at all — it only shows the dose as due until
+    // the confirm syncs in.
+    it('a device that missed the confirm shows the dose as due and writes nothing', async () => {
         const med = { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 };
         const now = () => DRAIN_MS;
 
         // Device A drained the Telegram tap and holds the confirmed dose.
-        const deviceA = fakeRecords({ medication: [med], intake: [] });
+        const deviceA = fakeRecords({ medication: [med], intake: [], ledgercut: CUT_BEFORE_SLOT });
         await applyIntakeSlotAction(confirmEvent, { intake: domainFor(deviceA, now), records: deviceA, now });
         const confirmed = (await deviceA.list('intake')).find((i) => i.scheduled_at === SLOT_ISO);
         expect(confirmed.status).toBe('TAKEN');
 
         // Device B was closed through all of it: same med, no intake rows yet.
-        const deviceB = fakeRecords({ medication: [med], intake: [] });
-        await domainFor(deviceB, now).materializeDueDoses();
-        const stale = (await deviceB.list('intake')).find((i) => i.recordId === confirmed.recordId);
-        expect(stale.status).toBe('PENDING');
-
-        // ...and on sync, the merge every device runs must keep the TAKEN.
-        expect(stale.clientTs > confirmed.clientTs).toBe(false);
+        const deviceB = fakeRecords({ medication: [med], intake: [], ledgercut: CUT_BEFORE_SLOT });
+        const due = await domainFor(deviceB, now).occurrences({ fromMs: SLOT_UNIX * 1000, toMs: DRAIN_MS });
+        expect(due.map((r) => [r.occId, r.state])).toEqual([[confirmed.recordId, 'due']]);
+        expect(await deviceB.list('intake')).toEqual([]);
     });
 
-    // The data-loss regression: the callback slot and the stored intake's
-    // scheduled_at are re-derived independently and drift when a dose is clustered
-    // (triggerNext/confirmSchedule store it at clusterEarliestMs, up to the 10min
-    // CLUSTER_WINDOW). One med's intake sits 8min off the slot — inside the band.
-    // Exact-=== leaves it PENDING (silent adherence loss); the band confirms it.
-    it('confirms a drifted intake within the cluster drift band', async () => {
+    // bd med-wi09.4 — reminder actions resolve exact ids only. One med's dose
+    // sits 8min off the slot the reminder was built from: the old band fallback
+    // confirmed it, which could be a different dose. Now the on-slot med is
+    // confirmed, the drifted one is left alone, the message says "out of date"
+    // and the app is handed the MT6 landing for that med, nothing preselected.
+    it('a drifted slot does not confirm the neighbour: out of date + MT6 landing', async () => {
         const driftedIso = new Date((SLOT_UNIX + 8 * 60) * 1000).toISOString(); // 8min: inside the 10min band
         const records = fakeRecords({
             medication: [
@@ -175,14 +203,100 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 // med-b's dose drifted 8min past the callback slot (cluster window).
                 { recordId: `intake-med-b-drift`, deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => DRAIN_MS;
-        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+        const editReply = vi.fn(async () => {});
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction({ ...confirmEvent, message_id: 3 }, { intake: domainFor(records, now), records, now, editReply, onOutOfDate });
 
         const intakes = await records.list('intake');
         expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
-        // Would be PENDING under the old exact-=== match — the whole bug.
-        expect(intakes.find((i) => i.recordId === 'intake-med-b-drift').status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-drift').status).toBe('PENDING');
+        expect(intakes.some((i) => i.recordId === `intake-med-b-${SLOT_UNIX}`)).toBe(false);
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-b').inventory_count).toBe(20);
+        expect(editReply).toHaveBeenCalledWith(3, `✅ Confirmed 1 medication.\n${OUT_OF_DATE_TEXT}`);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-b', scheduled: SLOT_ISO, count: 1 });
+    });
+
+    // The deleted dose: the user removed this slot, so the tap is a silent
+    // no-op for that med — not "out of date", and no landing.
+    it('a tombstoned slot id is a silent no-op for that med', async () => {
+        const s = seed();
+        s.intake[0] = { ...s.intake[0], deleted: true };
+        const records = fakeRecords(s);
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction({ ...confirmEvent, message_id: 8 }, { intake: domainFor(records, now), records, now, editReply, onOutOfDate });
+
+        const intakes = await records.listRaw('intake');
+        const a = intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`);
+        expect(a).toMatchObject({ deleted: true, status: 'PENDING' });
+        expect(intakes.find((i) => i.recordId === `intake-med-b-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-a').inventory_count).toBe(30);
+        expect(editReply).toHaveBeenCalledWith(8, '✅ Confirmed 1 medication.');
+        expect(onOutOfDate).not.toHaveBeenCalled();
+    });
+
+    // An old client's post-cut PENDING prediction at a slot a schedule edit
+    // removed: the projection hides it, so the exact-id row does not count — the
+    // tap is out of date and logs nothing.
+    it('an orphaned stored prediction at the exact id is out of date, not confirmed', async () => {
+        const orphanUnix = SLOT_UNIX + 3600; // DAILY runs at 00:00 only
+        const records = fakeRecords({
+            medication: [{ recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 }],
+            intake: [{ recordId: `intake-med-a-${orphanUnix}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date(orphanUnix * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' }],
+            ledgercut: CUT_BEFORE_SLOT,
+        });
+        const now = () => DRAIN_MS;
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction(
+            { ...medsNamed(confirmEvent, ['med-a']), slot_unix: orphanUnix, at_unix: orphanUnix + 60 },
+            { intake: domainFor(records, now), records, now, onOutOfDate },
+        );
+
+        expect((await records.list('intake'))[0].status).toBe('PENDING');
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: new Date(orphanUnix * 1000).toISOString(), count: 1 });
+    });
+
+    // A stored row for the named med at that very second under another id (a
+    // vault-imported tz_step dose) is the same dose: the projection resolves it.
+    it('resolves a legacy-id row for the named med at the exact slot instant', async () => {
+        const records = fakeRecords({
+            medication: seed().medication,
+            intake: [{ recordId: `intake-med-a-${SLOT_UNIX}-tz_step`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'tz_step' }],
+        });
+        const now = () => DRAIN_MS;
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, onOutOfDate });
+
+        expect((await records.list('intake'))[0].status).toBe('TAKEN');
+        expect(onOutOfDate).not.toHaveBeenCalled();
+    });
+
+    // R3 (bd med-wi09.4): the device clock trails the relay's, so the drain runs
+    // before the slot instant — the dose is still a forecast with no row. The
+    // callback confirms it at its exact id (confirm-or-create), never a no-op.
+    it('confirms a forecast dose with no row yet at its exact id when the drain beats the slot', async () => {
+        const records = fakeRecords({
+            medication: [{ recordId: 'med-a', deleted: false, name: 'A', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 }],
+            intake: [],
+            ledgercut: CUT_BEFORE_SLOT,
+        });
+        const now = () => SLOT_UNIX * 1000 - 5000;
+        const onOutOfDate = vi.fn();
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(
+            { ...medsNamed(confirmEvent, ['med-a']), at_unix: SLOT_UNIX - 2 },
+            { intake: domainFor(records, now), records, now, onOutOfDate, cancelRefire },
+        );
+
+        const row = (await records.list('intake')).find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`);
+        expect(row).toMatchObject({ status: 'TAKEN', scheduled_at: SLOT_ISO });
+        expect(onOutOfDate).not.toHaveBeenCalled();
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
 
     // The opposite failure the drift fallback must NOT cause: a med due at a
@@ -293,7 +407,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const now = () => DRAIN_MS;
         const real = domainFor(records, now);
         const raced = {
-            materializeDueDoses: real.materializeDueDoses,
+            occurrences: real.occurrences,
             confirm: vi.fn(async () => {
                 const err = new Error('intake is not pending');
                 err.code = 'not_pending';
@@ -314,7 +428,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const now = () => DRAIN_MS;
         const real = domainFor(records, now);
         const broken = {
-            materializeDueDoses: real.materializeDueDoses,
+            occurrences: real.occurrences,
             confirm: async () => { throw new Error('vault write failed'); },
             snooze: real.snooze,
         };
@@ -336,10 +450,10 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const order = [];
         const slow = {
             ...real,
-            materializeDueDoses: async () => { await held; await real.materializeDueDoses(); order.push('doses'); },
+            occurrences: async (w) => { await held; const rows = await real.occurrences(w); order.push('doses'); return rows; },
         };
         const tap = applyIntakeSlotAction(confirmEvent, { intake: slow, records, now });
-        const during = { ...real, materializeDueDoses: vi.fn(real.materializeDueDoses) };
+        const during = { ...real, occurrences: vi.fn(real.occurrences) };
         const replace = withMaterializationStopped(async () => {
             order.push('replace');
             await expect(applyIntakeSlotAction(confirmEvent, { intake: during, records, now }))
@@ -348,8 +462,10 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         release();
         await tap;
         await replace;
-        expect(order).toEqual(['doses', 'replace']);
-        expect(during.materializeDueDoses).not.toHaveBeenCalled();
+        // The gated read lands before the replace; the receipt's read-only
+        // re-read after the write may follow it.
+        expect(order.slice(0, 2)).toEqual(['doses', 'replace']);
+        expect(during.occurrences).not.toHaveBeenCalled();
     });
 
     // Bug 1: Confirm must edit the original reminder message to a receipt (which
@@ -431,12 +547,12 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // --- bd med-eas.67 / med-kbpf: confirm the reminder's NAMED meds by identity ---
     const DAILY = '{"type":"daily","times":["00:00"]}'; // minDoseInterval = 14.4h
 
-    // The reported P1: a grouped 4-med reminder where one med's ONLY dose drifted
-    // hours off its clock slot (a tz-plan/cluster step) — beyond the ±10min band
-    // but well inside its own minDoseInterval. Under the band it stays PENDING
-    // (adherence lost, re-nagged an hour later); the identity path confirms all 4.
-    it('confirms a course med whose dose drifted beyond the band but within its interval', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // 2h: > band, < 14.4h interval
+    // A grouped 4-med reminder where one med's ONLY dose drifted hours off its
+    // clock slot (a tz-plan/cluster step). The old interval fallback confirmed
+    // it; since bd med-wi09.4 that is a guess, so the three on-slot meds are
+    // confirmed and the drifted one is left for the user (out of date).
+    it('confirms the on-slot meds of a grouped reminder and never a drifted course dose', async () => {
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(); // 2h: > band, < 14.4h interval
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -450,6 +566,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 { recordId: `intake-med-c-${SLOT_UNIX}`, deleted: false, medication_id: 'med-c', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
                 { recordId: 'intake-med-d-drift', deleted: false, medication_id: 'med-d', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => DRAIN_MS;
         const editReply = vi.fn(async () => {});
@@ -459,12 +576,33 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         );
 
         const intakes = await records.list('intake');
-        for (const id of [`intake-med-a-${SLOT_UNIX}`, `intake-med-b-${SLOT_UNIX}`, `intake-med-c-${SLOT_UNIX}`, 'intake-med-d-drift']) {
+        for (const id of [`intake-med-a-${SLOT_UNIX}`, `intake-med-b-${SLOT_UNIX}`, `intake-med-c-${SLOT_UNIX}`]) {
             expect(intakes.find((i) => i.recordId === id).status).toBe('TAKEN');
         }
-        // Receipt counts distinct named meds (4), not band-matched rows (the drifted
-        // one is >10min from the slot, so a time filter would have said 3).
-        expect(editReply).toHaveBeenCalledWith(9, expect.stringMatching(/Confirmed 4 medications/));
+        expect(intakes.find((i) => i.recordId === 'intake-med-d-drift').status).toBe('PENDING');
+        expect(editReply).toHaveBeenCalledWith(9, `✅ Confirmed 3 medications.\n${OUT_OF_DATE_TEXT}`);
+    });
+
+    // F5 (bd med-wi09.12), kept under exact-only resolution (med-wi09.4): the
+    // tap only. The on-slot dose was already taken in the app; a later dose of
+    // the same med sits inside the band and is due by the time the drain runs —
+    // still not the dose this tap confirmed.
+    it('never band-matches a dose scheduled after the tap, even one due by drain time', async () => {
+        const laterIso = new Date((SLOT_UNIX + 3 * 3600) * 1000).toISOString(); // in band, after the tap
+        const records = fakeRecords({
+            medication: [{ recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 }],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'TAKEN', taken_at: SLOT_ISO, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-a-later', deleted: false, medication_id: 'med-a', scheduled_at: laterIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS; // 4h after the slot: the later dose is due now
+        const rearmRefire = vi.fn();
+        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, rearmRefire });
+
+        expect((await records.list('intake')).find((i) => i.recordId === 'intake-med-a-later').status).toBe('PENDING');
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+        expect(rearmRefire).not.toHaveBeenCalled();
     });
 
     // A false positive is the one thing the wider interval must never cause: a
@@ -538,27 +676,39 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(rearmRefire).not.toHaveBeenCalled();
     });
 
-    // The case the re-arm exists for: a NAMED med still has a due dose after the
-    // tap — here its second in-band dose, which nearest-wins deliberately left
-    // alone. Without the re-arm the relay would stay silent about it.
-    it('re-arms the chain, naming the meds still due, when one is left over', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // in band
-        const records = fakeRecords({
-            medication: [
-                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
-            ],
-            intake: [
-                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
-                { recordId: 'intake-med-a-drift', deleted: false, medication_id: 'med-a', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
-            ],
-        });
+    // The case the re-arm exists for: a NAMED med's exact slot dose is still
+    // open after the tap — here a concurrent drainer's not_pending race left it
+    // PENDING. Without the re-arm the relay would stay silent about it.
+    it('re-arms the chain, naming the meds still due, when a resolved dose is left over', async () => {
+        const records = slotDoseFixture();
+        const now = () => DRAIN_MS;
+        const real = domainFor(records, now);
+        const raced = {
+            ...real,
+            confirm: async (id, at) => {
+                if (id.startsWith('intake-med-b-')) throw Object.assign(new Error('intake is not pending'), { code: 'not_pending' });
+                return real.confirm(id, at);
+            },
+        };
+        const rearmRefire = vi.fn();
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(confirmEvent, { intake: raced, records, now, rearmRefire, cancelRefire });
+
+        expect(rearmRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000, ['med-b']);
+        expect(cancelRefire).not.toHaveBeenCalled();
+    });
+
+    // An out-of-date med is not due at this slot: re-arming would only repeat
+    // the stale reminder, so the backstop cancel still runs.
+    it('does not re-arm for an unresolved med — the chain stays cancelled', async () => {
+        const records = slotDoseFixture();
         const now = () => DRAIN_MS;
         const rearmRefire = vi.fn();
         const cancelRefire = vi.fn();
-        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, rearmRefire, cancelRefire });
+        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a', 'med-gone']), { intake: domainFor(records, now), records, now, rearmRefire, cancelRefire });
 
-        expect(rearmRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000, ['med-a']);
-        expect(cancelRefire).not.toHaveBeenCalled();
+        expect(rearmRefire).not.toHaveBeenCalled();
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
 
     it('never re-arms on a snooze — the relay already rescheduled that chain', async () => {
@@ -579,7 +729,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             ],
             intake: [
                 // The slot's own row, drifted 2h off its instant.
-                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
                 // A closer-in-time dose of the same med that is NOT this slot's row.
                 { recordId: 'intake-med-a-other', deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
@@ -593,15 +743,20 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     });
 
     // An id the vault does not know (a med deleted since the reminder was pushed)
-    // is skipped, and never widens the match to somebody else's dose.
-    it('skips a named id the vault no longer has', async () => {
+    // applies nothing, never widens the match to somebody else's dose, and says
+    // the reminder is out of date.
+    it('skips a named id the vault no longer has and says the reminder is out of date', async () => {
         const records = slotDoseFixture();
         const now = () => DRAIN_MS;
         const rearmRefire = vi.fn();
-        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-gone']), { intake: domainFor(records, now), records, now, rearmRefire });
+        const editReply = vi.fn(async () => {});
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction({ ...medsNamed(confirmEvent, ['med-gone']), message_id: 21 }, { intake: domainFor(records, now), records, now, rearmRefire, editReply, onOutOfDate });
 
         for (const i of await records.list('intake')) expect(i.status).toBe('PENDING');
         expect(rearmRefire).not.toHaveBeenCalled();
+        expect(editReply).toHaveBeenCalledWith(21, OUT_OF_DATE_TEXT);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-gone', scheduled: SLOT_ISO, count: 1 });
     });
 
     // A tap with no identity at all: a reminder pushed by a pre-med-kbpf client,
@@ -626,10 +781,10 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         warn.mockRestore();
     });
 
-    // Nearest-wins: when a named med has BOTH an on-slot and a drifted PENDING dose
-    // inside its band, only the nearest is acted on — never both (no double-confirm).
-    it('confirms only the nearest PENDING dose of a named med, not both in-band doses', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // 2h: in band, farther than the on-slot dose
+    // Exact only: when a named med has BOTH an on-slot and a drifted PENDING dose,
+    // only the slot's own dose is acted on — never the neighbour.
+    it('confirms only the exact slot dose of a named med, never its drifted neighbour', async () => {
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(); // 2h: in band, farther than the on-slot dose
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -643,7 +798,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now });
 
         const intakes = await records.list('intake');
-        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN'); // nearest
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN'); // the slot's own dose
         expect(intakes.find((i) => i.recordId === 'intake-med-a-drift').status).toBe('PENDING'); // not double-confirmed
     });
 
@@ -652,7 +807,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // (same deterministic atMs) must see that med as already handled and skip it —
     // not confirm the drifted dose the user never took.
     it('identity path does not confirm a second drifted dose on redelivery', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // in band, farther than on-slot
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString(); // in band, farther than on-slot
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -702,9 +857,10 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(meds.find((m) => m.recordId === 'med-b').inventory_count).toBe(29);
     });
 
-    // Snooze resolves by identity too: each named med's due PENDING dose is snoozed.
-    it('snoozes the named meds by identity, including a drifted dose', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString();
+    // Snooze resolves exactly too: the on-slot dose is snoozed, a drifted one is
+    // not touched and the receipt says the reminder is out of date for it.
+    it('snoozes the exact slot doses only; a drifted dose is out of date', async () => {
+        const driftedIso = new Date((SLOT_UNIX - 2 * 3600) * 1000).toISOString();
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
@@ -714,54 +870,27 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
                 { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
                 { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => (TAP_UNIX + 60) * 1000; // window still open
-        await applyIntakeSlotAction(snoozeEvent, { intake: domainFor(records, now), records, now });
-
-        const intakes = await records.list('intake');
-        for (const id of [`intake-med-a-${SLOT_UNIX}`, 'intake-med-b-drift']) {
-            const i = intakes.find((r) => r.recordId === id);
-            expect(i.status).toBe('PENDING');
-            expect(Date.parse(i.snoozed_until)).toBe((TAP_UNIX + 600) * 1000);
-        }
-    });
-
-    // --- bd med-eas.65 / med-kbpf: identity works on whichever device drains
-    // the tap, because it rides the EVENT the relay sealed — not a vault
-    // side-table the draining device may never have synced.
-
-    it('confirms a dose drifted far beyond the band from the event ids alone (cross-device tap)', async () => {
-        const driftedIso = new Date((SLOT_UNIX + 3 * 3600) * 1000).toISOString(); // 3h: way past the ±10min cluster window
-        const records = fakeRecords({
-            medication: [
-                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
-                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
-            ],
-            intake: [
-                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
-                { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
-            ],
-        });
-        const now = () => DRAIN_MS;
         const editReply = vi.fn(async () => {});
-        await applyIntakeSlotAction(
-            { ...confirmEvent, message_id: 11 },
-            { intake: domainFor(records, now), records, now, editReply },
-        );
+        await applyIntakeSlotAction({ ...snoozeEvent, message_id: 6 }, { intake: domainFor(records, now), records, now, editReply });
 
         const intakes = await records.list('intake');
-        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
-        expect(intakes.find((i) => i.recordId === 'intake-med-b-drift').status).toBe('TAKEN');
-        expect(editReply).toHaveBeenCalledWith(11, expect.stringMatching(/Confirmed 2 medications/));
+        const a = intakes.find((r) => r.recordId === `intake-med-a-${SLOT_UNIX}`);
+        expect(a.status).toBe('PENDING');
+        expect(Date.parse(a.snoozed_until)).toBe((TAP_UNIX + 600) * 1000);
+        expect(intakes.find((r) => r.recordId === 'intake-med-b-drift').snoozed_until).toBeNull();
+        expect(editReply).toHaveBeenCalledWith(6, `⏰ Snoozed — will remind you again shortly.\n${OUT_OF_DATE_TEXT}`);
     });
 
     // A DST / tz-plan step: the approved plan walks a dose off its clock slot, so
-    // materializeDueDoses keeps the shifted `tz_step` row (its ±minDoseInterval
-    // dedup blocks a second on-slot row) and the reminder's slot no longer matches
-    // any intake instant — not even the deterministic id. Identity still resolves
-    // it through the band fallback.
-    it('confirms a tz-plan step dose that moved off the reminder slot', async () => {
-        const steppedIso = new Date((SLOT_UNIX + 90 * 60) * 1000).toISOString(); // 1h30 tz step
+    // the projection keeps the shifted `tz_step` row and the reminder's slot no
+    // longer matches any dose instant — not even the deterministic id. That
+    // reminder is stale: nothing is confirmed, the app gets the MT6 landing for
+    // the med (bd med-wi09.4).
+    it('a tz-plan step dose that moved off the reminder slot is out of date, not confirmed', async () => {
+        const steppedIso = new Date((SLOT_UNIX - 90 * 60) * 1000).toISOString(); // 1h30 tz step
         const records = fakeRecords({
             medication: [
                 { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, tz_shift_policy: 'flexible', inventory_count: 30 },
@@ -769,13 +898,52 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             intake: [
                 { recordId: 'intake-med-a-step', deleted: false, medication_id: 'med-a', scheduled_at: steppedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'tz_step' },
             ],
+            ledgercut: CUT_AFTER_SLOT_DAY,
         });
         const now = () => DRAIN_MS;
-        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now });
+        const onOutOfDate = vi.fn();
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, onOutOfDate, cancelRefire });
 
         const stepped = (await records.list('intake')).find((i) => i.recordId === 'intake-med-a-step');
-        expect(stepped.status).toBe('TAKEN');
-        expect(Date.parse(stepped.taken_at)).toBe(TAP_UNIX * 1000);
+        expect(stepped.status).toBe('PENDING');
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: SLOT_ISO, count: 1 });
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
+    });
+
+    // LOW-5 (known, bd med-wi09.12): ON the cut day a stored row covers a slot
+    // only at its own instant (Archie, N2 — no band). An old client's drifted
+    // PENDING from before the cut instant therefore sits next to the
+    // regenerated on-schedule dose: two doses due that day. The tap confirms
+    // the exact-id one; the drifted row stays due. One day only.
+    it('on the cut day, a drifted pre-cut row shows next to the regenerated slot (pinned double dose)', async () => {
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: new Date((SLOT_UNIX + 8 * 60) * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date((SLOT_UNIX + 3600) * 1000).toISOString() }],
+        });
+        const now = () => DRAIN_MS;
+        const intake = domainFor(records, now);
+        const span = { fromMs: (SLOT_UNIX - 3600) * 1000, toMs: DRAIN_MS };
+        expect((await intake.occurrences(span)).map((r) => [r.occId, r.state])).toEqual([
+            [`intake-med-a-${SLOT_UNIX}`, 'due'],
+            [`intake-med-b-${SLOT_UNIX}`, 'due'],
+            ['intake-med-b-drift', 'due'],
+        ]);
+
+        await applyIntakeSlotAction(confirmEvent, { intake, records, now });
+        expect((await intake.occurrences(span)).map((r) => [r.occId, r.state])).toEqual([
+            [`intake-med-a-${SLOT_UNIX}`, 'taken'],
+            [`intake-med-b-${SLOT_UNIX}`, 'taken'],
+            ['intake-med-b-drift', 'due'],
+        ]);
     });
 });
 
@@ -811,6 +979,87 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         // cancelled at tap time stays cancelled.
         expect(rearmRefire).not.toHaveBeenCalled();
         expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
+    });
+
+    // bd med-wi09.12 N3: the drain stamps the account's zone on the confirm —
+    // the stamp is that day's evidence zone — never the draining device's.
+    it('stamps the pinned zone on a drained confirm, not the device zone', async () => {
+        const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const pinned = device === 'Pacific/Auckland' ? 'Europe/Berlin' : 'Pacific/Auckland';
+        const records = fakeRecords({ ...seed(), settings: [{ recordId: 'settings', deleted: false, timezone: pinned }] });
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire: vi.fn(), cancelRefire: vi.fn() });
+        await apply(confirmEvent);
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot.map((i) => [i.status, i.tz])).toEqual([['TAKEN', pinned], ['TAKEN', pinned]]);
+    });
+
+    it('hands an out-of-date tap to the injected MT6 hook', async () => {
+        const records = fakeRecords(seed());
+        const onOutOfDate = vi.fn();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire: vi.fn(), cancelRefire: vi.fn(), editReply: vi.fn(async () => {}), onOutOfDate });
+        await apply(medsNamed(confirmEvent, ['med-a', 'med-x']));
+
+        expect((await records.list('intake')).find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-x', scheduled: SLOT_ISO, count: 1 });
+    });
+
+    // A drain runs in the background: the default hook only queues MT6 and
+    // offers it in a toast — it never switches the open app's section.
+    it('by default queues the MT6 landing on the page instead of navigating', async () => {
+        const records = fakeRecords(seed());
+        const queue = vi.fn();
+        const show = vi.fn();
+        globalThis.queueMedsReminderOutOfDate = queue;
+        globalThis.showMedsReminderOutOfDate = show;
+        try {
+            const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire: vi.fn(), cancelRefire: vi.fn(), editReply: vi.fn(async () => {}) });
+            await apply(medsNamed(confirmEvent, ['med-x']));
+            expect(queue).toHaveBeenCalledWith({ medId: 'med-x', scheduled: SLOT_ISO, count: 1 });
+            expect(show).not.toHaveBeenCalled();
+        } finally {
+            delete globalThis.queueMedsReminderOutOfDate;
+            delete globalThis.showMedsReminderOutOfDate;
+        }
+    });
+});
+
+// bd med-wi09.12 — doses due before the first v2 boot (NEW-1) and doses on a
+// day an old tab logged (NEW-2) are regenerated, so a queued tap lands.
+describe('inbox-apply.js — taps on regenerated doses around the ledger cut', () => {
+    const DAY0 = Date.UTC(2026, 9, 20);
+    const at = (h, m = 0) => DAY0 + h * 3600e3 + m * 60e3;
+    const twice = { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["08:00","20:00"]}', inventory_count: 30, created_at: '2026-10-01T00:00:00Z' };
+    const tap = (slotMs, atMs) => ({ kind: INTAKE_SLOT_ACTION, slot_unix: slotMs / 1000, action: 'confirm', at_unix: atMs / 1000, medication_ids: ['med-a'] });
+
+    it('a Confirm tapped at 08:05 with no app open, drained by the first v2 boot at noon, records the 08:00 dose', async () => {
+        const records = fakeRecords({ medication: [twice], intake: [] });
+        const now = () => at(12);
+        const intake = createIntakeDomain({ records, now, timeZone: 'UTC', via: 'telegram' });
+        await intake.ensureLedgerCut(); // the install write: the cut is noon
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(tap(at(8), at(8, 5)), { intake, records, now, editReply });
+
+        const row = (await records.list('intake')).find((i) => i.recordId === `intake-med-a-${at(8) / 1000}`);
+        expect(row).toMatchObject({ status: 'TAKEN', taken_at: new Date(at(8, 5)).toISOString() });
+        expect((await records.list('medication'))[0].inventory_count).toBe(29);
+        expect(editReply.mock.calls.at(-1)[1]).toMatch(/Confirmed 1 medication/);
+    });
+
+    it('an old tab\'s tz-less TAKEN at 08:00 after the cut leaves 20:00 due, and a tap on it confirms', async () => {
+        const records = fakeRecords({
+            medication: [twice],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date(DAY0 - 86400e3).toISOString() }],
+            intake: [{ recordId: `intake-med-a-${at(8) / 1000}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date(at(8)).toISOString(), status: 'TAKEN', taken_at: new Date(at(8, 3)).toISOString(), snoozed_until: null, source: 'schedule', clientTs: at(8, 3) }],
+        });
+        const now = () => at(21);
+        const intake = createIntakeDomain({ records, now, timeZone: 'UTC', via: 'telegram' });
+        expect((await intake.occurrences({ fromMs: at(0), toMs: at(23) })).map((r) => [r.localTime, r.state]))
+            .toEqual([['08:00', 'taken'], ['20:00', 'due']]);
+        await applyIntakeSlotAction(tap(at(20), at(20, 10)), { intake, records, now });
+
+        const row = (await records.list('intake')).find((i) => i.recordId === `intake-med-a-${at(20) / 1000}`);
+        expect(row).toMatchObject({ status: 'TAKEN' });
     });
 });
 
@@ -1165,6 +1414,23 @@ describe('inbox-apply.js — a Telegram data command', () => {
         // The dose 12h later was NOT due at message time — confirming it would be a lie.
         const later = intakes.find((i) => i.scheduled_at !== SLOT_ISO);
         expect(later.status).toBe('PENDING');
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
+    // F4 (bd med-wi09.12): "took my meds" is today's due doses only — never an
+    // earlier day's missed one (that would fake adherence and move stock).
+    it('/intake leaves an earlier day\'s missed dose alone', async () => {
+        const seeded = seed();
+        const yesterday = new Date((SLOT_UNIX - 12 * 3600) * 1000).toISOString();
+        seeded.intake.push({ recordId: 'intake-med-a-yesterday', deleted: false, medication_id: 'med-a', scheduled_at: yesterday, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' });
+        const records = fakeRecords(seeded);
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/intake'), 12, { ...domainsFor(records, now), editReply });
+
+        const intakes = await records.list('intake');
+        expect(intakes.filter((i) => i.scheduled_at === SLOT_ISO).every((i) => i.status === 'TAKEN')).toBe(true);
+        expect(intakes.find((i) => i.recordId === 'intake-med-a-yesterday').status).toBe('PENDING');
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Confirmed 2 medications/));
     });
 
@@ -2084,8 +2350,8 @@ describe('inbox-apply.js — a tap on a deleted dose slot', () => {
             { intake: domainFor(records, now), records, now, editReply },
         );
 
-        // The slot is still a tombstone — materializeDueDoses' putIfAbsent found
-        // it occupied and minted nothing.
+        // The slot is still a tombstone — the projection lists nothing there,
+        // so the tap minted nothing.
         expect(await records.listRaw('intake')).toEqual([
             { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: true },
         ]);
@@ -2094,5 +2360,155 @@ describe('inbox-apply.js — a tap on a deleted dose slot', () => {
         expect(editReply).not.toHaveBeenCalled();
         // Nothing was taken, so nothing came off the shelf.
         expect((await records.list('medication'))[0].inventory_count).toBe(30);
+    });
+});
+
+// bd med-wi09.4 (Argus 5031, Archie 5034) — lineage resolved at the root, no
+// read pad: a cancelled dose whose canonical lies outside the read is hidden
+// (it belongs to the canonical's read, when some read lists it: at or after the
+// cut, or stored); a canonical no read lists leaves it standing in (Archie 5078).
+describe('inbox-apply.js — taps on lineage-cancelled slots', () => {
+    const DAILY = '{"type":"daily","times":["00:00"]}';
+    const sec = (s) => Date.parse(s) / 1000;
+    const iso = (s) => new Date(s * 1000).toISOString();
+    const id = (s) => `intake-med-a-${s}`;
+    const pending = (s) => ({ recordId: id(s), deleted: false, medication_id: 'med-a', scheduled_at: iso(s), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' });
+    const edit = (n, fromS, replacement) => ({
+        recordId: `medsched-med-a-${n}`, clientTs: 1, deleted: false, medication_id: 'med-a', schedule: DAILY, tz_shift_policy: 'flexible', from: iso(fromS),
+        boundary: [{ medId: 'med-a', kept: [], cancelled: Object.keys(replacement), replacement }],
+    });
+    const med = { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 };
+
+    // A daily 00:00 dose moved UTC+14 → UTC−12 (A → B, +26h), then 00:00 →
+    // 23:00 before B (B → C, +23h): A → C is 49h, old-client rows stored pre-cut.
+    const A = sec('2026-06-30T10:00:00Z');
+    const B = sec('2026-07-01T12:00:00Z');
+    const C = sec('2026-07-02T11:00:00Z');
+    const chain = () => fakeRecords({
+        medication: [med],
+        intake: [pending(A), pending(B), pending(C)],
+        medsched: [edit(1, A - 3600, { [id(A)]: id(B) }), edit(2, A + 3600, { [id(B)]: id(C) })],
+        ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: iso(C + 2 * 86400) }],
+    });
+    const chainNow = () => (C + 86400) * 1000;
+
+    it('a chained replacement 49h away hides the cancelled slot at its instant; the canonical is listed', async () => {
+        const records = chain();
+        const intake = domainFor(records, chainNow);
+        expect(await dosesAtInstant(intake, A * 1000)).toEqual([]);
+        expect(await dosesAtInstant(intake, B * 1000)).toEqual([]);
+        expect((await dosesAtInstant(intake, C * 1000)).map((r) => r.occId)).toEqual([id(C)]);
+        // getIntake(A) resolves nothing: no action reaches the cancelled row.
+        await expect(intake.confirm(id(A), A * 1000)).rejects.toMatchObject({ code: 'not_pending' });
+        expect((await records.list('intake')).every((i) => i.status === 'PENDING')).toBe(true);
+    });
+
+    it('a tap on the chain-cancelled slot writes nothing and is out of date', async () => {
+        const records = chain();
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction(
+            { kind: INTAKE_SLOT_ACTION, slot_unix: A, action: 'confirm', at_unix: A + 60, medication_ids: ['med-a'] },
+            { intake: domainFor(records, chainNow), records, now: chainNow, onOutOfDate },
+        );
+
+        expect((await records.list('intake')).every((i) => i.status === 'PENDING')).toBe(true);
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: iso(A), count: 1 });
+    });
+
+    // A switch before the cut: the same-day replacement was never regenerated,
+    // so the stored cancelled row is the dose — the day lists it, and an
+    // action on it (the timeline's Take) still lands.
+    it('a pre-cut stored dose whose same-day canonical never regenerated still stands in', async () => {
+        const a = sec('2026-06-30T08:00:00Z');
+        const k = sec('2026-06-30T20:00:00Z');
+        const records = fakeRecords({
+            medication: [med],
+            intake: [pending(a)],
+            medsched: [edit(1, a - 3600, { [id(a)]: id(k) })],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: iso(a + 3 * 86400) }],
+        });
+        const now = () => (a + 2 * 86400) * 1000;
+        const intake = domainFor(records, now);
+        const day = Date.parse('2026-06-30T00:00:00Z');
+        expect((await intake.occurrences({ fromMs: day, toMs: day + 86400000 - 1 })).map((r) => r.occId)).toEqual([id(a)]);
+
+        await intake.confirm(id(a), a * 1000);
+        expect((await records.list('intake'))[0].status).toBe('TAKEN');
+    });
+
+    // Archie 5078: a daily 23:00 dose, UTC → UTC−2 switched before the cut,
+    // nothing regenerated. The 07-01 dose's canonical (01:00 UTC on 07-02) is
+    // before the cut and never stored, so no read lists it: the stored dose
+    // stays in its own day cell and confirm() works on it.
+    it('a pre-cut stand-in whose canonical is on the neighbouring day stays in its day cell', async () => {
+        const m = { recordId: 1, name: 'Met', dosage: '1', schedule: '{"type":"daily","times":["23:00"]}', created_at: '2026-01-01T00:00:00Z', deleted: false };
+        const switchAt = Date.parse('2026-06-30T20:00:00Z');
+        const bnd = boundary({ oldGen: { timeZone: 'UTC', medications: [m] }, newGen: { timeZone: 'Etc/GMT+2', medications: [m] }, switchAt });
+        const c = `intake-1-${Date.parse('2026-07-01T23:00:00Z') / 1000}`;
+        const records = fakeRecords({
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-07-05T00:00:00Z' }],
+            medication: [m],
+            tztransition: [{ recordId: 't1', deleted: false, switch_at: new Date(switchAt).toISOString(), old_tz: 'UTC', new_tz: 'Etc/GMT+2', boundary: bnd }],
+            intake: [{ recordId: c, deleted: false, medication_id: 1, scheduled_at: '2026-07-01T23:00:00.000Z', status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' }],
+        });
+        const now = () => Date.parse('2026-07-10T12:00:00Z');
+        const intake = domainFor(records, now);
+        const day = Date.parse('2026-07-01T00:00:00Z');
+        expect((await intake.occurrences({ fromMs: day, toMs: day + 86400000 - 1 })).map((r) => r.occId)).toEqual([c]);
+
+        await intake.confirm(c);
+        expect((await records.list('intake'))[0].status).toBe('TAKEN');
+    });
+
+    // Argus 5086: the same switch with the cut at 01:30 UTC on 07-02. The
+    // canonical (01:00 UTC on 07-02) is before the cut instant but after the
+    // regeneration start (local midnight of the cut day), so it IS listed:
+    // the stored dose is cancelled into it in every read, counted once.
+    it('on the cut day, a canonical regenerated before the cut instant hides its cancelled dose in every read', async () => {
+        const m = { recordId: 1, name: 'Met', dosage: '1', schedule: '{"type":"daily","times":["23:00"]}', created_at: '2026-01-01T00:00:00Z', deleted: false };
+        const switchAt = Date.parse('2026-06-30T20:00:00Z');
+        const bnd = boundary({ oldGen: { timeZone: 'UTC', medications: [m] }, newGen: { timeZone: 'Etc/GMT+2', medications: [m] }, switchAt });
+        const c = `intake-1-${Date.parse('2026-07-01T23:00:00Z') / 1000}`;
+        const k = `intake-1-${Date.parse('2026-07-02T01:00:00Z') / 1000}`;
+        const records = fakeRecords({
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-07-02T01:30:00Z' }],
+            medication: [m],
+            tztransition: [{ recordId: 't1', deleted: false, switch_at: new Date(switchAt).toISOString(), old_tz: 'UTC', new_tz: 'Etc/GMT+2', boundary: bnd }],
+            intake: [{ recordId: c, deleted: false, medication_id: 1, scheduled_at: '2026-07-01T23:00:00.000Z', status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' }],
+        });
+        const now = () => Date.parse('2026-07-10T12:00:00Z');
+        const intake = domainFor(records, now);
+        const dayRead = async (iso) => (await intake.occurrences({ fromMs: Date.parse(iso), toMs: Date.parse(iso) + 86400000 - 1 })).map((r) => r.occId);
+        expect(await dayRead('2026-07-01T00:00:00Z')).toEqual([]);
+        expect(await dayRead('2026-07-02T00:00:00Z')).toEqual([k]);
+        const wide = (await intake.occurrences({ fromMs: Date.parse('2026-06-30T00:00:00Z'), toMs: Date.parse('2026-07-02T23:59:59Z') })).map((r) => r.occId);
+        expect(wide).toEqual([k]);
+        expect(await dosesAtInstant(intake, Date.parse('2026-07-01T23:00:00Z'))).toEqual([]);
+        // The logical dose is K: acting on it writes at K's id.
+        await intake.confirm(k);
+        expect((await records.list('intake')).find((i) => i.recordId === k).status).toBe('TAKEN');
+    });
+
+    // Argus 5057: an imported tz_step row keys `intake-<m>-<s>-tz_step`, while
+    // lineage keys are bare slot ids — the resolver looks its canonical up by
+    // (med, second), so the stand-in stays actionable under its own id.
+    it('an imported -tz_step stand-in is listed and actionable under its own id', async () => {
+        const a = sec('2026-06-30T08:00:00Z');
+        const k = sec('2026-06-30T20:00:00Z');
+        const stepId = `${id(a)}-tz_step`;
+        const records = fakeRecords({
+            medication: [med],
+            intake: [{ ...pending(a), recordId: stepId, source: 'tz_step' }],
+            medsched: [edit(1, a - 3600, { [id(a)]: id(k) })],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: iso(a + 3 * 86400) }],
+        });
+        const now = () => (a + 2 * 86400) * 1000;
+        const intake = domainFor(records, now);
+        const day = Date.parse('2026-06-30T00:00:00Z');
+        expect((await intake.occurrences({ fromMs: day, toMs: day + 86400000 - 1 })).map((r) => r.occId)).toEqual([stepId]);
+
+        await intake.confirm(stepId, a * 1000);
+        expect((await records.list('intake'))[0]).toMatchObject({ recordId: stepId, status: 'TAKEN' });
     });
 });

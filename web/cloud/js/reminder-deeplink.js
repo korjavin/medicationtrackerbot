@@ -21,7 +21,9 @@ export function reminderDeeplink(entry) {
     const q = new URLSearchParams({
       action: 'medication_confirm',
       ids: ids.join(','),
-      scheduled: new Date(entry.fireAtUnix * 1000).toISOString(),
+      // The planned slot, not the fire time: a snooze-end reminder fires later
+      // than its dose (bd med-4j49).
+      scheduled: new Date((Number.isFinite(entry.slotUnix) ? entry.slotUnix : entry.fireAtUnix) * 1000).toISOString(),
     });
     return `/?${q}`;
   }
