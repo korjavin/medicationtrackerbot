@@ -482,6 +482,25 @@ function zoneAt(tr, timeZone, ms) {
 // wins; an uncovered one is due. Before the cut day, stored rows are the whole
 // truth. `evidence` ({transitions, initialZone}) is a caller's cached
 // evidenceTransitions over `intakes`.
+function cutDayStartMs(tr, timeZone, cut) {
+  const z = zoneAt(tr, timeZone, cut);
+  const p = localDateParts(cut, z);
+  return localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), z);
+}
+
+// Where regenerateWindow starts listing doses: local midnight of the cut day
+// (null cut = nowMs, as there). applyLineage's `regenFromMs`.
+export function regenerationStartMs({ transitions = [], intakes = [], timeZone, cutMs = null, nowMs, evidence = null }) {
+  const cut = cutMs ?? nowMs;
+  let tr = transitions.filter((t) => t && !t.deleted);
+  if (tr.length === 0) {
+    const ev = evidence || evidenceTransitions(intakes, timeZone, cut, nowMs);
+    tr = ev.transitions;
+    timeZone = ev.initialZone;
+  }
+  return cutDayStartMs(tr, timeZone, cut);
+}
+
 export function regenerateWindow({
   medications = [], scheds = [], transitions = [], intakes = [], tzPlan = null, timeZone, cutMs = null, fromMs, toMs, nowMs,
   evidence = null,
@@ -493,9 +512,7 @@ export function regenerateWindow({
     tr = ev.transitions;
     timeZone = ev.initialZone;
   }
-  const z = zoneAt(tr, timeZone, cut);
-  const p = localDateParts(cut, z);
-  const cutDayStart = localWallToUtcMs(Date.UTC(p.year, p.month - 1, p.day), z);
+  const cutDayStart = cutDayStartMs(tr, timeZone, cut);
   const from = Math.max(fromMs, cutDayStart);
   if (!(from <= toMs)) return { occurrences: [] };
   let occurrences = regenerate({ medications, scheds, transitions: tr, tzPlan, timeZone, fromMs: from, toMs, nowMs });
@@ -528,14 +545,15 @@ export function canonical(table, id) {
 // consumption). `intakes` RAW, so a tombstone counts as evidence.
 //
 // `fromMs`/`toMs` is the read window the rows came from (bd med-wi09.4). A
-// canonical K outside it that some read DOES list — at or after the ledger
-// cut (`cutMs`; null = −Infinity), where it is regenerated, or with a live
-// stored row — belongs to K's own read, so its cancelled ids are hidden here
-// too. A K that no read lists (before the cut, never stored) keeps them as
-// stand-ins, inside the window or out (Archie 5078).
-export function applyLineage(rows, table, intakes = [], { fromMs = -Infinity, toMs = Infinity, cutMs = null } = {}) {
+// canonical K outside it that some read DOES list — at or after the
+// regeneration start (`regenFromMs`, regenerationStartMs: local midnight of
+// the cut day; null = −Infinity), or with a live stored row — belongs to K's
+// own read, so its cancelled ids are hidden here too. A K that no read lists
+// (before regeneration, never stored) keeps them as stand-ins, inside the
+// window or out (Archie 5078, Argus 5086).
+export function applyLineage(rows, table, intakes = [], { fromMs = -Infinity, toMs = Infinity, regenFromMs = null } = {}) {
   if (!table || table.size === 0) return rows;
-  const cut = cutMs ?? -Infinity;
+  const cut = regenFromMs ?? -Infinity;
   const storedSlots = new Set();
   for (const i of intakes) {
     const ms = Date.parse(i && i.scheduled_at);

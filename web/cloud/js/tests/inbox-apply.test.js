@@ -2461,6 +2461,35 @@ describe('inbox-apply.js — taps on lineage-cancelled slots', () => {
         expect((await records.list('intake'))[0].status).toBe('TAKEN');
     });
 
+    // Argus 5086: the same switch with the cut at 01:30 UTC on 07-02. The
+    // canonical (01:00 UTC on 07-02) is before the cut instant but after the
+    // regeneration start (local midnight of the cut day), so it IS listed:
+    // the stored dose is cancelled into it in every read, counted once.
+    it('on the cut day, a canonical regenerated before the cut instant hides its cancelled dose in every read', async () => {
+        const m = { recordId: 1, name: 'Met', dosage: '1', schedule: '{"type":"daily","times":["23:00"]}', created_at: '2026-01-01T00:00:00Z', deleted: false };
+        const switchAt = Date.parse('2026-06-30T20:00:00Z');
+        const bnd = boundary({ oldGen: { timeZone: 'UTC', medications: [m] }, newGen: { timeZone: 'Etc/GMT+2', medications: [m] }, switchAt });
+        const c = `intake-1-${Date.parse('2026-07-01T23:00:00Z') / 1000}`;
+        const k = `intake-1-${Date.parse('2026-07-02T01:00:00Z') / 1000}`;
+        const records = fakeRecords({
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-07-02T01:30:00Z' }],
+            medication: [m],
+            tztransition: [{ recordId: 't1', deleted: false, switch_at: new Date(switchAt).toISOString(), old_tz: 'UTC', new_tz: 'Etc/GMT+2', boundary: bnd }],
+            intake: [{ recordId: c, deleted: false, medication_id: 1, scheduled_at: '2026-07-01T23:00:00.000Z', status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' }],
+        });
+        const now = () => Date.parse('2026-07-10T12:00:00Z');
+        const intake = domainFor(records, now);
+        const dayRead = async (iso) => (await intake.occurrences({ fromMs: Date.parse(iso), toMs: Date.parse(iso) + 86400000 - 1 })).map((r) => r.occId);
+        expect(await dayRead('2026-07-01T00:00:00Z')).toEqual([]);
+        expect(await dayRead('2026-07-02T00:00:00Z')).toEqual([k]);
+        const wide = (await intake.occurrences({ fromMs: Date.parse('2026-06-30T00:00:00Z'), toMs: Date.parse('2026-07-02T23:59:59Z') })).map((r) => r.occId);
+        expect(wide).toEqual([k]);
+        expect(await dosesAtInstant(intake, Date.parse('2026-07-01T23:00:00Z'))).toEqual([]);
+        // The logical dose is K: acting on it writes at K's id.
+        await intake.confirm(k);
+        expect((await records.list('intake')).find((i) => i.recordId === k).status).toBe('TAKEN');
+    });
+
     // Argus 5057: an imported tz_step row keys `intake-<m>-<s>-tz_step`, while
     // lineage keys are bare slot ids — the resolver looks its canonical up by
     // (med, second), so the stand-in stays actionable under its own id.

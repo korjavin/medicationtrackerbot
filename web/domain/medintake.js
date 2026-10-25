@@ -22,7 +22,7 @@
 // medications.js's nextId / weight.js's genId).
 import { localDateTimeParts, localWallToUtcMs, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
-import { applyLineage, canonical, evidenceTransitions, loadLineage, regenerateWindow } from './lineage.js';
+import { applyLineage, canonical, evidenceTransitions, loadLineage, regenerateWindow, regenerationStartMs } from './lineage.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -359,7 +359,7 @@ const MAX_FORECAST_DAYS = 30;
 
 export function projectOccurrences({
   medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
-  lineage = null, regenerated = [], cutMs = null,
+  lineage = null, regenerated = [], cutMs = null, regenFromMs = null,
 } = {}) {
   // Keyed by String(id): a vault can hold a med's recordId and an intake's
   // medication_id as number vs string (inbox-apply.js compares the same way);
@@ -471,7 +471,7 @@ export function projectOccurrences({
   const sorted = out.map((r) => [Date.parse(r.plannedAt), r])
     .sort((a, b) => (a[0] - b[0]) || MED_ID_ORDER.compare(String(a[1].medId), String(b[1].medId)))
     .map((x) => x[1]);
-  return applyLineage(sorted, lineage, intakes, { fromMs, toMs, cutMs });
+  return applyLineage(sorted, lineage, intakes, { fromMs, toMs, regenFromMs });
 }
 
 // The stored intake wire shape (toResponse) read back off a stored projection
@@ -854,7 +854,8 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         medications: meds, intakes: live, tzPlan, timeZone, nowMs, fromMs: lf, toMs, forecast, regenerated, cutMs: cut,
       }));
     }
-    const out = applyLineage(rows, lineage, intakes, { fromMs, toMs, cutMs: cut });
+    const regenFromMs = regenerationStartMs({ transitions, intakes, timeZone, cutMs: cut, nowMs, evidence });
+    const out = applyLineage(rows, lineage, intakes, { fromMs, toMs, regenFromMs });
     if (onBoundary) {
       let next = Infinity;
       for (const r of out) {
