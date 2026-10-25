@@ -41,8 +41,8 @@ const HOUR_MS = 3_600_000;
 // of the sleep day any of its samples belongs to; a night is used only when it
 // lies whole inside the window (a gap clear of either edge).
 const SLEEP_GAP_MS = HOUR_MS;
-// HKCategoryValueSleepAnalysis: 0 inBed (ignored: a bedtime schedule, not
-// sleep), 1 asleepUnspecified, 2 awake, 3 asleepCore, 4 asleepDeep, 5 asleepREM.
+// HKCategoryValueSleepAnalysis: 0 inBed (a bedtime schedule, not sleep: only
+// an In Bed-only night counts, see sleepNights), 1 asleepUnspecified, 2 awake, 3 asleepCore, 4 asleepDeep, 5 asleepREM.
 const SLEEP_PHASE = { 1: 'asleep', 2: 'awake', 3: 'light', 4: 'deep', 5: 'rem' };
 // Where samples of one night overlap (a summary "asleep" sample under the
 // Watch's stages, or a duplicate), each minute counts once, as the highest of:
@@ -110,20 +110,16 @@ function phaseMs(samples) {
   return ms;
 }
 
-// sleepNights groups one window of raw sleep samples into nights: per source,
-// samples (inBed excluded) chained while the gap stays ≤ SLEEP_GAP_MS. A night
-// counts only with some sleep in it; `whole` says it lies whole inside
-// [from, to] (a sleep day is written only when all its nights are).
-export function sleepNights(samples, from, to) {
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return [];
-  const valid = (Array.isArray(samples) ? samples : [])
-    .filter((s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && Number.isFinite(s.end)
-      && s.end > s.start && SLEEP_PHASE[s.value])
+const isSpan = (s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start;
+
+// Per source, samples chained while the gap stays ≤ SLEEP_GAP_MS.
+function chainNights(samples) {
+  const sorted = samples
     .map((s) => ({ ...s, uuid: s.uuid.toLowerCase(), src: String(s.source || '') }))
     .sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0) || (a.start - b.start) || byUuid(a, b));
   const nights = [];
   let cur = null;
-  for (const s of valid) {
+  for (const s of sorted) {
     if (cur && cur.src === s.src && s.start - cur.end <= SLEEP_GAP_MS) {
       cur.samples.push(s);
       cur.end = Math.max(cur.end, s.end);
@@ -132,7 +128,28 @@ export function sleepNights(samples, from, to) {
       nights.push(cur);
     }
   }
-  return nights
+  return nights;
+}
+
+// sleepNights groups one window of raw sleep samples into nights: per source,
+// samples chained while the gap stays ≤ SLEEP_GAP_MS. A night counts only with
+// some sleep in it; `whole` says it lies whole inside [from, to] (a sleep day
+// is written only when all its nights are).
+// In Bed (bd med-w6gx.30): chained apart from the asleep samples, so every
+// night with sleep stages or "asleep" in it comes out exactly as before. An In
+// Bed chain overlapping no such night is an `inBed` night counted as plain
+// asleep (a manual Health entry, an app that only writes In Bed); importSleep
+// also drops it from any sleep day that has a real night.
+export function sleepNights(samples, from, to) {
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return [];
+  const valid = (Array.isArray(samples) ? samples : []).filter(isSpan);
+  const asleep = chainNights(valid.filter((s) => SLEEP_PHASE[s.value]));
+  const inBed = chainNights(valid.filter((s) => s.value === 0))
+    .filter((n) => !overlaps(n, asleep))
+    .map((n) => ({ ...n, inBed: true, samples: n.samples.map((s) => ({ ...s, value: 1 })) }));
+  // Stable: with no In Bed night this is the asleep order unchanged.
+  const all = [...asleep, ...inBed].sort((a, b) => (a.src < b.src ? -1 : a.src > b.src ? 1 : 0) || (a.start - b.start));
+  return all
     .map((n) => {
       const ms = phaseMs(n.samples);
       return {
@@ -144,6 +161,7 @@ export function sleepNights(samples, from, to) {
         ms,
         staged: n.samples.some((s) => s.value >= 3),
         whole: n.start >= from + SLEEP_GAP_MS && n.end <= to - SLEEP_GAP_MS,
+        ...(n.inBed ? { inBed: n.samples.length } : {}),
       };
     })
     .filter((n) => n.span > 0);
@@ -212,29 +230,43 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     return out;
   }
 
-  // importSleep → { added, pending }. Health sleep is one record per sleep day
+  // importSleep → { added, pending, nights, skip }. Health sleep is one record per sleep day
   // (SLEEP_DAY_SHIFT_MS), id `sleep-hk-<day>`: every night and nap of that day
   // from ONE source, the one with the most asleep minutes (then staged). The
   // key is the same across sources and devices, so copies of a night land on
   // one row instead of piling up. Written once, putIfAbsent at clientTs 0
   // (CLAUDE.md rule 12): the first settled version wins, an edit or delete
   // always outranks it, a tombstone keeps the day deleted.
-  // Not written: a day already there (live or deleted); a day whose best
-  // version is clipped by the window or not settled (`pending` = the earliest
-  // unsettled start, for the caller to re-read by time window); a day
-  // overlapping a non-Health sleep entry (Mi Band, manual: it wins).
+  // Not written, counted in `skip` for the diagnostics line: a day already
+  // there, live or deleted (exists); a day overlapping a non-Health sleep entry
+  // (Mi Band, manual: it wins — overlap); a day whose best version is clipped
+  // by the window (clipped: only a night whose own samples were new in another
+  // page, padded 48h and so whole there, sits at an edge) or not settled yet
+  // (unsettled: `pending` = the earliest unsettled start, for the caller to
+  // re-read by time window, so the anchor moving on never loses it).
+  // skip.inBed = In Bed samples left out (sleepNights, and below).
   async function importSleep(samples, bounds) {
-    const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
+    const skip = { inBed: 0, unsettled: 0, clipped: 0, exists: 0, overlap: 0 };
+    const dayOf = (n) => new Date(n.end + offsetMsAt(n.end, zoneOf(n.tz)) + SLEEP_DAY_SHIFT_MS)
+      .toISOString().slice(0, 10);
+    const nights = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
+    // An In Bed night only stands in for a day with no real night: a day that
+    // has one is built exactly as before In Bed counted (bd med-w6gx.30).
+    const real = new Set(nights.filter((n) => !n.inBed).map(dayOf));
+    const all = nights.filter((n) => !n.inBed || !real.has(dayOf(n)));
+    if (bounds && Number.isFinite(bounds.from) && Number.isFinite(bounds.to)) {
+      const used = all.reduce((t, n) => t + (n.inBed || 0), 0);
+      skip.inBed = (Array.isArray(samples) ? samples : []).filter((s) => isSpan(s) && s.value === 0).length - used;
+    }
     const settledBy = now() - SLEEP_SETTLE_MS;
     const open = all.filter((n) => n.end > settledBy);
     const pending = open.length ? Math.min(...open.map((n) => n.start)) : undefined;
-    if (!all.length) return { added: 0, pending };
+    if (!all.length) return { added: 0, pending, nights: 0, skip };
 
     const min = (v) => Math.round(v / MIN_MS);
     const days = new Map(); // day -> source -> nights
     for (const n of all) {
-      const offset = offsetMsAt(n.end, zoneOf(n.tz));
-      const day = new Date(n.end + offset + SLEEP_DAY_SHIFT_MS).toISOString().slice(0, 10);
+      const day = dayOf(n);
       if (!days.has(day)) days.set(day, new Map());
       const bySrc = days.get(day);
       if (!bySrc.has(n.src)) bySrc.set(n.src, []);
@@ -283,29 +315,31 @@ export function createHealthImportDomain({ records, now, timeZone }) {
         };
         const c = {
           body, start, end, rank: body.total_minutes * 2 + (staged ? 1 : 0),
-          ready: end <= settledBy && nights.every((n) => n.whole),
+          whole: nights.every((n) => n.whole),
         };
         // Sources arrive sorted by name: a tie keeps the first.
         if (!best || c.rank > best.rank) best = c;
       }
       const recordId = healthRecordId('sleep', day);
-      if (!best.ready || byId.has(recordId) || aliased.has(recordId)) continue;
-      if (overlaps(best, others)) continue;
+      if (byId.has(recordId) || aliased.has(recordId)) { skip.exists++; continue; }
+      if (overlaps(best, others)) { skip.overlap++; continue; }
+      if (!best.whole) { skip.clipped++; continue; }
+      if (best.end > settledBy) { skip.unsettled++; continue; }
       await records.putIfAbsent('sleep', { recordId, clientTs: 0, deleted: false, ...best.body });
       added++;
     }
-    return { added, pending };
+    return { added, pending, nights: all.length, skip };
   }
 
   async function importWorkouts(samples, have) {
-    const fresh = (Array.isArray(samples) ? samples : [])
-      .filter((s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && Number.isFinite(s.end)
-        && s.end > s.start)
+    const given = Array.isArray(samples) ? samples : [];
+    const fresh = given.filter(isSpan)
       .map((s) => {
         const uuid = s.uuid.toLowerCase();
         return { ...s, uuid, recordId: healthRecordId('miband', uuid), span: s.end - s.start };
       });
-    if (!fresh.length) return 0;
+    const skip = { invalid: given.length - fresh.length, exists: fresh.filter((w) => have.has(w.recordId)).length, overlap: 0 };
+    if (!fresh.length) return { added: 0, skip };
     const taken = spans(await records.list('miband'), (r) => r.source_start_ms, (r) => r.source_end_ms);
     const sessions = spans(
       (await records.list('workoutsession')).filter((r) => r.started_at),
@@ -314,7 +348,9 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     );
     const num = (v) => (positive(v) ? Math.round(v) : 0);
     let added = 0;
-    for (const w of pickFree(fresh, have, taken, (c) => (STRENGTH_TYPES.has(c.activity) ? sessions : []))) {
+    const free = pickFree(fresh, have, taken, (c) => (STRENGTH_TYPES.has(c.activity) ? sessions : []));
+    skip.overlap = fresh.length - skip.exists - free.length;
+    for (const w of free) {
       const durationSec = positive(w.duration) ? Math.round(w.duration) : Math.round(w.span / 1000);
       have.add(w.recordId);
       await floored('miband', w.uuid, {
@@ -334,11 +370,13 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       });
       added++;
     }
-    return added;
+    return { added, skip };
   }
 
-  // importSamples(kind, samples, bounds) → { added } (sleep adds `pending`): what was new
-  // here. `bounds` is the whole query result ({from, to} for sleep). Malformed
+  // importSamples(kind, samples, bounds) → { added, skip } (sleep adds
+  // `pending` and `nights`): what was new here, and why the rest was not
+  // written (counts only, for the diagnostics line in health-import.js).
+  // `bounds` is the whole query result ({from, to} for sleep). Malformed
   // samples are skipped, never thrown on — one odd entry in Health must not
   // stall every later import behind the same anchor.
   async function importSamples(kind, samples, bounds) {
@@ -354,22 +392,24 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const id = healthImportRecordId(type, r);
       if (id) have.add(id);
     }
-    if (kind === 'workout') return { added: await importWorkouts(samples, have) };
+    if (kind === 'workout') return importWorkouts(samples, have);
     const k = KINDS[kind];
     // Oldest first: a stable write order. (weight.create stores a derived row
     // without a trend, so every device writes the same body.)
-    const fresh = (Array.isArray(samples) ? samples : [])
+    const given = Array.isArray(samples) ? samples : [];
+    const fresh = given
       .filter((s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && k.valid(s))
       .sort((a, b) => a.start - b.start);
+    const skip = { invalid: given.length - fresh.length, exists: 0 };
     let added = 0;
     for (const s of fresh) {
       const recordId = healthRecordId(kind, s.uuid);
-      if (have.has(recordId)) continue;
+      if (have.has(recordId)) { skip.exists++; continue; }
       have.add(recordId);
       await k.create(s, { recordId, derived: true });
       added++;
     }
-    return { added };
+    return { added, skip };
   }
 
   return { importSamples };

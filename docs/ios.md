@@ -532,7 +532,9 @@ and weight only asks once, at the next open, for the new types.
   `Health.swift` answers a sleep page with *every* sleep sample (all sources)
   from 48h before the page's earliest new sample to 48h after its latest, plus
   that window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
-  *In Bed* ignored), keeps only nights whole inside the window, and maps
+  *In Bed* ignored — except an *In Bed* stretch overlapping no sleep sample, on a
+  sleep day with no other night, counts as plain asleep: a manual Health entry,
+  bd med-w6gx.30), keeps only nights whole inside the window, and maps
   Core/Deep/REM/Awake to light/deep/rem/awake minutes (`total_minutes` = asleep
   time). Overlapping samples of one night count each minute once, as the
   highest of deep > REM > core > awake > unspecified, so the minutes never
@@ -556,6 +558,12 @@ and weight only asks once, at the next open, for the new types.
   every later run first re-reads sleep by time window (`health.query {type:
   "sleep", from: start − 48h, to: now}`, no anchor), until nothing is left
   settling.
+- **Diagnostics** (bd med-w6gx.30): every run posts one line per kind to the
+  shell's diagnostics log (`diag.append`, "Copy diagnostics"), counts only —
+  `[health] sleep returned=… samples=… values={0:1,…} nights=… written=…
+  skip{inBed,unsettled,clipped,exists,overlap} anchor=moved|kept [error=Name]`.
+  When sleep has never returned a sample but BP or weight have, the Settings
+  row points at the Sleep switch in Health's per-app access.
 - **Workouts** → the existing `miband` activity record (Workouts → History,
   labelled *Apple Health*): type name, start/end, duration, distance, active
   energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
