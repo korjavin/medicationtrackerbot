@@ -164,8 +164,9 @@ export async function runHealthImport(ctx, {
                     ? Math.min(lastRead, at) - STEPS_DAYS * DAY_MS : at - STEPS_FIRST_DAYS * DAY_MS;
                 const res = await health.query({ type: 'steps', from, to: at });
                 await take(res);
-                // Like an anchor: kept only once something came back.
-                if (res && res.returned > 0) {
+                // Like an anchor: kept only once days came back (by samples,
+                // not `returned`, which a windowed read may leave at 0).
+                if (res && Array.isArray(res.samples) && res.samples.length > 0) {
                     anchors.steps = String(at);
                     writeJSON(storage, ANCHORS_KEY, anchors);
                     st.anchor = 'moved';

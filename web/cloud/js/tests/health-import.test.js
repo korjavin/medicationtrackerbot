@@ -934,8 +934,9 @@ describe('Apple Health import', () => {
             h.query = async (args) => {
                 h.args.push(args);
                 if (args.type !== 'steps') return page(args);
-                const samples = data.steps || [];
-                return { samples, returned: samples.length, more: false };
+                // returned: 0 like the sleep window read: the steps window
+                // must key on the samples, not on `returned`.
+                return { samples: data.steps || [], returned: 0, more: false };
             };
             return h;
         }
@@ -1054,7 +1055,7 @@ describe('Apple Health import', () => {
             });
             const lines = [];
             expect(await runHealthImport({}, { ...opts(h), diag: (l) => lines.push(l) })).toEqual({ added: 1 });
-            expect(lines).toContain('[health] steps returned=3 samples=3 written=1 skip{invalid:2} anchor=moved');
+            expect(lines).toContain('[health] steps returned=0 samples=3 written=1 skip{invalid:2} anchor=moved');
             expect(lines).toContain('[health] spo2 returned=2 samples=2 written=0 skip{invalid:2} anchor=moved');
             expect(records.rows.has('spo2sample-2026-10-10')).toBe(false);
         });

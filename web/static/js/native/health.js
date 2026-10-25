@@ -25,8 +25,10 @@
 //     is aligned down to its local midnight so the first day is whole; the
 //     count is the store's own deduped aggregate across sources (HealthKit
 //     statistics query / Health Connect aggregate), never a sum of raw
-//     samples. Days with no steps may be left out. The web reads a year back
-//     until a read returns days, then from a week before the last such read.
+//     samples. Days with no steps may be left out. `returned` = the number of
+//     days in `samples` (the web keys its window on `samples` anyway). The
+//     web reads a year back until a read returns days, then from a week
+//     before the last such read.
 //   query({ type: 'hr' | 'spo2', anchor, limit[, from] }) → anchored pages
 //     like 'bp': samples [{ uuid, start (ms), value }], value in bpm for 'hr'
 //     and percent 0-100 for 'spo2' (not a 0-1 fraction: values under 50 are
