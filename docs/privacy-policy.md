@@ -190,14 +190,13 @@ In this mode three things can leave the phone, each your choice:
 
 **Settings → Backup & import → Erase data on this device** deletes everything
 this mode stored on the phone except the anonymous trial pass, which the app
-keeps (on Android it is part of the phone's backup, as above). If the phone has
-an anonymous install record on the operator's server, the app first asks the
-server to delete that record and its trial budget (an Android phone restored
+keeps (on Android it is part of the phone's backup, as above). If the app holds
+the key to an anonymous install record on the operator's server, it first asks
+the server to delete that record and its trial budget (an Android phone restored
 from this phone's backup shares that record, so its remaining trial goes too).
-The kept pass then no longer opens a trial. If the server can't be reached
-(you're offline, or the app needs an update), you are told and can cancel. If
-you erase anyway, the install record stays on the server. After a successful
-erase, the server still keeps:
+If the server can't be reached (you're offline, or the app needs an update), you
+are told and can cancel. If you erase anyway, the install record stays on the
+server. After a successful erase, the server still keeps:
 
 - daily usage counts, with nothing left that links them to this phone
 - anonymous feedback you sent that the operator hasn't collected yet, until it
