@@ -521,7 +521,8 @@ answers the same `health.authorize {types}` / `health.query {type, anchor,
 limit}` (and `{type: 'sleep', from, to}`) ops as `ios/App/Health.swift` with
 the same sample shapes (`bp` `{uuid, start, systolic, diastolic}`, `weight`
 `{uuid, start, kg}`, `sleep` `{uuid, start, end, value, source, tz?}`,
-`workout` `{uuid, start, end, activity, duration, hr?, energy?, distance?}`),
+`workout` `{uuid, start, end, activity, duration, hr?, energy?, distance?}`,
+`hr` / `spo2` `{uuid, start, value}`, `steps` `{day, steps, tz}`),
 so `web/cloud/js/health-import.js` and `web/domain/healthimport.js` run
 unchanged (same `-hk-<uuid>` / `sleep-hk-<day>` record ids and `source:
 'apple_health'` marker — the existing shapes, which every client already
@@ -529,9 +530,13 @@ reads). The Settings row reads its name ("Health Connect") and access hint off
 the capability (`window.Health.label` / `accessHint`, `native/health.js`).
 
 - **Permissions:** `READ_BLOOD_PRESSURE`, `READ_WEIGHT`, `READ_SLEEP`,
-  `READ_EXERCISE`, and a workout's totals `READ_HEART_RATE`,
-  `READ_TOTAL_CALORIES_BURNED`, `READ_DISTANCE` — the Play declaration must
-  list exactly these. `health.authorize` requests the missing ones (a runtime
+  `READ_EXERCISE`, `READ_STEPS`, `READ_HEART_RATE` (its own kind and a
+  workout's average), `READ_OXYGEN_SATURATION`, and a workout's totals
+  `READ_TOTAL_CALORIES_BURNED`, `READ_DISTANCE`, plus
+  `READ_HEALTH_DATA_HISTORY` (asked with the read types only where Health
+  Connect offers the feature; a later grant is picked up by the import's off/on
+  rescan) — the Play declaration must list exactly these. An unknown type:
+  `authorize` ignores it, `query` rejects. `health.authorize` requests the missing ones (a runtime
   permission dialog on Android 14) and answers `true` whenever Health Connect
   exists, `false` when it doesn't (work profile, no service); like HealthKit, a
   denied type just returns no samples.
@@ -541,8 +546,12 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   record of requested kinds (SharedPreferences `health`/`asked`); the first
   `query` of a kind it never requested asks, in one dialog, for every such
   kind. On a fresh install `authorize` records them, so this never re-asks.
-- **Anchor:** `hc1:` + a Health Connect Changes token. No anchor reads the
-  last **30 days** (`READ_HEALTH_DATA_HISTORY` for older data is out of v1)
+  An update that adds kinds (steps/hr/spo2, med-0xad.3) asks once the same
+  way; the asked set is persisted, so a denial is not re-asked.
+- **Anchor:** `hc1:` + a Health Connect Changes token. No anchor reads from
+  the query's `from` (ms; the page sends 90 days back for `hr`/`spo2`), else the
+  last **30 days** (without `READ_HEALTH_DATA_HISTORY` Health Connect returns
+  nothing older than 30 days before the grant)
   and starts a token; later queries return only upserts since it. An expired
   token (unused for 30 days) re-reads the 30 days; known readings are skipped
   by id.
@@ -555,6 +564,17 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   Health.swift does. `tz` is `Etc/GMT±h` for a whole-hour end offset (the
   page needs only the offset), else the `+05:30` offset form — from the
   session's own offset, never this device's zone, so rescans agree.
+- **Steps / heart rate / SpO2 (bd med-0xad.3):** `steps` is windowed, not
+  anchored: `query({type: 'steps', from, to})` answers
+  `aggregateGroupByPeriod(StepsRecord.COUNT_TOTAL, Period.ofDays(1))` over whole
+  local days in this device's zone, one `{day, steps, tz}` per day with data —
+  Health Connect dedupes across apps by priority, records are never summed.
+  `hr` (`HeartRateRecord`, a series: one sample per point, uuid
+  `<recordId>-<index>`, `value` bpm) and `spo2` (`OxygenSaturationRecord`,
+  `value` = percent) are anchored like bp, but their scans page: about
+  `limit` samples per answer (`more: true`, a `hc1s:` scan anchor) until
+  drained, and only then the Changes token — a watch writes HR about once a
+  minute. Sample JSON is built off the main thread.
 - **Workouts:** `ExerciseSessionRecord`; `activity` is the
   `HKWorkoutActivityType` raw value (a small map in `hkActivity`; unmapped →
   3000, shown as "Workout") so the page's name table and strength rule apply.
@@ -569,9 +589,11 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   records=<n> more=<b>`, or `health <kind> denied` (no read access for that
   type), or the op's error. A kind that has never returned anything keeps no
   anchor, so it shows `scan` on every run.
-- **QA:** android-qa `health-connect` writes a BP through the debug-only
-  `QaHealthWrite` activity (src/debug, `WRITE_BLOOD_PRESSURE` in the debug
-  manifest only), switches the import on, then — in a process Playwright never
+- **QA:** android-qa `health-connect` writes a BP (plus steps, a heart-rate
+  series and an SpO2 reading) through the debug-only `QaHealthWrite` activity
+  (src/debug, the `WRITE_*` permissions in the debug manifest only), switches
+  the import on, checks the bridge answers steps/hr/spo2 and the Vitals cards
+  fill (screenshot `vitals-cards`), then — in a process Playwright never
   attached to — goes Home, writes a second one and returns, and asserts the
   shell logged a `health bp changes` read and the reading is in Vitals.
   Playwright must be detached for that: its focus emulation keeps an attached

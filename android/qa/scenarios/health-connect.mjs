@@ -7,9 +7,13 @@
 // in Vitals. The return runs in a process Playwright never attached to: its focus emulation keeps
 // an attached page "visible" (a capturer on the WebContents), so the WebView would never hide.
 // If #2 does not arrive, the toggle off/on rescan is tried too, for the evidence.
+// Write #1 also seeds steps, a heart-rate series and an SpO2 reading (bd med-0xad.3): the bridge
+// must answer them (steps as a daily aggregate), and once the page imports those kinds the Vitals
+// Steps / Heart Rate / SpO2 cards must be populated (screenshot vitals-cards).
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
-export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE'];
+export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
+const WRITES = ['BLOOD_PRESSURE', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION'];
 
 export default async function healthConnect(ctx) {
   const { shell, pkg, sleep } = ctx;
@@ -18,20 +22,24 @@ export default async function healthConnect(ctx) {
   const sys = 150 + Math.floor(Math.random() * 40);
   const FIRST = [sys, 90 + Math.floor(Math.random() * 10)];
   const SECOND = [sys + 1, FIRST[1] + 1];
-  const r = (ctx.results.health = { readings: [FIRST, SECOND] });
+  // Outside the local QA fixture's ranges, so the cards can only move from this import.
+  const VITALS = { steps: 20_000 + Math.floor(Math.random() * 5000), hr: 150 + Math.floor(Math.random() * 20), spo2: 80 + Math.floor(Math.random() * 5) };
+  const SPO2N = 120; // more than HealthConnect.DENSE_PAGE records: the scan pages
+  const r = (ctx.results.health = { readings: [FIRST, SECOND], vitals: VITALS });
 
   await shell(`pm clear ${pkg}`);
   for (const p of READS) await shell(`pm grant ${pkg} android.permission.health.READ_${p}`);
-  await shell(`pm grant ${pkg} android.permission.health.WRITE_BLOOD_PRESSURE`);
+  for (const p of WRITES) await shell(`pm grant ${pkg} android.permission.health.WRITE_${p}`);
 
   const healthDiag = async () => (await shell(`run-as ${pkg} cat shared_prefs/diag.xml`))
     .split(/&#10;|\n/).filter((l) => / health /.test(l));
 
   // "Another app" saves a reading while the app is in the background.
-  const write = async ([sys, dia]) => {
+  const write = async ([sys, dia], vitals) => {
     await shell('input keyevent KEYCODE_HOME');
     await sleep(3000);
-    await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --ei sys ${sys} --ei dia ${dia}`);
+    const extra = vitals ? ` --ei steps ${vitals.steps} --ei hr ${vitals.hr} --ei spo2 ${vitals.spo2} --ei spo2n ${SPO2N}` : '';
+    await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --ei sys ${sys} --ei dia ${dia}${extra}`);
     const end = Date.now() + 20_000;
     while (Date.now() < end) {
       const log = await shell('logcat -d -s qa-health-write:*');
@@ -58,6 +66,16 @@ export default async function healthConnect(ctx) {
     }
     return false;
   };
+  // What the Vitals cards read: today's steps, the 7-day HR / SpO2 history and averages.
+  const overview = () => ctx.page.evaluate(async () => {
+    const o = await window.apiCall('/api/health/overview');
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
+    return o && {
+      steps: ((o.step_stats_7d || []).find((d) => d.day === today) || {}).steps || 0,
+      hr: JSON.stringify([o.average_heart_rate_7d, o.heart_rate_history_7d]),
+      spo2: JSON.stringify([o.average_spo2_7d, o.spo2_history_7d]),
+    };
+  });
   const toggle = () => ctx.page.evaluate(() => document.getElementById('health-import-toggle').click());
   const state = () => ctx.page.evaluate(() => ({
     enabled: localStorage.getItem('wg.health.enabled'),
@@ -73,9 +91,10 @@ export default async function healthConnect(ctx) {
         window.__qaVis = [];
         document.addEventListener('visibilitychange', () => window.__qaVis.push(document.visibilityState));
       });
+      r.cardsBefore = await overview();
     });
 
-    await ctx.step('a reading saved before the import: #1', () => write(FIRST));
+    await ctx.step('a reading saved before the import: #1 (+ steps, HR, SpO2)', () => write(FIRST, VITALS));
 
     await ctx.step('switch the import on → #1 arrives', async () => {
       await ctx.page.locator('[data-nav-to="settings"]:visible').first().click();
@@ -84,6 +103,59 @@ export default async function healthConnect(ctx) {
       r.first = await waitFor(FIRST);
       r.afterFirst = await state();
       if (!r.first) throw new Error(`#1 not imported: ${JSON.stringify(r.afterFirst)}`);
+    });
+
+    await ctx.step('the bridge answers steps (daily aggregate), hr and spo2', async () => {
+      r.bridge = await ctx.page.evaluate(async () => {
+        const now = Date.now();
+        const q = (a) => window.Health.query(a).catch((e) => ({ error: String(e && e.message || e) }));
+        return {
+          steps: await q({ type: 'steps', from: now - 2 * 86400_000, to: now }),
+          hr: await q({ type: 'hr', anchor: null, from: now - 90 * 86400_000 }),
+          spo2: await q({ type: 'spo2', anchor: null, from: now - 90 * 86400_000 }),
+        };
+      });
+      const { steps, hr, spo2 } = r.bridge;
+      const total = (steps.samples || []).reduce((n, d) => n + d.steps, 0);
+      const days = (steps.samples || []).every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.day) && typeof d.tz === 'string' && d.tz);
+      if (total < VITALS.steps || !days || steps.more !== false) throw new Error(`steps: ${JSON.stringify(steps)}`);
+      if (!(hr.samples || []).some((s) => s.value === VITALS.hr) || !(hr.samples || []).some((s) => s.value === VITALS.hr + 1)) throw new Error(`hr: ${JSON.stringify(hr)}`);
+      if (!(hr.samples || []).every((s) => /-\d+$/.test(s.uuid) && Number.isFinite(s.start))) throw new Error(`hr shape: ${JSON.stringify(hr.samples)}`);
+      if (!(spo2.samples || []).some((s) => s.value === VITALS.spo2)) throw new Error(`spo2: ${JSON.stringify(spo2)}`);
+    });
+
+    await ctx.step('a dense scan pages by limit: hc1s: anchors with more, then the hc1: changes token', async () => {
+      r.paged = await ctx.page.evaluate(async () => {
+        const out = { pages: [], uuids: 0 };
+        const seen = new Set();
+        let res = await window.Health.query({ type: 'spo2', anchor: null, from: Date.now() - 90 * 86400_000, limit: 50 });
+        for (let i = 0; i < 20; i++) {
+          (res.samples || []).forEach((s) => seen.add(s.uuid));
+          out.pages.push({ n: (res.samples || []).length, more: res.more, anchor: String(res.anchor).match(/^hc1s?:/)?.[0] || String(res.anchor) });
+          if (!res.more) break;
+          res = await window.Health.query({ type: 'spo2', anchor: res.anchor, limit: 50 });
+        }
+        out.uuids = seen.size;
+        return out;
+      });
+      const { pages, uuids } = r.paged;
+      const last = pages[pages.length - 1];
+      if (pages.length < 2 || !pages.slice(0, -1).every((p) => p.more && p.anchor === 'hc1s:')) throw new Error(`no paging: ${JSON.stringify(r.paged)}`);
+      if (last.more || last.anchor !== 'hc1:' || uuids < SPO2N) throw new Error(`not drained: ${JSON.stringify(r.paged)}`);
+    });
+
+    await ctx.step('Vitals: Steps / Heart Rate / SpO2 cards populated', async () => {
+      // The page imports these kinds (bd med-0xad.1); the vault also holds the QA fixture, so
+      // each card must have moved from this import: today's steps reach the seeded count, and the
+      // HR / SpO2 history differs from before the switch-on.
+      const b = r.cardsBefore;
+      const full = (c) => c && c.steps >= VITALS.steps && c.hr !== b.hr && c.spo2 !== b.spo2;
+      for (const until = Date.now() + 30_000; !full(r.cards = await overview()) && Date.now() < until;) await sleep(1000);
+      if (!full(r.cards)) throw new Error(`cards: ${JSON.stringify(r.cards)}`);
+      await ctx.page.evaluate(() => window.switchTab('health'));
+      await ctx.page.waitForFunction(() => !!document.getElementById('health-view')?.offsetParent, null, { timeout: 15_000 });
+      await sleep(1500);
+      await ctx.stableShot('vitals-cards');
     });
 
     await ctx.step('another app saves #2 while in the background → back in the foreground → #2 arrives', async () => {
