@@ -299,17 +299,9 @@ jobs:
           command -v xcodegen >/dev/null || brew install xcodegen
           xcodegen generate
           xcodebuild -version
-          # HealthKit refuses an app without its entitlement and an unsigned
-          # build carries none, so this build signs to run locally (ad-hoc,
-          # Xcode embeds the entitlements; bd med-0xad.2, scene
-          # health-kit-import). A post-build codesign --entitlements made the
-          # app fail to launch (run 40227725896); a linked __entitlements
-          # section was not enough (run 40229218415).
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-            CODE_SIGN_ENTITLEMENTS=qa/sim-healthkit.entitlements \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
             WG_BASE_DOMAIN=qa.test | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
 

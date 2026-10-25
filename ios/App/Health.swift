@@ -67,13 +67,6 @@ enum Health {
             let kinds = args["types"] as? [String] ?? []
             let read = Set(kinds.flatMap(readTypes))
             guard !read.isEmpty else { throw Failure("no known types") }
-            #if DEBUG
-            if UserDefaults.standard.bool(forKey: "wgQAHealthSeed") {
-                try await store.requestAuthorization(toShare: [stepCount, heartRate, oxygenSaturation], read: read)
-                try await qaSeed()
-                return true
-            }
-            #endif
             // Never says whether access was granted: a denied type just
             // returns no samples, which is the graceful degradation.
             try await store.requestAuthorization(toShare: [], read: read)
@@ -228,41 +221,4 @@ enum Health {
     }
 
     private static func ms(_ date: Date) -> Double { (date.timeIntervalSince1970 * 1000).rounded() }
-
-    #if DEBUG
-    /// Visual QA (Debug only, `-wgQAHealthSeed YES`, scene health-kit-import):
-    /// the Simulator's Health store has no steps, heart rate or SpO2, so the
-    /// authorize sheet also asks to write them and a week of samples is saved
-    /// once per device for the import to read back.
-    private static func qaSeed() async throws {
-        let done = "wgQAHealthSeeded"
-        guard !UserDefaults.standard.bool(forKey: done) else { return }
-        let now = Date(), calendar = Calendar.current, today = calendar.startOfDay(for: now)
-        var objects: [HKObject] = []
-        for (i, steps) in [9876, 10211, 6120, 12034, 7311, 9020, 11002].enumerated() {
-            guard let day = calendar.date(byAdding: .day, value: -i, to: today) else { continue }
-            let end = min(day.addingTimeInterval(10 * 3600), now), start = max(day, end.addingTimeInterval(-3600))
-            guard end > start else { continue }
-            objects.append(HKQuantitySample(type: stepCount, quantity: HKQuantity(unit: .count(), doubleValue: Double(steps)),
-                                            start: start, end: end))
-        }
-        let bpm = HKUnit.count().unitDivided(by: .minute())
-        for h in 1...24 {
-            let at = now.addingTimeInterval(Double(-h) * 3600)
-            objects.append(HKQuantitySample(type: heartRate, quantity: HKQuantity(unit: bpm, doubleValue: Double(58 + h * 7 % 25)),
-                                            start: at, end: at))
-        }
-        for (i, f) in [0.97, 0.96, 0.98, 0.95, 0.99, 0.97].enumerated() {
-            let at = now.addingTimeInterval(Double(-(i + 1)) * 4 * 3600)
-            objects.append(HKQuantitySample(type: oxygenSaturation, quantity: HKQuantity(unit: .percent(), doubleValue: f),
-                                            start: at, end: at))
-        }
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-            store.save(objects) { _, error in
-                if let error { c.resume(throwing: error) } else { c.resume() }
-            }
-        }
-        UserDefaults.standard.set(true, forKey: done)
-    }
-    #endif
 }

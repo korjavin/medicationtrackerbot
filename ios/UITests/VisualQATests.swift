@@ -21,7 +21,7 @@ import XCTest
 ///   {"tap": "#food-add-search", "placeholder": "Search foods"}  web element by DOM id or placeholder
 ///   {"type": "app"}            typeText into the tapped element (real keyboard)
 ///   {"clear": true}            delete the tapped field's text
-///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label, else any element with that label
+///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label
 ///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds; "contains": true matches part of the label)
 ///   {"keyboard": true}         the software keyboard must be up (implied after "type")
 ///   {"edgeSwipe": true, "closes": "#id"}  the shell's left-edge pan
@@ -188,12 +188,8 @@ final class VisualQATests: XCTestCase {
                 let count = max((field.value as? String)?.count ?? 0, 32)
                 field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count))
             } else if let label = step["tapButton"] as? String {
-                // A system sheet's control (Health access "Turn On All") may be a cell, not a button.
-                var button = app.buttons[label]
-                if !button.waitForExistence(timeout: 10) {
-                    button = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
-                    guard button.waitForExistence(timeout: 2) else { return "no button \"\(label)\"" }
-                }
+                let button = app.buttons[label]
+                guard button.waitForExistence(timeout: 10) else { return "no button \"\(label)\"" }
                 button.tap()
             } else if let label = step["waitFor"] as? String {
                 let format = step["contains"] as? Bool == true ? "label CONTAINS %@ OR identifier == %@" : "label == %@ OR identifier == %@"
