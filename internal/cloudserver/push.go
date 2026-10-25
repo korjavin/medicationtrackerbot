@@ -337,13 +337,11 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ledgerV2(r) {
+		// Diagnostic only while log-only: a failed read never refuses the PUT.
 		cut, err := a.store.GetLedgerCut(r.Context(), session.AccountID)
 		if err != nil {
 			slog.Error("push: schedule ledger cut", "accountID", session.AccountID, "error", err)
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
-		}
-		if cut.Seq != nil {
+		} else if cut.Seq != nil {
 			slog.Warn("push schedule: header-less PUT on cut account", "account", session.AccountID)
 		}
 	}
