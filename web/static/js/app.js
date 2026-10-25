@@ -752,10 +752,16 @@ async function slotStates(meds, scheduled) {
     if (!Number.isFinite(slotMs)) return states;
     const read = async () => {
         try {
-            const from = new Date(slotMs).toISOString();
-            const to = new Date(slotMs + 999).toISOString();
+            // A day either side, then narrowed to the instant: a lineage
+            // replacement outside a one-second window would leave its
+            // cancelled dose standing in as still due.
+            const from = new Date(slotMs - 86400000).toISOString();
+            const to = new Date(slotMs + 86400000 + 999).toISOString();
             const rows = await apiCall(`/api/doses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-            return Array.isArray(rows) ? rows : null;
+            return Array.isArray(rows) ? rows.filter((r) => {
+                const p = Date.parse(r && r.plannedAt);
+                return p >= slotMs && p <= slotMs + 999;
+            }) : null;
         } catch (_) { return null; }
     };
     let rows = await read();
@@ -793,7 +799,15 @@ function handlePushAction(action, params) {
             // is due the tap lands on the MT6 out-of-date note instead.
             const fromReminder = ids.length > 0 && !names.length;
             if (fromReminder) {
-                const live = await resolvePushMedications(ids);
+                let live = await resolvePushMedications(ids);
+                // On a cold start a med added on another device may not be in
+                // this mirror until the boot sync pull lands: resolve again
+                // after it before calling any med gone.
+                const pulled = window.MedTrackerCloud && window.MedTrackerCloud.pulled;
+                if (pulled && (!live || live.length < ids.length)) {
+                    await pulled;
+                    live = await resolvePushMedications(ids);
+                }
                 if (live && !live.length) {
                     switchTab('meds');
                     safeToast('That medication is no longer in your list.', 'info');

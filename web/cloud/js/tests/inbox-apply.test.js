@@ -215,7 +215,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(intakes.some((i) => i.recordId === `intake-med-b-${SLOT_UNIX}`)).toBe(false);
         expect((await records.list('medication')).find((m) => m.recordId === 'med-b').inventory_count).toBe(20);
         expect(editReply).toHaveBeenCalledWith(3, `✅ Confirmed 1 medication.\n${OUT_OF_DATE_TEXT}`);
-        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-b', scheduled: SLOT_ISO });
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-b', scheduled: SLOT_ISO, count: 1 });
     });
 
     // The deleted dose: the user removed this slot, so the tap is a silent
@@ -257,7 +257,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
 
         expect((await records.list('intake'))[0].status).toBe('PENDING');
         expect((await records.list('medication'))[0].inventory_count).toBe(30);
-        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: new Date(orphanUnix * 1000).toISOString() });
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: new Date(orphanUnix * 1000).toISOString(), count: 1 });
     });
 
     // A stored row for the named med at that very second under another id (a
@@ -755,7 +755,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         for (const i of await records.list('intake')) expect(i.status).toBe('PENDING');
         expect(rearmRefire).not.toHaveBeenCalled();
         expect(editReply).toHaveBeenCalledWith(21, OUT_OF_DATE_TEXT);
-        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-gone', scheduled: SLOT_ISO });
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-gone', scheduled: SLOT_ISO, count: 1 });
     });
 
     // A tap with no identity at all: a reminder pushed by a pre-med-kbpf client,
@@ -907,7 +907,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const stepped = (await records.list('intake')).find((i) => i.recordId === 'intake-med-a-step');
         expect(stepped.status).toBe('PENDING');
         expect((await records.list('medication'))[0].inventory_count).toBe(30);
-        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: SLOT_ISO });
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: SLOT_ISO, count: 1 });
         expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
 
@@ -1000,7 +1000,7 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         await apply(medsNamed(confirmEvent, ['med-a', 'med-x']));
 
         expect((await records.list('intake')).find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
-        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-x', scheduled: SLOT_ISO });
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-x', scheduled: SLOT_ISO, count: 1 });
     });
 
     // A drain runs in the background: the default hook only queues MT6 and
@@ -1014,7 +1014,7 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         try {
             const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire: vi.fn(), cancelRefire: vi.fn(), editReply: vi.fn(async () => {}) });
             await apply(medsNamed(confirmEvent, ['med-x']));
-            expect(queue).toHaveBeenCalledWith({ medId: 'med-x', scheduled: SLOT_ISO });
+            expect(queue).toHaveBeenCalledWith({ medId: 'med-x', scheduled: SLOT_ISO, count: 1 });
             expect(show).not.toHaveBeenCalled();
         } finally {
             delete globalThis.queueMedsReminderOutOfDate;

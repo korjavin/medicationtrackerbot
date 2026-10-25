@@ -418,6 +418,39 @@ describe('handleDeepLinks – push-action query params', () => {
     }
   });
 
+  // bd med-wi09.4 — cold start: the med was added on another device and this
+  // mirror is still empty. The link waits for the boot pull and resolves again
+  // instead of calling the med gone.
+  it('a dose link on an empty mirror resolves again after the boot pull', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: DOSE_URL });
+
+    try {
+      let synced = false;
+      let landPull;
+      window.MedTrackerCloud = { pulled: new Promise((r) => { landPull = () => { synced = true; r(); }; }) };
+      vi.spyOn(window, 'apiCall').mockImplementation(async (url) => {
+        if (!synced) return [];
+        return url.startsWith('/api/doses')
+          ? [{ occId: 'intake-2-1772352000', medId: 2, plannedAt: '2026-03-01T08:00:00.000Z', state: 'due' }]
+          : [{ id: 2, name: 'Aspirin' }];
+      });
+      const modalSpy = vi.spyOn(window, 'showMedicationConfirmModal').mockImplementation(() => {});
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(510);
+      expect(modalSpy).not.toHaveBeenCalled();
+      landPull();
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(modalSpy).toHaveBeenCalledWith([2], ['Aspirin'], '2026-03-01T08:00:00.000Z', 'confirm', []);
+      expect(switchTabSpy).not.toHaveBeenCalled();
+    } finally {
+      delete window.MedTrackerCloud;
+      cleanup();
+    }
+  });
+
   // bd med-mt0l (kit RD3; both modes since med-5vy0): the take sheet opened
   // from a reminder shows the one-time "medication name on the lock screen?"
   // line while the pref is Generic. Once per device; never with Detailed.
@@ -433,6 +466,7 @@ describe('handleDeepLinks – push-action query params', () => {
       const api = vi.spyOn(window, 'apiCall').mockImplementation(async (url, method, body) => {
         if (url === DELIVERY) return method === 'PUT' ? body : { verbosity };
         if (url.startsWith('/api/medications')) return [{ id: 2, name: 'Aspirin' }];
+        if (url.startsWith('/api/doses')) return [{ occId: 'intake-2-1772352000', medId: 2, plannedAt: '2026-03-01T08:00:00.000Z', state: 'due' }];
         return [];
       });
       return { ...env, api };

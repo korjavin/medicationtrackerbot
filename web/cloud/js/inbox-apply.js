@@ -234,9 +234,15 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // PENDING prediction (bd med-wi09.12), so the dose usually has no row yet:
   // confirm()/snooze() write the evidence at that exact occId. The +999 covers
   // a tz-plan step that keeps its anchor's milliseconds (the occId floors).
+  // The projection is read a day either side and then narrowed to the instant:
+  // a lineage replacement (tz switch, schedule edit) outside a one-second
+  // window would leave its cancelled dose standing in as if still due.
+  // ponytail: ±1 day covers tz/schedule moves; widen if lineage ever spans more.
+  const atInstant = async (ms) => (await intake.occurrences({ fromMs: ms - 86400000, toMs: ms + 86400000 + 999 }))
+    .filter((r) => { const p = Date.parse(r.plannedAt); return p >= ms && p <= ms + 999; });
   const resolveNamed = async () => {
     const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
-    const rows = await intake.occurrences({ fromMs: slotMs, toMs: slotMs + 999 });
+    const rows = await atInstant(slotMs);
     const out = new Map();
     for (const medId of named) {
       const exactId = `intake-${medId}-${slotUnix}`;
@@ -248,8 +254,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
         // an old client's prediction a schedule edit orphaned is hidden there,
         // and confirming it would log a dose that no longer exists.
         const ms = Date.parse(stored.scheduled_at);
-        const own = Number.isFinite(ms) && ms !== slotMs
-          ? await intake.occurrences({ fromMs: ms, toMs: ms + 999 }) : rows;
+        const own = Number.isFinite(ms) && ms !== slotMs ? await atInstant(ms) : rows;
         out.set(medId, own.some((r) => String(r.occId) === exactId) ? stored : null);
         continue;
       }
@@ -357,7 +362,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
       console.warn('[inbox] could not update the Telegram reply', e);
     }
   }
-  if (unresolved.length) onOutOfDate({ medId: String(unresolved[0]), scheduled: new Date(slotMs).toISOString() });
+  if (unresolved.length) onOutOfDate({ medId: String(unresolved[0]), scheduled: new Date(slotMs).toISOString(), count: unresolved.length });
 }
 
 // SNOOZE_MINUTES_BY_ACTION maps a workout Snooze button to its duration. Skip

@@ -453,6 +453,28 @@ describe('Meds timeline (MT1 / MT5)', () => {
         expect(document.querySelector('.wg-timeline__stale')).toBeNull();
     });
 
+    // A Telegram tap drained in the background never switches section: MT6
+    // waits for the next Timeline open and a toast names what was not logged.
+    it('MT6 from a background drain: a scoped toast, no section switch, Open lands on the note', async () => {
+        const { window, document } = env;
+        window.medications = MEDS;
+        serveDoses(window, normalDay());
+        const toast = vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+        const nav = vi.spyOn(window, 'switchTab');
+        const info = { medId: '3', scheduled: '2026-10-23T06:20:00.000Z', count: 1 };
+        window.queueMedsReminderOutOfDate(info);
+
+        const [msg, type, opts] = toast.mock.calls.at(-1);
+        expect([msg, type, opts.action.label]).toEqual(['Telegram reminder out of date for Metformin: log it in the app.', 'info', 'Open']);
+        expect(nav).not.toHaveBeenCalled();
+
+        window.queueMedsReminderOutOfDate({ ...info, count: 2 });
+        expect(toast.mock.calls.at(-1)[0]).toBe('Telegram reminder out of date for 2 medications: log them in the app.');
+
+        opts.action.onClick();
+        await vi.waitFor(() => expect(document.querySelector('#med-timeline-list .wg-timeline__stale')).not.toBeNull());
+    });
+
     it('after a zone change rows keep their own date, and the same local time in two zones never merges', async () => {
         const { document } = env;
         const ny = 'America/New_York';

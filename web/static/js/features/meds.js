@@ -1017,7 +1017,15 @@ function showMedsReminderOutOfDate({ medId, scheduled, tz } = {}) {
 // MT6 note waits for the next Meds → Timeline open, and a toast offers it now.
 function queueMedsReminderOutOfDate(info = {}) {
     _medsTimelineState.outOfDate = { medId: String(info.medId), scheduled: info.scheduled, tz: info.tz };
-    safeToast('A Telegram reminder was out of date — nothing was logged.', 'info', {
+    // Scoped to the unmatched doses: the same tap may have logged its others.
+    const count = Number(info.count) || 1;
+    const med = Array.isArray(medications) ? medications.find((m) => String(m.id) === String(info.medId)) : null;
+    const text = count > 1
+        ? `Telegram reminder out of date for ${count} medications: log them in the app.`
+        : med && med.name
+            ? `Telegram reminder out of date for ${med.name}: log it in the app.`
+            : 'A Telegram reminder was out of date — log that dose in the app.';
+    safeToast(text, 'info', {
         action: { label: 'Open', onClick: () => showMedsReminderOutOfDate(info) },
         duration: 8000,
     });
