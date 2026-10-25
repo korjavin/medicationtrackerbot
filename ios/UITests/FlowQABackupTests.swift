@@ -208,10 +208,9 @@ final class FlowQABackupTests: XCTestCase {
     /// Bottom tab bar → Meds → Schedule (the tab restores its last sub-tab).
     private func openMedsSchedule(_ app: XCUIApplication, flow: String) {
         // An empty store reopens the web onboarding (its record went with the erase).
-        let skip = app.webViews.buttons.matching(NSPredicate(format: "label IN {'Skip', 'Skip all'}")).firstMatch // W1 picker "Skip" (med-ta2n.1)
-        if skip.waitForExistence(timeout: 20) {
+        if QA.w1Shows(app, timeout: 20) {
             shot(flow, "onboarding")
-            skip.tap()
+            QA.skipW1(app, timeout: 1)
         }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar")
         // aria-pressed makes the segment a toggle button, not a button.

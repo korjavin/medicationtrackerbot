@@ -53,12 +53,22 @@ enum QA {
             .waitForExistence(timeout: timeout)
     }
 
-    /// The web W1 picker (WGFirstRun, features/firstrun/screens/features.js):
-    /// its "Skip", and — in a v3 shell, local mode, no pending invite — the
-    /// footer's "Have an invite?".
+    /// The web W1 picker (WGFirstRun, features/firstrun/screens/features.js),
+    /// by its title: a bare "Skip" / "Skip all" also labels the Meds timeline's
+    /// and Today's dose actions (run 40236769670 tapped a dose's Skip as if it
+    /// were W1's, and the reminders prompt it opened hid the tab bar). In a v3
+    /// shell, local mode, no pending invite, its footer has "Have an invite?".
     static func w1Shows(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        app.webViews.buttons.matching(NSPredicate(format: "label IN {'Skip', 'Skip all'}")).firstMatch
+        app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'want to track'")).firstMatch
             .waitForExistence(timeout: timeout)
+    }
+
+    /// Taps W1's "Skip" if W1 opens within `timeout`; true when it did.
+    @discardableResult
+    static func skipW1(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        guard w1Shows(app, timeout: timeout) else { return false }
+        app.webViews.buttons["Skip"].firstMatch.tap()
+        return true
     }
 
     /// Every flow's setUp (bd med-w6gx.23.8): the app stopped, then its
