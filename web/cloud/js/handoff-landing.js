@@ -16,7 +16,8 @@
 //                                (https://<sub>.<base>/claim#<frag>)
 //   no fragment, or a computer -> AD8 · no code / desktop: the typed "Code for
 //                                a computer" (28 letters, prefilled from a
-//                                fragment) → /claim#<slot>.<TK>
+//                                fragment) → /claim#<slot>.<TK>; a phone also
+//                                gets Scan → /claim#scan (bd med-r1j2.10)
 // Every screen ends with "Already set up in this browser? Open my account"
 // (Path 0, AD10): InviteSheet.parseAddress's /unlock URL for <sub>.<base>.
 //
@@ -41,6 +42,7 @@ export const COPY = {
   codeLabel: 'Code for a computer',
   codePlaceholder: 'KXR QDW BMT LPA ZRE HNV CUG YSF TJO W',
   continue: 'Continue',
+  scan: 'Scan the code instead',
   deskHint: 'Works once · expires 10 minutes after it was made',
   openAccount: 'Already set up in this browser? Open my account',
   incomplete: 'This link is incomplete. Scan the code again on your other device.',
@@ -225,7 +227,8 @@ export async function mount(root = document, deps = {}) {
   } else {
     shell.append(field);
     const foot = make('footer', 'wg-pagefoot');
-    foot.append(cont);
+    // The in-app Scan (bd med-r1j2.10) lives on the account host's /claim.
+    foot.append(cont, button('handoff-scan', 'wg-btn--ghost', COPY.scan, () => go(claimHref(location, sub, 'scan'))));
     if (openAccount) foot.append(openAccount);
     app.replaceChildren(shell, foot);
   }

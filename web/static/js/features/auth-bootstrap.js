@@ -131,6 +131,8 @@ window.AuthBootstrap = (function () {
         const tabOrderRaw = raw?.tabOrder || raw?.tab_order || raw?.settings?.tab_order || null;
         const weightUnitRaw = raw?.weightUnitPreference || raw?.weight_unit_preference || raw?.settings?.weight_unit_preference || 'kg';
         const weightUnit = weightUnitRaw === 'lb' ? 'lb' : 'kg';
+        // Body settings (med-a6fb): flat on GET /api/settings and bootstrap.settings.
+        const bodyRaw = raw?.body || raw?.settings || raw || {};
 
         return {
             featureSettings: raw?.featureSettings || raw?.features || {},
@@ -140,6 +142,12 @@ window.AuthBootstrap = (function () {
             serverTimezone: raw?.serverTimezone || raw?.server_timezone || raw?.settings?.server_timezone || '',
             dismissedTzSuggestion: raw?.dismissedTzSuggestion || raw?.dismissed_tz_suggestion || raw?.settings?.dismissed_tz_suggestion || '',
             weightUnitPreference: weightUnit,
+            body: {
+                height_cm: typeof bodyRaw.height_cm === 'number' ? bodyRaw.height_cm : null,
+                height_unit: bodyRaw.height_unit === 'ftin' ? 'ftin' : 'cm',
+                show_bmi: bodyRaw.show_bmi !== false,
+                bmi_nudge_dismissed: bodyRaw.bmi_nudge_dismissed === true,
+            },
             foodTargets: {
                 calories: Number(foodTargetsRaw.calories) || 0,
                 carbs: Number(foodTargetsRaw.carbs) || 0,
@@ -285,27 +293,31 @@ window.AuthBootstrap = (function () {
         // window.__MEDTRACKER_BOOTSTRAP__ so any late-loading orchestrator can
         // observe the value, then hand the payload directly to mount() which
         // is a no-op when the flag is false or the overlay is already up.
-        if (typeof res.needs_first_run === 'boolean') {
-            if (typeof window !== 'undefined') {
-                window.__MEDTRACKER_BOOTSTRAP__ = window.__MEDTRACKER_BOOTSTRAP__ || {};
-                window.__MEDTRACKER_BOOTSTRAP__.needs_first_run = res.needs_first_run;
-            }
-            const mountFirstRun = () => {
-                if (!window.WGFirstRun || typeof window.WGFirstRun.mount !== 'function') return;
-                try {
-                    window.WGFirstRun.mount({ needs_first_run: res.needs_first_run });
-                } catch (e) {
-                    console.warn('[FirstRun] mount failed', e);
-                }
-            };
-            // In an app shell the pending invite is routed first (bd
-            // med-ta2n.7): "Your invite is here" comes before W1. null on the web.
-            const invite = window.InviteSheet && typeof window.InviteSheet.boot === 'function' ? window.InviteSheet.boot() : null;
-            if (invite) invite.then(mountFirstRun, mountFirstRun);
-            else mountFirstRun();
-        }
+        if (typeof res.needs_first_run === 'boolean') mountFirstRun(res.needs_first_run);
 
         return true;
+    }
+
+    // Also cloud-boot's re-ask once the first pull lands (bd med-ejgf): the
+    // shim answers false until then, so this is the call that shows W1 to a
+    // new account whose boot-time bootstrap ran before the pull.
+    function mountFirstRun(needs) {
+        window.__MEDTRACKER_BOOTSTRAP__ = window.__MEDTRACKER_BOOTSTRAP__ || {};
+        window.__MEDTRACKER_BOOTSTRAP__.needs_first_run = needs;
+        const mount = () => {
+            if (!window.WGFirstRun || typeof window.WGFirstRun.mount !== 'function') return;
+            try {
+                window.WGFirstRun.mount({ needs_first_run: needs });
+            } catch (e) {
+                console.warn('[FirstRun] mount failed', e);
+            }
+        };
+        // In an app shell the pending invite is routed first (bd
+        // med-ta2n.7): "Your invite is here" comes before W1. null on the web.
+        // boot() is memoized, so a second call waits on the same routing.
+        const invite = window.InviteSheet && typeof window.InviteSheet.boot === 'function' ? window.InviteSheet.boot() : null;
+        if (invite) invite.then(mount, mount);
+        else mount();
     }
 
     // Hydrate in-memory feature settings from a cached settings_bundle so deep-link
@@ -469,6 +481,7 @@ window.AuthBootstrap = (function () {
         cacheApiSnapshot,
         normalizeSettingsBundle,
         applyBootstrapPayload,
+        mountFirstRun,
         hydrateFeatureSettingsFromBundle,
         hydrateMedicationsFromDexie,
         hydrateSectionsFromDexie,

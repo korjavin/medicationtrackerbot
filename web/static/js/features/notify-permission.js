@@ -20,13 +20,16 @@
 //                     Settings → Reminders & notifications (S8, med-ckm5.8).
 //   reminderHint(slot) → kit RD3 (med-mt0l): the one-time "Want the medication
 //                     name on the lock screen?" line on a take sheet opened from
-//                     a reminder. Local-only mode, Generic pref, once per device.
+//                     a reminder. Generic pref, once per device, both modes.
 //
-// Local-only mode's lock-screen choice (kit RD1/RD2, med-mt0l): the ask sheet
-// and, after the first-run one-tap grant, a "What should reminders show?"
-// sheet carry S8's Generic / Detailed pair. Saved however the sheet closes
-// (Not now too), through the same PUT /api/settings/reminder-delivery S8
-// uses. Account reminders always name what is due, so no choice there.
+// The lock-screen choice (kit RD1/RD2, med-mt0l; account mode too since
+// med-5vy0): the ask sheet and, after the first-run one-tap grant, a "What
+// should reminders show?" sheet carry S8's Generic / Detailed pair. Saved
+// however the sheet closes (Not now too), through the same PUT
+// /api/settings/reminder-delivery S8 uses. A changed pick is a real write.
+// Closed untouched, local mode writes nothing and account mode stores Generic
+// as a floored default ({floor: 'generic'}: clientTs 1, only when no pref is
+// stored), so skipping never overwrites another device's pick.
 (function () {
     'use strict';
 
@@ -136,14 +139,31 @@
         return b;
     }
 
-    // Local-only mode's lock-screen pref, the verbosity half of the vault's
-    // reminder delivery pref (S8's path; the shim reschedules on a change).
+    // The lock-screen pref, the verbosity half of the vault's reminder
+    // delivery pref (S8's path; the shim reschedules on a change). null when
+    // it could not be read (apiCall answers null or throws).
     async function getVerbosity() {
         try {
             var pref = await window.apiCall(DELIVERY_PATH, 'GET');
-            return pref && pref.verbosity === 'detailed' ? 'detailed' : 'generic';
+            if (!pref) return null;
+            // The resolved lock-screen value (med-5vy0); older shims send verbosity only.
+            return (pref.lockscreen || pref.verbosity) === 'detailed' ? 'detailed' : 'generic';
         } catch (_) {
-            return 'generic';
+            return null;
+        }
+    }
+
+    // A sheet closing with value: a change is the user's pick, stored as a
+    // real write. Untouched is not a choice: local mode stores nothing, and
+    // account mode stores Generic as a FLOORED default (med-5vy0, see the
+    // header), which never overwrites a pick another device already made.
+    function keepVerbosity(value, initial) {
+        if (value !== (initial || 'generic')) {
+            saveVerbosity(value);
+        } else if (!isLocal()) {
+            Promise.resolve(window.apiCall(DELIVERY_PATH, 'PUT', { floor: 'generic' })).catch(function (e) {
+                console.error('[notify-permission] lock-screen default save failed', e);
+            });
         }
     }
 
@@ -169,7 +189,7 @@
     // Kit RD1/RD2: S8's Generic / Detailed pair, the live preview under it and
     // the privacy line. value() is the current pick.
     function detailChoice(initial) {
-        var value = initial;
+        var value = initial || 'generic';
         var field = el('div', 'wg-field');
         var group = el('div', 'wg-choices');
         group.setAttribute('role', 'group');
@@ -250,14 +270,13 @@
     }
 
     // Resolves true when Allow ended in a grant; false on Not now / Back / Esc.
-    // verbosity: the saved lock-screen pref in local-only mode (the sheet
-    // shows the choice), null in account mode (a fact says reminders name it).
+    // verbosity: the saved lock-screen pref, the choice's starting value.
     function openSheet(verbosity) {
         return new Promise(function (resolve) {
-            var local = verbosity !== null;
-            var facts = [['bell', 'Only what you schedule', 'Doses, BP and weigh-ins. Nothing else.']];
-            if (!local) facts.push(['lock', 'Shown on your lock screen', 'Reminders name the medication or measurement that is due.']);
-            facts.push(['gear', 'Change it any time', 'Settings → Reminders & notifications.']);
+            var facts = [
+                ['bell', 'Only what you schedule', 'Doses, BP and weigh-ins. Nothing else.'],
+                ['gear', 'Change it any time', 'Settings → Reminders & notifications.'],
+            ];
             var list = el('ul', 'wg-facts wg-facts--sm');
             facts.forEach(function (f) {
                 var li = el('li');
@@ -266,15 +285,15 @@
                 li.append(icon(f[0]), span);
                 list.appendChild(li);
             });
-            var choice = local ? detailChoice(verbosity) : null;
+            var choice = detailChoice(verbosity);
 
             var notNow = button('wg-btn wg-btn--ghost', 'Not now', 'data-notify-choice', 'not-now');
             var allow = button('wg-btn wg-btn--primary', 'Allow notifications', 'data-notify-choice', 'allow');
             var close = mountSheet('notify-permission-sheet', { eyebrow: 'Reminders', title: 'Let Med Tracker remind you' },
-                [list].concat(choice ? choice.nodes : []), [notNow, allow], function (reason) {
+                [list].concat(choice.nodes), [notNow, allow], function (reason) {
                     markAsked();
                     // Kept whichever way the sheet closes, "Not now" too.
-                    if (choice && choice.value() !== verbosity) saveVerbosity(choice.value());
+                    keepVerbosity(choice.value(), verbosity);
                     if (reason !== 'allow') resolve(false);
                 });
 
@@ -287,8 +306,8 @@
         });
     }
 
-    // Kit RD2: right after the first-run one-tap grant (local-only mode), the
-    // same choice with "Done". Saved however it closes.
+    // Kit RD2: right after the first-run one-tap grant, the same choice with
+    // "Done". Saved however it closes.
     async function openDetailSheet() {
         if (!window.WGSheet || !window.ModalManager || document.getElementById('notify-detail-sheet')) return;
         var verbosity = await getVerbosity();
@@ -296,7 +315,7 @@
         var done = button('wg-btn wg-btn--primary', 'Done', 'data-notify-choice', 'done');
         var close = mountSheet('notify-detail-sheet', { eyebrow: 'Notifications are on', title: 'What should reminders show?' },
             choice.nodes.concat([el('p', 'wg-hint', 'Change it any time in Settings → Reminders & notifications.')]), [done],
-            function () { if (choice.value() !== verbosity) saveVerbosity(choice.value()); });
+            function () { keepVerbosity(choice.value(), verbosity); });
         done.addEventListener('click', function () { close('done'); });
     }
 
@@ -306,7 +325,7 @@
         pending = (async function () {
             if (asked() || !window.WGSheet || !window.ModalManager) return false;
             if ((await state()) !== 'default') return false;
-            return openSheet(isLocal() ? await getVerbosity() : null);
+            return openSheet(await getVerbosity());
         })().catch(function (e) {
             console.error('[notify-permission] ask failed', e);
             return false;
@@ -321,8 +340,8 @@
 
     // undecided: still 'default' after "Not now" — the system prompt can still
     // be shown, and iOS Settings has no Notifications toggle until it was.
-    // askNow: the first-run context, where a local-only grant goes on to the
-    // RD2 lock-screen choice.
+    // askNow: the first-run context, where a grant goes on to the RD2
+    // lock-screen choice.
     async function buildNote(slot, undecided, askNow) {
         var ln = shell();
         var copy = (ln && ln.copy) || {};
@@ -345,7 +364,7 @@
                 request().then(function (p) {
                     if (p === 'granted') {
                         rearm();
-                        if (askNow && isLocal()) openDetailSheet().catch(function (e) { console.error('[notify-permission] detail sheet failed', e); });
+                        if (askNow) openDetailSheet().catch(function (e) { console.error('[notify-permission] detail sheet failed', e); });
                     }
                     return renderNote(slot);
                 }, function () { return renderNote(slot); });
@@ -391,7 +410,7 @@
     // pref change, so the pref now is what that reminder showed). "Show
     // details" sets Detailed in place with an Undo toast; × just retires it.
     async function reminderHint(slot) {
-        if (!slot || !isLocal() || hintShown()) return;
+        if (!slot || hintShown()) return;
         if ((await getVerbosity()) !== 'generic') return;
         try { window.localStorage.setItem(HINT_KEY, '1'); } catch (_) { /* private mode: may show again */ }
 

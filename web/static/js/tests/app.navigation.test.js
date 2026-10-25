@@ -36,19 +36,20 @@ async function until(predicate, rounds = 200) {
     throw new Error('until: condition never became true');
 }
 
-async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, pageOrigin = null } = {}) {
+async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, pageOrigin = null, url, realDeepLinks = false } = {}) {
     allowConsoleNoise();
-    const env = loadFrontendEnv();
+    const env = loadFrontendEnv(url ? { url } : undefined);
     const { window } = env;
     vi.spyOn(window, 'fetch').mockImplementation(async (url) => {
         if (url === '/api/bootstrap') return createMockResponse({ json: { features } });
         return createMockResponse({ json: {} });
     });
-    window.handleDeepLinks = vi.fn();
+    if (!realDeepLinks) window.handleDeepLinks = vi.fn();
     // Navigation is under test, not the section loaders: stub what switchTab
     // fans out to so no async render outlives the test's window.
     for (const loader of ['loadToday', 'loadFoodLogs', 'loadBPReadings', 'loadWeightLogs', 'switchHealthTab',
-        'loadWorkouts', 'loadSettings', 'switchMedTab', 'reloadCurrentTab']) {
+        'loadWorkouts', 'loadSettings', 'switchMedTab', 'loadTimeline', 'loadMeds', 'reloadCurrentTab',
+        'showBPRecordModal']) {
         window[loader] = vi.fn();
     }
     window.Gamification = { load: vi.fn() };
@@ -244,6 +245,182 @@ describe('Navigation v2 — Meds badge', () => {
             rows = rows.map((r) => (r.occId <= 2 ? { ...r, state: 'taken', takenAt: iso(0) } : r));
             window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
             await until(() => badge() === null);
+        } finally { cleanup(); }
+    });
+});
+
+// bd med-y7b4.3: AppBack.step() is the one back order — sheet → Settings
+// sub-page → previous section → false at Today — for the chevron, browser
+// Back, Esc and the shells' back op alike.
+describe('AppBack.step — one back order', () => {
+    const view = (document) => activeView(document).replace(/-view$/, '');
+    const hidden = (document, id) => document.getElementById(id).classList.contains('hidden');
+
+    it('1. a sheet closes first; the section stays', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            window.ModalManager.weight.open();
+            expect(window.AppBack.step()).toBe(true);
+            expect(hidden(document, 'weight-modal')).toBe(true);
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('2. an open Settings sub-page closes before Settings is left', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            document.querySelector('#food-view [data-nav-to="settings"]').click();
+            const page = window.SettingsView.openSettingsPage('integrations');
+            expect(page).not.toBeNull();
+            expect(window.AppBack.step()).toBe(true);
+            expect(page.el.isConnected).toBe(false);
+            expect(view(document)).toBe('settings');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('3. sections walk back in the order this session visited them, ending at Today', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            tab(document, 'meds').click();
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('food');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. Health segments are one stop: Back leaves the Health tab', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'health-group').click();
+            expect(view(document)).toBe('bp');
+            document.querySelector('#bp-view [data-health-seg="weight"]').click();
+            expect(view(document)).toBe('weight');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. a restored section with no trail returns to Today', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food' });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'food-view');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. startup routing is not history: a restored section plus a deep link goes back to Today', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food', url: 'https://example.test/?tab=workouts', realDeepLinks: true });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'workouts-view');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. the deferred ?start=bp_add route replaces the restored section too', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food', url: 'https://example.test/?start=bp_add', realDeepLinks: true });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'bp-view', 2000); // the route polls every 100 ms
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('4. Today with nothing open: false, nothing happens', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            const switchTab = vi.spyOn(window, 'switchTab');
+            expect(window.AppBack.canStep()).toBe(false);
+            expect(window.AppBack.step()).toBe(false);
+            expect(view(document)).toBe('today');
+            expect(switchTab).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('browser Back (popstate) and Esc run the same step', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            tab(document, 'meds').click();
+            const step = vi.spyOn(window.AppBack, 'step');
+            window.dispatchEvent(new window.PopStateEvent('popstate'));
+            expect(step).toHaveBeenCalledTimes(1);
+            expect(view(document)).toBe('food');
+            document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+            expect(step).toHaveBeenCalledTimes(2);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('browser Back over a sheet steps once: the sheet closes, the section stays', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            window.ModalManager.weight.open();
+            await macrotask(); // modal-history pushes the sheet's entry
+            const step = vi.spyOn(window.AppBack, 'step');
+            window.dispatchEvent(new window.PopStateEvent('popstate'));
+            expect(step).toHaveBeenCalledTimes(1);
+            expect(hidden(document, 'weight-modal')).toBe(true);
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('Esc in a field with nothing open stays on the section', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            tab(document, 'food').click();
+            const input = document.createElement('input');
+            document.getElementById('food-view').appendChild(input);
+            input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            expect(view(document)).toBe('food');
+        } finally { cleanup(); }
+    });
+
+    it('back.state: canStep goes to the shell whenever it changes', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            const setState = vi.spyOn(window.NativeBack, 'setState');
+            window.ModalManager.weight.open();
+            await macrotask();
+            window.ModalManager.weight.close();
+            await macrotask();
+            tab(document, 'food').click();
+            tab(document, 'meds').click(); // still true: no new report
+            expect(setState.mock.calls.map((c) => c[0])).toEqual([true, false, true]);
+        } finally { cleanup(); }
+    });
+
+    it('back.state: a bfcache restore reports again even when unchanged; a plain pageshow does not', async () => {
+        const { window, cleanup } = await boot();
+        try {
+            const setState = vi.spyOn(window.NativeBack, 'setState');
+            const pageshow = (persisted) => (typeof window.PageTransitionEvent === 'function'
+                ? new window.PageTransitionEvent('pageshow', { persisted })
+                : Object.assign(new window.Event('pageshow'), { persisted }));
+            window.dispatchEvent(pageshow(false));
+            expect(setState).not.toHaveBeenCalled();
+            window.dispatchEvent(pageshow(true));
+            expect(setState.mock.calls.map((c) => c[0])).toEqual([false]);
         } finally { cleanup(); }
     });
 });

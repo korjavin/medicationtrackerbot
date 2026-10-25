@@ -85,15 +85,26 @@ function handleDeepLinks() {
 
     if (!action && tab === 'settings') {
         // ?tab=settings&page=devices|connectors — where the passkey shell's old
-        // /devices and /connectors pages redirect (med-xso6.25). Only a fixed
-        // page list; anything else just lands on Settings.
+        // /devices and /connectors pages redirect (med-xso6.25); add-device is
+        // the "Approve the new device?" notification tap (med-r1j2.9). Only a
+        // fixed page list; anything else just lands on Settings.
         const page = urlParams.get('page');
         switchTab('settings');
-        if (page === 'devices' || page === 'connectors') {
+        if (page === 'devices' || page === 'connectors' || page === 'add-device') {
             setTimeout(() => {
                 if (window.SettingsView && typeof window.SettingsView.openDevicesDeeplink === 'function') {
                     window.SettingsView.openDevicesDeeplink(page);
                 }
+            }, 100);
+        } else if (page === 'units') {
+            // ?tab=settings&page=units[&focus=height] — Units & body; focus=height
+            // is the Weight page's "Add your height" nudge (med-a6fb.7).
+            const focus = urlParams.get('focus');
+            setTimeout(() => {
+                const view = window.SettingsView;
+                if (!view) return;
+                if (focus === 'height') view.openHeightField();
+                else view.openSettingsPage('units');
             }, 100);
         }
         window.history.replaceState({}, '', '/');
@@ -178,11 +189,14 @@ function maybeRunStartParamDeepLink() {
         const timedOut = Date.now() - startedAt >= 5000;
         if (modalReady && (flagsReady || timedOut)) {
             clearInterval(checkInterval);
+            // Still startup routing, though it lands after AppBack.ready():
+            // it replaces the restored section instead of stacking it.
+            const go = (t) => (window.AppBack ? window.AppBack.replace(() => switchTab(t)) : switchTab(t));
             if (!isDeepLinkFeatureEnabled('bp')) {
-                switchTab('today');
+                go('today');
                 return;
             }
-            switchTab('bp');
+            go('bp');
             setTimeout(showBPRecordModal, 500);
         }
     }, 100);

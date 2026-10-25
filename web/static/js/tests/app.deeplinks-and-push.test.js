@@ -413,9 +413,9 @@ describe('handleDeepLinks – push-action query params', () => {
     }
   });
 
-  // bd med-mt0l (kit RD3): the take sheet opened from a reminder in local-only
-  // mode shows the one-time "medication name on the lock screen?" line while
-  // the pref is Generic. Once per device; never with Detailed or an account.
+  // bd med-mt0l (kit RD3; both modes since med-5vy0): the take sheet opened
+  // from a reminder shows the one-time "medication name on the lock screen?"
+  // line while the pref is Generic. Once per device; never with Detailed.
   describe('RD3 lock-screen hint', () => {
     const DELIVERY = '/api/settings/reminder-delivery';
     const SLOT = 'ids=2&scheduled=2026-03-01T08%3A00%3A00.000Z';
@@ -491,20 +491,32 @@ describe('handleDeepLinks – push-action query params', () => {
       }
     });
 
-    it('never with Detailed already set, and never in account mode', async () => {
-      const detailed = setup({ verbosity: 'detailed' });
-      try {
-        expect(await openFromReminder(detailed.window)).toBeNull();
-        expect(detailed.window.localStorage.getItem('wg.reminderDetailHint.shown')).toBeNull();
-      } finally {
-        detailed.cleanup();
+    it('never with Detailed already set (either mode)', async () => {
+      for (const local of [true, false]) {
+        const detailed = setup({ local, verbosity: 'detailed' });
+        try {
+          expect(await openFromReminder(detailed.window)).toBeNull();
+          expect(detailed.window.localStorage.getItem('wg.reminderDetailHint.shown')).toBeNull();
+        } finally {
+          detailed.cleanup();
+        }
       }
-      const account = setup({ local: false });
+    });
+
+    // med-5vy0: an account keeping a stored Generic (a Telegram user's, say)
+    // gets the same one-time hint after its first Generic reminder.
+    it('account mode, stored Generic: shows once, Show details sets Detailed', async () => {
+      const { window, cleanup, api } = setup({ local: false });
       try {
-        expect(await openFromReminder(account.window)).toBeNull();
-        expect(account.api.mock.calls.some((c) => c[0] === DELIVERY)).toBe(false);
+        vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+        const hint = await openFromReminder(window);
+        expect(hint).not.toBeNull();
+        hint.querySelector('[data-reminder-hint-action="details"]').click();
+        await vi.advanceTimersByTimeAsync(10);
+        expect(api).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
+        expect(await openFromReminder(window)).toBeNull();
       } finally {
-        account.cleanup();
+        cleanup();
       }
     });
   });
@@ -652,7 +664,7 @@ describe('handleDeepLinks – ?tab=settings&page= (Devices & connectors)', () =>
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  for (const page of ['devices', 'connectors']) {
+  for (const page of ['devices', 'connectors', 'add-device']) {
     it(`page=${page} lands on Settings and opens that page`, async () => {
       const { window, cleanup } = loadFrontendEnv({ url: `https://acct.example.test/?tab=settings&page=${page}` });
       try {

@@ -43,6 +43,35 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(back.data).toEqual(dropGps(fixture.data));
   });
 
+  // med-a6fb.2: the body settings ride the general singleton; a legacy file
+  // without them (or with invalid values) imports with none and exports none.
+  it('settings body fields round-trip; absent or invalid values import and export nothing', () => {
+    const general = (recs) => recs.find((r) => r.recordType === 'settings' && r.recordId === 'settings');
+    expect(fixture.data.settings.height_cm).toBe(180);
+    expect(general(vaultToRecords(fixture, { now: NOW })).height_cm).toBe(180);
+
+    const custom = JSON.parse(JSON.stringify(fixture));
+    Object.assign(custom.data.settings, { height_unit: 'ftin', show_bmi: false, bmi_nudge_dismissed: true });
+    const customRecs = vaultToRecords(custom, { now: NOW });
+    expect(general(customRecs)).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false });
+    expect(general(customRecs)).not.toHaveProperty('bmi_nudge_dismissed');
+    const out = recordsToVault([...customRecs.filter((r) => r.recordType !== 'settings'),
+      { ...general(customRecs), bmi_nudge_dismissed: true }], { now: NOW }).data.settings;
+    expect(out).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false });
+    expect(out).not.toHaveProperty('bmi_nudge_dismissed');
+
+    for (const value of [undefined, '180', null]) {
+      const legacy = JSON.parse(JSON.stringify(fixture));
+      if (value === undefined) delete legacy.data.settings.height_cm;
+      else Object.assign(legacy.data.settings, { height_cm: value, height_unit: 'yards', show_bmi: 'no' });
+      const records = vaultToRecords(legacy, { now: NOW });
+      for (const k of ['height_cm', 'height_unit', 'show_bmi']) {
+        expect(general(records)).not.toHaveProperty(k);
+        expect(recordsToVault(records, { now: NOW }).data.settings).not.toHaveProperty(k);
+      }
+    }
+  });
+
   it('trackers keep their id; check logs re-mint the deterministic day id (med-1vy5)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const of = (type) => records.filter((r) => r.recordType === type);
@@ -129,6 +158,40 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     ], { now: NOW }).data).toBe(false);
   });
 
+  // med-5vy0.4: a stored verbosity (choice or generic default) rides
+  // settings.reminder_delivery at now(); the Detailed floor is derived and
+  // never exported; a file without a valid block leaves the destination alone.
+  it('carries the reminder delivery pref; the Detailed floor, a legacy file and invalid values carry none', () => {
+    const PREF = 'reminderdeliverypref';
+    const rec = (fields) => ({ recordType: PREF, recordId: PREF, deleted: false, ...fields });
+    const of = (records) => records.filter((r) => r.recordType === PREF);
+    expect(of(vaultToRecords(fixture, { now: NOW }))).toEqual([rec({ clientTs: NOW, delivery: 'webpush', verbosity: 'generic' })]);
+    expect(managedTypesForImport(fixture).has(PREF)).toBe(true);
+    expect(hasUserContent(of(vaultToRecords(fixture, { now: NOW })))).toBe(false);
+
+    const exported = (body) => recordsToVault(body ? [rec(body)] : [], { now: NOW }).data.settings;
+    expect(exported({ clientTs: 1, delivery: 'webpush', verbosity: 'generic' }).reminder_delivery).toEqual({ delivery: 'webpush', verbosity: 'generic' });
+    expect(exported({ clientTs: 9, delivery: 'telegram', verbosity: 'detailed' }).reminder_delivery).toEqual({ delivery: 'telegram', verbosity: 'detailed' });
+    expect(exported({ clientTs: 0, delivery: 'webpush', lockscreen_default: 'detailed' })).not.toHaveProperty('reminder_delivery');
+    expect(exported(null)).not.toHaveProperty('reminder_delivery');
+
+    // Telegram-only restores as 'both': the target may have no linked chat.
+    const tg = JSON.parse(JSON.stringify(fixture));
+    tg.data.settings.reminder_delivery = { delivery: 'telegram', verbosity: 'detailed' };
+    expect(of(vaultToRecords(tg, { now: NOW }))).toEqual([rec({ clientTs: NOW, delivery: 'both', verbosity: 'detailed' })]);
+
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.settings.reminder_delivery;
+    expect(of(vaultToRecords(legacy, { now: NOW }))).toEqual([]);
+    expect(managedTypesForImport(legacy).has(PREF)).toBe(false);
+    for (const bad of [{ delivery: 'sms', verbosity: 'generic' }, { delivery: 'webpush', verbosity: 'loud' }, { delivery: 'webpush' }, 'generic', null]) {
+      const v = JSON.parse(JSON.stringify(legacy));
+      v.data.settings.reminder_delivery = bad;
+      expect(of(vaultToRecords(v, { now: NOW }))).toEqual([]);
+      expect(managedTypesForImport(v).has(PREF)).toBe(false);
+    }
+  });
+
   // Forward compat (docs/vault-format.md "Newer exporter, older importer"):
   // the importer reads named sections only, so a key it does not know — what
   // `protection` is to an older client — imports cleanly and is dropped.
@@ -212,6 +275,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const strip = (data) => {
       const d = dropGps(data);
       delete d.settings.med_reminder_pref;
+      // Height is cloud-only too (med-a6fb); the bot file has none.
+      delete d.settings.height_cm;
       // Tombstones are a cloud-only v1 addition (med-jtaj); a real bot export
       // never carries them, so they canonicalize away like med_reminder_pref.
       delete d.tombstones;
@@ -240,6 +305,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
         if ('snoozed_at' in i) i.snoozed_until = null;
         for (const k of ['rev', 'acted_at', 'via', 'tz', 'snoozed_at']) delete i[k];
       }
+      // And the reminder delivery pref (med-5vy0.4).
+      delete d.settings.reminder_delivery;
       // And the schedule / zone history (med-wi09.9).
       delete d.medications.schedules;
       delete d.tz.transitions;

@@ -343,14 +343,108 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
 
         // bd med-yor.13: verbosity defaults to name-free 'generic'; 'detailed'
         // (medication names over the Telegram relay) is an explicit opt-in.
-        expect(await domain.getDeliveryPref()).toEqual({ delivery: 'webpush', verbosity: 'generic' });
+        expect(await domain.getDeliveryPref()).toEqual({ delivery: 'webpush', verbosity: 'generic', lockscreen: 'generic' });
 
         expect(await domain.setDeliveryPref({ delivery: 'both', verbosity: 'generic' }))
-            .toEqual({ delivery: 'both', verbosity: 'generic' });
+            .toEqual({ delivery: 'both', verbosity: 'generic', lockscreen: 'generic' });
 
         // Garbage keeps the stored value rather than silently resetting to defaults.
         expect(await domain.setDeliveryPref({ delivery: 'carrier-pigeon', verbosity: 'shouty' }))
-            .toEqual({ delivery: 'both', verbosity: 'generic' });
+            .toEqual({ delivery: 'both', verbosity: 'generic', lockscreen: 'generic' });
+    });
+});
+
+// med-5vy0 — the delivery pref's floored defaults. The Detailed floor carries
+// lockscreen_default with verbosity ABSENT (older clients read generic); the
+// Generic default sits at clientTs 1 so two derived defaults converge on it.
+describe('domain/reminders.js — floored delivery pref defaults (med-5vy0)', () => {
+    const TYPE = 'reminderdeliverypref';
+    async function setup(seed = {}, nowMs = 1_700_000_000_000) {
+        const { createRemindersDomain } = await import('../../../domain/reminders.js');
+        const { createInMemoryRecordsPort, applyIncomingReplica } = await import('./helpers/cloud-shim-harness.js');
+        const records = createInMemoryRecordsPort(seed);
+        return { records, applyIncomingReplica, domain: createRemindersDomain({ records, now: () => nowMs }) };
+    }
+    const raw = async (records) => {
+        const [r] = await records.listRaw(TYPE);
+        if (!r) return r;
+        const { recordType, ...rest } = r;
+        return rest;
+    };
+    // The pre-med-5vy0 setDeliveryPref, verbatim in effect: reads verbosity
+    // only (absent = generic) and writes the whole record at its own clock.
+    async function oldClientSetDeliveryPref(records, { delivery, verbosity }, nowMs) {
+        const [rec] = await records.list(TYPE);
+        const current = {
+            delivery: rec && ['webpush', 'telegram', 'both'].includes(rec.delivery) ? rec.delivery : 'webpush',
+            verbosity: rec && ['generic', 'detailed'].includes(rec.verbosity) ? rec.verbosity : 'generic',
+        };
+        await records.put(TYPE, {
+            recordId: TYPE, clientTs: nowMs, deleted: false,
+            delivery: delivery || current.delivery, verbosity: verbosity || current.verbosity,
+        });
+    }
+
+    it('the Detailed floor: lock screen Detailed, Telegram text generic, verbosity absent on the record', async () => {
+        const { records, domain } = await setup();
+        expect(await domain.floorDeliveryPref('detailed')).toEqual({ delivery: 'webpush', verbosity: 'generic', lockscreen: 'detailed' });
+        expect(await raw(records)).toEqual({ recordId: TYPE, clientTs: 0, deleted: false, delivery: 'webpush', lockscreen_default: 'detailed' });
+    });
+
+    it('an older client switching to Telegram over the Detailed floor stores generic', async () => {
+        const { records, domain } = await setup();
+        await domain.floorDeliveryPref('detailed');
+        // The old Settings shows Generic for the floor (absent verbosity) and resends it.
+        await oldClientSetDeliveryPref(records, { delivery: 'telegram' }, 1_700_000_000_500);
+        expect(await domain.getDeliveryPref()).toEqual({ delivery: 'telegram', verbosity: 'generic', lockscreen: 'generic' });
+    });
+
+    it('a new client switching to Telegram/Both over the floor stores generic, even resending the shown Detailed', async () => {
+        for (const delivery of ['telegram', 'both']) {
+            const { domain } = await setup();
+            await domain.floorDeliveryPref('detailed');
+            expect(await domain.setDeliveryPref({ delivery, verbosity: 'detailed' }))
+                .toEqual({ delivery, verbosity: 'generic', lockscreen: 'generic' });
+        }
+        // A chosen Detailed survives the same switch.
+        const { domain } = await setup({ [TYPE]: [{ recordId: TYPE, clientTs: 5, deleted: false, delivery: 'webpush', verbosity: 'detailed' }] });
+        expect(await domain.setDeliveryPref({ delivery: 'telegram', verbosity: 'detailed' }))
+            .toEqual({ delivery: 'telegram', verbosity: 'detailed', lockscreen: 'detailed' });
+    });
+
+    it('the two floor ops exchanged in either order converge on generic', async () => {
+        const a = await setup();
+        const b = await setup();
+        await a.domain.floorDeliveryPref('detailed');
+        await b.domain.floorDeliveryPref('generic');
+        const opA = await raw(a.records);
+        const opB = await raw(b.records);
+        expect(opB).toMatchObject({ clientTs: 1, verbosity: 'generic' });
+        const onA = a.applyIncomingReplica(opA, opB);
+        const onB = b.applyIncomingReplica(opB, opA);
+        expect(onA).toEqual(opB);
+        expect(onB).toEqual(opB);
+    });
+
+    it('an explicit Detailed on one device beats another device\'s generic default arriving later', async () => {
+        const a = await setup();
+        const b = await setup();
+        await a.domain.floorDeliveryPref('detailed');
+        await a.domain.setDeliveryPref({ verbosity: 'detailed' });
+        await b.domain.floorDeliveryPref('generic');
+        const explicit = await raw(a.records);
+        expect(a.applyIncomingReplica(explicit, await raw(b.records))).toEqual(explicit);
+        expect(explicit).toMatchObject({ verbosity: 'detailed' });
+        expect(explicit.lockscreen_default).toBeUndefined();
+    });
+
+    it('a floor never overwrites a stored pref', async () => {
+        const stored = { recordId: TYPE, clientTs: 9, deleted: false, delivery: 'telegram', verbosity: 'generic' };
+        for (const v of ['detailed', 'generic']) {
+            const { records, domain } = await setup({ [TYPE]: [stored] });
+            await domain.floorDeliveryPref(v);
+            expect(await raw(records)).toEqual(stored);
+        }
     });
 });
 

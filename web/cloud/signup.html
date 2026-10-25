@@ -33,6 +33,11 @@
      so the claim wizard skips its Add-to-Home-Screen step there. Inert on web. -->
 <script src="/static/js/native/index.js"></script>
 <script src="/static/js/native/local-notifications.js"></script>
+<!-- /claim's in-app Scan (bd med-r1j2.10): camera + QR decode through the
+     abstractions (CLAUDE.md rule 10). claim.js loads the ZXing decoder only
+     when the scanner opens. -->
+<script src="/static/js/native/web/media-capture.js"></script>
+<script src="/static/js/native/web/barcode.js"></script>
 </head>
 <body>
   <main id="app">

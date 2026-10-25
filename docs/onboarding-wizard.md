@@ -36,6 +36,18 @@ local mode and the bundled app shows W1 ([ios.md](ios.md#the-shell-bd-med-w6gx3)
 (`features/auth-bootstrap.js`). `bootstrapPayload()` in `apishim.js` computes it from the vault on every call and never
 caches; local mode takes the same path through the bundled app's shim.
 
+- **Account mode waits for the first pull** (`med-ejgf`). Until this device has pulled the account's whole tail once
+  (`sync.js` `hasCaughtUp`: the `tailCaughtUpAt` meta key, stamped only on the last page of a successful pull), the
+  shim omits `needs_first_run`, so no pre-pull answer can mount or dismiss the overlay: an empty mirror of an existing
+  account must not run W1, whose flag writes and `{floor:'auto'}` reminder default would overwrite the account's.
+  `cloud-boot.js` re-asks after the boot pull and after every drain (online / visible / sync wake / re-auth) and
+  hands the answer to `AuthBootstrap.mountFirstRun`. A failed pull just leaves the app shell up without W1. Local mode
+  has nothing to pull and is never gated.
+- **…and for the local → cloud move pickup** (`med-ydt2`). The pickup (`cloud-boot.js` `pickUpMovedVault`) imports the
+  local page's stash after the pull and reloads; a stash with records stamps `firstrun` on the way. Until it has settled
+  without a reload the shim omits `needs_first_run` (cloud-boot passes its own `caughtUp` to `installApiShim`) and the
+  re-ask waits, so W1 never mounts over the new account and then vanishes with the reload.
+
 - The flag lives on its own **`firstrun` vault singleton** (`web/domain/settings.js`, `setFirstRunComplete`), not the
   general `settings` record: records are last-writer-wins per whole record, and a lagging device writing `timezone`
   must not resurrect the overlay. Only `setFirstRunComplete` writes it, and only ever `true`. Vault restore with user
@@ -112,7 +124,9 @@ the token stays in the URL fragment end to end and never reaches the server.
 ("Get the app for iPhone" / "…Android"), "Continue in the browser" (the PWA stays supported) and, on a desktop, a QR.
 - *Android*: the Play link carries the invite as the Install Referrer; on first launch the shell reads it **once** and files
   it in its pending slot before entering local mode, so the web shows **"Your invite is here"** (P3 · Android: *Sign in
-  with fingerprint* / *Use without sync*) ahead of W1. This transit through Google Play is a privacy-manifest carve-out
+  with fingerprint* / *Use without sync*) ahead of W1. Play answers asynchronously, so the shell holds the page's
+  `invite.pending` reply until that read settles (capped at 10 s; the page waits up to 15 s), and W1 waits on the reply:
+  a late referrer routes the invite instead of flashing W1 (`med-ydt2`). This transit through Google Play is a privacy-manifest carve-out
   (owner-accepted; the "Invite link → Get the app on Android" row of the generated table).
 - *iPhone*: no reliable automatic hand-off. The app starts local as in P1; the landing page's L3 "Installed? Tap to
   continue" opens it (universal link, or `medtracker://i/<sub>#<token>` since Safari will not open a universal link to the

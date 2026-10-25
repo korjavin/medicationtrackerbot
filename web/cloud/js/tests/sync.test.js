@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -906,6 +906,36 @@ describe('writeRecord does not await the background oplog push (med-eas.77)', ()
       process.off('unhandledRejection', onRej);
     }
   });
+
+  // bd med-ejgf: hasCaughtUp gates first-run W1. An accepted push stamps
+  // lastSyncedAt even when a peer interleaved and the re-pull failed, so only
+  // the last page of a successful pull may mark the mirror caught up.
+  it('a failed pull plus an accepted mispredicted push is not caught up; a full pull is', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    let pullOk = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        // Before: a peer took seqs 1-4. After: contiguous from our cursor.
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => i + (pullOk ? 1 : 5)) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) {
+        return pullOk ? new Response(JSON.stringify({ ops: [], next: false }), { status: 200 }) : new Response('', { status: 503 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+
+    await pullOnOpen(ctx);
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx);
+    expect((await getSyncStatus(ctx)).lastSyncedAt).not.toBeNull(); // the push was accepted
+    expect(await hasCaughtUp()).toBe(false);
+
+    pullOk = true;
+    await pullOnOpen(ctx);
+    expect(await hasCaughtUp()).toBe(true);
+  });
 });
 
 // med-gvk.2 — a half-open connection (captive portal / hung TCP) leaves a bare
@@ -1138,6 +1168,16 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBeGreaterThan(0); // pullTail's ops GET fired — no writeRecord involved
   });
 
+  // bd med-ejgf: cloud-boot re-asks first run from onSettled; a boot 401
+  // recovered by Re-authenticate must reach it with no further wake.
+  it('a reauthenticate drain runs the onSettled hook too', async () => {
+    let settled = 0;
+    teardown = startReconnectAutoDrain(ctx, { onSettled: () => { settled++; } });
+    await reauthenticate(ctx);
+    expect(settled).toBe(1);
+    expect(await hasCaughtUp()).toBe(true);
+  });
+
   it('a visibility regain while online triggers the same drain', async () => {
     teardown = startReconnectAutoDrain(ctx);
     const entered = nextOpsGet();
@@ -1347,6 +1387,34 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBe(2);
     await idle();
     expect(opsGets).toBe(2); // exactly one follow-up
+  });
+
+  it('requestFreshDrain (pull to refresh) resolves only after a GET that started after it, sharing the slot (bd med-y7b4.6)', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    let held = true;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (held) { held = false; await gate; } // hold the drain already running
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const first = nextOpsGet();
+    requestDrain(ctx); // a visibility / SSE drain, its GET already sent
+    await first;
+    let done = false;
+    const fresh = requestFreshDrain(ctx).then(() => { done = true; });
+    await idle();
+    expect(done).toBe(false);
+    expect(opsGets).toBe(1); // still one drain at a time
+    release();
+    await fresh;
+    expect(opsGets).toBe(2); // the pull the refresh asked for ran before it resolved
+    await idle();
+    expect(opsGets).toBe(2); // and no extra one after
   });
 
   it('a post-teardown online event no longer drains', async () => {
@@ -2887,6 +2955,25 @@ describe('pending overlay on a re-bootstrapped snapshot applies LWW (med-z2dq)',
     expect(raw.deleted).toBe(true);
     expect(raw.clientTs).toBe(7000);
     expect(await readPendingIds()).toEqual([]);
+  });
+
+  // med-5vy0: the reminder delivery pref's Generic default is floored at
+  // clientTs 1. Queued offline, it loses to a newer explicit pref compacted
+  // into the snapshot and its op is dropped; it still beats the Detailed floor.
+  it('a pending clientTs-1 Generic default loses to a newer explicit pref in the snapshot; its op is dropped', async () => {
+    const PREF = 'reminderdeliverypref';
+    const generic = { recordId: PREF, recordType: PREF, clientTs: 1, deleted: false, delivery: 'webpush', verbosity: 'generic' };
+    await seedPending([generic]);
+    const explicit = { recordId: PREF, recordType: PREF, clientTs: 8000, deleted: false, delivery: 'telegram', verbosity: 'detailed' };
+    await replaceAllRecords([explicit]);
+    expect(await getRaw(PREF)).toEqual(explicit);
+    expect(await readPendingIds()).toEqual([]);
+
+    // Against the Detailed floor (clientTs 0) the Generic default stands and stays queued.
+    await seedPending([generic]);
+    await replaceAllRecords([{ recordId: PREF, recordType: PREF, clientTs: 0, deleted: false, delivery: 'webpush', lockscreen_default: 'detailed' }]);
+    expect(await getRaw(PREF)).toEqual(generic);
+    expect(await readPendingIds()).toEqual([PREF]);
   });
 
   it('a newer pending row still overlays the snapshot and stays queued', async () => {

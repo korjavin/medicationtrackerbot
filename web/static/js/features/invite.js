@@ -62,7 +62,6 @@
 
     var NOT_INVITE = "That isn't an invite link. Check the address, or ask whoever invited you for a new link.";
     var OFFLINE = "You're offline — try again when connected.";
-    var NO_CAMERA = 'The camera is unavailable. Paste the link instead.';
     var SCAN_MS = 200;
     var PROBE_MS = 3000;
     // ?invite=1 (a shell with the slot): a cold bridge may need longer, but a
@@ -323,6 +322,7 @@
         scan.addEventListener('click', async function () {
             if (scanState.stream || busy) return;
             showError('');
+            if (cameraOff) { cameraOff.remove(); cameraOff = null; }
             var gen = ++scanState.gen;
             try {
                 if (typeof window.Barcode.supportsLiveScan !== 'function' || !window.Barcode.supportsLiveScan()) throw new Error('no live scan');
@@ -336,13 +336,41 @@
                 video.hidden = false;
                 try { if (typeof video.play === 'function') await video.play(); } catch (_) { /* the decoder reads the stream */ }
                 scanLoop(gen);
-            } catch (_) {
+            } catch (e) {
                 if (gen !== scanState.gen) return;
                 stopScan();
-                showError(NO_CAMERA);
+                showCameraOff(!!e && e.code === 'PERMISSION_DENIED');
                 showField();
             }
         });
+
+        // AD13 (bd med-r1j2.10): the camera is off or there is no live
+        // decoder. Say which, offer the system setting for a denied camera,
+        // and the paste field takes over (an add-device code needs its link
+        // here: a typed code alone names no account).
+        var cameraOff = null;
+        function showCameraOff(denied) {
+            if (cameraOff) cameraOff.remove();
+            var off = note('warn', 'camera', denied ? 'The camera is off for this app.' : "Scanning isn't available here.",
+                'Paste the link from your other device instead.');
+            off.el.id = 'invite-camera-off';
+            if (denied) {
+                var allow = button('wg-btn wg-btn--ghost wg-btn--sm', 'Allow camera in Settings', null, 'camera-settings');
+                allow.addEventListener('click', function () {
+                    var media = window.MediaCapture;
+                    Promise.resolve()
+                        .then(function () { return media && typeof media.openSettings === 'function' ? media.openSettings() : null; })
+                        .catch(function () { return null; })
+                        .then(function (res) {
+                            if (res && res.opened) return;
+                            allow.replaceWith(el('span', 'wg-hint', (res && res.hint) || 'Allow the camera in your settings, then try again.'));
+                        });
+                });
+                off.body.appendChild(allow);
+            }
+            cameraOff = off.el;
+            body.insertBefore(cameraOff, field);
+        }
 
         head.buttons[0].addEventListener('click', close);
         notNow.addEventListener('click', close);
@@ -658,7 +686,10 @@
         // answers get FORCED_PROBE_MS, not PROBE_MS — a bridge slowed past 3 s
         // on a cold start must not drop F1 (iOS flow QA, bd med-w6gx.23.8).
         if ((await within(n.has('invite.pending'), false, forced)) !== true) return;
-        var slot = await within(n.call('invite.pending'), null, forced);
+        // Always the long box (bd med-ydt2): on a first install the Android
+        // shell holds this answer until its Play referrer read settles, and
+        // W1 waits on it, so a late invite routes instead of flashing W1.
+        var slot = await within(n.call('invite.pending'), null, true);
         var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
         if (invite && !(slot.receivedAt > Date.now() - maxAge(invite.claimUrl))) {
             n.call('invite.clear').catch(function () { /* judged stale again next open */ });

@@ -28,6 +28,12 @@ function post(fields) {
   }
 }
 
+// One free-text line from another subsystem (the Health import's per-run
+// counts, bd med-w6gx.30) into the same log. Callers pass counts only.
+export function diagLine(line) {
+  if (inShell()) post({ op: 'log', line });
+}
+
 // A server ceremony step's HTTP status; returns res unchanged. A begin (or the
 // account-delete reauth) starts the ceremony clock.
 export function diagHttp(step, res) {

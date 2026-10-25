@@ -36,26 +36,38 @@ object LocalOrigin {
      * iOS LocalOrigin.basePostPaths; the trial chat/food/voice paths stay page fetch.
      */
     val BASE_POST_PATHS = setOf(
-        "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
+        "/api/attest/challenge", "/api/attest/delete", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
     )
+
+    /**
+     * local.reset {dropAttest} (bd med-egb3, contract point 4): only a JSON true (no optBoolean
+     * coercion of "true"), which the page sends only once our server deleted the install record.
+     */
+    fun dropsAttest(flag: Any?): Boolean = flag == true
 
     /**
      * Bridge ops only an account page may call (bd med-nt9p.32.13); the bundled app gets "unsupported".
      * move.take/move.clear (bd med-nt9p.32.17): the new account picks up the local origin's stash.
      * push.token (bd med-erq1.5, Push.kt): local mode never reports an FCM token.
+     * account.leave.forget (bd med-r1j2.19): a capability marker, never callable ("unsupported"): this
+     * shell honours account.leave {then: "local", forget: true}.
      */
-    val ACCOUNT_OPS = setOf("account.leave", "move.take", "move.clear", "leave.stash", "push.token")
+    val ACCOUNT_OPS = setOf("account.leave", "move.take", "move.clear", "leave.stash", "push.token", "account.leave.forget")
     /** Every other op the shell answers, in both modes (MainActivity.onBridge, Notifications, HealthConnect). */
     val SHARED_OPS = setOf(
         "ping", "chrome", "shell.ops", "diag.append", "health.authorize", "health.query",
         "notifications.permission", "notifications.requestPermission", "notifications.schedule", "notifications.test",
         // The denied note's "Open Android Settings" (web #1218, bd med-ckm5.16).
         "notifications.openSettings",
+        // The camera-denied "Allow camera in Settings" (bd med-r1j2.19): this app's system Settings page.
+        "app.openSettings",
         // The pending-invite slot (bd med-ta2n.12.1, Invite.kt) and F1's Paste (Android only).
         "invite.pending", "invite.clear", "clipboard.read",
         // "Join and erase" (bd med-r1j2.8): the local page probes it to offer the erase; only the joined
         // account, booted unlocked, makes it act (MainActivity); in local mode a no-op.
         "local.erase",
+        // The page's back stack (bd med-y7b4.5, native/back.js): Back goes to the page while it can step.
+        "back.state",
     )
 
     /** The bridge op shell.ops (bd med-nt9p.32.13): what this shell answers in this mode, for the page's capability probe. */

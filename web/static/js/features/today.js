@@ -432,9 +432,10 @@
         const healthEnabled = pickFeature(features, 'health');
         const gamificationEnabled = pickFeature(features, 'gamification');
         // ED-safe (med-8tur.12) rides the Goal Line payload: no weight numbers
-        // on Today — the Weight tab itself stays the user's own data.
+        // on Today — the Weight tab itself stays the user's own data. Not gated
+        // on the Journey flag: the route carries ed_safe either way (med-njny).
         const goalLinePayload = caches.gamification_goal_line;
-        const edSafe = gamificationEnabled && !!(goalLinePayload && goalLinePayload.ed_safe);
+        const edSafe = !!(goalLinePayload && goalLinePayload.ed_safe);
 
         const nextMed = nextMedCell(bootstrap, nowMs, medEnabled, opts);
         const result = {

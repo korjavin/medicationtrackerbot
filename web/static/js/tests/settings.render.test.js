@@ -52,11 +52,11 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
     it('renders the everyday and connected groups as .wg-list of .wg-setting rows', () => {
         const { document, cleanup } = loadSettingsView();
         try {
-            const groups = Array.from(document.querySelectorAll('.wg-settings-home > .wg-settings-slot > .wg-list:not(.wg-local-only)'));
+            const groups = Array.from(document.querySelectorAll('.wg-settings-home > .wg-settings-slot > .wg-list:not(.wg-local-only):not(.wg-settings-leave-account)'));
             expect(groups.map((g) => Array.from(g.querySelectorAll('[data-settings-open]')).map((r) => r.dataset.settingsOpen)))
                 .toEqual([
                     ['features', 'targets', 'notifications', 'units'],
-                    ['integrations', 'devices', 'backup', 'account'],
+                    ['integrations', 'devices', 'backup'],
                 ]);
             // The slot-① cards (cloud vault, local Sync & backup) are cards, not rows.
             for (const r of document.querySelectorAll('.wg-settings-home .wg-list [data-settings-open]')) {
@@ -108,17 +108,20 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
     it('hideEmptySettingsRows() hides a row whose page sections are all hidden and leaves others visible', () => {
         const { window, document, cleanup } = loadSettingsView();
         try {
-            // Bot build: the Account page's sections stay hidden.
+            // Bot build: the Devices page's sections stay hidden.
             window.hideEmptySettingsRows();
-            expect(row(document, 'account').classList.contains('wg-settings-hidden')).toBe(true);
             expect(row(document, 'devices').classList.contains('wg-settings-hidden')).toBe(true);
             // Notifications keeps the (always-on) Reminders section.
             expect(row(document, 'notifications').classList.contains('wg-settings-hidden')).toBe(false);
             expect(row(document, 'features').classList.contains('wg-settings-hidden')).toBe(false);
 
+            document.querySelector('.wg-settings-cloud-devices').classList.remove('wg-settings-hidden');
+            window.hideEmptySettingsRows();
+            expect(row(document, 'devices').classList.contains('wg-settings-hidden')).toBe(false);
+            // The vault card (the Account & privacy entry) is never revealed by it.
             document.querySelector('.wg-settings-privacy').classList.remove('wg-settings-hidden');
             window.hideEmptySettingsRows();
-            expect(row(document, 'account').classList.contains('wg-settings-hidden')).toBe(false);
+            expect(row(document, 'account').classList.contains('wg-settings-hidden')).toBe(true);
         } finally {
             cleanup();
         }
@@ -152,7 +155,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
             row(document, 'units').click();
             const pushed = document.querySelector('mt-modal.wg-page[id^="wg-page-"]');
             expect(pushed).not.toBeNull();
-            expect(pushed.querySelector('.wg-pagebar__title').textContent).toBe('Units');
+            expect(pushed.querySelector('.wg-pagebar__title').textContent).toBe('Units & body');
             expect(pushed.querySelector('.wg-back').textContent).toContain('Settings');
             expect(pushed.querySelector('#weight-unit-segmented')).not.toBeNull();
             expect(page(document, 'units')).toBeNull(); // moved, not cloned
@@ -224,7 +227,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
 describe('Settings home slots + mode card (kit S6)', () => {
     const SLOTS = ['mode-card', 'mode-actions', 'health', 'everyday', 'connected', 'feedback'];
     const ROWS_IN_ORDER = ['#settings-vault-card', '#settings-sync-card', '#settings-local-lock', '#health-import-row',
-        '[data-settings-open="features"]', '[data-settings-open="account"]', '#feedback-launcher'];
+        '[data-settings-open="features"]', '[data-settings-open="devices"]', '#feedback-launcher'];
     const order = (document) => Array.from(document.querySelectorAll(ROWS_IN_ORDER.join(', ')))
         .map((el) => ROWS_IN_ORDER.find((sel) => el.matches(sel)));
     const permutations = (xs) => (xs.length <= 1 ? [xs]
@@ -270,7 +273,7 @@ describe('Settings home slots + mode card (kit S6)', () => {
         }
     });
 
-    it('cloud: "Your vault" card names the host, devices and last sync; the Kit chip follows the emergencykit record', async () => {
+    it('cloud: "Your vault" card names the host and last sync, carries the Kit chip and opens Account & privacy', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
@@ -292,7 +295,7 @@ describe('Settings home slots + mode card (kit S6)', () => {
             await window.loadSettings();
             const hhmm = new Date(syncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             await vi.waitFor(() => expect(document.getElementById('settings-vault-meta').textContent)
-                .toBe(`example.test · 2 devices · synced ${hhmm}`));
+                .toBe(`example.test · synced ${hhmm}`));
             expect(card.classList.contains('wg-settings-hidden')).toBe(false);
             expect(card.querySelector('.wg-chip').textContent).toBe('Cloud');
             // No kit save on any device yet → the chip nudges.
@@ -325,15 +328,27 @@ describe('Settings home slots + mode card (kit S6)', () => {
             await window.loadSettings();
             await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(true));
 
-            // The card opens Devices & connectors (its modules stubbed, as in settings.toggles).
+            const topPage = () => Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop();
+            const pushedTitle = () => topPage()?.querySelector('.wg-pagebar__title').textContent;
+            // SC1/SC2 (bd med-y7b4.1): the card opens Account & privacy, which
+            // keeps its title and has no Leave section (that row is on the home).
+            card.click();
+            await vi.waitFor(() => expect(pushedTitle()).toBe('Account & privacy'));
+            expect(topPage().querySelector('.wg-settings-privacy')).not.toBeNull();
+            expect(topPage().querySelector('.wg-settings-leave-account, #settings-leave-account-btn')).toBeNull();
+            expect(topPage().textContent).not.toMatch(/without an account/);
+            topPage().querySelector('.wg-back').click();
+            // The Account & privacy row is gone from the list: the card is the only entry.
+            expect(document.querySelectorAll('.wg-settings-home [data-settings-open="account"]').length).toBe(1);
+            expect(document.querySelector('.wg-settings-home [data-settings-open="account"]')).toBe(card);
+
+            // Devices & connectors keeps its row (its modules stubbed, as in settings.toggles).
             window.loadCloudDevicesModule = () => Promise.resolve({ renderDeviceList: vi.fn() });
             window.loadCloudConnectorsModule = () => Promise.resolve({ claudeConnectorMode: async () => 'remote' });
-            card.click();
+            row(document, 'devices').click();
             // Let the page's async connector refresh land before cleanup.
             await vi.waitFor(() => expect(document.getElementById('settings-claude-connector-status').textContent)
                 .toBe('Remote · claude.ai / ChatGPT'));
-            const pushedTitle = () => Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
-                ?.querySelector('.wg-pagebar__title').textContent;
             await vi.waitFor(() => expect(pushedTitle()).toBe('Devices & connectors'));
         } finally {
             delete window.__MEDTRACKER_CLOUD__;

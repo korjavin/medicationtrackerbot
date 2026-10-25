@@ -18,6 +18,7 @@
 // reading; nothing new leaves the device.
 import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed } from './sync.js';
 import { createHealthImportDomain } from '../../domain/healthimport.js';
+import { diagLine } from './passkey-diag.js';
 
 // Sleep and workouts: bd med-w6gx.7.
 export const HEALTH_KINDS = ['bp', 'weight', 'sleep', 'workout'];
@@ -69,11 +70,25 @@ export function resetHealthAnchors(storage = globalThis.localStorage) {
     try { storage.removeItem(SLEEP_PENDING_KEY); } catch { /* storage blocked: nothing kept */ }
 }
 
+// One diagnostics line per kind per run (bd med-w6gx.30), counts only — no
+// times, no readings; for sleep the HealthKit value histogram (0 In Bed, 1
+// asleep, 2 awake, 3-5 stages), e.g.
+// [health] sleep returned=3 samples=3 values={0:1} nights=0 written=0 skip{inBed:1,unsettled:0,clipped:0,exists:0,overlap:0} anchor=moved
+function kindLine(kind, st) {
+    const obj = (o) => `{${Object.keys(o).map((k) => `${k}:${o[k]}`).join(',')}}`;
+    const vals = Object.fromEntries(Object.entries(st.values).sort((a, b) => Number(a[0]) - Number(b[0])));
+    return `[health] ${kind} returned=${st.returned} samples=${st.samples}`
+        + (kind === 'sleep' ? ` values=${obj(vals)} nights=${st.nights}` : '')
+        + ` written=${st.written} skip${obj(st.skip)} anchor=${st.anchor}`
+        + (st.error ? ` error=${st.error}` : '');
+}
+
 function timeZone() {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
 
-// One import pass over every kind. Returns { added }, or null when off.
+// One import pass over every kind. Returns { added }, or null when off;
+// rejects when every kind failed.
 // The anchor is saved after each page's writes are in the local store, so a
 // crash mid-run re-reads at most one page — which putIfAbsent makes a no-op.
 export async function runHealthImport(ctx, {
@@ -82,20 +97,40 @@ export async function runHealthImport(ctx, {
     records = recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true }),
     flush = () => flushConfirmed(ctx),
     now = Date.now,
+    diag = diagLine,
 } = {}) {
     if (!health || !health.isSupported() || !isHealthImportEnabled(storage)) return null;
     const domain = createHealthImportDomain({ records, now, timeZone: timeZone() });
     const anchors = readJSON(storage, ANCHORS_KEY, {});
+    const last = readJSON(storage, LAST_KEY, {});
+    // Samples ever seen per kind: a kind that never returns any while others
+    // do is most likely switched off in Health's per-type access (statusText).
+    const seen = { ...(last.seen || {}) };
     let added = 0;
+    let lastError = null;
+    let failed = 0;
     for (const kind of HEALTH_KINDS) {
+        const st = { returned: 0, samples: 0, values: {}, nights: 0, written: 0, skip: {}, anchor: 'kept', error: null };
         // One kind failing (e.g. a type this device was never asked access
         // for) must not stop the others; its anchor stays where it was.
         try {
             const pending = [];
             const take = async (res) => {
+                const samples = res && Array.isArray(res.samples) ? res.samples : [];
+                st.returned += (res && Number(res.returned)) || 0;
+                st.samples += samples.length;
+                if (kind === 'sleep') {
+                    for (const s of samples) {
+                        const v = s && Number.isInteger(s.value) ? s.value : '?';
+                        st.values[v] = (st.values[v] || 0) + 1;
+                    }
+                }
                 // The whole result goes along: sleep reads its window ({from, to}).
                 const r = await domain.importSamples(kind, res && res.samples, res);
                 added += r.added;
+                st.written += r.added;
+                st.nights += r.nights || 0;
+                for (const [k, n] of Object.entries(r.skip || {})) st.skip[k] = (st.skip[k] || 0) + n;
                 // Saved before the caller moves the anchor past these samples:
                 // a later page failing must not lose an unsettled night.
                 if (Number.isFinite(r.pending)) {
@@ -120,6 +155,7 @@ export async function runHealthImport(ctx, {
                 if (res && typeof res.anchor === 'string' && res.returned > 0) {
                     anchors[kind] = res.anchor;
                     writeJSON(storage, ANCHORS_KEY, anchors);
+                    st.anchor = 'moved';
                 }
                 if (!res || !res.more) break;
             }
@@ -128,18 +164,26 @@ export async function runHealthImport(ctx, {
             }
         } catch (e) {
             console.error(`[health] ${kind} import failed`, e);
+            st.error = (e && e.name) || 'Error';
+            lastError = e;
+            failed++;
         }
+        seen[kind] = (seen[kind] || 0) + st.samples;
+        diag(kindLine(kind, st));
     }
-    const last = readJSON(storage, LAST_KEY, {});
     writeJSON(storage, LAST_KEY, {
         checkedAt: now(),
         addedAt: added > 0 ? now() : last.addedAt || null,
         added,
         total: (last.total || 0) + added,
+        seen,
     });
     // One chunked push for the whole batch instead of one POST per reading;
     // a failure leaves the rows pending for the next sync, nothing is lost.
     if (added > 0) await flush().catch(() => {});
+    // Every kind failed: the store could not be read at all (pull to refresh
+    // shows the fix). One kind failing alone stays a log line.
+    if (failed === HEALTH_KINDS.length) throw lastError;
     return { added };
 }
 
@@ -157,10 +201,16 @@ export function healthStatusText(storage = globalThis.localStorage, health = glo
     if (!isHealthImportEnabled(storage)) return 'Import blood pressure, weight, sleep and workouts';
     const last = readJSON(storage, LAST_KEY, {});
     if (!last.checkedAt) return 'Importing…';
-    if (!last.total) return `Checked ${formatWhen(last.checkedAt)} · nothing yet. Check access in ${(health && health.accessHint) || 'Settings → Health → Data Access & Devices'}.`;
+    const hint = (health && health.accessHint) || 'Settings → Health → Data Access & Devices';
+    // Health shares each type separately and never says one is off: sleep
+    // never returning a sample while BP or weight do points at its switch.
+    const seen = last.seen || {};
+    const sleepHint = !seen.sleep && (seen.bp > 0 || seen.weight > 0)
+        ? ` No sleep found: if you track sleep, turn on Sleep for Med Tracker in ${hint}.` : '';
+    if (!last.total) return `Checked ${formatWhen(last.checkedAt)} · nothing yet. Check access in ${hint}.`;
     const n = `${last.total} reading${last.total === 1 ? '' : 's'} so far`;
     const added = last.addedAt ? ` (last new ${formatWhen(last.addedAt)})` : '';
-    return `Checked ${formatWhen(last.checkedAt)} · ${n}${added}`;
+    return `Checked ${formatWhen(last.checkedAt)} · ${n}${added}${sleepHint && `.${sleepHint}`}`;
 }
 
 // startHealthImport(ctx): mount the Settings row, run once now and again on
@@ -174,6 +224,7 @@ export function startHealthImport(ctx, {
         await recomputeAndPush(ctx);
     },
     run = (opts) => runHealthImport(ctx, opts),
+    appRefresh = globalThis.AppRefresh,
 } = {}) {
     if (!health || !health.isSupported()) return null;
     let inFlight = null;
@@ -181,17 +232,33 @@ export function startHealthImport(ctx, {
         const desc = doc.getElementById(ROW_ID)?.querySelector('.wg-setting__desc');
         if (desc) desc.textContent = healthStatusText(storage, health);
     };
-    const importNow = () => {
+    // One pass at a time; rejects when the pass failed (pull to refresh toasts it).
+    const pass = () => {
         if (inFlight) return inFlight;
-        inFlight = run({ health, storage })
+        inFlight = Promise.resolve()
+            .then(() => run({ health, storage }))
             .then(async (r) => {
                 if (r && r.added > 0) await afterImport().catch((e) => console.error('[health] reminder recompute failed', e));
                 return r;
             })
-            .catch((e) => { console.error('[health] import failed', e); return null; })
             .finally(() => { inFlight = null; refresh(); });
         return inFlight;
     };
+    const importNow = () => pass().catch((e) => { console.error('[health] import failed', e); return null; });
+    // Pull to refresh on Health (bd med-y7b4.6). An import switched off in
+    // Settings has nothing to read: it resolves { added: 0 }. AppRefresh is a
+    // classic body script: started mid-parse, register once it has loaded.
+    const registerRefresh = () => {
+        const ar = appRefresh || globalThis.AppRefresh;
+        if (!ar || typeof ar.setImport !== 'function') return;
+        ar.setImport(() => pass().then((r) => r || { added: 0 }), healthLabel(health),
+            () => isHealthImportEnabled(storage));
+    };
+    if (!appRefresh && doc && doc.readyState === 'loading') {
+        doc.addEventListener('DOMContentLoaded', registerRefresh, { once: true });
+    } else {
+        registerRefresh();
+    }
 
     mountHealthRow(doc, storage, health, async (on) => {
         if (!on) {

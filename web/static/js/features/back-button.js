@@ -1,9 +1,8 @@
 // Back-button integration for section-level navigation.
-// Single back handler for the whole app:
-//   - If a modal is open → close the topmost modal (modal-history's MutationObserver
-//     handles the history.back() + visibility reconciliation via refresh()).
-//   - Otherwise → a page (Settings / Journey) returns to the tab it was opened
-//     from (features/app-nav.js backTarget); any other section returns to Today.
+// The chevron tap and the BrowserAdapter's popstate run AppBack.step()
+// (features/app-back.js): close the topmost modal (modal-history's
+// MutationObserver handles the history.back() + visibility reconciliation via
+// refresh()), else return to the previous section, else nothing at Today.
 //
 // modal-history.js drives show() when a modal opens; after a modal closes it calls
 // AppBackButton.refresh() so the button re-appears on non-Today sections.
@@ -46,18 +45,9 @@
         }
         refreshFn = refreshBackButton;
 
+        // The one back order lives in features/app-back.js (bd med-y7b4.3).
         adapter.onBack(function () {
-            if (modalIsOpen()) {
-                if (window.ModalManager && typeof window.ModalManager.closeTopMostVisibleModal === 'function') {
-                    window.ModalManager.closeTopMostVisibleModal();
-                }
-                return;
-            }
-            if (typeof window.switchTab === 'function') {
-                // Pages (Settings / Journey) return to the tab they were
-                // opened from (AppStore 'previousTab'); sections to Today.
-                window.switchTab(window.AppNav ? window.AppNav.backTarget(currentTab()) : 'today');
-            }
+            if (window.AppBack) window.AppBack.step();
         });
 
         if (window.AppStore && typeof window.AppStore.subscribe === 'function') {

@@ -188,18 +188,20 @@ describe('Medication editor page (kit M5–M6)', () => {
         const { document, window } = env;
         const requestPermission = vi.fn(async () => 'granted');
         window.LocalNotifications = { isSupported: () => true, permission: vi.fn(async () => 'default'), requestPermission };
+        window.apiCall = vi.fn(async (url, method, body) => (method === 'PUT' ? body : { verbosity: 'generic' }));
 
         const first = window.NotifyPermission.maybeAsk();
+        await flush();
         await flush();
         const sheet = document.getElementById('notify-permission-sheet');
         expect(sheet).not.toBeNull();
         expect(sheet.querySelector('.wg-eyebrow').textContent).toBe('Reminders');
         expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('Let Med Tracker remind you');
         expect(Array.from(sheet.querySelectorAll('.wg-facts b')).map((b) => b.textContent))
-            .toEqual(['Only what you schedule', 'Shown on your lock screen', 'Change it any time']);
-        // Account mode (med-mt0l): reminders always name what is due — no choice.
-        expect(sheet.querySelector('[data-notify-verbosity]')).toBeNull();
-        expect(sheet.querySelector('.wg-notif')).toBeNull();
+            .toEqual(['Only what you schedule', 'Change it any time']);
+        // Account mode carries the RD1 choice too (med-5vy0).
+        expect(sheet.querySelector('[data-notify-verbosity] .wg-choice[aria-pressed="true"]').dataset.value).toBe('generic');
+        expect(sheet.querySelector('.wg-notif__text').textContent).toBe('Medication time');
         // A second schedule while the sheet is up does not stack another.
         expect(window.NotifyPermission.maybeAsk()).toBe(first);
 
@@ -207,6 +209,10 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(requestPermission).toHaveBeenCalledTimes(1);
         await expect(first).resolves.toBe(true);
         expect(document.getElementById('notify-permission-sheet')).toBeNull();
+        // Untouched is not a choice: account mode stores only a floored Generic
+        // (kept by the shim only when no pref exists), never a real write.
+        const puts = window.apiCall.mock.calls.filter((c) => c[1] === 'PUT');
+        expect(puts).toEqual([['/api/settings/reminder-delivery', 'PUT', { floor: 'generic' }]]);
 
         // Answered: never again on this device, even if still 'default'.
         await expect(window.NotifyPermission.maybeAsk()).resolves.toBe(false);
@@ -221,11 +227,19 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(document.getElementById('notify-permission-sheet')).toBeNull();
 
         permission.mockResolvedValue('default');
+        const realApiCall = window.apiCall;
+        window.apiCall = vi.fn(async (url, method, body) => (method === 'PUT' ? body : { verbosity: 'detailed' }));
         const asking = window.NotifyPermission.maybeAsk();
+        await flush();
         await flush();
         document.querySelector('#notify-permission-sheet [data-notify-choice="not-now"]').click();
         await expect(asking).resolves.toBe(false);
         expect(window.LocalNotifications.requestPermission).not.toHaveBeenCalled();
+        // Not now on an account already on Detailed: only the floored default,
+        // which the shim drops because a pref is stored (cloud.shim-contract.reminders).
+        expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT'))
+            .toEqual([['/api/settings/reminder-delivery', 'PUT', { floor: 'generic' }]]);
+        window.apiCall = realApiCall;
 
         window.showAddModal();
         await flush();
@@ -234,7 +248,7 @@ describe('Medication editor page (kit M5–M6)', () => {
 
     // med-mt0l (kit RD1): local-only mode's ask sheet carries S8's Generic /
     // Detailed pair with a live preview; the pick is saved however it closes.
-    describe('local-only lock-screen choice (RD1/RD2)', () => {
+    describe('lock-screen choice (RD1/RD2)', () => {
         const DELIVERY = '/api/settings/reminder-delivery';
         const pressed = (root) => root.querySelector('[data-notify-verbosity] .wg-choice[aria-pressed="true"]').dataset.value;
 
@@ -326,8 +340,27 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(window.apiCall).toHaveBeenCalledWith(DELIVERY, 'PUT', { verbosity: 'detailed' });
         });
 
-        it('RD2 is local-only: an account-mode grant opens no follow-up sheet', async () => {
+        // med-5vy0: an account whose pref could not be read shows Generic and,
+        // closed untouched, sends only the floored default — never a real
+        // Generic over a Detailed it never saw.
+        it('RD1 in account mode with an unreadable pref: Not now sends only the floored default', async () => {
             const { document, window } = env;
+            window.apiCall = vi.fn(async (url, method, body) => (method === 'PUT' ? body : null));
+            window.LocalNotifications = { isSupported: () => true, permission: vi.fn(async () => 'default'), requestPermission: vi.fn() };
+            const asking = window.NotifyPermission.maybeAsk();
+            await flush();
+            await flush();
+            const sheet = document.getElementById('notify-permission-sheet');
+            expect(pressed(sheet)).toBe('generic');
+            sheet.querySelector('[data-notify-choice="not-now"]').click();
+            await expect(asking).resolves.toBe(false);
+            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([[DELIVERY, 'PUT', { floor: 'generic' }]]);
+        });
+
+        // med-5vy0: account mode gets RD2 too; a changed pick is a real write.
+        it('RD2 in account mode: the grant opens the same sheet; Done untouched floors, a pick writes', async () => {
+            const { document, window } = env;
+            window.apiCall = vi.fn(async (url, method, body) => (method === 'PUT' ? body : { verbosity: 'generic' }));
             const permission = vi.fn(async () => 'default');
             const requestPermission = vi.fn(async () => { permission.mockResolvedValue('granted'); return 'granted'; });
             window.LocalNotifications = { isSupported: () => true, permission, requestPermission, copy: { os: 'iOS' } };
@@ -338,7 +371,25 @@ describe('Medication editor page (kit M5–M6)', () => {
             await flush();
             await flush();
             await flush();
+            const sheet = document.getElementById('notify-detail-sheet');
+            expect(sheet).not.toBeNull();
+            expect(pressed(sheet)).toBe('generic');
+            sheet.querySelector('[data-notify-choice="done"]').click();
             expect(document.getElementById('notify-detail-sheet')).toBeNull();
+            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([[DELIVERY, 'PUT', { floor: 'generic' }]]);
+
+            // The ask sheet with a changed pick: a real write of that pick.
+            window.apiCall.mockClear();
+            window.localStorage.removeItem('wg.notifyPermission.asked');
+            permission.mockResolvedValue('default');
+            const asking = window.NotifyPermission.maybeAsk();
+            await flush();
+            await flush();
+            const ask = document.getElementById('notify-permission-sheet');
+            ask.querySelector('[data-notify-verbosity] .wg-choice[data-value="detailed"]').click();
+            ask.querySelector('[data-notify-choice="not-now"]').click();
+            await expect(asking).resolves.toBe(false);
+            expect(window.apiCall.mock.calls.filter((c) => c[1] === 'PUT')).toEqual([[DELIVERY, 'PUT', { verbosity: 'detailed' }]]);
         });
 
         afterEach(() => {

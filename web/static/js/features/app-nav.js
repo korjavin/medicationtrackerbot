@@ -74,8 +74,9 @@ window.AppNav = (function () {
         try { return window.localStorage.getItem(PAGE_ORIGIN_KEY); } catch (_) { return null; }
     }
 
-    // Where Back goes from `tab`: a page returns to the tab it was opened from;
-    // any other section returns to Today.
+    // Where Back goes from `tab` when AppBack has no in-session trail (a
+    // restored or deep-linked section): a page returns to the tab it was opened
+    // from; any other section returns to Today.
     function backTarget(tab) {
         if (!isPage(tab)) return 'today';
         const prev = previousTab();
@@ -199,7 +200,9 @@ window.AppNav = (function () {
             : null;
         if (!target || typeof switchTab !== 'function') return;
         if (target.hasAttribute('data-nav-back')) {
-            switchTab(backTarget(_state.current));
+            // The page bar's Back is Back (features/app-back.js, bd med-y7b4.3).
+            if (window.AppBack) window.AppBack.step();
+            else switchTab(backTarget(_state.current));
         } else if (target.dataset.navTo) {
             switchTab(target.dataset.navTo);
         } else if (target.dataset.healthSeg) {

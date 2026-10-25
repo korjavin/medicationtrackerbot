@@ -659,12 +659,19 @@ func TestRouter_HandoffLanding(t *testing.T) {
 	if strings.Contains(get(h, "app.example.com", "/d/known-sub").Body.String(), "medtracker-handoff-app") {
 		t.Error("app-links meta emitted while off")
 	}
+	// The account app document carries the flag too (add-device origin, med-r1j2.13).
+	if strings.Contains(get(h, "known-sub.app.example.com", "/").Body.String(), "medtracker-handoff-app") {
+		t.Error("app document has the app-links meta while off")
+	}
 	h.SetHandoffAppLinks(false)
 	h.SetInviteStoreIDs("1234567890", "com.example.app")
 	h.SetHandoffAppLinks(true)
 	body := get(h, "app.example.com", "/d/known-sub").Body.String()
 	if !strings.Contains(body, `<meta name="medtracker-handoff-app" content="1">`) {
 		t.Errorf("hand-off page missing the app-links meta: %q", body)
+	}
+	if !strings.Contains(get(h, "known-sub.app.example.com", "/").Body.String(), `<meta name="medtracker-handoff-app" content="1">`) {
+		t.Error("app document missing the app-links meta while on")
 	}
 	for _, want := range []string{
 		`<meta name="medtracker-ios-app-store-id" content="1234567890">`,

@@ -153,6 +153,13 @@ class AccountUrlTest {
         assertFalse(Invite.eraseDue(h, 1_000L, "xyz.app.example.com", 1_000L)) // another account
         assertFalse(Invite.eraseDue(null, 1_000L, h, 1_000L))
         assertFalse(Invite.eraseDue(h, 1_000L, null, 1_000L))
+        // bd med-r1j2.14: only an add-device claim link arms it, as iOS's url.path == "/claim".
+        assertTrue(Invite.armsErase("https://abc.app.example.com/claim#AbC_1.x-Y2"))
+        assertTrue(Invite.armsErase(AccountUrl.parseInvite("https://app.example.com/d/abc#AbC_1.x-Y2", "app.example.com")!!))
+        assertFalse(Invite.armsErase("https://abc.app.example.com/#claim=deadbeef")) // an invite
+        assertFalse(Invite.armsErase("https://abc.app.example.com/"))
+        assertFalse(Invite.armsErase("https://abc.app.example.com/claim/x#a.b"))
+        assertFalse(Invite.armsErase("not a url"))
     }
 
     @Test

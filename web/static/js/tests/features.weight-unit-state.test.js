@@ -172,8 +172,8 @@ describe('features/weight-unit-state.js (Plan 2026-05-13, Task 2)', () => {
 
         const root = document.getElementById('weight-unit-segmented');
         if (root) {
-            const lbBtn = root.querySelector('.wg-settings-segmented__btn[data-unit="lb"]');
-            const kgBtn = root.querySelector('.wg-settings-segmented__btn[data-unit="kg"]');
+            const lbBtn = root.querySelector('[data-unit="lb"]');
+            const kgBtn = root.querySelector('[data-unit="kg"]');
             expect(lbBtn.getAttribute('aria-pressed')).toBe('true');
             expect(kgBtn.getAttribute('aria-pressed')).toBe('false');
         }

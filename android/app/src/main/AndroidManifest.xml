@@ -80,9 +80,13 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <!-- configChanges: rotation/theme must not recreate the activity and its WebView. -->
+        <!-- configChanges: rotation/theme must not recreate the activity and its WebView.
+             singleTop (bd med-r1j2.15): FCM's notification tap is the launcher intent + CLEAR_TOP
+             without SINGLE_TOP; standard mode would recreate the activity and lose the page's
+             in-memory state (a live add-device flow). Every intent then reaches onNewIntent. -->
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density"
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait"

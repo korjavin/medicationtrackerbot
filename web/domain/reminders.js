@@ -26,7 +26,7 @@ const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
 const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
-const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
+export const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
@@ -722,7 +722,7 @@ function findSingleton(all, recordId) {
 
 // createRemindersDomain builds the enable/disable preference + horizon-build
 // API over the injected ports:
-//   records — { list(type), put(type, record), del(type, id) }
+//   records — { list(type), put(type, record), putIfAbsent(type, record), del(type, id) }
 //   now()   — current time in ms epoch
 // The shim layer reads medication/intake/tzplan records itself and calls
 // buildHorizon with them, then uploads the result via web/cloud/js/push.js's
@@ -825,24 +825,61 @@ export function createRemindersDomain({ records, now }) {
   // what leaves the vault: 'generic' (default) sends only "Medication time",
   // 'detailed' is an explicit opt-in that sends medication names. Defaulting to
   // generic keeps names in the vault unless the user chooses otherwise (bd
-  // med-yor.13).
+  // med-yor.13). Telegram reads `verbosity` ONLY.
+  //
+  // `lockscreen` (med-5vy0) is what web push bodies and the shells' local
+  // notifications show: the explicit verbosity, else the record's
+  // `lockscreen_default` (the Detailed floor below), else 'generic'.
   async function getDeliveryPref() {
     const all = await records.list(DELIVERYPREF_RECORD_TYPE);
     const rec = findSingleton(all, DELIVERYPREF_RECORD_ID);
     const delivery = rec && DELIVERY_CHANNELS.includes(rec.delivery) ? rec.delivery : 'webpush';
-    const verbosity = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : 'generic';
-    return { delivery, verbosity };
+    const explicit = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : null;
+    const lockscreen = explicit || (rec && VERBOSITIES.includes(rec.lockscreen_default) ? rec.lockscreen_default : 'generic');
+    return { delivery, verbosity: explicit || 'generic', lockscreen };
   }
 
+  // Writes an explicit verbosity, which replaces any lockscreen_default. Not
+  // passing one keeps the Telegram verbosity, 'generic' over a Detailed
+  // floor: a floored account that switches to Telegram/Both stores generic,
+  // and its lock screen follows from then on (one field, one visible
+  // setting). A Settings UI resending the shown lock-screen value unchanged
+  // on a channel switch counts as not passing one.
   async function setDeliveryPref({ delivery, verbosity } = {}) {
     const current = await getDeliveryPref();
+    const nextDelivery = DELIVERY_CHANNELS.includes(delivery) ? delivery : current.delivery;
+    const channelOnly = nextDelivery !== current.delivery && verbosity === current.lockscreen;
     const next = {
-      delivery: DELIVERY_CHANNELS.includes(delivery) ? delivery : current.delivery,
-      verbosity: VERBOSITIES.includes(verbosity) ? verbosity : current.verbosity,
+      delivery: nextDelivery,
+      verbosity: VERBOSITIES.includes(verbosity) && !channelOnly ? verbosity : current.verbosity,
     };
     await records.put(DELIVERYPREF_RECORD_TYPE, {
       recordId: DELIVERYPREF_RECORD_ID, clientTs: now(), deleted: false, ...next,
     });
+    return getDeliveryPref();
+  }
+
+  // Defaults, not choices (med-5vy0): DERIVED writes, putIfAbsent at a fixed
+  // clientTs below any real write (CLAUDE.md rule 12), so a real choice on
+  // any device wins and a stored pref (a Telegram user's 'generic' included)
+  // is never touched.
+  //   'detailed': an account holding medications but no pref keeps the names
+  //     its reminders always showed. Carried as lockscreen_default with
+  //     verbosity ABSENT: clients from before med-5vy0 read verbosity as the
+  //     Telegram opt-in, and absent means generic to them.
+  //   'generic': a new account's first run, a sheet closed untouched.
+  //     clientTs 1, the one exception to the floor-0 rule: two devices that
+  //     derived different defaults converge under strict-> LWW, and privacy
+  //     wins the tie.
+  const FLOOR_BODIES = {
+    detailed: { clientTs: 0, delivery: 'webpush', lockscreen_default: 'detailed' },
+    generic: { clientTs: 1, delivery: 'webpush', verbosity: 'generic' },
+  };
+  async function floorDeliveryPref(verbosity = 'detailed') {
+    const body = FLOOR_BODIES[verbosity];
+    if (body && !findSingleton(await records.list(DELIVERYPREF_RECORD_TYPE), DELIVERYPREF_RECORD_ID)) {
+      await records.putIfAbsent(DELIVERYPREF_RECORD_TYPE, { recordId: DELIVERYPREF_RECORD_ID, deleted: false, ...body });
+    }
     return getDeliveryPref();
   }
 
@@ -908,6 +945,6 @@ export function createRemindersDomain({ records, now }) {
   return {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
-    getDeliveryPref, setDeliveryPref, buildHorizon,
+    getDeliveryPref, setDeliveryPref, floorDeliveryPref, buildHorizon,
   };
 }

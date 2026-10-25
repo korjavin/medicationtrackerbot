@@ -390,6 +390,10 @@ async function readAllRecords() {
 // set inside the lock, so no write can land between its read and the clear.
 // dropPendingIds (rows the merge rewrote) leave the pending queue under that
 // same lock, before the overlay, so their old copies are not laid back.
+// Derived (floored) writes stamp clientTs 0, or 1 for the reminder delivery
+// pref's Generic default (med-5vy0). Real writes carry wall-clock ms.
+const FLOOR_MAX_CLIENT_TS = 1;
+
 export async function replaceAllRecords(input) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
@@ -399,8 +403,12 @@ export async function replaceAllRecords(input) {
   // a pending row stamped clientTs 0 (CLAUDE.md rule 12) that meets a snapshot
   // row with a HIGHER clientTs is stale by design — it loses every LWW merge —
   // so the snapshot row stands and the pending op is dropped instead of
-  // resurrecting over e.g. an imported tombstone. ONLY the floor is
-  // discardable: a real pending edit (clientTs > 0) keeps today's behaviour
+  // resurrecting over e.g. an imported tombstone. The same holds for the one
+  // floor above 0, the reminder delivery pref's Generic default at clientTs 1
+  // (med-5vy0, web/domain/reminders.js FLOOR_BODIES): it loses to any newer
+  // snapshot row (an explicit pref), and still beats the Detailed floor at 0.
+  // ONLY floors are discardable: a real pending edit (a wall-clock clientTs,
+  // never <= FLOOR_MAX_CLIENT_TS) keeps today's behaviour
   // exactly (overlay wins locally, stays queued) whatever the snapshot
   // timestamp says, because clock skew / blind concurrent writes leave real
   // timestamps unordered and a comparison alone can't prove an unsent user
@@ -434,7 +442,7 @@ export async function replaceAllRecords(input) {
       // field may already be compacted into this snapshot, so neither side may
       // simply replace the other.
       const merge = snap && !snap.deleted && !r.deleted ? APPLY_MERGE[r.recordType] : null;
-      if (snap && r.clientTs === 0 && snap.clientTs > 0) {
+      if (snap && r.clientTs <= FLOOR_MAX_CLIENT_TS && snap.clientTs > r.clientTs) {
         losingPending.push(recordId);
         if (merge) overlay.push(merge(snap, r));
         continue;
@@ -911,7 +919,11 @@ async function pullTail(ctx) {
         ? { localLastSeq: op.seq, importBumpSeq: op.seq }
         : { localLastSeq: op.seq });
     }
-    await writeMeta({ lastSyncedAt: Date.now() });
+    // tailCaughtUpAt: only here, on the last page of a successful pull — the
+    // one moment the mirror provably holds the whole account. hasCaughtUp()
+    // reads it (bd med-ejgf); lastSyncedAt is also stamped by any accepted
+    // push, so it cannot say that. resetLocalSync clears both with sync_meta.
+    await writeMeta(body.next ? { lastSyncedAt: Date.now() } : { lastSyncedAt: Date.now(), tailCaughtUpAt: Date.now() });
     notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
     if (!body.next) break;
   }
@@ -1224,6 +1236,14 @@ export async function isBootstrapped() {
   return (await readMeta()).localLastSeq !== null;
 }
 
+// True once this device has pulled the server's whole tail at least once —
+// i.e. the local mirror really is the account. Until then an empty mirror
+// says nothing about the account, so the shim withholds the first-run wizard
+// (bd med-ejgf). resetLocalSync clears it.
+export async function hasCaughtUp() {
+  return (await withStore('sync_meta', 'readonly', (store) => reqToPromise(store.get('tailCaughtUpAt')))) != null;
+}
+
 // Max re-post attempts when a concurrent writer keeps interleaving (below).
 const FLUSH_MAX_ATTEMPTS = 5;
 
@@ -1466,7 +1486,11 @@ export async function reauthenticate(ctx) {
   // pullOnOpen runs would flush the same pending set under the same predicted
   // seqs (duplicate ops + a guaranteed mis-predict retry).
   while (drainInFlight) await drainInFlight;
-  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; drainSettled(ctx); });
+  drainInFlight = pullOnOpen(ctx).finally(() => {
+    drainInFlight = null;
+    drainSettled(ctx);
+    if (onDrainSettled) onDrainSettled();
+  });
   await drainInFlight;
   return getSyncStatus(ctx);
 }
@@ -1520,15 +1544,30 @@ export function requestDrain(ctx, { wake = false } = {}) {
       // event-driven drains — the boot-time check already ran. Hand it to
       // the caller so the UI can surface it instead of queueing silently.
       if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
+      if (onDrainSettled) onDrainSettled();
     });
   return drainInFlight;
 }
 
-export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: onUpdate } = {}) {
+// A drain that starts at or after this call, awaited to the end (pull to
+// refresh, bd med-y7b4.6). requestDrain alone hands back a drain already in
+// flight, whose GET may predate the request; wait it out, then join the rerun
+// it queued (or start one) through the same single slot.
+export async function requestFreshDrain(ctx) {
+  if (drainInFlight) await drainInFlight.catch(() => {});
+  return requestDrain(ctx);
+}
+
+// Installed by startReconnectAutoDrain: runs after every requestDrain settles.
+let onDrainSettled = null;
+
+export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: onUpdate, onSettled } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
   const surface = onAuthExpired ? () => onAuthExpired() : null;
   onDrainAuthExpired = surface;
+  const settled = onSettled ? () => onSettled() : null;
+  onDrainSettled = settled;
   // Fired once, the first time any push (drain or a write's inline flush) hits 426.
   const surfaceUpdate = onUpdate ? () => onUpdate() : null;
   onUpdateRequired = surfaceUpdate;
@@ -1545,6 +1584,7 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: 
     // No queued rerun or expiry surface outlives the teardown.
     drainRerun = false;
     if (onDrainAuthExpired === surface) onDrainAuthExpired = null;
+    if (onDrainSettled === settled) onDrainSettled = null;
     if (onUpdateRequired === surfaceUpdate) onUpdateRequired = null;
     clearTimeout(debounce);
     window.removeEventListener('online', trigger);

@@ -29,17 +29,91 @@ enum LocalOrigin {
     /// normalization. Twin of Android LocalOrigin.BASE_POST_PATHS and the page's
     /// BASE_POST_PATHS (local-policy.js); the trial chat/food/voice stay page fetch.
     static let basePostPaths: Set<String> = [
-        "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
+        "/api/attest/challenge", "/api/attest/delete", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
     ]
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
     static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash",
-                             "push.token"] // native push (bd med-erq1.4, Push.swift): never in local mode
+                             "push.token", // native push (bd med-erq1.4, Push.swift): never in local mode
+                             // Capability marker, not a callable op (bd med-r1j2.18): this shell
+                             // takes account.leave {then: "local", forget: true} (see leave(_:)).
+                             "account.leave.forget"]
     /// Every other op the shell answers, in both modes.
     static let sharedOps = ["ping", "shell.ops", "diag.append", "health.authorize", "health.query",
                             "notifications.permission", "notifications.requestPermission",
                             "notifications.schedule", "notifications.test",
                             "notifications.openSettings", // the denied note's "Open iOS Settings" (bd med-ckm5.15)
-                            "invite.pending", "invite.clear"] // the pending-invite slot (bd med-ta2n.11, InviteSlot)
+                            "invite.pending", "invite.clear", // the pending-invite slot (bd med-ta2n.11, InviteSlot)
+                            // "Join and erase" (bd med-r1j2.7, JoinErase): listed in local mode too,
+                            // where invite.js probes it before offering the erase; it wipes from the
+                            // joined account only (a no-op replying true anywhere else).
+                            "local.erase",
+                            "back.state", // the page's AppBack.canStep(): the left-edge swipe only while true (bd med-y7b4.4)
+                            "app.openSettings"] // AD13 "Allow camera in Settings" (bd med-r1j2.18, media-capture.js)
+
+    /// The left-edge swipe (bd med-y7b4.4, contract in web/static/js/native/back.js):
+    /// the page's AppBack.step(); true = it stepped back, false = at the root,
+    /// where the shell does nothing (no WebView history, never Safari).
+    static let backJS = "!document.dispatchEvent(new CustomEvent('wg:native-back',{cancelable:true}))"
+
+    /// A finished edge pan counts as Back when it went far enough, or was a
+    /// quick flick that clearly moved right.
+    static func backFires(dx: Double, vx: Double) -> Bool {
+        dx >= 60 || (dx >= 20 && vx >= 500)
+    }
+
+    /// Where account.leave without a url lands (bd med-r1j2.18). No args:
+    /// local home?invite=1 ("Have an invite?"), no way back. {then: "local"}:
+    /// local home, the account kept for leave.clear {back}. {then: "local",
+    /// forget: true} (/unlock AD10 "Back to local mode"): local home, no way back.
+    enum Leave: Equatable { case invite, local, forgetLocal }
+
+    static func leave(_ args: [String: Any]) -> Leave {
+        guard args["then"] as? String == "local" else { return .invite }
+        return args["forget"] as? Bool == true ? .forgetLocal : .local
+    }
+
+    /// The install's App Attest key id and that id once attested (Attest.swift).
+    static let attestKeyIdKey = "wgAttestKeyId"
+    static let attestedKey = "wgAttestAttested"
+
+    /// local.reset {dropAttest: true} (bd med-egb3, contract point 4, Archie
+    /// 4883): only a JSON true, which the page sends only after our server
+    /// answered 204 for this key's bucket. Drops the key id and its attested
+    /// mark, so the next enroll mints a fresh key the server cannot link to
+    /// the erased one. The Keychain trial pass is never touched: it may name
+    /// an older bucket the delete did not reach, and a pass for a deleted
+    /// bucket is refused (trial_pass_invalid) and dropped by the page. True
+    /// when it dropped them.
+    @discardableResult
+    static func resetAttest(_ args: [String: Any], defaults: UserDefaults = .standard) -> Bool {
+        guard args["dropAttest"] as? Bool == true else { return false }
+        defaults.removeObject(forKey: attestKeyIdKey)
+        defaults.removeObject(forKey: attestedKey)
+        return true
+    }
+
+    /// The page this shell has open (bd med-r1j2.18): the main frame of the
+    /// account host, or in local mode of wgapp://local. The bridge and the
+    /// camera grant both ask this. The whole origin: WKSecurityOrigin.port is
+    /// 0 for the scheme's default, so https://<account>:8443 is not the account.
+    static func isOwn(scheme: String, host: String, port: Int, mainFrame: Bool, local: Bool, account: String?) -> Bool {
+        let s = scheme.lowercased(), h = host.lowercased()
+        guard mainFrame else { return false }
+        if local { return s == LocalOrigin.scheme && h == LocalOrigin.host && port == 0 }
+        return s == "https" && account != nil && h == account && (port == 0 || port == 443)
+    }
+
+    /// getUserMedia's permission (WKUIDelegate, bd med-r1j2.18): the camera
+    /// alone is granted to the shell's own page (iOS still asks for the app's
+    /// camera access once); anything with the microphone keeps WebKit's own
+    /// prompt there (the voice assistant uses it); every other origin and
+    /// every subframe is denied.
+    enum Media: Equatable { case grant, prompt, deny }
+
+    static func media(cameraOnly: Bool, own: Bool) -> Media {
+        guard own else { return .deny }
+        return cameraOnly ? .grant : .prompt
+    }
 
     /// The bridge op shell.ops (bd med-o7zq.35, twin of Android LocalOrigin.ops):
     /// what this shell answers in this mode, for the page's capability probe.

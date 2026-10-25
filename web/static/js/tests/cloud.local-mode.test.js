@@ -1030,6 +1030,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                 expect(window.Barcode.scan).toHaveBeenCalledWith(expect.objectContaining({ formats: ['qr_code'] }));
             });
+
+            // bd med-r1j2.10 (AD13): a denied camera says so, offers the system
+            // setting (its hint where the shell can't open it), and the paste
+            // field takes the link instead.
+            it('Scan with the camera denied: AD13 note + Allow camera in Settings, then the pasted link still works', async () => {
+                const { window, document } = env;
+                const denied = Object.assign(new Error('denied'), { name: 'MediaCaptureError', code: 'PERMISSION_DENIED' });
+                const openSettings = vi.fn(async () => ({ opened: false, hint: 'Turn on Camera in iOS Settings → Med Tracker.' }));
+                window.MediaCapture = { openCameraStream: vi.fn(async () => { throw denied; }), openSettings };
+                window.Barcode = { supportsLiveScan: () => true, scan: vi.fn() };
+                openSheet(window);
+                act(document, 'scan').click();
+                const off = await vi.waitFor(() => {
+                    const n = document.getElementById('invite-camera-off');
+                    if (!n) throw new Error('no AD13 note yet');
+                    return n;
+                });
+                expect(off.textContent).toContain('The camera is off for this app.');
+                expect(off.textContent).toContain('Paste the link from your other device instead.');
+                expect(window.Barcode.scan).not.toHaveBeenCalled();
+                tap(off, 'camera-settings');
+                await vi.waitFor(() => expect(off.textContent).toContain('Turn on Camera in iOS Settings → Med Tracker.'));
+                expect(openSettings).toHaveBeenCalledTimes(1);
+                const input = document.getElementById('invite-sheet-input');
+                expect(input.closest('[hidden]')).toBeNull();
+                input.value = 'https://app.example.com/i/abc#0a1b2c';
+                act(document, 'submit').click();
+                tap(await ready(document), 'sign-in');
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+            });
         });
 
         it('with records: "Turn on sync?" with the live count, then move.stash, then local.leave {url}', async () => {
@@ -1188,7 +1218,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(document.getElementById('settings-sync-how').hidden).toBe(false); // the landing link stays
                 // Opened anyway (the W1 entry, a stale page): "not open here" + the landing link, no op call.
                 window.InviteSheet.request();
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = requestSheet(document).querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1262,7 +1292,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 fill(document, 'not an email');
                 expect(sheet.querySelector('.wg-field--error').textContent).toMatch(/Enter an email address like name@example.com/);
                 expect(posts()).toEqual([]);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(posts()).toHaveLength(1));
                 await vi.waitFor(() => expect(sheet.querySelector('.wg-field--error')).not.toBeNull());
                 expect(sheet.querySelector('[data-invite-request="sent"]')).toBeNull();
@@ -1272,11 +1302,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 const { document } = env;
                 answer = { status: 429, headers: { 'Retry-After': '3600' }, body: '{"error":"rate_limited"}' };
                 const sheet = await openRequest(env);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Too many requests right now — try again in an hour./));
 
                 answer = { status: 404, headers: {}, body: '{"error":"not_enabled"}' };
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = sheet.querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1286,7 +1316,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
 
                 answer = new Error('network');
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Couldn't send the request. Check your connection and try again./));
                 expect(sheet.querySelector('[data-invite-request="off"]')).toBeNull();
                 requestAct(document, 'not-now').click();
@@ -1910,8 +1940,9 @@ describe('shellPost over base.post', () => {
         await expect(shellPost({ call: async () => { throw new Error('network'); } })('/api/invite-requests', { body: '{}' }))
             .rejects.toThrow(TypeError);
     });
-    it('the page allowlist is the shells\' four paths', () => {
-        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
+    it('the page allowlist is the shells\' five paths', () => {
+        // /api/attest/delete: the erase's install-record delete (bd med-egb3).
+        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
     });
 });
 
@@ -3146,7 +3177,8 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             if (op === 'setEgressHosts') return { changed: false };
             if (op !== 'base.post') return null;
             fetched.push({ url: `https://${TRIAL_BASE}${args.path}`, headers: args.headers, body: args.body });
-            const answer = { '/api/attest/challenge': reply.challenge, '/api/attest/enroll': reply.enroll, '/api/attest/feedback': reply.feedback }[args.path];
+            // reply.erase unset = a shell from before /api/attest/delete (bd med-egb3): `invalid path`.
+            const answer = { '/api/attest/challenge': reply.challenge, '/api/attest/enroll': reply.enroll, '/api/attest/feedback': reply.feedback, '/api/attest/delete': reply.erase }[args.path];
             if (!answer) throw new Error('invalid path');
             return shellReply(await answer()); // an answer that throws is the op's error string
         });
@@ -3425,6 +3457,117 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             expect(pageHitBase()).toBe(false);
         });
     }
+
+    // bd med-egb3: Erase data on this device first asks our server, through
+    // the shell, to delete this device's install record, signed by its key;
+    // only a confirmed deletion lets the shell drop the key and pass.
+    describe('erase deletes the install record', () => {
+        const attestedInstall = () => ({ ...freshInstall(), status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: true })) });
+        let replace;
+        const eraseWin = (confirm) => {
+            replace = vi.fn();
+            return {
+                localStorage: env.window.localStorage,
+                sessionStorage: env.window.sessionStorage,
+                LocalNotifications: env.window.LocalNotifications,
+                Attest: env.window.Attest,
+                fetch: env.window.fetch,
+                safeConfirm: vi.fn(async () => confirm),
+                location: { replace },
+            };
+        };
+        const resets = () => bridge.mock.calls.filter(([op]) => op === 'local.reset');
+        // The boot's egress registration finishes before the test ends: it
+        // reads window.document, which afterEach unstubs.
+        async function bootSettled(attest) {
+            await boot(attest);
+            await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', expect.anything()));
+            await new Promise((r) => { setTimeout(r, 0); });
+        }
+
+        it('204: signed over the empty body, then the erase and local.reset {dropAttest: true}', async () => {
+            const { createHash } = await import('node:crypto');
+            await bootSettled(attestedInstall());
+            reply.erase = () => new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c9' } });
+            env.window.localStorage.setItem('wg.marker', '1');
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'deleted' });
+            expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/delete']);
+            const digest = createHash('sha256').update('/api/attest/delete\n').digest('base64');
+            expect(fetched[1]).toMatchObject({ body: '', headers: { 'X-Attest-Key-Id': 'key-1', 'X-Attest-Challenge': 'c1', 'X-Attest-Assertion': `sig:c1:${digest}` } });
+            expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(env.window.localStorage.getItem('wg.marker')).toBeNull();
+            expect(resets()).toEqual([['local.reset', { dropAttest: true }]]);
+            expect(replace).toHaveBeenCalledWith('/');
+            expect(pageHitBase()).toBe(false);
+        });
+
+        it('install_unknown erases silently but keeps the key and pass (local.reset without dropAttest); a stale challenge is re-signed once; never an enroll', async () => {
+            await bootSettled(attestedInstall());
+            const answers = [
+                new Response(JSON.stringify({ error: 'challenge_invalid' }), { status: 400, headers: { 'X-Attest-Challenge': 'c5' } }),
+                new Response(JSON.stringify({ error: 'install_unknown' }), { status: 401 }),
+            ];
+            reply.erase = () => answers.shift();
+            // The pass may still name a live bucket (an iOS reinstall whose enroll failed): kept.
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'unknown' });
+            expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/delete']);
+            expect(fetched[2].headers['X-Attest-Challenge']).toBe('c5');
+            expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+            expect(replace).toHaveBeenCalledWith('/');
+        });
+
+        it('a failure (an old shell\'s invalid path) asks first: Cancel keeps everything, nothing retried', async () => {
+            await bootSettled(attestedInstall()); // reply.erase unset: invalid path
+            env.window.localStorage.setItem('wg.marker', '1');
+            const win = eraseWin(false);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: false, installRecord: 'failed' });
+            expect(win.safeConfirm).toHaveBeenCalledTimes(1);
+            expect(win.safeConfirm.mock.calls[0][0]).toBe('The anonymous install record on the server could not be deleted (offline, or the app needs an update). Erase this device anyway?');
+            expect(paths().filter((p) => p === '/api/attest/delete')).toHaveLength(1);
+            expect(env.window.localStorage.getItem('wg.marker')).toBe('1');
+            expect(resets()).toEqual([]);
+            expect(replace).not.toHaveBeenCalled();
+        });
+
+        it('a failure (a server without the route) confirmed with Erase anyway erases, but keeps the shell\'s key and pass', async () => {
+            await bootSettled(attestedInstall());
+            // An older server's mux: a plain 404 proves nothing was deleted.
+            reply.erase = () => new Response('404 page not found\n', { status: 404 });
+            env.window.localStorage.setItem('wg.marker', '1');
+            expect(await env.window.CloudVault.eraseDevice({ win: eraseWin(true) })).toEqual({ erased: true, installRecord: 'failed' });
+            expect(env.window.localStorage.getItem('wg.marker')).toBeNull();
+            expect(resets()).toEqual([['local.reset']]);
+            expect(replace).toHaveBeenCalledWith('/');
+        });
+
+        it('no key in the shell: nothing to delete, no question, no enroll', async () => {
+            const attest = attestedInstall();
+            attest.assert = vi.fn(async () => { throw new Error('no_key'); });
+            await bootSettled(attest);
+            reply.erase = () => new Response(null, { status: 204 });
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });
+            expect(paths()).not.toContain('/api/attest/delete');
+            expect(attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+        });
+
+        it('a never-enrolled install (attested false) asks our server nothing', async () => {
+            await bootSettled(freshInstall());
+            reply.erase = () => new Response(null, { status: 204 });
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });
+            expect(toBase()).toEqual([]);
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+        });
+    });
 });
 
 function fromB64(s) {

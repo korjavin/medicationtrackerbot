@@ -13,6 +13,42 @@
 
 const GENERAL_RECORD_TYPE = 'settings';
 const GENERAL_RECORD_ID = 'settings';
+// Body settings (epic med-a6fb) — optional fields on the general singleton,
+// absent when unset (the default applies). One list drives the PATCH
+// validation, getGeneral() and vault export/import (vault.js), so adding a
+// field is one entry here. `vault: false` keeps a field out of backups.
+const isBool = (v) => typeof v === 'boolean';
+export const BODY_FIELDS = Object.freeze({
+  // Adult height for BMI, stored in cm only.
+  height_cm: {
+    valid: (v) => typeof v === 'number' && Number.isFinite(v) && v >= 100 && v <= 250,
+    def: null,
+    norm: Math.round, // whole cm on every write (PATCH and vault import)
+    hint: 'must be a number between 100 and 250, or null',
+  },
+  // Display unit for height — its own segment, not tied to the weight unit.
+  height_unit: { valid: (v) => v === 'cm' || v === 'ftin', def: 'cm', hint: "must be 'cm' or 'ftin', or null" },
+  show_bmi: { valid: isBool, def: true, hint: 'must be a boolean, or null' },
+  bmi_nudge_dismissed: { valid: isBool, def: false, hint: 'must be a boolean, or null', vault: false },
+});
+
+// readBodySettings: every BODY_FIELDS key, its default when absent or invalid.
+export function readBodySettings(rec) {
+  const out = {};
+  for (const [k, f] of Object.entries(BODY_FIELDS)) out[k] = rec && f.valid(rec[k]) ? rec[k] : f.def;
+  return out;
+}
+
+// storedBodySettings: only the fields actually present and valid on `src`
+// (never a default, never null) — the vault export/import shape. With
+// { vault: true } fields marked vault:false are skipped.
+export function storedBodySettings(src, { vault = false } = {}) {
+  const out = {};
+  for (const [k, f] of Object.entries(BODY_FIELDS)) {
+    if (src && f.valid(src[k]) && !(vault && f.vault === false)) out[k] = f.norm ? f.norm(src[k]) : src[k];
+  }
+  return out;
+}
 const FEATURES_RECORD_TYPE = 'features';
 const FEATURES_RECORD_ID = 'features';
 const TABORDER_RECORD_TYPE = 'taborder';
@@ -151,6 +187,9 @@ const DEFAULT_FOOD_TARGETS = { calories: 0, carbs: 0, protein: 0, fat: 0 };
 // and 'settings' are not cards, so they are rejected same as server-side.
 const VALID_TABS = new Set(['bp', 'weight', 'workouts', 'food', 'health', 'meds']);
 
+// Write queue for the general singleton (see mergeGeneral).
+let generalWrites = Promise.resolve();
+
 function findSingleton(all, recordId) {
   return all.find((r) => r.recordId === recordId && !r.deleted);
 }
@@ -166,7 +205,31 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return {
       timezone: (rec && rec.timezone) || timeZone,
       dismissed_tz_suggestion: (rec && rec.dismissed_tz_suggestion) || '',
+      ...readBodySettings(rec),
     };
+  }
+
+  // setBodySettings merges a partial patch of BODY_FIELDS onto the general
+  // singleton (same write path as setTimezone). null clears a field (it is
+  // dropped, never stored as null); an unknown key or invalid value rejects
+  // the whole patch.
+  async function setBodySettings(patch) {
+    const keys = Object.keys(patch || {});
+    const bad = keys.find((k) => !BODY_FIELDS[k] || (patch[k] !== null && !BODY_FIELDS[k].valid(patch[k])));
+    if (!keys.length || bad) {
+      const err = new Error(bad ? `${bad}: ${BODY_FIELDS[bad] ? BODY_FIELDS[bad].hint : 'unknown field'}` : 'empty patch');
+      err.code = 'invalid_request';
+      throw err;
+    }
+    const next = await mergeGeneral((existing) => {
+      const body = { ...existing };
+      for (const k of keys) {
+        if (patch[k] === null) delete body[k];
+        else body[k] = BODY_FIELDS[k].norm ? BODY_FIELDS[k].norm(patch[k]) : patch[k];
+      }
+      return body;
+    });
+    return readBodySettings(next);
   }
 
   // setTimezone merges onto the existing singleton record (rather than
@@ -175,17 +238,11 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // change, never on every write.
   async function setTimezone(tz) {
     if (tz) {
-      const all = await records.list(GENERAL_RECORD_TYPE);
-      const existing = findSingleton(all, GENERAL_RECORD_ID);
-      const changed = !existing || existing.timezone !== tz;
-      await records.put(GENERAL_RECORD_TYPE, {
+      await mergeGeneral((existing) => ({
         ...existing,
-        recordId: GENERAL_RECORD_ID,
-        clientTs: now(),
-        deleted: false,
         timezone: tz,
-        dismissed_tz_suggestion: changed ? '' : (existing && existing.dismissed_tz_suggestion) || '',
-      });
+        dismissed_tz_suggestion: existing && existing.timezone === tz ? existing.dismissed_tz_suggestion || '' : '',
+      }));
     }
     return getGeneral();
   }
@@ -194,16 +251,27 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // persists the detected TZ the user dismissed so other devices skip the
   // same prompt (LWW via clientTs, same as every other singleton record).
   async function setDismissedTzSuggestion(tz) {
-    const all = await records.list(GENERAL_RECORD_TYPE);
-    const existing = findSingleton(all, GENERAL_RECORD_ID);
-    await records.put(GENERAL_RECORD_TYPE, {
-      ...existing,
-      recordId: GENERAL_RECORD_ID,
-      clientTs: now(),
-      deleted: false,
-      dismissed_tz_suggestion: tz || '',
-    });
+    await mergeGeneral((existing) => ({ ...existing, dismissed_tz_suggestion: tz || '' }));
     return tz || '';
+  }
+
+  // mergeGeneral is the ONLY writer of the general singleton: the whole
+  // read → merge → put runs on one module-wide queue, so two overlapping
+  // disjoint writes (a height patch and a show_bmi patch, or a timezone
+  // write) never read the same row and drop each other's field. Module-wide
+  // rather than per-instance because apishim rebuilds this domain on a tz
+  // change. ponytail: one tab only — cross-tab/device races stay LWW.
+  function mergeGeneral(merge) {
+    const run = generalWrites.then(async () => {
+      const existing = findSingleton(await records.list(GENERAL_RECORD_TYPE), GENERAL_RECORD_ID);
+      const body = merge(existing);
+      await records.put(GENERAL_RECORD_TYPE, {
+        ...body, recordId: GENERAL_RECORD_ID, clientTs: now(), deleted: false,
+      });
+      return body;
+    });
+    generalWrites = run.catch(() => {});
+    return run;
   }
 
   // Semantics: an ABSENT firstrun record means "needs onboarding". A vault
@@ -599,6 +667,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
     getGeneral,
     getFirstRunComplete,
     setTimezone,
+    setBodySettings,
     setDismissedTzSuggestion,
     setFirstRunComplete,
     getStartHere,

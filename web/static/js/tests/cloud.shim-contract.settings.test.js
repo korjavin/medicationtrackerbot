@@ -5,6 +5,7 @@
 // (core/api.js), which delegates to the cloud shim (web/cloud/js/apishim.js)
 // instead of the network. Additive suite — the original (network-mocked)
 // settings.*.test.js files keep running unshimmed.
+import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
@@ -114,7 +115,51 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(off.bp.feature_on).toBe(false);
 
         await window.toggleFeatureSetting('gamification', false);
-        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false });
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false, ed_safe: false });
+    });
+
+    // med-njny: ED-safe is its own promise — with Journey off the disabled
+    // payload still carries ed_safe, so Today keeps hiding weight numbers.
+    it('GET /api/gamification/goal-line carries ed_safe with Journey off', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+        await window.saveGamificationMode('ed_safe', true);
+        await window.toggleFeatureSetting('gamification', false);
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false, ed_safe: true });
+        expect((await window.apiCall('/api/bootstrap')).gamification_goal_line).toEqual({ enabled: false, ed_safe: true });
+    });
+
+    // med-njny: with Journey off the ED-safe switch stays visible and loaded,
+    // and turning it off brings Today's weight numbers back.
+    it('Journey off + ED-safe on → the Safety switch is visible and checked; off restores Today weight', async () => {
+        allowConsoleNoise(); // loadSettings touches routes this suite does not map
+        const { window, document } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+        await window.apiCall('/api/weight', 'POST', { weight: 82.4, measured_at: new Date().toISOString() });
+        await window.saveGamificationMode('ed_safe', true);
+        await window.toggleFeatureSetting('gamification', false);
+        await window.loadSettings();
+
+        const row = document.querySelector('mt-setting-toggle[input-id="gam-mode-ed-safe-toggle"]');
+        const edSafe = document.getElementById('gam-mode-ed-safe-toggle');
+        expect(row.classList.contains('wg-settings-hidden')).toBe(false);
+        expect(row.closest('.wg-settings-features__safety').classList.contains('wg-settings-hidden')).toBe(false);
+        expect(edSafe.checked).toBe(true);
+
+        // The frontend harness does not load features/today.js; eval it for
+        // the aggregator Today renders from.
+        window.eval(fs.readFileSync(new URL('../features/today.js', import.meta.url), 'utf8'));
+        const todayWeight = async () => {
+            const boot = await window.apiCall('/api/bootstrap');
+            const caches = { gamification_goal_line: await window.apiCall('/api/gamification/goal-line', 'GET') };
+            return window.TodayDashboard.aggregateToday(boot, caches, new Date()).weightLatest.status;
+        };
+        expect(await todayWeight()).toBe('disabled');
+
+        edSafe.checked = false;
+        edSafe.dispatchEvent(new window.Event('change'));
+        await vi.waitFor(async () => expect((await window.apiCall('/api/gamification/mode', 'GET')).ed_safe).toBe(false));
+        expect(await todayWeight()).toBe('ok');
     });
 
     // med-8tur.12: the Journey mode switches persist through the shim and gate

@@ -467,10 +467,13 @@
             <div class="wg-settings-home">
                 <div class="wg-settings-slot" data-settings-slot="mode-card">
                 <!-- Cloud: "Your vault" (settings.js paintVaultCard). -->
-                <button type="button" class="wg-card wg-hstack wg-cloud-only wg-settings-hidden" id="settings-vault-card">
+                <!-- Opens Account & privacy (SC1, bd med-y7b4.1); the page keeps its own title. -->
+                <button type="button" class="wg-card wg-hstack wg-cloud-only wg-settings-hidden" id="settings-vault-card" data-settings-open="account" data-settings-title="Account &amp; privacy">
                     <span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="lock"></i></span>
                     <span class="wg-vstack wg-spacer">
-                        <span class="wg-hstack"><span class="wg-row__title">Your vault</span><span class="wg-chip wg-chip--ok wg-chip--sm">Cloud</span></span>
+                        <span class="wg-hstack"><span class="wg-row__title">Your vault</span><span class="wg-chip wg-chip--ok wg-chip--sm">Cloud</span>
+                            <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitState). -->
+                            <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-kit-chip">Kit</span></span>
                         <span class="wg-meta" id="settings-vault-meta"></span>
                     </span>
                     <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
@@ -487,7 +490,18 @@
                     <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                 </button>
                 </div>
-                <div class="wg-settings-slot" data-settings-slot="mode-actions"></div>
+                <div class="wg-settings-slot" data-settings-slot="mode-actions">
+                <!-- iOS/Android app, signed into an account (SC1, bd med-y7b4.2; med-o7zq.32,
+                     med-nt9p.32.15): settings.js bindLeaveAccount. The only way into local
+                     mode from an account; nothing erased. -->
+                <div class="wg-list wg-cloud-only wg-settings-leave-account wg-settings-hidden">
+                    <button type="button" id="settings-leave-account-btn" class="wg-setting">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="cloud-off"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Use this <span data-device-word>iPhone</span> without an account</span><span class="wg-setting__desc">Keeps a copy here. The account stays on the server.</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                </div>
+                </div>
                 <div class="wg-settings-slot" data-settings-slot="health"></div>
                 <div class="wg-settings-slot" data-settings-slot="everyday">
                 <div class="wg-list">
@@ -508,7 +522,7 @@
                     </button>
                     <button type="button" class="wg-setting" data-settings-open="units">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Units</span></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Units &amp; body</span><span class="wg-setting__desc" data-settings-summary="body">Height · Not set</span></span>
                         <span class="wg-setting__value" data-settings-summary="units"></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
@@ -537,13 +551,6 @@
                     <button type="button" class="wg-setting wg-cloud-only" data-settings-open="backup">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Backup &amp; import</span><span class="wg-setting__desc">Download or restore all your data</span></span>
-                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                    </button>
-                    <button type="button" class="wg-setting" data-settings-open="account">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="shield"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Account &amp; privacy</span><span class="wg-setting__desc">What the operator can see · delete</span></span>
-                        <!-- Shown while the emergencykit record says the current kit was never saved (settings.js paintKitState). -->
-                        <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-kit-chip">Kit</span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                 </div>
@@ -599,12 +606,12 @@
                     </div>
                 </section>
                 <section class="wg-section">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Telegram reminder text</span></div>
-                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Telegram reminder detail level">
-                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">Says only that a reminder is due</span></span></button>
-                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Also sends medication names</span></span></button>
+                    <div class="wg-section__head"><span class="wg-eyebrow">Reminder text</span></div>
+                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Reminder text on the lock screen and in Telegram">
+                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">"Medication time"</span></span></button>
+                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Shows the medication or measurement</span></span></button>
                     </div>
-                    <p class="wg-hint">Telegram reminders pass through the server as readable text.</p>
+                    <p class="wg-hint">Applies to the lock screen and to Telegram. Anyone holding your phone can read the lock screen, even while it is locked. Telegram reminders pass through the server as readable text.</p>
                     <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
                 </section>
             </div>
@@ -718,15 +725,62 @@
                             <div class="wg-settings-row__desc">Stored in kilograms; only display and input default change</div>
                         </div>
                         <div class="wg-settings-row__control">
-                            <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Weight unit"
+                            <div class="wg-seg wg-seg--sm" role="radiogroup" aria-label="Weight unit"
                                 id="weight-unit-segmented">
-                                <button type="button" class="wg-gloss wg-settings-segmented__btn wg-settings-segmented__btn--active wg-gloss--sun"
+                                <button type="button" class="wg-seg__opt"
                                     data-unit="kg" aria-pressed="true">kg</button>
-                                <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                                <button type="button" class="wg-seg__opt"
                                     data-unit="lb" aria-pressed="false">lb</button>
                             </div>
                         </div>
                     </div>
+                    <!-- Height has its own unit, not the weight unit (med-a6fb.4, BM2). -->
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title">Height</div>
+                            <div class="wg-settings-row__desc">Stored in centimetres</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <div class="wg-seg wg-seg--sm" role="radiogroup" aria-label="Height unit"
+                                id="height-unit-segmented">
+                                <button type="button" class="wg-seg__opt"
+                                    data-height-unit="cm" aria-pressed="true">cm</button>
+                                <button type="button" class="wg-seg__opt"
+                                    data-height-unit="ftin" aria-pressed="false">ft + in</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wg-section wg-settings-body">
+                <div class="wg-section__head"><span class="wg-eyebrow">Height</span><span class="wg-meta">for BMI</span></div>
+                <div class="wg-card wg-vstack" id="settings-height-field">
+                    <label class="wg-field" id="settings-height-cm">
+                        <span class="wg-label">Height · cm</span>
+                        <input class="wg-input" id="settings-height-input" type="text" inputmode="numeric"
+                            autocomplete="off" placeholder="Not set" aria-describedby="settings-height-error">
+                    </label>
+                    <div class="wg-fieldrow wg-settings-hidden" id="settings-height-ftin">
+                        <label class="wg-field">
+                            <span class="wg-label">ft</span>
+                            <input class="wg-input" id="settings-height-ft" type="text" inputmode="numeric"
+                                autocomplete="off" placeholder="–" aria-describedby="settings-height-error">
+                        </label>
+                        <label class="wg-field">
+                            <span class="wg-label">in</span>
+                            <input class="wg-input" id="settings-height-in" type="text" inputmode="numeric"
+                                autocomplete="off" placeholder="–" aria-describedby="settings-height-error">
+                        </label>
+                    </div>
+                    <p class="wg-error wg-settings-hidden" id="settings-height-error" role="alert"></p>
+                    <p class="wg-hint wg-settings-hidden" id="settings-height-bmi-hint" aria-live="polite"></p>
+                    <p class="wg-shell__fine">Adult ranges; not meant for under-18s.</p>
+                </div>
+                <div class="wg-list">
+                    <mt-setting-toggle title="Show BMI on Weight"
+                        description="The read-out and the borders on the chart"
+                        input-id="settings-show-bmi-toggle"></mt-setting-toggle>
                 </div>
             </section>
 
@@ -1237,19 +1291,6 @@
                         <span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="key"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Emergency Kit</span><span class="wg-setting__desc" id="settings-account-kit-desc">Regenerate if you lost the printed copy</span></span>
                         <span class="wg-chip wg-chip--warn wg-chip--sm wg-settings-hidden" id="settings-account-kit-save">Save</span>
-                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                    </button>
-                </div>
-            </section>
-
-            <!-- iOS/Android app, signed into an account (bd med-o7zq.32, med-nt9p.32.15): settings.js
-                 bindLeaveAccount. Back to the native first-run; nothing erased. -->
-            <section class="wg-section wg-settings-leave-account wg-settings-hidden">
-                <div class="wg-section__head"><span class="wg-eyebrow">Leave</span></div>
-                <div class="wg-list">
-                    <button type="button" id="settings-leave-account-btn" class="wg-setting">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span>
-                        <span class="wg-setting__body"><span class="wg-setting__title">Use this <span data-device-word>iPhone</span> without an account</span><span class="wg-setting__desc">Keeps a copy here. The account stays on the server.</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
                     </button>
                 </div>
@@ -2721,6 +2762,7 @@
     <script src="/static/js/native/attest.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/clipboard.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/push-token.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/native/back.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <!-- F1 "Have an invite?" sheet: listens for wg:invite-open (W1 footer). -->
     <script src="/static/js/features/invite.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <!-- First-run guided setup (mobile Phase 2c). state.js attaches the
@@ -2761,6 +2803,8 @@
     <script src="/static/js/features/health.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/live-hr.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/auth-flow.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/app-back.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/app-refresh.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/modal-history.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/back-button.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/deeplink-router.js?v=TIMESTAMP_PLACEHOLDER"></script>

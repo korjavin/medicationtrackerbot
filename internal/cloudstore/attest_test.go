@@ -87,3 +87,36 @@ func TestConsumeAttestRequest(t *testing.T) {
 		t.Fatalf("account sees shared global: ok=%v scope=%q", ok, scope)
 	}
 }
+
+// bd med-egb3: the user's erase deletes the whole bucket — every install in
+// it and the bucket — leaves other buckets alone, and is idempotent.
+func TestDeleteAttestBucket(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	r := setupRepo(t)
+	for _, in := range []AttestInstall{
+		{KeyID: "a", PublicKey: []byte{1}, Env: "production", CreatedAt: now},
+		{KeyID: "b", BucketID: "a", PublicKey: []byte{1}, Env: "production", CreatedAt: now},
+		{KeyID: "c", PublicKey: []byte{1}, Env: "production", CreatedAt: now},
+	} {
+		if err := r.InsertAttestInstall(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ { // the second run: already gone, no error
+		if err := r.DeleteAttestBucket(ctx, "a"); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+	}
+	for _, id := range []string{"a", "b"} {
+		if _, err := r.AttestInstall(ctx, id); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("install %s kept: %v", id, err)
+		}
+	}
+	if _, err := r.AttestBucketPassHash(ctx, "a"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("bucket kept: %v", err)
+	}
+	if _, err := r.AttestInstall(ctx, "c"); err != nil {
+		t.Fatalf("another bucket's install: %v", err)
+	}
+}
