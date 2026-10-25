@@ -522,7 +522,7 @@ describe('Apple Health import', () => {
                 expect(await shown()).toEqual(want);
                 expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 510 });
                 expect(records.rows.get(DAY2_ID)).toBe(day2); // another night: untouched, shown
-                expect(records.rows.size).toBe(2);
+                expect([...records.rows.keys()].sort()).toEqual([`sleep-${N0 - 30 * 60_000}`, DAY_ID, DAY2_ID]); // the session is the ledger
                 expect(noneDeleted()).toBe(true);
                 storage.setItem('wg.health.anchors', '{}');
                 expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }))).toEqual({ added: 0 });
@@ -558,7 +558,7 @@ describe('Apple Health import', () => {
                 expect((await vitals().sleepDaily({ from: N0 - 24 * H }))).toEqual([
                     expect.objectContaining({ date: '2026-10-02', total_mins: 530 }),
                 ]);
-                expect(records.rows.size).toBe(1);
+                expect(records.rows.size).toBe(2); // the nap is kept in the ledger, hidden
             });
 
             it.each([
@@ -573,7 +573,7 @@ describe('Apple Health import', () => {
                 await vitals().importSamples({ sleep: sessions });
                 expect(await shown()).toEqual([DAY_ID]);
                 expect(records.rows.get(DAY_ID).source).toBe(winner === 'health' ? 'apple_health' : 'miband');
-                expect(records.rows.size).toBe(1); // no session row is ever written
+                expect(records.rows.size).toBe(1 + sessions.length); // each session kept as its ledger row
             });
 
             it('a bot-era row (timezone_offset in seconds east) files on its own night', async () => {
@@ -593,18 +593,18 @@ describe('Apple Health import', () => {
                 expect(noneDeleted()).toBe(true);
 
                 const vault = recordsToVault([...records.rows.values()], { now: W0 });
-                expect(vault.data.vitals.sleep).toHaveLength(1);
+                expect(vault.data.vitals.sleep).toHaveLength(2); // the session and its day row
                 const restored = memRecords();
                 for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
                 expect(await vitals(restored).sleep({ from: iso(N0 - 48 * H) })).toEqual(await vitals().sleep({ from: iso(N0 - 48 * H) }));
-                expect((await restored.listRaw('sleep')).length).toBe(1);
+                expect((await restored.listRaw('sleep')).map((r) => r.recordId).sort()).toEqual([`sleep-${N0}`, DAY_ID]);
             });
 
             // Archie 5372: a cumulative re-upload costs only the nights that changed.
             it('re-uploading the same backup writes nothing; one fuller night writes one row', async () => {
                 const backup = [band(N0, N0 + 7 * H), band(N0 + 24 * H, N0 + 31 * H, { day: '2026-10-03' })];
                 await vitals().importSamples({ sleep: backup });
-                expect([...records.rows.keys()].sort()).toEqual([DAY_ID, DAY2_ID]);
+                expect([...records.rows.keys()].sort()).toEqual([`sleep-${N0}`, `sleep-${N0 + 24 * H}`, DAY_ID, DAY2_ID]);
                 const ops = [];
                 const { put, del } = records;
                 records.put = (t, r) => { ops.push(`put ${r.recordId}`); return put(t, r); };
@@ -612,7 +612,34 @@ describe('Apple Health import', () => {
                 await vitals().importSamples({ sleep: backup });
                 expect(ops).toEqual([]);
                 await vitals().importSamples({ sleep: [backup[0], band(N0 + 24 * H, N0 + 32 * H, { day: '2026-10-03' })] });
-                expect(ops).toEqual([`put ${DAY2_ID}`]);
+                expect(ops).toEqual([`put sleep-${N0 + 24 * H}`, `put ${DAY2_ID}`]);
+            });
+
+            // bd med-0xad.9 (e): an nxk upload stores its sessions; a re-upload writes nothing.
+            it('an upload stores each session as its ledger row before folding', async () => {
+                const s1 = band(N0, N0 + 7 * H);
+                const s2 = band(N0 + 15 * H, N0 + 15.5 * H);
+                await vitals().importSamples({ sleep: [s1, s2] });
+                expect(records.rows.get(`sleep-${N0}`)).toMatchObject({ ...s1, deleted: false });
+                expect(records.rows.get(`sleep-${N0 + 15 * H}`)).toMatchObject({ ...s2, deleted: false });
+                expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 450 });
+                expect(await shown()).toEqual([DAY_ID]);
+                const before = JSON.stringify([...records.rows.entries()]);
+                await vitals().importSamples({ sleep: [s1, s2] });
+                expect(JSON.stringify([...records.rows.entries()])).toBe(before);
+            });
+
+            // bd med-0xad.9 (d): a projected day ties its ledger; the read shows the day row only.
+            it('a day row tying its live sessions is shown alone; a fuller ledger shows instead', async () => {
+                const s1 = band(N0, N0 + 7 * H);
+                await vitals().importSamples({ sleep: [s1] });
+                expect(await shown()).toEqual([DAY_ID]);
+                expect(await vitals().sleepDaily({ from: N0 - 24 * H })).toEqual([
+                    expect.objectContaining({ date: '2026-10-02', total_mins: 420 }),
+                ]);
+                // A session synced in before the next fold: the ledger is fuller.
+                await records.put('sleep', { recordId: `sleep-${N0 + 15 * H}`, clientTs: 9, deleted: false, ...band(N0 + 15 * H, N0 + 16 * H) });
+                expect(await shown()).toEqual([`sleep-${N0}`, `sleep-${N0 + 15 * H}`]);
             });
         });
 
@@ -644,7 +671,7 @@ describe('Apple Health import', () => {
                 awake_minutes: 10, total_minutes: total, user_modified: false, source: 'apple_health', source_id: '2026-10-02',
             });
 
-            it('two sessions and a nap become one day row; the legacy rows go; a second run writes nothing', async () => {
+            it('two sessions and a nap become one day row; the ledger stays live; a second run writes nothing', async () => {
                 await seed([a, b, nap]);
                 const daysBefore = (await vitals().sleepDaily({ from: N0 - 24 * H })).map((d) => d.date);
                 await vitals().unifyLegacy();
@@ -657,7 +684,7 @@ describe('Apple Health import', () => {
                     heart_rate_avg: 57, spo2_avg: null, // (60·210 + 54·270) / 480 min
                     user_modified: false, notes: 'nap', source: 'miband', source_id: '2026-10-02',
                 });
-                for (const r of [a, b, nap]) expect(records.rows.get(r.recordId).deleted).toBe(true);
+                for (const r of [a, b, nap]) expect(records.rows.get(r.recordId)).toEqual({ ...r, recordType: 'sleep' });
                 // Same nights on screen, one row per day.
                 expect((await vitals().sleepDaily({ from: N0 - 24 * H })).map((d) => d.date)).toEqual(daysBefore);
                 const shown = await vitals().sleep({ from: iso(N0 - 48 * H) });
@@ -681,13 +708,14 @@ describe('Apple Health import', () => {
                 ['a Health day with more asleep minutes is kept', 500, 'health'],
                 // visibleSleep showed the band on a tie, so the screen does not change.
                 ['a tie goes to the converted sessions', 480, 'converted'],
-            ])('%s; the legacy rows go either way', async (_name, healthTotal, winner) => {
+            ])('%s; the ledger stays either way, hidden behind the day row', async (_name, healthTotal, winner) => {
                 await seed([hk(healthTotal), a, b, nap]);
                 await vitals().unifyLegacy();
                 const row = records.rows.get(DAY_ID);
                 if (winner === 'health') expect(row).toMatchObject({ clientTs: 0, source: 'apple_health', total_minutes: healthTotal });
                 else expect(row).toMatchObject({ clientTs: NOW, source: 'miband', total_minutes: 480 });
-                for (const r of [a, b, nap]) expect(records.rows.get(r.recordId).deleted).toBe(true);
+                for (const r of [a, b, nap]) expect(records.rows.get(r.recordId).deleted).toBe(false);
+                expect((await vitals().sleep({ from: iso(N0 - 48 * H) })).map((r) => r.id)).toEqual([DAY_ID]);
                 // The Health importer meets the converted day as present and skips it.
                 storage.setItem('wg.health.anchors', '{}');
                 expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 0 });
@@ -704,7 +732,10 @@ describe('Apple Health import', () => {
                 await seed([alias(480), a, b, nap], other); // a tie goes to the band, as visibleSleep shows it
                 await vitals(other).unifyLegacy();
                 expect(other.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 480, light_minutes: 250 });
-                expect(await other.list('sleep')).toHaveLength(1);
+                // The alias stays in the ledger but never shows beside the day row.
+                for (const recs of [records, other]) {
+                    expect((await vitals(recs).sleep({ from: iso(N0 - 48 * H) })).map((r) => r.id)).toEqual([DAY_ID]);
+                }
             });
 
             it('stress batches are deleted; no legacy rows means no writes', async () => {
@@ -719,16 +750,17 @@ describe('Apple Health import', () => {
                 expect(n).toEqual({ put: 0, del: 0 });
             });
 
-            it('an export after conversion carries one sleep_log per day keyed by its day and no stress; a restore keeps the ids', async () => {
+            it('an export after conversion carries the ledger plus one day row keyed by its day and no stress; a restore keeps the ids', async () => {
                 await seed([a, b, nap]);
                 await records.put('stresssample', { recordId: 'stresssample-2026-10-01', clientTs: 5, deleted: false, day: '2026-10-01', samples: [{ date_time: iso(N0), tz_offset: 0, value: 30 }] });
                 await vitals().unifyLegacy();
                 const vault = recordsToVault([...records.rows.values()], { now: W0 });
                 expect('stress' in vault.data.vitals).toBe(false);
-                expect(vault.data.vitals.sleep).toEqual([expect.objectContaining({ day: '2026-10-02', source_id: '2026-10-02', source: 'miband' })]);
+                expect(vault.data.vitals.sleep).toHaveLength(4);
+                expect(vault.data.vitals.sleep.filter((s) => s.source_id)).toEqual([expect.objectContaining({ day: '2026-10-02', source_id: '2026-10-02', source: 'miband' })]);
                 const restored = memRecords();
                 for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
-                expect((await restored.list('sleep')).map((r) => r.recordId)).toEqual([DAY_ID]);
+                expect((await restored.list('sleep')).map((r) => r.recordId).sort()).toEqual([a, b, nap].map((r) => r.recordId).concat(DAY_ID).sort());
                 const n = writes(restored);
                 await vitals(restored).unifyLegacy();
                 expect(n).toEqual({ put: 0, del: 0 });
@@ -745,7 +777,116 @@ describe('Apple Health import', () => {
                 await vitals(restored).unifyLegacy();
                 const { clientTs, recordType, ...body } = day;
                 expect(restored.rows.get(DAY_ID)).toMatchObject(body);
-                expect(await restored.list('sleep')).toHaveLength(1);
+                expect((await vitals(restored).sleep({ from: iso(N0 - 48 * H) })).map((r) => r.id)).toEqual([DAY_ID]);
+            });
+
+            // bd med-0xad.9: the ledger is never deleted, so a later partial set folds with it.
+            describe('the ledger is kept, so late and divergent sessions fold', () => {
+                const sleepWrites = (recs) => {
+                    const ops = [];
+                    const { put, del } = recs;
+                    recs.put = (t, r) => { ops.push(`put ${r.recordId}`); return put(t, r); };
+                    recs.del = (t, id) => { ops.push(`del ${id}`); return del(t, id); };
+                    return ops;
+                };
+
+                it('a late 40-minute nap folds into a converted day: one put, both sessions, no deletes', async () => {
+                    const main = legacy(N0 - 30 * 60_000, N0 + 7.5 * H, { total_minutes: 450 });
+                    await seed([main]);
+                    await vitals().unifyLegacy();
+                    expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 450 });
+                    const late = legacy(N0 + 15 * H, N0 + 15 * H + 40 * 60_000);
+                    await seed([late]); // an old vault merged in, or a sync from an old tab
+                    const ops = sleepWrites(records);
+                    await vitals().unifyLegacy();
+                    expect(ops).toEqual([`put ${DAY_ID}`]);
+                    expect(records.rows.get(DAY_ID)).toMatchObject({
+                        total_minutes: 490, start_time: main.start_time, end_time: late.end_time, source: 'miband',
+                    });
+                    expect([main, late].every((r) => !records.rows.get(r.recordId).deleted)).toBe(true);
+                    expect((await vitals().sleep({ from: iso(N0 - 48 * H) })).map((r) => r.id)).toEqual([DAY_ID]);
+                });
+
+                it('two devices with divergent ledgers converge on identical bytes once the union syncs', async () => {
+                    const s1 = legacy(N0 - 30 * 60_000, N0 + 7.5 * H, { total_minutes: 450, heart_rate_avg: 58 });
+                    const s2 = legacy(N0 + 15 * H, N0 + 16 * H, { heart_rate_avg: 70, notes: 'nap' });
+                    const devA = memRecords();
+                    const devB = memRecords();
+                    await seed([s1], devA);
+                    await seed([s1, s2], devB);
+                    await vitals(devA).unifyLegacy();
+                    await vitals(devB).unifyLegacy();
+                    expect(devA.rows.get(DAY_ID).total_minutes).toBe(450);
+                    expect(devB.rows.get(DAY_ID).total_minutes).toBe(510);
+                    // Sync: distinct ids union; LWW keeps A's smaller day row everywhere.
+                    const aDay = devA.rows.get(DAY_ID);
+                    for (const recs of [devA, devB]) {
+                        await seed([s1, s2], recs);
+                        recs.rows.set(DAY_ID, { ...aDay });
+                    }
+                    await vitals(devA).unifyLegacy();
+                    await vitals(devB).unifyLegacy();
+                    expect(JSON.stringify(devA.rows.get(DAY_ID))).toBe(JSON.stringify(devB.rows.get(DAY_ID)));
+                    expect(devA.rows.get(DAY_ID)).toMatchObject({ total_minutes: 510, notes: 'nap', heart_rate_avg: 59 });
+                    expect([...devA.rows.values()].every((r) => !r.deleted)).toBe(true);
+                    // Converged: neither device writes again.
+                    const ops = [...sleepWrites(devA), ...sleepWrites(devB)];
+                    await vitals(devA).unifyLegacy();
+                    await vitals(devB).unifyLegacy();
+                    expect(ops).toEqual([]);
+                });
+
+                it('a resurrected session (old nxk over a #1413 tombstone) writes nothing and is not counted twice', async () => {
+                    const s1 = legacy(N0 - 30 * 60_000, N0 + 7.5 * H, { total_minutes: 450 });
+                    const s2 = legacy(N0 + 15 * H, N0 + 16 * H);
+                    await seed([s1, s2]);
+                    await vitals().unifyLegacy();
+                    expect(records.rows.get(DAY_ID).total_minutes).toBe(510);
+                    // #1413 tombstoned the ledger; an old bundle re-puts s1 alone.
+                    await records.del('sleep', s1.recordId);
+                    await records.del('sleep', s2.recordId);
+                    await seed([s1]);
+                    const ops = sleepWrites(records);
+                    await vitals().unifyLegacy();
+                    expect(ops).toEqual([]);
+                    expect(await vitals().sleepDaily({ from: N0 - 24 * H })).toEqual([
+                        expect.objectContaining({ date: '2026-10-02', total_mins: 510 }),
+                    ]);
+                    expect((await vitals().sleep({ from: iso(N0 - 48 * H) })).map((r) => r.id)).toEqual([DAY_ID]);
+                });
+
+                it('a deleted day row is never re-projected, and its live ledger stays hidden', async () => {
+                    await seed([a, b, nap]);
+                    await vitals().unifyLegacy();
+                    await records.del('sleep', DAY_ID); // the user deletes the night
+                    const ops = sleepWrites(records);
+                    await vitals().unifyLegacy();
+                    await vitals().importSamples({ sleep: [{ ...a, recordId: undefined }] }); // a re-upload of the same session
+                    expect(ops).toEqual([]);
+                    expect(records.rows.get(DAY_ID).deleted).toBe(true);
+                    expect(await vitals().sleep({ from: iso(N0 - 48 * H) })).toEqual([]);
+                    expect(await vitals().sleepDaily({ from: N0 - 24 * H })).toEqual([]);
+                });
+
+                it('an equal-minutes correction to a session (stages, notes) reaches the day row', async () => {
+                    await seed([a, b, nap]);
+                    await vitals().unifyLegacy();
+                    await seed([{ ...nap, notes: 'nap on the couch', clientTs: 6 }]);
+                    const ops = sleepWrites(records);
+                    await vitals().unifyLegacy();
+                    expect(ops).toEqual([`put ${DAY_ID}`]);
+                    expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 480, notes: 'nap on the couch' });
+                    await vitals().unifyLegacy();
+                    expect(ops).toEqual([`put ${DAY_ID}`]);
+                });
+
+                it('no code path deletes a sleep row', async () => {
+                    await seed([hk(400), a, b, nap]);
+                    const ops = sleepWrites(records);
+                    await vitals().unifyLegacy();
+                    await vitals().importSamples({ sleep: [{ ...nap, recordId: undefined, total_minutes: 90 }] });
+                    expect(ops.filter((o) => o.startsWith('del sleep'))).toEqual([]);
+                });
             });
         });
 

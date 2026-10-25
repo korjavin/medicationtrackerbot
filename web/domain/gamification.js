@@ -1217,7 +1217,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // Sleep — total minutes + a resting-HR proxy + bedtime, bucketed on the
     // wake day. A night with a start_time but no total_minutes still has an
     // onset; one with neither contributes nothing.
-    for (const r of visibleSleep(await records.list(SLEEP_RECORD_TYPE))) {
+    for (const r of visibleSleep(await (records.listRaw ? records.listRaw(SLEEP_RECORD_TYPE) : records.list(SLEEP_RECORD_TYPE)))) {
       const hasMinutes = r.total_minutes !== null && r.total_minutes !== undefined;
       const onset = r.start_time ? sleepOnsetMinutes(r.start_time, r.timezone_offset || 0) : NaN;
       if (!hasMinutes && !Number.isFinite(onset)) continue;
@@ -2410,7 +2410,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const hrToKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs + DAY_MS)}`;
     const [bpAll, weightAll, weightGoalAll, sleepAll, dayStatsAll, hrAll, foodAll, foodTargetsAll, intakeAll, noteAll, workoutAll, trackerAll, trackerLogAll] = await Promise.all([
       records.list(BP_RECORD_TYPE), records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
-      records.list(SLEEP_RECORD_TYPE), records.list(DAYSTATS_RECORD_TYPE), records.listRange(HR_RECORD_TYPE, hrFromKey, hrToKey),
+      // Raw: visibleSleep needs a deleted sleep day's tombstone (med-0xad.9).
+      records.listRaw ? records.listRaw(SLEEP_RECORD_TYPE) : records.list(SLEEP_RECORD_TYPE),
+      records.list(DAYSTATS_RECORD_TYPE), records.listRange(HR_RECORD_TYPE, hrFromKey, hrToKey),
       records.list(FOOD_LOG_RECORD_TYPE), records.list(FOODTARGETS_RECORD_TYPE),
       // The dose projection, not raw intake rows (bd med-wi09.12): nothing
       // stores a PENDING prediction any more, so a missed dose exists only as

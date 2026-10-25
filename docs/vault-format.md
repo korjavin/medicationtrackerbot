@@ -333,9 +333,10 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   `awake_minutes`, `total_minutes`, `turn_over_count`, `heart_rate_avg`, `spo2_avg`
   (num), `user_modified` (bool), `notes` (str), optional `source` / `source_id`
   (`source_id` = its `day`, re-minted as `sleep-hk-<day>`; `source` is `apple_health`
-  or `miband`). Older files may carry one entry per Mi Band session (no `source_id`):
-  import mints those as `sleep-<start_time_ms>` and the app's conversion pass
-  (`vitals.js` `unifyLegacy`) folds them into the day row on its next boot.
+  or `miband`). Entries per Mi Band session (no `source_id`) are the ledger and
+  are exported beside the day row (bd med-0xad.9): import mints them as
+  `sleep-<start_time_ms>` and the app's projection pass (`vitals.js`
+  `unifyLegacy`) folds them into the day row on its next boot.
 - **stress** — older files carry `vitals.stress` samples: import accepts and ignores
   them, export never writes the key. No version bump (still v1).
 - **day_stat** — `day` (`YYYY-MM-DD`), `steps`, `calories`, `distance` (num).

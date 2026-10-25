@@ -9,6 +9,7 @@ import { encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase6
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
 import { mergeIntake, LEDGERCUT_RECORD_ID, LEDGERCUT_RECORD_TYPE } from '../../domain/medintake.js';
+import { mergeSleep, sameBody } from '../../domain/healthsource.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -396,7 +397,12 @@ async function readAllRecords() {
 // pref's Generic default (med-5vy0). Real writes carry wall-clock ms.
 const FLOOR_MAX_CLIENT_TS = 1;
 
-export async function replaceAllRecords(input) {
+// `reduceAcked` (bd med-0xad.9, snapshot bootstrap only): an acknowledged
+// local row of a REPAIR_TYPES type is reduced against its snapshot copy too,
+// not only a pending one, so an older bundle's compacted snapshot cannot bury
+// a fuller row this device already pushed; a local winner is re-stamped and
+// queued as a repair. An import replace never sets it.
+export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -427,6 +433,18 @@ export async function replaceAllRecords(input) {
     const snapshotById = new Map(records.map((r) => [r.recordId, r]));
     const overlay = [];
     const losingPending = [];
+    const repairs = [];
+    const pendingIds = new Set(pending.map((p) => p.recordId));
+    if (reduceAcked) {
+      for (const r of await readAllRecords()) {
+        const snap = snapshotById.get(r.recordId);
+        if (!snap || pendingIds.has(r.recordId) || !REPAIR_TYPES.has(r.recordType)) continue;
+        if (MERGE_POLICY[r.recordType](snap, r) === r && !sameBody(snap, r)) {
+          overlay.push({ ...r, clientTs: repairStamp(snap, r) });
+          repairs.push(r);
+        }
+      }
+    }
     for (const { recordId } of pending) {
       const r = await getRecord(recordId);
       if (!r) continue;
@@ -437,6 +455,8 @@ export async function replaceAllRecords(input) {
       if (policy) {
         const won = policy(snap, r);
         if (won === snap) losingPending.push(recordId);
+        // A repair type's pending winner must also out-stamp the snapshot.
+        else if (REPAIR_TYPES.has(r.recordType) && won.clientTs <= snap.clientTs) overlay.push({ ...won, clientTs: repairStamp(snap, won) });
         else overlay.push(won);
         continue;
       }
@@ -457,6 +477,7 @@ export async function replaceAllRecords(input) {
       for (const record of overlay) store.put(record);
     });
     if (losingPending.length > 0) await clearPending(losingPending);
+    for (const r of repairs) await markPending(r.recordId, r.recordType);
   });
   invalidateRecords();
   announce({ reset: true });
@@ -741,7 +762,26 @@ const APPLY_MERGE = { gamificationjournal: mergeGamificationJournal };
 // (replaceAllRecords). policy(local, incoming) returns `local` itself when
 // nothing changes, else the row to store. clientTs is still stamped and pushed:
 // an older client keeps merging these rows by LWW.
-const MERGE_POLICY = { intake: mergeIntake };
+const MERGE_POLICY = { intake: mergeIntake, sleep: mergeSleep };
+
+// Repair types (bd med-0xad.9 G): a MERGE_POLICY type whose reducer winner
+// must also become the clientTs winner. Older bundles and the compaction
+// floor still merge by clientTs, so when the reducer keeps a row that LWW
+// would drop, this device re-stamps it above both copies and queues it as an
+// ordinary op. After one repair the winner is also the newest, and an
+// incoming copy with the same body is never repaired, so repairs stop.
+const REPAIR_TYPES = new Set(['sleep']);
+
+function repairStamp(a, b) {
+  return Math.max((a.clientTs || 0) + 1, (b.clientTs || 0) + 1, Date.now());
+}
+
+// Lays `winner` re-stamped above `a` and `b` and queues it, inside the
+// records lock (the caller holds it), without going through writeRecord.
+async function putRepair(recordType, winner, a, b) {
+  await putRecord({ ...winner, clientTs: repairStamp(a, b), recordType });
+  await markPending(winner.recordId, recordType);
+}
 
 async function applyIncoming(recordType, record) {
   return withRecordsLock(async () => {
@@ -749,6 +789,11 @@ async function applyIncoming(recordType, record) {
     const policy = MERGE_POLICY[recordType];
     if (policy) {
       const merged = policy(existing, record);
+      const lwwWinner = !existing || record.clientTs > existing.clientTs ? record : existing;
+      if (REPAIR_TYPES.has(recordType) && merged !== lwwWinner && !sameBody(existing, record)) {
+        await putRepair(recordType, merged, existing, record);
+        return recordType;
+      }
       if (merged === existing) return null;
       await putRecord({ ...merged, recordType });
       return recordType;
@@ -772,7 +817,9 @@ async function applyIncoming(recordType, record) {
 
 // Returns true once the local mirror is at a known cursor. False means "did not
 // bootstrap" — callers that would otherwise proceed on a stale cursor must bail.
-async function bootstrap(ctx) {
+// `reduceAcked`: see replaceAllRecords. Off for a peer's full-vault import,
+// which replaces by intent.
+async function bootstrap(ctx, { reduceAcked = true } = {}) {
   // A stranded full-vault import (forceSnapshotPending) means the LOCAL store is
   // authoritative and has not been pushed yet. Replacing it with the server's
   // stale snapshot would destroy the import. pullOnOpen also guards this, but
@@ -818,7 +865,7 @@ async function bootstrap(ctx) {
       // ones start with raw JSON, so sniff and gunzip only when compressed.
       const json = isGzip(plaintext) ? await gunzip(plaintext) : plaintext;
       const records = JSON.parse(new TextDecoder().decode(json));
-      await replaceAllRecords(records);
+      await replaceAllRecords(records, { reduceAcked });
       lastSnapshotSeq = body.snapshot_seq;
     } catch {
       // Undecryptable snapshot (tampered ct or key mismatch): surface it and
@@ -888,7 +935,7 @@ async function pullTail(ctx) {
     if (typeof body.snapshot_seq === 'number' && (body.snapshot_seq > meta.localLastSeq || importLanded)) {
       // Transient failure, or a stranded import that must be pushed first: either
       // way the cursor didn't move, so looping would spin. Retry next open.
-      if (!(await bootstrap(ctx))) return;
+      if (!(await bootstrap(ctx, { reduceAcked: !importLanded }))) return;
       // The whole mirror was replaced (e.g. a peer's full-vault import), and
       // the tail above the snapshot is usually empty — so nothing below would
       // repaint. Every type may have changed.

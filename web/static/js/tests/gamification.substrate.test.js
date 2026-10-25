@@ -324,6 +324,27 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     expect(s.health_score.contributors).toHaveLength(5);
   });
 
+  // bd med-0xad.9: sleep sessions are a kept ledger behind the sleep-hk-<day>
+  // projection; a deleted day row hides its live sessions from scoring too.
+  it('a tombstoned sleep day hides its live ledger sessions from the bedtime ring', async () => {
+    const session = {
+      recordId: `sleep-${RM_NOW - 12 * 3600000}`, deleted: false, day: RM_TODAY,
+      start_time: isoAtMs(RM_NOW - 12 * 3600000), end_time: isoAtMs(RM_NOW - 4 * 3600000), total_minutes: 480, timezone_offset: 0,
+    };
+    const bedtime = async (records) => {
+      await records.del('sleep', 's1');
+      const s = await createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' }).getSummary();
+      return s.today_rings.find((r) => r.ring === 'bedtime').hp;
+    };
+    const live = seededDomain().records;
+    await live.put('sleep', session);
+    expect(await bedtime(live)).toBe(2);
+    const deleted = seededDomain().records;
+    await deleted.put('sleep', session);
+    await deleted.del('sleep', `sleep-hk-${RM_TODAY}`);
+    expect(await bedtime(deleted)).toBe(0);
+  });
+
   it('a food day flagged incomplete earns no nourishment awards, keyed on the LOCAL day (med-0sgs)', async () => {
     // Tokyo (UTC+9): the 07:00 local breakfast on 2026-06-15 is 22:00 UTC on
     // 06-14, so the substrate's UTC bucket is a different date than the flag.

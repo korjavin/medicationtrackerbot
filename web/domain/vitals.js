@@ -6,8 +6,9 @@
 //
 // Record shapes (C2e import targets — no cloud ingestion path yet, so these
 // lists are normally empty until the migration importer lands):
-//   'sleep'    — one record per sleep day at sleep-hk-<day> (bd med-0xad.4;
-//                legacy per-session rows are converted by unifyLegacy) with
+//   'sleep'    — one record per sleep day at sleep-hk-<day> (bd med-0xad.4),
+//                the projection of the legacy per-session rows (the ledger,
+//                kept live, bd med-0xad.9; folded by unifyLegacy) with
 //                store.SleepLog fields:
 //                start_time, end_time, timezone_offset, day, light_minutes,
 //                deep_minutes, rem_minutes, awake_minutes, total_minutes,
@@ -22,7 +23,7 @@
 //                density. Decided while implementing C2a Task 4.
 
 import { dayStartMs } from './bp.js';
-import { unifySleep, visibleSleep } from './healthsource.js';
+import { sameBody, unifySleep, visibleSleep } from './healthsource.js';
 
 // The vault holds one user's data; handleListSleepLogs stamps the row's
 // user_id, so the wire shape carries it too.
@@ -59,26 +60,6 @@ function dayString(ms, timeZone) {
 // is deliberately NOT dayString's local day.
 function utcDayString(ms) {
   return new Date(ms).toISOString().slice(0, 10);
-}
-
-// sameBody reports whether two records carry the same content, ignoring the
-// sync envelope (recordId/clientTs/deleted) and the local store's recordType.
-// The NXK re-drain uses it to skip no-op puts: Mi-Band backups are cumulative,
-// so every upload re-applies the whole history, and a blind put per record is
-// thousands of oplog ops (a compaction per upload) plus a fresh clientTs that
-// can out-LWW a real edit from another device (med-356i).
-const ENVELOPE_KEYS = new Set(['recordId', 'clientTs', 'deleted', 'recordType']);
-function canonical(v) {
-  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
-  if (v && typeof v === 'object') {
-    return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort()
-      .map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(v);
-}
-function sameBody(a, b) {
-  const strip = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => !ENVELOPE_KEYS.has(k)));
-  return canonical(strip(a)) === canonical(strip(b));
 }
 
 function calcAvg(values) {
@@ -212,9 +193,15 @@ export function createVitalsDomain({ records, now, timeZone }) {
     return out;
   }
 
+  // Raw sleep rows: a tombstoned sleep-hk-<day> is state (a deleted day hides
+  // its ledger and is never re-projected). Test doubles may lack listRaw.
+  function listSleepRaw() {
+    return records.listRaw ? records.listRaw(SLEEP_RECORD_TYPE) : records.list(SLEEP_RECORD_TYPE);
+  }
+
   // One source per sleep day when Health and Mi Band both hold it (visibleSleep).
   async function readSleepLogs() {
-    return visibleSleep(await records.list(SLEEP_RECORD_TYPE));
+    return visibleSleep(await listSleepRaw());
   }
 
   async function readDayStats() {
@@ -408,11 +395,10 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // importSamples writes a drained NXK vitals_import event into vault records.
   // Every stream is upserted by a deterministic natural key so re-applying the
   // same import (the drain's ack-after-flush barrier may replay it) is a no-op:
-  //   sleep     — never a legacy session row (bd med-0xad.4): the incoming
-  //               sessions go through healthsource.js unifySleep with the
-  //               stored rows, so a day lands at 'sleep-hk-<day>' only when it
-  //               is new or fuller than the stored day; stored legacy rows of
-  //               the store are folded and deleted on the way
+  //   sleep     — recordId 'sleep-<startMs>' per session, the ledger (bd
+  //               med-0xad.9); then healthsource.js unifySleep folds the
+  //               ledger, so a day lands at 'sleep-hk-<day>' only when it is
+  //               new or fuller than the stored day row
   //   daystats  — recordId 'daystats-<day>'
   //   hr/spo2   — day-batched, samples merged by instant (importDayBatched);
   //               stress is ignored (bd med-0xad.4)
@@ -433,33 +419,35 @@ export function createVitalsDomain({ records, now, timeZone }) {
     sleep: sleepLogs = [], hr = [], spo2 = [], daystats = [], workouts = [],
   } = {}) {
     if (sleepLogs.length) {
-      const stored = (await records.list(SLEEP_RECORD_TYPE)).filter((r) => !r.deleted);
-      const storedIds = new Set(stored.map((r) => r.recordId));
-      const rows = new Map(stored.map((r) => [r.recordId, r]));
-      // Each incoming session as the legacy row it used to be written as, so
-      // a session also stored unconverted counts once.
+      const rows = new Map((await listSleepRaw()).map((r) => [r.recordId, r]));
+      // Each incoming session goes to the ledger as its legacy row (bd
+      // med-0xad.9), so the fold below is over the complete ledger.
       for (const s of sleepLogs) {
         if (!s || !s.start_time) continue;
         const startMs = Date.parse(s.start_time);
         const recordId = `sleep-${Number.isNaN(startMs) ? s.day : startMs}`;
         const prev = rows.get(recordId);
+        // A tombstone wins the sync merge (healthsource.js mergeSleep): a
+        // deleted session is not re-put, nor folded as if it were.
+        if (prev && prev.deleted) continue;
+        const base = prev || null;
         // Never downgrade a longer stored session (repo.go WHERE
-        // total_minutes >). `{...prev, ...s}` is COALESCE: omitempty drops
-        // absent phase fields from the wire, so the spread keeps prev's.
-        if (prev && (s.total_minutes || 0) < (prev.total_minutes || 0)) continue;
-        rows.set(recordId, {
-          ...prev, ...s, recordId, user_modified: !!(prev && prev.user_modified) || !!s.user_modified,
-        });
+        // total_minutes >). `{...base, ...s}` is COALESCE: omitempty drops
+        // absent phase fields from the wire, so the spread keeps base's.
+        if (base && (s.total_minutes || 0) < (base.total_minutes || 0)) continue;
+        const next = {
+          ...base, ...s, recordId, clientTs: now(), deleted: false,
+          user_modified: !!(base && base.user_modified) || !!s.user_modified,
+        };
+        if (base && sameBody(base, next)) continue;
+        await records.put(SLEEP_RECORD_TYPE, next);
+        rows.set(recordId, next);
       }
       // A cumulative re-upload folds to the stored days again: same minutes,
       // nothing to write. Only a new or fuller night is put.
-      const { puts, dels } = unifySleep([...rows.values()]);
-      for (const body of puts) {
-        const prev = rows.get(body.recordId);
-        if (prev && sameBody(prev, body)) continue;
+      for (const body of unifySleep([...rows.values()]).puts) {
         await records.put(SLEEP_RECORD_TYPE, { ...body, clientTs: now(), deleted: false });
       }
-      for (const id of dels) if (storedIds.has(id)) await records.del(SLEEP_RECORD_TYPE, id);
     }
 
     if (daystats.length) {
@@ -526,19 +514,21 @@ export function createVitalsDomain({ records, now, timeZone }) {
     }
   }
 
-  // unifyLegacy (bd med-0xad.4): one sleep model and no stress. Converts the
-  // legacy sleep rows into sleep-hk-<day> rows (healthsource.js unifySleep)
-  // and deletes every live stress batch. Triggered by the rows themselves,
-  // never a flag: with none left it writes nothing. The day rows are a
+  // unifyLegacy (bd med-0xad.4, med-0xad.9): one sleep model and no stress.
+  // Projects the legacy sleep rows (the ledger, never deleted) into
+  // sleep-hk-<day> rows (healthsource.js unifySleep) and deletes every live
+  // stress batch. Triggered by the rows themselves, never a flag: once every
+  // day row is the fold of its ledger it writes nothing. The day rows are a
   // deliberate put at now(), not the putIfAbsent floor: the body is a pure
-  // function of the synced legacy rows, so two devices converting the same
-  // rows write the same bytes (callers run it only on a mirror pulled this
-  // session). A Health day it beats is discarded on purpose: the Health
-  // importer then meets the day as present and never re-imports it.
+  // function of the synced ledger, so two devices with the same ledger write
+  // the same bytes, and divergent ledgers converge on the union's fold once
+  // it syncs (callers run it only on a mirror pulled this session). A Health
+  // day it beats is discarded on purpose: the Health importer then meets the
+  // day as present and never re-imports it.
   async function unifyLegacy() {
-    const { puts, dels } = unifySleep(await records.list(SLEEP_RECORD_TYPE));
-    for (const body of puts) await records.put(SLEEP_RECORD_TYPE, { ...body, clientTs: now(), deleted: false });
-    for (const id of dels) await records.del(SLEEP_RECORD_TYPE, id);
+    for (const body of unifySleep(await listSleepRaw()).puts) {
+      await records.put(SLEEP_RECORD_TYPE, { ...body, clientTs: now(), deleted: false });
+    }
     for (const r of await records.list(STRESS_RECORD_TYPE)) {
       if (!r.deleted) await records.del(STRESS_RECORD_TYPE, r.recordId);
     }
