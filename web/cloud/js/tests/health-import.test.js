@@ -485,8 +485,11 @@ describe('Apple Health import', () => {
             expect(await domain.importSamples('sleep', night, { from: N0 - 2 * H, to: N0 + 20 * H })).toMatchObject({ added: 1 });
         });
 
-        // bd med-w6gx.31: Health and Mi Band both store a night; the read shows
-        // one source per sleep day — the more asleep minutes, a tie to the band.
+        // bd med-w6gx.31, med-0xad.4: a sleep day holds one row. A .nxk import
+        // folds its sessions into the day (vitals.js importSamples →
+        // healthsource.js unifySleep): the more asleep minutes win, a tie
+        // against Health to the band. Legacy rows still stored are picked on
+        // read (visibleSleep) until the boot pass converts them.
         describe('a sleep day held by Health and a Mi Band shows one source', () => {
             const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
             // A Mi Band session (Berlin, minutes west), no phases unless given.
@@ -506,15 +509,16 @@ describe('Apple Health import', () => {
             const shown = async (recs = records) => (await vitals(recs).sleep({ from: iso(N0 - 48 * H) })).map((r) => r.id).sort();
             const noneDeleted = (recs = records) => [...recs.rows.values()].every((r) => !r.deleted);
 
-            it('either import order stores both and shows the fuller one; a rescan and a replay change nothing', async () => {
+            it('either import order keeps the fuller night on the day id; a rescan and a replay change nothing', async () => {
                 const full = band(N0 - 30 * 60_000, N0 + 8 * H); // 510 min vs Health 470
-                const want = [`sleep-${N0 - 30 * 60_000}`, DAY2_ID].sort();
+                const want = [DAY_ID, DAY2_ID];
                 expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }))).toEqual({ added: 2 });
                 const day2 = records.rows.get(DAY2_ID);
                 await vitals().importSamples({ sleep: [full] });
                 expect(await shown()).toEqual(want);
+                expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 510 });
                 expect(records.rows.get(DAY2_ID)).toBe(day2); // another night: untouched, shown
-                expect(records.rows.size).toBe(3);
+                expect(records.rows.size).toBe(2);
                 expect(noneDeleted()).toBe(true);
                 storage.setItem('wg.health.anchors', '{}');
                 expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }))).toEqual({ added: 0 });
@@ -525,12 +529,13 @@ describe('Apple Health import', () => {
                 const other = memRecords();
                 await vitals(other).importSamples({ sleep: [full] });
                 storage.setItem('wg.health.anchors', '{}'); // a fresh vault reads Health from the start
-                expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }, other))).toEqual({ added: 2 });
+                expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }, other))).toEqual({ added: 1 });
                 expect(await shown(other)).toEqual(want);
+                expect(other.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 510 });
                 expect(noneDeleted(other)).toBe(true);
             });
 
-            it('a 30-minute band nap does not hide a Health 8h night plus nap', async () => {
+            it('a 30-minute band nap does not replace a Health 8h night plus nap', async () => {
                 const nap = slp(20, N0 + 15 * H, N0 + 16 * H, 1);
                 expect(await runHealthImport({}, opts({ sleep: [...night, nap] }))).toEqual({ added: 1 });
                 await vitals().importSamples({ sleep: [band(N0 + 11 * H, N0 + 11.5 * H)] });
@@ -538,7 +543,7 @@ describe('Apple Health import', () => {
                 expect((await vitals().sleepDaily({ from: N0 - 24 * H }))).toEqual([
                     expect.objectContaining({ date: '2026-10-02', total_mins: 530 }),
                 ]);
-                expect(noneDeleted()).toBe(true);
+                expect(records.rows.size).toBe(1);
             });
 
             it.each([
@@ -551,10 +556,9 @@ describe('Apple Health import', () => {
             ])('%s', async (_name, sessions, healthTotal, winner) => {
                 await records.put('sleep', hk(healthTotal));
                 await vitals().importSamples({ sleep: sessions });
-                const bandIds = sessions.map((s) => `sleep-${Date.parse(s.start_time)}`);
-                expect(await shown()).toEqual(winner === 'health' ? [DAY_ID] : bandIds.sort());
-                expect(records.rows.size).toBe(sessions.length + 1);
-                expect(noneDeleted()).toBe(true);
+                expect(await shown()).toEqual([DAY_ID]);
+                expect(records.rows.get(DAY_ID).source).toBe(winner === 'health' ? 'apple_health' : 'miband');
+                expect(records.rows.size).toBe(1); // no session row is ever written
             });
 
             it('a bot-era row (timezone_offset in seconds east) files on its own night', async () => {
@@ -564,20 +568,36 @@ describe('Apple Health import', () => {
                 expect(noneDeleted()).toBe(true);
             });
 
-            it('a later, fuller .nxk flips the day to the band; a backup round trip keeps both rows and the view', async () => {
+            it('a later, fuller .nxk flips the day to the band; a backup round trip keeps the row and the view', async () => {
                 await records.put('sleep', hk(450));
                 await vitals().importSamples({ sleep: [band(N0, N0 + 3 * H)] }); // battery died
-                expect(await shown()).toEqual([DAY_ID]);
+                expect(records.rows.get(DAY_ID).source).toBe('apple_health');
                 await vitals().importSamples({ sleep: [band(N0, N0 + 8 * H)] }); // the cumulative re-upload
-                expect(await shown()).toEqual([`sleep-${N0}`]);
+                expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 480 });
+                expect(await shown()).toEqual([DAY_ID]);
                 expect(noneDeleted()).toBe(true);
 
                 const vault = recordsToVault([...records.rows.values()], { now: W0 });
-                expect(vault.data.vitals.sleep).toHaveLength(2);
+                expect(vault.data.vitals.sleep).toHaveLength(1);
                 const restored = memRecords();
                 for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
                 expect(await vitals(restored).sleep({ from: iso(N0 - 48 * H) })).toEqual(await vitals().sleep({ from: iso(N0 - 48 * H) }));
-                expect((await restored.listRaw('sleep')).length).toBe(2);
+                expect((await restored.listRaw('sleep')).length).toBe(1);
+            });
+
+            // Archie 5372: a cumulative re-upload costs only the nights that changed.
+            it('re-uploading the same backup writes nothing; one fuller night writes one row', async () => {
+                const backup = [band(N0, N0 + 7 * H), band(N0 + 24 * H, N0 + 31 * H, { day: '2026-10-03' })];
+                await vitals().importSamples({ sleep: backup });
+                expect([...records.rows.keys()].sort()).toEqual([DAY_ID, DAY2_ID]);
+                const ops = [];
+                const { put, del } = records;
+                records.put = (t, r) => { ops.push(`put ${r.recordId}`); return put(t, r); };
+                records.del = (t, id) => { ops.push(`del ${id}`); return del(t, id); };
+                await vitals().importSamples({ sleep: backup });
+                expect(ops).toEqual([]);
+                await vitals().importSamples({ sleep: [backup[0], band(N0 + 24 * H, N0 + 32 * H, { day: '2026-10-03' })] });
+                expect(ops).toEqual([`put ${DAY2_ID}`]);
             });
         });
 

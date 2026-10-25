@@ -412,9 +412,14 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // importSamples writes a drained NXK vitals_import event into vault records.
   // Every stream is upserted by a deterministic natural key so re-applying the
   // same import (the drain's ack-after-flush barrier may replay it) is a no-op:
-  //   sleep     — recordId 'sleep-<startInstantMs>'
+  //   sleep     — never a legacy session row (bd med-0xad.4): the incoming
+  //               sessions go through healthsource.js unifySleep with the
+  //               stored rows, so a day lands at 'sleep-hk-<day>' only when it
+  //               is new or fuller than the stored day; stored legacy rows of
+  //               the store are folded and deleted on the way
   //   daystats  — recordId 'daystats-<day>'
-  //   hr/spo2/stress — day-batched, samples merged by instant (importDayBatched)
+  //   hr/spo2   — day-batched, samples merged by instant (importDayBatched);
+  //               stress is ignored (bd med-0xad.4)
   //   workouts  — recordId 'miband-<source_start_ms>' (no GPS; the wire never
   //               carries it — locked scope decision)
   // The natural keys already make every write idempotent, so no separate
@@ -429,33 +434,36 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // zero-out a populated workout field. Same-instant day-batched samples
   // (importDayBatched) carry the same device value, so LWW is fine there.
   async function importSamples({
-    sleep: sleepLogs = [], hr = [], spo2 = [], stress = [], daystats = [], workouts = [],
+    sleep: sleepLogs = [], hr = [], spo2 = [], daystats = [], workouts = [],
   } = {}) {
     if (sleepLogs.length) {
-      const existing = new Map((await records.list(SLEEP_RECORD_TYPE)).map((r) => [r.recordId, r]));
+      const stored = (await records.list(SLEEP_RECORD_TYPE)).filter((r) => !r.deleted);
+      const storedIds = new Set(stored.map((r) => r.recordId));
+      const rows = new Map(stored.map((r) => [r.recordId, r]));
+      // Each incoming session as the legacy row it used to be written as, so
+      // a session also stored unconverted counts once.
       for (const s of sleepLogs) {
         if (!s || !s.start_time) continue;
         const startMs = Date.parse(s.start_time);
-        const key = Number.isNaN(startMs) ? s.day : startMs;
-        const recordId = `sleep-${key}`;
-        const prev = existing.get(recordId);
-        const base = prev && !prev.deleted ? prev : null;
-        if (base) {
-          // Never downgrade a longer stored session (repo.go WHERE
-          // total_minutes >). `{...base, ...s}` is COALESCE: omitempty drops
-          // absent phase fields from the wire, so the spread keeps base's.
-          if ((s.total_minutes || 0) < (base.total_minutes || 0)) continue;
-          const next = {
-            ...base, ...s, recordId, clientTs: now(), deleted: false,
-            user_modified: base.user_modified || s.user_modified,
-          };
-          if (!sameBody(base, next)) await records.put(SLEEP_RECORD_TYPE, next);
-          continue;
-        }
-        await records.put(SLEEP_RECORD_TYPE, {
-          recordId, clientTs: now(), deleted: false, ...s,
+        const recordId = `sleep-${Number.isNaN(startMs) ? s.day : startMs}`;
+        const prev = rows.get(recordId);
+        // Never downgrade a longer stored session (repo.go WHERE
+        // total_minutes >). `{...prev, ...s}` is COALESCE: omitempty drops
+        // absent phase fields from the wire, so the spread keeps prev's.
+        if (prev && (s.total_minutes || 0) < (prev.total_minutes || 0)) continue;
+        rows.set(recordId, {
+          ...prev, ...s, recordId, user_modified: !!(prev && prev.user_modified) || !!s.user_modified,
         });
       }
+      // A cumulative re-upload folds to the stored days again: same minutes,
+      // nothing to write. Only a new or fuller night is put.
+      const { puts, dels } = unifySleep([...rows.values()]);
+      for (const body of puts) {
+        const prev = rows.get(body.recordId);
+        if (prev && sameBody(prev, body)) continue;
+        await records.put(SLEEP_RECORD_TYPE, { ...body, clientTs: now(), deleted: false });
+      }
+      for (const id of dels) if (storedIds.has(id)) await records.del(SLEEP_RECORD_TYPE, id);
     }
 
     if (daystats.length) {
@@ -480,7 +488,6 @@ export function createVitalsDomain({ records, now, timeZone }) {
 
     await importDayBatched(HR_RECORD_TYPE, hr);
     await importDayBatched(SPO2_RECORD_TYPE, spo2);
-    await importDayBatched(STRESS_RECORD_TYPE, stress);
 
     if (workouts.length) {
       const existing = new Map(
