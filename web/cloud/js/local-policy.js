@@ -546,10 +546,20 @@ export async function mountLocalFeedback({ win }) {
 let firstEgressSettled;
 const firstEgress = new Promise((resolve) => { firstEgressSettled = resolve; });
 
+// Registrations still running. firstEgress is one-shot; this lets a caller
+// (the test harness, before it drops the window) wait for the current ones.
+const egressInFlight = new Set();
+export async function egressIdle() {
+  while (egressInFlight.size) await Promise.allSettled([...egressInFlight]);
+}
+
 export async function registerLocalEgress(args) {
+  const run = registerLocalEgressNow(args);
+  egressInFlight.add(run);
   try {
-    return await registerLocalEgressNow(args);
+    return await run;
   } finally {
+    egressInFlight.delete(run);
     firstEgressSettled();
   }
 }
