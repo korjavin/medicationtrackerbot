@@ -60,46 +60,122 @@ function asleepMinutes(r) {
   return awake !== null ? total - awake : total;
 }
 
-// visibleSleep (bd med-w6gx.31): the live sleep rows every reader shows. An
-// Apple Health day and a non-Health night (Mi Band) can describe the same
-// night; nothing is deleted on import, the read picks. Per sleep day
-// (sleepDayOf of each row's own end and timezone_offset, minutes west), a day
-// holding both shows one source: the more asleep minutes (the non-Health side
-// summed over its sessions), a tie to the non-Health device. The loser is
-// hidden, never deleted, so a fuller later .nxk flips the day by itself.
+// sameBody reports whether two records carry the same content, ignoring the
+// sync envelope (recordId/clientTs/deleted) and the local store's recordType.
+// The NXK re-drain uses it to skip no-op puts: Mi-Band backups are cumulative,
+// so every upload re-applies the whole history, and a blind put per record is
+// thousands of oplog ops (a compaction per upload) plus a fresh clientTs that
+// can out-LWW a real edit from another device (med-356i). unifySleep uses it
+// to tell an equal-minutes projection that changed from one that did not.
+const ENVELOPE_KEYS = new Set(['recordId', 'clientTs', 'deleted', 'recordType']);
+function canonical(v) {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+const bodyKey = (r) => canonical(Object.fromEntries(Object.entries(r).filter(([k]) => !ENVELOPE_KEYS.has(k))));
+export function sameBody(a, b) {
+  return bodyKey(a) === bodyKey(b);
+}
+
+const DAY_ROW_ID = /^sleep-hk-(\d{4}-\d{2}-\d{2})$/;
+
+// A live sleep-hk-<day> row: the only sleep row a snapshot bootstrap reduces
+// against its snapshot copy (sync.js replaceAllRecords reduceAcked).
+export function isLiveSleepDayRow(r) {
+  return !r.deleted && DAY_ROW_ID.test(r.recordId);
+}
+
+// mergeSleep(local, incoming) (bd med-0xad.9 F): the sync reducer for
+// 'sleep' (sync.js MERGE_POLICY), replacing clientTs LWW. Returns `local`
+// itself when nothing changes. A ledger row (a session) is immutable, so plain
+// clientTs LWW, tombstones included: the fold is over the live ledger alone,
+// so a resurrected session changes nothing, and re-pushing a #1413 delete
+// over a restore would. A day row is a projection: a tombstone wins on
+// either side (a deleted day is never resurrected), else the FULLER wins
+// (asleep minutes), so a newer day row folded from a partial ledger can no
+// longer bury a fuller one. Then the newer clientTs, then the body: a total
+// order (minutes, clientTs, body), so the fold is commutative and
+// associative and never depends on arrival order. An identical copy at the
+// same clientTs keeps local.
+export function mergeSleep(local, incoming) {
+  if (!local) return incoming;
+  if (DAY_ROW_ID.test(local.recordId)) {
+    if (!local.deleted !== !incoming.deleted) return local.deleted ? local : incoming;
+    const d = local.deleted ? 0 : asleepMinutes(incoming) - asleepMinutes(local);
+    if (d) return d > 0 ? incoming : local;
+  }
+  const ts = (incoming.clientTs || 0) - (local.clientTs || 0);
+  if (ts) return ts > 0 ? incoming : local;
+  return bodyKey(incoming) > bodyKey(local) ? incoming : local;
+}
+
+// visibleSleep (bd med-w6gx.31): the sleep rows every reader shows, given the
+// raw rows (tombstones included). An Apple Health day and a non-Health night
+// (Mi Band) can describe the same night; nothing is deleted on import, the
+// read picks. Per sleep day (sleepDayOf of each row's own end and
+// timezone_offset, minutes west) one set of rows shows. The legacy rows (the
+// ledger) offer one source: Health rows restored under a fresh id or the
+// non-Health sessions, the more asleep minutes, a tie to the non-Health
+// device. The day row at sleep-hk-<day> shows instead when it has at least
+// as many asleep minutes (bd med-0xad.9): a projected day is the exact fold
+// of its ledger, so it ties it. The loser is hidden, never deleted, so a
+// fuller later ledger flips the day by itself. A tombstoned sleep-hk-<day>
+// hides that day's ledger too: a deleted day stays deleted.
 export function visibleSleep(rows) {
-  const days = new Map(); // day -> { health: [], other: [] }
+  const deadDays = new Set();
+  for (const r of rows) {
+    const m = r.deleted && DAY_ROW_ID.exec(r.recordId);
+    if (m) deadDays.add(m[1]);
+  }
+  const days = new Map(); // day -> { dayRow, health: [], other: [] }
+  const hidden = new Set();
   for (const r of rows) {
     const end = Date.parse(r.end_time);
     if (r.deleted || !Number.isFinite(end)) continue;
+    hidden.add(r);
     const day = sleepDayOf(end, recordOffsetMs(r.timezone_offset));
-    if (!days.has(day)) days.set(day, { health: [], other: [] });
-    days.get(day)[healthImportRecordId('sleep', r) ? 'health' : 'other'].push(r);
+    if (deadDays.has(day)) continue;
+    if (!days.has(day)) days.set(day, { dayRow: null, health: [], other: [] });
+    const d = days.get(day);
+    if (!d.dayRow && DAY_ROW_ID.test(r.recordId)) d.dayRow = r;
+    else d[healthImportRecordId('sleep', r) ? 'health' : 'other'].push(r);
   }
-  const hidden = new Set();
   const sum = (list) => list.reduce((a, r) => a + asleepMinutes(r), 0);
-  for (const { health, other } of days.values()) {
-    if (!health.length || !other.length) continue;
-    for (const r of sum(health) > sum(other) ? other : health) hidden.add(r);
+  for (const { dayRow, health, other } of days.values()) {
+    const ledger = !other.length || (health.length && sum(health) > sum(other)) ? health : other;
+    const shown = dayRow && asleepMinutes(dayRow) >= sum(ledger) ? [dayRow] : ledger;
+    for (const r of shown) hidden.delete(r);
   }
   return rows.filter((r) => !r.deleted && !hidden.has(r));
 }
 
-const DAY_ROW_ID = /^sleep-hk-\d{4}-\d{2}-\d{2}$/;
-
-// unifySleep (bd med-0xad.4) → { puts, dels }: the one-off conversion of
-// legacy sleep rows (every live row not at a sleep-hk-<day> id: Mi Band
-// sessions, bot-era rows, restores by older clients) into one day row per
-// sleep day, the shape healthimport.js writes. Per day, the converted body
-// goes to sleep-hk-<day> unless a live row already there has more asleep
-// minutes (a tie: see below); either way every legacy row of the day is
-// deleted. A row without a parseable end_time is no night and stays. No
-// legacy rows → nothing to do, so a second run writes nothing.
+// unifySleep (bd med-0xad.4, med-0xad.9) → { puts }: projects the legacy
+// sleep rows (every live row not at a sleep-hk-<day> id: Mi Band sessions,
+// bot-era rows, restores by older clients) into one day row per sleep day,
+// the shape healthimport.js writes. The legacy rows are the ledger and are
+// never deleted; the day row is their fold. Per day the fold of ALL its live
+// legacy rows goes to sleep-hk-<day> when it has more asleep minutes than the
+// live row there (a tie: see below). The fold is over the ledger alone, never
+// the day row plus the ledger, so a session already folded never counts
+// twice, and two devices whose ledgers diverged converge once the union has
+// synced: its fold is the fullest. A tombstone at sleep-hk-<day> is a delete
+// and holds. A row without a parseable end_time is no night. Takes the raw
+// rows (tombstones included). Assumes ledger rows are append-only: no route
+// edits or deletes a session, and importSamples' guard only grows one.
 export function unifySleep(rows) {
-  const live = rows.filter((r) => !r.deleted);
-  const byId = new Map(live.map((r) => [r.recordId, r]));
+  const byId = new Map();
+  const dead = new Set();
   const days = new Map();
-  for (const r of live) {
+  for (const r of rows) {
+    if (r.deleted) {
+      if (DAY_ROW_ID.test(r.recordId)) dead.add(r.recordId);
+      continue;
+    }
+    byId.set(r.recordId, r);
     const end = Date.parse(r.end_time);
     if (DAY_ROW_ID.test(r.recordId) || !Number.isFinite(end)) continue;
     const day = sleepDayOf(end, recordOffsetMs(r.timezone_offset));
@@ -107,7 +183,6 @@ export function unifySleep(rows) {
     days.get(day).push(r);
   }
   const puts = [];
-  const dels = [];
   for (const day of [...days.keys()].sort()) {
     const sessions = days.get(day);
     // A Health day restored under a fresh id is one source, the band
@@ -117,16 +192,17 @@ export function unifySleep(rows) {
     const other = sessions.filter((r) => !healthImportRecordId('sleep', r));
     const bodies = [health, other].filter((g) => g.length).map((g) => sleepDayBody(day, g));
     const body = bodies.length === 2 && asleepMinutes(bodies[0]) <= asleepMinutes(bodies[1]) ? bodies[1] : bodies[0];
+    if (dead.has(body.recordId)) continue;
     const have = byId.get(body.recordId);
-    // A tie against a Health day goes to the converted sessions, as
-    // visibleSleep shows it today; against an earlier conversion (equal
-    // minutes, same rows) the existing row stays.
+    // Equal minutes put only when the bytes differ (bd med-0xad.9 A): a tie
+    // against a Health day goes to the band, a stage/notes correction at
+    // equal minutes reaches the projection, an identical earlier projection
+    // writes nothing.
     const mine = asleepMinutes(body);
     const theirs = have ? asleepMinutes(have) : -1;
-    if (mine > theirs || (mine === theirs && have.source === HEALTH_SOURCE)) puts.push(body);
-    for (const r of sessions) dels.push(r.recordId);
+    if (mine > theirs || (mine === theirs && !sameBody(have, body))) puts.push(body);
   }
-  return { puts, dels };
+  return { puts };
 }
 
 // One day's body from its legacy sessions; built from the rows alone, so every

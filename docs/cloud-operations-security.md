@@ -195,6 +195,13 @@ busy_timeout, full disk) is a Warn, not a startup failure: the file stays at
   Run the non-destructive
   [restore drill](cloud-deployment.md#restore-drill-non-destructive)
   periodically; it neither touches the live volume nor needs downtime.
+- **After a rollback, reload or close every tab before restoring a backup.**
+  A rollback changes the served bundle, but open tabs keep running the newer
+  code until they reload, and their sync merge can push rows back over the
+  restored file (bd med-0xad.9: an acknowledged fuller sleep day survives an
+  older bundle's import). A rollback to before #1413 also shows doubled sleep
+  on every day that has a live session ledger plus its day row, until rolled
+  forward again.
 
 ## 4. Deletion propagation
 

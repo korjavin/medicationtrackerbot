@@ -1103,8 +1103,10 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
         await apply(vitalsEvent(), 42);
 
-        expect(await records.list('sleep')).toHaveLength(1);
-        expect((await records.list('sleep'))[0].heart_rate_avg).toBe(58);
+        // The session is the ledger, its sleep day the projection (bd med-0xad.9).
+        expect((await records.list('sleep')).map((r) => r.recordId).sort())
+            .toEqual([`sleep-${Date.parse(SLEEP_START)}`, 'sleep-hk-2026-01-02']);
+        expect((await records.list('sleep')).every((r) => r.heart_rate_avg === 58)).toBe(true);
         expect(await records.list('daystats')).toHaveLength(1);
         expect((await records.list('daystats'))[0].steps).toBe(8000);
 
@@ -1114,9 +1116,8 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         const jan1 = hr.find((r) => r.recordId === 'hrsample-2026-01-01');
         expect(jan1.samples).toHaveLength(2);
         expect(await records.list('spo2sample')).toHaveLength(1);
-        // Stress is dropped (bd med-0xad.4); sleep lands as its sleep day.
+        // Stress is dropped (bd med-0xad.4).
         expect(await records.list('stresssample')).toEqual([]);
-        expect((await records.list('sleep'))[0].recordId).toBe('sleep-hk-2026-01-02');
 
         const miband = await records.list('miband');
         expect(miband).toHaveLength(1);
@@ -1131,7 +1132,7 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         await apply(vitalsEvent(), 42);
         await apply(vitalsEvent(), 42);
 
-        expect(await records.list('sleep')).toHaveLength(1);
+        expect(await records.list('sleep')).toHaveLength(2); // one session + its day row
         expect(await records.list('daystats')).toHaveLength(1);
         expect(await records.list('hrsample')).toHaveLength(2);
         expect((await records.list('hrsample')).find((r) => r.recordId === 'hrsample-2026-01-01').samples).toHaveLength(2);
@@ -1200,8 +1201,10 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => NOW });
         await apply(vitalsEvent(), 42);
 
-        // Both paths minted the same natural-key recordId → still one record each.
-        expect(await records.list('sleep')).toHaveLength(1);
+        // Both paths minted the same natural-key recordId → still one session
+        // (plus its day row, bd med-0xad.9), one workout.
+        expect((await records.list('sleep')).map((r) => r.recordId).sort())
+            .toEqual([`sleep-${Date.parse(SLEEP_START)}`, 'sleep-hk-2026-01-02']);
         expect(await records.list('miband')).toHaveLength(1);
 
         // overview() sums per-day sleep minutes with no identity awareness, so a

@@ -898,12 +898,16 @@ describe('legacy sleep conversion over the fixture (bd med-0xad.4)', () => {
   it('the bot-era fixture night lands on its day; export, restore and the pass again change nothing', async () => {
     const inPlace = await unified(vaultToRecords(fixture, { now: NOW }));
     // timezone_offset 7200 is bot-era seconds east; asleep = 240 + 120 + 90.
-    expect(liveSleep(inPlace)).toEqual([expect.objectContaining({
-      recordId: 'sleep-hk-2026-07-08', day: '2026-07-08', timezone_offset: -120, total_minutes: 450,
-      source: 'miband', source_id: '2026-07-08',
-    })]);
+    // The legacy row stays as the ledger (bd med-0xad.9) beside its day row.
+    expect(liveSleep(inPlace)).toEqual([
+      expect.objectContaining({ recordId: 'sleep-1783463400000', timezone_offset: 7200 }),
+      expect.objectContaining({
+        recordId: 'sleep-hk-2026-07-08', day: '2026-07-08', timezone_offset: -120, total_minutes: 450,
+        source: 'miband', source_id: '2026-07-08',
+      }),
+    ]);
     const exported = recordsToVault(inPlace, { now: NOW });
-    expect(exported.data.vitals.sleep).toHaveLength(1);
+    expect(exported.data.vitals.sleep).toHaveLength(2);
     const again = await unified(vaultToRecords(exported, { now: NOW }));
     expect(liveSleep(again)).toEqual(liveSleep(inPlace));
     // An older file (the bot export, stress included) converges on the same rows.

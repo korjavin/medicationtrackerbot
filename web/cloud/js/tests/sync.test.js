@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
 import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
+import { mergeSleep } from '../../../domain/healthsource.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
 // module drives navigator.credentials, which doesn't exist in jsdom.
@@ -3571,5 +3572,237 @@ describe('an old tab\'s unannounced write shows once the page is back in use (me
     if (type === 'pageshow') Object.defineProperty(event, 'persisted', { value: true });
     (type === 'visibilitychange' ? doc : win).dispatchEvent(event);
     expect((await port.listRaw('intake')).map((r) => r.status)).toEqual(['TAKEN']);
+  });
+});
+
+// bd med-0xad.9 F/G: a sleep day row (sleep-hk-<day>) merges by fullness, not
+// clientTs, and the merging device repairs the clientTs order so older
+// bundles and the compaction floor agree. Ledger rows stay LWW; a tombstone
+// wins either side.
+describe('sleep day rows merge by fullness and repair the clientTs order (med-0xad.9)', () => {
+  const DAY = 'sleep-hk-2026-10-02';
+  const day = (total, clientTs, extra = {}) => ({
+    recordId: DAY, recordType: 'sleep', clientTs, deleted: false, start_time: '2026-10-01T21:00:00Z',
+    end_time: '2026-10-02T05:00:00Z', timezone_offset: -120, day: '2026-10-02', total_minutes: total,
+    source: 'miband', source_id: '2026-10-02', ...extra,
+  });
+  const session = (id, total, clientTs) => ({
+    recordId: id, recordType: 'sleep', clientTs, deleted: false, start_time: '2026-10-01T21:00:00Z',
+    end_time: '2026-10-02T05:00:00Z', timezone_offset: -120, day: '2026-10-02', total_minutes: total,
+  });
+  const tomb = (id, clientTs) => ({ recordId: id, recordType: 'sleep', clientTs, deleted: true });
+
+  let ctx;
+  let pulledOps;
+  let posted;
+  let seq;
+  let snapshotBody;
+
+  const wipe = async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+  };
+  const seed = async (records, pending = []) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta', 'pending'], 'readwrite');
+        for (const r of records) tx.objectStore('records').put(r);
+        for (const r of pending) tx.objectStore('pending').put({ recordId: r.recordId, recordType: r.recordType });
+        tx.objectStore('sync_meta').put(5, 'localLastSeq');
+        tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const getAll = async (store) => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction(store, 'readonly').objectStore(store).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const row = async (id) => (await getAll('records')).find((r) => r.recordId === id);
+  const pull = async (...records) => {
+    for (const record of records) {
+      seq += 1;
+      const { recordType, ...body } = record;
+      const { nonce, ct } = await encryptRecord({
+        kData: ctx.kData, accountId, recordType, recordId: record.recordId, seq,
+        plaintext: new TextEncoder().encode(JSON.stringify(body)),
+      });
+      pulledOps.push({ seq, record_type_tag: `${recordType}:${record.recordId}`, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    }
+    await pullOnOpen(ctx);
+  };
+
+  beforeEach(async () => {
+    await wipe();
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    pulledOps = [];
+    posted = [];
+    seq = 5;
+    snapshotBody = null;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return snapshotBody ? new Response(snapshotBody, { status: 200 }) : new Response(null, { status: 204 });
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') return new Response('{}', { status: 200 });
+      if (u.startsWith('/api/sync/ops?')) {
+        const ops = pulledOps.splice(0, pulledOps.length);
+        const snap = snapshotBody ? { snapshot_seq: JSON.parse(snapshotBody).snapshot_seq } : {};
+        return new Response(JSON.stringify({ ops, next: false, ...snap }), { status: 200 });
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        posted.push(...ops.map((o) => o.record_type_tag));
+        return new Response(JSON.stringify({ assigned: ops.map(() => (seq += 1)) }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  });
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('mergeSleep folds to the same row, body and clientTs, in every arrival order', () => {
+    const days = [
+      day(450, 100, { notes: 'X' }), day(450, 300, { notes: 'X' }), day(450, 200, { notes: 'Y' }), // Argus' repro
+      day(40, 400), day(450, 200, { notes: 'Z' }), tomb(DAY, 50), tomb(DAY, 60),
+    ];
+    const sessions = [session('sleep-1', 450, 10), session('sleep-1', 470, 5), session('sleep-1', 460, 5), session('sleep-1', 450, 30), tomb('sleep-1', 1)];
+    const perms = (xs) => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p])));
+    const triples = (xs) => xs.flatMap((a, i) => xs.slice(i + 1).flatMap((b, j) => xs.slice(i + j + 2).map((c) => [a, b, c])));
+    for (const set of [days, sessions]) {
+      for (const t of [...triples(set), set]) {
+        const results = new Set(perms(t).map((p) => JSON.stringify(p.reduce((acc, r) => mergeSleep(acc, r), null))));
+        expect(results.size, JSON.stringify(t)).toBe(1);
+      }
+    }
+    expect(mergeSleep(day(40, 200), day(450, 100)).total_minutes).toBe(450); // fuller beats newer
+    expect(mergeSleep(session('sleep-1', 470, 5), session('sleep-1', 450, 10)).total_minutes).toBe(450); // a ledger row is LWW
+  });
+
+  // (f) Socrates 5624: A (#1413) imported S1=450, wrote day=450 at t=100 and
+  // tombstoned S1; B (.9) imported S2=40, wrote day=40 at t=200. Both orders.
+  it('the five-step mixed-version interleaving ends at 450 on both devices, with one repair', async () => {
+    // B holds its own state and pulls A's.
+    await seed([session('sleep-2', 40, 150), day(40, 200)]);
+    await pull(session('sleep-1', 450, 90), day(450, 100), tomb('sleep-1', 101));
+    const b = await row(DAY);
+    expect(b.total_minutes).toBe(450);
+    expect(b.clientTs).toBeGreaterThan(200); // out-stamps 40 for LWW clients and the floor
+    expect(posted).toEqual([`sleep:${DAY}`]);
+    expect((await row('sleep-2')).deleted).toBe(false);
+    expect((await row('sleep-1')).deleted).toBe(true);
+    // The repair echoing back (or a peer's identical repair) writes nothing.
+    await pull({ ...b, clientTs: b.clientTs + 7 });
+    expect(posted).toEqual([`sleep:${DAY}`]);
+    expect((await row(DAY)).total_minutes).toBe(450);
+
+    // A (as a .9 device) holds its state and pulls B's.
+    await wipe();
+    posted = [];
+    seq = 5;
+    await seed([tomb('sleep-1', 101), day(450, 100)]);
+    await pull(session('sleep-2', 40, 150), day(40, 200));
+    const a = await row(DAY);
+    expect(a.total_minutes).toBe(450);
+    expect(a.clientTs).toBeGreaterThan(200);
+    expect(posted).toEqual([`sleep:${DAY}`]);
+    const strip = ({ clientTs, ...r }) => r;
+    expect(strip(a)).toEqual(strip(b));
+  });
+
+  // (h)
+  it('a day-row tombstone beats a fuller, newer live incoming row', async () => {
+    await seed([tomb(DAY, 100)]);
+    await pull(day(480, 900));
+    expect((await row(DAY)).deleted).toBe(true);
+  });
+
+  // (g)
+  it('a fuller pending day row keeps winning over a snapshot copy and out-stamps it', async () => {
+    const mine = day(450, 100);
+    await seed([mine], [mine]);
+    await replaceAllRecords([day(40, 200)]);
+    const kept = await row(DAY);
+    expect(kept.total_minutes).toBe(450);
+    expect(kept.clientTs).toBeGreaterThan(200);
+    expect((await getAll('pending')).map((p) => p.recordId)).toEqual([DAY]);
+  });
+
+  // (g') Socrates 5626: an acknowledged 450, an empty queue, a reconnect that
+  // bootstraps from an old client's compacted snapshot holding 40 and S1's tombstone.
+  it('an acknowledged fuller day row survives a compaction bootstrap and is queued once as a repair', async () => {
+    await seed([session('sleep-1', 450, 90), day(450, 100)]);
+    const snap = [day(40, 200), tomb('sleep-1', 101)];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: 10, plaintext: new TextEncoder().encode(JSON.stringify(snap)) });
+    snapshotBody = JSON.stringify({ snapshot_seq: 10, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    seq = 10; // the server's head is the snapshot
+    await pullOnOpen(ctx);
+    const kept = await row(DAY);
+    expect(kept.total_minutes).toBe(450);
+    expect(kept.clientTs).toBeGreaterThan(200);
+    expect((await row('sleep-1')).deleted).toBe(true);
+    expect(posted).toEqual([`sleep:${DAY}`]);
+  });
+
+  // Breakage review F2: a ledger row is plain LWW, tombstones included, on both repair paths.
+  it('a newer live ledger row over a local ledger tombstone is stored, with no repair', async () => {
+    await seed([tomb('sleep-1', 100)]);
+    await pull(session('sleep-1', 450, 300));
+    expect(await row('sleep-1')).toMatchObject({ deleted: false, clientTs: 300, total_minutes: 450 });
+    expect(posted).toEqual([]);
+    expect(await getAll('pending')).toEqual([]);
+  });
+
+  it('a snapshot holding a live ledger row against an acknowledged local ledger tombstone takes the snapshot, no repair', async () => {
+    await seed([tomb('sleep-1', 100)]);
+    const snap = [session('sleep-1', 450, 90)];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: 10, plaintext: new TextEncoder().encode(JSON.stringify(snap)) });
+    snapshotBody = JSON.stringify({ snapshot_seq: 10, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    seq = 10;
+    await pullOnOpen(ctx);
+    expect(await row('sleep-1')).toMatchObject({ deleted: false, total_minutes: 450 });
+    expect(posted).toEqual([]);
+  });
+
+  it('a peer\'s full-vault import this device never saw (bump compacted away) replaces, no repair', async () => {
+    await seed([day(450, 100), tomb('sleep-2', 50)]);
+    const bump = { recordId: '__vault_import_bump__', recordType: 'importbump', clientTs: 300, deleted: true };
+    const snap = [day(40, 200), session('sleep-2', 40, 150), bump];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: 10, plaintext: new TextEncoder().encode(JSON.stringify(snap)) });
+    snapshotBody = JSON.stringify({ snapshot_seq: 10, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    seq = 10;
+    await pullOnOpen(ctx);
+    expect((await row(DAY)).total_minutes).toBe(40);
+    expect((await row('sleep-2')).deleted).toBe(false);
+    expect(posted).toEqual([]);
+    // Once the bump is seen, a later compaction carrying it reduces as usual:
+    // a fuller acknowledged day row is kept and queued once as a repair.
+    await seed([day(450, 250)]);
+    await replaceAllRecords([day(40, 200), bump], { reduceAcked: true });
+    const kept = await row(DAY);
+    expect(kept.total_minutes).toBe(450);
+    expect(kept.clientTs).toBeGreaterThan(250);
+    expect((await getAll('pending')).map((p) => p.recordId)).toEqual([DAY]);
+  });
+
+  it('an import replace keeps replace semantics for sleep', async () => {
+    await seed([day(450, 100)]);
+    await replaceAllRecords([day(40, 200)]);
+    expect((await row(DAY)).total_minutes).toBe(40);
+    expect(await getAll('pending')).toEqual([]);
   });
 });
