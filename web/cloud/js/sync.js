@@ -398,7 +398,8 @@ async function readAllRecords() {
 const FLOOR_MAX_CLIENT_TS = 1;
 
 // `reduceAcked` (bd med-0xad.9, snapshot bootstrap only): an acknowledged
-// local row REPAIR_TYPES selects (sleep: a live sleep-hk-<day> row) is
+// local row REPAIR_TYPES selects (sleep: a live sleep-hk-<day> row; intake:
+// a live row, bd med-wi09.23) is
 // reduced against its snapshot copy too,
 // not only a pending one, so an older bundle's compacted snapshot cannot bury
 // a fuller row this device already pushed; a local winner is re-stamped and
@@ -447,8 +448,12 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
         const snap = snapshotById.get(r.recordId);
         const reducible = REPAIR_TYPES[r.recordType];
         if (!snap || pendingIds.has(r.recordId) || !reducible || !reducible(r)) continue;
-        if (MERGE_POLICY[r.recordType](snap, r) === r && !sameBody(snap, r)) {
-          overlay.push({ ...r, clientTs: repairStamp(snap, r) });
+        // The snapshot is what replace would keep (the floor's winner): a
+        // reducer winner that differs from it in body is overlaid and repaired.
+        // mergeIntake may return a merge of both rows (a snooze riding along).
+        const won = MERGE_POLICY[r.recordType](snap, r);
+        if (won !== snap && !sameBody(snap, won)) {
+          overlay.push({ ...won, clientTs: repairStamp(snap, r) });
           repairs.push(r);
         }
       }
@@ -779,7 +784,14 @@ const MERGE_POLICY = { intake: mergeIntake, sleep: mergeSleep };
 // ordinary op. After one repair the winner is also the newest, and an
 // incoming copy with the same body is never repaired, so repairs stop. The
 // value picks the acknowledged rows a snapshot bootstrap reduces (reduceAcked).
-const REPAIR_TYPES = { sleep: isLiveSleepDayRow };
+// Intake (bd med-wi09.23): live rows only. A local tombstone against a live
+// snapshot copy has no legitimate source (v2 compacters keep tombstones), but
+// an old tab's restore looks like one, so the snapshot stands there.
+const REPAIR_TYPES = { sleep: isLiveSleepDayRow, intake: (r) => !r.deleted };
+
+function lwwWinner(existing, record) {
+  return !existing || record.clientTs > existing.clientTs ? record : existing;
+}
 
 function repairStamp(a, b) {
   return Math.max((a.clientTs || 0) + 1, (b.clientTs || 0) + 1, Date.now());
@@ -798,8 +810,8 @@ async function applyIncoming(recordType, record) {
     const policy = MERGE_POLICY[recordType];
     if (policy) {
       const merged = policy(existing, record);
-      const lwwWinner = !existing || record.clientTs > existing.clientTs ? record : existing;
-      if (REPAIR_TYPES[recordType] && merged !== lwwWinner && !sameBody(existing, record)) {
+      const lww = lwwWinner(existing, record);
+      if (REPAIR_TYPES[recordType] && merged !== lww && !sameBody(merged, lww)) {
         await putRepair(recordType, merged, existing, record);
         return recordType;
       }
