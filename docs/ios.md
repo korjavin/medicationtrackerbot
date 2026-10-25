@@ -217,6 +217,8 @@ Not covered by flow QA; check on a TestFlight build before release:
    open sheet, then a Settings sub-page, then returns to the previous tab; on
    Today it does nothing (no Safari, no blank page). The `back-swipe-*`
    visual scenes cover the sheet, the sub-page and Today on the Simulator.
+   `health-pull-native` (bd med-y7b4.7) is a real finger pull on Health with
+   `bounces = false`: the web pull-to-refresh pill must reach its busy state.
 
 A passkey stand-in for these (a Debug-only WKUserScript injecting
 `android/app/src/debug/assets/qa-softauthn.js` on a `qa.test` account origin)

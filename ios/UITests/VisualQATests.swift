@@ -24,6 +24,8 @@ import XCTest
 ///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label
 ///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds)
 ///   {"keyboard": true}         the software keyboard must be up (implied after "type")
+///   {"edgeSwipe": true, "closes": "#id"}  the shell's left-edge pan
+///   {"pullDown": true}         a real finger pull down from the upper middle (pull to refresh)
 ///
 /// One scene: `TEST_RUNNER_WG_QA_SCENES=food-add-sheet-keyboard xcodebuild test ...`
 /// (comma-separated).
@@ -211,6 +213,13 @@ final class VisualQATests: XCTestCase {
                     }
                     if !gone { return "\(closes ?? "") still shows after the edge swipe" }
                 }
+            } else if step["pullDown"] as? Bool == true {
+                // A real finger pull from the upper content, clear of the left-edge pan (bd med-y7b4.7):
+                // proves WKWebView delivers the touches to the web pull-to-refresh with bounces off.
+                // Follow it with a waitFor on the pill's busy text.
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)),
+                           withVelocity: XCUIGestureVelocity(600), thenHoldForDuration: 0.1)
             } else if step["keyboard"] as? Bool == true {
                 typed = true
             } else {
