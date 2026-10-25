@@ -701,10 +701,14 @@ async function _applyOptimisticTimeline(mutator) {
     const state = _medsTimelineState;
     const prior = { rows: state.rows, pending: state.pending };
     const apply = (rows) => (Array.isArray(rows) ? mutator(rows) : rows);
-    const handles = [
-        await window.DataStore.applyOptimistic(MEDS_TIMELINE_KEY, apply, ['history']),
-        await window.DataStore.applyOptimistic(MEDS_TIMELINE_PENDING_KEY, apply, ['history']),
-    ];
+    const handles = [await window.DataStore.applyOptimistic(MEDS_TIMELINE_KEY, apply, ['history'])];
+    try {
+        handles.push(await window.DataStore.applyOptimistic(MEDS_TIMELINE_PENDING_KEY, apply, ['history']));
+    } catch (e) {
+        // A half-applied write would leave the first key pending forever.
+        await handles[0].rollback();
+        throw e;
+    }
     if (Array.isArray(prior.rows)) {
         state.rows = apply(prior.rows);
         state.pending = apply(prior.pending);
