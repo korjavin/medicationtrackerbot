@@ -1,7 +1,7 @@
 # MyHealthBot — Privacy Policy
 
 Effective 2026-10-25. This policy covers the MyHealthBot web app at
-`cloud.myhealthbot.ai` and the MyHealthBot iPhone and Android apps (shown as
+`{{HOST}}` and the MyHealthBot iPhone and Android apps (shown as
 "Med Tracker" on your home screen), which open the same web app. "We" is the
 operator of that service. The policy is written by category: what kind of data
 exists, who can read it, and how long it stays. Feature details change often;
@@ -37,8 +37,8 @@ creates a new category of data leaving your device.
 
 MyHealthBot is a small, invite-only service run by its developer. The server
 runs in the European Union (Finland). Questions and requests about your data:
-**Settings → Feedback** inside the app (encrypted to the developer), or email
-<dev@myhealthbot.ai>.
+**Settings → Feedback** inside the app (encrypted to the developer), or write to
+<{{CONTACT}}>.
 
 ## Two ways to use the app
 

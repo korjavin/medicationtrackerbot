@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/korjavin/medicationtrackerbot/docs"
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
@@ -55,6 +56,7 @@ type Handler struct {
 	aasa           []byte // apple-app-site-association JSON; nil = route off, see SetAppleAppSiteAssociation
 	assetLinks     []byte // assetlinks.json; nil = route off, see SetAndroidAssetLinks
 
+	privacyPage  []byte // docs/privacy-policy.md rendered with this base domain, see privacy.go
 	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
 	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
 
@@ -105,16 +107,17 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	buildID := buildIDFrom(idx)
 	idx, buildID = stampDevVersion(idx, buildID, vcsRevision())
 	return &Handler{
-		baseDomain:  baseDomain,
-		store:       store,
-		shell:       http.FileServerFS(shellFS),
-		app:         http.StripPrefix("/static/", http.FileServerFS(appFS)),
-		domain:      http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
-		appIndex:    injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
-		shellIndex:  signup,
-		buildID:     buildID,
-		api:         api,
-		landingRaw:  landing,
+		baseDomain:   baseDomain,
+		store:        store,
+		shell:        http.FileServerFS(shellFS),
+		app:          http.StripPrefix("/static/", http.FileServerFS(appFS)),
+		domain:       http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
+		appIndex:     injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
+		shellIndex:   signup,
+		buildID:      buildID,
+		api:          api,
+		landingRaw:   landing,
+		privacyPage:  renderPrivacyPage(docs.PrivacyPolicy, baseDomain, privacyContact()),
 		inviteIndex:  invite,
 		handoffIndex: handoff,
 	}
@@ -422,7 +425,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.serveVersion(w, r)
 			return
 		case privacyPath:
-			servePrivacy(w)
+			servePrivacy(w, h.privacyPage)
 			return
 		case feedbackReaderPath:
 			noStore(w)

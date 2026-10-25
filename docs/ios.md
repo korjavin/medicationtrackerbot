@@ -292,7 +292,7 @@ in `PrivacyInfo.xcprivacy`.
 
 ### Listing text
 
-- **Privacy policy URL:** <https://cloud.myhealthbot.ai/privacy>
+- **Privacy policy URL:** `https://<base domain>/privacy`
   ([privacy-policy.md](privacy-policy.md); iOS
   Settings → Med Tracker → Privacy names it, and
   the signed-in app shows its disclosures under Settings → Account & privacy;

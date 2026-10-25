@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"html"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 
-	"github.com/korjavin/medicationtrackerbot/docs"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -22,12 +22,26 @@ const privacyPath = "/privacy"
 
 var privacyEffective = regexp.MustCompile(`Effective (\d{4}-\d{2}-\d{2})`)
 
-// privacyPage is docs/privacy-policy.md rendered once at startup. goldmark
-// escapes raw HTML by default (no WithUnsafe), so the markdown cannot inject
-// markup into the page.
-var privacyPage = renderPrivacyPage(docs.PrivacyPolicy)
+// privacyContact is the policy's contact address: PRIVACY_CONTACT, else
+// SMTP_FROM. Empty = the page points at the in-app feedback form only.
+func privacyContact() string {
+	if c := os.Getenv("PRIVACY_CONTACT"); c != "" {
+		return c
+	}
+	return os.Getenv("SMTP_FROM")
+}
 
-func renderPrivacyPage(md []byte) []byte {
+// renderPrivacyPage renders docs/privacy-policy.md (once, in New) with the
+// {{HOST}} and {{CONTACT}} placeholders filled in before parsing, so the repo
+// text carries no domain or address. goldmark escapes raw HTML by default (no
+// WithUnsafe), so neither the markdown nor the env values can inject markup.
+func renderPrivacyPage(md []byte, host, contact string) []byte {
+	s := string(md)
+	if contact == "" {
+		s = strings.ReplaceAll(s, "<{{CONTACT}}>", "the in-app feedback form")
+	}
+	s = strings.ReplaceAll(s, "{{CONTACT}}", contact)
+	md = []byte(strings.ReplaceAll(s, "{{HOST}}", host))
 	gm := goldmark.New(goldmark.WithExtensions(extension.Table))
 	doc := gm.Parser().Parse(text.NewReader(md))
 	// Repo-relative links (cloud-mode.md#…) resolve to nothing on this host;
@@ -70,9 +84,9 @@ func renderPrivacyPage(md []byte) []byte {
 	return b.Bytes()
 }
 
-func servePrivacy(w http.ResponseWriter) {
+func servePrivacy(w http.ResponseWriter, page []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Changes ship with a deploy; an hour of staleness is fine for a policy.
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Write(privacyPage)
+	w.Write(page)
 }

@@ -58,7 +58,7 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
    same secret the bot stack already uses).
 4. Set the `CLOUD_BASE_DOMAIN` GitHub **repository variable** (Settings →
    Secrets and variables → Actions → Variables) to the same base domain, e.g.
-   `cloud.myhealthbot.ai`. Portainer answers a redeploy webhook `204` and then
+   `<base domain>`. Portainer answers a redeploy webhook `204` and then
    fetches asynchronously, so the webhook alone cannot tell CI whether the
    deploy landed — bd med-m391 is five days of green deploys over a stack that
    never moved. With the variable set, `deploy.yml`'s last step polls
