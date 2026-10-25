@@ -24,7 +24,7 @@ describe('Meds — app-bar Add CTA (med-xso6.18)', () => {
         env = null;
     });
 
-    it('#add-btn is the single kit primary in the Meds app bar, outside every sub-tab pane', () => {
+    it('#add-btn is the ghost icon button in the Meds app bar, outside every sub-tab pane', () => {
         const { document } = env;
         const all = document.querySelectorAll('#add-btn');
         expect(all.length).toBe(1);
@@ -35,7 +35,9 @@ describe('Meds — app-bar Add CTA (med-xso6.18)', () => {
             expect(pane.contains(addBtn)).toBe(false);
         });
         expect(addBtn.classList.contains('wg-btn')).toBe(true);
-        expect(addBtn.classList.contains('wg-btn--primary')).toBe(true);
+        expect(addBtn.classList.contains('wg-btn--ghost')).toBe(true);
+        expect(addBtn.classList.contains('wg-btn--icon')).toBe(true);
+        expect(addBtn.classList.contains('wg-btn--primary')).toBe(false);
         expect(addBtn.classList.contains('wg-toolbar-btn')).toBe(false);
         expect(addBtn.getAttribute('aria-label')).toBe('Add medication');
         expect(document.querySelector('.wg-meds-schedule-header')).toBeNull();
