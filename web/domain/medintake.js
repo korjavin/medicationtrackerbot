@@ -1155,34 +1155,19 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return { status: 'deleted', deleted_count: deletedCount, requested_count: intakeIds.length };
   }
 
-  // Ported from handleTriggerNextIntake: pick the earliest not-yet-handled
-  // dose cluster (±10min) in the next 12h and confirm-or-create each member.
-  // planDosesWithTzPlan unions in an APPROVED plan's own steps and suppresses
-  // affected meds' normal targets (Task 4).
+  // Ported from handleTriggerNextIntake: confirm-or-create each member of the
+  // cluster nextIntake shows — the same projection rows (bd med-wi09.18), so
+  // the writer never records a dose the card does not show. Each member is
+  // written at its own planned instant, keeping its tz_step source.
   async function triggerNextIntake() {
-    const meds = await loadMeds();
     const intakes = await loadIntakes();
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
-    const tzPlan = await loadActiveTzPlan();
 
-    const targets = planDosesWithTzPlan({
-      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, window: NEXT_INTAKE_FORECAST_MS, tzPlan,
-    });
-
-    let clusterEarliestMs = null;
-    let cluster = [];
-    for (const t of targets) {
-      const existing = intakes.find((i) => sameMed(i.medication_id, t.medicationId)
-        && Date.parse(i.scheduled_at) === t.scheduledAtMs);
-      if (existing && (existing.status === 'TAKEN' || existing.status === 'SKIPPED')) continue;
-      if (clusterEarliestMs === null || t.scheduledAtMs < clusterEarliestMs) {
-        clusterEarliestMs = t.scheduledAtMs;
-        cluster = [t];
-      } else if (Math.abs(t.scheduledAtMs - clusterEarliestMs) <= CLUSTER_WINDOW_MS) {
-        cluster.push(t);
-      }
-    }
+    const { meds, timeMs: clusterEarliestMs, rows } = await nextCluster(nowMs);
+    const cluster = rows.map((r) => ({
+      medicationId: r.medId, scheduledAtMs: Date.parse(r.plannedAt), source: r.source,
+    }));
 
     if (cluster.length === 0) throw notFound('No upcoming scheduled intakes found');
 
@@ -1225,15 +1210,15 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     };
   }
 
-  // Ported from computeNextIntakeData: nearest not-yet-handled dose cluster
-  // (±10min) in the next 12h. Returns null (204-equivalent) when none. A view
-  // over the projection's upcoming rows (bd med-wi09.1).
-  async function nextIntake() {
-    const nowMs = now();
+  // The nearest not-yet-handled dose cluster (±10min) in the next 12h, read
+  // off the projection's upcoming rows: one row per med (its earliest), its
+  // med, and the cluster's earliest instant. nextIntake shows it and
+  // triggerNextIntake writes it — one reading, so they cannot disagree.
+  async function nextCluster(nowMs) {
     const { meds, rows } = await project({ fromMs: nowMs, toMs: nowMs + NEXT_INTAKE_FORECAST_MS });
 
-    let nextTimeMs = null;
-    let nextMeds = [];
+    let timeMs = null;
+    let picked = [];
     for (const r of rows) {
       if (r.state !== 'upcoming') continue;
       const med = meds.find((m) => String(m.recordId) === String(r.medId));
@@ -1241,13 +1226,21 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       // is history, not a dose to offer — the forecast already skips it.
       if (!med || med.archived) continue;
       const ms = Date.parse(r.plannedAt);
-      if (nextTimeMs === null || ms < nextTimeMs) {
-        nextTimeMs = ms;
-        nextMeds = [med];
-      } else if (Math.abs(ms - nextTimeMs) <= CLUSTER_WINDOW_MS && !nextMeds.includes(med)) {
-        nextMeds.push(med);
+      if (timeMs === null || ms < timeMs) {
+        timeMs = ms;
+        picked = [{ med, row: r }];
+      } else if (Math.abs(ms - timeMs) <= CLUSTER_WINDOW_MS && !picked.some((p) => p.med === med)) {
+        picked.push({ med, row: r });
       }
     }
+    return { meds: picked.map((p) => p.med), rows: picked.map((p) => p.row), timeMs };
+  }
+
+  // Ported from computeNextIntakeData: nearest not-yet-handled dose cluster
+  // (±10min) in the next 12h. Returns null (204-equivalent) when none. A view
+  // over the projection's upcoming rows (bd med-wi09.1).
+  async function nextIntake() {
+    const { meds: nextMeds, timeMs: nextTimeMs } = await nextCluster(now());
 
     if (nextMeds.length === 0) return null;
 
