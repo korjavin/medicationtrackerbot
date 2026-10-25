@@ -334,12 +334,11 @@ Any new importer or derived writer answers each of these:
   smaller UUID; sources by name), so every device picks the same winner.
 - **Deleting an alias tombstones the canonical id** (`healthsource.js`), or a
   rescan re-creates the row the user just deleted.
-- **A precedence rule holds in both arrival orders.** If source A beats a
-  floored source B on overlap, the importer skipping B is only half of it: A's
-  writer must also tombstone the B slots it overlaps (`displaceHealthSleep`,
-  bd med-w6gx.31). That tombstone is a plain `records.del` at a real stamp,
-  not a floor — at `clientTs: 0` it would tie the floored body and strict-`>`
-  LWW would never apply it on another device.
+- **Precedence between two sources is picked on read, not by deleting or
+  skipping on import.** Store both, and let one reader choose
+  (`healthsource.js` `visibleSleep`, bd med-w6gx.31). A tombstone is
+  permanent and travels in the vault, so any overlap heuristic eventually
+  deletes a real night; an import-side skip depends on arrival order.
 - **The `putIfAbsent` floor beats content-derived stamps.** Write once at
   `clientTs: 0` (rule 12) so edits and deletes always outrank it; a stamp
   derived from the content is no floor and reopens the LWW race.

@@ -20,7 +20,7 @@
 //                density. Decided while implementing C2a Task 4.
 
 import { dayStartMs } from './bp.js';
-import { deleteHealthAlias, displaceHealthSleep, healthImportRecordId } from './healthsource.js';
+import { visibleSleep } from './healthsource.js';
 
 // The vault holds one user's data; handleListSleepLogs stamps the row's
 // user_id, so the wire shape carries it too.
@@ -209,9 +209,9 @@ export function createVitalsDomain({ records, now, timeZone }) {
     return out;
   }
 
+  // One source per sleep day when Health and Mi Band both hold it (visibleSleep).
   async function readSleepLogs() {
-    const all = await records.list(SLEEP_RECORD_TYPE);
-    return all.filter((r) => !r.deleted);
+    return visibleSleep(await records.list(SLEEP_RECORD_TYPE));
   }
 
   async function readDayStats() {
@@ -431,43 +431,28 @@ export function createVitalsDomain({ records, now, timeZone }) {
   } = {}) {
     if (sleepLogs.length) {
       const existing = new Map((await records.list(SLEEP_RECORD_TYPE)).map((r) => [r.recordId, r]));
-      // Apple Health days still live: a night below displaces each it overlaps.
-      let health = [...existing.values()].filter((r) => healthImportRecordId(SLEEP_RECORD_TYPE, r));
       for (const s of sleepLogs) {
         if (!s || !s.start_time) continue;
         const startMs = Date.parse(s.start_time);
         const key = Number.isNaN(startMs) ? s.day : startMs;
         const recordId = `sleep-${key}`;
         const prev = existing.get(recordId);
-        // A Health row an older client's restore re-minted under this very id
-        // is displaced too, never merged into (it would keep source: Health).
-        const healthPrev = !!prev && !prev.deleted && !!healthImportRecordId(SLEEP_RECORD_TYPE, prev);
-        if (healthPrev) await deleteHealthAlias(records, SLEEP_RECORD_TYPE, prev);
-        health = health.filter((r) => r !== prev);
-        const base = prev && !prev.deleted && !healthPrev ? prev : null;
-        let kept = s;
+        const base = prev && !prev.deleted ? prev : null;
         if (base) {
           // Never downgrade a longer stored session (repo.go WHERE
           // total_minutes >). `{...base, ...s}` is COALESCE: omitempty drops
           // absent phase fields from the wire, so the spread keeps base's.
-          if ((s.total_minutes || 0) < (base.total_minutes || 0)) {
-            kept = base;
-          } else {
-            const next = {
-              ...base, ...s, recordId, clientTs: now(), deleted: false,
-              user_modified: base.user_modified || s.user_modified,
-            };
-            if (!sameBody(base, next)) await records.put(SLEEP_RECORD_TYPE, next);
-          }
-        } else {
-          await records.put(SLEEP_RECORD_TYPE, {
-            recordId, clientTs: now(), deleted: false, ...s,
-          });
+          if ((s.total_minutes || 0) < (base.total_minutes || 0)) continue;
+          const next = {
+            ...base, ...s, recordId, clientTs: now(), deleted: false,
+            user_modified: base.user_modified || s.user_modified,
+          };
+          if (!sameBody(base, next)) await records.put(SLEEP_RECORD_TYPE, next);
+          continue;
         }
-        // Mi Band beats Apple Health for a night, whatever the import order
-        // (bd med-w6gx.31). Runs on a replay too, so re-importing the .nxk
-        // also clears a Health day another device wrote before it saw this night.
-        health = await displaceHealthSleep(records, health, Date.parse(kept.start_time), Date.parse(kept.end_time));
+        await records.put(SLEEP_RECORD_TYPE, {
+          recordId, clientTs: now(), deleted: false, ...s,
+        });
       }
     }
 

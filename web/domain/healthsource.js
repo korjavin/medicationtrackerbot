@@ -22,32 +22,63 @@ export function healthImportRecordId(kind, body) {
   return ok ? healthRecordId(kind, body.source_id) : null;
 }
 
+// A sleep day runs from 18:00 to 18:00 local, by when a night ENDS: a night
+// ending 07:00 belongs to that date (its wake day), a nap at 15:00 to the
+// same one, a night still going at 18:00 to the next. The one boundary
+// function: healthimport.js files Health days by it, visibleSleep groups by it.
+const SLEEP_DAY_SHIFT_MS = 6 * 3_600_000;
+
+// sleepDayOf(endMs, offsetMs east of UTC) → 'YYYY-MM-DD'.
+export function sleepDayOf(endMs, offsetMs) {
+  return new Date(endMs + offsetMs + SLEEP_DAY_SHIFT_MS).toISOString().slice(0, 10);
+}
+
+// asleepMinutes: minutes actually asleep, so two sources compare like with
+// like. A Health day's total_minutes is asleep-only already (healthimport.js
+// excludes In Bed and awake), so it is taken as is. A Mi Band total is the
+// Zepp column copied verbatim and may include awake time: light + deep + rem
+// when any phase is present, else total − awake, else total.
+function asleepMinutes(r) {
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  if (healthImportRecordId('sleep', r)) return n(r.total_minutes) || 0;
+  const [light, deep, rem] = [n(r.light_minutes), n(r.deep_minutes), n(r.rem_minutes)];
+  if (light !== null || deep !== null || rem !== null) return (light || 0) + (deep || 0) + (rem || 0);
+  const total = n(r.total_minutes) || 0;
+  const awake = n(r.awake_minutes);
+  return awake !== null ? total - awake : total;
+}
+
+// visibleSleep (bd med-w6gx.31): the live sleep rows every reader shows. An
+// Apple Health day and a non-Health night (Mi Band) can describe the same
+// night; nothing is deleted on import, the read picks. Per sleep day
+// (sleepDayOf of each row's own end and timezone_offset, minutes west), a day
+// holding both shows one source: the more asleep minutes (the non-Health side
+// summed over its sessions), a tie to the non-Health device. The loser is
+// hidden, never deleted, so a fuller later .nxk flips the day by itself.
+export function visibleSleep(rows) {
+  const days = new Map(); // day -> { health: [], other: [] }
+  for (const r of rows) {
+    const end = Date.parse(r.end_time);
+    if (r.deleted || !Number.isFinite(end)) continue;
+    const day = sleepDayOf(end, -(Number(r.timezone_offset) || 0) * 60_000);
+    if (!days.has(day)) days.set(day, { health: [], other: [] });
+    days.get(day)[healthImportRecordId('sleep', r) ? 'health' : 'other'].push(r);
+  }
+  const hidden = new Set();
+  const sum = (list) => list.reduce((a, r) => a + asleepMinutes(r), 0);
+  for (const { health, other } of days.values()) {
+    if (!health.length || !other.length) continue;
+    for (const r of sum(health) > sum(other) ? other : health) hidden.add(r);
+  }
+  return rows.filter((r) => !r.deleted && !hidden.has(r));
+}
+
 // deleteHealthAlias: a Health row restored by an older client sits under a
 // fresh id; its delete tombstone carries no source_id, so a full rescan would
 // re-create the canonical row. Tombstone the canonical slot too.
 export async function deleteHealthAlias(records, kind, row) {
   const canonical = healthImportRecordId(kind, row);
   if (canonical && canonical !== row.recordId) await records.del(kind, canonical);
-}
-
-// displaceHealthSleep (bd med-w6gx.31): a non-Health night (Mi Band, manual)
-// beats an Apple Health sleep day it overlaps, whatever the arrival order.
-// healthimport.js importSleep skips a day overlapping a night already there;
-// this is the other order. `rows` are live sleep rows; every Health day (alias
-// included) overlapping [startMs, endMs) is tombstoned — records.del, a real
-// write that outranks the day's clientTs-0 floor on every device — so the
-// importer's exists check keeps it out on rescan. Returns the rows left.
-// Every future non-Health sleep writer calls this after its write.
-export async function displaceHealthSleep(records, rows, startMs, endMs) {
-  const left = [];
-  for (const r of rows) {
-    const hit = !r.deleted && healthImportRecordId('sleep', r)
-      && Date.parse(r.start_time) < endMs && startMs < Date.parse(r.end_time);
-    if (!hit) { left.push(r); continue; }
-    await records.del('sleep', r.recordId);
-    await deleteHealthAlias(records, 'sleep', r);
-  }
-  return left;
 }
 
 // The body `id` of an imported Health workout (miband record, bd med-w6gx.7):
