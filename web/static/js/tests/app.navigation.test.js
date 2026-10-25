@@ -48,7 +48,8 @@ async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, p
     // Navigation is under test, not the section loaders: stub what switchTab
     // fans out to so no async render outlives the test's window.
     for (const loader of ['loadToday', 'loadFoodLogs', 'loadBPReadings', 'loadWeightLogs', 'switchHealthTab',
-        'loadWorkouts', 'loadSettings', 'switchMedTab', 'reloadCurrentTab']) {
+        'loadWorkouts', 'loadSettings', 'switchMedTab', 'loadTimeline', 'loadMeds', 'reloadCurrentTab',
+        'showBPRecordModal']) {
         window[loader] = vi.fn();
     }
     window.Gamification = { load: vi.fn() };
@@ -324,6 +325,16 @@ describe('AppBack.step — one back order', () => {
         const { document } = window;
         try {
             await until(() => activeView(document) === 'workouts-view');
+            expect(window.AppBack.step()).toBe(true);
+            expect(view(document)).toBe('today');
+        } finally { cleanup(); }
+    });
+
+    it('3. the deferred ?start=bp_add route replaces the restored section too', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'food', url: 'https://example.test/?start=bp_add', realDeepLinks: true });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'bp-view', 2000); // the route polls every 100 ms
             expect(window.AppBack.step()).toBe(true);
             expect(view(document)).toBe('today');
         } finally { cleanup(); }

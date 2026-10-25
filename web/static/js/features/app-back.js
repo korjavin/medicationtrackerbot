@@ -83,9 +83,16 @@
         const i = trailIndex(cur);
         const target = i >= 0 ? trail[i] : (window.AppNav ? window.AppNav.backTarget(cur) : START);
         trail.length = Math.max(i, 0);
-        stepping = true;
-        try { window.switchTab(target); } finally { stepping = false; }
+        replace(() => window.switchTab(target));
         return true;
+    }
+
+    // Run a section switch that replaces the current section instead of
+    // stacking it: Back's own switch, and a deferred startup route (the
+    // ?start=bp_add poll in deeplink-router.js lands after ready()).
+    function replace(fn) {
+        stepping = true;
+        try { fn(); } finally { stepping = false; }
     }
 
     // force: report even when unchanged (a bfcache restore — the shell re-arms
@@ -123,5 +130,5 @@
     document.body ? watch() : document.addEventListener('DOMContentLoaded', watch);
     window.addEventListener('pageshow', (e) => { if (e.persisted) publish(true); });
 
-    window.AppBack = { step, canStep, ready };
+    window.AppBack = { step, canStep, ready, replace };
 })();
