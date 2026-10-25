@@ -1168,17 +1168,39 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         const chipText = oldRow.querySelector('.wg-chip--danger').textContent;
         expect(chipText).toBe(`Missed ${window.pendingSlotLabel(new Date(OLD), new Date(NOW))}`);
         expect(chipText).toMatch(/ · (yesterday|\d+ days ago)$/);
+        // The snoozed dose is listed as snoozed — the timeline's chip — not Missed.
+        const snoozedRow = root.querySelector('[data-section="next-up"] [data-next="med-snoozed"]');
+        expect(snoozedRow.querySelector('.wg-row__title').textContent).toBe('Losartan');
+        expect(snoozedRow.querySelector('.wg-chip').textContent).toMatch(/^Snoozed until \d\d:\d\d$/);
+        expect(snoozedRow.querySelector('.wg-chip--danger')).toBeNull();
+
+        // The Meds tab badge, mounted: app-nav repaints it on the flip's
+        // datastore:changed event from the same pending cache.
+        const tabbar = document.createElement('nav');
+        tabbar.className = 'wg-tabbar';
+        const medsTab = document.createElement('a');
+        medsTab.setAttribute('data-nav-id', 'meds');
+        tabbar.appendChild(medsTab);
+        document.body.appendChild(tabbar);
+        window.featureSettings = { ...(window.featureSettings || {}), medication: true };
+        const setBadge = vi.spyOn(window.WGBottomNav, 'setBadge').mockImplementation(() => {});
 
         // Take the 30h-old dose from Next up: before the POST goes out, the
         // sheet's optimistic flip is already in the one pending cache Today
-        // and the badge read — and nothing re-read the pending set for it.
+        // and the badge read, the badge says badge − 1 — and nothing re-read
+        // the pending set for it.
         const realApiCall = window.apiCall;
         const pendingReads = [];
         let atAct = null;
         window.apiCall = async (p, ...rest) => {
             if (String(p).startsWith('/api/doses?status=')) pendingReads.push(p);
             if (p === '/api/doses/act' && !atAct) {
-                atAct = { reads: pendingReads.length, groups: await paint() };
+                let badgeAtAct = null;
+                await vi.waitFor(() => {
+                    badgeAtAct = setBadge.mock.calls.length ? setBadge.mock.calls[setBadge.mock.calls.length - 1] : null;
+                    expect(badgeAtAct).toEqual(['meds', badge - 1]);
+                }).catch(() => {});
+                atAct = { reads: pendingReads.length, groups: await paint(), badge: badgeAtAct };
             }
             return realApiCall(p, ...rest);
         };
@@ -1189,6 +1211,7 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
         await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
 
+        expect(atAct.badge).toEqual(['meds', badge - 1]);
         expect(atAct.reads).toBe(0);
         expect(atAct.groups.flatMap((g) => g.intakeIds)).not.toContain(slotId(1, OLD));
         expect(atAct.groups.flatMap((g) => g.intakeIds).length).toBe(badge - 1);
