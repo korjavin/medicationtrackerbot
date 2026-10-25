@@ -150,7 +150,8 @@ func (a *MCPRemoteAPI) Endpoint() http.Handler {
 		entry := a.byAcc[account.ID]
 		a.mu.RUnlock()
 
-		if entry == nil || !constantTimeTokenEqual(candidate, normalizeMCPToken(entry.token)) {
+		// An empty live token never authenticates (it would match "/mcp/").
+		if entry == nil || entry.token == "" || !constantTimeTokenEqual(candidate, normalizeMCPToken(entry.token)) {
 			if !a.failLimiter.Allow(account.ID) {
 				http.Error(w, "too many attempts", http.StatusTooManyRequests)
 				return

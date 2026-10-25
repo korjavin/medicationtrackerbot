@@ -213,6 +213,10 @@ Not covered by flow QA; check on a TestFlight build before release:
    an account". Local mode opens with the account's records on the device.
 3. **Delete account:** Settings → delete account. The app lands in local mode
    on "Have an invite?", and a relaunch stays local.
+4. **Swipe back (bd med-y7b4.4, either mode):** a left-edge swipe closes an
+   open sheet, then a Settings sub-page, then returns to the previous tab; on
+   Today it does nothing (no Safari, no blank page). The `back-swipe-*`
+   visual scenes cover the sheet, the sub-page and Today on the Simulator.
 
 A passkey stand-in for these (a Debug-only WKUserScript injecting
 `android/app/src/debug/assets/qa-softauthn.js` on a `qa.test` account origin)
@@ -695,7 +699,8 @@ changes for it.
   draws no bar of its own. Copy
   diagnostics stays on the Home Screen quick action and the load-error screen.
 - **Use this iPhone without an account** (bd med-o7zq.30, moved by
-  med-o7zq.32): Settings → Account shows the row inside the iOS app only
+  med-o7zq.32, then med-y7b4.2): the Settings home, slot ② under the vault
+  card, shows the row inside the iOS app only, while signed in
   (account origin, `CloudVault.leaveAccount` present, platform `ios`). The
   account's own first-run (`WGFirstRun` welcome) offers only *Get started* /
   *Skip all* on every platform. After a `safeConfirm` the row calls
@@ -1279,7 +1284,7 @@ mode, gated on the bridge platform being `ios` or `android`
    calls reject with `locked`. Settings → Med Tracker → *Lock* off → back in
    the app: still asks once, then stays open on the next return.
 9. Account → local (bd med-o7zq.36): an account with records → Settings →
-   Account → *Use this iPhone without an account* → local mode shows the
+   *Use this iPhone without an account* → local mode shows the
    records and a one-time toast that they came from the account (with records
    already in local mode: a Merge / Replace / Cancel choice first. Merge keeps
    them and adds the account's; Replace asks one more confirm, then erases

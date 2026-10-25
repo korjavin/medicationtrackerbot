@@ -162,7 +162,8 @@ async function pickUpMovedVault(win) {
     // restoreVault reloads the page itself once the vault is replaced, and runs
     // beforeReload only then. A failed clear only means the next open offers
     // the same move again (behind the typed confirm: the account has content).
-    await restore(vault, {
+    // true = imported and the page is reloading (the boot's W1 ask stands down).
+    const result = await restore(vault, {
         source: 'move',
         beforeReload: async () => {
             try {
@@ -172,6 +173,7 @@ async function pickUpMovedVault(win) {
             await withinMs(native.call('move.clear'), MOVE_PROBE_MS);
         },
     });
+    return !!(result && result.imported);
 }
 
 // AD9 "Join and erase", account side (bd med-r1j2.4). The local page asked
@@ -505,7 +507,12 @@ window.MedTrackerCloudReady = (async function boot() {
             import('/js/sync.js'),
         ]);
 
-        const shimCall = installApiShim(ctx);
+        // bd med-ydt2: /api/bootstrap omits needs_first_run until this device
+        // has pulled the account (bd med-ejgf) AND the move pickup below has
+        // settled without a reload, so no boot-time bootstrap mounts W1 ahead
+        // of an import that stamps `firstrun` and reloads the page.
+        let moveSettled = false;
+        const shimCall = installApiShim(ctx, { caughtUp: async () => moveSettled && hasCaughtUp() });
         // Decision 3 (C2d plan): groups.js/next-card.js/stats.js/today-loader.js
         // call window.apiCallDirect directly, bypassing the offlineAwareApiCall
         // seam apiCall() checks first. Route /api/* straight into the same shim
@@ -551,9 +558,27 @@ window.MedTrackerCloudReady = (async function boot() {
         // it and after every drain (online / visible / sync wake) until the
         // mirror has caught up, then stop. Offline, the app shell simply runs
         // without W1 and the sync status line says so.
+        //
+        // bd med-ydt2: and not before the local → cloud move pickup has
+        // settled. Its import stamps `firstrun` (vault with records) and
+        // reloads the page, so a W1 asked meanwhile mounted over the empty new
+        // account, then vanished with the reload. An import (page reloading)
+        // never asks; no stash, a cancel or a failed import asks as before.
+        // The local → cloud move pickup (bd med-nt9p.32.18): after pullOnOpen,
+        // as importAll needs the bootstrapped cursor. Not awaited, so a slow
+        // shell or a pending confirm never holds the rest of the boot; it then
+        // runs alongside it exactly as a Settings → Restore would. A no-op on
+        // the web.
+        const movePickup = pickUpMovedVault(window).catch((e) => {
+            console.error('[cloud-boot] move pickup failed', e);
+            return false;
+        }).then((reloading) => {
+            if (!reloading) moveSettled = true;
+            return reloading;
+        });
         let firstRunAsked = false;
         const askFirstRun = () => (async () => {
-            if (firstRunAsked || !(await hasCaughtUp())) return;
+            if (firstRunAsked || (await movePickup) || !(await hasCaughtUp())) return;
             const res = await shimCall('/api/bootstrap', 'GET');
             // Only a real answer ends the re-asking: a throw or a payload
             // without the flag leaves the next drain to try again.
@@ -568,12 +593,6 @@ window.MedTrackerCloudReady = (async function boot() {
             .then(() => import('/js/kit-state.js'))
             .then(({ drainKitSaved }) => drainKitSaved(shimCall))
             .catch((e) => console.error('[cloud-boot] emergency kit state failed', e));
-        // The local → cloud move pickup (bd med-nt9p.32.18): after pullOnOpen,
-        // as importAll needs the bootstrapped cursor. Not awaited, so a slow
-        // shell or a pending confirm never holds the rest of the boot; it then
-        // runs alongside it exactly as a Settings → Restore would. A no-op on
-        // the web.
-        pickUpMovedVault(window).catch((e) => console.error('[cloud-boot] move pickup failed', e));
         if (joinEnrolled) finishJoinErase(window).catch((e) => console.error('[cloud-boot] join erase failed', e));
         // med-deq.2: the sync-status re-auth affordance lives in the unlock
         // shell, but a device with a warm LDK cache never sees that shell

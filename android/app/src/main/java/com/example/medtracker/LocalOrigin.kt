@@ -60,6 +60,8 @@ object LocalOrigin {
         // "Join and erase" (bd med-r1j2.8): the local page probes it to offer the erase; only the joined
         // account, booted unlocked, makes it act (MainActivity); in local mode a no-op.
         "local.erase",
+        // The page's back stack (bd med-y7b4.5, native/back.js): Back goes to the page while it can step.
+        "back.state",
     )
 
     /** The bridge op shell.ops (bd med-nt9p.32.13): what this shell answers in this mode, for the page's capability probe. */

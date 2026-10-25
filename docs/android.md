@@ -150,7 +150,10 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   only (no `accountHost`, no `wgLocalMode`, flag `wgInstallReferrerDone` unset —
   an upgrade sets the flag without reading) the shell reads `installReferrer`
   once, takes `invite=<landing URL>` (decoded once, then `parseInvite`) and
-  fills the slot only if it is still empty, dated by Play's click time. The
+  fills the slot only if it is still empty, dated by Play's click time. While
+  that read runs, `invite.pending` replies are held (capped at 10 s) and answered
+  with the slot once it settles; a page that got the invite that way needs no
+  `?invite=1` reload (bd med-ydt2: W1 flashed before a late referrer). The
   emulator has no Play: the hand-off is an owner internal-track check.
   Bridge ops (both modes): `invite.pending` → `{url, receivedAt}` or `null`;
   `invite.clear` → `true`; `clipboard.read` (Android only) → the primary clip's
@@ -222,7 +225,8 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   otherwise has no way back (the host is stored the moment the link parses).
   Passive: a returning user unlocks as before.
 - **Use this phone without an account** (bd med-nt9p.32.15, iOS twin in
-  [ios.md](ios.md)): Settings → Account shows the row only once `shell.ops`
+  [ios.md](ios.md)): the Settings home (slot ② under the vault card, bd
+  med-y7b4.2) shows the row only once `shell.ops`
   lists `account.leave` (settings.js `nativeHas`, one probe per page; an APK
   without `shell.ops` rejects the probe and never shows it). After a
   `safeConfirm` it calls `CloudVault.leaveAccount({ then: 'local' })` → bridge
@@ -242,8 +246,13 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   document-start script, [`assets/chrome.js`](../android/app/src/main/assets/chrome.js),
   reports it over the bridge; it reads styles and sets none — the page CSP is
   `style-src 'self'`), bar icons are light or dark to match, and the keyboard
-  shrinks the page instead of covering it. Back walks the WebView history,
-  then leaves the app (the manifest's `enableOnBackInvokedCallback="true"`
+  shrinks the page instead of covering it. Back asks the page first (bd
+  med-y7b4.5): while the page reported bridge op `back.state {canStep: true}`
+  the shell dispatches `wg:native-back` (web `AppBack.step()`: sheet → Settings
+  sub-page → previous section); at its root no callback is registered, so
+  predictive back peeks the launcher and Back leaves the app. A page that never
+  reports (`/unlock`, `/claim`, error pages) walks the WebView history, then
+  leaves (the manifest's `enableOnBackInvokedCallback="true"`
   makes this work on Android 14/15, not only 16+). Portrait only, like iOS
   (Android 16 still rotates on large screens).
 - **WebView settings** (iOS parity, bd med-nt9p.28): `textZoom` fixed at 100
@@ -570,7 +579,9 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health
   Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
   `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy
-  ([privacy-policy.md](privacy-policy.md)).
+  ([privacy-policy.md](privacy-policy.md)) at `https://<base>/privacy`, built
+  from `BuildConfig.BASE_DOMAIN`; a build with no base domain (forks, local)
+  shows the text without the link (bd med-ffuu.4).
 - **Device check:** Settings → Health Connect on, allow all types; add a BP
   reading and a weight in Health Connect (or a fitness app) → they appear in
   Vitals; add one more and reopen the app → only the new one is added; deny a
@@ -611,7 +622,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -631,7 +642,8 @@ step's pass/fail, screenshot list — also the run's step summary), `logcat.txt`
 `native-screens` (on its own, no invite; bd med-ckm5.14, med-ta2n.12) shoots
 the screens the shell still draws or opens: F1 after a launch, N4 (503, 404,
 404 → *Use another invite* → F1, local load error), N3 locked (a throwaway
-`locksettings` PIN, removed after) and the Health Connect rationale. Dispatch
+`locksettings` PIN, removed after) and the Health Connect rationale, whose
+*Privacy policy* tap must fire `ACTION_VIEW` for `https://qa.test/privacy`. Dispatch
 it again with `-f font_scale=2.0` for 2×. `native-dark` now differs from
 `firstrun` in nothing but the system setting: the theme is pinned dark.
 

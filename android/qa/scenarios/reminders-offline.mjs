@@ -4,6 +4,10 @@
 //    POST_NOTIFICATIONS prompt, then Alarms & reminders) → 'granted'.
 // 2. A med due in ~2 min → the app process killed → the notification is posted anyway.
 // 3. Its tap opens that dose's take sheet (bd med-nt9p.52: row url → ReminderPath → handleDeepLinks).
+//    bd med-5vy0.3: the lock-screen text pref is set to Detailed first (the default depends on the
+//    account's history since med-5vy0.1), so this one names the medication.
+// 3b. Generic: a second med scheduled under Detailed, then the pref switched → its stored row is
+//    rescheduled to "Medication time"; app killed → the posted text is generic, without the name.
 // 4. Offline cold start: airplane mode, force-stop, relaunch → the account renders from the SW.
 // 5. Last (bd med-nt9p.57; the reboot kills the UiAutomator driver): rows moved back to credential-
 //    encrypted prefs migrate to device-protected storage on the next start; then a med due in ~4 min,
@@ -16,6 +20,7 @@ import { execFile } from 'node:child_process';
 import { claimAccount, waitForVault } from './smoke.mjs';
 
 const MODAL = 'med-confirm-modal';
+const GENERIC = 'Medication time'; // web/domain/reminders.js GENERIC_DOSE_TEXT, emoji dropped
 // Device-protected storage (bd med-nt9p.57); run-as starts in the credential-encrypted data dir.
 const DE_ROWS = `/data/user_de/0/${process.env.QA_PKG || 'com.example.medtracker'}/shared_prefs/reminders.xml`;
 
@@ -63,6 +68,10 @@ export default async function remindersOffline(ctx) {
     });
 
     const acct = (r.account = {});
+    await ctx.step('account: lock-screen text set to Detailed', async () => {
+      r.prefBefore = await page.evaluate(() => window.apiCall('/api/settings/reminder-delivery'));
+      r.prefDetailed = await setLockscreen(page, 'detailed');
+    });
     const med = await ctx.step('account: a med due in ~2 min is scheduled on the device', () => addDueMed(ctx, page, acct));
     await ctx.step('account: app killed → the reminder is posted', async () => {
       await killApp(ctx);
@@ -75,6 +84,28 @@ export default async function remindersOffline(ctx) {
       await waitForVault(page);
       await waitSheet(page, med.name, acct);
       await ctx.stableShot('account-take-sheet');
+    });
+
+    await ctx.step('account: Generic reschedules the rows; app killed → "Medication time", no name', async () => {
+      const gen = (r.generic = {});
+      const med2 = await addDueMed(ctx, page, gen);
+      gen.pref = await setLockscreen(page, 'generic');
+      // The PUT recomputes at once: the stored row for the slot loses the name.
+      for (const end = Date.now() + 30_000; ;) {
+        const rows = await ctx.shell(`run-as ${ctx.pkg} cat ${DE_ROWS}`).catch(() => '');
+        if (rows.includes(GENERIC) && !rows.includes(med2.name)) break;
+        if (Date.now() > end) throw new Error(`rows not rescheduled generic: ${rows.slice(0, 300)}`);
+        await ctx.sleep(1000);
+      }
+      gen.rescheduled = true;
+      await killApp(ctx);
+      await waitNotification(ctx, med2, GENERIC, gen);
+      gen.nameLines = Number(await ctx.shell(`dumpsys notification --noredact | grep -c "${med2.name}"`).catch(() => '0')) || 0;
+      await ctx.shell('cmd statusbar expand-notifications');
+      await ctx.waitFor({ text: new RegExp(`.*${GENERIC}.*`) }, 15_000);
+      await ctx.stableShot('shade-account-generic');
+      await ctx.shell('cmd statusbar collapse');
+      if (gen.nameLines) throw new Error(`the generic notification names "${med2.name}" (${gen.nameLines} lines)`);
     });
 
     await ctx.step('offline cold start renders the account from the SW', async () => {
@@ -213,6 +244,7 @@ async function rebootLocked(ctx, page, out) {
   page = await ctx.attachPage();
   if (!page) throw new Error('no WebView page after the migration launch');
   await waitForVault(page);
+  out.pref = await setLockscreen(page, 'detailed'); // the Generic step left it generic; this waits for the name
   const med = await addDueMed(ctx, page, out, 240_000); // past the reboot (~1–2 min on the CI emulator)
   // From here the adb CLI: the reboot closes Playwright's AndroidDevice, ctx.shell included.
   const adbShell = (cmd) => adb(['shell', cmd]);
@@ -260,6 +292,13 @@ async function rebootLocked(ctx, page, out) {
 /** The adb CLI's stdout, trimmed; '' on failure (device offline mid-reboot, grep -c's exit 1). */
 async function adb(args) {
   return new Promise((resolve) => execFile('adb', args, { timeout: 60_000 }, (_e, stdout) => resolve(String(stdout || '').trim())));
+}
+
+/** PUT the lock-screen text pref through the page's /api seam (apishim → setDeliveryPref; reschedules at once). */
+async function setLockscreen(page, verbosity) {
+  const pref = await page.evaluate((v) => window.apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: v }), verbosity);
+  if (pref?.lockscreen !== verbosity) throw new Error(`lock-screen pref ${JSON.stringify(pref)}, wanted ${verbosity}`);
+  return pref;
 }
 
 /** A daily med at the next whole minute ≥ `lead` ms ahead (device zone), and its row in the shell's store. */

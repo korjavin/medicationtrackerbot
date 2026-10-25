@@ -191,6 +191,26 @@ final class VisualQATests: XCTestCase {
                     .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
                 let timeout = step["timeout"] as? Double ?? 10
                 guard el.waitForExistence(timeout: timeout) else { return "\"\(label)\" never appeared" }
+            } else if step["edgeSwipe"] as? Bool == true {
+                // The shell's left-edge pan (bd med-y7b4.4): `closes` shows before it and is gone after.
+                var target: XCUIElement?
+                let closes = step["closes"] as? String
+                if let selector = closes {
+                    let id = selector.hasPrefix("#") ? String(selector.dropFirst()) : selector
+                    let el = QA.webElement(app, id: id, placeholder: step["placeholder"] as? String ?? id)
+                    guard el.waitForExistence(timeout: 10) else { return "no web element \(selector) before the edge swipe" }
+                    target = el
+                }
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)))
+                if let target {
+                    var gone = false
+                    for _ in 0..<20 where !gone {
+                        Thread.sleep(forTimeInterval: 0.25)
+                        gone = !target.exists
+                    }
+                    if !gone { return "\(closes ?? "") still shows after the edge swipe" }
+                }
             } else if step["keyboard"] as? Bool == true {
                 typed = true
             } else {

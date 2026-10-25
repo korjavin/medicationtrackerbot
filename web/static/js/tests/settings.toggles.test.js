@@ -1287,6 +1287,27 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
+        // bd med-y7b4.2: signed in only — the shell in local mode has no account to leave.
+        it('stays hidden in local mode, even in an app shell with leaveAccount', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                document.documentElement.classList.add('wg-local-vault');
+                window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform: 'ios', call: vi.fn(async () => null) } };
+                window.CloudVault = { ...(window.CloudVault || {}), leaveAccount: vi.fn(async () => {}) };
+                window.__MEDTRACKER_CLOUD__ = true;
+                window.apiCall = vi.fn(async () => null);
+                window.apiCallDirect = vi.fn(async () => null);
+                window.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
+                // The local-mode binders need a shell this harness lacks; only the row matters here.
+                await window.loadSettings().catch(() => {});
+                expect(hidden(document)).toBe(true);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
         // bd med-nt9p.32.15: on Android the row waits for the shell to list
         // account.leave (shell.ops); Play 0.1.170 rejects the probe and sees nothing new.
         it('on Android stays hidden unless shell.ops lists account.leave', async () => {
@@ -1340,8 +1361,15 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             try {
                 const leaveAccount = await mount(window);
                 expect(hidden(document)).toBe(false);
+                // SC1 (bd med-y7b4.2): slot ②, right under the vault card, and the only
+                // entry — Account & privacy no longer has a Leave section.
+                const btn = document.getElementById('settings-leave-account-btn');
+                expect(btn.closest('[data-settings-slot]').dataset.settingsSlot).toBe('mode-actions');
+                expect(btn.closest('.wg-settings-home')).not.toBeNull();
+                expect(document.querySelector('[data-settings-page="account"]').textContent).not.toMatch(/without an account/);
+                expect(document.querySelectorAll('#settings-leave-account-btn').length).toBe(1);
 
-                document.getElementById('settings-leave-account-btn').click();
+                btn.click();
                 const dialog = await vi.waitFor(() => {
                     const d = document.querySelector('mt-modal.mt-confirm-modal');
                     if (!d) throw new Error('no dialog open');
