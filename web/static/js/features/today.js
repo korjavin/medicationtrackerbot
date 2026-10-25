@@ -196,17 +196,12 @@
     }
 
     // Due / missed doses for Next up (Next up applies the missed grace): the
-    // occurrence projection's `due` rows (GET /api/doses over the last 24h,
-    // cached as bootstrap.intake_history) — the same rows the Meds tab badge
-    // counts (app-nav.js countDueDoses). The projection owns the rule; this
-    // only groups. One group per slot (oldest first). `missing` = nothing
-    // cached yet.
-    // The cached rows were projected at fetch time, but snoozed → due is a
-    // function of the clock alone: Today stays open (and may be offline) past
-    // a snooze deadline with no record change to trigger a refetch, so the
-    // payload is re-projected at render time — a snoozed row whose
-    // snoozedUntil has passed is due, exactly as projectOccurrences would now
-    // say. (upcoming → due cannot happen here: the window ends at fetch time.)
+    // Meds pending set — every due or snoozed dose of any day (GET
+    // /api/doses?status=due,snoozed, cached as bootstrap.intake_history), the
+    // same rows the Meds tab badge counts (app-nav.js countPendingDoses, bd
+    // med-ry7b.7). The projection owns the rule; this only groups, skipping
+    // rows an optimistic take/skip already flipped. One group per slot
+    // (oldest first). `missing` = nothing cached yet.
     function missedDosesCell(bootstrap, nowMs, enabled) {
         if (!enabled) return cell(null, 'meds', 'disabled');
         const rows = bootstrap && bootstrap.intake_history;
@@ -218,11 +213,9 @@
         const medName = new Map((Array.isArray(bootstrap.medications) ? bootstrap.medications : [])
             .filter((m) => m && typeof m.name === 'string' && m.name)
             .map((m) => [String(m.id), m.name]));
-        const isDue = (r) => r.state === 'due'
-            || (r.state === 'snoozed' && !(Date.parse(r.snoozedUntil) > nowMs));
         const bySlot = new Map();
         for (const r of rows) {
-            if (!r || !isDue(r)) continue;
+            if (!r || (r.state !== 'due' && r.state !== 'snoozed')) continue;
             const at = Date.parse(r.plannedAt);
             if (!Number.isFinite(at)) continue;
             let g = bySlot.get(at);
@@ -704,7 +697,10 @@
                 names.length === 1 ? names[0] : `${names.length} medications`));
             const when = fmtTimeHM(v.scheduledAt);
             if (item.kind === 'med-missed') {
-                meta.appendChild(chip(when ? `Missed ${when}` : 'Missed', 'danger'));
+                // "Missed 08:00 · 3 days ago": the Schedule tab's wording
+                // (features/meds.js pendingSlotLabel).
+                const slot = when && h.slotLabel ? h.slotLabel(new Date(item.at), new Date(nowMs)) : when;
+                meta.appendChild(chip(slot ? `Missed ${slot}` : 'Missed', 'danger'));
                 if (names.length > 1) meta.appendChild(doc().createTextNode(` ${names.join(', ')}`));
             } else {
                 const parts = [];
@@ -3183,6 +3179,7 @@
         return {
             onDeeplink,
             onLogFood,
+            slotLabel: opts.slotLabel || (typeof win.pendingSlotLabel === 'function' ? win.pendingSlotLabel : null),
             onAddBp: opts.onAddBp || defaultHandler('showBPRecordModal', 'bp'),
             onAddWeight: opts.onAddWeight || defaultHandler('showWeightModal', 'weight'),
             onPhotoMeal: opts.onPhotoMeal || (() => {

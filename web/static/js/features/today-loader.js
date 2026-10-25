@@ -13,7 +13,8 @@
 // window.DataStore, window.MedTrackerDB, window.TodayDashboard,
 // window.MedicationUtils, window.WeightUnitState, window.cachedFetch,
 // window.OfflineNoCacheError, window.featureSettings, window.featureSettingsLoaded,
-// window.AppStore, window.weightUnitPreference. switchTab()/reloadCurrentTab()
+// window.AppStore, window.weightUnitPreference, and features/meds.js's
+// readPendingDoses / readCachedPendingDoses. switchTab()/reloadCurrentTab()
 // (app.js) call loadToday() by bare name, resolved at call time.
 //
 // Shared helpers used outside the Today view keep their original global names:
@@ -113,11 +114,10 @@ window.healthOverviewCacheKey = healthOverviewCacheKey;
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so
 // future tag invalidations can evict the entry.
-// Next up's missed-dose source: the occurrence projection over the last 24h
-// (GET /api/doses — the Meds badge's read). Its own key: rows cached under the
-// old `history_1_` key carry the stored-intake shape, not projection rows.
-const TODAY_HISTORY_KEY = 'doses_due_24h';
-
+// Next up's missed doses are not here: they are the Meds pending set, read
+// through features/meds.js readPendingDoses / readCachedPendingDoses — the
+// badge's and timeline's request, key and tags, so one optimistic flip
+// repaints all three (bd med-ry7b.7).
 function todayFetchSpecs(foodKey) {
     return {
         settings_bundle: {
@@ -129,14 +129,6 @@ function todayFetchSpecs(foodKey) {
             feature: 'medication',
             tags: ['history', 'medications'],
             fetch: fetchNextIntakePayload
-        },
-        [TODAY_HISTORY_KEY]: {
-            feature: 'medication',
-            tags: ['history', 'medications'],
-            fetch: () => {
-                const nowMs = Date.now();
-                return apiCall(`/api/doses?from=${new Date(nowMs - 24 * 60 * 60 * 1000).toISOString()}&to=${new Date(nowMs).toISOString()}`);
-            }
         },
         bp: {
             feature: 'bp',
@@ -297,11 +289,9 @@ async function _todayReadCaches(foodKey) {
             : null;
         const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line', TODAY_HISTORY_KEY];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
             const metas = await Promise.all(keys.map(readMeta));
-            const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM, gamM, historyM] = metas;
-            // Intake history (24h) — Next up's missed doses (PENDING past slots).
-            if (Array.isArray(historyM?.data)) bootstrap.intake_history = historyM.data;
+            const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM, gamM] = metas;
             if (bundleM?.data) {
                 bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundleM.data.foodTargets };
@@ -367,11 +357,10 @@ async function _todayReadCaches(foodKey) {
                 trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line', TODAY_HISTORY_KEY];
-            const [bundle, nextIntake, meds, bp, weight, workout, health, food, gam, history] = await Promise.all(
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
+            const [bundle, nextIntake, meds, bp, weight, workout, health, food, gam] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
-            if (Array.isArray(history)) bootstrap.intake_history = history;
             if (bundle) {
                 bootstrap.features = bundle.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundle.foodTargets };
@@ -408,6 +397,9 @@ async function _todayReadCaches(foodKey) {
             const trackers = await window.DataStore.getCached('trackers').catch(() => null);
             if (Array.isArray(trackers)) swrCaches.trackers = trackers;
         }
+        // Next up's missed doses: the cached Meds pending set (bd med-ry7b.7).
+        const pending = typeof readCachedPendingDoses === 'function' ? await readCachedPendingDoses() : null;
+        if (Array.isArray(pending)) bootstrap.intake_history = pending;
     } catch (_) { /* best-effort — render whatever we have */ }
     // Register key→tag mappings for every Today cache we just read directly
     // from IndexedDB. CacheKeys.registerAll now wires the static keys at
@@ -642,10 +634,6 @@ async function loadToday() {
             if (isFeatureDisabled(spec.feature)) return false;
             return true;
         });
-        // Intake history likewise: doses come due (and get confirmed from a
-        // reminder) with no event on this device, so Next up's missed rows
-        // refetch on every Today load.
-        if (!isFeatureDisabled('medication')) missing.push(TODAY_HISTORY_KEY);
         // Food can be written from outside this client (Telegram /food and /intake
         // commands), and bootstrap advances the change cursor without including
         // today's food log payload — so a bot write between sessions leaves a
@@ -662,6 +650,12 @@ async function loadToday() {
         const nextIntakePromise = isFeatureDisabled('medication')
             ? Promise.resolve(null)
             : loadNextIntakeCached().catch(() => null);
+        // The pending set likewise: doses come due (and get confirmed from a
+        // reminder) with no event on this device, so Next up's missed rows
+        // refetch on every Today load.
+        const pendingPromise = isFeatureDisabled('medication') || typeof readPendingDoses !== 'function'
+            ? Promise.resolve(null)
+            : readPendingDoses().catch(() => null);
         const otherFetches = missing.length > 0
             ? Promise.allSettled(missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags)))
             : Promise.resolve([]);
@@ -670,7 +664,7 @@ async function loadToday() {
         const trackersPromise = _todayTrackersFromPastDay(swrCaches)
             ? window.DataStore.fetchFresh('trackers', () => apiCall('/api/trackers', 'GET'), ['trackers']).catch(() => null)
             : loadTrackersCached();
-        await Promise.all([nextIntakePromise, otherFetches, trackersPromise]);
+        await Promise.all([nextIntakePromise, pendingPromise, otherFetches, trackersPromise]);
     } finally {
         _todayLoaderState.refreshInFlight = false;
     }

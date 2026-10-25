@@ -124,7 +124,7 @@ try {
 | Food AI review Log (photo / describe) | `food_<date>_v2`, `todayFoodKey(date)` | append the reviewed items as one pending group (`features/food/add-sheet.js`) |
 | Meals save / delete | meals cache | append / filter the meal definition |
 | Products save | products cache | append the new product |
-| Medication take / skip / undo / edit time / log-past (take sheet, timeline rows + per-day bulk) | `doses_timeline`, `doses_due_24h`, `next_intake` | flip the acted occIds' projection `state` / `takenAt` (log-past appends a `manual` row), drop resolved due rows, trim the next tile (`_applyOptimisticTimeline` in `features/meds.js`) |
+| Medication take / skip / undo / edit time / log-past (take sheet, timeline rows + per-day bulk) | `doses_timeline`, `doses_pending`, `next_intake` | flip the acted occIds' projection `state` / `takenAt` in the timeline and the pending set (log-past appends a `manual` row; the pending set also feeds the Meds badge and Today's Next up), trim the next tile (`_applyOptimisticTimeline` in `features/meds.js`) |
 | Medication add / edit / delete / archive | `medications` | upsert / filter the medication row |
 | Medication restock (Stock tab refill) | `medications` | add the refill to the row's `inventory_count` |
 | Workout finish | `workout_next`, sessions history cache | null out `workout_next`; flip session status in history |

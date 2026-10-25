@@ -1113,8 +1113,85 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
             scheduledAt: iso(at(8)), names: ['Atorvastatin', 'Metformin'], ids: [7, 8], intakeIds: [slotId(7, at(8)), slotId(8, at(8))]
         }]);
         // Rows cached by the buggy build (name '') still resolve from the
-        // cached medications list — the offline doses_due_24h path.
+        // cached medications list — the offline doses_pending path.
         expect(missed(due.map((d) => ({ ...d, name: '' })))[0].names).toEqual(['Atorvastatin', 'Metformin']);
+    });
+
+    // bd med-ry7b.7 — Today's Next up read its own 24h window: a dose pending
+    // for 30h was on the badge and not on Today, a snoozed one the other way
+    // round. Next up now paints the badge's pending set from its cache, and a
+    // take through Next up flips that one cache, so both repaint without a
+    // refetch.
+    it('Next up lists the pending set the badge counts; a take from Next up flips it with no refetch', async () => {
+        env.cleanup();
+        const OLD = at(6, 15); // 30h before NOW
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    med(1, 'Metformin', { type: 'daily', times: ['06:00'] }),
+                    med(2, 'Losartan', { type: 'daily', times: ['09:00'] })
+                ],
+                intake: [
+                    intake(slotId(1, OLD), 1, OLD),
+                    intake(slotId(1, at(6)), 1, at(6), { status: 'TAKEN', taken_at: iso(at(6)) }),
+                    intake(slotId(2, at(9, 15)), 2, at(9, 15), { status: 'TAKEN', taken_at: iso(at(9, 15)) }),
+                    intake(slotId(2, at(9)), 2, at(9), { snoozed_until: iso(NOW + 30 * 60_000) })
+                ]
+            },
+            now: () => NOW,
+            timeZone: TZ
+        });
+        const { window, document } = env;
+        installApiCache(window);
+        window.eval(fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features/today.js'), 'utf8'));
+        const features = { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false };
+        const medications = await call('/api/medications');
+
+        const badgeRows = await window.readPendingDoses(NOW);
+        const badge = window.AppNav.countPendingDoses(badgeRows);
+        expect(badgeRows.map((d) => d.occId)).toEqual(expect.arrayContaining([slotId(1, OLD), slotId(2, at(9))]));
+
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        const paint = async () => {
+            const state = window.TodayDashboard.aggregateToday(
+                { features, medications, intake_history: await window.readCachedPendingDoses() }, {}, NOW);
+            window.TodayDashboard.renderToday(state, root, { now: NOW });
+            return state.missedDoses.value;
+        };
+        const groups = await paint();
+        expect(groups.flatMap((g) => g.intakeIds).length).toBe(badge);
+        expect(groups.flatMap((g) => g.intakeIds)).toEqual(expect.arrayContaining([slotId(1, OLD), slotId(2, at(9))]));
+        const oldRow = [...root.querySelectorAll('[data-section="next-up"] [data-next="med-missed"]')]
+            .find((r) => r.querySelector('.wg-row__title').textContent === 'Metformin');
+        // Older than today: the Schedule tab's wording (pendingSlotLabel).
+        const chipText = oldRow.querySelector('.wg-chip--danger').textContent;
+        expect(chipText).toBe(`Missed ${window.pendingSlotLabel(new Date(OLD), new Date(NOW))}`);
+        expect(chipText).toMatch(/ · (yesterday|\d+ days ago)$/);
+
+        // Take the 30h-old dose from Next up: before the POST goes out, the
+        // sheet's optimistic flip is already in the one pending cache Today
+        // and the badge read — and nothing re-read the pending set for it.
+        const realApiCall = window.apiCall;
+        const pendingReads = [];
+        let atAct = null;
+        window.apiCall = async (p, ...rest) => {
+            if (String(p).startsWith('/api/doses?status=')) pendingReads.push(p);
+            if (p === '/api/doses/act' && !atAct) {
+                atAct = { reads: pendingReads.length, groups: await paint() };
+            }
+            return realApiCall(p, ...rest);
+        };
+        const refresh = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+        oldRow.querySelector('[data-action="log-missed"]').click();
+        const list = document.getElementById('med-confirm-list');
+        await vi.waitFor(() => expect(list.querySelectorAll('.med-confirm-check').length).toBeGreaterThan(0));
+        document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+
+        expect(atAct.reads).toBe(0);
+        expect(atAct.groups.flatMap((g) => g.intakeIds)).not.toContain(slotId(1, OLD));
+        expect(atAct.groups.flatMap((g) => g.intakeIds).length).toBe(badge - 1);
     });
 
     // bd med-wi09.18 — trigger-next-intake (MCP op, voice) writes the cluster

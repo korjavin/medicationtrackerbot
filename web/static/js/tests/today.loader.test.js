@@ -253,13 +253,17 @@ describe('Today loader — features/today-loader.js', () => {
         });
     });
 
-    // Next up's missed doses read the cached 24h occurrence projection
-    // (doses_due_24h, the Meds badge's GET /api/doses) and refetch it on every load.
-    describe('missed doses from the occurrence projection', () => {
-        it('renders a Missed row from cached doses_due_24h and refetches it online', async () => {
+    // Next up's missed doses are the Meds pending set (bd med-ry7b.7):
+    // features/meds.js readCachedPendingDoses paints, readPendingDoses (the
+    // badge's read) refetches on every load. meds.js is not loaded here.
+    describe('missed doses from the pending set', () => {
+        it('renders a Missed row from the cached pending set and refetches it online', async () => {
             setOnline(window, true);
             const ts = Date.now() - 60 * 1000;
             const slot = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+            const rows = [{ occId: 'i1', medId: 11, name: 'Aspirin', plannedAt: slot, state: 'due' }];
+            window.readCachedPendingDoses = vi.fn(async () => rows);
+            window.readPendingDoses = vi.fn(async () => rows);
             window.MedTrackerDB = makeApiCache({
                 settings_bundle: {
                     data: {
@@ -270,11 +274,7 @@ describe('Today loader — features/today-loader.js', () => {
                     },
                     timestamp: ts
                 },
-                medications: { data: [{ id: 11, name: 'Aspirin' }], timestamp: ts },
-                doses_due_24h: {
-                    data: [{ occId: 'i1', medId: 11, name: 'Aspirin', plannedAt: slot, state: 'due' }],
-                    timestamp: ts
-                }
+                medications: { data: [{ id: 11, name: 'Aspirin' }], timestamp: ts }
             });
 
             await window.loadToday();
@@ -283,10 +283,8 @@ describe('Today loader — features/today-loader.js', () => {
             const row = root.querySelector('[data-section="next-up"] [data-next="med-missed"]');
             expect(row).not.toBeNull();
             expect(row.querySelector('.wg-row__title').textContent).toBe('Aspirin');
-            expect(window.DataStore.fetchFresh).toHaveBeenCalledWith('doses_due_24h', expect.any(Function), ['history', 'medications']);
-            const spec = window.DataStore.fetchFresh.mock.calls.find((c) => c[0] === 'doses_due_24h');
-            await spec[1]();
-            expect(window.apiCall).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/doses\?from=.+&to=.+$/));
+            expect(window.readPendingDoses).toHaveBeenCalled();
+            expect(window.apiCall).not.toHaveBeenCalledWith(expect.stringMatching(/^\/api\/doses/));
         });
     });
 

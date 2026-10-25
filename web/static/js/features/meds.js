@@ -108,14 +108,29 @@ let _medsUpcomingState = { doses: [], available: false, due: [] }; // module-sta
 // any day since the ledger start (the route defaults from to 0 when status is
 // set). One read, cached under MEDS_TIMELINE_PENDING_KEY: the timeline's focus
 // card + "+N more pending", the Schedule tab's pending buckets and the Meds
-// tab badge + app-bar sub (features/app-nav.js) all count it. While a write's
+// tab badge + app-bar sub (features/app-nav.js) and Today's Next up
+// (features/today-loader.js, bd med-ry7b.7) all count it. While a write's
 // optimistic flip is pending fetchFresh yields null and the flipped rows are
 // read back instead of the pre-write projection.
 async function readPendingDoses(nowMs = Date.now()) {
     const path = `/api/doses?status=due,snoozed&to=${new Date(nowMs).toISOString()}`;
     const fetchRows = () => Promise.resolve().then(() => apiCall(path)).catch(() => null);
     const fresh = await window.DataStore.fetchFresh(MEDS_TIMELINE_PENDING_KEY, fetchRows, ['history']).catch(() => null);
-    return Array.isArray(fresh) ? fresh : window.DataStore.getCached(MEDS_TIMELINE_PENDING_KEY).catch(() => null);
+    return Array.isArray(fresh) ? fresh : readCachedPendingDoses();
+}
+
+// The cached pending set, no fetch: Today's first paint.
+function readCachedPendingDoses() {
+    return Promise.resolve().then(() => window.DataStore.getCached(MEDS_TIMELINE_PENDING_KEY)).catch(() => null);
+}
+
+// "08:00" / "08:00 · yesterday" / "08:00 · 3 days ago": a pending dose's slot
+// (the Schedule tab's pending buckets, Today's Next up).
+function pendingSlotLabel(at, now = new Date()) {
+    const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const time = `${_pad2(at.getHours())}:${_pad2(at.getMinutes())}`;
+    const daysAgo = Math.round((day(now) - day(at)) / 86400000);
+    return daysAgo <= 0 ? time : daysAgo === 1 ? `${time} · yesterday` : `${time} · ${daysAgo} days ago`;
 }
 
 async function loadUpcomingDoses() {
@@ -413,15 +428,9 @@ function renderMeds() {
     const sortByTaken = (a, b) => window.MedicationUtils.getLastTakenTimeMs(b.med) - window.MedicationUtils.getLastTakenTimeMs(a.med);
     const rowsOf = (entries, opts) => entries.map(({ med, schedule }) => _buildMedsRow(med, schedule, opts));
 
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     Array.from(missedBuckets.values()).sort((a, b) => a.at - b.at).forEach((bucket) => {
-        const time = `${_pad2(bucket.at.getHours())}:${_pad2(bucket.at.getMinutes())}`;
-        // Pending doses of any day (bd med-ry7b.4): older than yesterday say
-        // how many days ago.
-        const day = new Date(bucket.at.getFullYear(), bucket.at.getMonth(), bucket.at.getDate()).getTime();
-        const daysAgo = Math.round((todayStart - day) / 86400000);
-        const label = daysAgo <= 0 ? time : daysAgo === 1 ? `${time} · yesterday` : `${time} · ${daysAgo} days ago`;
-        list.appendChild(_buildMedsBucket(label, {
+        // Pending doses of any day (bd med-ry7b.4).
+        list.appendChild(_buildMedsBucket(pendingSlotLabel(bucket.at, now), {
             pending: true,
             action: {
                 label: 'Log late',
@@ -760,7 +769,6 @@ async function _tlAct(action, batches) {
     if (!patches.size) return false;
 
     const handles = [await _applyOptimisticTimeline(_tlPatchRows(patches))];
-    if (action !== 'undo') handles.push(await _applyOptimisticDueClear((row) => patches.has(String(row.occId))));
     let ok = true;
     try {
         for (const b of batches) {
