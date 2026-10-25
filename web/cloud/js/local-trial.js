@@ -208,16 +208,17 @@ export function createAttestClient({
   // attest.go eraseInstall). Unlike request(), it never enrolls: a key the
   // server or the shell does not have has nothing to delete. One re-sign for
   // an expired challenge (the cached one is usually stale by then), nothing
-  // else retried. Resolves 'deleted' (204), 'unknown' (the server has no such
-  // install: 404, or install_unknown), 'no_key' (the shell has none) or
-  // 'failed' (offline, an old shell's `invalid path`, 5xx, …); never throws.
+  // else retried. Resolves 'deleted' (204), 'unknown' (install_unknown: the
+  // server has no such install), 'no_key' (the shell has none) or 'failed'
+  // (offline, an old shell's `invalid path`, a server without the route's
+  // 404, 5xx, `signal` aborted, …); never throws. Once `signal` aborts no
+  // further request starts (shellPost and fetch both honour it).
   async function erase(signal) {
     try {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 2 && !signal?.aborted; attempt += 1) {
         const out = await signedRequest('POST', ERASE_PATH, '', signal);
         if (out.needsKey) return 'no_key';
         if (out.res.ok) return 'deleted';
-        if (out.res.status === 404) return 'unknown';
         const { code } = await errorCode(out.res);
         if (code === 'install_unknown') return 'unknown';
         if (code !== 'challenge_invalid') break;

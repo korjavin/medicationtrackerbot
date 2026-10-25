@@ -862,16 +862,18 @@ export const ERASE_RECORD_FAILED_COPY = 'The anonymous install record on the ser
 // eraseDevice's server step (bd med-egb3; server: attest.go eraseInstall):
 // 'deleted' (204, or the server no longer knows the key), 'none' (no shell
 // attest, or the shell has no key: nothing to delete) or 'failed' (an old
-// shell's `invalid path`, offline, 5xx, the step bound).
+// shell's `invalid path`, offline, 5xx, ERASE_RECORD_MS passed).
+// Not `bounded`: a request that outlived a race could still delete after the
+// user chose Cancel. The signal stops any further request instead, and the
+// one in flight is awaited (the shell bounds each base.post at 30 s), so the
+// answer is what the server did. Only a page fetch (an old shell, trial on)
+// aborted in flight leaves it unknown: then the record may be gone while the
+// key stays, and the next erase answers install_unknown.
+const ERASE_RECORD_MS = 45_000;
 async function eraseInstallRecord(win) {
   const attest = await attestStatus(win);
   if (!attest) return 'none';
-  let out;
-  try {
-    out = await bounded(sharedAttestClient(attest.base, win).erase());
-  } catch {
-    return 'failed';
-  }
+  const out = await sharedAttestClient(attest.base, win).erase(AbortSignal.timeout(ERASE_RECORD_MS));
   if (out === 'deleted' || out === 'unknown') return 'deleted';
   return out === 'no_key' ? 'none' : 'failed';
 }
@@ -902,6 +904,8 @@ export function shellPost(native) {
     const given = new Headers(init.headers || {});
     const headers = {};
     for (const name of BASE_POST_HEADERS) if (given.has(name)) headers[name] = given.get(name);
+    // The op cannot be cancelled once sent; an aborted signal stops it being sent at all, as fetch does.
+    if (init.signal && init.signal.aborted) throw new TypeError('aborted');
     let reply;
     try {
       reply = await native.call('base.post', { path, body: typeof init.body === 'string' ? init.body : '', headers });

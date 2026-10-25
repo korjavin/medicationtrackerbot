@@ -3538,9 +3538,10 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             expect(replace).not.toHaveBeenCalled();
         });
 
-        it('a failure confirmed with Erase anyway erases, but keeps the shell\'s key and pass', async () => {
+        it('a failure (a server without the route) confirmed with Erase anyway erases, but keeps the shell\'s key and pass', async () => {
             await boot(attestedInstall());
-            reply.erase = () => new Response(JSON.stringify({ error: 'erase_unavailable' }), { status: 503 });
+            // An older server's mux: a plain 404 proves nothing was deleted.
+            reply.erase = () => new Response('404 page not found\n', { status: 404 });
             env.window.localStorage.setItem('wg.marker', '1');
             expect(await env.window.CloudVault.eraseDevice({ win: eraseWin(true) })).toEqual({ erased: true, installRecord: 'failed' });
             expect(env.window.localStorage.getItem('wg.marker')).toBeNull();
