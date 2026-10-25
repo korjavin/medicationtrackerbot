@@ -667,12 +667,11 @@ window.MedTrackerCloudReady = (async function boot() {
         // overlap. What lands repaints through notifyRecordsChanged.
         // ponytail: "arrived" is the records generation moving, so a local
         // write landing mid-pull also counts; a per-pull op count if it matters.
-        // AppRefresh is a classic body script: wait for the parse to finish, so
-        // a fast boot cannot skip this and the Health import's setImport below.
-        if (document.readyState === 'loading') {
-            await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
-        }
-        if (window.AppRefresh && typeof window.AppRefresh.setSync === 'function') {
+        // AppRefresh is a classic body script: a boot that gets here while the
+        // body still parses registers on DOMContentLoaded instead (never awaited,
+        // so nothing below waits on it).
+        const registerRefresh = () => {
+            if (!window.AppRefresh || typeof window.AppRefresh.setSync !== 'function') return;
             window.AppRefresh.setSync(async () => {
                 const before = getRecordsChangeCount();
                 await requestFreshDrain(ctx);
@@ -682,6 +681,11 @@ window.MedTrackerCloudReady = (async function boot() {
                 if (st.offline) throw new Error('Offline · showing what\'s on this device');
                 return { arrived: getRecordsChangeCount() !== before };
             });
+        };
+        if (!window.AppRefresh && window.document && window.document.readyState === 'loading') {
+            window.document.addEventListener('DOMContentLoaded', registerRefresh, { once: true });
+        } else {
+            registerRefresh();
         }
         surfaceAuthExpired();
         surfaceUpdateRequired();

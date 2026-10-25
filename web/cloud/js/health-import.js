@@ -246,10 +246,18 @@ export function startHealthImport(ctx, {
     };
     const importNow = () => pass().catch((e) => { console.error('[health] import failed', e); return null; });
     // Pull to refresh on Health (bd med-y7b4.6). An import switched off in
-    // Settings has nothing to read: it resolves { added: 0 }.
-    if (appRefresh && typeof appRefresh.setImport === 'function') {
-        appRefresh.setImport(() => pass().then((r) => r || { added: 0 }), healthLabel(health),
+    // Settings has nothing to read: it resolves { added: 0 }. AppRefresh is a
+    // classic body script: started mid-parse, register once it has loaded.
+    const registerRefresh = () => {
+        const ar = appRefresh || globalThis.AppRefresh;
+        if (!ar || typeof ar.setImport !== 'function') return;
+        ar.setImport(() => pass().then((r) => r || { added: 0 }), healthLabel(health),
             () => isHealthImportEnabled(storage));
+    };
+    if (!appRefresh && doc && doc.readyState === 'loading') {
+        doc.addEventListener('DOMContentLoaded', registerRefresh, { once: true });
+    } else {
+        registerRefresh();
     }
 
     mountHealthRow(doc, storage, health, async (on) => {
