@@ -563,6 +563,50 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             expect(text(document.querySelector('section[data-local-date="2026-10-18"] .wg-section__head .wg-meta'))).toBe('No doses');
         });
 
+        it('the paging floor: dates are read as calendar days (start_date UTC midnight, created_at on the tracked zone), undated meds skipped', async () => {
+            const { document, window } = env;
+            const reads = serveRange(window, []);
+            const more = () => button(document.getElementById('med-timeline-list').lastElementChild, 'Show 3 earlier days');
+            // start_date 2026-10-20 (UTC midnight) is the day 10-20, not 10-19 on a west zone's clock.
+            // created_at 2026-10-22T22:30Z is already 10-23 in Berlin: it must not pull the floor down.
+            window.medications = [
+                { ...MEDS[0], start_date: '2026-10-20T00:00:00.000Z' },
+                { ...MEDS[1], created_at: '2026-10-22T22:30:00.000Z' },
+                { ...MEDS[2] },
+            ];
+            await window.loadTimeline();
+            // back=2: the day before is 10-20 = the floor, so still pageable; back=5 goes below.
+            expect(more()).toBeDefined();
+            more().click();
+            await settle();
+            await settle();
+            expect(more()).toBeUndefined();
+            expect(historyDays(document).pop()).toBe('2026-10-18');
+            // One window read per load plus pending plus the intake-floor read once; paging adds window reads only.
+            expect(reads.filter((p) => p.includes('status=taken,skipped'))).toHaveLength(1);
+        });
+
+        it('a failed intake-floor read leaves paging open and keeps the last known floor', async () => {
+            const { document, window } = env;
+            const old = berlin(1, '2026-09-23', '08:20', 'taken', { takenAt: '2026-09-23T06:25:00.000Z' });
+            serveRange(window, [old]);
+            window.medications = [{ ...MEDS[0], archived: true, created_at: new Date(NOW - 2 * DAY).toISOString() }];
+            await window.loadTimeline({ anchor: true });
+            const served = window.apiCall;
+            window.apiCall = vi.fn(async (path) => (String(path).includes('status=taken,skipped') ? null : served(path)));
+            await window.loadTimeline({ anchor: true });
+            // Failed read: the earlier answer (2026-09-23) still stands, so day 31 back is hidden once reached.
+            const more = () => button(document.getElementById('med-timeline-list').lastElementChild, 'Show 3 earlier days');
+            let pages = 0;
+            while (more() && pages < 15) {
+                more().click();
+                pages++;
+                await settle();
+                await settle();
+            }
+            expect(pages).toBe(10);
+        });
+
         it('the paging floor reaches an archived medication\'s oldest stored intake', async () => {
             const { document, window } = env;
             const old = berlin(1, '2026-09-23', '08:20', 'taken', { takenAt: '2026-09-23T06:25:00.000Z' });
