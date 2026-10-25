@@ -1,6 +1,6 @@
 # MyHealthBot — Privacy Policy
 
-Effective YYYY-MM-DD (set to the merge date on approval). This policy covers the MyHealthBot web app at
+Effective 2026-10-25. This policy covers the MyHealthBot web app at
 `cloud.myhealthbot.ai` and the MyHealthBot iPhone and Android apps (shown as
 "Med Tracker" on your home screen), which open the same web app. "We" is the
 operator of that service. The policy is written by category: what kind of data
@@ -245,7 +245,7 @@ create accounts for them.
 
 ## 11. Changes
 
-- YYYY-MM-DD: rewritten by data category; product name, contact address, metadata and retention tables, provider categories and your rights added.
+- 2026-10-25: rewritten by data category; product name, contact address, metadata and retention tables, provider categories and your rights added.
 
 Changes to this policy are published at this address: we update the
 effective date at the top and summarise material changes here. A feature that
