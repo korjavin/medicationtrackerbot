@@ -527,17 +527,25 @@ export function canonical(table, id) {
 // evidence at C only → C's row is the dose and K's row is hidden (one row, one
 // consumption). `intakes` RAW, so a tombstone counts as evidence.
 //
-// `fromMs`/`toMs` is the read window the rows came from. A canonical K whose
-// instant lies outside it belongs to K's own read, so its cancelled ids are
-// hidden here too; only a K inside the window that the projection does not
-// list (a switch before the ledger cut, nothing regenerated) keeps them as
-// stand-ins (bd med-wi09.4).
-export function applyLineage(rows, table, intakes = [], { fromMs = -Infinity, toMs = Infinity } = {}) {
+// `fromMs`/`toMs` is the read window the rows came from (bd med-wi09.4). A
+// canonical K outside it that some read DOES list — at or after the ledger
+// cut (`cutMs`; null = −Infinity), where it is regenerated, or with a live
+// stored row — belongs to K's own read, so its cancelled ids are hidden here
+// too. A K that no read lists (before the cut, never stored) keeps them as
+// stand-ins, inside the window or out (Archie 5078).
+export function applyLineage(rows, table, intakes = [], { fromMs = -Infinity, toMs = Infinity, cutMs = null } = {}) {
   if (!table || table.size === 0) return rows;
+  const cut = cutMs ?? -Infinity;
+  const storedSlots = new Set();
+  for (const i of intakes) {
+    const ms = Date.parse(i && i.scheduled_at);
+    if (i && !i.deleted && Number.isFinite(ms) && !String(i.recordId).startsWith('intake-manual-')) storedSlots.add(slotId(i.medication_id, ms));
+  }
   const outsideRead = (k) => {
     const m = SLOT_RE.exec(String(k));
     const ms = m ? Number(m[2]) * 1000 : NaN;
-    return Number.isFinite(ms) && (ms < fromMs || ms > toMs);
+    if (!Number.isFinite(ms) || (ms >= fromMs && ms <= toMs)) return false;
+    return ms >= cut || storedSlots.has(`intake-${m[1]}-${m[2]}`);
   };
   const ev = evidenceMap(intakes);
   const keyOf = (r) => (r.source === 'manual' ? null : slotId(r.medId, Date.parse(r.plannedAt)));

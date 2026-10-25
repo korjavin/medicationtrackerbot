@@ -471,7 +471,7 @@ export function projectOccurrences({
   const sorted = out.map((r) => [Date.parse(r.plannedAt), r])
     .sort((a, b) => (a[0] - b[0]) || MED_ID_ORDER.compare(String(a[1].medId), String(b[1].medId)))
     .map((x) => x[1]);
-  return applyLineage(sorted, lineage, intakes, { fromMs, toMs });
+  return applyLineage(sorted, lineage, intakes, { fromMs, toMs, cutMs });
 }
 
 // The stored intake wire shape (toResponse) read back off a stored projection
@@ -854,7 +854,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         medications: meds, intakes: live, tzPlan, timeZone, nowMs, fromMs: lf, toMs, forecast, regenerated, cutMs: cut,
       }));
     }
-    const out = applyLineage(rows, lineage, intakes, { fromMs, toMs });
+    const out = applyLineage(rows, lineage, intakes, { fromMs, toMs, cutMs: cut });
     if (onBoundary) {
       let next = Infinity;
       for (const r of out) {

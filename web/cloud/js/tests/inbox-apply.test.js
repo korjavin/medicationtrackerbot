@@ -5,6 +5,7 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain, dosesAtInstant } from '../../../domain/medintake.js';
+import { boundary } from '../../../domain/lineage.js';
 import { applyIntakeSlotAction, OUT_OF_DATE_TEXT, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, makeTGHistoryPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
 import { createRemindersDomain, DONT_BUG_MS } from '../../../domain/reminders.js';
 import { createTGAgent } from '../tg-agent.js';
@@ -2364,8 +2365,8 @@ describe('inbox-apply.js — a tap on a deleted dose slot', () => {
 
 // bd med-wi09.4 (Argus 5031, Archie 5034) — lineage resolved at the root, no
 // read pad: a cancelled dose whose canonical lies outside the read is hidden
-// (it belongs to the canonical's read); only a canonical inside the read that
-// the projection never regenerated leaves it standing in.
+// (it belongs to the canonical's read, when some read lists it: at or after the
+// cut, or stored); a canonical no read lists leaves it standing in (Archie 5078).
 describe('inbox-apply.js — taps on lineage-cancelled slots', () => {
     const DAILY = '{"type":"daily","times":["00:00"]}';
     const sec = (s) => Date.parse(s) / 1000;
@@ -2433,6 +2434,30 @@ describe('inbox-apply.js — taps on lineage-cancelled slots', () => {
         expect((await intake.occurrences({ fromMs: day, toMs: day + 86400000 - 1 })).map((r) => r.occId)).toEqual([id(a)]);
 
         await intake.confirm(id(a), a * 1000);
+        expect((await records.list('intake'))[0].status).toBe('TAKEN');
+    });
+
+    // Archie 5078: a daily 23:00 dose, UTC → UTC−2 switched before the cut,
+    // nothing regenerated. The 07-01 dose's canonical (01:00 UTC on 07-02) is
+    // before the cut and never stored, so no read lists it: the stored dose
+    // stays in its own day cell and confirm() works on it.
+    it('a pre-cut stand-in whose canonical is on the neighbouring day stays in its day cell', async () => {
+        const m = { recordId: 1, name: 'Met', dosage: '1', schedule: '{"type":"daily","times":["23:00"]}', created_at: '2026-01-01T00:00:00Z', deleted: false };
+        const switchAt = Date.parse('2026-06-30T20:00:00Z');
+        const bnd = boundary({ oldGen: { timeZone: 'UTC', medications: [m] }, newGen: { timeZone: 'Etc/GMT+2', medications: [m] }, switchAt });
+        const c = `intake-1-${Date.parse('2026-07-01T23:00:00Z') / 1000}`;
+        const records = fakeRecords({
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-07-05T00:00:00Z' }],
+            medication: [m],
+            tztransition: [{ recordId: 't1', deleted: false, switch_at: new Date(switchAt).toISOString(), old_tz: 'UTC', new_tz: 'Etc/GMT+2', boundary: bnd }],
+            intake: [{ recordId: c, deleted: false, medication_id: 1, scheduled_at: '2026-07-01T23:00:00.000Z', status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' }],
+        });
+        const now = () => Date.parse('2026-07-10T12:00:00Z');
+        const intake = domainFor(records, now);
+        const day = Date.parse('2026-07-01T00:00:00Z');
+        expect((await intake.occurrences({ fromMs: day, toMs: day + 86400000 - 1 })).map((r) => r.occId)).toEqual([c]);
+
+        await intake.confirm(c);
         expect((await records.list('intake'))[0].status).toBe('TAKEN');
     });
 
