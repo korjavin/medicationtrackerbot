@@ -11,8 +11,8 @@
 // loadTimeline, renderInventory, loadInventory,
 // switchTab, window.DataStore, window.PushModalState, window.ModalManager,
 // window.MedTrackerDB, and meds.js's timeline flip (_applyOptimisticTimeline /
-// _tlPatchRows). The optimistic helpers (_applyOptimisticDueClear /
-// _commitOptimistic / _rollbackOptimistic) are also reached by
+// _tlPatchRows; its pending-set flip is what Today's Next up reads too). The
+// optimistic helpers (_commitOptimistic / _rollbackOptimistic) are also reached by
 // features/meds.js via bare name, so they stay function-scoped globals here
 // rather than being privatised.
 //
@@ -424,18 +424,6 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
     }, ['medications', 'history']);
 }
 
-// Today's Next up reads the occurrence projection's due rows (today-loader's
-// `doses_due_24h`, GET /api/doses), not a history_* payload — drop the rows a
-// confirm/skip resolves so its Missed line clears before the POST returns.
-async function _applyOptimisticDueClear(isResolved) {
-    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
-        return { commit: async () => {}, rollback: async () => {} };
-    }
-    return window.DataStore.applyOptimistic('doses_due_24h', (prev) => (Array.isArray(prev)
-        ? prev.filter((row) => !(row && isResolved(row)))
-        : prev), ['history']);
-}
-
 async function _commitOptimistic(handles) {
     for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
 }
@@ -495,14 +483,13 @@ async function confirmSelectedMedications() {
         const pickedMs = timeInput && timeInput.dataset.edited ? new Date(timeInput.value).getTime() : NaN;
         const pickedIso = Number.isFinite(pickedMs) ? new Date(pickedMs).toISOString() : undefined;
 
-        // Optimistic: flip exactly the acted rows to taken on the timeline,
-        // clear `next_intake` and the due rows, so the timeline + Today
-        // repaint before the POST resolves.
+        // Optimistic: flip exactly the acted rows to taken on the timeline
+        // and the pending set, clear `next_intake`, so the timeline, the Meds
+        // badge + Today repaint before the POST resolves.
         const takenAt = pickedIso || new Date().toISOString();
         const handles = [await _applyOptimisticTimeline(_tlPatchRows(
             new Map(occIds.map((id) => [String(id), { state: 'taken', takenAt }]))))];
         handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedIds));
-        handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
 
         let ok;
         try {
@@ -547,7 +534,6 @@ async function skipSelectedMedications() {
         const handles = [await _applyOptimisticTimeline(_tlPatchRows(
             new Map(occIds.map((id) => [String(id), { state: 'skipped', takenAt: null }]))))];
         handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedMedIds));
-        handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
 
         let ok;
         try {
@@ -753,7 +739,6 @@ async function snoozeMedicationConfirm() {
         const snoozedUntil = new Date(Date.now() + MED_SNOOZE_MINUTES * 60 * 1000).toISOString();
         const handles = [await _applyOptimisticTimeline(_tlPatchRows(
             new Map(occIds.map((id) => [String(id), { state: 'snoozed', snoozedUntil }]))))];
-        handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
 
         let ok;
         try {

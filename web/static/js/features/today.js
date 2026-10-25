@@ -196,17 +196,12 @@
     }
 
     // Due / missed doses for Next up (Next up applies the missed grace): the
-    // occurrence projection's `due` rows (GET /api/doses over the last 24h,
-    // cached as bootstrap.intake_history) — the same rows the Meds tab badge
-    // counts (app-nav.js countDueDoses). The projection owns the rule; this
-    // only groups. One group per slot (oldest first). `missing` = nothing
-    // cached yet.
-    // The cached rows were projected at fetch time, but snoozed → due is a
-    // function of the clock alone: Today stays open (and may be offline) past
-    // a snooze deadline with no record change to trigger a refetch, so the
-    // payload is re-projected at render time — a snoozed row whose
-    // snoozedUntil has passed is due, exactly as projectOccurrences would now
-    // say. (upcoming → due cannot happen here: the window ends at fetch time.)
+    // Meds pending set — every due or snoozed dose of any day (GET
+    // /api/doses?status=due,snoozed, cached as bootstrap.intake_history), the
+    // same rows the Meds tab badge counts (app-nav.js countPendingDoses, bd
+    // med-ry7b.7). The projection owns the rule; this only groups, skipping
+    // rows an optimistic take/skip already flipped. One group per slot
+    // (oldest first). `missing` = nothing cached yet.
     function missedDosesCell(bootstrap, nowMs, enabled) {
         if (!enabled) return cell(null, 'meds', 'disabled');
         const rows = bootstrap && bootstrap.intake_history;
@@ -218,21 +213,30 @@
         const medName = new Map((Array.isArray(bootstrap.medications) ? bootstrap.medications : [])
             .filter((m) => m && typeof m.name === 'string' && m.name)
             .map((m) => [String(m.id), m.name]));
-        const isDue = (r) => r.state === 'due'
-            || (r.state === 'snoozed' && !(Date.parse(r.snoozedUntil) > nowMs));
         const bySlot = new Map();
         for (const r of rows) {
-            if (!r || !isDue(r)) continue;
+            if (!r || (r.state !== 'due' && r.state !== 'snoozed')) continue;
             const at = Date.parse(r.plannedAt);
             if (!Number.isFinite(at)) continue;
             let g = bySlot.get(at);
-            if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [] }; bySlot.set(at, g); }
+            if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [], due: false, snoozedUntil: null }; bySlot.set(at, g); }
             g.names.push(medName.get(String(r.medId)) || r.name || 'Medication');
             g.ids.push(r.medId);
             g.intakeIds.push(r.occId);
+            // A snooze still running keeps the slot snoozed; a due row (or a
+            // lapsed snooze — clock-only, no refetch) makes it due.
+            const until = r.state === 'snoozed' ? Date.parse(r.snoozedUntil) : NaN;
+            if (until > nowMs) {
+                if (!(Date.parse(g.snoozedUntil) >= until)) g.snoozedUntil = r.snoozedUntil;
+            } else {
+                g.due = true;
+            }
         }
+        // `snoozedUntil` only on a slot whose every dose is snoozed.
         const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at)
-            .map(({ scheduledAt, names, ids, intakeIds }) => ({ scheduledAt, names, ids, intakeIds }));
+            .map(({ scheduledAt, names, ids, intakeIds, due, snoozedUntil }) => (due
+                ? { scheduledAt, names, ids, intakeIds }
+                : { scheduledAt, names, ids, intakeIds, snoozedUntil }));
         return cell(groups, 'meds', 'ok');
     }
 
@@ -646,7 +650,9 @@
             for (const g of missed.value) {
                 const at = Date.parse(g.scheduledAt);
                 historySlots.add(at);
-                items.push({ kind: at + OVERDUE_GRACE_MS < nowMs ? 'med-missed' : 'med', value: g, at });
+                // A snoozed slot is neither missed nor the sun's Take.
+                const kind = g.snoozedUntil ? 'med-snoozed' : (at + OVERDUE_GRACE_MS < nowMs ? 'med-missed' : 'med');
+                items.push({ kind, value: g, at });
             }
         }
         const med = state && state.nextMed;
@@ -696,15 +702,22 @@
         const trail = el('span', 'wg-row__trail');
         let action = null;
 
-        if (item.kind === 'med' || item.kind === 'med-missed') {
+        if (item.kind === 'med' || item.kind === 'med-missed' || item.kind === 'med-snoozed') {
             const v = item.value;
             const names = medNames(v);
             lead.appendChild(ico('pill'));
             body.appendChild(el('span', 'wg-row__title',
                 names.length === 1 ? names[0] : `${names.length} medications`));
             const when = fmtTimeHM(v.scheduledAt);
-            if (item.kind === 'med-missed') {
-                meta.appendChild(chip(when ? `Missed ${when}` : 'Missed', 'danger'));
+            if (item.kind === 'med-snoozed') {
+                // The Meds timeline's wording for the same dose (meds.js).
+                meta.appendChild(chip(`Snoozed until ${fmtTimeHM(v.snoozedUntil)}`, 'pending'));
+                if (names.length > 1) meta.appendChild(doc().createTextNode(` ${names.join(', ')}`));
+            } else if (item.kind === 'med-missed') {
+                // "Missed 08:00 · 3 days ago": the Schedule tab's wording
+                // (features/meds.js pendingSlotLabel).
+                const slot = when && h.slotLabel ? h.slotLabel(new Date(item.at), new Date(nowMs)) : when;
+                meta.appendChild(chip(slot ? `Missed ${slot}` : 'Missed', 'danger'));
                 if (names.length > 1) meta.appendChild(doc().createTextNode(` ${names.join(', ')}`));
             } else {
                 const parts = [];
@@ -812,9 +825,10 @@
             return { node: section, hasPrimary: medsOn && allowPrimary };
         }
 
+        // Due by the end of today — past days' pending doses included.
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
-        const todayCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
-        if (todayCount > 0) head.appendChild(el('span', 'wg-meta', `${todayCount} today`));
+        const dueCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
+        if (dueCount > 0) head.appendChild(el('span', 'wg-meta', `${dueCount} due`));
 
         const primaryIdx = !allowPrimary ? -1 : items.findIndex((it) => it.kind === 'med'
             || (it.kind === 'workout' && workoutAction(it.value) !== 'view'));
@@ -3183,6 +3197,7 @@
         return {
             onDeeplink,
             onLogFood,
+            slotLabel: opts.slotLabel || (typeof win.pendingSlotLabel === 'function' ? win.pendingSlotLabel : null),
             onAddBp: opts.onAddBp || defaultHandler('showBPRecordModal', 'bp'),
             onAddWeight: opts.onAddWeight || defaultHandler('showWeightModal', 'weight'),
             onPhotoMeal: opts.onPhotoMeal || (() => {

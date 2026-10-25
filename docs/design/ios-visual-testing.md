@@ -239,7 +239,10 @@ with the undo toast; the write stays, so later scenes see that day taken),
 `settings-ai-key-keyboard` (the BYOK key form), `settings-erase-confirm` (the
 in-page `safeConfirm` dialog; the phrase is never typed) and `journey`
 (turns gamification on, so it runs last). Landscape is out (portrait-only
-app).
+app). `today-snoozed` (bd med-ry7b.7) snoozes the newest due dose for 30
+minutes (`snoozePending`), so Today's Next up shows the neutral "Snoozed
+until HH:MM" row with a plain Take; it runs before `meds-timeline-done`,
+whose `takePending` clears the snooze again.
 
 ### Runtime and cost
 

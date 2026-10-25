@@ -169,7 +169,7 @@ describe('Today v2 — Next up', () => {
         expect(sun[0].getAttribute('data-action')).toBe('start-workout');
         // The no-goal card stays a plain button while Next up owns the sun.
         expect(root.querySelector('[data-action="set-goal"]').classList.contains('wg-btn--primary')).toBe(false);
-        expect(root.querySelector('[data-section="next-up"] .wg-section__head .wg-meta').textContent).toBe('3 today');
+        expect(root.querySelector('[data-section="next-up"] .wg-section__head .wg-meta').textContent).toBe('3 due');
     });
 
     it('a later scheduled dose sorts ahead of a later workout and takes the sun', () => {
@@ -396,9 +396,10 @@ describe('Today v2 — Next up', () => {
         expect(stage).toMatch(/padding:\s*\S+ \S+ var\(--wg-tabbar-reserved\);/);
     });
 
-    // Missed = the occurrence projection's `due` rows (cached 24h GET
-    // /api/doses) — the Meds badge's read — never cache timing.
-    it('missed rows are the projection\'s due rows; taken, snoozed and upcoming doses are not missed', () => {
+    // Next up's doses = the Meds pending set (due + snoozed rows, the badge's
+    // read, bd med-ry7b.7) — never cache timing. Rows a take/skip flipped
+    // optimistically drop out.
+    it('Next up lists the due and snoozed rows; taken and upcoming doses are not listed', () => {
         const dose = (occId, medId, name, plannedAt, state) => ({ occId, medId, name, plannedAt, state });
         const bootstrap = {
             features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
@@ -414,11 +415,20 @@ describe('Today v2 — Next up', () => {
         };
         const state = env.aggregate(bootstrap, {}, NOW);
         expect(state.missedDoses.value).toEqual([
-            { scheduledAt: at(8, 20), names: ['Allopurinol', 'Candecor'], ids: ['m1', 'm2'], intakeIds: ['i1', 'i2'] }
+            { scheduledAt: at(8, 20), names: ['Allopurinol', 'Candecor'], ids: ['m1', 'm2'], intakeIds: ['i1', 'i2'] },
+            { scheduledAt: at(13, 0), names: ['Candecor'], ids: ['m2'], intakeIds: ['i4'], snoozedUntil: at(14, 30) }
         ]);
         env.window.showMedicationConfirmModal = vi.fn();
         env.render(state, root, { now: NOW });
-        expect(nextKinds(root)).toEqual(['med-missed', 'med']);
+        // The snoozed dose says so (the Meds timeline's chip), not Missed, and
+        // never takes the sun.
+        expect(nextKinds(root)).toEqual(['med-missed', 'med-snoozed', 'med']);
+        const snoozedRow = root.querySelector('[data-next="med-snoozed"]');
+        expect(snoozedRow.querySelector('.wg-chip--danger')).toBeNull();
+        expect(snoozedRow.querySelector('.wg-chip').textContent).toBe('Snoozed until 14:30');
+        expect(snoozedRow.querySelector('.wg-row__lead--danger')).toBeNull();
+        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['take']);
+        expect(snoozedRow.querySelector('[data-action="take"]').classList.contains('wg-btn--primary')).toBe(false);
         const missedRow = root.querySelector('[data-next="med-missed"]');
         expect(missedRow.querySelector('.wg-row__title').textContent).toBe('2 medications');
         missedRow.querySelector('[data-action="log-missed"]').click();
@@ -426,9 +436,8 @@ describe('Today v2 — Next up', () => {
     });
 
     // snoozed → due is clock-only: Today left open past the snooze deadline,
-    // with no record change and no refetch, must surface the dose (the Meds
-    // badge re-counts at that deadline too).
-    it('a cached snoozed dose becomes missed once its snooze lapses, with no refetch', () => {
+    // with no refetch, shows the dose as missed (the badge counted it all along).
+    it('a cached snoozed dose turns missed once its snooze lapses, with no refetch', () => {
         const bootstrap = {
             features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
             medications: [{ id: 'm2', name: 'Candecor' }],
@@ -436,11 +445,11 @@ describe('Today v2 — Next up', () => {
                 occId: 'i4', medId: 'm2', name: 'Candecor', plannedAt: at(13, 0), state: 'snoozed', snoozedUntil: at(14, 30)
             }]
         };
-        expect(env.aggregate(bootstrap, {}, NOW).missedDoses.value).toEqual([]);
+        env.render(env.aggregate(bootstrap, {}, NOW), root, { now: NOW });
+        expect(nextKinds(root)).toEqual(['med-snoozed']);
         const later = new Date(2026, 3, 20, 14, 31);
-        expect(env.aggregate(bootstrap, {}, later).missedDoses.value).toEqual([
-            { scheduledAt: at(13, 0), names: ['Candecor'], ids: ['m2'], intakeIds: ['i4'] }
-        ]);
+        env.render(env.aggregate(bootstrap, {}, later), root, { now: later });
+        expect(nextKinds(root)).toEqual(['med-missed']);
     });
 
     it('a dose that just came due is a Take with the sun, not Missed, and never doubles with next_intake', () => {
