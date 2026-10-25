@@ -893,7 +893,7 @@ class MainActivity : Activity() {
                 leave.clear()
                 setInvite(null) // A4: no claim token left behind after Erase
                 Notifications.clear(this)
-                // Only after our server deleted the install record (bd med-egb3): key + pass go before the answer.
+                // Only after our server deleted the install record (bd med-egb3): key material goes (pass stays) before the answer.
                 if (LocalOrigin.dropsAttest(msg.optJSONObject("args")?.opt("dropAttest"))) attest.drop()
                 answer(true)
             }
