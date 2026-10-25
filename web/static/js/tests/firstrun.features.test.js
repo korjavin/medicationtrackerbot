@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { createApiRouter } from '../../../cloud/js/apishim.js';
+import * as realVault from '../../../domain/vault.js';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -541,6 +544,146 @@ describe('firstrun W1 waits for the account pull (account mode)', () => {
             apply(stale);
             expect(overlay(document)).not.toBeNull();
         } finally { cleanup(); }
+    });
+});
+
+// bd med-ydt2: a fresh Android install that opens from an invite. Local side:
+// the Play referrer can fill the invite slot a moment after launch, so the
+// shell holds invite.pending until its read settles and W1 waits on the answer.
+// Account side: the local → cloud move pickup imports the stash and reloads, so
+// W1 waits for the pickup too. Either way W1 never mounts and then vanishes.
+describe('firstrun W1 in the invite → account flow (bd med-ydt2)', () => {
+    const CLAIM = 'https://abc.app.example.com/#claim=0a1b2c';
+    const W1_ID = 'wg-firstrun-overlay';
+    // Every W1 overlay ever added to the page, even one removed again.
+    function watchW1(window) {
+        const seen = [];
+        new window.MutationObserver((records) => {
+            for (const r of records) for (const n of r.addedNodes) if (n.id === W1_ID) seen.push(n);
+        }).observe(window.document.body, { childList: true, subtree: true });
+        return seen;
+    }
+
+    it('local first launch: an invite.pending answer slower than 3 s routes the invite; W1 waits for Use without sync', async () => {
+        let answer;
+        const native = {
+            platform: 'android',
+            has: vi.fn(async (op) => op === 'invite.pending'),
+            call: vi.fn((op) => (op === 'invite.pending' ? new Promise((r) => { answer = r; }) : Promise.resolve(null))),
+        };
+        const { window, document, cleanup } = loadFlow({
+            fetchMock: okFetch(), local: true, native, invite: true, authBootstrap: true, base: 'app.example.com',
+        });
+        try {
+            window.CloudVault = { userContentCount: async () => 0 };
+            // Compress the probe boxes 100x (3 s → 30 ms, 15 s → 150 ms) and
+            // let the shell answer at 80 ms: past the short box, inside the long.
+            const realTimeout = window.setTimeout.bind(window);
+            window.setTimeout = (fn, ms, ...args) => realTimeout(fn, ms >= 1000 ? ms / 100 : ms, ...args);
+            const seen = watchW1(window);
+            window.AuthBootstrap.mountFirstRun(true);
+            await new Promise((r) => { realTimeout(r, 80); });
+            expect(seen).toEqual([]);
+            answer({ url: CLAIM, receivedAt: Date.now() });
+            await vi.waitFor(() => expect(document.getElementById('invite-ready')).not.toBeNull());
+            expect(seen).toEqual([]);
+            expect(window.WGFirstRun.isActive()).toBe(false);
+            // Starting fresh instead: W1 now, and it stays.
+            document.querySelector('[data-invite-action="without-sync"]').click();
+            await vi.waitFor(() => expect(document.getElementById(W1_ID)).not.toBeNull());
+            await new Promise((r) => { realTimeout(r, 200); });
+            expect(seen).toHaveLength(1);
+            expect(document.getElementById(W1_ID)).toBe(seen[0]);
+        } finally { cleanup(); }
+    });
+
+    describe('account side: the real cloud-boot.js over a new account', () => {
+        const CLOUD_BOOT = fs.readFileSync(path.join(REPO_ROOT, 'web/cloud/js/cloud-boot.js'), 'utf8').replace(/\bimport\(/g, '__imp(');
+        // The golden vault: what the local page stashed (records → the import
+        // stamps `firstrun` at the floor, vaultToRecords).
+        const VAULT = fs.readFileSync(path.join(REPO_ROOT, 'tests/fixtures/vault-v1.json'), 'utf8');
+        let env;
+        beforeEach(() => {
+            allowConsoleNoise(); // location.reload is a jsdom "not implemented" error
+            env = loadFrontendEnv();
+            for (const file of [STATE_JS, FEATURES_JS, TRIAL_JS, INDEX_JS]) {
+                env.window.eval(`${fs.readFileSync(file, 'utf8')}\n//# sourceURL=file://${file}`);
+            }
+        });
+        afterEach(() => env.cleanup());
+
+        async function boot({ stash }) {
+            const { window } = env;
+            const log = [];
+            const call = vi.fn(async (op) => {
+                log.push(op);
+                if (op === 'shell.ops') return ['shell.ops', 'move.take', 'move.clear'];
+                if (op === 'move.take') return stash;
+                return true;
+            });
+            window.LocalNotifications = { ...window.LocalNotifications, __native: { platform: 'android', call }, copy: { device: 'phone' } };
+            const seen = watchW1(window);
+            let release;
+            const pulled = new Promise((r) => { release = r; });
+            const modules = {
+                'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+                // A new account, pulled: first run is still to do, answered
+                // only while cloud-boot's caughtUp gate allows (apishim.js
+                // bootstrapPayload omits the flag otherwise).
+                'apishim.js': {
+                    installApiShim: (_ctx, opts) => async (endpoint) => {
+                        if (endpoint !== '/api/bootstrap') return null;
+                        const answer = !opts || !opts.caughtUp || await opts.caughtUp();
+                        return answer ? { needs_first_run: true } : {};
+                    },
+                },
+                'sync.js': {
+                    pullOnOpen: () => pulled,
+                    hasCaughtUp: async () => true,
+                    startReconnectAutoDrain() {},
+                    getSyncStatus: async () => ({}),
+                },
+                '/domain/vault.js': realVault,
+            };
+            const __imp = (spec) => {
+                const key = spec.replace('/js/', '');
+                return key in modules ? Promise.resolve(modules[key]) : Promise.reject(new Error(`unexpected import(${spec})`));
+            };
+            // eslint-disable-next-line no-new-func
+            new Function('window', 'document', 'location', 'navigator', '__imp', CLOUD_BOOT)(
+                window, window.document, window.location, window.navigator, __imp,
+            );
+            await window.MedTrackerCloudReady;
+            window.CloudVault.hasUserContent = vi.fn(async () => false); // the new account is empty
+            window.CloudVault.importAll = vi.fn(async () => { log.push('importAll'); return { upload: 'synced' }; });
+            release();
+            // The app's own boot-time /api/bootstrap (app.js →
+            // applyBootstrapPayload), landing after the pull while the pickup
+            // still runs: it mounts only on a boolean flag.
+            await new Promise((r) => { setTimeout(r, 0); });
+            const res = await window.apiCallDirect('/api/bootstrap', 'GET');
+            if (typeof res.needs_first_run === 'boolean') window.AuthBootstrap.mountFirstRun(res.needs_first_run);
+            return { window, log, seen };
+        }
+        const settle = () => new Promise((r) => { setTimeout(r, 100); });
+
+        it('invite → account create with migrated local data: W1 never mounts before the reload', async () => {
+            const { window, log, seen } = await boot({ stash: { vault: VAULT } });
+            await vi.waitFor(() => expect(log).toContain('move.clear'));
+            await settle();
+            expect(log).toEqual(['shell.ops', 'move.take', 'importAll', 'move.clear']);
+            expect(seen).toEqual([]);
+            expect(window.WGFirstRun.isActive()).toBe(false);
+        });
+
+        it('no stash to pick up: W1 mounts once the pickup has settled, and stays', async () => {
+            const { window, log, seen } = await boot({ stash: null });
+            await vi.waitFor(() => expect(window.document.getElementById(W1_ID)).not.toBeNull());
+            await settle();
+            expect(log).toEqual(['shell.ops', 'move.take']);
+            expect(seen).toHaveLength(1);
+            expect(window.WGFirstRun.isActive()).toBe(true);
+        });
     });
 });
 
