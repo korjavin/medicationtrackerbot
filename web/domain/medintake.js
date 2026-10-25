@@ -1150,8 +1150,8 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
           const sec = Number(m[2]);
           intake = intakes.find((i) => String(i.medication_id) === String(med.recordId)
             && Math.floor(Date.parse(i.scheduled_at) / 1000) === sec) || null;
-          // ponytail: a legacy-id match pays its own resolver read; old ids only.
-          if (intake) intake = (await resolver([intake.recordId])).get(intake.recordId);
+          // Same med and second: the outer read spans this row's slot.
+          if (intake) intake = resolve.get(intake.recordId);
           else {
             intake = resolve.get(occId);
             virtual = !!intake;

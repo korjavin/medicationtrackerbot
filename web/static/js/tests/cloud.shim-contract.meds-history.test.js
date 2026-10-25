@@ -394,11 +394,16 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
 
     // bd med-wi09.21 — act keeps a stored row only through the med-wi09.4 gate.
     // A schedule edit cancelled A for B: A's stored OPEN row is hidden, so an
-    // agent's stale id acts on nothing (doses/act and the legacy snooze route);
-    // the shown B and an imported -tz_step row still act.
-    it('act refuses a stored open row the projection hides and writes nothing; shown and -tz_step rows act', async () => {
+    // agent's stale id acts on nothing (doses/act and the legacy snooze route),
+    // nor does a bare slot id matching a cancelled row stored under another id.
+    // Evidence (A3 TAKEN) is never gated; the shown B and an imported -tz_step
+    // row still act.
+    it('act refuses a stored open row the projection hides and writes nothing; evidence, shown and -tz_step rows act', async () => {
         const A = Math.floor((Date.now() - 72 * HOUR_MS) / 60000) * 60;
+        const A2 = A + 3600;
+        const A3 = A + 7200;
         const B = A + 26 * 3600;
+        const C = B + 3600;
         const T = Math.floor((Date.now() - 2 * HOUR_MS) / 60000) * 60;
         const iso = (s) => new Date(s * 1000).toISOString();
         const id = (s) => `intake-1-${s}`;
@@ -407,11 +412,15 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 medication: [seedMedication({ recordId: 1, name: 'Metformin', inventory_count: 5 })],
                 intake: [
                     ...[A, B].map((s) => seedIntake({ recordId: id(s), medication_id: 1, scheduled_at: iso(s), status: 'PENDING' })),
+                    seedIntake({ recordId: 'legacy-a2', medication_id: 1, scheduled_at: iso(A2), status: 'PENDING' }),
+                    seedIntake({ recordId: id(A3), medication_id: 1, scheduled_at: iso(A3), status: 'TAKEN', taken_at: iso(A3) }),
                     seedIntake({ recordId: `${id(T)}-tz_step`, medication_id: 1, scheduled_at: iso(T), status: 'PENDING', source: 'tz_step' }),
                 ],
                 medsched: [{
                     recordId: 'medsched-1-1', clientTs: 1, deleted: false, medication_id: 1, schedule: JSON.stringify({ type: 'as_needed' }), tz_shift_policy: 'flexible', from: iso(A - 3600),
-                    boundary: [{ medId: 1, kept: [], cancelled: [id(A)], replacement: { [id(A)]: id(B) } }],
+                    boundary: [{
+                        medId: 1, kept: [], cancelled: [id(A), id(A2), id(A3)], replacement: { [id(A)]: id(B), [id(A2)]: id(B), [id(A3)]: id(C) },
+                    }],
                 }],
                 ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date(Date.now() + DAY_MS).toISOString() }],
             }
@@ -426,11 +435,14 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
             }
             await expect(window.offlineAwareApiCall('/api/medications/snooze', 'POST', { intake_id: id(A), duration_minutes: 15 }))
                 .rejects.toMatchObject({ status: 404 });
+            expect(await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [id(A2)] }))
+                .toMatchObject({ updated: 0, failed: 1, failures: [{ id: id(A2), reason: 'not_found' }] });
             expect(JSON.stringify(await env.records.list('intake'))).toBe(before);
             expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
 
+            expect(await window.apiCall('/api/doses/act', 'POST', { action: 'undo', occ_ids: [id(A3)] })).toMatchObject({ updated: 1, failed: 0 });
             expect(await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [id(B), `${id(T)}-tz_step`] })).toMatchObject({ updated: 2, failed: 0 });
-            expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(3);
+            expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
         } finally {
             delete globalThis.fetch;
         }
