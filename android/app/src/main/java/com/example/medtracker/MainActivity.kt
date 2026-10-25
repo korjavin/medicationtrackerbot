@@ -179,13 +179,21 @@ class MainActivity : Activity() {
      * reports it (pages without the app: /unlock, /claim, error pages), reset on every main-frame load.
      */
     private var pageCanStep: Boolean? = null
+    /**
+     * bd med-8bgs: the main-frame load (onPageStarted), and the load whose page sent its shell.ops probe.
+     * A page's back.state always follows its probe (native/index.js has()), so one arriving while they
+     * differ, or a wg:native-back answer from an earlier load, is the outgoing page's: ignored.
+     */
+    private var loadGen = 0
+    private var probedGen = -1
     private val back = OnBackInvokedCallback {
         if (pageCanStep == null) return@OnBackInvokedCallback web.goBack()
+        val gen = loadGen
         // The page owns its history: never web.goBack() here, its popstate would step AppBack again.
         web.evaluateJavascript("!document.dispatchEvent(new CustomEvent('wg:native-back',{cancelable:true}))") {
             // false: a race, the page hit its root before its back.state arrived. Drop the callback and
             // let the system own the next Back (on Android 12+ it moves the root task back, not finish()).
-            if (it != "true") { pageCanStep = false; updateBack() }
+            if (it != "true" && gen == loadGen) { pageCanStep = false; updateBack() }
         }
     }
     private var backRegistered = false
@@ -673,6 +681,7 @@ class MainActivity : Activity() {
 
         override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
             loadFailed = false
+            loadGen++
             pageCanStep = null
             updateBack()
         }
@@ -815,7 +824,9 @@ class MainActivity : Activity() {
             return
         }
         // The page's back stack (bd med-y7b4.5): a report, not a capability, so it lands behind the lock too.
+        if (msg.optString("op") == "shell.ops") probedGen = loadGen
         if (msg.optString("op") == "back.state") {
+            if (probedGen != loadGen) return answer(true)
             pageCanStep = msg.optJSONObject("args")?.optBoolean("canStep") == true
             updateBack()
             return answer(true)
