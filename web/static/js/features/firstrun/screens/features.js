@@ -173,22 +173,24 @@
         privacy.setAttribute('data-firstrun-link', 'privacy');
         links.append(privacy, _el('span', 'wg-spacer'));
         body.appendChild(links);
-        _privacyBase().then(function (base) {
-            if (!base || !privacy.isConnected) return;
-            var a = _externalLink('Privacy policy', 'https://' + base + '/privacy');
+        _privacyOrigin().then(function (origin) {
+            if (!origin || !privacy.isConnected) return;
+            var a = _externalLink('Privacy policy', origin + '/privacy');
             a.setAttribute('data-firstrun-link', 'privacy');
             privacy.replaceWith(a);
         }, function () { /* no base: the line stays unlinked */ });
         _showInviteHowTo(links);
     }
 
-    function _privacyBase() {
+    function _privacyOrigin() {
+        var loc = window.location;
         if (!document.documentElement.classList.contains('wg-local-vault')) {
-            var parts = window.location.host.split('.');
-            return Promise.resolve(parts.length > 1 ? parts.slice(1).join('.') : window.location.host);
+            var parts = loc.host.split('.');
+            return Promise.resolve(loc.protocol + '//' + (parts.length > 1 ? parts.slice(1).join('.') : loc.host));
         }
         var sheet = window.InviteSheet;
-        return Promise.resolve(sheet && typeof sheet.base === 'function' ? sheet.base() : '');
+        return Promise.resolve(sheet && typeof sheet.base === 'function' ? sheet.base() : '')
+            .then(function (base) { return base ? 'https://' + base : ''; });
     }
 
     function _showInviteHowTo(links) {
