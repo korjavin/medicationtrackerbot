@@ -13,6 +13,7 @@ import {
   recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES, managedTypesForImport, hasUserContent,
   mergeRecords,
 } from '../../../../web/domain/vault.js';
+import { createVitalsDomain } from '../../../../web/domain/vitals.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -544,13 +545,13 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       expect(Date.parse(only.date_time) % (60 * 60 * 1000)).toBe(0);
     });
 
-    it("drops the stress `info` label beyond the cutoff (a text label has no mean)", () => {
+    it("accepts an older file's stress samples and ignores them (bd med-0xad.4)", () => {
       const records = vaultToRecords(wrap([], [
         { date_time: '2026-01-01T09:05:00Z', tz_offset: 7200, value: 30, info: 'relaxed' },
-        { date_time: '2026-01-01T09:45:00Z', tz_offset: 7200, value: 40, info: 'normal' },
       ]), { now: NOW });
-      const s = records.find((r) => r.recordId === 'stresssample-2026-01-01').samples;
-      expect(s).toEqual([{ date_time: '2026-01-01T09:00:00Z', tz_offset: 7200, value: 35 }]);
+      expect(records.filter((r) => r.recordType === 'stresssample')).toEqual([]);
+      expect(vaultToRecords(botExport, { now: NOW }).some((r) => r.recordType === 'stresssample')).toBe(false);
+      expect('stress' in recordsToVault(records, { now: NOW }).data.vitals).toBe(false);
     });
 
     it('does not downsample when the caller supplies no clock', () => {
@@ -875,5 +876,37 @@ describe('mergeRecords (merge import: union by recordId, receiver wins, bd med-o
   it('into an empty vault, merge lands exactly what a replace would', () => {
     const incoming = vaultToRecords(fixture, { now: NOW });
     expect(mergeRecords([], incoming)).toEqual(incoming);
+  });
+});
+
+// bd med-0xad.4: import still mints legacy sleep ids; the boot pass
+// (vitals.js unifyLegacy) converts them to sleep-hk-<day>.
+describe('legacy sleep conversion over the fixture (bd med-0xad.4)', () => {
+  const unified = async (rows) => {
+    const m = new Map(rows.map((r) => [r.recordId, r]));
+    const records = {
+      list: async (t) => [...m.values()].filter((r) => r.recordType === t && !r.deleted),
+      put: async (t, r) => { m.set(r.recordId, { ...r, recordType: t }); },
+      del: async (t, id) => { m.set(id, { recordId: id, recordType: t, clientTs: NOW, deleted: true }); },
+    };
+    await createVitalsDomain({ records, now: () => NOW, timeZone: 'UTC' }).unifyLegacy();
+    return [...m.values()];
+  };
+  const liveSleep = (rows) => rows.filter((r) => r.recordType === 'sleep' && !r.deleted)
+    .map(({ clientTs, ...r }) => r).sort((a, b) => (a.recordId < b.recordId ? -1 : 1));
+
+  it('the bot-era fixture night lands on its day; export, restore and the pass again change nothing', async () => {
+    const inPlace = await unified(vaultToRecords(fixture, { now: NOW }));
+    // timezone_offset 7200 is bot-era seconds east; asleep = 240 + 120 + 90.
+    expect(liveSleep(inPlace)).toEqual([expect.objectContaining({
+      recordId: 'sleep-hk-2026-07-08', day: '2026-07-08', timezone_offset: -120, total_minutes: 450,
+      source: 'miband', source_id: '2026-07-08',
+    })]);
+    const exported = recordsToVault(inPlace, { now: NOW });
+    expect(exported.data.vitals.sleep).toHaveLength(1);
+    const again = await unified(vaultToRecords(exported, { now: NOW }));
+    expect(liveSleep(again)).toEqual(liveSleep(inPlace));
+    // An older file (the bot export, stress included) converges on the same rows.
+    expect(liveSleep(await unified(vaultToRecords(botExport, { now: NOW })))).toEqual(liveSleep(inPlace));
   });
 });

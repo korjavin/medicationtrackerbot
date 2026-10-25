@@ -44,6 +44,7 @@ import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords, localRecordsPort } from './sync.js';
 import { withMaterializationStopped } from './apishim.js';
 import { createSettingsDomain, PROTECTION_RECORD_TYPE } from '../../domain/settings.js';
+import { createVitalsDomain } from '../../domain/vitals.js';
 import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, userContentCount, mergeRecords } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
@@ -753,6 +754,12 @@ export const LOCAL_VAULT = {
       throw e;
     }
     resetHealthAnchors(win.localStorage);
+    // One sleep model, no stress (bd med-0xad.4), as the cloud importAll.
+    try {
+      await createVitalsDomain({ records: localRecordsPort(), now: Date.now, timeZone: 'UTC' }).unifyLegacy();
+    } catch (e) {
+      console.warn('[local] legacy sleep/stress conversion deferred to the next boot', e);
+    }
   },
   // The move to an account (bd med-nt9p.32.16; since med-ta2n.5 only the P3
   // sheets call it — "Turn on sync" and "Your invite is here" → Sign in —
