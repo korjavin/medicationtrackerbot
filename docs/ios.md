@@ -584,13 +584,20 @@ and weight only asks once, at the next open, for the new types.
     that overlaps an in-app workout session is skipped: the per-set log is the
     record of that visit. Other Health workouts during a session (a treadmill
     run) are kept;
-  - a deleted Health workout stays deleted: a rescan does not bring it back.
-- **Known residuals:** the rule is applied once, against what this iPhone has
-  synced at that moment — an entry that arrives later (a Mi Band `.nxk` import
-  of a night already imported from Health) does not displace the Health copy,
-  so that night counts twice until one is removed (sleep has no delete in the
-  app yet), and a skipped Health entry stays skipped after the entry that beat
-  it is deleted, until the toggle is switched off and on (a rescan). A night
+  - a deleted Health workout stays deleted: a rescan does not bring it back;
+  - sleep works in both orders (bd med-w6gx.31): a Mi Band night imported
+    after a Health sleep day it overlaps tombstones that day
+    (`healthsource.js` `displaceHealthSleep`, called by `vitals.js`
+    `importSamples` for every night, replays included), and the tombstone keeps
+    the day out on every later rescan. Any future non-Health sleep writer
+    (manual entry) calls the same helper.
+- **Known residuals:** for workouts the rule is applied once, against what
+  this iPhone has synced at that moment — an entry that arrives later does not
+  displace the Health copy. For sleep, a Health day written by a device that
+  had not yet synced the Mi Band night counts twice until the `.nxk` is
+  imported again (on any device). A skipped Health entry stays skipped after
+  the entry that beat it is deleted, until the toggle is switched off and on
+  (a rescan). A night
   whose samples carry no time zone takes its sleep day in UTC; for a morning
   wake-up that is the local date nearly everywhere, but a zone-less and a
   zoned source can file one night on different days (and so show it twice)

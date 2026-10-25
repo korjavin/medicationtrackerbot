@@ -30,6 +30,26 @@ export async function deleteHealthAlias(records, kind, row) {
   if (canonical && canonical !== row.recordId) await records.del(kind, canonical);
 }
 
+// displaceHealthSleep (bd med-w6gx.31): a non-Health night (Mi Band, manual)
+// beats an Apple Health sleep day it overlaps, whatever the arrival order.
+// healthimport.js importSleep skips a day overlapping a night already there;
+// this is the other order. `rows` are live sleep rows; every Health day (alias
+// included) overlapping [startMs, endMs) is tombstoned — records.del, a real
+// write that outranks the day's clientTs-0 floor on every device — so the
+// importer's exists check keeps it out on rescan. Returns the rows left.
+// Every future non-Health sleep writer calls this after its write.
+export async function displaceHealthSleep(records, rows, startMs, endMs) {
+  const left = [];
+  for (const r of rows) {
+    const hit = !r.deleted && healthImportRecordId('sleep', r)
+      && Date.parse(r.start_time) < endMs && startMs < Date.parse(r.end_time);
+    if (!hit) { left.push(r); continue; }
+    await records.del('sleep', r.recordId);
+    await deleteHealthAlias(records, 'sleep', r);
+  }
+  return left;
+}
+
 // The body `id` of an imported Health workout (miband record, bd med-w6gx.7):
 // the edit/delete routes key on it, so it must be the same on every device and
 // after a restore. It must never equal another miband row's id (delete and

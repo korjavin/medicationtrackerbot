@@ -490,6 +490,73 @@ describe('Apple Health import', () => {
             expect(await domain.importSamples('sleep', night, { from: N0 - 2 * H, to: N0 + 20 * H })).toMatchObject({ added: 1 });
         });
 
+        // bd med-w6gx.31: a Mi Band night beats a Health day, whatever the order.
+        describe('a Mi Band night displaces the Health day it overlaps', () => {
+            const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
+            const band = (start = N0 + H, end = N0 + 7 * H) => ({
+                start_time: iso(start), end_time: iso(end), day: '2026-10-02', total_minutes: (end - start) / 60_000,
+                deep_minutes: 90, light_minutes: 240, rem_minutes: 30, awake_minutes: 0, timezone_offset: -120,
+            });
+            // The next night, a day on: no Mi Band night overlaps it.
+            const night2 = night.map((s, i) => ({ ...s, uuid: uid(11 + i), start: s.start + 24 * H, end: s.end + 24 * H }));
+            const DAY2_ID = 'sleep-hk-2026-10-03';
+            const vitals = (recs = records) => createVitalsDomain({ records: recs, now: () => W0 + 24 * H, timeZone: 'UTC' });
+            const live = async (recs = records) => (await recs.list('sleep')).map((r) => r.recordId).sort();
+
+            it('Health first, .nxk second: the Health day is tombstoned, a rescan adds nothing, a replay writes nothing', async () => {
+                expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }))).toEqual({ added: 2 });
+                const untouched = records.rows.get(DAY2_ID);
+                await vitals().importSamples({ sleep: [band()] });
+                expect(records.rows.get(DAY_ID)).toMatchObject({ deleted: true });
+                expect(records.rows.get(DAY2_ID)).toBe(untouched);
+                expect(await live()).toEqual([`sleep-${N0 + H}`, DAY2_ID].sort());
+                expect((await vitals().sleepDaily({ from: N0 - 24 * H })).find((d) => d.date === '2026-10-02'))
+                    .toMatchObject({ total_mins: 360 });
+
+                storage.setItem('wg.health.anchors', '{}');
+                expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }))).toEqual({ added: 0 });
+                expect(records.rows.get(DAY_ID)).toMatchObject({ deleted: true });
+
+                const before = JSON.stringify([...records.rows.entries()]);
+                await vitals().importSamples({ sleep: [band()] });
+                expect(JSON.stringify([...records.rows.entries()])).toBe(before);
+            });
+
+            it('.nxk first, Health second: the overlapping day is skipped, the other night imported', async () => {
+                await vitals().importSamples({ sleep: [band()] });
+                expect(await runHealthImport({}, opts({ sleep: [...night, ...night2] }))).toEqual({ added: 1 });
+                expect(records.rows.has(DAY_ID)).toBe(false);
+                expect(await live()).toEqual([`sleep-${N0 + H}`, DAY2_ID].sort());
+            });
+
+            it('the tombstone survives a backup and restore, and a rescan after it', async () => {
+                await runHealthImport({}, opts({ sleep: night }));
+                await vitals().importSamples({ sleep: [band()] });
+                const vault = recordsToVault([...records.rows.values()], { now: W0 });
+                expect(vault.data.tombstones).toEqual([{ recordType: 'sleep', recordId: DAY_ID }]);
+                const restored = memRecords();
+                for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
+                storage.setItem('wg.health.anchors', '{}');
+                expect(await runHealthImport({}, opts({ sleep: night }, restored))).toEqual({ added: 0 });
+                expect((await restored.list('sleep')).map((r) => r.source)).toEqual([undefined]);
+            });
+
+            it('a Health day restored under a fresh id (older client) is displaced with its canonical id', async () => {
+                await runHealthImport({}, opts({ sleep: night }));
+                for (const start of [N0 + H, N0]) { // an overlapping night; one keyed at the alias's own id
+                    const recs = memRecords();
+                    const fresh = `sleep-${N0}`;
+                    recs.rows.set(fresh, { ...records.rows.get(DAY_ID), recordId: fresh, clientTs: W0 });
+                    await vitals(recs).importSamples({ sleep: [band(start)] });
+                    expect(recs.rows.get(DAY_ID)).toMatchObject({ deleted: true });
+                    const left = await recs.list('sleep');
+                    expect(left.map((r) => [r.recordId, r.source])).toEqual([[`sleep-${start}`, undefined]]);
+                    storage.setItem('wg.health.anchors', '{}');
+                    expect(await runHealthImport({}, opts({ sleep: night }, recs))).toEqual({ added: 0 });
+                }
+            });
+        });
+
         it('every device writes the same night body, whatever its own time zone', async () => {
             const bodies = [];
             for (const timeZone of ['UTC', 'America/New_York']) {
