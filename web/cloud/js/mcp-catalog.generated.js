@@ -1436,8 +1436,8 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/medications/snooze",
     "risk": "write",
-    "description": "Snooze a pending intake reminder so it fires again later. Looks up the intake via medications.history first when you need the id.",
-    "response_summary": "Empty body on success (HTTP 200).",
+    "description": "Snooze a pending intake reminder so it fires again later (at most 7 days out). Only a dose already due can be snoozed: a future one fails with not_due. Looks up the intake via medications.history first when you need the id.",
+    "response_summary": "Object {status: 'snoozed', snoozed_until}. Fails with not_found, not_pending or not_due.",
     "required": [
       "intake_id"
     ],

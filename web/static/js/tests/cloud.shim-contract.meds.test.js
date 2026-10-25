@@ -1074,9 +1074,12 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
             timeZone: TZ,
             now: NOW
         }).filter((e) => e.kind === 'medication');
+        // The running snooze fires first, at its end, on its own 09:00 slot's
+        // callback (bd med-4j49).
         const upcomingSlots = [...new Set(upcomingRows.map((d) => Date.parse(d.plannedAt) / 1000))];
-        expect(entries.map((e) => e.fireAtUnix)).toEqual(upcomingSlots);
-        expect(entries[0].medicationIds).toEqual([2]);
+        expect(entries.map((e) => e.fireAtUnix)).toEqual([(NOW + 5 * 60_000) / 1000, ...upcomingSlots]);
+        expect(entries[0]).toMatchObject({ callback: `s:${at(9) / 1000}`, medicationIds: [2] });
+        expect(entries[1].medicationIds).toEqual([2]);
         expect(entries.map((e) => e.fireAtUnix)).not.toContain(at(20) / 1000);
     });
 

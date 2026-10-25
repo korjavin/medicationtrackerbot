@@ -508,11 +508,16 @@ export function computeReminderHorizon({
   // `intakes` must arrive RAW. History (`scheds` / `transitions`, bd
   // med-wi09.12) adds the old-generation doses a boundary kept past a switch —
   // no stored row carries them any more — and hides the slots it cancelled.
+  // A snoozed dose (bd med-4j49) fires at its snooze end with its own slot's
+  // callback, however long ago the slot was planned: the window reaches back
+  // to the oldest slot whose snooze is still ahead.
+  const fromMs = intakes.reduce((min, i) => (!i.deleted && Date.parse(i.snoozed_until) > now
+    ? Math.min(min, Date.parse(i.scheduled_at)) : min), now);
   const { occurrences: regenerated } = regenerateWindow({
-    medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs, fromMs: now, toMs: now + FORECAST_DAYS * 86400000, nowMs: now,
+    medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs, fromMs, toMs: now + FORECAST_DAYS * 86400000, nowMs: now,
   });
   const targets = projectOccurrences({
-    medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
+    medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs, toMs: now + FORECAST_DAYS * 86400000,
     lineage: lineageTable([...transitions, ...scheds]),
     regenerated,
     cutMs,
@@ -522,25 +527,52 @@ export function computeReminderHorizon({
   // A dose already handled (taken early, skipped) has its evidence at its own
   // id, so the projection lists it as taken/skipped, not upcoming: the
   // projection is the only rule here — no ±band (bd med-wi09.12).
-  }).filter((r) => r.state === 'upcoming' && medById.has(String(r.medId)))
-    .map((r) => ({ medicationId: r.medId, medName: r.name, scheduledAtMs: Date.parse(r.plannedAt) }));
+  }).filter((r) => ['upcoming', 'snoozed', 'due'].includes(r.state) && medById.has(String(r.medId)))
+    .map((r) => ({
+      medicationId: r.medId,
+      medName: r.name,
+      scheduledAtMs: Date.parse(r.plannedAt),
+      // null: a due dose never fires on its own here (the relay's chain nags it).
+      fireAtMs: r.state === 'due' ? null : Date.parse(r.state === 'snoozed' ? r.snoozedUntil : r.plannedAt),
+    }));
+  // One reminder per upcoming slot, and one per (slot, snooze end) (bd
+  // med-4j49): each snoozed dose fires at its own snoozed_until, with its
+  // slot's callback. A Telegram tap resolves its doses by the tapped
+  // message's own row (MedIDsForMessage), so rows sharing a callback stay apart.
   const bySlot = new Map();
-  for (const t of targets) {
-    const med = medById.get(String(t.medicationId));
-    const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };
-    slot.names.push(med ? medDisplayName(med) : t.medName);
+  const add = (slot, t) => {
     // Carry the identity of every med the reminder names for this slot so
     // Confirm can act by identity, not by re-deriving from a time band. Dedupe
     // within a slot (a med can't be named twice for one instant).
-    if (t.medicationId != null && !slot.medicationIds.includes(t.medicationId)) slot.medicationIds.push(t.medicationId);
-    bySlot.set(t.scheduledAtMs, slot);
+    if (t.medicationId != null && slot.medicationIds.includes(t.medicationId)) return;
+    const med = medById.get(String(t.medicationId));
+    slot.names.push(med ? medDisplayName(med) : t.medName);
+    if (t.medicationId != null) slot.medicationIds.push(t.medicationId);
+  };
+  for (const t of targets) {
+    if (t.fireAtMs === null) continue;
+    const key = `${t.scheduledAtMs}|${t.fireAtMs}`;
+    if (!bySlot.has(key)) {
+      bySlot.set(key, { slotMs: t.scheduledAtMs, fireAtMs: t.fireAtMs, snoozed: t.fireAtMs !== t.scheduledAtMs, names: [], medicationIds: [] });
+    }
   }
-  for (const [slotMs, slot] of bySlot) {
-    const slotUnix = Math.floor(slotMs / 1000);
+  // A snooze-end reminder names the slot's doses open at that instant: the
+  // still-due ones and those whose snooze has ended by then — never a mate
+  // still snoozed past it.
+  for (const slot of bySlot.values()) {
+    for (const t of targets) {
+      if (t.scheduledAtMs !== slot.slotMs) continue;
+      if (slot.snoozed ? (t.fireAtMs === null || (t.fireAtMs !== t.scheduledAtMs && t.fireAtMs <= slot.fireAtMs)) : t.fireAtMs === slot.slotMs) add(slot, t);
+    }
+  }
+  for (const slot of bySlot.values()) {
+    const slotUnix = Math.floor(slot.slotMs / 1000);
     // callback carries the SLOT, not a medication: one Telegram message covers
     // every med due at this instant, so one Confirm tap covers all of them.
     // The relay appends ":confirm"/":snooze" to build the two buttons.
-    entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
+    // slotUnix: the planned instant, which a snooze-end fire no longer equals —
+    // the deeplink's take sheet targets the dose by it.
+    entries.push({ fireAtUnix: Math.floor(slot.fireAtMs / 1000), slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
   }
 
   // Re-reminders for still-PENDING doses are no longer client-pre-computed. For

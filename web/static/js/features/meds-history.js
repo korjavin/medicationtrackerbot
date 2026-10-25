@@ -463,8 +463,8 @@ function _medConfirmOccIds(indices) {
 // POST /api/doses/act — {updated, unchanged, failed, failures}. Returns true
 // when every id applied; false otherwise (a falsy res means apiCall already
 // surfaced the error; per-id failures are toasted here).
-async function _actOnDoses(action, occIds, takenAt) {
-    const body = { action, occ_ids: occIds };
+async function _actOnDoses(action, occIds, takenAt, extra = {}) {
+    const body = { ...extra, action, occ_ids: occIds };
     if (takenAt) body.taken_at = takenAt;
     const res = await apiCall('/api/doses/act', 'POST', body);
     if (!res || typeof res !== 'object') return false;
@@ -736,8 +736,43 @@ async function confirmLogPast() {
     });
 }
 
-function snoozeMedicationConfirm() {
-    closeMedicationConfirmModal();
+// "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their
+// own occIds; the row shows "Snoozed until HH:MM" and leaves the due list
+// until the snooze ends (the dose clock repaints it then).
+const MED_SNOOZE_MINUTES = 10;
+async function snoozeMedicationConfirm() {
+    const checks = document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]');
+    const occIds = _medConfirmOccIds(Array.from(checks).map(c => parseInt(c.dataset.index, 10)));
+    if (occIds.length === 0) {
+        closeMedicationConfirmModal();
+        return;
+    }
+
+    const btn = document.getElementById('med-confirm-snooze-btn');
+    await withSubmit(btn, async () => {
+        const snoozedUntil = new Date(Date.now() + MED_SNOOZE_MINUTES * 60 * 1000).toISOString();
+        const handles = [await _applyOptimisticTimeline(_tlPatchRows(
+            new Map(occIds.map((id) => [String(id), { state: 'snoozed', snoozedUntil }]))))];
+        handles.push(await _applyOptimisticDueClear((row) => occIds.indexOf(row.occId) !== -1));
+
+        let ok;
+        try {
+            ok = await _actOnDoses('snooze', occIds, undefined, { minutes: MED_SNOOZE_MINUTES });
+        } catch (e) {
+            await _rollbackOptimistic(handles);
+            throw e;
+        }
+
+        if (ok) {
+            await _commitOptimistic(handles);
+            safeToast(`Snoozed for ${MED_SNOOZE_MINUTES} minutes`, 'info');
+        } else {
+            await _rollbackOptimistic(handles);
+        }
+
+        refreshMedsAfterMutation();
+        closeMedicationConfirmModal();
+    });
 }
 
 // Public surface mirror — bare names above are the live call path; this object

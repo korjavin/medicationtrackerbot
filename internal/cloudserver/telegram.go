@@ -692,7 +692,7 @@ const (
 	onboardingOfferMessage = onboardingOfferIntro +
 		"Want an account? Just reply “yes” and I'll ask the admin — your link arrives here once it's approved."
 	onboardingClosedOfferMessage = onboardingOfferIntro + "Invites are closed right now — check back later."
-	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
+	onboardingClaimedMessage     = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
 		"I can't create a second one for you."
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
 	// onboardingLinkedMessage answers a sender who already runs a child bot: this
@@ -1513,6 +1513,10 @@ func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
 type rearmRefireRequest struct {
 	Callback string `json:"callback"`
 	MedIDs   string `json:"med_ids"`
+	// KeepFireAt (med-4j49): an in-app snooze of some of the slot's doses.
+	// Narrow the pending re-fire to MedIDs at its own fire time; with no
+	// pending chain there is nothing to keep, so nothing is scheduled.
+	KeepFireAt bool `json:"keep_fire_at"`
 }
 
 // RearmRefire schedules ONE re-fire ~1h out for a med slot whose Confirm tap the
@@ -1550,6 +1554,15 @@ func (t *TelegramAPI) RearmRefire(w http.ResponseWriter, r *http.Request) {
 	slotUnix, err := strconv.ParseInt(rest, 10, 64)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
+		return
+	}
+	if req.KeepFireAt {
+		if _, err := t.store.RetargetRelayRefire(r.Context(), sess.AccountID, req.Callback, medRefireText, req.MedIDs); err != nil {
+			slog.Error("telegram retarget refire", "error", err, "account", sess.AccountID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	now := time.Now().UTC()
@@ -1951,7 +1964,16 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 	stem := strings.TrimSuffix(cq.Data, ":"+action)
 	// ref IS the account id (see BotByWebhookRef). Read the identity BEFORE any
 	// cancel below deletes the row that holds it.
-	medIDs, err := t.store.MedIDsForCallback(r.Context(), ref, stem)
+	// The tapped message's own sent row first (med-4j49): a slot can hold rows
+	// naming different doses at once.
+	var medIDs string
+	var err error
+	if messageID != 0 {
+		medIDs, err = t.store.MedIDsForMessage(r.Context(), ref, stem, messageID)
+	}
+	if err == nil && medIDs == "" {
+		medIDs, err = t.store.MedIDsForCallback(r.Context(), ref, stem)
+	}
 	if err != nil {
 		// A store error is NOT "no row": sealing an id-less event would make the
 		// drain apply nothing while the confirm branch below kills the chain —
@@ -2066,7 +2088,10 @@ const medRefireText = "Medication reminder"
 // vault value.
 const (
 	medConfirmEditText = "✅ Confirmed — waiting for your device to come online to record it."
-	medSnoozeEditText  = "⏰ Snoozed 1h — I'll remind you again."
+	// No duration (med-4j49): a tap is served by two timers — the vault's
+	// snooze end through the horizon, and the relay's +1h chain as the
+	// closed-app fallback — and whichever fires first leads.
+	medSnoozeEditText = "⏰ Snoozed — I'll remind you again."
 
 	// Static edit-text for workout + measure (BP/weight) taps. Same ZK contract:
 	// server-composed templates only, never a vault value. Workout snooze omits

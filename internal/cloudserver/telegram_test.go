@@ -3191,6 +3191,28 @@ func TestRearmRefire(t *testing.T) {
 		t.Errorf("re-arm fires in %v, want ~1h", d)
 	}
 
+	// med-4j49: an in-app snooze of med 2 keeps the chain for med 9 at its own
+	// fire time; with no pending chain, keep_fire_at schedules nothing.
+	firstFire := due[0].FireAt
+	body = fmt.Sprintf(`{"callback":%q,"med_ids":"9","keep_fire_at":true}`, fresh)
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
+		t.Fatalf("keep rearm status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil {
+		t.Fatalf("DueScheduledPushes (keep): %v", err)
+	}
+	if len(due) != 1 || !due[0].FireAt.Equal(firstFire) || due[0].TGMedIDs != "9" {
+		t.Fatalf("kept row = %+v, want one row at %v carrying 9", due, firstFire)
+	}
+	other := fmt.Sprintf("s:%d", now.Add(-20*time.Minute).Unix())
+	body = fmt.Sprintf(`{"callback":%q,"med_ids":"9","keep_fire_at":true}`, other)
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
+		t.Fatalf("keep rearm (no chain) status = %d", rec.Code)
+	}
+	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil || len(due) != 1 {
+		t.Fatalf("keep rearm with no chain queued rows: %+v, %v", due, err)
+	}
+
 	// Past the 6h cap the chain is over: a no-op, not a fresh nag.
 	stale := fmt.Sprintf("s:%d", now.Add(-7*time.Hour).Unix())
 	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(fmt.Sprintf(`{"callback":%q}`, stale))); rec.Code != http.StatusNoContent {

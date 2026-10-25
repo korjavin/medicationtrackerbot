@@ -363,6 +363,38 @@ func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fire
 	})
 }
 
+// MedIDsForMessage returns the medication ids of the SENT row that delivered
+// Telegram message messageID under tgCallback — the exact reminder tapped. A
+// slot can hold several rows with different ids at once (a snooze-end reminder
+// beside a narrowed re-fire, med-4j49), so the message pins the identity; ""
+// (no error) when no sent row matches and the caller falls back to
+// MedIDsForCallback.
+func (r *Repo) MedIDsForMessage(ctx context.Context, accountID, tgCallback string, messageID int64) (string, error) {
+	var ids string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT tg_med_ids FROM scheduled_pushes WHERE account_id = ? AND tg_callback = ? AND tg_message_id = ? AND sent_at_unix IS NOT NULL AND tg_med_ids <> '' ORDER BY id DESC LIMIT 1`,
+		accountID, tgCallback, messageID).Scan(&ids)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return ids, err
+}
+
+// RetargetRelayRefire narrows the pending relay re-fire for (accountID,
+// tgCallback) to tgMedIDs and tgText, keeping its fire time and supersedes id —
+// an in-app snooze of some of a slot's doses keeps nagging the rest on schedule
+// (med-4j49). Reports whether a pending row existed.
+func (r *Repo) RetargetRelayRefire(ctx context.Context, accountID, tgCallback, tgText, tgMedIDs string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE scheduled_pushes SET tg_text = ?, tg_med_ids = ? WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
+		tgText, tgMedIDs, accountID, PushOriginRelayRefire, tgCallback)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // MedIDsForCallback returns the comma-separated medication ids stored on the most
 // recent row for (accountID, tgCallback) — the reminder the user is tapping. That
 // is the pending re-fire the relay armed after the send while the chain is alive,

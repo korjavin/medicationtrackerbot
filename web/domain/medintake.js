@@ -963,8 +963,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return { status: 'skipped' };
   }
 
-  // Ported from handleSnoozeMedication + SnoozeIntake: only an open intake
-  // can be snoozed; default duration matches the server's 10-minute default.
+  // A Telegram Snooze tap (inbox-apply.js); the /api/medications/snooze route
+  // goes through act's snooze. Only an open intake can be snoozed; default
+  // duration matches the server's 10-minute default.
   // A snooze is its own merge branch (snoozed_at), never an action: no rev
   // bump, no status change.
   async function snooze(intakeId, durationMinutes) {
@@ -974,14 +975,18 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const minutes = durationMinutes > 0 ? durationMinutes : DEFAULT_SNOOZE_MINUTES;
     const nowMs = now();
     const snoozedUntil = new Date(nowMs + minutes * 60 * 1000).toISOString();
-    // A dose with no row yet gets its first one here: stamped rev 0 (a snooze
-    // is not an action — a reminder callback may still confirm it), the
-    // channel and the zone, like acted() but without the rev bump.
-    const stamp = typeof intake.rev === 'number' ? {} : { rev: intakeRev(intake), via, tz: timeZone };
-    await putIntake({
-      ...intake, ...stamp, clientTs: nowMs, snoozed_until: snoozedUntil, snoozed_at: new Date(nowMs).toISOString(),
-    });
+    await putIntake(snoozed(intake, snoozedUntil, nowMs));
     return { status: 'snoozed', snoozed_until: snoozedUntil };
+  }
+
+  // The snooze write: snoozed_until on its own snoozed_at branch (bd
+  // med-wi09.11), status and rev untouched. A dose with no row yet gets its
+  // first one here: stamped rev 0 (a snooze is not an action — a reminder
+  // callback may still confirm it), the channel and the zone, like acted()
+  // but without the rev bump.
+  function snoozed(intake, untilIso, nowMs) {
+    const stamp = typeof intake.rev === 'number' ? {} : { rev: intakeRev(intake), via, tz: timeZone };
+    return { ...intake, ...stamp, clientTs: nowMs, snoozed_until: untilIso, snoozed_at: new Date(nowMs).toISOString() };
   }
 
   // Ported from LogMedicationAt/CreateManualIntake: a manual past intake has
@@ -1086,6 +1091,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   //   undo      TAKEN/SKIPPED → UNTAKEN (reads as PENDING), +1 inventory when
   //             it was TAKEN
   //   edit_time TAKEN → taken_at only
+  //   snooze    PENDING or absent, already due → snoozed_until = `until`,
+  //             else now + `minutes` (default 10); status and rev unchanged
+  //             (snoozed()); a dose not due yet fails not_due
   // A row already in the target state is `unchanged` (a repeated bulk take is
   // idempotent: no second decrement, taken_at kept). Anything else is a
   // per-id failure {id, reason}, so the UI rolls back only those.
@@ -1093,13 +1101,24 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   // stored row for the same med at the same instant (legacy ids), else the
   // projection's dose at that id (regenerated or forecast) — never a
   // neighbouring dose. A tombstoned id is gone.
-  async function act({ occIds = [], action, takenAt } = {}) {
-    if (!['take', 'skip', 'undo', 'edit_time'].includes(action)) {
-      const err = new Error('action must be take, skip, undo or edit_time');
-      err.code = 'bad_request';
-      throw err;
+  async function act({ occIds = [], action, takenAt, minutes, until } = {}) {
+    const badRequest = (message) => Object.assign(new Error(message), { code: 'bad_request' });
+    if (!['take', 'skip', 'undo', 'edit_time', 'snooze'].includes(action)) {
+      throw badRequest('action must be take, skip, undo, edit_time or snooze');
     }
     const nowMs = now();
+    let snoozeIso = null;
+    if (action === 'snooze') {
+      const untilMs = until != null ? Date.parse(until) : NaN;
+      if (until != null && !(untilMs > nowMs)) throw badRequest('until must be a future instant');
+      const mins = Number(minutes);
+      if (until == null && minutes != null && !(mins > 0)) throw badRequest('minutes must be positive');
+      const endMs = until != null ? untilMs : nowMs + (minutes != null ? mins : DEFAULT_SNOOZE_MINUTES) * 60 * 1000;
+      // The reminder horizon (reminders.js FORECAST_DAYS, 7 days): a later end
+      // would never fire.
+      if (endMs > nowMs + 7 * DAY_MS) throw badRequest('a snooze ends within 7 days');
+      snoozeIso = new Date(endMs).toISOString();
+    }
     const takenMs = takenAt ? Date.parse(takenAt) : NaN;
     if (action === 'edit_time' && !Number.isFinite(takenMs)) {
       const err = new Error('taken_at is required for edit_time');
@@ -1139,6 +1158,17 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       const status = wireStatus(intake.status);
       let next = null;
       let delta = 0;
+      if (action === 'snooze') {
+        if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
+        // A dose not due yet has nothing to snooze, and a snoozed row would
+        // drop out of the reminder horizon (only upcoming rows fire).
+        if (Date.parse(intake.scheduled_at) > nowMs) { fail(occId, 'not_due'); continue; }
+        const record = snoozed(intake, snoozeIso, nowMs);
+        if (!(await putIntake(record))) { fail(occId, 'not_found'); continue; }
+        result.updated++;
+        result.doses.push(toResponse(record));
+        continue;
+      }
       if (action === 'take') {
         if (status === 'TAKEN') { result.unchanged++; continue; }
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }

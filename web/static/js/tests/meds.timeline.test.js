@@ -132,6 +132,15 @@ function serveDoses(window, rows, { fail = false } = {}) {
             if (hold) await hold.promise;
             if (fail) return { updated: 0, unchanged: 0, failed: body.occ_ids.length, failures: body.occ_ids.map((id) => ({ id, reason: 'not_found' })) };
             const res = { updated: 0, unchanged: 0, failed: 0, failures: [] };
+            if (body.action === 'snooze') {
+                body.occ_ids.forEach((id) => {
+                    const r = rows.find((x) => x.occId === id);
+                    r.state = 'snoozed';
+                    r.snoozedUntil = new Date(NOW + body.minutes * 60000).toISOString();
+                    res.updated++;
+                });
+                return res;
+            }
             const target = { take: 'taken', skip: 'skipped', undo: 'due' }[body.action];
             body.occ_ids.forEach((id) => {
                 const r = rows.find((x) => x.occId === id);
@@ -682,6 +691,39 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             input.dispatchEvent(new env.window.Event('change'));
             await env.window.confirmSelectedMedications();
             expect(server.posts).toEqual([{ action: 'take', occ_ids: [due.dataset.occIds], taken_at: new Date('2026-10-22T08:40').toISOString() }]);
+        });
+
+        it('M2 Snooze 10m snoozes the sheet\'s own occIds and shows "Snoozed until HH:MM" before the POST resolves (bd med-4j49)', async () => {
+            const fixture = normalDay();
+            const server = await serve(fixture);
+            const dated = yesterday().querySelector('.wg-timeline__row[data-state="due"]');
+            const occId = dated.dataset.occIds;
+            dated.click();
+            const release = server.hold();
+            const done$ = env.window.snoozeMedicationConfirm();
+            await vi.waitFor(() => expect(server.posts).toHaveLength(1));
+            expect(server.posts[0]).toEqual({ action: 'snooze', occ_ids: [occId], minutes: 10 });
+            // 12:49 UTC + 10 min, on the Berlin clock.
+            const row = () => env.document.querySelector(`.wg-timeline__row[data-occ-ids~="${occId}"]`);
+            expect(row().dataset.state).toBe('snoozed');
+            expect(text(row().querySelector('.wg-chip--pending'))).toBe('Snoozed until 14:59');
+            release();
+            await done$;
+            expect(modalOpen()).toBe(false);
+            await settle();
+            expect(fixture.find((r) => r.occId === occId).state).toBe('snoozed');
+            expect(text(row().querySelector('.wg-chip--pending'))).toBe('Snoozed until 14:59');
+        });
+
+        it('a failed M2 snooze rolls the row back to due', async () => {
+            const fixture = normalDay();
+            await serve(fixture, { fail: true });
+            const dated = yesterday().querySelector('.wg-timeline__row[data-state="due"]');
+            const occId = dated.dataset.occIds;
+            dated.click();
+            await env.window.snoozeMedicationConfirm();
+            await settle();
+            expect(env.document.querySelector(`.wg-timeline__row[data-occ-ids~="${occId}"]`).dataset.state).toBe('due');
         });
 
         it('tapping a taken row opens the sheet in edit mode (MT3); Not taken undoes that dose in place', async () => {

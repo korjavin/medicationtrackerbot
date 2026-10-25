@@ -247,8 +247,8 @@ output(result)`,
     "duration_minutes": {"type": "integer", "minimum": 1, "description": "Defaults to 10 if omitted or non-positive"}
   }
 }`),
-			Description:     "Snooze a pending intake reminder so it fires again later. Looks up the intake via medications.history first when you need the id.",
-			ResponseSummary: "Empty body on success (HTTP 200).",
+			Description:     "Snooze a pending intake reminder so it fires again later (at most 7 days out). Only a dose already due can be snoozed: a future one fails with not_due. Looks up the intake via medications.history first when you need the id.",
+			ResponseSummary: "Object {status: 'snoozed', snoozed_until}. Fails with not_found, not_pending or not_due.",
 			Example: `api.call(
     "medications.snooze",
     body={"intake_id": 123, "duration_minutes": 15},

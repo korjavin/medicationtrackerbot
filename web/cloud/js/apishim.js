@@ -216,7 +216,7 @@ export function createApiRouter(ctx, {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
-  const { sendTestPush, cancelMedRefire, cancelReminderRefire } = reminderEffects;
+  const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;
   // Only the user's own writes may ask for notification permission (bd
   // med-ckm5.4): an agent's or the inbox drain's write must not open a sheet,
   // least of all right after launch.
@@ -237,6 +237,16 @@ export function createApiRouter(ctx, {
   // reads through these bindings, so reassigning them in buildDomains() is what
   // makes the resolved zone reach the whole router without touching a single
   // domain module's signature (they all take timeZone as a captured string).
+  // The relay's hourly re-fire chain for a dose slot (ReplaceSchedule keeps
+  // it) after an app write: stopped once nothing in the slot is still due — a
+  // snoozed dose is not due (bd med-4j49), its snooze-end reminder restarts
+  // the chain naming every open dose of the slot. narrow (a snooze that left
+  // slot-mates due): the pending re-fire keeps its time but names only them.
+  async function reconcileMedChain(slotMs, narrow) {
+    const due = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs })).filter((r) => r.state === 'due');
+    if (!due.length) cancelMedRefire(slotMs);
+    else if (narrow) rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true });
+  }
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
   let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment; let trackers;
@@ -950,26 +960,52 @@ export function createApiRouter(ctx, {
       });
     }
     // Explicit dose actions on explicit occIds (bd med-wi09.2): take / skip /
-    // undo / edit_time. Per-day bulk is the same route with many ids.
-    if (path === '/api/doses/act' && method === 'POST') {
-      const res = await intake.act({
-        occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
-        action: body && body.action,
-        takenAt: body && body.taken_at,
-      }).catch((err) => {
+    // undo / edit_time / snooze. Per-day bulk is the same route with many ids.
+    // One dose-action path for /api/doses/act and the legacy snooze route.
+    const doseAct = async (args) => {
+      const res = await intake.act(args).catch((err) => {
         if (err && err.code === 'bad_request') err.status = 400;
         throw err;
       });
-      // Same rule as confirm-schedule below: stop the relay's re-fire chain
-      // for a slot only once nothing there is left PENDING.
-      if (body.action === 'take' || body.action === 'skip') {
+      // A snooze uploads its snooze-end reminder at once, alongside the chain
+      // cancel below: a 2s debounce dropped by a quick app close (cloud-boot.js)
+      // would leave the dose with no reminder at all.
+      scheduleReminderRecompute(ctx, { records, timeZone }, args.action === 'snooze' ? 0 : undefined);
+      // A dose confirmed in the app never taps Telegram: reconcile the relay
+      // chain for each acted slot (reconcileMedChain).
+      if (['take', 'skip', 'snooze'].includes(args.action)) {
         for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          const slotRows = await intake.listWindow({ fromMs: slotMs, toMs: slotMs });
-          if (!slotRows.some((row) => row.status === 'PENDING')) cancelMedRefire(slotMs);
+          await reconcileMedChain(slotMs, args.action === 'snooze');
         }
       }
-      scheduleReminderRecompute(ctx, { records, timeZone });
       return res;
+    };
+    if (path === '/api/doses/act' && method === 'POST') {
+      return doseAct({
+        occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
+        action: body && body.action,
+        takenAt: body && body.taken_at,
+        minutes: body && body.minutes,
+        until: body && body.until,
+      });
+    }
+    // The legacy snooze route (MCP medications.snooze) is act's snooze on one
+    // intake: the same not_due guard, 7-day bound and chain reconcile. Its
+    // reply shape is kept; a refused dose throws its reason as before.
+    if (path === '/api/medications/snooze' && method === 'POST') {
+      const minutes = Number(body && body.duration_minutes);
+      const res = await doseAct({
+        occIds: [String(body && body.intake_id)],
+        action: 'snooze',
+        minutes: minutes > 0 ? minutes : undefined,
+      });
+      if (res.failed) {
+        const err = new Error(`intake not snoozed: ${res.failures[0].reason}`);
+        err.code = res.failures[0].reason;
+        err.status = err.code === 'not_found' ? 404 : 409;
+        throw err;
+      }
+      return { status: 'snoozed', snoozed_until: res.doses[0].snoozed_until };
     }
     if (path === '/api/inventory/low' && method === 'GET') return medications.listLowStock();
     if (path === '/api/history' && method === 'GET') {
@@ -983,7 +1019,6 @@ export function createApiRouter(ctx, {
         '/api/medications/log-past': () => intake.logPast(body && body.medication_id, Date.parse(body && body.taken_at)),
         '/api/medications/cancel-intake': () => intake.cancelIntakes((body && body.intake_ids) || []),
         '/api/medications/delete-intake': () => intake.deleteFutureIntakes((body && body.intake_ids) || []),
-        '/api/medications/snooze': () => intake.snooze(body && body.intake_id, body && body.duration_minutes),
         '/api/medications/skip': () => intake.skip(body && body.intake_id),
         '/api/medications/confirm-schedule': () => intake.confirmSchedule({
           scheduledAt: body && body.scheduled_at,
@@ -1002,12 +1037,8 @@ export function createApiRouter(ctx, {
         // re-fire for meds still PENDING at the same instant.
         if (path === '/api/medications/confirm-schedule' && body && body.scheduled_at) {
           const slotMs = Date.parse(body.scheduled_at);
-          const slotRows = Number.isFinite(slotMs)
-            ? await intake.listWindow({ fromMs: slotMs, toMs: slotMs })
-            : [];
-          if (!slotRows.some((row) => row.status === 'PENDING')) {
-            cancelMedRefire(slotMs);
-          }
+          if (Number.isFinite(slotMs)) await reconcileMedChain(slotMs, false);
+          else cancelMedRefire(slotMs);
         }
         scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
