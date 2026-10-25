@@ -242,8 +242,13 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   document-start script, [`assets/chrome.js`](../android/app/src/main/assets/chrome.js),
   reports it over the bridge; it reads styles and sets none — the page CSP is
   `style-src 'self'`), bar icons are light or dark to match, and the keyboard
-  shrinks the page instead of covering it. Back walks the WebView history,
-  then leaves the app (the manifest's `enableOnBackInvokedCallback="true"`
+  shrinks the page instead of covering it. Back asks the page first (bd
+  med-y7b4.5): while the page reported bridge op `back.state {canStep: true}`
+  the shell dispatches `wg:native-back` (web `AppBack.step()`: sheet → Settings
+  sub-page → previous section); at its root no callback is registered, so
+  predictive back peeks the launcher and Back leaves the app. A page that never
+  reports (`/unlock`, `/claim`, error pages) walks the WebView history, then
+  leaves (the manifest's `enableOnBackInvokedCallback="true"`
   makes this work on Android 14/15, not only 16+). Portrait only, like iOS
   (Android 16 still rotates on large screens).
 - **WebView settings** (iOS parity, bd med-nt9p.28): `textZoom` fixed at 100
@@ -611,7 +616,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
