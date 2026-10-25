@@ -2,16 +2,17 @@
 //
 // Asserts:
 //   • renderVitalCard mounts a .wg-card + .wg-vitals-card + vital-modifier
-//     shell with a mono header ("Heart Rate" / "SpO2" / "Stress Level"),
+//     shell with a mono header ("Heart Rate" / "SpO2"),
 //     a WGVitalsChart SVG, and a section-label averages line showing
 //     7d + 30d figures with the vital-specific unit.
 //   • The root shell carries the correct modifier class (.wg-vitals-card--hr
-//     / --spo2 / --stress) so CSS can key the colour from the matching
+//     / --spo2) so CSS can key the colour from the matching
 //     --wg-health-vitals-*-line token.
 //   • Empty state: missing history renders a muted "No <vital> data yet"
 //     card under the same header shell.
-//   • renderHealthOverviewContent wires the three vitals cards into the
-//     overview stream after the steps card, in hr → spo2 → stress order.
+//   • renderHealthOverviewContent wires the two vitals cards into the
+//     overview stream after the steps card, in hr → spo2 order; there is no
+//     Stress card (bd med-0xad.5).
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -49,10 +50,6 @@ function makeData(overrides) {
         spo2_history_30d: makeHistory({ points: 5, avg: 97 }),
         average_spo2_7d: 97,
         average_spo2_30d: 96,
-        stress_history_7d: makeHistory({ points: 5, avg: 40 }),
-        stress_history_30d: makeHistory({ points: 5, avg: 40 }),
-        average_stress_7d: 41,
-        average_stress_30d: 45,
     };
     return Object.assign({}, base, overrides || {});
 }
@@ -89,13 +86,6 @@ describe('Health vitals cards (Phase 8, Task 6)', () => {
         const card = window.renderVitalCard('spo2', makeData(), '7d');
         expect(card.classList.contains('wg-vitals-card--spo2')).toBe(true);
         expect(card.querySelector('.wg-vitals-card__header').textContent).toBe('SpO2');
-    });
-
-    it('uses the Stress Level title + modifier when vital is stress', () => {
-        const { window } = env;
-        const card = window.renderVitalCard('stress', makeData(), '7d');
-        expect(card.classList.contains('wg-vitals-card--stress')).toBe(true);
-        expect(card.querySelector('.wg-vitals-card__header').textContent).toBe('Stress Level');
     });
 
     it('mounts a WGVitalsChart SVG inside the card with matching vital modifier', () => {
@@ -138,17 +128,6 @@ describe('Health vitals cards (Phase 8, Task 6)', () => {
         expect(stat.textContent).toContain('96 % (30d avg)');
     });
 
-    it('renders the averages line with /100 unit for Stress', () => {
-        const { window } = env;
-        const card = window.renderVitalCard('stress', makeData({
-            average_stress_7d: 41,
-            average_stress_30d: 45,
-        }), '7d');
-        const stat = card.querySelector('.wg-vitals-card__stat');
-        expect(stat.textContent).toContain('41 / 100 (7d avg)');
-        expect(stat.textContent).toContain('45 / 100 (30d avg)');
-    });
-
     it('renders the empty-state card when vital history is missing (hr)', () => {
         const { window } = env;
         const card = window.renderVitalCard('hr', makeData({ heart_rate_history_7d: [] }), '7d');
@@ -167,14 +146,6 @@ describe('Health vitals cards (Phase 8, Task 6)', () => {
         expect(empty.textContent).toMatch(/no spo2 data yet/i);
     });
 
-    it('renders the empty-state card when vital history is missing (stress)', () => {
-        const { window } = env;
-        const card = window.renderVitalCard('stress', makeData({ stress_history_7d: [] }), '7d');
-        const empty = card.querySelector('.wg-vitals-chart--empty');
-        expect(empty).not.toBeNull();
-        expect(empty.textContent).toMatch(/no stress data yet/i);
-    });
-
     it('accepts missing data gracefully and still returns a card', () => {
         const { window } = env;
         const card = window.renderVitalCard('hr', {}, '7d');
@@ -188,31 +159,33 @@ describe('Health vitals cards (Phase 8, Task 6)', () => {
         expect(card.getAttribute('data-range')).toBe('7d');
     });
 
-    it('returns null when an unknown vital is requested', () => {
+    it('returns null when an unknown vital is requested (stress included)', () => {
         const { window } = env;
-        const card = window.renderVitalCard('bogus', makeData(), '7d');
-        expect(card).toBeNull();
+        expect(window.renderVitalCard('bogus', makeData(), '7d')).toBeNull();
+        expect(window.renderVitalCard('stress', makeData(), '7d')).toBeNull();
     });
 
-    it('renderHealthOverviewContent mounts three vitals cards after the steps card', () => {
+    it('renderHealthOverviewContent mounts two vitals cards after the steps card', () => {
         const { document, window } = env;
         const content = document.getElementById('health-overview-content');
         window.renderHealthOverviewContent(content, makeData());
         const stepsCard = content.querySelector('.wg-steps-card');
         const vitalCards = content.querySelectorAll('.wg-vitals-card');
         expect(stepsCard).not.toBeNull();
-        expect(vitalCards.length).toBe(3);
+        expect(vitalCards.length).toBe(2);
         const stepsIdx = Array.from(content.children).indexOf(stepsCard);
         const firstVitalsIdx = Array.from(content.children).indexOf(vitalCards[0]);
         expect(firstVitalsIdx).toBeGreaterThan(stepsIdx);
     });
 
-    it('vitals cards render in hr → spo2 → stress order', () => {
+    it('cards render Sleep, Steps, Heart rate, SpO2 with no Stress card', () => {
         const { document, window } = env;
         const content = document.getElementById('health-overview-content');
         window.renderHealthOverviewContent(content, makeData());
-        const vitalCards = Array.from(content.querySelectorAll('.wg-vitals-card'));
-        expect(vitalCards.map((c) => c.getAttribute('data-vital'))).toEqual(['hr', 'spo2', 'stress']);
+        const cards = Array.from(content.querySelectorAll('.wg-sleep-card, .wg-steps-card, .wg-vitals-card'));
+        expect(cards.map((c) => c.firstElementChild.textContent)).toEqual(['Sleep', 'Steps', 'Heart Rate', 'SpO2']);
+        expect(content.querySelector('.wg-vitals-card--stress')).toBeNull();
+        expect(content.textContent).not.toMatch(/stress/i);
     });
 
     it('renderHealthOverviewContent mounts the data-source disclaimer after the vitals', () => {
@@ -221,11 +194,11 @@ describe('Health vitals cards (Phase 8, Task 6)', () => {
         window.renderHealthOverviewContent(content, makeData());
         const disclaimer = content.querySelector('.wg-health-disclaimer');
         expect(disclaimer).not.toBeNull();
-        expect(disclaimer.textContent.toLowerCase()).toContain('.nxk');
-        const lastVitals = content.querySelector('.wg-vitals-card--stress');
-        const stressIdx = Array.from(content.children).indexOf(lastVitals);
+        expect(disclaimer.textContent).toBe('DATA SOURCE \u00B7 Apple Health / Health Connect');
+        const lastVitals = content.querySelector('.wg-vitals-card--spo2');
+        const spo2Idx = Array.from(content.children).indexOf(lastVitals);
         const disclaimerIdx = Array.from(content.children).indexOf(disclaimer);
-        expect(disclaimerIdx).toBeGreaterThan(stressIdx);
+        expect(disclaimerIdx).toBeGreaterThan(spo2Idx);
     });
 
     it('formats a dash when the per-vital average is missing (null)', () => {

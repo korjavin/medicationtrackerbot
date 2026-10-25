@@ -75,33 +75,30 @@ describe('WGVitalsChart.render', () => {
         expect(svg.querySelectorAll('circle.wg-vitals-chart__last').length).toBe(1);
     });
 
-    it('selects the correct modifier class per vital (hr / spo2 / stress)', () => {
+    it('selects the correct modifier class per vital (hr / spo2)', () => {
         const hr = env.api.render({ history: makeHistory({ points: 3, avg: 72 }), vital: 'hr' });
         const spo2 = env.api.render({ history: makeHistory({ points: 3, avg: 97 }), vital: 'spo2' });
-        const stress = env.api.render({ history: makeHistory({ points: 3, avg: 40 }), vital: 'stress' });
         expect(hr.classList.contains('wg-vitals-chart--hr')).toBe(true);
         expect(hr.classList.contains('wg-vitals-chart--spo2')).toBe(false);
         expect(spo2.classList.contains('wg-vitals-chart--spo2')).toBe(true);
-        expect(stress.classList.contains('wg-vitals-chart--stress')).toBe(true);
     });
 
-    it('falls back to the hr vital when the arg is missing or invalid', () => {
+    it('falls back to the hr vital when the arg is missing or invalid (stress included)', () => {
         const missing = env.api.render({ history: makeHistory({ points: 3 }) });
         const bogus = env.api.render({ history: makeHistory({ points: 3 }), vital: 'bogus' });
+        const stress = env.api.render({ history: makeHistory({ points: 3 }), vital: 'stress' });
         expect(missing.classList.contains('wg-vitals-chart--hr')).toBe(true);
         expect(bogus.classList.contains('wg-vitals-chart--hr')).toBe(true);
+        expect(stress.classList.contains('wg-vitals-chart--hr')).toBe(true);
     });
 
     it('applies vital-specific y-range defaults', () => {
         const hr = env.api.render({ history: makeHistory({ points: 3, avg: 72 }), vital: 'hr' });
         const spo2 = env.api.render({ history: makeHistory({ points: 3, avg: 97 }), vital: 'spo2' });
-        const stress = env.api.render({ history: makeHistory({ points: 3, avg: 40 }), vital: 'stress' });
         expect(hr.dataset.vitalsYMin).toBe('40');
         expect(hr.dataset.vitalsYMax).toBe('160');
         expect(spo2.dataset.vitalsYMin).toBe('85');
         expect(spo2.dataset.vitalsYMax).toBe('100');
-        expect(stress.dataset.vitalsYMin).toBe('0');
-        expect(stress.dataset.vitalsYMax).toBe('100');
     });
 
     it('honours yMin / yMax overrides when passed', () => {
@@ -177,7 +174,7 @@ describe('WGVitalsChart.render', () => {
     it('returns an empty-state card when history is empty or absent', () => {
         const empty = env.api.render({ history: [], vital: 'hr' });
         const missing = env.api.render({ vital: 'spo2' });
-        const nullStats = env.api.render({ history: null, vital: 'stress' });
+        const nullStats = env.api.render({ history: null, vital: 'spo2' });
         expect(empty.tagName.toLowerCase()).toBe('div');
         expect(empty.classList.contains('wg-vitals-chart')).toBe(true);
         expect(empty.classList.contains('wg-vitals-chart--empty')).toBe(true);
@@ -185,8 +182,8 @@ describe('WGVitalsChart.render', () => {
         expect(empty.textContent).toMatch(/no heart rate data yet/i);
         expect(missing.classList.contains('wg-vitals-chart--spo2')).toBe(true);
         expect(missing.textContent).toMatch(/no spo2 data yet/i);
-        expect(nullStats.classList.contains('wg-vitals-chart--stress')).toBe(true);
-        expect(nullStats.textContent).toMatch(/no stress data yet/i);
+        expect(nullStats.classList.contains('wg-vitals-chart--spo2')).toBe(true);
+        expect(nullStats.textContent).toMatch(/no spo2 data yet/i);
     });
 
     it('returns the empty-state card when every entry is invalid', () => {

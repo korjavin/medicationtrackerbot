@@ -466,6 +466,7 @@ const WANDERGEEK_TOKENS = [
     // geometry, notes row + compose-wrap + edit modal.
     '--wg-health-summary-tile-pad',
     '--wg-health-summary-tile-gap',
+    '--wg-health-summary-tile-min',
     '--wg-health-summary-tile-value-size',
     '--wg-health-summary-tile-label-size',
     '--wg-health-summary-tile-trend-size',
@@ -527,7 +528,6 @@ const WANDERGEEK_TOKENS = [
     // vital; the WGVitalsChart component (Task 6) keys off these.
     '--wg-health-vitals-hr-line',
     '--wg-health-vitals-spo2-line',
-    '--wg-health-vitals-stress-line',
 
     // Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
     // row grid (left column title+description, right column control),
