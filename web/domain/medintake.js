@@ -919,9 +919,11 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return value;
   }
 
-  // GET /api/doses — the projection itself.
-  async function occurrences({ fromMs, toMs } = {}) {
-    return (await project({ fromMs, toMs })).rows;
+  // GET /api/doses — the projection itself; `states` (e.g. ['due',
+  // 'snoozed']) keeps only rows in those states.
+  async function occurrences({ fromMs, toMs, states = null } = {}) {
+    const { rows } = await project({ fromMs, toMs });
+    return states ? rows.filter((r) => states.includes(r.state)) : rows;
   }
 
   // Best-effort, matching the server's DecrementInventory calls: a null/

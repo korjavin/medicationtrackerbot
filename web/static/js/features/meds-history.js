@@ -715,7 +715,11 @@ async function confirmLogPast() {
             // Only run the visibility check when the timeline read actually
             // returned rows. If it failed (null), the user is offline/degraded —
             // the POST already succeeded, so don't shout "did not refresh".
-            if (newId !== null && Array.isArray(timelineRows)) {
+            // The timeline reads a window (bd med-ry7b): a log older than its
+            // first day is not in it by design.
+            const inWindow = typeof _medsTimelineState === 'undefined'
+                || Date.parse(takenAt) >= Date.now() - (_medsTimelineState.back + MEDS_TIMELINE_PAGE_DAYS) * 86400000;
+            if (newId !== null && Array.isArray(timelineRows) && inWindow) {
                 const found = timelineRows.some((r) => r && String(r.occId) === String(newId));
                 if (!found) {
                     if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {

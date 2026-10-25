@@ -154,12 +154,25 @@
             // lands is undone (workouts-stats shot showed Plans).
             await settle();
         } else if (step.click) {
-            await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
+            // optional: tap it if it shows within 3 s (a sheet only some
+            // devices open, e.g. the notification ask after a dose write).
+            try {
+                await until(() => firstVisible(step.click), step.optional ? 3000 : STEP_MS, `click ${step.click}`);
+            } catch (e) {
+                if (step.optional) return;
+                throw e;
+            }
             firstVisible(step.click).click();
         } else if (step.api) {
             // Writes through the app's own API, e.g. PATCH /api/settings/body.
             // The write stays in the store for later scenes.
             await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.takePending) {
+            // Takes every pending dose (the timeline focus card's own read, bd
+            // med-ry7b) so the card shows TL3 · all done. The write stays.
+            const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
+            const occIds = (Array.isArray(rows) ? rows : []).map((r) => r.occId);
+            if (occIds.length) await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: occIds });
         } else if (step.fill) {
             // Types into an input the way a user does (fires `input`).
             await until(() => firstVisible(step.fill), STEP_MS, `fill ${step.fill}`);
