@@ -31,6 +31,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Local → cloud move (`move.stash` / `move.take` / `move.clear`, stash lifecycle; since onboarding v3 started from the web P3 sheet) | ✓ (med-o7zq.35) | ✓ (med-nt9p.32.17) | parity |
 | Account → local leave (`leave.stash` / `leave.take` / `leave.clear`, Cancel returns to the account) | ✓ (med-o7zq.36.2, med-o7zq.42) | ✓ (med-o7zq.36.3, med-nt9p.43) | parity |
 | `local.reset` forgets the remembered leave host | ✓ (med-w6gx.28, #1280) | ✓ (med-nt9p.43, #1217) | parity |
+| Erase deletes the install record (`base.post` `/api/attest/delete`; `local.reset {dropAttest: true}` drops the attest key, never the trial pass) | ✓ (med-egb3) | ✓ (med-egb3) | parity: one PR, allowlist identity in the parity test |
 | Mode-switch restore: Replace / Merge / Cancel choice, silent pickup Cancel, orphan-intake guard | ✓ | ✓ | parity: shared web (med-o7zq.37, .38, .40, .41, .42) |
 | Page downloads (blob:/data:) | Files export picker (med-o7zq.43) | `ACTION_CREATE_DOCUMENT` picker, no shell dialog (med-nt9p.48) | parity: both go straight to the system picker; Share lives in the web sheet (hidden in the Android WebView) |
 | `window.print()` → native print (incl. the offscreen print-doc iframe) | ✓ (med-w6gx.11) | ✓ (med-nt9p.10) | parity |

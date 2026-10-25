@@ -647,6 +647,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             move.clear()
             leaveStash.clear()
             setInvite(nil) // no claim token left behind after Erase
+            // {dropAttest: true} only after our server deleted the bucket (bd med-egb3): the key goes, the pass stays.
+            LocalOrigin.resetAttest(body["args"] as? [String: Any] ?? [:])
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)

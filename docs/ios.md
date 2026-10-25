@@ -1078,7 +1078,8 @@ mode, gated on the bridge platform being `ios` or `android`
   is local mode's invite request and attested feedback, POSTed by the shell —
   its only native egress, so the local CSP never needs the base host. `path`
   exactly one of `LocalOrigin.basePostPaths` (`/api/attest/challenge`,
-  `/api/attest/enroll`, `/api/attest/feedback`, `/api/invite-requests`), sent
+  `/api/attest/delete` (the erase, bd med-egb3), `/api/attest/enroll`,
+  `/api/attest/feedback`, `/api/invite-requests`), sent
   to `https://` + `WGBaseDomain`; `body` a string sent as its UTF-8 bytes
   verbatim (the attest assertion binds it), ≤ 5 MiB; `headers` only
   `X-Attest-Key-Id` / `X-Attest-Challenge` / `X-Attest-Assertion` (≤ 8 KiB, no
@@ -1245,11 +1246,21 @@ mode, gated on the bridge platform being `ios` or `android`
   cloud (`health-import.js`), writing into the on-device store with no flush,
   then rescheduling reminders (`startLocalHealthImport`).
 - **Erase:** Settings → Backup & import → *Erase data on this device* (typed
-  confirm) deletes this origin's databases, caches and local/session storage
+  confirm) first asks our server to delete this phone's anonymous install
+  record and trial budget (bd med-egb3: the signed `POST /api/attest/delete`
+  through `base.post`; a failure asks *Erase anyway?*, Cancel keeps
+  everything), then deletes this origin's databases, caches and local/session storage
   (`clearLocalVault`, so only `wgapp://local`), then `local.reset` makes the
   shell drop local mode's pending and delivered reminders and the BYOK host
-  mirror, and the app reloads empty. An account's data on the phone is not
-  touched.
+  mirror, and the app reloads empty. Only after a `204` does the page send
+  `local.reset {dropAttest: true}` (a JSON `true` only,
+  `LocalOrigin.resetAttest`): the shell also drops `wgAttestKeyId` and
+  `wgAttestAttested`, so the next enroll mints a key the server cannot link
+  to the erased one. The Keychain trial pass always stays: it may name an
+  older bucket the delete did not reach (a pass for a deleted bucket is
+  refused, `trial_pass_invalid`, and the page drops it). `install_unknown`
+  erases silently without `dropAttest`. An account's data on the phone is
+  not touched.
 - **Visual testing:** runbook, probe reading and bead-filing protocol in [ios-visual-testing.md](ios-visual-testing.md). Device testing by the owner comes after the Simulator matrix.
 - **Visual QA hook** (bd med-y5xx.2, [design](design/ios-visual-testing.md)):
   Debug builds only (`#if DEBUG` in `Shell.swift` / `LocalOrigin.qaHome`),

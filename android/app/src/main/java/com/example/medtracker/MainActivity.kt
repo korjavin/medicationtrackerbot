@@ -893,6 +893,8 @@ class MainActivity : Activity() {
                 leave.clear()
                 setInvite(null) // A4: no claim token left behind after Erase
                 Notifications.clear(this)
+                // Only after our server deleted the install record (bd med-egb3): key material goes (pass stays) before the answer.
+                if (LocalOrigin.dropsAttest(msg.optJSONObject("args")?.opt("dropAttest"))) attest.drop()
                 answer(true)
             }
             // "Join and erase", account side (bd med-r1j2.8, cloud-boot.js finishJoinErase): the joined
