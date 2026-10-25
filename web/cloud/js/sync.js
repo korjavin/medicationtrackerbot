@@ -1391,6 +1391,15 @@ export function requestDrain(ctx, { wake = false } = {}) {
   return drainInFlight;
 }
 
+// A drain that starts at or after this call, awaited to the end (pull to
+// refresh, bd med-y7b4.6). requestDrain alone hands back a drain already in
+// flight, whose GET may predate the request; wait it out, then join the rerun
+// it queued (or start one) through the same single slot.
+export async function requestFreshDrain(ctx) {
+  if (drainInFlight) await drainInFlight.catch(() => {});
+  return requestDrain(ctx);
+}
+
 // Installed by startReconnectAutoDrain: runs after every requestDrain settles.
 let onDrainSettled = null;
 

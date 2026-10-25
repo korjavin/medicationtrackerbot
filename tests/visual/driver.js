@@ -353,6 +353,25 @@
                 window.location.reload();
                 await new Promise(() => {}); // the next load runs the scene
             }
+        } else if (step.pull) {
+            // Pull to refresh (bd med-y7b4.6, kit PR2 / PR3). No QA pass has the
+            // Health import, and a real pull would sync: "busy" pulls over a
+            // stub import that never ends, so the pill stays in its busy state;
+            // "done" shows the ok toast a pull with new readings ends on, kept up.
+            if (step.pull === 'busy') {
+                window.AppRefresh.setImport(() => new Promise(() => {}), 'Apple Health', () => true);
+                const fire = (type, y) => {
+                    const e = new Event(type, { bubbles: true });
+                    Object.defineProperty(e, 'touches', { value: y === undefined ? [] : [{ clientY: y }] });
+                    document.dispatchEvent(e);
+                };
+                window.scrollTo(0, 0);
+                fire('touchstart', 10);
+                fire('touchmove', 110);
+                fire('touchend');
+            } else {
+                window.safeToast('12 new readings from Apple Health', 'success', { duration: 0 });
+            }
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else if (step.file) {

@@ -502,7 +502,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount, requestFreshDrain }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
@@ -681,6 +681,31 @@ window.MedTrackerCloudReady = (async function boot() {
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
         startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: askFirstRun });
+        // Pull to refresh (bd med-y7b4.6): one more drain through the same
+        // single-slot guard. Registered after the boot pull so the two never
+        // overlap. What lands repaints through notifyRecordsChanged.
+        // ponytail: "arrived" is the records generation moving, so a local
+        // write landing mid-pull also counts; a per-pull op count if it matters.
+        // AppRefresh is a classic body script: a boot that gets here while the
+        // body still parses registers on DOMContentLoaded instead (never awaited,
+        // so nothing below waits on it).
+        const registerRefresh = () => {
+            if (!window.AppRefresh || typeof window.AppRefresh.setSync !== 'function') return;
+            window.AppRefresh.setSync(async () => {
+                const before = getRecordsChangeCount();
+                await requestFreshDrain(ctx);
+                const st = await getSyncStatus(ctx);
+                if (st.authExpired) throw new Error('Session expired · tap Re-authenticate to sync');
+                if (st.updateRequired) throw new Error('Update required · reload to keep syncing');
+                if (st.offline) throw new Error('Offline · showing what\'s on this device');
+                return { arrived: getRecordsChangeCount() !== before };
+            });
+        };
+        if (!window.AppRefresh && window.document && window.document.readyState === 'loading') {
+            window.document.addEventListener('DOMContentLoaded', registerRefresh, { once: true });
+        } else {
+            registerRefresh();
+        }
         surfaceAuthExpired();
         surfaceUpdateRequired();
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
