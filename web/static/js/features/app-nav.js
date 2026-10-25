@@ -156,13 +156,13 @@ window.AppNav = (function () {
     }
 
     async function refreshMedsBadge() {
-        const canBadge = !!(window.WGBottomNav && typeof window.WGBottomNav.setBadge === 'function'
-            && document.querySelector('.wg-tabbar [data-nav-id="meds"]'));
-        // No mounted Meds tab or sub (pre-boot, unit-test DOM): nothing to paint.
-        if (!canBadge && !document.querySelector('[data-meds-sub]')) return;
+        if (!window.WGBottomNav || typeof window.WGBottomNav.setBadge !== 'function') return;
+        // No mounted Meds tab (pre-boot, Meds disabled, unit-test DOM): nothing
+        // to paint — the app-bar sub rides along with the badge.
+        if (!document.querySelector('.wg-tabbar [data-nav-id="meds"]')) return;
         const seq = ++_state.badgeSeq;
         if (!featureOn('meds') || typeof readPendingDoses !== 'function') {
-            if (canBadge) window.WGBottomNav.setBadge('meds', 0);
+            window.WGBottomNav.setBadge('meds', 0);
             return;
         }
         const nowMs = Date.now();
@@ -170,7 +170,7 @@ window.AppNav = (function () {
         // Offline / failed read keeps the last count; a newer refresh wins.
         if (seq !== _state.badgeSeq || !Array.isArray(rows)) return;
         _state.pending = countPendingDoses(rows);
-        if (canBadge) window.WGBottomNav.setBadge('meds', _state.pending);
+        window.WGBottomNav.setBadge('meds', _state.pending);
         syncMedsSub();
         scheduleBadgeRecheck(rows, nowMs);
     }
