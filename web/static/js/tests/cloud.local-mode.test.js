@@ -3192,6 +3192,10 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
+        // The boot's egress registration reads window.document after its shell
+        // call; let it finish before the test can end and afterEach unstubs it.
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', expect.anything()));
+        await new Promise((r) => { setTimeout(r, 0); });
         toasts = [];
         if (!env.window.SyncManager) env.window.SyncManager = {};
         env.window.SyncManager.showToast = (message) => { toasts.push(message); };
