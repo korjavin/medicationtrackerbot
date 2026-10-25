@@ -81,7 +81,7 @@ list of categories; each is stored only as long as stated.
 | Sync | When each device synced, the size of each encrypted blob, the IP address it came from, and each record's kind and id | Timestamps with the data; request logs per the log retention below |
 | Reminders | When a reminder should fire, and an encrypted payload we cannot read; for the phone apps, a push token issued by Apple or Google, held only for a content-free wake-up, not to carry reminder content | The payload is erased when the reminder is sent and Telegram tap ids after 48 hours; the row with its fire and sent times stays with the account; tokens until you remove the device or they expire |
 | Hosted AI-assistant connector (if enabled) | The connector's credentials (access token and pairing key), stored encrypted under a server key; backups made before the conversion on 2026-10-25 hold the token in clear until they expire within 30 days | Until you disconnect it |
-| Free trial | Usage counters, on the account or on the anonymous install record of section 4 | Account counters for the life of the account; install records have no automatic expiry today and stay on the server after you erase the phone |
+| Free trial | Usage counters, on the account or on the anonymous install record of section 4 | Account counters for the life of the account; install records have no automatic expiry today; Erase data on this device deletes this phone's record (section 4) |
 | Telegram (if linked) | Your chat id and your bot's token, stored encrypted on the server under a server key (this is server-side encryption, not vault-grade) | Until you unlink |
 | Invite request | The email address and note you sent us, or your Telegram name and id, and our decision | Deleted within an hour after 90 days; the copy shown to the developer in their Telegram chat stays there (section 3h) |
 | Feedback | What you write and attach, encrypted on your device to the developer; the app version and feedback kind are readable | Until the developer collects it |
@@ -181,16 +181,29 @@ In this mode three things can leave the phone, each your choice:
   hash of the trial pass — and keeps no prompts, photos or health data. To tell
   installs apart the app uses Apple App Attest and DeviceCheck on iPhone and
   one Google Play Integrity token on Android; no health data and no account
-  are involved. The install record has no automatic expiry today and stays on
-  our server after you erase the data on the phone; it holds no health data.
+  are involved. The install record has no automatic expiry today; **Erase data on
+  this device** (below) deletes this phone's record. It holds no health data.
 - **Feedback and invite requests**, which reach us as in section 2. Sending
   feedback from this mode creates the same anonymous install record, without
   the trial.
 
 
 **Settings → Backup & import → Erase data on this device** deletes everything
-stored on that phone in this mode; it does not reach the anonymous install
-record above.
+stored in this mode except the anonymous trial pass, which stays in the phone's
+secure storage so a trial is never lost by accident. First it asks the
+operator's server to delete this phone's current anonymous install record and
+its trial budget (an Android phone restored from this phone's backup shares that
+record, so its remaining trial goes too). If the phone still holds a pass from
+an older install record (from before a reinstall), that older record stays on
+the server until the trial is switched on again and the phone is erased again.
+Anonymous feedback you sent that the operator hasn't collected yet stays on the
+server until it is collected. The daily usage counts stay, but nothing links
+them to this phone any more. If the server can't be reached (you're offline, or
+the app needs an update), you are told and can cancel. If you erase anyway, the
+install record stays on the server. Apple's DeviceCheck flags, and Google's
+device recall if the operator switches it on, are kept by Apple or Google and
+the operator can't clear them. They limit how many free trials one phone can get
+after erasing.
 
 ## 5. Apple Health and Health Connect
 
