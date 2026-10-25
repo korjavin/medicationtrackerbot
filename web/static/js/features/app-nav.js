@@ -12,9 +12,10 @@
 //     [data-nav-back] (pagebar Back), [data-health-seg] (segment strip).
 //   • Settings / Journey are pages: AppStore 'previousTab' records the tab
 //     they were opened from, and Back returns there (back-button.js).
-//   • The Meds tab badge: missed + overdue doses, i.e. the occurrence
-//     projection's `due` rows over the last 24h (GET /api/doses,
-//     web/domain/medintake.js projectOccurrences).
+//   • The Meds tab badge + the Meds app-bar sub ("N active · N pending",
+//     kit TL1): the pending set — every due or snoozed dose of any day, the
+//     same read the timeline's focus card + "+N more pending" count
+//     (features/meds.js readPendingDoses, bd med-ry7b.4).
 //
 // Hooked into AppKernel.onTabSwitch (fired by app.js switchTab).
 
@@ -33,9 +34,8 @@ window.AppNav = (function () {
     // still returns there after a reload.
     const PAGE_ORIGIN_KEY = 'mt-page-origin';
     const BADGE_RECHECK_MAX_MS = 15 * 60 * 1000;
-    const DUE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-    let _state = { current: null, badgeSeq: 0, badgeTimer: null };
+    let _state = { current: null, badgeSeq: 0, badgeTimer: null, pending: null };
 
     // Same predicate bootstrap's nav filter uses: a section with no feature
     // flag is always on; a flag map that hasn't loaded yet counts as on.
@@ -131,36 +131,47 @@ window.AppNav = (function () {
         });
     }
 
-    // Missed + overdue: the occurrence projection's `due` rows (GET /api/doses,
+    // Pending: the occurrence projection's due + snoozed rows (GET /api/doses,
     // web/domain/medintake.js projectOccurrences) — the projection owns the
     // rule, this only counts. Pure — exported for tests.
-    // ponytail: rolling 24h window — a dose left due for more than a day is
-    // history, not a nag; widen DUE_WINDOW_MS if the owner wants older
-    // unresolved doses counted.
-    function countDueDoses(rows) {
+    function countPendingDoses(rows) {
         if (!Array.isArray(rows)) return 0;
-        return rows.filter((r) => r && r.state === 'due').length;
+        return rows.filter((r) => r && (r.state === 'due' || r.state === 'snoozed')).length;
     }
 
-    function dueDosesPath(nowMs) {
-        return `/api/doses?from=${new Date(nowMs - DUE_WINDOW_MS).toISOString()}&to=${new Date(nowMs).toISOString()}`;
+    // "5 active · 2 pending" / "5 active · all taken" (kit TL1 / TL3), from
+    // the last pending count; empty with no active medication (MT5 · empty
+    // owns the screen). meds.js repaints it after each render (the med list
+    // may land after the count).
+    function syncMedsSub() {
+        const meds = Array.isArray(window.medications) ? window.medications : [];
+        const active = meds.filter((m) => m && !m.archived).length;
+        const pending = _state.pending;
+        let text = active ? `${active} active` : '';
+        if (active && pending !== null) text += pending ? ` · ${pending} pending` : ' · all taken';
+        document.querySelectorAll('[data-meds-sub]').forEach((sub) => {
+            sub.textContent = text;
+            sub.hidden = !text;
+        });
     }
 
     async function refreshMedsBadge() {
-        if (!window.WGBottomNav || typeof window.WGBottomNav.setBadge !== 'function') return;
-        // No mounted Meds tab (pre-boot, Meds disabled, unit-test DOM): nothing to paint.
-        if (!document.querySelector('.wg-tabbar [data-nav-id="meds"]')) return;
+        const canBadge = !!(window.WGBottomNav && typeof window.WGBottomNav.setBadge === 'function'
+            && document.querySelector('.wg-tabbar [data-nav-id="meds"]'));
+        // No mounted Meds tab or sub (pre-boot, unit-test DOM): nothing to paint.
+        if (!canBadge && !document.querySelector('[data-meds-sub]')) return;
         const seq = ++_state.badgeSeq;
-        if (!featureOn('meds') || typeof apiCall !== 'function') {
-            window.WGBottomNav.setBadge('meds', 0);
+        if (!featureOn('meds') || typeof readPendingDoses !== 'function') {
+            if (canBadge) window.WGBottomNav.setBadge('meds', 0);
             return;
         }
-        let rows = null;
         const nowMs = Date.now();
-        try { rows = await apiCall(dueDosesPath(nowMs)); } catch (_) { rows = null; }
+        const rows = await readPendingDoses(nowMs).catch(() => null);
         // Offline / failed read keeps the last count; a newer refresh wins.
         if (seq !== _state.badgeSeq || !Array.isArray(rows)) return;
-        window.WGBottomNav.setBadge('meds', countDueDoses(rows));
+        _state.pending = countPendingDoses(rows);
+        if (canBadge) window.WGBottomNav.setBadge('meds', _state.pending);
+        syncMedsSub();
         scheduleBadgeRecheck(rows, nowMs);
     }
 
@@ -233,8 +244,8 @@ window.AppNav = (function () {
         backTarget,
         navSectionFor,
         syncChrome,
-        countDueDoses,
-        dueDosesPath,
+        countPendingDoses,
+        syncMedsSub,
         refreshMedsBadge,
     };
 })();

@@ -37,7 +37,7 @@ No cache of any kind → skeleton while the first fetch runs, the offline state 
 |-------|--------|----------|
 | `greeting` | local hour (good morning/afternoon/evening/night) | — |
 | `nextMed` | `bootstrap.next_intake` (offline fallback: cached medications list) | `meds` |
-| `missedDoses` | `bootstrap.intake_history` — cached `GET /api/doses` over the last 24h (key `doses_due_24h`), the projection's `due` rows (the same rows the Meds badge counts), grouped per slot | `meds` |
+| `missedDoses` | `bootstrap.intake_history` — cached `GET /api/doses` over the last 24h (key `doses_due_24h`), the projection's `due` rows, grouped per slot | `meds` |
 | `bpLatest`, `bpTrend7d` | `bootstrap.bp.readings` (7-day anchors) | `bp` |
 | `weightLatest`, `weightTrend7d` | `bootstrap.weight.logs` (7-day anchors) | `weight` |
 | `caloriesToday`, `caloriesTarget` | SWR `food_today` cache + `settings_bundle` food_targets | `food` |

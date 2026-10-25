@@ -41,7 +41,7 @@ const ALLOWLIST = [
     },
     {
         file: 'app-nav.js',
-        reason: 'nav chrome (Health segments, app-bar actions, previousTab); its one read is the Meds-badge GET /api/history?days=1, served from the local vault by the cloud shim and dropped (last count kept) when it fails — a badge, not a section landing',
+        reason: 'nav chrome (Health segments, app-bar actions, previousTab); its one read is the Meds badge + app-bar sub count of the pending set through features/meds.js readPendingDoses (GET /api/doses?status=due,snoozed, DataStore-cached under doses_pending), served from the local vault by the cloud shim and dropped (last count kept) when it fails — a badge, not a section landing',
     },
     {
         file: 'back-button.js',

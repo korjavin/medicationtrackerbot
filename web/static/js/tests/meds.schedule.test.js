@@ -205,6 +205,52 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(intakeIds).toEqual(['intake-7-x']);
     });
 
+    // bd med-ry7b.4: the Schedule tab's pending buckets are the pending set the
+    // Meds badge and the timeline focus card count — every due or snoozed
+    // dose of any day (GET /api/doses?status=due,snoozed&to=now), no 24h window.
+    it('pending buckets list a dose due 3 days ago and one snoozed today, from the one pending read', async () => {
+        const { window, document } = env;
+        const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+        old.setSeconds(0, 0);
+        const snoozed = new Date(Date.now() - 2 * 60 * 1000);
+        snoozed.setSeconds(0, 0);
+        const meds = [
+            { id: 7, name: 'Losartan', dosage: '50mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(old)] }), archived: false },
+            { id: 8, name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(snoozed)] }), archived: false }
+        ];
+        const reads = [];
+        window.DataStore.loadSWR = vi.fn(async (options) => { await options.onFresh(meds); });
+        window.apiCall = vi.fn(async (endpoint) => {
+            if (typeof endpoint === 'string' && endpoint.startsWith('/api/doses')) {
+                reads.push(endpoint);
+                return [
+                    { occId: 'intake-7-old', medId: 7, plannedAt: old.toISOString(), state: 'due' },
+                    { occId: 'intake-8-now', medId: 8, plannedAt: snoozed.toISOString(), state: 'snoozed', snoozedUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString() }
+                ];
+            }
+            if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) return [];
+            return [];
+        });
+        await window.loadMeds();
+
+        expect(reads.length).toBeGreaterThan(0);
+        reads.forEach((path) => {
+            const p = new URL(path, 'https://x.test').searchParams;
+            expect(p.get('status')).toBe('due,snoozed');
+            expect(p.get('from')).toBeNull();
+        });
+
+        const pending = Array.from(document.querySelectorAll('#med-list .wg-meds-bucket'))
+            .filter((b) => b.querySelector('.wg-chip--pending'));
+        const labels = pending.map((b) => b.querySelector('.wg-meds-bucket__label').textContent);
+        expect(labels).toHaveLength(2);
+        expect(labels[0]).toBe(`${toLocalTime(old)} · 3 days ago`);
+        // Right after midnight 2 min ago was yesterday.
+        expect(labels[1]).toMatch(new RegExp(`^${toLocalTime(snoozed)}( · yesterday)?$`));
+        expect(pending.map((b) => Array.from(b.querySelectorAll('.wg-meds-row__name')).map((el) => el.textContent)))
+            .toEqual([['Losartan'], ['Metformin']]);
+    });
+
     it('renders the inventory tag in both normal and low-stock states', async () => {
         const { window, document } = env;
         const now = new Date();
