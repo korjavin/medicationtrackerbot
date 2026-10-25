@@ -1642,7 +1642,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 it('Sign in → move.stash then local.leave {url}', async () => {
                     const { window, document } = env;
                     slotted({ url: CLAIM, receivedAt: Date.now() });
-                    window.InviteSheet.boot();
+                    let released = false;
+                    window.InviteSheet.boot().then(() => { released = true; });
                     const screen = await ready(document);
                     tap(screen, 'sign-in');
                     await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
@@ -1650,6 +1651,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                     const btn = screen.querySelector('[data-invite-action="sign-in"]');
                     expect(btn.classList.contains('wg-btn--busy')).toBe(true);
                     expect(btn.disabled).toBe(true);
+                    await new Promise((r) => { setTimeout(r, 20); });
+                    tap(screen, 'without-sync');
+                    await new Promise((r) => { setTimeout(r, 20); });
+                    expect(document.getElementById('invite-ready')).not.toBeNull();
+                    expect(released).toBe(false);
                 });
             });
         });
