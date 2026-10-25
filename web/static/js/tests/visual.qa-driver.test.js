@@ -152,6 +152,38 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.__wgQA.probe().probes.clippedTop).toEqual(['header.wg-sheethead']);
     });
 
+    // med-y5xx.15: the meds timeline scrolls to today and a scene step scrolls
+    // a Settings row into view; the in-flow app bar above was scrolled past.
+    it('clippedTop ignores an in-flow header the document scrolled past', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('today')).toMatchObject({ ok: true });
+
+        let pan = 0;
+        vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+            let top = 0;
+            if (this.style.position === 'fixed') top = -pan; // layout-top marker
+            else if (this.classList.contains('wg-appbar')) top = -30 - pan;
+            return { top, bottom: top + 40, left: 0, right: 100, width: 100, height: 40, x: 0, y: top };
+        });
+        const scrollTo = (y) => Object.defineProperty(window, 'scrollY', { configurable: true, value: y });
+        scrollTo(0);
+        expect(window.__wgQA.probe().probes.clippedTop).toContain('header.wg-appbar');
+        scrollTo(100);
+        expect(window.__wgQA.probe().probes.clippedTop).toEqual([]);
+        // Above the document origin: still clipped, scrolled or not.
+        scrollTo(10);
+        expect(window.__wgQA.probe().probes.clippedTop).toContain('header.wg-appbar');
+        // WebKit: rects from the visual viewport, panned 300px by the keyboard.
+        pan = 300;
+        Object.defineProperty(window, 'visualViewport', {
+            configurable: true,
+            value: { offsetTop: pan, height: 400, scale: 1, addEventListener() {} },
+        });
+        scrollTo(100);
+        expect(window.__wgQA.probe().probes.clippedTop).toEqual([]);
+    });
+
     // med-y5xx.11: a shot of another view must not pass (workouts-stats showed
     // Plans with ok:true): the report re-checks the ready selectors.
     it('re-publishes a failed report when the scene view goes away after ready', async () => {

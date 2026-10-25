@@ -507,13 +507,24 @@
         // header back there panned off by the iOS keyboard is not clipped UI.
         const layers = shown('mt-modal');
         const onTop = (el) => !layers.length || layers.some((m) => m.contains(el));
+        // An in-flow header above the top of a scrolled document was scrolled
+        // past, not clipped (med-y5xx.15: the meds timeline scrolls to today,
+        // a scene step scrolls a row into view). A fixed/sticky one still counts.
+        const layoutTop = top - (vv ? vv.offsetTop : 0);
+        const pinned = (el) => {
+            for (let n = el; n && n !== document.body; n = n.parentElement) {
+                if (/fixed|sticky/.test(getComputedStyle(n).position)) return true;
+            }
+            return false;
+        };
+        const scrolledPast = (el) => window.scrollY > 0 && !pinned(el) && rect(el).top - layoutTop + window.scrollY >= -0.5;
         const probes = {
             scale: vv ? vv.scale : 1,
             hOverflow: document.documentElement.scrollWidth - window.innerWidth,
             // Above the visible top: a panned visual viewport (keyboard) hides a
             // header whose layout top is still >= 0.
             clippedTop: shown('.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar')
-                .filter((el) => onTop(el) && rect(el).top < top - 0.5).map(tag),
+                .filter((el) => onTop(el) && rect(el).top < top - 0.5 && !scrolledPast(el)).map(tag),
             // Charts are <svg>; icons (small svg) are skipped.
             canvasOverflow: shown('canvas, svg').filter((el) => {
                 const w = rect(el).width;
