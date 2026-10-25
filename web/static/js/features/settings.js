@@ -1111,7 +1111,8 @@ function bindLocalErase() {
                 facts: [
                     { text: `All records, settings and keys on this ${device}`, gone: true },
                     // bd med-egb3: eraseDevice asks our server to delete it first.
-                    { text: "The anonymous trial record on the server (a phone restored from this one's backup loses its remaining trial too)", gone: true },
+                    { text: `This ${device}'s anonymous install record on the server (a phone restored from this one's backup loses its remaining trial too)`, gone: true },
+                    { text: `The anonymous trial pass, kept in the ${device}'s secure storage so a trial isn't lost` },
                     { text: 'Backup files you exported stay where you saved them' },
                 ],
             },

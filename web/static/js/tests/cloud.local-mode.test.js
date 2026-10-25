@@ -1956,8 +1956,9 @@ describe('shellPost over base.post', () => {
         await expect(shellPost({ call: async () => { throw new Error('network'); } })('/api/invite-requests', { body: '{}' }))
             .rejects.toThrow(TypeError);
     });
-    it('the page allowlist is the shells\' four paths', () => {
-        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
+    it('the page allowlist is the shells\' five paths', () => {
+        // /api/attest/delete: the erase's install-record delete (bd med-egb3).
+        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
     });
 });
 
@@ -3492,10 +3493,17 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             };
         };
         const resets = () => bridge.mock.calls.filter(([op]) => op === 'local.reset');
+        // The boot's egress registration finishes before the test ends: it
+        // reads window.document, which afterEach unstubs.
+        async function bootSettled(attest) {
+            await boot(attest);
+            await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', expect.anything()));
+            await new Promise((r) => { setTimeout(r, 0); });
+        }
 
         it('204: signed over the empty body, then the erase and local.reset {dropAttest: true}', async () => {
             const { createHash } = await import('node:crypto');
-            await boot(attestedInstall());
+            await bootSettled(attestedInstall());
             reply.erase = () => new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c9' } });
             env.window.localStorage.setItem('wg.marker', '1');
             const win = eraseWin(true);
@@ -3511,22 +3519,26 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             expect(pageHitBase()).toBe(false);
         });
 
-        it('install_unknown (already gone) counts as deleted; a stale challenge is re-signed once; never an enroll', async () => {
-            await boot(attestedInstall());
+        it('install_unknown erases silently but keeps the key and pass (local.reset without dropAttest); a stale challenge is re-signed once; never an enroll', async () => {
+            await bootSettled(attestedInstall());
             const answers = [
                 new Response(JSON.stringify({ error: 'challenge_invalid' }), { status: 400, headers: { 'X-Attest-Challenge': 'c5' } }),
                 new Response(JSON.stringify({ error: 'install_unknown' }), { status: 401 }),
             ];
             reply.erase = () => answers.shift();
-            expect(await env.window.CloudVault.eraseDevice({ win: eraseWin(true) })).toEqual({ erased: true, installRecord: 'deleted' });
+            // The pass may still name a live bucket (an iOS reinstall whose enroll failed): kept.
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'unknown' });
             expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/delete']);
             expect(fetched[2].headers['X-Attest-Challenge']).toBe('c5');
             expect(env.window.Attest.enroll).not.toHaveBeenCalled();
-            expect(resets()).toEqual([['local.reset', { dropAttest: true }]]);
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+            expect(replace).toHaveBeenCalledWith('/');
         });
 
         it('a failure (an old shell\'s invalid path) asks first: Cancel keeps everything, nothing retried', async () => {
-            await boot(attestedInstall()); // reply.erase unset: invalid path
+            await bootSettled(attestedInstall()); // reply.erase unset: invalid path
             env.window.localStorage.setItem('wg.marker', '1');
             const win = eraseWin(false);
             expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: false, installRecord: 'failed' });
@@ -3539,7 +3551,7 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         });
 
         it('a failure (a server without the route) confirmed with Erase anyway erases, but keeps the shell\'s key and pass', async () => {
-            await boot(attestedInstall());
+            await bootSettled(attestedInstall());
             // An older server's mux: a plain 404 proves nothing was deleted.
             reply.erase = () => new Response('404 page not found\n', { status: 404 });
             env.window.localStorage.setItem('wg.marker', '1');
@@ -3552,7 +3564,7 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         it('no key in the shell: nothing to delete, no question, no enroll', async () => {
             const attest = attestedInstall();
             attest.assert = vi.fn(async () => { throw new Error('no_key'); });
-            await boot(attest);
+            await bootSettled(attest);
             reply.erase = () => new Response(null, { status: 204 });
             const win = eraseWin(true);
             expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });
@@ -3563,7 +3575,7 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         });
 
         it('a never-enrolled install (attested false) asks our server nothing', async () => {
-            await boot(freshInstall());
+            await bootSettled(freshInstall());
             reply.erase = () => new Response(null, { status: 204 });
             const win = eraseWin(true);
             expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });

@@ -831,11 +831,12 @@ export const LOCAL_VAULT = {
   // still holds the attest key: our server deletes this device's anonymous
   // install record and trial budget. Best effort, never retried: when that
   // fails the user is asked whether to erase anyway (Cancel keeps
-  // everything); only a confirmed deletion lets the shell drop the key and
-  // trial pass (local.reset {dropAttest: true}) — after a failed one they
-  // stay, so an offline erase never loses an iPhone's trial for good.
-  // Resolves { erased, installRecord } with installRecord 'deleted' | 'none'
-  // (no shell key, nothing sent) | 'failed'.
+  // everything); only a 204 lets the shell drop the key and trial pass
+  // (local.reset {dropAttest: true}) — after a failed delete or an
+  // install_unknown (erased silently, Archie's ruling) they stay, so the pass
+  // to a bucket that may still be live is never thrown away.
+  // Resolves { erased, installRecord } with installRecord 'deleted' |
+  // 'unknown' | 'none' (no shell key, nothing sent) | 'failed'.
   async eraseDevice({ win = globalThis.window } = {}) {
     const installRecord = await eraseInstallRecord(win);
     if (installRecord === 'failed') {
@@ -860,7 +861,9 @@ export const LOCAL_VAULT = {
 export const ERASE_RECORD_FAILED_COPY = 'The anonymous install record on the server could not be deleted (offline, or the app needs an update). Erase this device anyway?';
 
 // eraseDevice's server step (bd med-egb3; server: attest.go eraseInstall):
-// 'deleted' (204, or the server no longer knows the key), 'none' (no shell
+// 'deleted' (204), 'unknown' (install_unknown: no server record for this key —
+// nothing to delete or retry, but the Keychain/backup pass may still name a
+// live bucket, e.g. an iOS reinstall whose enroll failed), 'none' (no shell
 // attest, or the shell has no key: nothing to delete) or 'failed' (an old
 // shell's `invalid path`, offline, 5xx, ERASE_RECORD_MS passed).
 // Not `bounded`: a request that outlived a race could still delete after the
@@ -876,7 +879,7 @@ async function eraseInstallRecord(win) {
   // no_key), so no challenge is fetched — offline, no false failure.
   if (!attest || attest.attested !== true) return 'none';
   const out = await sharedAttestClient(attest.base, win).erase(AbortSignal.timeout(ERASE_RECORD_MS));
-  if (out === 'deleted' || out === 'unknown') return 'deleted';
+  if (out === 'deleted' || out === 'unknown') return out;
   return out === 'no_key' ? 'none' : 'failed';
 }
 

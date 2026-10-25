@@ -76,19 +76,19 @@ enum LocalOrigin {
     static let attestKeyIdKey = "wgAttestKeyId"
     static let attestedKey = "wgAttestAttested"
 
-    /// local.reset {dropAttest: true} (bd med-egb3, contract point 4): only a
-    /// JSON true, which the page sends only once our server deleted this
-    /// device's install record. Drops the key id, its attested mark and (via
-    /// dropPass) the Keychain trial pass, so the next enroll mints a fresh key
-    /// the server cannot link to the erased one. Without it all three stay: a
-    /// failed delete must not cost an iPhone its trial for good (DeviceCheck
-    /// bit0 set, pass gone). True when it dropped them.
+    /// local.reset {dropAttest: true} (bd med-egb3, contract point 4, Archie
+    /// 4883): only a JSON true, which the page sends only after our server
+    /// answered 204 for this key's bucket. Drops the key id and its attested
+    /// mark, so the next enroll mints a fresh key the server cannot link to
+    /// the erased one. The Keychain trial pass is never touched: it may name
+    /// an older bucket the delete did not reach, and a pass for a deleted
+    /// bucket is refused (trial_pass_invalid) and dropped by the page. True
+    /// when it dropped them.
     @discardableResult
-    static func resetAttest(_ args: [String: Any], defaults: UserDefaults = .standard, dropPass: () -> Void) -> Bool {
+    static func resetAttest(_ args: [String: Any], defaults: UserDefaults = .standard) -> Bool {
         guard args["dropAttest"] as? Bool == true else { return false }
         defaults.removeObject(forKey: attestKeyIdKey)
         defaults.removeObject(forKey: attestedKey)
-        dropPass()
         return true
     }
 

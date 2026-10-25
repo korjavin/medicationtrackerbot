@@ -63,11 +63,15 @@ class LocalOriginTest {
             assertNull("accepted $bad", LocalOrigin.qaHome(bad))
     }
 
-    // local.reset {dropAttest} (bd med-egb3): only a JSON true drops the attest key and pass.
+    // local.reset {dropAttest} (bd med-egb3): only a JSON true drops the attest key; the trial pass
+    // and the alias counter survive it (Archie 4883, Andy 4884).
     @Test
     fun dropsAttest() {
         assertTrue(LocalOrigin.dropsAttest(true))
         for (bad in listOf(null, false, "true", 1, listOf(true))) assertFalse("accepted $bad", LocalOrigin.dropsAttest(bad))
+        assertEquals(setOf("alias", "attested", "counter"), Attest.DROP_KEYS)
+        assertFalse(Attest.DROP_KEYS.contains("pass"))
+        assertFalse(Attest.DROP_KEYS.contains("keyN"))
     }
 
     @Test

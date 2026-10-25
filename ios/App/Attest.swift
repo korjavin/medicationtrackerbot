@@ -44,7 +44,7 @@ enum Attest {
     /// The install's App Attest key id, and that id once attested.
     /// UserDefaults, not the Keychain: a reinstall must not find them, since
     /// App Attest keys do not survive one.
-    /// local.reset {dropAttest: true} drops both and the pass (LocalOrigin.resetAttest, bd med-egb3).
+    /// local.reset {dropAttest: true} drops both, never the pass (LocalOrigin.resetAttest, bd med-egb3).
     static let keyIdKey = LocalOrigin.attestKeyIdKey
     static let attestedKey = LocalOrigin.attestedKey
 
