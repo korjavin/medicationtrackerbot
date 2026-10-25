@@ -37,7 +37,7 @@ gh run download <run> -n ios-visual-web-compare -D /tmp/claude-vw/<run>-webcmp
 |---|---|---|
 | `scale` | `visualViewport.scale` is not 1: focus-zoom happened | none; real bug (input under 16px) |
 | `hOverflow` | `scrollWidth > innerWidth` | an off-canvas element that is clipped by an ancestor; look at the PNG |
-| `clippedTop` | a sheet/app/page header sits above the visible top | page behind an open sheet panned by the keyboard (driver already ignores headers outside the top `mt-modal`); compare with the PNG |
+| `clippedTop` | a sheet/app/page header sits above the visible top | page behind an open sheet panned by the keyboard (driver already ignores headers outside the top `mt-modal`, and in-flow headers the document scrolled past); compare with the PNG |
 | `canvasOverflow` | a `canvas`/chart `svg` over 64px wider than its parent | an intentionally scrollable chart strip |
 | `focusUnderKeyboard`, `bottomNavCovered` | focused field behind the keyboard / tab bar below the viewport | `bottomNavCovered` is meaningless in scenes where the keyboard is up |
 | `readyLost` (`failed` has `ready`) | a ready selector vanished before the shot: the app switched away | race with a late redraw; re-run once before filing |
