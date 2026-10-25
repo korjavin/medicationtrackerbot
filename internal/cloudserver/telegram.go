@@ -692,7 +692,7 @@ const (
 	onboardingOfferMessage = onboardingOfferIntro +
 		"Want an account? Just reply “yes” and I'll ask the admin — your link arrives here once it's approved."
 	onboardingClosedOfferMessage = onboardingOfferIntro + "Invites are closed right now — check back later."
-	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
+	onboardingClaimedMessage     = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
 		"I can't create a second one for you."
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
 	// onboardingLinkedMessage answers a sender who already runs a child bot: this
@@ -1513,10 +1513,10 @@ func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
 type rearmRefireRequest struct {
 	Callback string `json:"callback"`
 	MedIDs   string `json:"med_ids"`
-	// FireAt (unix seconds, optional) is an in-app snooze's end (med-4j49): the
-	// chain's next message lands then instead of ~1h out. Absent, past, or
-	// further than maxMedRefireWindow away falls back to the ~1h default.
-	FireAt int64 `json:"fire_at"`
+	// KeepFireAt (med-4j49): an in-app snooze of some of the slot's doses.
+	// Narrow the pending re-fire to MedIDs at its own fire time; with no
+	// pending chain there is nothing to keep, so nothing is scheduled.
+	KeepFireAt bool `json:"keep_fire_at"`
 }
 
 // RearmRefire schedules ONE re-fire ~1h out for a med slot whose Confirm tap the
@@ -1556,16 +1556,21 @@ func (t *TelegramAPI) RearmRefire(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
 		return
 	}
+	if req.KeepFireAt {
+		if _, err := t.store.RetargetRelayRefire(r.Context(), sess.AccountID, req.Callback, medRefireText, req.MedIDs); err != nil {
+			slog.Error("telegram retarget refire", "error", err, "account", sess.AccountID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	now := time.Now().UTC()
 	if now.Sub(time.Unix(slotUnix, 0).UTC()) > maxMedRefireWindow {
 		w.WriteHeader(http.StatusNoContent) // past the cap: nothing to re-arm
 		return
 	}
-	fireAt := now.Add(time.Hour)
-	if at := time.Unix(req.FireAt, 0).UTC(); req.FireAt > 0 && at.After(now) && at.Sub(now) <= maxMedRefireWindow {
-		fireAt = at
-	}
-	if err := t.store.RescheduleRelayRefire(r.Context(), sess.AccountID, fireAt, medRefireText, req.Callback, req.MedIDs, 0); err != nil {
+	if err := t.store.RescheduleRelayRefire(r.Context(), sess.AccountID, now.Add(time.Hour), medRefireText, req.Callback, req.MedIDs, 0); err != nil {
 		slog.Error("telegram rearm refire", "error", err, "account", sess.AccountID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -2074,7 +2079,10 @@ const medRefireText = "Medication reminder"
 // vault value.
 const (
 	medConfirmEditText = "✅ Confirmed — waiting for your device to come online to record it."
-	medSnoozeEditText  = "⏰ Snoozed 1h — I'll remind you again."
+	// No duration (med-4j49): a tap is served by two timers — the vault's
+	// snooze end through the horizon, and the relay's +1h chain as the
+	// closed-app fallback — and whichever fires first leads.
+	medSnoozeEditText = "⏰ Snoozed — I'll remind you again."
 
 	// Static edit-text for workout + measure (BP/weight) taps. Same ZK contract:
 	// server-composed templates only, never a vault value. Workout snooze omits

@@ -249,8 +249,8 @@ export const CLOUD_EXTRA = [
         occ_ids: { type: 'array', items: { type: ['string', 'integer'] }, description: 'Exact dose occIds.' },
         action: { type: 'string', enum: ['take', 'skip', 'undo', 'edit_time', 'snooze'] },
         taken_at: { type: 'string', description: 'RFC3339; take: when it was taken (default now); edit_time: required.' },
-        minutes: { type: 'integer', minimum: 1, description: 'snooze: duration in minutes (default 10); ignored when until is set.' },
-        until: { type: 'string', description: 'snooze: RFC3339 future instant the snooze ends.' },
+        minutes: { type: 'integer', minimum: 1, description: 'snooze: duration in minutes (default 10, at most 7 days); ignored when until is set.' },
+        until: { type: 'string', description: 'snooze: RFC3339 instant the snooze ends, in the future and within 7 days. The reminder fires then.' },
       },
     },
     response_example: {

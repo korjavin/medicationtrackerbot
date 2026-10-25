@@ -3191,28 +3191,26 @@ func TestRearmRefire(t *testing.T) {
 		t.Errorf("re-arm fires in %v, want ~1h", d)
 	}
 
-	// med-4j49: an in-app snooze re-arms at its end (fire_at), superseding the
-	// pending row; a past fire_at falls back to ~1h.
-	snoozeEnd := now.Add(10 * time.Minute).Unix()
-	body = fmt.Sprintf(`{"callback":%q,"med_ids":"2","fire_at":%d}`, fresh, snoozeEnd)
+	// med-4j49: an in-app snooze of med 2 keeps the chain for med 9 at its own
+	// fire time; with no pending chain, keep_fire_at schedules nothing.
+	firstFire := due[0].FireAt
+	body = fmt.Sprintf(`{"callback":%q,"med_ids":"9","keep_fire_at":true}`, fresh)
 	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
-		t.Fatalf("snooze rearm status = %d, body %q", rec.Code, rec.Body.String())
+		t.Fatalf("keep rearm status = %d, body %q", rec.Code, rec.Body.String())
 	}
 	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil {
-		t.Fatalf("DueScheduledPushes (snooze): %v", err)
+		t.Fatalf("DueScheduledPushes (keep): %v", err)
 	}
-	if len(due) != 1 || due[0].FireAt.Unix() != snoozeEnd || due[0].TGMedIDs != "2" {
-		t.Fatalf("snooze re-arm = %+v, want one row at %d carrying 2", due, snoozeEnd)
+	if len(due) != 1 || !due[0].FireAt.Equal(firstFire) || due[0].TGMedIDs != "9" {
+		t.Fatalf("kept row = %+v, want one row at %v carrying 9", due, firstFire)
 	}
-	body = fmt.Sprintf(`{"callback":%q,"med_ids":"2,9","fire_at":%d}`, fresh, now.Add(-time.Minute).Unix())
+	other := fmt.Sprintf("s:%d", now.Add(-20*time.Minute).Unix())
+	body = fmt.Sprintf(`{"callback":%q,"med_ids":"9","keep_fire_at":true}`, other)
 	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
-		t.Fatalf("past fire_at rearm status = %d", rec.Code)
+		t.Fatalf("keep rearm (no chain) status = %d", rec.Code)
 	}
-	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil {
-		t.Fatalf("DueScheduledPushes (past fire_at): %v", err)
-	}
-	if len(due) != 1 || due[0].FireAt.Sub(now) < 55*time.Minute || due[0].FireAt.Sub(now) > 65*time.Minute {
-		t.Fatalf("past fire_at re-arm = %+v, want one row ~1h out", due)
+	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil || len(due) != 1 {
+		t.Fatalf("keep rearm with no chain queued rows: %+v, %v", due, err)
 	}
 
 	// Past the 6h cap the chain is over: a no-op, not a fresh nag.

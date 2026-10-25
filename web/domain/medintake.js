@@ -1068,7 +1068,11 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       if (until != null && !(untilMs > nowMs)) throw badRequest('until must be a future instant');
       const mins = Number(minutes);
       if (until == null && minutes != null && !(mins > 0)) throw badRequest('minutes must be positive');
-      snoozeIso = new Date(until != null ? untilMs : nowMs + (minutes != null ? mins : DEFAULT_SNOOZE_MINUTES) * 60 * 1000).toISOString();
+      const endMs = until != null ? untilMs : nowMs + (minutes != null ? mins : DEFAULT_SNOOZE_MINUTES) * 60 * 1000;
+      // The reminder horizon (reminders.js FORECAST_DAYS, 7 days): a later end
+      // would never fire.
+      if (endMs > nowMs + 7 * DAY_MS) throw badRequest('a snooze ends within 7 days');
+      snoozeIso = new Date(endMs).toISOString();
     }
     const takenMs = takenAt ? Date.parse(takenAt) : NaN;
     if (action === 'edit_time' && !Number.isFinite(takenMs)) {

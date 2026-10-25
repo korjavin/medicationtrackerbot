@@ -15,6 +15,8 @@ import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 vi.mock('../../../cloud/js/push.js', () => ({ pushSchedule: vi.fn() }));
 // eslint-disable-next-line import/first
 import { pushSchedule } from '../../../cloud/js/push.js';
+// eslint-disable-next-line import/first
+import { localNotificationItems } from '../../../cloud/js/reminders.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -430,26 +432,21 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 .filter((d) => d.occId === 'intake-a');
             expect(row).toMatchObject({ state: 'snoozed', snoozedUntil: a.snoozed_until });
             expect(await stateOf(window)).toEqual({ a: 'PENDING', b: 'TAKEN', stockA: 5, stockB: 5 });
-            // Web-push-only delivery (the default) has no relay chain to re-arm.
-            const rearms = () => globalThis.fetch.mock.calls.filter(([url]) => url === '/api/telegram/rearm-refire');
-            await new Promise((r) => setTimeout(r, 0));
-            expect(rearms()).toHaveLength(0);
+            // The slot's only open dose is snoozed: the relay's hourly chain stops
+            // (the snooze-end reminder in the horizon restarts it).
+            await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.objectContaining({
+                body: JSON.stringify({ callback: `s:${Math.floor(Date.parse(slotIso) / 1000)}` })
+            })));
 
-            // `until` sets the end directly; with Telegram delivery the slot's
-            // chain re-arms at the snooze end.
-            await env.records.put('reminderdeliverypref', {
-                recordId: 'reminderdeliverypref', clientTs: Date.now(), deleted: false, delivery: 'telegram', verbosity: 'generic'
-            });
+            // `until` sets the end directly; a past one, or one past the 7-day
+            // reminder horizon (it would never fire), is a 400.
             const until = new Date(Date.now() + 2 * HOUR_MS).toISOString();
             await act(window, { action: 'snooze', occ_ids: ['intake-a'], until });
             expect((await env.records.list('intake')).find((i) => i.recordId === 'intake-a').snoozed_until).toBe(until);
-            await vi.waitFor(() => expect(rearms()).toHaveLength(1));
-            expect(JSON.parse(rearms()[0][1].body)).toEqual({
-                callback: `s:${Math.floor(Date.parse(slotIso) / 1000)}`, med_ids: '1', fire_at: Math.floor(Date.parse(until) / 1000),
-            });
-            // A past or unparseable `until` is a 400.
-            await expect(window.offlineAwareApiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-a'], until: new Date(Date.now() - HOUR_MS).toISOString() }))
-                .rejects.toMatchObject({ status: 400 });
+            for (const bad of [new Date(Date.now() - HOUR_MS).toISOString(), new Date(Date.now() + 8 * DAY_MS).toISOString()]) {
+                await expect(window.offlineAwareApiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-a'], until: bad }))
+                    .rejects.toMatchObject({ status: 400 });
+            }
 
             // A take after the snooze is an ordinary take.
             expect(await act(window, { action: 'take', occ_ids: ['intake-a'] })).toMatchObject({ updated: 1, failed: 0 });
@@ -753,5 +750,58 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
         await vi.advanceTimersByTimeAsync(2100);
         expect(pushSchedule).toHaveBeenCalledTimes(2);
         expect(pushSchedule.mock.calls[1][1].filter((e) => e.text.includes('REMINDER'))).toHaveLength(0);
+    });
+
+    // bd med-4j49: a snooze fires at its end through the one horizon — web push,
+    // Telegram and the device scheduler alike — with its own slot's callback,
+    // however old the slot; the relay's hourly chain is reconciled with it.
+    it('a snoozed dose from yesterday fires at its snooze end with its slot callback; the relay chain keeps nagging only still-due slot-mates', async () => {
+        const slotMs = Math.floor((Date.now() - 26 * HOUR_MS) / 60000) * 60000;
+        const slotIso = new Date(slotMs).toISOString();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    seedMedication({ recordId: 1, name: 'Metformin' }),
+                    seedMedication({ recordId: 2, name: 'Aspirin' })
+                ],
+                intake: [
+                    seedIntake({ recordId: 'intake-a', medication_id: 1, scheduled_at: slotIso }),
+                    seedIntake({ recordId: 'intake-b', medication_id: 2, scheduled_at: slotIso })
+                ]
+            }
+        });
+        const { window } = env;
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
+        const refire = (path) => fetchMock.mock.calls.filter(([url]) => url === `/api/telegram/${path}`)
+            .map(([, init]) => JSON.parse(init.body));
+        try {
+            await window.apiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-a'], minutes: 10 });
+            const endUnix = Math.floor((Date.now() + 10 * 60 * 1000) / 1000);
+            // Med 2 is still due: the chain keeps its own fire time, naming only med 2.
+            await vi.waitFor(() => expect(refire('rearm-refire')).toEqual([
+                { callback: `s:${slotMs / 1000}`, med_ids: '2', keep_fire_at: true }
+            ]));
+            expect(refire('cancel-refire')).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(2100);
+            const entries = pushSchedule.mock.calls.at(-1)[1].filter((e) => e.kind === 'medication');
+            // The snooze-end reminder also names the still-due slot-mate: the
+            // chain it restarts is slot-wide.
+            expect(entries).toEqual([expect.objectContaining({
+                fireAtUnix: endUnix, callback: `s:${slotMs / 1000}`, medicationIds: [1, 2]
+            })]);
+            // The device scheduler (local mode, the iOS shell) reads the same entries.
+            expect(localNotificationItems(entries, { delivery: 'webpush' }, Math.floor(Date.now() / 1000)))
+                .toEqual(expect.arrayContaining([expect.objectContaining({ fireAtUnix: endUnix })]));
+
+            // Every open dose snoozed: the chain stops until the snooze-end reminder restarts it.
+            await window.apiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-b'], minutes: 10 });
+            await vi.waitFor(() => expect(refire('cancel-refire')).toEqual([
+                expect.objectContaining({ callback: `s:${slotMs / 1000}` })
+            ]));
+        } finally {
+            delete globalThis.fetch;
+        }
     });
 });

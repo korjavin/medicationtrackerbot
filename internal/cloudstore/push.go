@@ -363,6 +363,21 @@ func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fire
 	})
 }
 
+// RetargetRelayRefire narrows the pending relay re-fire for (accountID,
+// tgCallback) to tgMedIDs and tgText, keeping its fire time and supersedes id —
+// an in-app snooze of some of a slot's doses keeps nagging the rest on schedule
+// (med-4j49). Reports whether a pending row existed.
+func (r *Repo) RetargetRelayRefire(ctx context.Context, accountID, tgCallback, tgText, tgMedIDs string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE scheduled_pushes SET tg_text = ?, tg_med_ids = ? WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
+		tgText, tgMedIDs, accountID, PushOriginRelayRefire, tgCallback)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // MedIDsForCallback returns the comma-separated medication ids stored on the most
 // recent row for (accountID, tgCallback) — the reminder the user is tapping. That
 // is the pending re-fire the relay armed after the send while the chain is alive,

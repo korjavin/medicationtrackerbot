@@ -414,26 +414,13 @@ export function cancelReminderRefire(stem, { fetchImpl } = {}) {
 // drain could only partly apply — a named dose that is still PENDING after the
 // tap (med-kbpf). medIds names those doses so a tap on the re-fired message
 // still resolves by identity. The relay no-ops it past its 6h cap.
-// fireAtMs (an in-app snooze's end, bd med-4j49) moves the chain's next message
-// there instead of ~1h out; a relay without fire_at ignores it and uses 1h.
-export function rearmMedRefire(slotMs, medIds = [], { fetchImpl, fireAtMs } = {}) {
+// keepFireAt (an in-app snooze of some of the slot's doses, bd med-4j49)
+// narrows the pending re-fire to medIds at its own fire time instead; a relay
+// that predates it re-arms ~1h out.
+export function rearmMedRefire(slotMs, medIds = [], { fetchImpl, keepFireAt = false } = {}) {
   const extra = { med_ids: (medIds || []).join(',') };
-  if (Number.isFinite(fireAtMs)) extra.fire_at = Math.floor(fireAtMs / 1000);
+  if (keepFireAt) extra.keep_fire_at = true;
   postRefire('rearm-refire', medStem(slotMs), extra, fetchImpl);
-}
-
-// rearmSnoozedSlot re-arms a slot's Telegram chain after an in-app snooze (bd
-// med-4j49) — only when the account delivers reminders to Telegram at all, so
-// a web-push-only account never gets a Telegram message out of a snooze.
-// Fire-and-forget like postRefire: the snooze is already durable.
-export async function rearmSnoozedSlot(ctx, { records, slotMs, medIds, fireAtMs, fetchImpl } = {}) {
-  try {
-    const pref = await remindersDomain(ctx, { records }).getDeliveryPref();
-    if (pref.delivery === 'webpush') return;
-    rearmMedRefire(slotMs, medIds, { fetchImpl, fireAtMs });
-  } catch (e) {
-    console.warn('[reminders] snooze re-arm failed', e);
-  }
 }
 
 // Drops a pending debounced recompute for `ctx` without running it. A live page
