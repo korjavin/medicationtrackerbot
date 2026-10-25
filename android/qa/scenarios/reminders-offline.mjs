@@ -6,6 +6,11 @@
 // 3. Its tap opens that dose's take sheet (bd med-nt9p.52: row url → ReminderPath → handleDeepLinks).
 //    bd med-5vy0.3: the lock-screen text pref is set to Detailed first (the default depends on the
 //    account's history since med-5vy0.1), so this one names the medication.
+// 3a. Stale taps (bd med-wi09.7, twin of iOS reminder-stale-*): that dose taken in-app, then two
+//    notifications with the page's own reminderDeeplink urls posted through the shell — its exact
+//    slot (→ the "Already logged" toast, no take sheet, the TAKEN count unchanged) and a minute off
+//    it, as a schedule edit leaves one (→ the MT6 "out of date" note). Each tap must reach the page
+//    with that url unchanged (ReminderPath adds no target).
 // 3b. Generic: a second med scheduled under Detailed, then the pref switched → its stored row is
 //    rescheduled to "Medication time"; app killed → the posted text is generic, without the name.
 // 4. Offline cold start: airplane mode, force-stop, relaunch → the account renders from the SW.
@@ -85,6 +90,9 @@ export default async function remindersOffline(ctx) {
       await waitSheet(page, med.name, acct);
       await ctx.stableShot('account-take-sheet');
     });
+
+    await ctx.step('account: stale taps — taken in-app → "Already logged" toast, no new TAKEN row; slot moved → MT6', () =>
+      staleTaps(ctx, page, med, (r.stale = {})));
 
     await ctx.step('account: Generic reschedules the rows; app killed → "Medication time", no name', async () => {
       const gen = (r.generic = {});
@@ -354,6 +362,82 @@ async function waitNotification(ctx, med, text, out, before, lateMin = 3) {
   out.postedLateS = Math.round(Date.now() / 1000 - med.slotUnix);
   out.processAtPost = (await ctx.shell(`pidof ${ctx.pkg}`).catch(() => '')) ? 'started by the alarm' : 'none';
 }
+
+/**
+ * Step 3a (bd med-wi09.7). The take sheet of `med` is open: closed, its dose taken in-app (the TAKEN
+ * count goes up by one), then two rows scheduled through window.LocalNotifications with the page's
+ * reminderDeeplink urls, 15 s and 25 s out. Scheduling is replace-all, so each app reschedule until
+ * they fire (the take's own, 2 s debounce) adds them back. Toasts stay up for the shots.
+ */
+async function staleTaps(ctx, page, med, out) {
+  const prep = await page.evaluate(async ([name, slotUnix]) => {
+    window.ModalManager.close('med-confirm-modal');
+    const m = (await window.apiCall('/api/medications')).find((x) => x.name === name);
+    if (!m) throw new Error(`no med ${name}`);
+    const taken = async () => (await window.apiCall('/api/doses')).filter((d) => String(d.medId) === String(m.id) && d.state === 'taken').length;
+    const iso = new Date(slotUnix * 1000).toISOString();
+    const row = (await window.apiCall(`/api/doses?at=${encodeURIComponent(iso)}`)).find((d) => String(d.medId) === String(m.id));
+    if (!row) throw new Error(`no dose of ${name} at ${iso}`);
+    const before = await taken();
+    const rescheduled = new Promise((ok) => document.addEventListener('wg:local-reminders-scheduled', ok, { once: true }));
+    await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [row.occId] });
+    await Promise.race([rescheduled, new Promise((ok) => setTimeout(ok, 10_000))]);
+    const { reminderDeeplink } = await import('/js/reminder-deeplink.js');
+    const link = (slot) => reminderDeeplink({ kind: 'medication', medicationIds: [m.id], fireAtUnix: slot, slotUnix: slot });
+    const urls = { taken: link(slotUnix), moved: link(slotUnix + 60) };
+    const at = Math.floor(Date.now() / 1000);
+    const items = [
+      { fireAtUnix: at + 15, title: 'Med Tracker', body: 'QA stale taken', url: urls.taken },
+      { fireAtUnix: at + 25, title: 'Med Tracker', body: 'QA stale moved', url: urls.moved },
+    ];
+    const schedule = () => window.LocalNotifications.schedule(items);
+    document.addEventListener('wg:local-reminders-scheduled', () => { if (Date.now() / 1000 < at + 25) schedule(); });
+    const sm = window.SyncManager;
+    const show = (window.__qaShowToast = sm.showToast);
+    sm.showToast = (msg, t, o) => show.call(sm, msg, t, { ...o, duration: 0 });
+    // What the shell hands the open page (MainActivity.openPath): the router cleans the url to "/" at once.
+    window.__qaTapped = [];
+    const route = window.handleDeepLinks;
+    window.handleDeepLinks = () => { window.__qaTapped.push(location.pathname + location.search); return route(); };
+    return { medId: m.id, urls, before, afterTake: await taken(), scheduled: await schedule() };
+  }, [med.name, med.slotUnix]);
+  Object.assign(out, prep);
+  if (prep.afterTake !== prep.before + 1) throw new Error(`the in-app take did not add a TAKEN row: ${prep.before} → ${prep.afterTake}`);
+  if (prep.scheduled < 2) throw new Error(`the shell scheduled ${prep.scheduled} of the 2 stale rows`);
+  // A page that loaded the tap's url instead (not ready yet) has no __qaTapped: its navigation entry.
+  const landing = () => page.evaluate(() => ({
+    url: window.__qaTapped?.shift() ?? '/' + new URL(performance.getEntriesByType('navigation')[0].name).search,
+    sheet: !!window.ModalManager?._isVisible('med-confirm-modal'),
+    toast: [...document.querySelectorAll('.wg-toast')].map((t) => t.textContent),
+    stale: document.querySelector('.wg-timeline__stale')?.offsetParent ? document.querySelector('.wg-timeline__stale').textContent : null,
+  }));
+
+  await waitNotification(ctx, { slotUnix: Date.now() / 1000, hhmm: 'now' }, 'QA stale taken', (out.takenPost = {}), 0, 1);
+  await tapNotification(ctx, /.*QA stale taken.*/, 'stale-taken');
+  page = (await ctx.attachPage()) || page;
+  await page.waitForFunction((t) => [...document.querySelectorAll('.wg-toast')].some((n) => n.textContent.includes(t)), LOGGED, { timeout: 30_000 });
+  await ctx.sleep(3000); // a late sheet or write would show by now
+  out.taken = { ...(await landing()), count: await page.evaluate((id) => window.apiCall('/api/doses').then((rows) =>
+    rows.filter((d) => String(d.medId) === String(id) && d.state === 'taken').length), prep.medId) };
+  await ctx.stableShot('stale-taken-toast');
+  if (out.taken.url !== prep.urls.taken) throw new Error(`the tap reached the page as ${out.taken.url}, not ${prep.urls.taken}`);
+  if (out.taken.sheet) throw new Error('the take sheet opened for a dose already taken');
+  if (out.taken.count !== prep.afterTake) throw new Error(`TAKEN rows ${prep.afterTake} → ${out.taken.count} after the stale tap`);
+
+  await page.evaluate(() => document.querySelector('body > .wg-toasts')?.remove()); // the MT6 shot without the toast
+  await waitNotification(ctx, { slotUnix: Date.now() / 1000, hhmm: 'now' }, 'QA stale moved', (out.movedPost = {}), 0, 1);
+  await tapNotification(ctx, /.*QA stale moved.*/, 'stale-moved');
+  page = (await ctx.attachPage()) || page;
+  await page.waitForFunction(() => document.querySelector('.wg-timeline__stale')?.offsetParent, null, { timeout: 30_000 });
+  out.moved = await landing();
+  await ctx.stableShot('stale-moved-mt6');
+  if (out.moved.url !== prep.urls.moved) throw new Error(`the tap reached the page as ${out.moved.url}, not ${prep.urls.moved}`);
+  if (out.moved.sheet) throw new Error('the take sheet opened for a moved slot');
+  if (!/is out of date\./.test(out.moved.stale)) throw new Error(`MT6 note reads ${out.moved.stale}`);
+  await page.evaluate(() => { if (window.__qaShowToast) window.SyncManager.showToast = window.__qaShowToast; });
+}
+
+const LOGGED = 'Already logged — nothing left to take for this reminder.'; // web/static/js/app.js handlePushAction
 
 async function tapNotification(ctx, text, label) {
   await ctx.shell('cmd statusbar expand-notifications');
