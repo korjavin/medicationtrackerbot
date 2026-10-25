@@ -539,6 +539,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-settings-row-gap',
     '--wg-settings-row-pad-y',
     '--wg-settings-row-pad-x',
+    '--wg-settings-nudge-pad-x',
     '--wg-settings-row-divider',
     '--wg-settings-title-size',
     '--wg-settings-desc-size',

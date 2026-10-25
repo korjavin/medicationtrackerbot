@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { createApiRouter } from '../../../cloud/js/apishim.js';
+import * as realVault from '../../../domain/vault.js';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +19,7 @@ const OFFER_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-offer-ca
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 const NOTIFY_JS = path.join(REPO_ROOT, 'web/static/js/features/notify-permission.js');
 const INVITE_JS = path.join(REPO_ROOT, 'web/static/js/features/invite.js');
+const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
 
 // W1 — the first-run module picker (bd med-ta2n.1, screens-onboarding-v3.html
 // W1): the first and only picker screen of the WGFirstRun overlay. Seven
@@ -34,10 +38,11 @@ const FLAGS = ['medication', 'bp', 'weight', 'workout', 'health', 'food'];
 function loadFlow({
     fetchMock = null, toggleMock = null, features = null, notifyPermission = null,
     trialOffer = null, localTrial = null, trialAi = false, trialConsent = null,
-    local = false, native = null, invite = false, base = null,
+    local = false, native = null, invite = false, base = null, authBootstrap = false,
+    url = 'https://example.test/',
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
-        url: 'https://example.test/',
+        url,
         runScripts: 'outside-only',
         pretendToBeVisual: true,
     });
@@ -65,6 +70,7 @@ function loadFlow({
 
     const files = [OFFER_CARD_JS, STATE_JS, FEATURES_JS, TRIAL_JS, INDEX_JS];
     if (invite) files.unshift(INVITE_JS);
+    if (authBootstrap) files.push(AUTH_BOOTSTRAP_JS);
     if (notifyPermission) {
         window.Notification = { permission: notifyPermission };
         files.unshift(NOTIFY_JS);
@@ -183,6 +189,58 @@ describe('firstrun W1 module picker', () => {
         } finally { cleanup(); }
     });
 
+    // med-5vy0: account mode stores a floored default pref on finish; the shim
+    // picks it from the vault (cloud.shim-contract.reminders). Local mode
+    // writes nothing.
+    it('account mode stores the floored reminder text default on finish; local mode does not', async () => {
+        for (const [opts, expected] of [[{}, 1], [{ local: true }, 0]]) {
+            const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), ...opts });
+            try {
+                window.apiCall = vi.fn(async () => ({ delivery: 'webpush', verbosity: 'generic' }));
+                window.WGFirstRun.mount();
+                action(document, 'skip-all').click();
+                await flush();
+                const puts = window.apiCall.mock.calls.filter((c) => c[0] === '/api/settings/reminder-delivery');
+                expect(puts).toEqual(expected ? [['/api/settings/reminder-delivery', 'PUT', { floor: 'auto' }]] : []);
+            } finally { cleanup(); }
+        }
+    });
+
+    // The pref write is part of the W1 save: first run completes only once it
+    // reads back, so a failed write can never leave a new account to the floor.
+    it('account mode: a failed pref write keeps W1 open with its error; a delayed one holds completion', async () => {
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch() });
+        try {
+            window.medications = [];
+            let release;
+            const delayed = new Promise((resolve) => { release = resolve; });
+            const pref = vi.fn()
+                .mockResolvedValueOnce(null) // apiCall's failure answer, after its own alert
+                .mockReturnValueOnce(delayed);
+            window.apiCall = vi.fn((url) => (url === '/api/settings/reminder-delivery'
+                ? pref()
+                : Promise.resolve({ ok: true })));
+            const completed = () => window.apiCall.mock.calls.some((c) => c[0] === '/api/firstrun/complete');
+            window.WGFirstRun.mount();
+
+            action(document, 'skip-all').click();
+            await flush();
+            expect(completed()).toBe(false);
+            expect(document.getElementById('wg-firstrun-overlay')).not.toBeNull();
+            expect(document.getElementById('wg-firstrun-overlay').textContent).toContain('Couldn’t save your choices');
+
+            // Retry: completion waits for the slow write.
+            action(document, 'skip-all').click();
+            await flush();
+            expect(pref).toHaveBeenCalledTimes(2);
+            expect(completed()).toBe(false);
+            release({ delivery: 'webpush', verbosity: 'generic' });
+            await flush();
+            await flush();
+            expect(completed()).toBe(true);
+        } finally { cleanup(); }
+    });
+
     // bd med-ta2n.21: Diary's notes live in Vitals, so Diary without Sleep
     // still keeps `health` on; Diary has no flag of its own but is a pick.
     it('Diary picked without Sleep keeps health on', async () => {
@@ -293,8 +351,11 @@ describe('firstrun W1 module picker', () => {
     // firstrun record carries the picks W3 reads.
     it('persists flags and picks the cloud domain layer reads back', async () => {
         const records = createInMemoryRecordsPort();
+        // Effects stubbed: the real 2 s reminder recompute timer would fire
+        // in a later test (indexedDB is not defined there).
         const router = createApiRouter(null, {
             records, now: () => Date.parse('2026-07-10T12:00:00.000Z'), timeZone: 'UTC',
+            effects: { scheduleReminderRecompute: () => {} },
         });
         const fetchMock = vi.fn(async (url, opts) => {
             const method = (opts && opts.method) || 'GET';
@@ -376,6 +437,256 @@ describe('firstrun W1 module picker', () => {
             await flush();
             expect(document.querySelector('[data-notify-denied]')).toBeNull();
         } finally { cleanup(); }
+    });
+});
+
+// bd med-ejgf: in account mode W1 waits for the first pull. Until this device
+// has pulled the account (sync.js hasCaughtUp), an empty mirror says nothing
+// about the account, and W1's flag writes plus its {floor:'auto'} reminder
+// default would overwrite an existing account's. The shim answers
+// needs_first_run false until then; cloud-boot re-asks after each drain and
+// hands the answer to AuthBootstrap.mountFirstRun, as applyBootstrapPayload does.
+describe('firstrun W1 waits for the account pull (account mode)', () => {
+    // reminderdeliverypref: web/domain/reminders.js DELIVERYPREF_RECORD_TYPE.
+    // The new-account Skip test below proves W1 writes all three.
+    const GATED = ['features', 'reminderdeliverypref', 'firstrun'];
+
+    function account({ seed = {} } = {}) {
+        const store = createInMemoryRecordsPort(seed);
+        const written = [];
+        const records = {
+            ...store,
+            put: (type, rec) => { written.push(type); return store.put(type, rec); },
+            putIfAbsent: (type, rec) => { written.push(type); return store.putIfAbsent(type, rec); },
+        };
+        const pull = { done: false };
+        const router = createApiRouter(null, {
+            records, now: () => Date.parse('2026-07-10T12:00:00.000Z'), timeZone: 'UTC', caughtUp: async () => pull.done,
+            effects: { scheduleReminderRecompute: () => {} },
+        });
+        const call = async (url, method = 'GET', body) => router(url, method, body);
+        const fetchMock = vi.fn(async (url, opts) => {
+            const result = await call(url, (opts && opts.method) || 'GET', opts && opts.body ? JSON.parse(opts.body) : undefined);
+            return { ok: result !== null && result !== undefined, status: 200, json: async () => result };
+        });
+        const flow = loadFlow({ fetchMock, authBootstrap: true });
+        flow.window.apiCall = vi.fn(call);
+        // What applyBootstrapPayload and cloud-boot's re-ask both do with a
+        // /api/bootstrap payload: mount only on a boolean needs_first_run.
+        const apply = (res) => {
+            if (typeof res.needs_first_run === 'boolean') flow.window.AuthBootstrap.mountFirstRun(res.needs_first_run);
+        };
+        const ask = async () => apply(await call('/api/bootstrap'));
+        const gatedWrites = () => written.filter((t) => GATED.includes(t));
+        return { ...flow, pull, ask, apply, call, store, gatedWrites, fetchMock };
+    }
+    const done = { firstrun: [{ recordId: 'firstrun', clientTs: 5, deleted: false, first_run_complete: true }] };
+    const overlay = (document) => document.getElementById('wg-firstrun-overlay');
+
+    it('pull failed: no W1, no feature-flag, deliverypref or firstrun writes', async () => {
+        const { document, ask, call, gatedWrites, fetchMock, window, cleanup } = account();
+        try {
+            expect('needs_first_run' in (await call('/api/bootstrap'))).toBe(false);
+            await ask();
+            await flush();
+            expect(overlay(document)).toBeNull();
+            expect(window.WGFirstRun.isActive()).toBe(false);
+            expect(gatedWrites()).toEqual([]);
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(window.apiCall).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('pulled an account that finished first run: no W1', async () => {
+        const { document, ask, pull, gatedWrites, cleanup } = account({ seed: done });
+        try {
+            pull.done = true;
+            await ask();
+            expect(overlay(document)).toBeNull();
+            expect(gatedWrites()).toEqual([]);
+        } finally { cleanup(); }
+    });
+
+    it('pulled a new account: W1 shows as before, and Skip writes the flags and the reminder default', async () => {
+        const { document, ask, pull, gatedWrites, store, cleanup } = account();
+        try {
+            pull.done = true;
+            await ask();
+            expect(overlay(document)).not.toBeNull();
+            action(document, 'skip-all').click();
+            await vi.waitFor(() => expect(new Set(gatedWrites())).toEqual(new Set(GATED)));
+            expect(await store.list('reminderdeliverypref')).toHaveLength(1);
+        } finally { cleanup(); }
+    });
+
+    it('pull fails, then succeeds: the re-ask behaves like the matching success case', async () => {
+        for (const [seed, shown] of [[done, false], [{}, true]]) {
+            const { document, ask, pull, store, gatedWrites, cleanup } = account();
+            try {
+                await ask();
+                expect(overlay(document)).toBeNull();
+                // The pull lands what the server holds.
+                for (const [type, recs] of Object.entries(seed)) for (const r of recs) await store.put(type, r);
+                pull.done = true;
+                await ask();
+                expect(overlay(document) !== null).toBe(shown);
+                expect(gatedWrites()).toEqual([]);
+            } finally { cleanup(); }
+        }
+    });
+
+    // The boot-time applyBootstrapPayload awaits cache writes before its mount,
+    // so a payload read before the pull can land after the post-pull re-ask.
+    it('a pre-pull bootstrap landing after the re-ask leaves the mounted W1 up', async () => {
+        const { document, ask, apply, call, pull, cleanup } = account();
+        try {
+            const stale = await call('/api/bootstrap');
+            pull.done = true;
+            await ask();
+            expect(overlay(document)).not.toBeNull();
+            apply(stale);
+            expect(overlay(document)).not.toBeNull();
+        } finally { cleanup(); }
+    });
+});
+
+// bd med-ydt2: a fresh Android install that opens from an invite. Local side:
+// the Play referrer can fill the invite slot a moment after launch, so the
+// shell holds invite.pending until its read settles and W1 waits on the answer.
+// Account side: the local → cloud move pickup imports the stash and reloads, so
+// W1 waits for the pickup too. Either way W1 never mounts and then vanishes.
+describe('firstrun W1 in the invite → account flow (bd med-ydt2)', () => {
+    const CLAIM = 'https://abc.app.example.com/#claim=0a1b2c';
+    const W1_ID = 'wg-firstrun-overlay';
+    // Every W1 overlay ever added to the page, even one removed again.
+    function watchW1(window) {
+        const seen = [];
+        new window.MutationObserver((records) => {
+            for (const r of records) for (const n of r.addedNodes) if (n.id === W1_ID) seen.push(n);
+        }).observe(window.document.body, { childList: true, subtree: true });
+        return seen;
+    }
+
+    it('local first launch: an invite.pending answer slower than 3 s routes the invite; W1 waits for Use without sync', async () => {
+        let answer;
+        const native = {
+            platform: 'android',
+            has: vi.fn(async (op) => op === 'invite.pending'),
+            call: vi.fn((op) => (op === 'invite.pending' ? new Promise((r) => { answer = r; }) : Promise.resolve(null))),
+        };
+        const { window, document, cleanup } = loadFlow({
+            fetchMock: okFetch(), local: true, native, invite: true, authBootstrap: true, base: 'app.example.com',
+        });
+        try {
+            window.CloudVault = { userContentCount: async () => 0 };
+            // Compress the probe boxes 100x (3 s → 30 ms, 15 s → 150 ms) and
+            // let the shell answer at 80 ms: past the short box, inside the long.
+            const realTimeout = window.setTimeout.bind(window);
+            window.setTimeout = (fn, ms, ...args) => realTimeout(fn, ms >= 1000 ? ms / 100 : ms, ...args);
+            const seen = watchW1(window);
+            window.AuthBootstrap.mountFirstRun(true);
+            await new Promise((r) => { realTimeout(r, 80); });
+            expect(seen).toEqual([]);
+            answer({ url: CLAIM, receivedAt: Date.now() });
+            await vi.waitFor(() => expect(document.getElementById('invite-ready')).not.toBeNull());
+            expect(seen).toEqual([]);
+            expect(window.WGFirstRun.isActive()).toBe(false);
+            // Starting fresh instead: W1 now, and it stays.
+            document.querySelector('[data-invite-action="without-sync"]').click();
+            await vi.waitFor(() => expect(document.getElementById(W1_ID)).not.toBeNull());
+            await new Promise((r) => { realTimeout(r, 200); });
+            expect(seen).toHaveLength(1);
+            expect(document.getElementById(W1_ID)).toBe(seen[0]);
+        } finally { cleanup(); }
+    });
+
+    describe('account side: the real cloud-boot.js over a new account', () => {
+        const CLOUD_BOOT = fs.readFileSync(path.join(REPO_ROOT, 'web/cloud/js/cloud-boot.js'), 'utf8').replace(/\bimport\(/g, '__imp(');
+        // The golden vault: what the local page stashed (records → the import
+        // stamps `firstrun` at the floor, vaultToRecords).
+        const VAULT = fs.readFileSync(path.join(REPO_ROOT, 'tests/fixtures/vault-v1.json'), 'utf8');
+        let env;
+        beforeEach(() => {
+            allowConsoleNoise(); // location.reload is a jsdom "not implemented" error
+            env = loadFrontendEnv();
+            for (const file of [STATE_JS, FEATURES_JS, TRIAL_JS, INDEX_JS]) {
+                env.window.eval(`${fs.readFileSync(file, 'utf8')}\n//# sourceURL=file://${file}`);
+            }
+        });
+        afterEach(() => env.cleanup());
+
+        async function boot({ stash }) {
+            const { window } = env;
+            const log = [];
+            const call = vi.fn(async (op) => {
+                log.push(op);
+                if (op === 'shell.ops') return ['shell.ops', 'move.take', 'move.clear'];
+                if (op === 'move.take') return stash;
+                return true;
+            });
+            window.LocalNotifications = { ...window.LocalNotifications, __native: { platform: 'android', call }, copy: { device: 'phone' } };
+            const seen = watchW1(window);
+            let release;
+            const pulled = new Promise((r) => { release = r; });
+            const modules = {
+                'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+                // A new account, pulled: first run is still to do, answered
+                // only while cloud-boot's caughtUp gate allows (apishim.js
+                // bootstrapPayload omits the flag otherwise).
+                'apishim.js': {
+                    installApiShim: (_ctx, opts) => async (endpoint) => {
+                        if (endpoint !== '/api/bootstrap') return null;
+                        const answer = !opts || !opts.caughtUp || await opts.caughtUp();
+                        return answer ? { needs_first_run: true } : {};
+                    },
+                },
+                'sync.js': {
+                    pullOnOpen: () => pulled,
+                    hasCaughtUp: async () => true,
+                    startReconnectAutoDrain() {},
+                    getSyncStatus: async () => ({}),
+                },
+                '/domain/vault.js': realVault,
+            };
+            const __imp = (spec) => {
+                const key = spec.replace('/js/', '');
+                return key in modules ? Promise.resolve(modules[key]) : Promise.reject(new Error(`unexpected import(${spec})`));
+            };
+            // eslint-disable-next-line no-new-func
+            new Function('window', 'document', 'location', 'navigator', '__imp', CLOUD_BOOT)(
+                window, window.document, window.location, window.navigator, __imp,
+            );
+            await window.MedTrackerCloudReady;
+            window.CloudVault.hasUserContent = vi.fn(async () => false); // the new account is empty
+            window.CloudVault.importAll = vi.fn(async () => { log.push('importAll'); return { upload: 'synced' }; });
+            release();
+            // The app's own boot-time /api/bootstrap (app.js →
+            // applyBootstrapPayload), landing after the pull while the pickup
+            // still runs: it mounts only on a boolean flag.
+            await new Promise((r) => { setTimeout(r, 0); });
+            const res = await window.apiCallDirect('/api/bootstrap', 'GET');
+            if (typeof res.needs_first_run === 'boolean') window.AuthBootstrap.mountFirstRun(res.needs_first_run);
+            return { window, log, seen };
+        }
+        const settle = () => new Promise((r) => { setTimeout(r, 100); });
+
+        it('invite → account create with migrated local data: W1 never mounts before the reload', async () => {
+            const { window, log, seen } = await boot({ stash: { vault: VAULT } });
+            await vi.waitFor(() => expect(log).toContain('move.clear'));
+            await settle();
+            expect(log).toEqual(['shell.ops', 'move.take', 'importAll', 'move.clear']);
+            expect(seen).toEqual([]);
+            expect(window.WGFirstRun.isActive()).toBe(false);
+        });
+
+        it('no stash to pick up: W1 mounts once the pickup has settled, and stays', async () => {
+            const { window, log, seen } = await boot({ stash: null });
+            await vi.waitFor(() => expect(window.document.getElementById(W1_ID)).not.toBeNull());
+            await settle();
+            expect(log).toEqual(['shell.ops', 'move.take']);
+            expect(seen).toHaveLength(1);
+            expect(window.WGFirstRun.isActive()).toBe(true);
+        });
     });
 });
 
@@ -690,7 +1001,7 @@ describe('firstrun W1 footnote', () => {
     }
 
     it('shows the disclaimer and Privacy policy below the foot, after Continue/Skip in tab order', async () => {
-        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), invite: true });
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), invite: true, url: 'https://acct.example.test/today' });
         try {
             window.WGFirstRun.mount();
             await flush();
@@ -700,7 +1011,7 @@ describe('firstrun W1 footnote', () => {
             const privacy = link(document, 'privacy');
             expect(privacy.textContent).toBe('Privacy policy');
             expect(privacy.getAttribute('href'))
-                .toBe('https://cloud.myhealthbot.ai/privacy');
+                .toBe('https://example.test/privacy'); // the account label stripped (bd med-ffuu.1)
             expect(privacy.target).toBe('_blank');
             expect(privacy.rel).toBe('noopener');
             expect(privacy.classList.contains('wg-link')).toBe(true);
@@ -708,7 +1019,31 @@ describe('firstrun W1 footnote', () => {
         } finally { cleanup(); }
     });
 
-    it('has no "How to get an invite" on the web or in account mode', async () => {
+    it('local mode links Privacy policy on the shell base, or renders it unlinked without one (bd med-ffuu.1)', async () => {
+        const linked = loadFlow({ fetchMock: okFetch(), local: true, invite: true, native: shell([]), base: 'qa.example.test', url: 'https://acct.example.org/' });
+        try {
+            linked.window.WGFirstRun.mount();
+            await flush();
+            await flush();
+            const privacy = link(linked.document, 'privacy');
+            expect(privacy.tagName).toBe('A');
+            expect(privacy.getAttribute('href')).toBe('https://qa.example.test/privacy');
+        } finally { linked.cleanup(); }
+        for (const opts of [{ local: true, invite: true }, { local: true }]) {
+            const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), url: 'https://acct.example.org/', ...opts });
+            try {
+                window.WGFirstRun.mount();
+                await flush();
+                await flush();
+                const privacy = link(document, 'privacy');
+                expect(privacy.textContent).toBe('Privacy policy');
+                expect(privacy.tagName).toBe('SPAN');
+                expect(privacy.hasAttribute('href')).toBe(false);
+            } finally { cleanup(); }
+        }
+    });
+
+    it('has no "Get an invite" line on the web or in account mode', async () => {
         for (const opts of [
             { local: false, invite: true, base: 'qa.example.test' }, // the web / account mode, no shell
             { local: false, invite: true, base: 'qa.example.test', native: shell(['base.post']) }, // account mode in a shell
@@ -722,12 +1057,12 @@ describe('firstrun W1 footnote', () => {
                 await flush();
                 expect(link(document, 'invite-howto')).toBeNull();
                 expect(link(document, 'privacy')).not.toBeNull();
-                expect(document.getElementById('wg-firstrun-overlay').textContent).not.toContain('How to get an invite');
+                expect(document.getElementById('wg-firstrun-overlay').textContent).not.toContain('Get an invite');
             } finally { cleanup(); }
         }
     });
 
-    it('local shell with base.post: "How to get an invite" opens the W5 request sheet', async () => {
+    it('local shell with base.post: "Want it on every device? Get an invite" (IM1) opens the request sheet', async () => {
         const native = shell(['base.post']);
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), local: true, invite: true, native, base: 'qa.example.test' });
         try {
@@ -736,10 +1071,13 @@ describe('firstrun W1 footnote', () => {
             await flush();
             await flush();
             const how = link(document, 'invite-howto');
-            expect(how.textContent).toBe('How to get an invite');
+            expect(how.textContent).toBe('Get an invite');
             expect(how.tagName).toBe('BUTTON');
             expect(how.classList.contains('wg-link')).toBe(true);
-            expect(how.parentElement).toBe(link(document, 'privacy').parentElement);
+            const line = how.parentElement;
+            expect(line.classList.contains('wg-shell__fine')).toBe(true);
+            expect(line.textContent).toBe('Want it on every device? Get an invite');
+            expect(line.parentElement).toBe(link(document, 'privacy').parentElement);
             expect(native.has).toHaveBeenCalledWith('base.post');
             how.click();
             expect(request).toHaveBeenCalledTimes(1);
@@ -756,6 +1094,7 @@ describe('firstrun W1 footnote', () => {
             await flush();
             const how = link(document, 'invite-howto');
             expect(how.tagName).toBe('A');
+            expect(how.parentElement.textContent).toBe('Want it on every device? Get an invite');
             expect(how.getAttribute('href')).toBe('https://qa.example.test/');
             expect(how.target).toBe('_blank');
             expect(how.rel).toBe('noopener');

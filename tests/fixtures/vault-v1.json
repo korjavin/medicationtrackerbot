@@ -24,11 +24,35 @@
       "intakes": [
         {
           "medication_id": 1,
+          "scheduled_at": "2026-07-06T19:00:00Z",
+          "taken_at": null,
+          "status": "UNTAKEN",
+          "snoozed_until": null,
+          "source": "schedule",
+          "rev": 2,
+          "acted_at": "2026-07-06T20:00:00Z",
+          "via": "app",
+          "tz": "Europe/Berlin",
+          "note": "Undone; was taken at 2026-07-06T19:05:00Z",
+          "conflict": {
+            "status": "TAKEN",
+            "taken_at": "2026-07-06T19:05:00Z",
+            "acted_at": "2026-07-06T19:30:00Z",
+            "via": "mcp"
+          }
+        },
+        {
+          "medication_id": 1,
           "scheduled_at": "2026-07-07T07:00:00Z",
           "taken_at": "2026-07-07T07:05:00Z",
           "status": "TAKEN",
-          "snoozed_until": null,
-          "source": "schedule"
+          "snoozed_until": "2026-07-07T07:10:00Z",
+          "source": "schedule",
+          "rev": 1,
+          "acted_at": "2026-07-07T07:05:00Z",
+          "via": "telegram",
+          "tz": "Europe/Berlin",
+          "snoozed_at": "2026-07-07T07:00:00Z"
         },
         {
           "medication_id": 1,
@@ -36,7 +60,11 @@
           "taken_at": "2026-07-08T15:32:00Z",
           "status": "TAKEN",
           "snoozed_until": null,
-          "source": "schedule"
+          "source": "schedule",
+          "rev": 1,
+          "acted_at": "2026-07-08T15:33:00Z",
+          "via": "app",
+          "tz": "Europe/Berlin"
         },
         {
           "medication_id": 1,
@@ -70,7 +98,15 @@
           "medication_id": 1,
           "schedule": "{\"type\":\"daily\",\"times\":[\"09:00\"]}",
           "tz_shift_policy": "flexible",
-          "from": "2026-06-20T18:30:00Z"
+          "from": "2026-06-20T18:30:00Z",
+          "boundary": [
+            {
+              "medId": 1,
+              "kept": [],
+              "cancelled": ["intake-1-1782028800"],
+              "replacement": { "intake-1-1782028800": "intake-1-1782032400" }
+            }
+          ]
         }
       ]
     },
@@ -599,13 +635,21 @@
               "note": "shift 1h later"
             }
           ],
-          "boundary": null
+          "boundary": [
+            {
+              "medId": 1,
+              "kept": [],
+              "cancelled": ["intake-1-1777723200"],
+              "replacement": { "intake-1-1777723200": "intake-1-1777795200" }
+            }
+          ]
         }
       ]
     },
     "settings": {
       "timezone": "Europe/Berlin",
       "dismissed_tz_suggestion": "",
+      "height_cm": 180,
       "features": {
         "food": true,
         "bp": true,
@@ -663,6 +707,10 @@
         "preferred_reminder_hour": 7,
         "snoozed_until": null,
         "dont_remind_until": null
+      },
+      "reminder_delivery": {
+        "delivery": "webpush",
+        "verbosity": "generic"
       }
     },
     "gamification": {

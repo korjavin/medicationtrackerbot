@@ -286,6 +286,16 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-toast__text{flex:1;min-width:0}.wg-toast__text b{font-weight:600}.wg-toast__text small{display:block;color:var(--wg-fg-3);font-size:var(--wg-fs-xs)}
 .wg-toast--ok>.wg-ico{color:var(--wg-ok-fg)}.wg-toast--danger{border-color:var(--wg-danger-line)}.wg-toast--danger>.wg-ico{color:var(--wg-danger-fg)}
 .wg-toast__undo{height:36px;padding:0 12px;border:0;border-radius:var(--wg-r-sm);background:transparent;color:var(--wg-sun);font:600 var(--wg-fs-sm) var(--wg-font-ui);cursor:pointer}.wg-toast__undo:hover{background:rgba(251,189,13,.1)}
+/* pull to refresh (bd med-y7b4.6; kit screens-settings-cleanup.html style block). The app's views are
+   block flow, not the kit's flex column, so width:fit-content + auto margins stand in for align-self. */
+.wg-ptr{display:flex;align-items:center;justify-content:center;gap:8px;align-self:center;width:fit-content;height:36px;margin:0 auto 10px;padding:0 14px;border-radius:999px;background:var(--wg-bg-float);border:1px solid var(--wg-line-strong);box-shadow:var(--wg-sh-float);font:500 var(--wg-fs-xs)/1 var(--wg-font-ui);color:var(--wg-fg-2)}
+.wg-ptr>.wg-ico{color:var(--wg-fg-3)}
+.wg-ptr--ready>.wg-ico{color:var(--wg-mint);transform:rotate(180deg)}
+.wg-ptr--busy>.wg-ico{color:var(--wg-mint);animation:wg-ptr-spin 1s linear infinite}
+@keyframes wg-ptr-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.wg-ptr--busy>.wg-ico{animation:none}}
+/* The browser's own pull to refresh (Chrome on Android) would reload the page on the same drag. */
+html{overscroll-behavior-y:contain}
 /* scrim, dialog, sheet */
 .wg-scrim{position:absolute;inset:0;z-index:var(--wg-z-dialog);display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(4,14,12,.62);backdrop-filter:blur(3px)}
 .wg-scrim--sheet{z-index:var(--wg-z-sheet);align-items:flex-end;padding:56px 0 0}
@@ -592,6 +602,13 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
    confirm layer with its tap-catching backdrop, so it opens over the W1
    overlay; the kit's display rules (.wg-field, .wg-error) beat UA [hidden]. */
 .wg-modal.wg-invite-sheet {
+    z-index: var(--z-confirm);
+}
+
+/* Notification ask + RD2 lock-screen choice (features/notify-permission.js,
+   med-mt0l): same confirm layer as their backdrop, so the backdrop never
+   swallows a tap on the sheet and RD2 opens over the W1 overlay. */
+.wg-modal.wg-notify-ask {
     z-index: var(--z-confirm);
 }
 

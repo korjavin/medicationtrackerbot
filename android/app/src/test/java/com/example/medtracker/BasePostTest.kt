@@ -91,6 +91,14 @@ class BasePostTest {
         assertEquals(0, requests.size)
     }
 
+    // The erase's install-record delete (bd med-egb3): allowlisted, an empty body, 204 is a reply.
+    @Test fun eraseDeleteIsAllowed() {
+        respond = { "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".toByteArray() }
+        val r = BasePost.send(root, "/api/attest/delete", "", mapOf("X-Attest-Key-Id" to "kid"))
+        assertEquals(204, r.status)
+        assertEquals("/api/attest/delete", requests.single().path)
+    }
+
     @Test fun bodyMustBeAString() {
         fails("invalid body") { BasePost.send(root, "/api/invite-requests", null, null) }
         fails("invalid body") { BasePost.send(root, "/api/invite-requests", 42, null) }

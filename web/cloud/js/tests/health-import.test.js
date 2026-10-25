@@ -362,7 +362,7 @@ describe('Apple Health import', () => {
             expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout']);
             expect(records.rows.has(`bp-hk-${U1}`)).toBe(true);
             expect(afterImport).toHaveBeenCalledTimes(1);
-            expect(desc()).toMatch(/^Checked .* · 1 reading so far \(last new .*\)$/);
+            expect(desc()).toMatch(/^Checked .* · 1 reading so far \(last new .*\)\. No sleep found: .*\.$/); // BP only: the Sleep switch hint
             expect(healthStatusText(storage)).toBe(desc());
 
             // Off and on again is the manual rescan: it starts from no anchor.
@@ -486,8 +486,8 @@ describe('Apple Health import', () => {
             });
             expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 0 });
             const domain = createHealthImportDomain({ records: memRecords(), now: () => W0, timeZone: 'UTC' });
-            expect(await domain.importSamples('sleep', night, { from: N0 - 30 * 60_000, to: N0 + 20 * H })).toEqual({ added: 0 });
-            expect(await domain.importSamples('sleep', night, { from: N0 - 2 * H, to: N0 + 20 * H })).toEqual({ added: 1 });
+            expect(await domain.importSamples('sleep', night, { from: N0 - 30 * 60_000, to: N0 + 20 * H })).toMatchObject({ added: 0 });
+            expect(await domain.importSamples('sleep', night, { from: N0 - 2 * H, to: N0 + 20 * H })).toMatchObject({ added: 1 });
         });
 
         it('every device writes the same night body, whatever its own time zone', async () => {
@@ -586,7 +586,7 @@ describe('Apple Health import', () => {
             const summary = slp(9, N0, N0 + 8 * H, 1); // an unspecified "asleep" span under the stages
             const dup = slp(8, N0, N0 + 2 * H, 3); // a duplicate of the first core sample
             expect(await domain.importSamples('sleep', [...night, summary, dup], { from: N0 - 18 * H, to: N0 + 26 * H }))
-                .toEqual({ added: 1 });
+                .toMatchObject({ added: 1 });
             expect(records.rows.get(DAY_ID)).toMatchObject({
                 light_minutes: 350, deep_minutes: 60, rem_minutes: 60, awake_minutes: 10, total_minutes: 470,
             });
@@ -670,8 +670,8 @@ describe('Apple Health import', () => {
         it('the first settled version of a night wins; a fuller one later is not applied', async () => {
             const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
-            expect(await at.importSamples('sleep', night.slice(0, 1), window)).toEqual({ added: 1 });
-            expect(await at.importSamples('sleep', night, window)).toEqual({ added: 0 });
+            expect(await at.importSamples('sleep', night.slice(0, 1), window)).toMatchObject({ added: 1 });
+            expect(await at.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
             expect(records.rows.get(DAY_ID)).toMatchObject({ clientTs: 0, total_minutes: 120 });
         });
 
@@ -680,9 +680,9 @@ describe('Apple Health import', () => {
             copy[4] = { ...copy[4], end: copy[4].end - 60 * 60_000 }; // the other app saw an hour less
             const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
-            expect(await at.importSamples('sleep', [...copy, ...night], window)).toEqual({ added: 1 });
+            expect(await at.importSamples('sleep', [...copy, ...night], window)).toMatchObject({ added: 1 });
             expect([...records.rows.values()]).toEqual([expect.objectContaining({ recordId: DAY_ID, total_minutes: 470 })]);
-            expect(await at.importSamples('sleep', [...night, ...copy], window)).toEqual({ added: 0 });
+            expect(await at.importSamples('sleep', [...night, ...copy], window)).toMatchObject({ added: 0 });
         });
 
         it('an edit outranks a rescan, and a deleted night stays deleted', async () => {
@@ -690,10 +690,10 @@ describe('Apple Health import', () => {
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
             await at.importSamples('sleep', night, window);
             await records.put('sleep', { ...records.rows.get(DAY_ID), clientTs: W0, notes: 'woke up twice' });
-            expect(await at.importSamples('sleep', night, window)).toEqual({ added: 0 });
+            expect(await at.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
             expect(records.rows.get(DAY_ID)).toMatchObject({ notes: 'woke up twice', total_minutes: 470 });
             await records.del('sleep', DAY_ID);
-            expect(await at.importSamples('sleep', night, window)).toEqual({ added: 0 });
+            expect(await at.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
             expect(records.rows.get(DAY_ID).deleted).toBe(true);
         });
 
@@ -722,6 +722,68 @@ describe('Apple Health import', () => {
             })]);
         });
 
+        // bd med-w6gx.30: a night entered by hand in the Health app.
+        const HAND = 'com.apple.Health';
+        const inBed = slp(40, N0, N0 + 8 * H, 0, HAND, null);
+        const lines = [];
+        const sleepLine = () => lines.filter((l) => l.startsWith('[health] sleep ')).pop();
+        beforeEach(() => { lines.length = 0; });
+
+        it('posts one counts-only diagnostics line per kind; a rescan names the day already there', async () => {
+            const data = { sleep: night };
+            expect(await runHealthImport({}, { ...opts(data), diag: (l) => lines.push(l) })).toEqual({ added: 1 });
+            expect(lines).toEqual([
+                '[health] bp returned=0 samples=0 written=0 skip{invalid:0,exists:0} anchor=kept',
+                '[health] weight returned=0 samples=0 written=0 skip{invalid:0,exists:0} anchor=kept',
+                '[health] sleep returned=6 samples=6 values={0:1,2:1,3:2,4:1,5:1} nights=1 written=1 '
+                    + 'skip{inBed:1,unsettled:0,clipped:0,exists:0,overlap:0} anchor=moved',
+                '[health] workout returned=0 samples=0 written=0 skip{invalid:0,exists:0,overlap:0} anchor=kept',
+            ]);
+            storage.setItem('wg.health.anchors', '{}');
+            await runHealthImport({}, { ...opts(data), diag: (l) => lines.push(l) });
+            expect(sleepLine()).toMatch(/ nights=1 written=0 skip\{inBed:1,unsettled:0,clipped:0,exists:1,overlap:0\} anchor=moved$/);
+        });
+
+        it('an In Bed-only night is still left out, and the line says so', async () => {
+            expect(await runHealthImport({}, { ...opts({ sleep: [inBed] }), diag: (l) => lines.push(l) })).toEqual({ added: 0 });
+            expect(sleepLine()).toBe('[health] sleep returned=1 samples=1 values={0:1} nights=0 written=0 '
+                + 'skip{inBed:1,unsettled:0,clipped:0,exists:0,overlap:0} anchor=moved');
+        });
+
+        it('a hand-entered Asleep + In Bed night opened right after waking waits to settle, then is written', async () => {
+            const asleep = slp(42, N0, N0 + 8 * H, 1, HAND, null);
+            const data = { sleep: [asleep, inBed] };
+            const at = (now) => ({ ...opts(data), now: () => now, diag: (l) => lines.push(l) });
+            expect(await runHealthImport({}, at(N0 + 8 * H + 10 * 60_000))).toEqual({ added: 0 });
+            expect(sleepLine()).toBe('[health] sleep returned=2 samples=2 values={0:1,1:1} nights=1 written=0 '
+                + 'skip{inBed:1,unsettled:1,clipped:0,exists:0,overlap:0} anchor=moved');
+            expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(N0);
+            // The anchor has moved past both samples; the time-window re-read still finds the night.
+            expect(await runHealthImport({}, at(N0 + 11.5 * H))).toEqual({ added: 1 });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 480 });
+            expect(sleepLine()).toBe('[health] sleep returned=0 samples=2 values={0:1,1:1} nights=1 written=1 '
+                + 'skip{inBed:1,unsettled:0,clipped:0,exists:0,overlap:0} anchor=kept');
+        });
+
+        it('a failing kind logs its error name in its line', async () => {
+            allowConsoleNoise(); // the failed kind is logged by design
+            const health = healthOf({});
+            const query = health.query;
+            health.query = async (args) => {
+                if (args.type === 'sleep') throw new TypeError('denied');
+                return query(args);
+            };
+            await runHealthImport({}, { health, storage, records, flush, diag: (l) => lines.push(l) });
+            expect(sleepLine()).toBe('[health] sleep returned=0 samples=0 values={} nights=0 written=0 skip{} anchor=kept error=TypeError');
+        });
+
+        it('sleep never returning a sample while BP does points at the Sleep switch', async () => {
+            await runHealthImport({}, opts({ bp: [bpSample(U1, T0, 120, 80)] }));
+            expect(healthStatusText(storage)).toMatch(/1 reading so far \(last new .*\)\. No sleep found: if you track sleep, turn on Sleep for Med Tracker in Settings → Health → Data Access & Devices\.$/);
+            await runHealthImport({}, opts({ bp: [bpSample(U1, T0, 120, 80)], sleep: [inBed] }));
+            expect(healthStatusText(storage)).not.toMatch(/No sleep found/);
+        });
+
         it('a Health workout id never equals a Mi Band row id, so delete removes only its own row', async () => {
             // A UUID whose last 48 bits read as the Mi Band row's epoch-ms id.
             const uuid = `00000000-0000-4000-8000-${W0.toString(16).padStart(12, '0')}`;
@@ -730,7 +792,7 @@ describe('Apple Health import', () => {
                 activity_name: 'cycling', source_start_ms: W0, source_end_ms: W0 + H,
             });
             const domain = createHealthImportDomain({ records, now: () => W0 + 2 * 24 * H, timeZone: 'UTC' });
-            expect(await domain.importSamples('workout', [{ ...run(1, W0 + 5 * H, W0 + 6 * H, 37), uuid }])).toEqual({ added: 1 });
+            expect(await domain.importSamples('workout', [{ ...run(1, W0 + 5 * H, W0 + 6 * H, 37), uuid }])).toMatchObject({ added: 1 });
             const workouts = createWorkoutDomain({ records, now: () => W0 + 2 * 24 * H, timeZone: 'UTC' });
             const ids = (await workouts.listMiBand()).map((w) => w.id);
             expect(new Set(ids).size).toBe(2);
@@ -751,6 +813,13 @@ describe('Apple Health import', () => {
             };
             expect(await runHealthImport({}, { health, storage, records, flush })).toEqual({ added: 1 });
             expect(JSON.parse(storage.getItem('wg.health.anchors'))).toEqual({ weight: '1' });
+        });
+
+        it('every kind failing rejects, so pull to refresh can name the fix (med-y7b4.6)', async () => {
+            allowConsoleNoise(); // the failed kinds are logged by design
+            const health = healthOf({});
+            health.query = async () => { throw new Error('Health Connect unavailable'); };
+            await expect(runHealthImport({}, { health, storage, records, flush })).rejects.toThrow('Health Connect unavailable');
         });
     });
 });

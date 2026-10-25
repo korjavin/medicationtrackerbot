@@ -69,8 +69,6 @@ describe('Settings → Integrations section', () => {
             'integrations-openai-vision-api-key',
             'integrations-openai-vision-url',
             'integrations-openai-vision-model',
-            'integrations-food-api-key',
-            'integrations-food-url',
             'integrations-elevenlabs-api-key',
             'integrations-elevenlabs-agent-id'
         ];
@@ -80,11 +78,16 @@ describe('Settings → Integrations section', () => {
             expect(input, `missing input #${id}`).not.toBeNull();
         }
 
+        // med-bpp9: the custom food-DB server section is gone, link included.
+        expect(document.getElementById('integrations-food-api-key')).toBeNull();
+        expect(document.getElementById('integrations-food-url')).toBeNull();
+        expect(document.documentElement.innerHTML).not.toContain('fastfooddb');
+
         // med-xso6.24: Save is the WGPage primary, not an in-body button.
         expect(document.getElementById('save-integrations-btn')).toBeNull();
         // Every key field is a .wg-secret password input (masked by default).
         for (const id of ['integrations-openai-api-key', 'integrations-openai-vision-api-key',
-            'integrations-food-api-key', 'integrations-elevenlabs-api-key']) {
+            'integrations-elevenlabs-api-key']) {
             const input = document.getElementById(id);
             expect(input.type, id).toBe('password');
             expect(input.closest('.wg-secret'), id).not.toBeNull();
@@ -234,10 +237,6 @@ describe('Settings → Integrations section', () => {
         expect(document.getElementById('integrations-openai-api-key').value).toBe('***');
         expect(document.getElementById('integrations-openai-url').value).toBe('https://api.openai.com/v1');
         expect(document.getElementById('integrations-openai-model').value).toBe('gpt-5');
-        expect(document.getElementById('integrations-food-api-key').value).toBe('***');
-        expect(document.getElementById('integrations-food-url').value).toBe('https://fastfood.example.com');
-        // med-xrr: a stored legacy food.domain has no input to land in.
-        expect(document.getElementById('integrations-food-domain')).toBeNull();
         expect(document.getElementById('integrations-elevenlabs-api-key').value).toBe('');
         expect(document.getElementById('integrations-elevenlabs-agent-id').value).toBe('agent_abc');
     });
@@ -246,7 +245,7 @@ describe('Settings → Integrations section', () => {
     // must survive a save — readDOMIntoPayload sends '' for any absent input,
     // and '' means "clear" to both patch paths, so `domain` has to be absent
     // from the payload entirely rather than merely absent from the DOM.
-    it('save() omits food.domain so a legacy stored value is preserved, not cleared', async () => {
+    it('save() omits the food group so a stored custom food URL/key/domain is preserved, not cleared', async () => {
         const { window, document } = env;
 
         const calls = [];
@@ -264,8 +263,7 @@ describe('Settings → Integrations section', () => {
 
         const patch = calls.find((c) => c.method === 'PATCH');
         expect(patch).toBeTruthy();
-        expect(patch.body.food).toBeTruthy();
-        expect(Object.prototype.hasOwnProperty.call(patch.body.food, 'domain')).toBe(false);
+        expect(patch.body.food).toBeUndefined();
     });
 
     it('save() routes the write through DataStore.applyOptimistic and PATCHes the form payload', async () => {
@@ -656,7 +654,7 @@ describe('Settings → Integrations section', () => {
         expect(trialCard(document).getAttribute('data-trial-state')).toBe('offer');
         expect(trialCard(document).querySelector('.wg-card__title').textContent).toBe('Try AI for free');
         expect([...document.querySelectorAll('#integrations-trial [data-own-key-state]')].map((n) => n.textContent))
-            .toEqual(['Not set', 'Not set', 'Not set']);
+            .toEqual(['Not set', 'Not set']);
         expect(await window.SettingsIntegrations.trialOffer()).toBe(true);
 
         trialCard(document).querySelector('[data-action="trial-start"]').click();
@@ -680,19 +678,20 @@ describe('Settings → Integrations section', () => {
         expect(trialCard(document).getAttribute('data-trial-state')).toBe('offer');
     });
 
-    it('cloud: own-key rows show Set and jump to the key field', async () => {
+    it('cloud: own-key rows show Set and jump to the key field (no food row since med-bpp9)', async () => {
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
         installTrialMetas(document, ['medtracker-trial-ai']);
         window.apiCall = vi.fn(async (url) => (url === '/api/settings/integrations'
-            ? { openai: {}, food: { api_key: '***' }, elevenlabs: {} }
+            ? { openai: { api_key: '***' }, elevenlabs: {} }
             : { ai: true, updated_at: 1 }));
         await window.SettingsIntegrations.load();
         await new Promise(r => setTimeout(r, 0));
-        const food = document.querySelector('#integrations-trial [data-own-key="food"]');
-        expect(food.querySelector('[data-own-key-state]').textContent).toBe('Set');
-        food.click();
-        expect(document.activeElement).toBe(document.getElementById('integrations-food-api-key'));
+        expect(document.querySelector('#integrations-trial [data-own-key="food"]')).toBeNull();
+        const row = document.querySelector('#integrations-trial [data-own-key="openai"]');
+        expect(row.querySelector('[data-own-key-state]').textContent).toBe('Set');
+        row.click();
+        expect(document.activeElement).toBe(document.getElementById('integrations-openai-api-key'));
     });
 
     it('cloud: no trial entry or offer once an own key is saved, without the trial flag, or before consent loads', async () => {

@@ -13,8 +13,9 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { projectOccurrences } from './medintake.js';
+import { lineageTable, regenerateWindow } from './lineage.js';
 import {
-  minDoseIntervalMs, localWallToUtcMs, localDateParts,
+  localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
 } from './medschedule.js';
 import { trackerDayTotals } from './trackers.js';
@@ -25,7 +26,7 @@ const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
 const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
-const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
+export const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
@@ -492,7 +493,7 @@ export function computeReminderHorizon({
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
   workoutStatus = { enabled: false }, weighInPushText = null, weighInPausedWeeks = [],
-  trackers = [], trackerLogs = [],
+  trackers = [], trackerLogs = [], scheds = [], transitions = [], cutMs = null,
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [String(m.recordId ?? m.id), m])); // String keys: med-wi09.16
@@ -504,42 +505,27 @@ export function computeReminderHorizon({
   // app does not show. The projection already hides a tombstoned slot (a dose
   // deleted on purpose: deleteFutureIntakes, or medications.js's
   // cancelPendingIntakesForMedication on archive — bd med-x7x2), which is why
-  // `intakes` must arrive RAW.
+  // `intakes` must arrive RAW. History (`scheds` / `transitions`, bd
+  // med-wi09.12) adds the old-generation doses a boundary kept past a switch —
+  // no stored row carries them any more — and hides the slots it cancelled.
+  const { occurrences: regenerated } = regenerateWindow({
+    medications: meds, scheds, transitions, intakes, tzPlan, timeZone, cutMs, fromMs: now, toMs: now + FORECAST_DAYS * 86400000, nowMs: now,
+  });
   const targets = projectOccurrences({
     medications: meds, intakes, tzPlan, timeZone, nowMs: now, fromMs: now, toMs: now + FORECAST_DAYS * 86400000,
+    lineage: lineageTable([...transitions, ...scheds]),
+    regenerated,
+    cutMs,
   // medById holds live, unarchived meds only: a stored future row of a deleted
   // or archived med is history, not a nag.
+  // A dose already handled (taken early, skipped) has its evidence at its own
+  // id, so the projection lists it as taken/skipped, not upcoming: the
+  // projection is the only rule here — no ±band (bd med-wi09.12).
   }).filter((r) => r.state === 'upcoming' && medById.has(String(r.medId)))
     .map((r) => ({ medicationId: r.medId, medName: r.name, scheduledAtMs: Date.parse(r.plannedAt) }));
-  // A dose the user already confirmed early (via trigger-next-intake) or
-  // skipped must not resurface as a "Time to take" push. Mirrors the server
-  // scheduler's dedup, which skips a normal target already covered by a
-  // handled intake (internal/scheduler/medication.go): an exact-slot match
-  // plus the symmetric ±minDoseInterval band (same rule as medintake.js's
-  // materializeDueDoses / HasIntakeNearScheduledTime), so a schedule edit or
-  // tz-plan shift that moves the forecast target near — but not exactly onto —
-  // an already-handled intake still suppresses the duplicate push.
-  const handledByMed = new Map();
-  for (const intake of intakes) {
-    if (intake.deleted) continue;
-    if (intake.status === 'TAKEN' || intake.status === 'SKIPPED') {
-      const list = handledByMed.get(String(intake.medication_id)) || [];
-      list.push(Date.parse(intake.scheduled_at));
-      handledByMed.set(String(intake.medication_id), list);
-    }
-  }
-  // The ±band is suppression only (it avoids a nag) — actions never guess.
-  const isHandled = (t, med) => {
-    const handled = handledByMed.get(String(t.medicationId));
-    if (!handled) return false;
-    // bandMs === 0 (as_needed / unparseable) collapses to exact-slot equality.
-    const bandMs = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
-    return handled.some((ms) => Math.abs(ms - t.scheduledAtMs) <= bandMs);
-  };
   const bySlot = new Map();
   for (const t of targets) {
     const med = medById.get(String(t.medicationId));
-    if (isHandled(t, med)) continue;
     const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };
     slot.names.push(med ? medDisplayName(med) : t.medName);
     // Carry the identity of every med the reminder names for this slot so
@@ -736,7 +722,7 @@ function findSingleton(all, recordId) {
 
 // createRemindersDomain builds the enable/disable preference + horizon-build
 // API over the injected ports:
-//   records — { list(type), put(type, record), del(type, id) }
+//   records — { list(type), put(type, record), putIfAbsent(type, record), del(type, id) }
 //   now()   — current time in ms epoch
 // The shim layer reads medication/intake/tzplan records itself and calls
 // buildHorizon with them, then uploads the result via web/cloud/js/push.js's
@@ -839,24 +825,61 @@ export function createRemindersDomain({ records, now }) {
   // what leaves the vault: 'generic' (default) sends only "Medication time",
   // 'detailed' is an explicit opt-in that sends medication names. Defaulting to
   // generic keeps names in the vault unless the user chooses otherwise (bd
-  // med-yor.13).
+  // med-yor.13). Telegram reads `verbosity` ONLY.
+  //
+  // `lockscreen` (med-5vy0) is what web push bodies and the shells' local
+  // notifications show: the explicit verbosity, else the record's
+  // `lockscreen_default` (the Detailed floor below), else 'generic'.
   async function getDeliveryPref() {
     const all = await records.list(DELIVERYPREF_RECORD_TYPE);
     const rec = findSingleton(all, DELIVERYPREF_RECORD_ID);
     const delivery = rec && DELIVERY_CHANNELS.includes(rec.delivery) ? rec.delivery : 'webpush';
-    const verbosity = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : 'generic';
-    return { delivery, verbosity };
+    const explicit = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : null;
+    const lockscreen = explicit || (rec && VERBOSITIES.includes(rec.lockscreen_default) ? rec.lockscreen_default : 'generic');
+    return { delivery, verbosity: explicit || 'generic', lockscreen };
   }
 
+  // Writes an explicit verbosity, which replaces any lockscreen_default. Not
+  // passing one keeps the Telegram verbosity, 'generic' over a Detailed
+  // floor: a floored account that switches to Telegram/Both stores generic,
+  // and its lock screen follows from then on (one field, one visible
+  // setting). A Settings UI resending the shown lock-screen value unchanged
+  // on a channel switch counts as not passing one.
   async function setDeliveryPref({ delivery, verbosity } = {}) {
     const current = await getDeliveryPref();
+    const nextDelivery = DELIVERY_CHANNELS.includes(delivery) ? delivery : current.delivery;
+    const channelOnly = nextDelivery !== current.delivery && verbosity === current.lockscreen;
     const next = {
-      delivery: DELIVERY_CHANNELS.includes(delivery) ? delivery : current.delivery,
-      verbosity: VERBOSITIES.includes(verbosity) ? verbosity : current.verbosity,
+      delivery: nextDelivery,
+      verbosity: VERBOSITIES.includes(verbosity) && !channelOnly ? verbosity : current.verbosity,
     };
     await records.put(DELIVERYPREF_RECORD_TYPE, {
       recordId: DELIVERYPREF_RECORD_ID, clientTs: now(), deleted: false, ...next,
     });
+    return getDeliveryPref();
+  }
+
+  // Defaults, not choices (med-5vy0): DERIVED writes, putIfAbsent at a fixed
+  // clientTs below any real write (CLAUDE.md rule 12), so a real choice on
+  // any device wins and a stored pref (a Telegram user's 'generic' included)
+  // is never touched.
+  //   'detailed': an account holding medications but no pref keeps the names
+  //     its reminders always showed. Carried as lockscreen_default with
+  //     verbosity ABSENT: clients from before med-5vy0 read verbosity as the
+  //     Telegram opt-in, and absent means generic to them.
+  //   'generic': a new account's first run, a sheet closed untouched.
+  //     clientTs 1, the one exception to the floor-0 rule: two devices that
+  //     derived different defaults converge under strict-> LWW, and privacy
+  //     wins the tie.
+  const FLOOR_BODIES = {
+    detailed: { clientTs: 0, delivery: 'webpush', lockscreen_default: 'detailed' },
+    generic: { clientTs: 1, delivery: 'webpush', verbosity: 'generic' },
+  };
+  async function floorDeliveryPref(verbosity = 'detailed') {
+    const body = FLOOR_BODIES[verbosity];
+    if (body && !findSingleton(await records.list(DELIVERYPREF_RECORD_TYPE), DELIVERYPREF_RECORD_ID)) {
+      await records.putIfAbsent(DELIVERYPREF_RECORD_TYPE, { recordId: DELIVERYPREF_RECORD_ID, deleted: false, ...body });
+    }
     return getDeliveryPref();
   }
 
@@ -869,11 +892,18 @@ export function createRemindersDomain({ records, now }) {
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
     weighInPushText = null, weighInPausedWeeks = [], trackers = [], trackerLogs = [],
   }) {
-    const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
+    const [{ enabled }, bpStatus, weightStatus, scheds, transitions, cuts] = await Promise.all([
       getStatus(),
       getBPStatus(),
       getWeightStatus(),
+      records.list('medsched'),
+      records.list('tztransition'),
+      records.list('ledgercut'),
     ]);
+    // The ledger cut (medintake.js LEDGERCUT_RECORD_*): the same cut the app's
+    // projection reads, so a post-cut orphan PENDING row hides here too.
+    const cut = cuts.find((r) => !r.deleted && r.recordId === 'ledgercut');
+    const cutMs = cut && Number.isFinite(Date.parse(cut.at)) ? Date.parse(cut.at) : null;
     const workoutStatus = { enabled: !!workoutEnabled };
 
     // We compute the horizon for everything enabled. If medication reminders are disabled,
@@ -889,6 +919,9 @@ export function createRemindersDomain({ records, now }) {
     return computeReminderHorizon({
       medications: medsToPass,
       intakes: intakesToPass,
+      scheds,
+      transitions,
+      cutMs,
       bps,
       weights,
       workoutGroups,
@@ -912,6 +945,6 @@ export function createRemindersDomain({ records, now }) {
   return {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
-    getDeliveryPref, setDeliveryPref, buildHorizon,
+    getDeliveryPref, setDeliveryPref, floorDeliveryPref, buildHorizon,
   };
 }

@@ -1012,6 +1012,17 @@ function showMedsReminderOutOfDate({ medId, scheduled, tz } = {}) {
     switchMedTab('timeline');
 }
 
+// The same landing for a Telegram tap drained in the background (bd
+// med-wi09.4): never switch the app away from what the user is doing. The
+// MT6 note waits for the next Meds → Timeline open, and a toast offers it now.
+function queueMedsReminderOutOfDate(info = {}) {
+    _medsTimelineState.outOfDate = { medId: String(info.medId), scheduled: info.scheduled, tz: info.tz };
+    safeToast('A Telegram reminder was out of date — nothing was logged.', 'info', {
+        action: { label: 'Open', onClick: () => showMedsReminderOutOfDate(info) },
+        duration: 8000,
+    });
+}
+
 // Timeline loader (switchMedTab / reloadCurrentTab / refreshMedsAfterMutation).
 // One projection read from the start of the ledger through tomorrow: pending
 // never expires, so Today's Pending needs every due row however old, and in
@@ -1807,6 +1818,8 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     const list = document.getElementById('med-confirm-list');
     list.replaceChildren(...ids.map((id, index) => _buildMedConfirmChoice(
         index, names[index] || ('Medication ' + id), medById.get(String(id)), mode, states[index])));
+    // The RD3 hint belongs to one reminder-opened sheet (app.js handlePushAction).
+    document.getElementById('med-confirm-hint')?.replaceChildren();
     _syncMedConfirmPrimary(mode);
 
     document.getElementById('med-confirm-state').classList.toggle('hidden', mode !== 'edit');

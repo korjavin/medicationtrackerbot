@@ -10,7 +10,7 @@ import WebKit
 /// med-o7zq.4) puts the same web view on the bundled app at wgapp://local/
 /// instead (LocalApp.swift): no account, data only in that origin.
 @MainActor
-final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
+final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, UIGestureRecognizerDelegate {
     static let hostKey = "wgAccountHost"
     /// Settings.bundle toggle (iOS Settings → Med Tracker → Switch account).
     static let forgetKey = "wgForgetAccount"
@@ -23,6 +23,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     let base = (Bundle.main.object(forInfoDictionaryKey: "WGBaseDomain") as? String ?? "").lowercased()
     let webView: WKWebView
+    /// The left-edge swipe → the page's back (bd med-y7b4.4). Not WKWebView's
+    /// allowsBackForwardNavigationGestures: the page owns the back order.
+    /// Enabled until the page's back.state says it is at the root.
+    private let edgeBack = UIScreenEdgePanGestureRecognizer()
     @Published private(set) var host: String? {
         didSet { Notifications.shared.vault = vault }
     }
@@ -33,7 +37,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // Entering local mode again (forget(), the Settings toggle,
             // account.leave {then: "local"}) abandons a pending move; the next
             // move stashes afresh (bd med-o7zq.35).
-            if local { move.clear() }
+            if local {
+                move.clear()
+                JoinErase.clear() // a join's erase never outlives a return to local mode (bd med-r1j2.7)
+            }
         }
     }
     /// The local → cloud move's stash (bd med-o7zq.35, Move.swift).
@@ -72,6 +79,19 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// What the lock held back: a load and a notification tap, run on unlock.
     private var deferredURL: URL?
     private var deferredReminder: (String, String?)?
+    /// local.erase is wiping wgapp://local: every load() waits in heldLoad
+    /// and no wgapp navigation is allowed until it ends, so no local page
+    /// runs (or writes) beside a half-done wipe.
+    private var erasing = false
+    private var heldLoad: URL?
+
+    private func endErase() {
+        erasing = false
+        if let url = heldLoad {
+            heldLoad = nil
+            load(url)
+        }
+    }
 
     /// The lock holds: the page is out of the window, loads wait, the bridge says "locked".
     var concealed: Bool { lock.holds(local: local) }
@@ -88,6 +108,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // page scalable again, and a double-tap on a card zoomed it (build 351).
         config.userContentController.addUserScript(
             WKUserScript(source: Shell.pageJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .page))
+        config.userContentController.addUserScript(
+            WKUserScript(source: Shell.sessionWipeJS, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         Downloads.shared.install(on: config)
         config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
         webView = WKWebView(frame: .zero, configuration: config)
@@ -97,6 +119,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // Its presence is what makes web/static/js/native/index.js pick the 'ios' platform.
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgNative")
         webView.navigationDelegate = self
+        webView.uiDelegate = self // getUserMedia's permission only (bd med-r1j2.18)
+        edgeBack.edges = .left
+        edgeBack.delegate = self
+        edgeBack.addTarget(self, action: #selector(edgePan(_:)))
+        webView.addGestureRecognizer(edgeBack)
+        // The selector WebKit asks for must be the one implemented below (a
+        // misnamed optional delegate method compiles and is never called); a
+        // Debug build (the simulator QA run) traps if it is not.
+        assert(responds(to: #selector(WKUIDelegate.webView(_:requestMediaCapturePermissionFor:initiatedByFrame:type:decisionHandler:))))
         // The page sits between the native bands (RootView), so nothing scrolls
         // under the status bar and no white shows around it.
         webView.isOpaque = false
@@ -132,7 +163,20 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             Shell.copyOnLaunch = false
             copyDiagnostics()
         }
+        #if DEBUG
+        if let link = Shell.qaCapture { capture(link) } // nothing committed yet: only the slot
+        // native-local-erased: local.erase's wipe on the seeded store before
+        // the first page, which then has nothing left (W1).
+        if UserDefaults.standard.bool(forKey: "wgQAEraseLocal") {
+            Task {
+                let left = await Shell.eraseLocalOrigin(proceed: { true })
+                diag("qa local erase \(left.map(String.init) ?? "cancelled")")
+                if !qa { retry() }
+            }
+        } else if !qa { retry() }
+        #else
         if !qa { retry() }
+        #endif
         Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
 
@@ -169,7 +213,13 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     #if DEBUG
     /// Visual QA scene (bd med-y5xx.2, LocalOrigin.qaHome): Debug builds only.
-    private static let localHome = LocalOrigin.qaHome(scene: UserDefaults.standard.string(forKey: LocalOrigin.qaSceneKey)) ?? LocalOrigin.home
+    /// `-wgQACapture <link>` (add-device-from-link): the link fills the invite
+    /// slot at launch as if the app had been opened with it, and the scene runs
+    /// on the real clock (`&clock=real`, tests/visual/driver.js) so the page's
+    /// 10-minute join check compares like with like.
+    private static let qaCapture = UserDefaults.standard.string(forKey: "wgQACapture").flatMap { URL(string: $0) }
+    private static let localHome = LocalOrigin.qaHome(scene: UserDefaults.standard.string(forKey: LocalOrigin.qaSceneKey))
+        .flatMap { qaCapture == nil ? $0 : URL(string: $0.absoluteString + "&clock=real") } ?? LocalOrigin.home
     #else
     private static let localHome = LocalOrigin.home
     #endif
@@ -182,6 +232,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         defaults.set(host, forKey: Shell.hostKey)
         defaults.set(false, forKey: LocalOrigin.modeKey)
         defaults.removeObject(forKey: Shell.leaveHostKey)
+        JoinErase.clear() // opening any account drops a pending join's erase; local.leave {erase} re-arms it
         setInvite(nil) // whatever invite was waiting, this open consumed or superseded it
         self.host = host
         local = false
@@ -219,22 +270,24 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// Leaves the account (Settings.bundle Switch account, X-Account-Gone,
     /// the error screen, account.leave) into local mode — the app has no
     /// native first run (bd med-ta2n.17). Plain: on home?invite=1, where the
-    /// web offers "Have an invite?", with no way back. `thenLocal`
+    /// web offers "Have an invite?", with no way back. `.local`
     /// (account.leave {then: "local"}, bd med-o7zq.34): on local home,
-    /// remembering the account for leave.clear {back}. Website data is kept:
+    /// remembering the account for leave.clear {back}. `.forgetLocal`
+    /// ({then: "local", forget: true}, bd med-r1j2.18): on local home, no way
+    /// back. Website data is kept:
     /// it is per origin, so returning to this account later still finds its
     /// data. The move stash is dropped: from local mode (Settings.bundle) a
     /// stale snapshot would bring deleted rows back into the next account.
-    func forget(thenLocal: Bool = false) {
+    func forget(_ to: LocalOrigin.Leave = .invite) {
         let defaults = UserDefaults.standard
-        if thenLocal, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
+        if to == .local, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
         else { defaults.removeObject(forKey: Shell.leaveHostKey) }
         defaults.removeObject(forKey: Shell.hostKey)
         defaults.set(true, forKey: LocalOrigin.modeKey)
         host = nil
         local = true
         move.clear() // local.didSet does too; this one is load-bearing
-        reopen(to: thenLocal ? nil : inviteHome)
+        reopen(to: to == .invite ? inviteHome : nil)
     }
 
     /// Runs at launch and whenever the app becomes active.
@@ -370,6 +423,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     private func load(_ url: URL) {
         loadError = nil
         lastURL = url
+        if erasing {
+            heldLoad = url
+            return
+        }
         if concealed {
             deferredURL = url
             return
@@ -406,6 +463,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             if action.navigationType == .backForward { return .cancel }
         case LocalOrigin.scheme:
             guard local, url.host?.lowercased() == LocalOrigin.host else { return .cancel }
+            // A reload or page navigation outside load() (process restart,
+            // location.reload) waits for local.erase like a load() does.
+            if erasing {
+                if action.targetFrame?.isMainFrame != false, heldLoad == nil { heldLoad = url }
+                return .cancel
+            }
             if action.targetFrame == nil {
                 webView.load(action.request)
                 return .cancel
@@ -475,7 +538,25 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committedHost = webView.url?.host?.lowercased()
+        edgeBack.isEnabled = true // a new page: swipe on until its back.state says otherwise
     }
+
+    // MARK: Left-edge swipe (bd med-y7b4.4)
+
+    /// A finished edge pan asks the shell's own page to step back; at the
+    /// root (false) nothing happens. Never WebView history, never Safari.
+    @objc private func edgePan(_ pan: UIScreenEdgePanGestureRecognizer) {
+        guard pan.state == .ended,
+              LocalOrigin.backFires(dx: pan.translation(in: webView).x, vx: pan.velocity(in: webView).x),
+              !concealed, loadError == nil, let url = webView.url,
+              LocalOrigin.isOwn(scheme: url.scheme ?? "", host: url.host ?? "", port: url.port ?? 0,
+                                mainFrame: true, local: local, account: host) else { return }
+        webView.evaluateJavaScript(LocalOrigin.backJS) { _, _ in }
+    }
+
+    /// The page keeps its own touches (scroll, a carousel) under the swipe.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
     private var showingAccount: Bool {
         guard let committedHost else { return false }
@@ -488,6 +569,26 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             return
         }
         if webView.url == nil { retry() } else { webView.reload() } // reload keeps the current URL and fragment
+    }
+
+    // MARK: WKUIDelegate
+
+    /// getUserMedia (bd med-r1j2.18): the add-device scanner (/claim#scan, W5)
+    /// and the food scanner get the camera without WebKit's per-page prompt;
+    /// the decision is LocalOrigin.media.
+    /// The completion-handler spelling on purpose: the async one is imported
+    /// as decideMediaCapturePermissionsFor, so a misnamed async method would
+    /// silently never be called.
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let own = LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host, port: origin.port,
+                                    mainFrame: frame.isMainFrame, local: local, account: host)
+        switch LocalOrigin.media(cameraOnly: type == .camera, own: own && !concealed) {
+        case .grant: decisionHandler(.grant)
+        case .prompt: decisionHandler(.prompt)
+        case .deny: decisionHandler(.deny)
+        }
     }
 
     // MARK: wgChrome messages
@@ -510,10 +611,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // Only the account's own top-level page — in local mode only the
         // bundled app's — reaches native capabilities.
         let origin = message.frameInfo.securityOrigin
-        let mine = local
-            ? origin.protocol == LocalOrigin.scheme && origin.host.lowercased() == LocalOrigin.host
-            : origin.protocol == "https" && origin.host.lowercased() == host
-        guard message.frameInfo.isMainFrame, mine else {
+        guard LocalOrigin.isOwn(scheme: origin.protocol, host: origin.host, port: origin.port,
+                                mainFrame: message.frameInfo.isMainFrame, local: local, account: host) else {
             replyHandler(nil, "forbidden")
             return
         }
@@ -528,6 +627,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             replyHandler("pong", nil)
         case "shell.ops":
             replyHandler(LocalOrigin.ops(local: local), nil)
+        case "back.state":
+            // AppBack.canStep() (web/static/js/native/back.js): at the root the edge stays the system's.
+            edgeBack.isEnabled = (body["args"] as? [String: Any])?["canStep"] as? Bool ?? true
+            replyHandler(nil, nil)
         case "diag.append":
             // The passkey ceremony log (bd med-w6gx.24, web/cloud/js/passkey-diag.js); the page does not wait.
             diag("page " + ((body["args"] as? [String: Any])?["entry"] as? String ?? ""))
@@ -544,6 +647,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             move.clear()
             leaveStash.clear()
             setInvite(nil) // no claim token left behind after Erase
+            // {dropAttest: true} only after our server deleted the bucket (bd med-egb3): the key goes, the pass stays.
+            LocalOrigin.resetAttest(body["args"] as? [String: Any] ?? [:])
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)
@@ -565,6 +670,53 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         case "invite.clear":
             setInvite(nil)
             replyHandler(true, nil)
+        // "Join and erase" (bd med-r1j2.7, AD9; contract with Android med-r1j2.8:
+        // {} → true). The joined account's unlocked boot sends it (cloud-boot.js
+        // finishJoinErase). Only while JoinErase still holds this account (the
+        // add-device code's 10 minutes): the local vault's erase — the local
+        // origin's website data plus local.reset's share. Anywhere else, local
+        // mode included (listed there for invite.js's probe), a no-op.
+        // The intent (host + its stamp) is captured here and re-checked right
+        // before each destructive step: a switch to local mode, another
+        // account, a newer intent or the TTL running out in between cancels
+        // the wipe. Every load and wgapp navigation while it runs waits for it
+        // (load, decidePolicyFor), so no local page runs beside a half-done wipe. Native state is
+        // spent only after a verified wipe; a failed one answers "erase
+        // failed" and keeps the intent for the page's retry (twin of Android).
+        // Only {enrolled: true} acts: the boot right after this tab's claim
+        // enrolled (cloud-boot.js). The #1336 page's bare {} ran on every
+        // unlocked boot, a failed join's included, so it is a no-op.
+        case "local.erase":
+            let enrolled = (body["args"] as? [String: Any])?["enrolled"] as? Bool == true
+            // A wipe still running (the page's Try again after its timeout) is
+            // not a success: "busy", and the page keeps showing the failure.
+            if enrolled, erasing { return replyHandler(nil, "busy") }
+            guard enrolled, !local, let from = host, JoinErase.due(from), let at = JoinErase.stamp() else {
+                return replyHandler(true, nil)
+            }
+            let due = { [weak self] () -> Bool in
+                guard let self else { return false }
+                return !self.local && self.host == from && JoinErase.due(from, stamp: at)
+            }
+            erasing = true
+            Task {
+                // One retry: a delete blocked by the shell page's old connection
+                // has usually finished by then.
+                var left = await Shell.eraseLocalOrigin(proceed: due)
+                if let l = left, l != 0 { left = await Shell.eraseLocalOrigin(proceed: due) }
+                if left == 0, due() {
+                    JoinErase.clear() // spent: a second boot of this account erases nothing
+                    UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
+                    UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
+                    move.clear()
+                    leaveStash.clear()
+                    await Notifications.shared.remove(vault: LocalOrigin.host)
+                }
+                // No host, no data in the log.
+                diag("shell local.erase " + (left.map { $0 == 0 ? "wiped" : "incomplete (\($0))" } ?? "cancelled"))
+                endErase()
+                if let l = left, l != 0 { replyHandler(nil, "erase failed") } else { replyHandler(true, nil) }
+            }
         // {url} (bd med-ta2n.11, contract med-ta2n.7 §7): open that account's
         // claim link from either mode — validated, else "invalid url" and
         // nothing changes; the slot is consumed. account.leave ignores then.
@@ -579,8 +731,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 replyHandler(true, nil)
                 // Only local.leave's move stash is for the new account; from
                 // an account, a stale one must not land in the next account.
-                if !local { move.clear() }
+                // "Join and erase" (bd med-r1j2.7) is no merge: no stash either.
+                // Only for an add-device claim link (/claim#<slot>.<TK>), never an invite.
+                let erase = local && args["erase"] as? Bool == true && url.path == "/claim"
+                if !local || erase { move.clear() }
                 enter(url, host: h)
+                if erase { JoinErase.remember(h) }
             } else if local {
                 // Without a url (bd med-ta2n.17): no web caller since the
                 // Settings Move row went (#1255; the P3 sheet always passes
@@ -594,10 +750,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 // stay): {then: "local"} is Settings → Account "Use this iPhone
                 // without an account", onto local home with the way back (bd
                 // med-o7zq.34); no args (account deletion, the ceremony's "Not
-                // your account?") onto local home?invite=1, no way back.
+                // your account?") onto local home?invite=1, no way back;
+                // {then: "local", forget: true} (/unlock "Back to local mode",
+                // bd med-r1j2.18) onto local home, no way back.
                 replyHandler(true, nil)
-                forget(thenLocal: args["then"] as? String == "local")
+                forget(LocalOrigin.leave(args))
             }
+        // AD13 "Allow camera in Settings" (bd med-r1j2.18, twin of Android):
+        // {} → true, this app's page in iOS Settings.
+        case "app.openSettings":
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            replyHandler(true, nil)
         // The local → cloud move (bd med-o7zq.35, twin of Android med-nt9p.32.17):
         // the local page stashes its vault v1 JSON before local.leave; the new
         // account takes it and clears it once imported, so a failed import
@@ -699,6 +862,65 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         }
     }
 
+    /// local.erase's wipe of wgapp://local's website data, what the local
+    /// page's eraseDevice clears itself (local-policy.js): IndexedDB (the
+    /// vault), localStorage, sessionStorage, Cache Storage. WKWebsiteDataStore
+    /// lists no custom-scheme origin in fetchDataRecords, so a throwaway web
+    /// view on that origin does it with the page's own APIs; its document is
+    /// the scheme handler's 404 for a path no bundle file has, so no app code
+    /// runs there. sessionStorage belongs to each web view, so the wipe leaves
+    /// a localStorage marker that Shell.sessionWipeJS turns into a
+    /// sessionStorage.clear() in the shell's own view on its next local page,
+    /// before any app script. `proceed` is asked once the view has loaded,
+    /// right before anything is deleted. Returns what is left (databases +
+    /// localStorage keys besides the marker): 0 = wiped, -1 = the wipe failed
+    /// to run, nil = `proceed` said no (nothing touched). A delete blocked by
+    /// a connection still open waits up to 10 s, then counts as left.
+    static func eraseLocalOrigin(proceed: () -> Bool) async -> Int? {
+        let config = WKWebViewConfiguration()
+        config.limitsNavigationsToAppBoundDomains = true // as the shell's own view
+        config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
+        let view = WKWebView(frame: .zero, configuration: config)
+        let loaded = Loaded()
+        view.navigationDelegate = loaded
+        let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            loaded.done = { done.resume(returning: $0) }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(15))
+                loaded.finish(false)
+            }
+            view.load(URLRequest(url: URL(string: "wgapp://local/__erase__")!))
+        }
+        guard ok, view.url?.host?.lowercased() == LocalOrigin.host else { return -1 }
+        guard proceed() else { return nil }
+        let left = try? await view.callAsyncJavaScript("""
+            const settle = (q) => new Promise((r) => { q.onsuccess = q.onerror = () => r(); });
+            const names = async () => ((await indexedDB.databases()) || []).map((d) => d.name);
+            await Promise.race([
+                Promise.all((await names()).map((n) => settle(indexedDB.deleteDatabase(n)))),
+                new Promise((r) => setTimeout(r, 10000)),
+            ]);
+            localStorage.clear();
+            localStorage.setItem(marker, '1');
+            if (self.caches) for (const k of await caches.keys()) await caches.delete(k);
+            return (await names()).length + localStorage.length - 1;
+            """, arguments: ["marker": Shell.sessionWipeKey], in: nil, contentWorld: .page)
+        return (left as? NSNumber)?.intValue ?? -1
+    }
+
+    /// The throwaway view's load outcome, once (didFinish, a failure, or the timeout).
+    @MainActor
+    private final class Loaded: NSObject, WKNavigationDelegate {
+        var done: ((Bool) -> Void)?
+        func finish(_ ok: Bool) {
+            done?(ok)
+            done = nil
+        }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(true) }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(false) }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(false) }
+    }
+
     // MARK: diagnostics (bd med-w6gx.24, twin of Android med-nt9p.22)
 
     /// Appends one redacted line to the capped ceremony log; kept across Switch account.
@@ -753,6 +975,19 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         guard n.count == 3 || (n.count == 4 && n[3] > 0) else { return nil }
         return UIColor(red: n[0] / 255, green: n[1] / 255, blue: n[2] / 255, alpha: 1)
     }
+
+    /// local.erase's marker (eraseLocalOrigin): wgapp://local was wiped, so the
+    /// shell view's sessionStorage there (first-run step, pickup markers) goes
+    /// too, once, at the next local document's start, before any app script.
+    static let sessionWipeKey = "wg-shell-session-wipe"
+    static let sessionWipeJS = """
+        if (location.protocol === '\(LocalOrigin.scheme):') try {
+            if (localStorage.getItem('\(sessionWipeKey)')) {
+                sessionStorage.clear();
+                localStorage.removeItem('\(sessionWipeKey)');
+            }
+        } catch (_) {}
+        """
 
     /// Page world, main frame, every page the shell loads. Asks for persistent
     /// storage (the spike found storage.persisted false: evictable under storage

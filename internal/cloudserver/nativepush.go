@@ -29,8 +29,8 @@ import (
 )
 
 // Native push (bd med-erq1.2): APNs (iOS shell) and FCM (Android shell) as a
-// second, content-free wake channel next to Web Push. Only two payloads ever
-// go out, each a fixed kind tag plus the fixed text the system shows when no
+// second, content-free wake channel next to Web Push. Only fixed payloads ever
+// go out (inbox-wake, dry-queue, transfer_claimed), each a fixed kind tag plus the fixed text the system shows when no
 // page is alive to take the wake — never account data, never ids.
 const (
 	nativeKindInboxWake = "inbox-wake"
@@ -44,6 +44,22 @@ const (
 var nativeWakeBody = map[string]string{
 	nativeKindInboxWake: "Open the app to record what you sent",
 	nativeKindDryQueue:  "Open the app to keep reminders running",
+	transferClaimedKind: transferClaimedBody,
+}
+
+// The add-device claim (bd med-r1j2.9) gets its own title. Generic on purpose:
+// APNs/FCM see this text in the clear, so it never names the platform or the
+// slot's expiry (web/cloud/sw.js TRANSFER_CLAIMED_NOTIFICATION is its twin).
+const (
+	transferClaimedTitle = "Approve the new device?"
+	transferClaimedBody  = "A new device is waiting · approve it before the code expires"
+)
+
+func nativeWakeTitleFor(kind string) string {
+	if kind == transferClaimedKind {
+		return transferClaimedTitle
+	}
+	return nativeWakeTitle
 }
 
 // NativePushSender delivers one content-free wake to one device token.
@@ -167,7 +183,7 @@ func (s *APNsSender) Send(ctx context.Context, token, kind string) (bool, error)
 	}
 	body, _ := json.Marshal(map[string]any{
 		"aps": map[string]any{
-			"alert":             map[string]string{"title": nativeWakeTitle, "body": nativeWakeBody[kind]},
+			"alert":             map[string]string{"title": nativeWakeTitleFor(kind), "body": nativeWakeBody[kind]},
 			"content-available": 1,
 			"sound":             "default",
 		},
@@ -260,7 +276,7 @@ func (s *FCMSender) Send(ctx context.Context, token, kind string) (bool, error) 
 		// tag: one shade entry per kind, a repeated wake replaces the last one (the Android
 		// shell's own fallback notification uses the same tag, Push.kt).
 		"android":      map[string]any{"priority": "high", "collapse_key": kind, "notification": map[string]string{"tag": kind}},
-		"notification": map[string]string{"title": nativeWakeTitle, "body": nativeWakeBody[kind]},
+		"notification": map[string]string{"title": nativeWakeTitleFor(kind), "body": nativeWakeBody[kind]},
 		"data":         map[string]string{"kind": kind},
 	}})
 	status, resp, err := nativePost(ctx, s.Client, s.BaseURL+"/v1/projects/"+url.PathEscape(s.ProjectID)+"/messages:send", "application/json", bearer, body, nil)

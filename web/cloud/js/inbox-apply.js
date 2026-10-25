@@ -179,7 +179,7 @@ function isAlreadyApplied(err) {
 
 // The receipt for a tap that names a dose the vault no longer has at that
 // instant (bd med-wi09.4): a tz change or schedule edit moved it, or the med is
-// gone. Nothing is guessed — the app opens on the timeline instead (MT6).
+// gone. Nothing is guessed — the app shows the timeline at that med (MT6).
 export const OUT_OF_DATE_TEXT = 'This reminder is out of date — open the app to log it.';
 
 const ROW_STATUS = { taken: 'TAKEN', skipped: 'SKIPPED' };
@@ -192,14 +192,15 @@ const ROW_STATUS = { taken: 'TAKEN', skipped: 'SKIPPED' };
 // side-table (the deleted `slotmeds` records — every reconstruction failure used
 // to mean 6h of hourly nags for doses already taken).
 //
-// Per named med it resolves the dose EXACTLY, as POST /api/doses/act does
-// (bd med-wi09.4): the stored `intake-<medId>-<slotUnix>` row — a tombstone
-// means the user deleted that dose, so the tap is a silent no-op for it — else
-// the projection's row for that med at that very second (a legacy-id stored row,
-// or the forecast slot). Never a neighbouring dose: there is no band fallback.
-// A med that resolves to nothing gets nothing applied; the reminder message
-// becomes "out of date" and onOutOfDate opens the app's timeline at that med
-// with the reminder's own time and nothing preselected (MT6).
+// Per named med it resolves the dose EXACTLY (bd med-wi09.4): the stored row
+// with the `intake-<medId>-<slotUnix>` id, else the projection's dose of that
+// med at that very second (the regenerated/forecast dose with no row yet, or a
+// stored row under another id — legacy/imported). Never a
+// neighbouring dose: there is no band fallback. A tombstoned slot id is the
+// user's deletion, so the tap is a silent no-op for that med. A med that
+// resolves to nothing gets nothing applied: the reminder message becomes "out
+// of date" and onOutOfDate queues the app's MT6 landing (that med, the
+// reminder's own time, nothing preselected, nothing logged).
 //
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
@@ -220,16 +221,38 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // recount below relies on it.
   const atIso = new Date(atMs).toISOString();
 
-  // The tap may name a slot whose intakes were never materialized (the app has
-  // not been open since it came due). Materializing first is what makes them
-  // exist to confirm; it is idempotent via the deterministic intake id.
-  await materializing(() => intake.materializeDueDoses());
-
   // Compared as strings throughout: the relay round-trips the ids through a
   // decimal column, so a numeric recordId comes back as a number while an
   // imported vault could hold it as a string. One normalisation, no coercion.
   const named = (Array.isArray(event.medication_ids) ? event.medication_ids : [])
     .filter((id) => id !== null && id !== undefined && id !== '');
+
+  // medId → the dose this slot names, in the stored-row shape ({recordId,
+  // status, taken_at}): the stored row with the exact slot id ('gone' when it
+  // is tombstoned), else the projection's dose of that med at this very
+  // second, else null. Nothing stores a
+  // PENDING prediction (bd med-wi09.12), so the dose usually has no row yet:
+  // confirm()/snooze() write the evidence at that exact occId. The +999 covers
+  // a tz-plan step that keeps its anchor's milliseconds (the occId floors).
+  const resolveNamed = async () => {
+    const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
+    const rows = await intake.occurrences({ fromMs: slotMs, toMs: slotMs + 999 });
+    const out = new Map();
+    for (const medId of named) {
+      const exactId = `intake-${medId}-${slotUnix}`;
+      const stored = raw.find((i) => String(i.recordId) === exactId);
+      if (stored) { out.set(medId, stored.deleted ? 'gone' : stored); continue; }
+      const row = rows.find((r) => String(r.occId) === exactId)
+        || rows.find((r) => String(r.medId) === String(medId));
+      out.set(medId, row ? { recordId: row.occId, status: ROW_STATUS[row.state] || 'PENDING', taken_at: row.takenAt || null } : null);
+    }
+    return out;
+  };
+  const isPending = (dose) => !!dose && dose !== 'gone' && dose.status === 'PENDING';
+
+  // Read through the replace gate, so a tap during a store replace fails and
+  // stays queued.
+  const before = await materializing(() => resolveNamed());
 
   // No identity: a reminder pushed by a pre-med-kbpf client, or a tap on a
   // message so old the relay's chain (and with it the row that named the meds)
@@ -247,25 +270,6 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     return;
   }
 
-  // medId → the stored-shape dose this slot names ({recordId, status,
-  // taken_at}), 'gone' for a tombstoned slot id, or null when nothing at this
-  // instant matches. Re-read after the writes for the still-due check.
-  const resolveNamed = async () => {
-    const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
-    // +999: the occId floors to the second, a tz-plan step can keep its ms.
-    const rows = await intake.occurrences({ fromMs: slotMs, toMs: slotMs + 999 });
-    const out = new Map();
-    for (const medId of named) {
-      const byId = raw.find((i) => String(i.recordId) === `intake-${medId}-${slotUnix}`);
-      if (byId) { out.set(medId, byId.deleted ? 'gone' : byId); continue; }
-      const row = rows.find((r) => String(r.medId) === String(medId));
-      out.set(medId, row ? { recordId: row.occId, status: ROW_STATUS[row.state] || 'PENDING', taken_at: row.takenAt || null } : null);
-    }
-    return out;
-  };
-  const isPending = (dose) => !!dose && dose !== 'gone' && dose.status === 'PENDING';
-
-  const before = await resolveNamed();
   const unresolved = named.filter((medId) => before.get(medId) === null);
 
   let applied = 0;
@@ -274,6 +278,8 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     if (!isPending(dose)) continue;
     try {
       if (event.action === 'confirm') {
+        // The reminder callback: confirm-or-create at the exact occId, rev
+        // 0 → 1 only (a dose an explicit action touched throws not_pending).
         await intake.confirm(dose.recordId, atMs);
       } else {
         // Snooze from the TAP, not from the drain. If that window already
@@ -291,7 +297,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
 
   // The relay already cancelled this slot's re-fire chain when the button was
   // tapped (med-kbpf). Put ONE re-fire back only if a med the message NAMED
-  // still has its dose due at this slot after all of the above. Snooze never
+  // still has its dose open at this slot after all of the above. Snooze never
   // re-arms: the relay rescheduled the chain +1h itself, which is the point of
   // the tap. An unresolved med is not due at this slot — re-arming would only
   // repeat the stale reminder.
@@ -764,15 +770,14 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
   await finalReply(text ? truncateRunes(text, MAX_REPLY_RUNES) : '✅ Done.');
 }
 
-// confirmDueIntakes confirms every PENDING dose already due at `atMs` — the
+// confirmDueIntakes confirms every PENDING dose due today up to `atMs` — the
 // chat equivalent of tapping Confirm on the most recent reminder. Doses due
 // later stay pending; confirming a dose you have not taken yet would be a lie
 // the inventory count then inherits.
-async function confirmDueIntakes({ intake, records, atMs, now }) {
-  await materializing(() => intake.materializeDueDoses());
-  const due = (await records.list(INTAKE_RECORD_TYPE)).filter((i) => !i.deleted
-    && i.status === 'PENDING'
-    && Date.parse(i.scheduled_at) <= atMs);
+async function confirmDueIntakes({ intake, atMs }) {
+  // Today's due doses only (intake.dueToday): an earlier day's missed dose is
+  // not "my meds" now, and a later one has not been taken.
+  const due = await materializing(() => intake.dueToday(atMs));
 
   let confirmed = 0;
   for (const i of due) {
@@ -791,13 +796,14 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
 //
-// onOutOfDate defaults to the meds timeline's MT6 landing (features/meds.js,
-// a classic-script global) when the app page has it: the drain runs in the
-// open app, so an out-of-date Telegram tap opens Meds → Timeline at that med.
-const openMedsOutOfDate = (info) => {
-  if (typeof globalThis.showMedsReminderOutOfDate === 'function') globalThis.showMedsReminderOutOfDate(info);
+// onOutOfDate defaults to the meds timeline's queued MT6 landing
+// (features/meds.js, a classic-script global) when the app page has it: the
+// drain often runs in the background, so it only queues the note and offers
+// it in a toast — it never switches the open app away from what the user does.
+const queueMedsOutOfDate = (info) => {
+  if (typeof globalThis.queueMedsReminderOutOfDate === 'function') globalThis.queueMedsReminderOutOfDate(info);
 };
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, cancelRefire = cancelMedRefire, onOutOfDate = openMedsOutOfDate, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, cancelRefire = cancelMedRefire, onOutOfDate = queueMedsOutOfDate, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -805,7 +811,18 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // vitals_import stops emitting one /api/sync/ops POST per record (med-0ol.2).
   const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true });
   const timeZone = defaultTimeZone();
-  const intake = createIntakeDomain({ records, now, timeZone });
+  // via telegram: confirm() here is the reminder callback (rev 0 -> 1 only).
+  // Built on the account's zone — the pinned settings.timezone, which a tz-plan
+  // approval also moves (the tracked zone) — never the device clock: acted()
+  // stamps it on every confirm, and that stamp is the day's evidence zone (bd
+  // med-wi09.12 N3). Read per event; one domain per zone.
+  let intakeFor = null;
+  async function intakeDomain() {
+    const general = await createSettingsDomain({ records, now, timeZone }).getGeneral().catch(() => null);
+    const tz = (general && general.timezone) || timeZone;
+    if (!intakeFor || intakeFor.tz !== tz) intakeFor = { tz, domain: createIntakeDomain({ records, now, timeZone: tz, via: 'telegram' }) };
+    return intakeFor.domain;
+  }
 
   // The /food chain mirrors apishim's createApiRouter: settings → foodDb → food →
   // aiClient → foodAI. All are pure over the ports the applier already has, so
@@ -841,7 +858,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // path with the app (med-vcv.2). Tests inject agentOverride to stub the loop.
   const agent = agentOverride || (() => {
     const settings = createSettingsDomain({ records, now, timeZone });
-    const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL });
+    const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram' });
     const dispatcher = createDispatcher({ router, now });
     const aiClient = createAIClient({ settingsDomain: settings });
     return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher, prefs, history });
@@ -877,7 +894,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
         bp: createBPDomain({ records, now, timeZone }),
         weight: createWeightDomain({ records, now, timeZone }),
         notes: createNotesDomain({ records, now }),
-        intake,
+        intake: await intakeDomain(),
         foodAI,
         activityAI,
         workout: createWorkoutDomain({ records, now: () => sentMs, timeZone }),
@@ -934,6 +951,6 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
     const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, rearmRefire, cancelRefire, onOutOfDate });
+    await applyIntakeSlotAction(event, { intake: await intakeDomain(), records, now, verbosity, editReply, rearmRefire, cancelRefire, onOutOfDate });
   };
 }

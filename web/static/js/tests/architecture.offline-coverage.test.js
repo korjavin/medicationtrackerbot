@@ -48,6 +48,14 @@ const ALLOWLIST = [
         reason: 'wires the in-app back chevron to section navigation — no API reads',
     },
     {
+        file: 'app-back.js',
+        reason: 'the one back order (AppBack.step: modal → previous section → root) — no API reads',
+    },
+    {
+        file: 'app-refresh.js',
+        reason: 'pull to refresh gesture (bd med-y7b4.6): runs the Health import / sync pull registered by the boot code; reads nothing itself, the page re-renders through DataStore invalidation',
+    },
+    {
         file: 'bootstrap.js',
         reason: 'post-auth init orchestrator; its only API calls are the one-shot timezone prompt (GET /api/tz-suggestion/should-prompt, then POST /api/settings or the dismiss), not a section data read',
     },
@@ -65,7 +73,7 @@ const ALLOWLIST = [
     },
     {
         file: 'notify-permission.js',
-        reason: 'notification permission ask sheet + denied note (bd med-ckm5.4); reads only the device/browser permission, no API data',
+        reason: 'notification permission ask sheet + denied note (bd med-ckm5.4); reads the device/browser permission, plus (local-only mode, med-mt0l) the reminder-delivery pref, which the in-browser shim answers from the local vault — no section data',
     },
     {
         file: 'invite.js',

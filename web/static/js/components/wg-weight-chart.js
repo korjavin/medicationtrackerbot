@@ -19,6 +19,8 @@
 //   goal   — optional number or { goal } / { goal, goal_direction }.
 //            When finite, renders a dashed horizontal guide line at the
 //            goal weight.
+//   bands  — optional BMI borders_kg (five kg values) or null; each border
+//            inside the data-plus-goal range is a labelled hairline.
 //   width  — coord-space width (default 358; SVG scales to container).
 //   height — coord-space height (default 200).
 //
@@ -39,6 +41,8 @@
     const Y_CEIL = 400;
     const LAST_POINT_RADIUS = 4;
     const KG_PER_LB = 0.45359237;
+    // The class each WHO border starts, in borders_kg order (18.5/25/30/35/40).
+    const BMI_BORDER_LABELS = ['Healthy · 18.5', 'Overweight · 25', 'Obesity I · 30', 'Obesity II · 35', 'Obesity III · 40'];
 
     const RANGE_DAYS = {
         '7d': 7,
@@ -317,6 +321,15 @@
             dataMin = 60;
             dataMax = 90;
         }
+        // BMI borders (med-a6fb.6): only those inside the raw data-plus-goal
+        // range (before the flat-series padding below); they never stretch the
+        // axis. toDisplay is linear, so kg and lb select the same borders.
+        const rawMin = dataMin;
+        const rawMax = dataMax;
+        const bands = Array.isArray(options.bands)
+            ? options.bands.map((kg, i) => ({ value: toDisplay(Number(kg)), label: BMI_BORDER_LABELS[i] }))
+                .filter((b) => b.label && b.value >= rawMin && b.value <= rawMax)
+            : [];
         if (dataMin === dataMax) {
             dataMin -= 2;
             dataMax += 2;
@@ -360,6 +373,15 @@
             );
         }
         svg.dataset.weightTickCount = String(interiorTicks.length);
+
+        for (const band of bands) {
+            const y = yOf(band.value);
+            const line = makeGuideLine(PAD_L, width - PAD_R, y, null);
+            line.setAttribute('class', 'wg-weight-chart__band');
+            line.dataset.weightBand = band.value.toFixed(1);
+            svg.appendChild(line);
+            svg.appendChild(makeTickText(width - PAD_R - 2, (y - 4).toFixed(1), band.label, 'wg-weight-chart__band-label', 'end'));
+        }
 
         // Plan trajectory line.
         //

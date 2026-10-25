@@ -38,7 +38,7 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
   // Node 21+ ships navigator/location as getter-only globals — plain
   // assignment throws, so install fakes via defineProperty and restore
   // the original descriptors afterwards. Shared by both inner suites.
-  const GLOBAL_KEYS = ['document', 'location', 'navigator', 'indexedDB', 'fetch', 'PublicKeyCredential', 'window', 'wgNative'];
+  const GLOBAL_KEYS = ['document', 'location', 'navigator', 'indexedDB', 'fetch', 'PublicKeyCredential', 'window', 'wgNative', 'LocalNotifications'];
   const savedDesc = {};
   for (const key of GLOBAL_KEYS) {
     savedDesc[key] = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -419,17 +419,49 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       let appended = [];
       const lookup = app.querySelector;
       app.querySelector = (sel) => (sel === 'section' ? { appendChild: (n) => appended.push(n) } : lookup(sel));
-      setGlobal('document', { getElementById: () => app, createElement: () => ({}) });
+      setGlobal('document', { getElementById: () => app, createElement: () => ({ addEventListener(type, fn) { this.onclick = fn; } }) });
       setGlobal('location', { hash: '', href: '' });
       await runUnlockFlow();
       await app._listeners['unlock:click']();
-      await vi.waitFor(() => expect(appended.map((n) => n.id || n.className)).toEqual(['wizard-error', 'unlock-no-passkey']));
+      // On the web: no shell, so no "Back to local mode".
+      await vi.waitFor(() => expect(appended.map((n) => n.id || n.className)).toEqual(['wizard-error', 'unlock-no-passkey', 'unlock-add-device']));
       expect(appended[1].textContent).toMatch(/^No passkey for this account on this device\? .*Settings → Devices & connectors → Add a device\.$/);
+      // bd med-r1j2.10: the sun opens /claim's in-app scanner.
+      expect(appended[2].textContent).toBe('Add this device from another device');
+      appended[2].onclick();
+      expect(globalThis.location.href).toBe('/claim#scan');
 
       appended = [];
       fail = new Error('Unlock failed. Please try again.');
       await app._listeners['unlock:click']();
       await vi.waitFor(() => expect(appended.map((n) => n.id || n.className)).toEqual(['wizard-error']));
+    });
+
+    // med-r1j2.17: "Back to local mode" lands without the invite sheet only
+    // where the shell advertises account.leave.forget.
+    it.each([
+      ['a shell with account.leave.forget', true, ['account.leave', { then: 'local', forget: true }]],
+      ['an older shell', false, ['account.leave']],
+    ])('Back to local mode on %s', async (_name, advertised, expected) => {
+      installFakeIdb();
+      setGlobal('PublicKeyCredential', { parseRequestOptionsFromJSON: (x) => x || {} });
+      setGlobal('navigator', { credentials: { get: async () => { throw Object.assign(new Error('x'), { name: 'NotAllowedError' }); } } });
+      setGlobal('fetch', async () => ({ ok: true, json: async () => ({ publicKey: {} }) }));
+      const call = vi.fn(async () => null);
+      const has = vi.fn(async (op) => advertised && op === 'account.leave.forget');
+      setGlobal('LocalNotifications', { __native: { platform: 'ios', call, has } });
+      const app = fakeApp();
+      const appended = [];
+      const lookup = app.querySelector;
+      app.querySelector = (sel) => (sel === 'section' ? { appendChild: (n) => appended.push(n) } : lookup(sel));
+      setGlobal('document', { getElementById: () => app, createElement: () => ({ addEventListener(type, fn) { this.onclick = fn; } }) });
+      setGlobal('location', { hash: '', href: '' });
+      await runUnlockFlow();
+      await app._listeners['unlock:click']();
+      await vi.waitFor(() => expect(appended.some((n) => n.id === 'unlock-back-local')).toBe(true));
+      appended.find((n) => n.id === 'unlock-back-local').onclick();
+      await vi.waitFor(() => expect(call).toHaveBeenCalledWith(...expected));
+      expect(call).toHaveBeenCalledTimes(1);
     });
 
   });

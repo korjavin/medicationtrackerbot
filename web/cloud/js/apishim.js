@@ -27,7 +27,9 @@ import {
 } from '../../domain/paginate.js';
 import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
-import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues } from './sync.js';
+import {
+  recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp, notifyRecordsChanged,
+} from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -39,15 +41,37 @@ import { createVoiceLLMResponder } from './voice-llm-responder.js';
 import { registerEgressHosts } from './egress-hosts.js';
 import { materializing, materializationSettled, withMaterializationStopped } from './materialize-gate.js';
 
-// materializeTimerHandle is module-level (not per-shim-instance) because the
-// production invariant is "one shim installed per page load"; re-installing
-// (as every shim-mode test case does) simply clears and restarts the single
-// sweep instead of stacking a new setInterval on top of the previous one.
-const MATERIALIZE_INTERVAL_MS = 60_000;
-let materializeTimerHandle;
 // Re-exported for the store replacers (cloud-boot.js, local-policy.js) and the
 // tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
 export { materializationSettled, withMaterializationStopped };
+
+// Clock-driven dose refresh (Archie 4934 point 3). Ledger v2 writes nothing
+// when a dose comes due, so nothing would repaint a screen left open across
+// it (Today's missed list, the Meds tab). Every projection names its next
+// boundary (the earliest upcoming plannedAt, or a snooze's end) through the
+// intake domain's onBoundary port; one timer per page fires there and
+// invalidates the intake-derived caches exactly as an external intake write
+// would, so every mounted surface re-reads. Module-level like the old sweep's
+// handle: one shim per page load, a re-install re-arms the single timer.
+// ponytail: setTimeout caps near 24.8 days; a longer wait fires early, and the
+// re-read it causes simply re-arms.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+let doseClock = { at: Infinity, handle: null, timers: null };
+function armDoseClock(atMs, nowMs, timers, win) {
+  if (!(atMs > nowMs)) return;
+  if (doseClock.handle !== null && doseClock.at > nowMs && doseClock.at <= atMs) return;
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  const handle = timers.setTimeout(() => {
+    doseClock = { at: Infinity, handle: null, timers: null };
+    notifyRecordsChanged(['intake'], ORIGIN_EXTERNAL, win);
+  },Math.min(atMs - nowMs + 1, MAX_TIMER_MS));
+  doseClock = { at: atMs, handle, timers };
+}
+// Test teardown: no dose timer outlives its suite (cf. bd med-tc1.3).
+export function stopDoseClock() {
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  doseClock = { at: Infinity, handle: null, timers: null };
+}
 
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
@@ -153,6 +177,8 @@ function debugOnce(key, ...args) {
 // "New data is available" banner for the user's own action.
 // opts.now/opts.timeZone override the clock the domain instances read, which is
 // what lets a test drive the router across a date boundary deterministically.
+// opts.via names the channel for intake merge ranking (bd med-wi09.11):
+// 'mcp' for the MCP responder, 'telegram' for the chat agent; default app.
 // opts.timeZone stands in for the DEVICE zone specifically: a settings.timezone
 // the user pinned in Settings still wins over it (bd med-7ujt).
 //
@@ -172,9 +198,20 @@ function debugOnce(key, ...args) {
 //                 med-o7zq.20).
 //   opts.protection  the W4 nudge's local half (local-policy.js
 //                 LOCAL_PROTECTION, bd med-ta2n.4); omitted = never nudge.
+//   opts.caughtUp async () => bool: has the mirror pulled the account yet?
+//                 Until it has, /api/bootstrap omits needs_first_run,
+//                 so W1 never runs on an empty mirror of an existing account
+//                 (bd med-ejgf). Defaults to sync.js hasCaughtUp on the real
+//                 sync store; any injected store (local mode, tests) has
+//                 nothing to pull and is always caught up. cloud-boot.js
+//                 passes its own through installApiShim: caught up AND the
+//                 local → cloud move pickup settled (bd med-ydt2).
+//   opts.onDoseBoundary(atMs)  the intake domain's onBoundary port; only the
+//                 page's shim passes one (installApiShim's dose clock).
 export function createApiRouter(ctx, {
-  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
+  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
+  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -220,7 +257,7 @@ export function createApiRouter(ctx, {
     medications = createMedicationsDomain({
       records, now, timeZone, rxnorm,
     });
-    intake = createIntakeDomain({ records, now, timeZone });
+    intake = createIntakeDomain({ records, now, timeZone, via, onBoundary: onDoseBoundary });
     tzplan = createTzPlanDomain({ records, now, timeZone });
     foodDb = createFoodDbClient({ settingsDomain: settings, operatorFoodDb });
     food = createFoodDomain({
@@ -275,7 +312,7 @@ export function createApiRouter(ctx, {
   // pinned a zone resolves to deviceTimeZone and nothing is rebuilt.
   //
   // Memoized against the records-change counter, NOT once-only: cloud-boot.js
-  // installs the shim (and fires the first materialization sweep) BEFORE
+  // installs the shim BEFORE
   // pullOnOpen has landed this account's records, so a once-only memo would pin
   // a freshly-unlocked device to its own zone for the whole session — exactly
   // the user this fix is for. Every sync pull and every local write bumps the
@@ -345,6 +382,44 @@ export function createApiRouter(ctx, {
     await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
   }
 
+  // edSafe is THE ED-safe rule (Miles 4148/4151): gamificationmode.ed_safe
+  // alone, whatever the gamification (Journey) flag says — the Safety toggle is
+  // its own Settings section. GET /api/weight/bmi and the Goal Line payload
+  // (which Today's weight cells read) both route through it.
+  async function edSafe() {
+    return (await gamification.getMode()).ed_safe;
+  }
+
+  // bmiPayload backs GET /api/weight/bmi and the BMI fields of GET
+  // /api/weight/goal (epic med-a6fb). The ED-safe decision is made here, once:
+  // every surface (card, chart bands, nudge, goal warning, MCP) obeys it.
+  // show_bmi=false nulls nothing: it is reported, and the Weight UI hides.
+  async function bmiPayload() {
+    const [ed, g] = await Promise.all([edSafe(), settings.getGeneral()]);
+    const facts = ed
+      ? { height_cm: null, latest_kg: null, bmi: null, band: null, borders_kg: null }
+      : await weight.getBmi(g.height_cm);
+    return {
+      ...facts,
+      height_unit: g.height_unit,
+      show_bmi: g.show_bmi,
+      nudge_dismissed: g.bmi_nudge_dismissed,
+      ed_safe: ed,
+      // The one flag the "Add your height" nudge reads (Iris 4160).
+      nudge: g.height_cm === null && !g.bmi_nudge_dismissed && !ed && g.show_bmi,
+    };
+  }
+
+  // goalLinePayload backs GET /api/gamification/goal-line and the bootstrap
+  // warm. With Journey off it still carries ed_safe so Today hides its weight
+  // cells (med-njny).
+  async function goalLinePayload(flags) {
+    if (!flags.gamification) return { enabled: false, ed_safe: await edSafe() };
+    // getGoalLineCard = getGoalLine + `milestone` (the newest unacknowledged
+    // goal milestone, materialized floored on this read — med-8tur.5).
+    return gamification.getGoalLineCard({ features: flags });
+  }
+
   // settingsResponse builds the {settings, features} subset shared by
   // GET /api/settings and the bootstrap payload — the settings-only reads,
   // without the heavy bp/weight aggregate reads that /api/settings discards.
@@ -365,6 +440,12 @@ export function createApiRouter(ctx, {
       timezone: general.timezone,
       weight_unit_preference: weightUnit,
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
+      // Body settings (med-a6fb): the Settings height field's read source —
+      // reported as stored, never nulled by ED-safe (unlike /api/weight/bmi).
+      height_cm: general.height_cm,
+      height_unit: general.height_unit,
+      show_bmi: general.show_bmi,
+      bmi_nudge_dismissed: general.bmi_nudge_dismissed,
     };
     if (tabOrder) block.tab_order = tabOrder;
     return { settings: block, features: clampFeatures(features) };
@@ -376,7 +457,7 @@ export function createApiRouter(ctx, {
   // flag is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, settingsPart, firstRunComplete] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, settingsPart, firstRunComplete, synced] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
@@ -384,26 +465,28 @@ export function createApiRouter(ctx, {
       weight.getGoal(),
       settingsResponse(),
       settings.getFirstRunComplete(),
+      caughtUp(),
     ]);
     const payload = {
       cursor: 0,
-      // Read from the vault on every call, never cached: WGFirstRun's _mounted
-      // latch is module state lost on reload, so only a fresh `false` here keeps
-      // the overlay from re-opening on the next page load.
-      needs_first_run: !firstRunComplete,
       features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
       settings: settingsPart.settings,
     };
+    // Read from the vault on every call, never cached: WGFirstRun's _mounted
+    // latch is module state lost on reload, so only a fresh `false` here keeps
+    // the overlay from re-opening on the next page load. Omitted, not false,
+    // before the first pull (opts.caughtUp): applyBootstrapPayload then leaves
+    // the overlay alone, so a stale pre-pull answer arriving late can never
+    // dismiss a W1 that cloud-boot's post-pull re-ask has mounted.
+    if (synced) payload.needs_first_run = !firstRunComplete;
     // The Today Goal Line hero warms 'gamification_goal_line' from this
-    // (auth-bootstrap.js applyBootstrapPayload). Only included when the feature
-    // is on, so a disabled toggle leaves the cache untouched.
-    if (settingsPart.features.gamification) {
-      // getGoalLineCard, not getGoalLine: byte-identical to a live GET /goal-line
-      // (incl. the unacknowledged `milestone`, med-8tur.5).
-      payload.gamification_goal_line = await gamification.getGoalLineCard({ features: settingsPart.features });
-    }
+    // (auth-bootstrap.js applyBootstrapPayload). Byte-identical to a live GET
+    // /goal-line (incl. the unacknowledged `milestone`, med-8tur.5); with
+    // Journey off it is {enabled:false, ed_safe} so Today's weight cells obey
+    // ED-safe on a cold start too (med-njny).
+    payload.gamification_goal_line = await goalLinePayload(settingsPart.features);
     return payload;
   }
 
@@ -512,13 +595,22 @@ export function createApiRouter(ctx, {
       const m = /^\/api\/weight\/([^/]+)$/.exec(path);
       if (m) { await weight.remove(m[1]); return true; }
     }
-    if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
+    if (path === '/api/weight/goal' && method === 'GET') {
+      // The weight summary (MCP health.weight.goal.read) also carries
+      // height_cm / bmi / bmi_band — omitted together when there is no height,
+      // no weight log, or ED-safe (the same bmiPayload decision, med-a6fb.3).
+      const [goal, b] = await Promise.all([weight.getGoal(), bmiPayload()]);
+      return b.bmi === null ? goal : { ...goal, height_cm: b.height_cm, bmi: b.bmi, bmi_band: b.band };
+    }
     if (path === '/api/weight/goal' && method === 'POST') {
       const res = await weight.setGoal(body);
       // The queued weigh-in push carries the goal's distance (Web Push only).
       scheduleReminderRecompute(ctx, { records, timeZone });
       return res;
     }
+    // BMI (epic med-a6fb). The ED-safe decision is made HERE, once: every
+    // surface (card, chart bands, nudge, goal warning, MCP) obeys the payload.
+    if (path === '/api/weight/bmi' && method === 'GET') return bmiPayload();
     if (path === '/api/weight/goals/history' && method === 'GET') {
       // max 200: the domain's own append-only-history cap, so a deeper offset
       // legitimately runs out of rows rather than being an error.
@@ -578,6 +670,10 @@ export function createApiRouter(ctx, {
       scheduleReminderRecompute(ctx, { records, timeZone });
       return { unit };
     }
+
+    // Partial patch of the body settings (height_cm, height_unit, show_bmi,
+    // bmi_nudge_dismissed — settings.js BODY_FIELDS); null resets a field.
+    if (path === '/api/settings/body' && method === 'PATCH') return settings.setBodySettings(body);
 
     if (path === '/api/settings' && method === 'POST') {
       // Mirrors handleUpdateSettings: a timezone change goes through the tz
@@ -748,7 +844,16 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/reminder-delivery') {
       if (method === 'GET') return reminders.getDeliveryPref();
       if (method === 'PUT') {
-        const pref = await reminders.setDeliveryPref(body || {});
+        // {floor}: a default, not a choice (med-5vy0) — stored at the floor
+        // (Detailed clientTs 0, Generic clientTs 1) only when no pref exists (docs/cloud-mode.md guard 3). 'auto' is
+        // the first run: Detailed when the vault already holds a medication
+        // (an existing account keeps what it saw), else Generic.
+        const floor = body && body.floor;
+        const pref = floor
+          ? await reminders.floorDeliveryPref(floor === 'auto'
+            ? ((await records.list('medication')).some((m) => !m.deleted) ? 'detailed' : 'generic')
+            : floor)
+          : await reminders.setDeliveryPref(body || {});
         scheduleReminderRecompute(ctx, { records, timeZone }, 0);
         return pref;
       }
@@ -1377,11 +1482,7 @@ export function createApiRouter(ctx, {
     // on the gamification flag (its card lives on Today); the
     // workout/BP rows carry their own feature_on from the same flag map.
     if (path === '/api/gamification/goal-line' && method === 'GET') {
-      const flags = clampFeatures(await settings.getFeatures());
-      if (!flags.gamification) return { enabled: false };
-      // getGoalLineCard = getGoalLine + `milestone` (the newest unacknowledged
-      // goal milestone, materialized floored on this read — med-8tur.5).
-      return gamification.getGoalLineCard({ features: flags });
+      return goalLinePayload(clampFeatures(await settings.getFeatures()));
     }
     // Acknowledging a goal milestone is the user write that retires its line
     // on the Goal Line card; the record stays in the Journey keystones.
@@ -1595,8 +1696,7 @@ export function createApiRouter(ctx, {
   }
 
   // A getter, not a snapshot: buildDomains() replaces the instances, so a
-  // property read must land on the current set (installApiShim's materialization
-  // sweep re-reads it on every tick for exactly this reason).
+  // property read must land on the current set.
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
@@ -1609,7 +1709,7 @@ export function createApiRouter(ctx, {
 
 // installApiShim wires the router to window.offlineAwareApiCall (the seam
 // web/static/js/core/api.js delegates through) plus the browser-direct globals
-// that bypass /api entirely, and starts the materialization sweep. Signature
+// that bypass /api entirely, and writes the ledger cut. Signature
 // and return value unchanged: it resolves to the router itself.
 // now/timeZone are forwarded straight to createApiRouter (both routers, so the
 // two agree on the clock) — the same test-only override it documents, reachable
@@ -1620,9 +1720,13 @@ export function createApiRouter(ctx, {
 // serves its own CSP).
 export function installApiShim(ctx, {
   records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
-  win, now: nowOverride, timeZone: timeZoneOverride,
+  win, now: nowOverride, timeZone: timeZoneOverride, caughtUp,
+  // Read at call time so a test's fake timers apply.
+  timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h) },
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
+  const clockNow = nowOverride || (() => Date.now());
+  const onDoseBoundary = (atMs) => armDoseClock(atMs, clockNow(), timers, targetWindow);
   // Two routers over the same records store, differing only in the origin they
   // stamp on writes (med-dvr):
   //
@@ -1631,21 +1735,22 @@ export function installApiShim(ctx, {
   //               them has already repainted.
   //   bgCall    — everything else that writes from inside this tab: the voice
   //               agent's MCP dispatcher, the browser-direct food-AI client, and
-  //               the materialization sweep. None of these is a user action on
+  //               the ledger-cut write. None of these is a user action on
   //               the current screen, so all of them must repaint it.
   //
   // A test's injected `records` port carries its own origin and is shared by
   // both, which keeps the harness a drop-in swap.
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
-    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win,
+    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win, caughtUp,
+    onDoseBoundary,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });
   // Snapshotted on purpose — every use below reads integrations or a product
   // search, never the wall clock, so these survive a buildDomains() rebuild when
   // the pinned settings.timezone resolves (bd med-7ujt). Anything TIME-sensitive
-  // must go through `.domains` at call time, the way runMaterializationSweep
+  // must go through `.domains` at call time, the way the ledger-cut write
   // does below.
   const {
     settings, foodDb, now, aiClient,
@@ -1693,28 +1798,19 @@ export function installApiShim(ctx, {
   // start()s it before minting the signed URL and stop()s it on hang-up.
   targetWindow.CloudVoiceLLM = createVoiceLLMResponder({ aiClient });
 
-  // Due-dose materialization + tz-plan status refresh: neither domain module
-  // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
-  // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
-  // Both compute dose slots in wall time, so they must run on the RESOLVED zone:
-  // await the settings.timezone read and re-read `.domains` each tick, since a
-  // rebuild replaces the instances (bd med-7ujt).
-  async function runMaterializationSweep() {
+  // Ledger v2 activation (bd med-wi09.12): no dose sweep, no timer — doses are
+  // derived (the projection regenerates them from the ledger cut). On install
+  // this client writes the ledgercut singleton (floored, put-if-absent), whose
+  // first op sets the account's cut and arms the server's writer gate against
+  // pre-v2 bundles. Skipped during a store replace (materialize-gate.js); the
+  // next page load writes it.
+  materializing(async () => {
     try {
-      await bgCall.ensureTimeZone();
-      const { intake, tzplan } = bgCall.domains;
-      await intake.materializeDueDoses();
-      await tzplan.refreshPlanStatus();
+      await bgCall.domains.intake.ensureLedgerCut();
     } catch (e) {
-      console.error('[cloud shim] materialization sweep failed', e);
+      console.error('[cloud shim] ledger cut write failed', e);
     }
-  }
-  // A tick during a store replace is skipped (materialize-gate.js); the next
-  // one reads the replaced store.
-  const sweep = () => { materializing(runMaterializationSweep).catch(() => {}); };
-  clearInterval(materializeTimerHandle);
-  sweep();
-  materializeTimerHandle = setInterval(sweep, MATERIALIZE_INTERVAL_MS);
+  }).catch(() => {});
 
   // Egress allowlist (CSP scoping). Tell the server which provider HOSTNAMES
   // this account connects to browser-direct so /'s connect-src can be scoped to

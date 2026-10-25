@@ -198,12 +198,17 @@ checkAuth().then(async authorized => {
             window.TZPlanBanner.refresh();
         }
 
-        // Wire Back (chevron + popstate) once the initial tab is active: pages return to their origin tab, sections to Today.
+        // Wire Back (chevron + popstate) once the initial tab is active; both run AppBack.step().
         if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {
             window.AppBackButton.setup();
         }
 
-        // Handle deep links and push actions from URL
-        handleDeepLinks();
+        // Handle deep links and push actions from URL. Startup routing ends
+        // here: AppBack's section trail starts after it (bd med-y7b4.3).
+        try {
+            handleDeepLinks();
+        } finally {
+            if (window.AppBack) window.AppBack.ready();
+        }
     }
 });

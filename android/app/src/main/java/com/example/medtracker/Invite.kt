@@ -25,6 +25,25 @@ object Invite {
 
     /** §6 warm delivery: home with invite=1, after an existing query (the QA scene's ?qa=). */
     fun withInvite(home: String) = home + (if ('?' in home) "&" else "?") + "invite=1"
+
+    /**
+     * "Join and erase" (bd med-r1j2.8, web med-r1j2.4 AD9): local.leave {url, erase: true} remembers
+     * the joined account's host and when; local.erase acts only for that host and only while the
+     * 10-minute add-device code could still be live, so a much later unlock never erases anything.
+     */
+    const val ERASE_HOST_KEY = "wgJoinEraseHost"
+    const val ERASE_AT_KEY = "wgJoinEraseAt"
+    const val ERASE_TTL_MS = 10 * 60 * 1000L
+
+    fun eraseDue(eraseHost: String?, at: Long, host: String?, nowMs: Long) =
+        eraseHost != null && eraseHost == host && nowMs - at in 0..ERASE_TTL_MS
+
+    /**
+     * local.leave {url, erase: true} arms the erase only for an add-device claim link
+     * (https://<sub>.<base>/claim#<slot>.<TK>), never an invite (bd med-r1j2.14, iOS Shell.swift's
+     * url.path == "/claim"). [url] is AccountUrl.parse's output; anything else is a plain leave.
+     */
+    fun armsErase(url: String) = runCatching { java.net.URI(url).path == "/claim" }.getOrDefault(false)
 }
 
 /**

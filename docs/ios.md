@@ -213,6 +213,12 @@ Not covered by flow QA; check on a TestFlight build before release:
    an account". Local mode opens with the account's records on the device.
 3. **Delete account:** Settings → delete account. The app lands in local mode
    on "Have an invite?", and a relaunch stays local.
+4. **Swipe back (bd med-y7b4.4, either mode):** a left-edge swipe closes an
+   open sheet, then a Settings sub-page, then returns to the previous tab; on
+   Today it does nothing (no Safari, no blank page). The `back-swipe-*`
+   visual scenes cover the sheet, the sub-page and Today on the Simulator.
+   `health-pull-native` (bd med-y7b4.7) is a real finger pull on Health with
+   `bounces = false`: the web pull-to-refresh pill must reach its busy state.
 
 A passkey stand-in for these (a Debug-only WKUserScript injecting
 `android/app/src/debug/assets/qa-softauthn.js` on a `qa.test` account origin)
@@ -292,7 +298,7 @@ in `PrivacyInfo.xcprivacy`.
 
 ### Listing text
 
-- **Privacy policy URL:** <https://cloud.myhealthbot.ai/privacy>
+- **Privacy policy URL:** `https://<base>/privacy` (the deployment's `CLOUD_BASE_DOMAIN`)
   ([privacy-policy.md](privacy-policy.md); iOS
   Settings → Med Tracker → Privacy names it, and
   the signed-in app shows its disclosures under Settings → Account & privacy;
@@ -556,6 +562,12 @@ and weight only asks once, at the next open, for the new types.
   every later run first re-reads sleep by time window (`health.query {type:
   "sleep", from: start − 48h, to: now}`, no anchor), until nothing is left
   settling.
+- **Diagnostics** (bd med-w6gx.30): every run posts one line per kind to the
+  shell's diagnostics log (`diag.append`, "Copy diagnostics"), counts only —
+  `[health] sleep returned=… samples=… values={0:1,…} nights=… written=…
+  skip{inBed,unsettled,clipped,exists,overlap} anchor=moved|kept [error=Name]`.
+  When sleep has never returned a sample but BP or weight have, the Settings
+  row points at the Sleep switch in Health's per-app access.
 - **Workouts** → the existing `miband` activity record (Workouts → History,
   labelled *Apple Health*): type name, start/end, duration, distance, active
   energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
@@ -689,7 +701,8 @@ changes for it.
   draws no bar of its own. Copy
   diagnostics stays on the Home Screen quick action and the load-error screen.
 - **Use this iPhone without an account** (bd med-o7zq.30, moved by
-  med-o7zq.32): Settings → Account shows the row inside the iOS app only
+  med-o7zq.32, then med-y7b4.2): the Settings home, slot ② under the vault
+  card, shows the row inside the iOS app only, while signed in
   (account origin, `CloudVault.leaveAccount` present, platform `ios`). The
   account's own first-run (`WGFirstRun` welcome) offers only *Get started* /
   *Skip all* on every platform. After a `safeConfirm` the row calls
@@ -748,9 +761,49 @@ changes for it.
   replies true and reopens local home`?invite=1` —
   still local, nothing else changes, the stash waits; `account.leave` with no
   args is Switch account (local mode, home`?invite=1`, `wgLeaveHost`
-  removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set).
+  removed), `{then: "local"}` is unchanged (local home, `wgLeaveHost` set),
+  and `{then: "local", forget: true}` (bd med-r1j2.18, /unlock AD10 "Back to
+  local mode") lands on plain local home with `wgLeaveHost` removed: no
+  "Have an invite?" sheet, no way back (`LocalOrigin.leave`; `forget` alone is
+  the no-arg leave). The shell advertises it with the non-callable
+  `shell.ops` marker `account.leave.forget` (account mode; Android twin
+  med-r1j2.19, same shape); a shell before it ignores `forget`. The web
+  switch is pending (bd med-r1j2.17): it will send `forget` only when the
+  marker is listed; until then /unlock (`unlock.js`) sends the bare
+  `account.leave`, i.e. home`?invite=1`.
   Older shells ignore `url` and land on their first run; the web probes
   `shell.ops` for `invite.pending`.
+- **Add-device hand-off** (bd med-r1j2.7, web med-r1j2.4, Android twin
+  med-r1j2.8): `https://<base>/d/<sub>#<slot>.<TK>` (a universal link once the
+  AASA lists `/d/*`, i.e. with `HANDOFF_APP_LINKS=1`) and
+  `medtracker://d/<sub>#<slot>.<TK>` take the invite path above:
+  `parseInvite` maps them to `https://<sub>.<base>/claim#<slot>.<TK>` (code
+  `^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`, no query) into the same slot; the page
+  offers the join. `local.leave {url, erase: true}` with a `/claim` URL also
+  drops the move stash (no merge) and remembers the erase for that host
+  (`JoinErase`, UserDefaults `wgJoinErase` `{host, at}`); it expires after 10
+  minutes (the code's TTL) and is dropped on entering local mode, on opening
+  any account and once used. `local.erase` (listed in both modes, because the
+  local page probes it before offering the erase) acts only on
+  `{enrolled: true}` (cloud-boot.js, the boot right after this tab's claim
+  enrolled); `{}` (the #1336 page sent it on every unlocked boot) and any
+  call outside account mode with `JoinErase` naming the open host answer
+  `true` and touch nothing. The wipe clears `wgapp://local`'s IndexedDB,
+  localStorage and Cache Storage from a throwaway web view on that origin
+  (`Shell.eraseLocalOrigin`; `fetchDataRecords` lists no custom-scheme
+  origin) and leaves the localStorage marker `wg-shell-session-wipe`, which
+  `Shell.sessionWipeJS` turns into a `sessionStorage.clear()` in the shell's
+  own view at the next local document's start (sessionStorage is per view).
+  The intent (host + stamp) is re-checked once the throwaway view has loaded,
+  right before deleting, and again before the native effects: a switch to local
+  mode or another account, a newer intent or the TTL running out cancels it;
+  every page load and `wgapp` navigation while it runs waits until it ends. Only a
+  verified wipe (nothing left, one retry) spends the intent and runs the
+  local.reset effects (host mirror, `wgLeaveHost`, move/leave stashes, local
+  reminders); anything left answers `"erase failed"`, the intent stays and
+  the page offers Try again (also when no answer comes within 60 s; a call
+  while a wipe still runs answers `"busy"`, never `true`). The diag log notes `wiped`, what was left or
+  `cancelled`; never the host.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are
@@ -871,7 +924,7 @@ a Web Push subscription.
 
 ### Native push (APNs) (bd med-erq1.4)
 
-The relay's content-free wakes (`inbox-wake`, `dry-queue`;
+The relay's content-free wakes (`inbox-wake`, `dry-queue`, `transfer_claimed`;
 `internal/cloudserver/nativepush.go`) reach the shell over APNs, twin of
 Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15);
 [`Push.swift`](../ios/App/Push.swift)). Reminders stay local notifications (above).
@@ -896,8 +949,10 @@ Android's FCM (med-erq1.5, [android.md](android.md#native-push-fcm-bd-med-erq15)
   `willPresent` shows the alert only when no listener took it (the SW's rule);
   the page has 5 s to answer. In the background the system already showed
   the server's fixed alert; `content-available` also hands a live page the
-  wake, with a 10 s grace before completing. Tap: Today, like a reminder
-  without a url. The shell reads `kind` only.
+  wake, with a 10 s grace before completing. Tap: the kind's `Push.paths`
+  entry — `transfer_claimed` (the add-device claim, bd med-r1j2.16; no page
+  takes it, so it always shows) opens `/?tab=settings&page=add-device` —
+  else Today, like a reminder without a url. The shell reads `kind` only.
 - **Check:** `Tests/main.swift` (op gates, the event script, token encoding);
   a real delivery is an owner device check after med-erq1.7: a Telegram
   message to the bot with the app in the background shows "Open the app to
@@ -1023,7 +1078,8 @@ mode, gated on the bridge platform being `ios` or `android`
   is local mode's invite request and attested feedback, POSTed by the shell —
   its only native egress, so the local CSP never needs the base host. `path`
   exactly one of `LocalOrigin.basePostPaths` (`/api/attest/challenge`,
-  `/api/attest/enroll`, `/api/attest/feedback`, `/api/invite-requests`), sent
+  `/api/attest/delete` (the erase, bd med-egb3), `/api/attest/enroll`,
+  `/api/attest/feedback`, `/api/invite-requests`), sent
   to `https://` + `WGBaseDomain`; `body` a string sent as its UTF-8 bytes
   verbatim (the attest assertion binds it), ≤ 5 MiB; `headers` only
   `X-Attest-Key-Id` / `X-Attest-Challenge` / `X-Attest-Assertion` (≤ 8 KiB, no
@@ -1190,11 +1246,21 @@ mode, gated on the bridge platform being `ios` or `android`
   cloud (`health-import.js`), writing into the on-device store with no flush,
   then rescheduling reminders (`startLocalHealthImport`).
 - **Erase:** Settings → Backup & import → *Erase data on this device* (typed
-  confirm) deletes this origin's databases, caches and local/session storage
+  confirm) first asks our server to delete this phone's anonymous install
+  record and trial budget (bd med-egb3: the signed `POST /api/attest/delete`
+  through `base.post`; a failure asks *Erase anyway?*, Cancel keeps
+  everything), then deletes this origin's databases, caches and local/session storage
   (`clearLocalVault`, so only `wgapp://local`), then `local.reset` makes the
   shell drop local mode's pending and delivered reminders and the BYOK host
-  mirror, and the app reloads empty. An account's data on the phone is not
-  touched.
+  mirror, and the app reloads empty. Only after a `204` does the page send
+  `local.reset {dropAttest: true}` (a JSON `true` only,
+  `LocalOrigin.resetAttest`): the shell also drops `wgAttestKeyId` and
+  `wgAttestAttested`, so the next enroll mints a key the server cannot link
+  to the erased one. The Keychain trial pass always stays: it may name an
+  older bucket the delete did not reach (a pass for a deleted bucket is
+  refused, `trial_pass_invalid`, and the page drops it). `install_unknown`
+  erases silently without `dropAttest`. An account's data on the phone is
+  not touched.
 - **Visual testing:** runbook, probe reading and bead-filing protocol in [ios-visual-testing.md](ios-visual-testing.md). Device testing by the owner comes after the Simulator matrix.
 - **Visual QA hook** (bd med-y5xx.2, [design](design/ios-visual-testing.md)):
   Debug builds only (`#if DEBUG` in `Shell.swift` / `LocalOrigin.qaHome`),
@@ -1231,7 +1297,7 @@ mode, gated on the bridge platform being `ios` or `android`
    calls reject with `locked`. Settings → Med Tracker → *Lock* off → back in
    the app: still asks once, then stays open on the next return.
 9. Account → local (bd med-o7zq.36): an account with records → Settings →
-   Account → *Use this iPhone without an account* → local mode shows the
+   *Use this iPhone without an account* → local mode shows the
    records and a one-time toast that they came from the account (with records
    already in local mode: a Merge / Replace / Cancel choice first. Merge keeps
    them and adds the account's; Replace asks one more confirm, then erases
@@ -1251,14 +1317,28 @@ was removed by the shell bead; what the build sets up stays (all in
   Workers in WKWebView. A host outside the list fails to load with a
   `WKErrorDomain` "app-bound" error.
 - `NSCameraUsageDescription` and inline media playback (camera via
-  `getUserMedia`).
+  `getUserMedia`). The shell's `WKUIDelegate` decides each capture request
+  (bd med-r1j2.18, `LocalOrigin.isOwn` / `LocalOrigin.media`, covered by
+  `Tests/main.swift`): the camera alone is **granted** without WebKit's
+  per-page prompt to the main frame of the open account origin
+  (`https://<host>`, default port only — the bridge checks the same origin),
+  or of `wgapp://local` in local mode (the add-device scanner `/claim#scan`, W5, the
+  food scanner); iOS still asks for the app's camera access once. Anything with
+  the microphone stays WebKit's **prompt** there (the voice assistant and
+  voice notes use it, `NSMicrophoneUsageDescription`). Every other origin
+  (the base domain included), every subframe, and any page behind the lock is
+  **denied**. A denied camera shows AD13, whose "Allow camera in Settings"
+  calls the shared bridge op `app.openSettings` (`{}` → `true`, opens
+  `UIApplication.openSettingsURLString`, both modes; Android twin med-r1j2.19);
+  `notifications.openSettings` is unchanged.
 
 Production must serve the AASA: set `IOS_TEAM_ID` / `IOS_BUNDLE_ID` in the
 cloud env (docs/environment.md) and check that
 `https://<base>/.well-known/apple-app-site-association` and the same path on an
 account subdomain return
 `{"applinks":{"details":[{"appIDs":["<TEAM>.<bundle>"],"components":[{"/":"/i/*","comment":"invite landing"}]}]},"webcredentials":{"apps":["<TEAM>.<bundle>"]}}`
-(applinks claims the invite landing `/i/*`; the entitlement lists
+(applinks claims the invite landing `/i/*`, plus `{"/":"/d/*","comment":"add-device hand-off"}`
+with `HANDOFF_APP_LINKS=1`, med-r1j2.7; the entitlement lists
 `applinks:<base>` only — never `*.<base>` — med-ta2n.11).
 Apple fetches it through its CDN
 (`https://app-site-association.cdn-apple.com/a/v1/<host>`), which can lag by

@@ -904,6 +904,23 @@ describe('Today v2 — Goal Line', () => {
         expect(normal.weightLatest.status).toBe('ok');
     });
 
+    // med-njny: ED-safe holds with Journey off — the route's disabled payload
+    // carries ed_safe and Today obeys it without a gamification gate.
+    it('Journey off + ED-safe → no weight metric on Today; ED-safe off → shown', () => {
+        const bootstrap = {
+            features: { gamification: false, weight: true },
+            weight: { logs: [{ measured_at: NOW.toISOString(), weight: 82.4 }] },
+        };
+        const safe = env.aggregate(bootstrap, { gamification_goal_line: { enabled: false, ed_safe: true } }, NOW);
+        expect(safe.goalLine.status).toBe('disabled');
+        expect(safe.weightLatest.status).toBe('disabled');
+        expect(safe.weightTrend7d.status).toBe('disabled');
+
+        const open = env.aggregate(bootstrap, { gamification_goal_line: { enabled: false, ed_safe: false } }, NOW);
+        expect(open.goalLine.status).toBe('disabled');
+        expect(open.weightLatest.status).toBe('ok');
+    });
+
     it('ED-safe + active adherence alert → the alert line alone, no weight numbers', () => {
         const bootstrap = {
             features: { gamification: true, weight: true, bp: false, food: false, medication: true, workout: false, health: false },
@@ -1706,7 +1723,7 @@ describe('W4 protect-your-data card', () => {
     const act = (root, name) => root.querySelector(`[data-action="${name}"]`);
     const flush = () => new Promise((r) => setTimeout(r, 0));
 
-    function setup({ local = true, nudge = true, records = 43, invite = null } = {}) {
+    function setup({ local = true, nudge = true, records = 43, invite = null, canRequest = null } = {}) {
         env = loadRenderEnv();
         if (local) env.document.documentElement.classList.add('wg-local-vault');
         status = { records, firstRunAt: 1, lastBackupAt: null, dismissedCount: 0, lastDismissedAt: null, synced: false, nudge };
@@ -1717,6 +1734,10 @@ describe('W4 protect-your-data card', () => {
         env.window.SettingsView = { openSettingsPage: vi.fn() };
         env.window.SettingsImportExport = { openExport: vi.fn() };
         env.window.InviteSheet = { pending: vi.fn(async () => invite), offer: vi.fn() };
+        if (canRequest !== null) {
+            env.window.InviteSheet.canRequest = vi.fn(async () => canRequest);
+            env.window.InviteSheet.request = vi.fn();
+        }
         const root = env.document.getElementById('today-content');
         env.paint = () => env.render(baseState(), root, { now: NOW });
         env.paint();
@@ -1828,7 +1849,8 @@ describe('W4 protect-your-data card', () => {
         const choice = (v) => sheet().querySelector(`[data-protect-choice="${v}"]`);
         expect(choice('backup').getAttribute('aria-pressed')).toBe('true');
         expect(choice('sync').getAttribute('aria-pressed')).toBe('false');
-        expect(choice('sync').textContent).toContain('Needs an invite.');
+        // IM4 (bd med-er5x): the sync choice says what it adds.
+        expect(choice('sync').querySelector('.wg-choice__sub').textContent).toBe('An encrypted copy only you can open. Needs an invite.');
         expect(act(sheet(), 'protect-go').textContent).toBe('Save backup');
         choice('sync').click();
         expect(choice('sync').getAttribute('aria-pressed')).toBe('true');
@@ -1866,6 +1888,20 @@ describe('W4 protect-your-data card', () => {
         act(sheet(), 'protect-go').click();
         expect(env.window.InviteSheet.offer).toHaveBeenCalledWith(url, { kit: true });
         expect(env.window.SettingsView.openSettingsPage).not.toHaveBeenCalled();
+    });
+
+    it('Turn on sync, no invite, the shell can POST requests → IM2 · W4: the request sheet led by the copy', async () => {
+        setup({ canRequest: true });
+        await flush();
+        act(card(), 'protect-open').click();
+        await flush();
+        await flush();
+        sheet().querySelector('[data-protect-choice="sync"]').click();
+        act(sheet(), 'protect-go').click();
+        expect(sheetOpen()).toBe(false);
+        expect(env.window.InviteSheet.request).toHaveBeenCalledWith({ lead: 'copy', eyebrow: '43 records on this phone' });
+        expect(env.window.SettingsView.openSettingsPage).not.toHaveBeenCalled();
+        expect(env.window.InviteSheet.offer).not.toHaveBeenCalled();
     });
 
     it('Later is the ×: closes the sheet, retires the card, records the dismissal', async () => {

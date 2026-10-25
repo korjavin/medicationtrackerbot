@@ -41,9 +41,8 @@ const MODULES = {
     '/js/local-policy.js': () => import('../../../cloud/js/local-policy.js'),
 };
 
-// The last test's install-time dose sweep may still be running: it read that
-// store's medications and would write their due doses into the fresh store
-// (bd med-o7zq.40: a 09:00 fixture dose, so only after 07:00 UTC).
+// The last test's install-time ledger-cut write may still be running; let it
+// settle so it never lands in the fresh store (bd med-o7zq.40).
 async function deleteDb() {
     await materializationSettled();
     return new Promise((resolve, reject) => {
@@ -322,17 +321,19 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(weights).toHaveLength(2 + VAULT_FIXTURE.data.weight.logs.length);
     });
 
-    // bd med-o7zq.41: a boot's dose sweep that read this store's medications
-    // before a restore (the leave/move pickup runs right after install) must
-    // not write their doses into the restored store: no intake of a
-    // medication the store does not have.
-    it('a dose sweep in flight when a restore replaces the store writes nothing into the restored one, and the next sweep runs', async () => {
+    // bd med-o7zq.41 / med-wi09.12: there is no boot-time dose sweep any more
+    // (doses are derived), so a restore right after install leaves no intake of
+    // a medication the store does not have; the boot writes only the ledger
+    // cut, which a restore keeps (not vault-managed), and local mode derives
+    // due doses from it without any server.
+    it('a restore after install leaves no dose rows behind; due doses are derived from the local ledger cut', async () => {
         const { window } = env;
         const DAY = 24 * 60 * 60 * 1000;
-        const t0 = Date.parse('2026-07-08T12:00:00Z');
+        // The boot in beforeEach already wrote the ledger cut on the real clock:
+        // start from it, so the cut never lies after the faked days below.
+        const t0 = Date.now();
         vi.useFakeTimers({ toFake: ['Date'], now: t0 });
-        const getAll = globalThis.IDBIndex.prototype.getAll;
-        // Every hour, created a day before the sweep: a dose is due today in any zone.
+        // Every hour, created a day before: a dose is due today in any zone.
         const hours = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
         const addMed = (name) => window.apiCall('/api/medications', 'POST', {
             name, dosage: '1mg', schedule: JSON.stringify({ type: 'daily', times: hours }),
@@ -340,42 +341,25 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         const install = () => installApiShim({ accountId: 'local' }, {
             recordsPort: localRecordsPort, effects: LOCAL_EFFECTS, rxnorm: null, registerEgress: async () => null, win: window,
         });
-        const intakesOf = async (medId) => (await localRecordsPort().listRaw('intake')).filter((i) => i.medication_id === medId);
-        let importing = null;
-        let spy;
         try {
             const med = await addMed('Old store med');
             cancelReminderRecompute({ accountId: 'local' });
             vi.setSystemTime(t0 + DAY);
-            // The restore starts the moment the sweep has read the medications.
-            spy = vi.spyOn(globalThis.IDBIndex.prototype, 'getAll').mockImplementation(function (...args) {
-                const req = getAll.apply(this, args);
-                if (!importing && args[0] === 'medication') {
-                    req.addEventListener('success', () => {
-                        importing ??= window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
-                    });
-                }
-                return req;
-            });
             install();
-            await vi.waitFor(() => expect(importing).not.toBe(null));
-            spy.mockRestore();
-            spy = null;
-            await importing;
+            await window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
             await materializationSettled();
             expect((await localRecordsPort().listRaw('medication')).map((m) => m.recordId)).not.toContain(med.id);
-            expect(await intakesOf(med.id)).toEqual([]);
+            expect((await localRecordsPort().listRaw('intake')).filter((i) => i.medication_id === med.id)).toEqual([]);
+            expect(await localRecordsPort().list('ledgercut')).toHaveLength(1);
 
-            // No reload followed (a cancelled one, or a failure after the
-            // replace): the dose writers are not left stopped.
             const fresh = await addMed('Restored store med');
             cancelReminderRecompute({ accountId: 'local' });
             vi.setSystemTime(t0 + 2 * DAY);
-            install();
-            await materializationSettled();
-            expect((await intakesOf(fresh.id)).length).toBeGreaterThan(0);
+            const now = t0 + 2 * DAY;
+            const doses = await window.apiCall(`/api/doses?from=${new Date(now - DAY).toISOString()}&to=${new Date(now).toISOString()}`);
+            expect(doses.some((d) => String(d.medId) === String(fresh.id) && d.state === 'due')).toBe(true);
+            expect((await localRecordsPort().listRaw('intake')).filter((i) => i.medication_id === fresh.id)).toEqual([]);
         } finally {
-            spy?.mockRestore();
             vi.useRealTimers();
         }
     });
@@ -1046,6 +1030,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                 expect(window.Barcode.scan).toHaveBeenCalledWith(expect.objectContaining({ formats: ['qr_code'] }));
             });
+
+            // bd med-r1j2.10 (AD13): a denied camera says so, offers the system
+            // setting (its hint where the shell can't open it), and the paste
+            // field takes the link instead.
+            it('Scan with the camera denied: AD13 note + Allow camera in Settings, then the pasted link still works', async () => {
+                const { window, document } = env;
+                const denied = Object.assign(new Error('denied'), { name: 'MediaCaptureError', code: 'PERMISSION_DENIED' });
+                const openSettings = vi.fn(async () => ({ opened: false, hint: 'Turn on Camera in iOS Settings → Med Tracker.' }));
+                window.MediaCapture = { openCameraStream: vi.fn(async () => { throw denied; }), openSettings };
+                window.Barcode = { supportsLiveScan: () => true, scan: vi.fn() };
+                openSheet(window);
+                act(document, 'scan').click();
+                const off = await vi.waitFor(() => {
+                    const n = document.getElementById('invite-camera-off');
+                    if (!n) throw new Error('no AD13 note yet');
+                    return n;
+                });
+                expect(off.textContent).toContain('The camera is off for this app.');
+                expect(off.textContent).toContain('Paste the link from your other device instead.');
+                expect(window.Barcode.scan).not.toHaveBeenCalled();
+                tap(off, 'camera-settings');
+                await vi.waitFor(() => expect(off.textContent).toContain('Turn on Camera in iOS Settings → Med Tracker.'));
+                expect(openSettings).toHaveBeenCalledTimes(1);
+                const input = document.getElementById('invite-sheet-input');
+                expect(input.closest('[hidden]')).toBeNull();
+                input.value = 'https://app.example.com/i/abc#0a1b2c';
+                act(document, 'submit').click();
+                tap(await ready(document), 'sign-in');
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+            });
         });
 
         it('with records: "Turn on sync?" with the live count, then move.stash, then local.leave {url}', async () => {
@@ -1183,6 +1197,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 await window.paintSyncSection();
                 const button = document.getElementById('settings-sync-request');
                 expect(button.hidden).toBe(false);
+                // IM3 (bd med-er5x): one invite link on the Sync card.
+                expect(button.textContent).toBe('No invite? Request one');
+                expect(document.getElementById('settings-sync-how').hidden).toBe(true);
                 button.click();
                 return requestSheet(document);
             }
@@ -1201,7 +1218,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(document.getElementById('settings-sync-how').hidden).toBe(false); // the landing link stays
                 // Opened anyway (the W1 entry, a stale page): "not open here" + the landing link, no op call.
                 window.InviteSheet.request();
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = requestSheet(document).querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1212,12 +1229,44 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 requestAct(document, 'not-now').click();
             });
 
+            it('IM3 Sync card carries the four facts; IM2 · W4 (lead copy) leads with the copy and its privacy fact', async () => {
+                const { window, document } = env;
+                const cardFacts = [...document.querySelectorAll('#settings-sync-facts li b')].map((b) => b.textContent);
+                expect(cardFacts).toEqual(['Your records on every device', 'A copy off this phone', 'Only you can open it', 'Open it in any browser']);
+                expect(document.querySelector('#settings-sync-facts li').textContent)
+                    .toBe('Your records on every devicePhone and tablet stay in step. To add one, scan a code from this phone.');
+                window.InviteSheet.request({ lead: 'copy', eyebrow: '43 records on this phone' });
+                const sheet = requestSheet(document);
+                expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('43 records on this phone');
+                expect([...sheet.querySelectorAll('[data-invite-facts] li b')].map((b) => b.textContent))
+                    .toEqual(['A copy off this phone', 'Only you can open it', 'Your records on every device', 'Open it in any browser']);
+                // No header ×: Not now is the one close (Iris, PR #1346).
+                expect(requestAct(document, 'close')).toBeNull();
+                requestAct(document, 'not-now').click();
+                expect(requestSheet(document)).toBeNull();
+            });
+
             it('the shell sends email + note, 202 → "Request sent", Done closes; the page fetches nothing', async () => {
                 answer = { status: 202, headers: {}, body: '' };
                 const sheet = await openRequest(env);
                 const { document } = env;
                 expect(sheet.textContent).toMatch(/Request an invite/);
-                expect(sheet.textContent).toMatch(/Your email and your note. Nothing from your records./);
+                // IM2 (bd med-er5x): what an account adds, every device first,
+                // then the corrected hint, the form and the fine print, which is
+                // the request's privacy statement (what we get) + the batches line.
+                expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('Sync');
+                const facts = [...sheet.querySelectorAll('[data-invite-facts] li')].map((li) => li.textContent);
+                expect(facts).toEqual([
+                    'Your records on every devicePhone and tablet stay in step. To add one, scan a code from this phone.',
+                    "A copy off this phoneLose or reset it, sign back in, and it's all there.",
+                    "Only you can open itEncrypted on your device before it syncs. We store it but can't read it.",
+                    'Open it in any browserOn a laptop or a work computer, whenever you need it.',
+                ]);
+                expect(sheet.querySelector('[data-invite-facts] + .wg-hint').textContent)
+                    .toBe('Telegram, AI-assistant connectors and sharing need an account too. Everything else works on this phone.');
+                expect(sheet.querySelector('.wg-sheet__body .wg-shell__fine').textContent)
+                    .toBe("We get your email and note, nothing from your records. Invites go out in small batches; we'll write to this address when yours is ready.");
+                expect(sheet.textContent).not.toMatch(/Sync is invite-only for now/);
                 expect(document.getElementById('invite-request-note').maxLength).toBe(500);
                 const before = fetched.length;
                 fill(document, '  Someone@Example.org ', 'friend of the admin');
@@ -1243,7 +1292,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 fill(document, 'not an email');
                 expect(sheet.querySelector('.wg-field--error').textContent).toMatch(/Enter an email address like name@example.com/);
                 expect(posts()).toEqual([]);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(posts()).toHaveLength(1));
                 await vi.waitFor(() => expect(sheet.querySelector('.wg-field--error')).not.toBeNull());
                 expect(sheet.querySelector('[data-invite-request="sent"]')).toBeNull();
@@ -1253,11 +1302,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 const { document } = env;
                 answer = { status: 429, headers: { 'Retry-After': '3600' }, body: '{"error":"rate_limited"}' };
                 const sheet = await openRequest(env);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Too many requests right now — try again in an hour./));
 
                 answer = { status: 404, headers: {}, body: '{"error":"not_enabled"}' };
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = sheet.querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1267,7 +1316,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
 
                 answer = new Error('network');
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Couldn't send the request. Check your connection and try again./));
                 expect(sheet.querySelector('[data-invite-request="off"]')).toBeNull();
                 requestAct(document, 'not-now').click();
@@ -1891,8 +1940,9 @@ describe('shellPost over base.post', () => {
         await expect(shellPost({ call: async () => { throw new Error('network'); } })('/api/invite-requests', { body: '{}' }))
             .rejects.toThrow(TypeError);
     });
-    it('the page allowlist is the shells\' four paths', () => {
-        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
+    it('the page allowlist is the shells\' five paths', () => {
+        // /api/attest/delete: the erase's install-record delete (bd med-egb3).
+        expect(BASE_POST_PATHS).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
     });
 });
 
@@ -2113,7 +2163,7 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         || (/^https?:/.test(url) && new URL(url).hostname === TRIAL_BASE));
     const foodGets = () => fetched.filter(({ url, method }) => method === 'GET'
         && url.startsWith(`https://${TRIAL_BASE}/api/attest/food/`));
-    const OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
+    const OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations to use it.';
 
     it('off: an unknown barcode says the food database is missing, opens the manual form, and asks no server', async () => {
         const { window, document } = env;
@@ -3127,7 +3177,8 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             if (op === 'setEgressHosts') return { changed: false };
             if (op !== 'base.post') return null;
             fetched.push({ url: `https://${TRIAL_BASE}${args.path}`, headers: args.headers, body: args.body });
-            const answer = { '/api/attest/challenge': reply.challenge, '/api/attest/enroll': reply.enroll, '/api/attest/feedback': reply.feedback }[args.path];
+            // reply.erase unset = a shell from before /api/attest/delete (bd med-egb3): `invalid path`.
+            const answer = { '/api/attest/challenge': reply.challenge, '/api/attest/enroll': reply.enroll, '/api/attest/feedback': reply.feedback, '/api/attest/delete': reply.erase }[args.path];
             if (!answer) throw new Error('invalid path');
             return shellReply(await answer()); // an answer that throws is the op's error string
         });
@@ -3406,6 +3457,117 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             expect(pageHitBase()).toBe(false);
         });
     }
+
+    // bd med-egb3: Erase data on this device first asks our server, through
+    // the shell, to delete this device's install record, signed by its key;
+    // only a confirmed deletion lets the shell drop the key and pass.
+    describe('erase deletes the install record', () => {
+        const attestedInstall = () => ({ ...freshInstall(), status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: true })) });
+        let replace;
+        const eraseWin = (confirm) => {
+            replace = vi.fn();
+            return {
+                localStorage: env.window.localStorage,
+                sessionStorage: env.window.sessionStorage,
+                LocalNotifications: env.window.LocalNotifications,
+                Attest: env.window.Attest,
+                fetch: env.window.fetch,
+                safeConfirm: vi.fn(async () => confirm),
+                location: { replace },
+            };
+        };
+        const resets = () => bridge.mock.calls.filter(([op]) => op === 'local.reset');
+        // The boot's egress registration finishes before the test ends: it
+        // reads window.document, which afterEach unstubs.
+        async function bootSettled(attest) {
+            await boot(attest);
+            await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', expect.anything()));
+            await new Promise((r) => { setTimeout(r, 0); });
+        }
+
+        it('204: signed over the empty body, then the erase and local.reset {dropAttest: true}', async () => {
+            const { createHash } = await import('node:crypto');
+            await bootSettled(attestedInstall());
+            reply.erase = () => new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c9' } });
+            env.window.localStorage.setItem('wg.marker', '1');
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'deleted' });
+            expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/delete']);
+            const digest = createHash('sha256').update('/api/attest/delete\n').digest('base64');
+            expect(fetched[1]).toMatchObject({ body: '', headers: { 'X-Attest-Key-Id': 'key-1', 'X-Attest-Challenge': 'c1', 'X-Attest-Assertion': `sig:c1:${digest}` } });
+            expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(env.window.localStorage.getItem('wg.marker')).toBeNull();
+            expect(resets()).toEqual([['local.reset', { dropAttest: true }]]);
+            expect(replace).toHaveBeenCalledWith('/');
+            expect(pageHitBase()).toBe(false);
+        });
+
+        it('install_unknown erases silently but keeps the key and pass (local.reset without dropAttest); a stale challenge is re-signed once; never an enroll', async () => {
+            await bootSettled(attestedInstall());
+            const answers = [
+                new Response(JSON.stringify({ error: 'challenge_invalid' }), { status: 400, headers: { 'X-Attest-Challenge': 'c5' } }),
+                new Response(JSON.stringify({ error: 'install_unknown' }), { status: 401 }),
+            ];
+            reply.erase = () => answers.shift();
+            // The pass may still name a live bucket (an iOS reinstall whose enroll failed): kept.
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'unknown' });
+            expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/delete']);
+            expect(fetched[2].headers['X-Attest-Challenge']).toBe('c5');
+            expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+            expect(replace).toHaveBeenCalledWith('/');
+        });
+
+        it('a failure (an old shell\'s invalid path) asks first: Cancel keeps everything, nothing retried', async () => {
+            await bootSettled(attestedInstall()); // reply.erase unset: invalid path
+            env.window.localStorage.setItem('wg.marker', '1');
+            const win = eraseWin(false);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: false, installRecord: 'failed' });
+            expect(win.safeConfirm).toHaveBeenCalledTimes(1);
+            expect(win.safeConfirm.mock.calls[0][0]).toBe('The anonymous install record on the server could not be deleted (offline, or the app needs an update). Erase this device anyway?');
+            expect(paths().filter((p) => p === '/api/attest/delete')).toHaveLength(1);
+            expect(env.window.localStorage.getItem('wg.marker')).toBe('1');
+            expect(resets()).toEqual([]);
+            expect(replace).not.toHaveBeenCalled();
+        });
+
+        it('a failure (a server without the route) confirmed with Erase anyway erases, but keeps the shell\'s key and pass', async () => {
+            await bootSettled(attestedInstall());
+            // An older server's mux: a plain 404 proves nothing was deleted.
+            reply.erase = () => new Response('404 page not found\n', { status: 404 });
+            env.window.localStorage.setItem('wg.marker', '1');
+            expect(await env.window.CloudVault.eraseDevice({ win: eraseWin(true) })).toEqual({ erased: true, installRecord: 'failed' });
+            expect(env.window.localStorage.getItem('wg.marker')).toBeNull();
+            expect(resets()).toEqual([['local.reset']]);
+            expect(replace).toHaveBeenCalledWith('/');
+        });
+
+        it('no key in the shell: nothing to delete, no question, no enroll', async () => {
+            const attest = attestedInstall();
+            attest.assert = vi.fn(async () => { throw new Error('no_key'); });
+            await bootSettled(attest);
+            reply.erase = () => new Response(null, { status: 204 });
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });
+            expect(paths()).not.toContain('/api/attest/delete');
+            expect(attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+        });
+
+        it('a never-enrolled install (attested false) asks our server nothing', async () => {
+            await bootSettled(freshInstall());
+            reply.erase = () => new Response(null, { status: 204 });
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });
+            expect(toBase()).toEqual([]);
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+        });
+    });
 });
 
 function fromB64(s) {

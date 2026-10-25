@@ -2111,6 +2111,9 @@ describe('cloud MCP response_example conformance', () => {
 
     // The weight goal has no catalogued write; post it through the same router.
     await router('/api/weight/goal', 'POST', { target_weight: 75, set_at: '2026-07-01T08:00:00.000Z' });
+    // Height is Settings-only (no catalogued write); with it the weight summary
+    // carries height_cm / bmi / bmi_band like its example (med-a6fb.3).
+    await router('/api/settings/body', 'PATCH', { height_cm: 180 });
 
     const ids = await seedFixtures(dispatcher);
     // Tracker create is UI-only (no catalogued write); log goes through the op.

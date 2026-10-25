@@ -71,7 +71,7 @@ function renderLocked(app, errorText, noPasskey) {
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
       ${carriesSharePlan ? '<p>This link carries a shared workout plan or gym. To add it to your own account, open your app and use Workouts → Plans → Import plan (or Equipment → Import), then paste this link.</p><button id="share-plan-copy-button" class="wg-btn" type="button">Copy link</button>' : ''}
-      <button id="unlock-button" class="wg-btn wg-btn--primary">Unlock with passkey</button>
+      <button id="unlock-button" class="wg-btn${noPasskey ? '' : ' wg-btn--primary'}">Unlock with passkey</button>
       <p><a href="/recover">Recover with your Emergency Kit</a></p>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
@@ -84,11 +84,38 @@ function renderLocked(app, errorText, noPasskey) {
   }
   // AD10 · none (bd med-r1j2.5): the system sheet found no passkey (or was
   // cancelled — the browser can't tell us which), so point at the QR flow.
+  // The sun opens /claim's in-app scanner (bd med-r1j2.10); in an app shell,
+  // "Back to local mode" is account.leave {then:'local', forget:true} where the shell
+  // advertises account.leave.forget, else bare account.leave (nothing is erased).
   if (noPasskey) {
+    const section = app.querySelector('section');
     const p = document.createElement('p');
     p.id = 'unlock-no-passkey';
     p.textContent = NO_PASSKEY_HINT;
-    app.querySelector('section').appendChild(p);
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.id = 'unlock-add-device';
+    add.className = 'wg-btn wg-btn--primary';
+    add.textContent = 'Add this device from another device';
+    add.addEventListener('click', () => { location.href = '/claim#scan'; });
+    section.appendChild(p);
+    section.appendChild(add);
+    const native = globalThis.LocalNotifications && globalThis.LocalNotifications.__native;
+    if (native && (native.platform === 'ios' || native.platform === 'android')) {
+      const local = document.createElement('button');
+      local.type = 'button';
+      local.id = 'unlock-back-local';
+      local.className = 'wg-btn wg-btn--ghost';
+      local.textContent = 'Back to local mode';
+      local.addEventListener('click', async () => {
+        // Newer shells land without the invite sheet; older ones keep the bare op.
+        const forget = await Promise.resolve(native.has?.('account.leave.forget')).catch(() => false);
+        Promise.resolve(forget ? native.call('account.leave', { then: 'local', forget: true }) : native.call('account.leave')).catch(() => {
+          globalThis.safeAlert?.('Update Med Tracker to go back to local mode from here.');
+        });
+      });
+      section.appendChild(local);
+    }
   }
   app.querySelector('#unlock-button').addEventListener('click', () => {
     // Read before passkeyCeremony swaps the browser error for copy.failed (Android).

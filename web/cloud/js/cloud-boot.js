@@ -96,6 +96,7 @@ const MOVE_NOTICE_KEY = 'wg-move-picked-up';
 const MOVE_PICKED_AT_KEY = 'wg-move-picked-at';
 const MOVE_JUST_PICKED_MS = 5 * 60 * 1000;
 const MOVE_PROBE_MS = 5000;
+const JOIN_ERASE_MS = 60000; // a wipe of a large local vault
 function withinMs(promise, ms) {
     return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
 }
@@ -161,7 +162,8 @@ async function pickUpMovedVault(win) {
     // restoreVault reloads the page itself once the vault is replaced, and runs
     // beforeReload only then. A failed clear only means the next open offers
     // the same move again (behind the typed confirm: the account has content).
-    await restore(vault, {
+    // true = imported and the page is reloading (the boot's W1 ask stands down).
+    const result = await restore(vault, {
         source: 'move',
         beforeReload: async () => {
             try {
@@ -171,23 +173,49 @@ async function pickUpMovedVault(win) {
             await withinMs(native.call('move.clear'), MOVE_PROBE_MS);
         },
     });
+    return !!(result && result.imported);
 }
 
 // AD9 "Join and erase", account side (bd med-r1j2.4). The local page asked
 // local.leave {url, erase: true} and erased nothing. Only here — the joined
-// account booted unlocked, so this device enrolled (or opened it with its own
-// passkey) — is the shell told to finish: local.erase wipes the local vault
-// (the Settings → Erase data on this device effects) if, and only if, it
-// still holds that join's erase for this host; otherwise a no-op. A cancel,
-// an expired code, a 409/410, another account or a crash never reach this
-// boot. Inert on the web and on shells whose shell.ops lacks local.erase.
+// account booted unlocked right after this tab enrolled its passkey (claim.js
+// sets the one-shot sessionStorage 'wg-join-enrolled', takeJoinEnrolled reads
+// and drops it at the top of every boot; bd med-r1j2.7) — is the
+// shell told to finish: local.erase wipes the local vault (the Settings →
+// Erase data on this device effects) if, and only if, it still holds that
+// join's erase for this host; otherwise a no-op. A cancel, an expired code, a
+// 409/410 (whose Close lands here too, unlocked by an older session), another
+// account or a crash never get the marker. Inert on the web and on shells
+// whose shell.ops lacks local.erase.
+function takeJoinEnrolled(win) {
+    try {
+        const enrolled = win.sessionStorage.getItem('wg-join-enrolled') === '1';
+        win.sessionStorage.removeItem('wg-join-enrolled');
+        return enrolled;
+    } catch {
+        return false; // no storage: never erase
+    }
+}
+
 async function finishJoinErase(win) {
     const doc = win.document;
     if (doc && doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
     const native = win.LocalNotifications && win.LocalNotifications.__native;
     if (!native || (native.platform !== 'ios' && native.platform !== 'android') || typeof win.nativeHas !== 'function') return;
     if ((await withinMs(win.nativeHas('local.erase').catch(() => false), MOVE_PROBE_MS)) !== true) return;
-    await withinMs(native.call('local.erase').catch(() => null), MOVE_PROBE_MS);
+    // {enrolled: true}: a shell acts on nothing less, so an older cached
+    // cloud-boot.js sending a bare local.erase on every boot erases nothing.
+    // A failed wipe keeps the shell's intent: offer it again while it is due.
+    const device = win.LocalNotifications.copy?.device || 'device';
+    for (;;) {
+        // No answer within JOIN_ERASE_MS (a hung wipe) counts as not finished;
+        // a Try again while it still runs gets "busy" from the shell.
+        const ok = await withinMs(native.call('local.erase', { enrolled: true }).then(() => true, () => false), JOIN_ERASE_MS);
+        if (ok === true || typeof win.safeConfirm !== 'function') return;
+        const again = await win.safeConfirm(`The records that were on this ${device} before could not be erased.`, null,
+            { title: "Erase didn't finish", confirmLabel: 'Try again', cancelLabel: 'Not now' });
+        if (!again) return;
+    }
 }
 
 function installReminderActionHandler(shimCall) {
@@ -244,6 +272,10 @@ window.MedTrackerCloudReady = (async function boot() {
     // fragments forward — anything else (notably #claim=, which has its own
     // branch above) must not, or the claim redirect ping-pongs.
     const sharePlanHash = /^#share-(?:plan|gym)=/.test(location.hash) ? location.hash : '';
+    // claim.js's one-shot enrollment marker (bd med-r1j2.7), consumed by THIS
+    // boot whatever happens next: a boot that fails before finishJoinErase must
+    // not leave it for a later, unrelated one.
+    const joinEnrolled = takeJoinEnrolled(window);
     // --- Warm-unlock decision. This is the ONLY block allowed to redirect to
     // /unlock, and only on "there is no usable local key" — no cached LDK record
     // (warmUnlock → null) or the read itself failing. Everything that decides
@@ -372,8 +404,9 @@ window.MedTrackerCloudReady = (async function boot() {
             } else {
                 // Replace: discard any not-yet-flushed managed writes first, or
                 // replaceAllRecords' pending overlay resurrects them over the backup
-                // (and they later flush over it). Non-managed pending (nk, reminder
-                // prefs) stays queued — those records are in `survive`.
+                // (and they later flush over it). Non-managed pending (nk, and
+                // the delivery pref when the file carries none) stays queued —
+                // those records are in `survive`.
                 await dropPendingForTypes(VAULT_MANAGED_TYPES);
                 await replaceAllRecords([...records, ...survive]);
             } });
@@ -469,12 +502,17 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount, requestFreshDrain }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
 
-        const shimCall = installApiShim(ctx);
+        // bd med-ydt2: /api/bootstrap omits needs_first_run until this device
+        // has pulled the account (bd med-ejgf) AND the move pickup below has
+        // settled without a reload, so no boot-time bootstrap mounts W1 ahead
+        // of an import that stamps `firstrun` and reloads the page.
+        let moveSettled = false;
+        const shimCall = installApiShim(ctx, { caughtUp: async () => moveSettled && hasCaughtUp() });
         // Decision 3 (C2d plan): groups.js/next-card.js/stats.js/today-loader.js
         // call window.apiCallDirect directly, bypassing the offlineAwareApiCall
         // seam apiCall() checks first. Route /api/* straight into the same shim
@@ -512,20 +550,55 @@ window.MedTrackerCloudReady = (async function boot() {
         // in place and are logged — they must NOT redirect to /unlock (the vault
         // is already unlocked). The IIFE closes just before the outer catch.
         void (async () => {
-        await pullOnOpen(ctx);
+        // A reminder deeplink that finds no dose at its slot re-reads once
+        // after this pull before it calls the reminder out of date (bd
+        // med-wi09.4): an edit synced from another device may not be local yet.
+        const pulled = Promise.resolve(pullOnOpen(ctx));
+        if (window.MedTrackerCloud) window.MedTrackerCloud.pulled = pulled.then(() => {}, () => {});
+        await pulled;
+        // bd med-ejgf: the shim reports needs_first_run false until this
+        // device has pulled the account once, so W1 never writes flags or the
+        // reminder default over an existing account from an empty mirror. The
+        // boot-time /api/bootstrap usually ran before that pull: re-ask after
+        // it and after every drain (online / visible / sync wake) until the
+        // mirror has caught up, then stop. Offline, the app shell simply runs
+        // without W1 and the sync status line says so.
+        //
+        // bd med-ydt2: and not before the local → cloud move pickup has
+        // settled. Its import stamps `firstrun` (vault with records) and
+        // reloads the page, so a W1 asked meanwhile mounted over the empty new
+        // account, then vanished with the reload. An import (page reloading)
+        // never asks; no stash, a cancel or a failed import asks as before.
+        // The local → cloud move pickup (bd med-nt9p.32.18): after pullOnOpen,
+        // as importAll needs the bootstrapped cursor. Not awaited, so a slow
+        // shell or a pending confirm never holds the rest of the boot; it then
+        // runs alongside it exactly as a Settings → Restore would. A no-op on
+        // the web.
+        const movePickup = pickUpMovedVault(window).catch((e) => {
+            console.error('[cloud-boot] move pickup failed', e);
+            return false;
+        }).then((reloading) => {
+            if (!reloading) moveSettled = true;
+            return reloading;
+        });
+        let firstRunAsked = false;
+        const askFirstRun = () => (async () => {
+            if (firstRunAsked || (await movePickup) || !(await hasCaughtUp())) return;
+            const res = await shimCall('/api/bootstrap', 'GET');
+            // Only a real answer ends the re-asking: a throw or a payload
+            // without the flag leaves the next drain to try again.
+            if (firstRunAsked || !res || typeof res.needs_first_run !== 'boolean' || !window.AuthBootstrap) return;
+            firstRunAsked = true;
+            window.AuthBootstrap.mountFirstRun(res.needs_first_run);
+        })().catch((e) => console.error('[cloud-boot] first-run check failed', e));
+        askFirstRun();
         // The kit page's save state (bd med-ckm5.2, kit-state.js): after
         // pullOnOpen, so the record lands on the synced singleton.
         Promise.resolve()
             .then(() => import('/js/kit-state.js'))
             .then(({ drainKitSaved }) => drainKitSaved(shimCall))
             .catch((e) => console.error('[cloud-boot] emergency kit state failed', e));
-        // The local → cloud move pickup (bd med-nt9p.32.18): after pullOnOpen,
-        // as importAll needs the bootstrapped cursor. Not awaited, so a slow
-        // shell or a pending confirm never holds the rest of the boot; it then
-        // runs alongside it exactly as a Settings → Restore would. A no-op on
-        // the web.
-        pickUpMovedVault(window).catch((e) => console.error('[cloud-boot] move pickup failed', e));
-        finishJoinErase(window).catch((e) => console.error('[cloud-boot] join erase failed', e));
+        if (joinEnrolled) finishJoinErase(window).catch((e) => console.error('[cloud-boot] join erase failed', e));
         // med-deq.2: the sync-status re-auth affordance lives in the unlock
         // shell, but a device with a warm LDK cache never sees that shell
         // (/unlock redirects straight back to /), so the real app must surface
@@ -584,6 +657,8 @@ window.MedTrackerCloudReady = (async function boot() {
             if (!(await getSyncStatus(ctx)).updateRequired) return;
             if (!document.body) await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
             if (document.getElementById('update-required-banner')) return;
+            // Ask the SW for the current build before offering Reload.
+            import('/js/update-check.js').then((m) => m.fetchLatest(window)).catch(() => {});
             const banner = document.createElement('div');
             banner.id = 'update-required-banner';
             banner.className = 'wg-banner wg-banner--warn';
@@ -612,7 +687,32 @@ window.MedTrackerCloudReady = (async function boot() {
             const host = document.getElementById('app-banners');
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired });
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: askFirstRun });
+        // Pull to refresh (bd med-y7b4.6): one more drain through the same
+        // single-slot guard. Registered after the boot pull so the two never
+        // overlap. What lands repaints through notifyRecordsChanged.
+        // ponytail: "arrived" is the records generation moving, so a local
+        // write landing mid-pull also counts; a per-pull op count if it matters.
+        // AppRefresh is a classic body script: a boot that gets here while the
+        // body still parses registers on DOMContentLoaded instead (never awaited,
+        // so nothing below waits on it).
+        const registerRefresh = () => {
+            if (!window.AppRefresh || typeof window.AppRefresh.setSync !== 'function') return;
+            window.AppRefresh.setSync(async () => {
+                const before = getRecordsChangeCount();
+                await requestFreshDrain(ctx);
+                const st = await getSyncStatus(ctx);
+                if (st.authExpired) throw new Error('Session expired · tap Re-authenticate to sync');
+                if (st.updateRequired) throw new Error('Update required · reload to keep syncing');
+                if (st.offline) throw new Error('Offline · showing what\'s on this device');
+                return { arrived: getRecordsChangeCount() !== before };
+            });
+        };
+        if (!window.AppRefresh && window.document && window.document.readyState === 'loading') {
+            window.document.addEventListener('DOMContentLoaded', registerRefresh, { once: true });
+        } else {
+            registerRefresh();
+        }
         surfaceAuthExpired();
         surfaceUpdateRequired();
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {

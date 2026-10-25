@@ -228,7 +228,9 @@ function safeConfirm(msg, callback, opts) {
 // the confirm modal shell. Resolves the trimmed value, or null on cancel. An
 // empty value shows opts.emptyError inline and keeps the dialog open.
 // opts: { title, label, value, placeholder, maxLength, inputMode (e.g.
-// 'decimal' for a numeric keypad), confirmLabel, cancelLabel, emptyError }.
+// 'decimal' for a numeric keypad), confirmLabel, cancelLabel, emptyError,
+// note }. note(value) → Node|null is a live, non-blocking hint under the field,
+// re-run on every keystroke (the BMI goal warning, med-a6fb.8).
 function safePrompt(msg, opts) {
     return new Promise((resolve) => {
         _mountConfirmModal(msg, resolve, { ...(opts || {}), input: true });
@@ -423,6 +425,17 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         field.appendChild(errorEl);
         body.appendChild(field);
     }
+    let noteSlot = null;
+    const paintNote = () => {
+        const node = noteSlot ? opts.note(input.value.trim()) : null;
+        if (noteSlot) noteSlot.replaceChildren(...(node ? [node] : []));
+    };
+    if (inputMode && typeof opts.note === 'function') {
+        noteSlot = doc.createElement('div');
+        noteSlot.className = 'mt-confirm-modal__note';
+        body.appendChild(noteSlot);
+        paintNote();
+    }
     let pickedValue;
     if (choiceMode) {
         const list = doc.createElement('div');
@@ -527,7 +540,10 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
 
     function onKeydown(e) {
         if (e.key === 'Escape') {
+            // The dialog owns this Esc: the app's Esc (AppBack.step,
+            // modal-manager.js) must not also step back under it.
             e.preventDefault();
+            e.stopPropagation();
             settle(cancelValue);
         } else if (e.key === 'Enter' && input && e.target === input && !e.isComposing) {
             e.preventDefault();
@@ -540,6 +556,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             errorEl.hidden = true;
             input.removeAttribute('aria-invalid');
             if (typedPhrase) confirmBtn.disabled = !typedMatches();
+            paintNote();
         });
         // The dialog is centred in the visual viewport (dialog.css), so with
         // the keyboard up a tall one (icon, facts, typed field) scrolls inside

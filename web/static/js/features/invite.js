@@ -62,7 +62,6 @@
 
     var NOT_INVITE = "That isn't an invite link. Check the address, or ask whoever invited you for a new link.";
     var OFFLINE = "You're offline — try again when connected.";
-    var NO_CAMERA = 'The camera is unavailable. Paste the link instead.';
     var SCAN_MS = 200;
     var PROBE_MS = 3000;
     // ?invite=1 (a shell with the slot): a cold bridge may need longer, but a
@@ -323,6 +322,7 @@
         scan.addEventListener('click', async function () {
             if (scanState.stream || busy) return;
             showError('');
+            if (cameraOff) { cameraOff.remove(); cameraOff = null; }
             var gen = ++scanState.gen;
             try {
                 if (typeof window.Barcode.supportsLiveScan !== 'function' || !window.Barcode.supportsLiveScan()) throw new Error('no live scan');
@@ -336,13 +336,41 @@
                 video.hidden = false;
                 try { if (typeof video.play === 'function') await video.play(); } catch (_) { /* the decoder reads the stream */ }
                 scanLoop(gen);
-            } catch (_) {
+            } catch (e) {
                 if (gen !== scanState.gen) return;
                 stopScan();
-                showError(NO_CAMERA);
+                showCameraOff(!!e && e.code === 'PERMISSION_DENIED');
                 showField();
             }
         });
+
+        // AD13 (bd med-r1j2.10): the camera is off or there is no live
+        // decoder. Say which, offer the system setting for a denied camera,
+        // and the paste field takes over (an add-device code needs its link
+        // here: a typed code alone names no account).
+        var cameraOff = null;
+        function showCameraOff(denied) {
+            if (cameraOff) cameraOff.remove();
+            var off = note('warn', 'camera', denied ? 'The camera is off for this app.' : "Scanning isn't available here.",
+                'Paste the link from your other device instead.');
+            off.el.id = 'invite-camera-off';
+            if (denied) {
+                var allow = button('wg-btn wg-btn--ghost wg-btn--sm', 'Allow camera in Settings', null, 'camera-settings');
+                allow.addEventListener('click', function () {
+                    var media = window.MediaCapture;
+                    Promise.resolve()
+                        .then(function () { return media && typeof media.openSettings === 'function' ? media.openSettings() : null; })
+                        .catch(function () { return null; })
+                        .then(function (res) {
+                            if (res && res.opened) return;
+                            allow.replaceWith(el('span', 'wg-hint', (res && res.hint) || 'Allow the camera in your settings, then try again.'));
+                        });
+                });
+                off.body.appendChild(allow);
+            }
+            cameraOff = off.el;
+            body.insertBefore(cameraOff, field);
+        }
 
         head.buttons[0].addEventListener('click', close);
         notNow.addEventListener('click', close);
@@ -658,7 +686,10 @@
         // answers get FORCED_PROBE_MS, not PROBE_MS — a bridge slowed past 3 s
         // on a cold start must not drop F1 (iOS flow QA, bd med-w6gx.23.8).
         if ((await within(n.has('invite.pending'), false, forced)) !== true) return;
-        var slot = await within(n.call('invite.pending'), null, forced);
+        // Always the long box (bd med-ydt2): on a first install the Android
+        // shell holds this answer until its Play referrer read settles, and
+        // W1 waits on it, so a late invite routes instead of flashing W1.
+        var slot = await within(n.call('invite.pending'), null, true);
         var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
         if (invite && !(slot.receivedAt > Date.now() - maxAge(invite.claimUrl))) {
             n.call('invite.clear').catch(function () { /* judged stale again next open */ });
@@ -710,13 +741,25 @@
     // 404 (or a shell without the op) means requests aren't open: say so and
     // point at the landing page, whose contact line is the fallback. opts.base
     // / opts.post replace the shell base and the shell POST (the visual QA
-    // driver).
+    // driver); opts.lead 'copy' + opts.eyebrow are the W4 entry (IM2 · W4,
+    // bd med-er5x); the four facts on top say what an account adds.
     var REQUEST_SENT = "Request sent — if it's approved, your invite arrives by email.";
     var REQUEST_BUSY = 'Too many requests right now — try again in an hour.';
     var REQUEST_OFF = "Requests aren't open in the app right now.";
     var REQUEST_FAILED = "Couldn't send the request. Check your connection and try again.";
     var REQUEST_BAD_EMAIL = 'Enter an email address like name@example.com.';
     var NOTE_MAX = 500;
+    // What an account adds (bd med-er5x, screens-invite-motivation.html IM2,
+    // copy corrections in the design INDEX changelog 2026-10-24). The privacy
+    // fact always sits right after the copy. The W5 Sync card in index.html
+    // carries the same four lines.
+    var DEVICE_FACT = ['device', 'Your records on every device', 'Phone and tablet stay in step. To add one, scan a code from this phone.'];
+    var COPY_FACT = ['cloud-up', 'A copy off this phone', "Lose or reset it, sign back in, and it's all there."];
+    var PRIVATE_FACT = ['lock', 'Only you can open it', "Encrypted on your device before it syncs. We store it but can't read it."];
+    var BROWSER_FACT = ['globe', 'Open it in any browser', 'On a laptop or a work computer, whenever you need it.'];
+    var ACCOUNT_HINT = 'Telegram, AI-assistant connectors and sharing need an account too. Everything else works on this phone.';
+    // The request's privacy statement (Iris, PR #1346): must stay visible.
+    var REQUEST_FINE = "We get your email and note, nothing from your records. Invites go out in small batches; we'll write to this address when yours is ready.";
 
     // The shell's bridge (native/index.js) when it can POST to its base.
     function shellNativeBridge() {
@@ -760,12 +803,16 @@
         modal.setAttribute('aria-modal', 'true');
         var backdrop = el('div', 'mt-confirm-backdrop wg-sheet-backdrop');
         var head = window.WGSheet.header({
-            eyebrow: 'Sync',
-            title: 'Request an invite',
-            actions: [{ label: 'Close', icon: 'x', attrs: { 'data-invite-action': 'close' } }],
+            eyebrow: opts.eyebrow || 'Sync',
+            title: 'Request an invite', // no ×: Not now closes (Iris, PR #1346)
         });
         var body = el('div', 'wg-sheet__body');
-        var lede = el('p', 'wg-hint', "Sync is invite-only for now. Leave your email — if the request is approved, the invite arrives there.");
+        // Every device leads; from the W4 loss prompt (opts.lead 'copy') the
+        // copy and its privacy fact lead instead (IM2 · W4).
+        var why = facts(opts.lead === 'copy'
+            ? [COPY_FACT, PRIVATE_FACT, DEVICE_FACT, BROWSER_FACT]
+            : [DEVICE_FACT, COPY_FACT, PRIVATE_FACT, BROWSER_FACT], true);
+        why.setAttribute('data-invite-facts', '');
 
         var emailField = el('div', 'wg-field');
         var emailLabel = el('label', 'wg-label', 'Email');
@@ -775,26 +822,25 @@
         email.type = 'email';
         email.autocomplete = 'email';
         email.required = true;
-        email.placeholder = 'name@example.com';
+        email.placeholder = 'you@example.com';
         email.setAttribute('autocapitalize', 'off');
         email.setAttribute('inputmode', 'email');
         var emailError = errorLine();
         emailField.append(emailLabel, email, emailError);
 
         var noteField = el('div', 'wg-field');
-        var noteLabel = el('label', 'wg-label', 'Note (optional)');
+        var noteLabel = el('label', 'wg-label', 'Note · optional');
         noteLabel.htmlFor = 'invite-request-note';
         var noteInput = el('textarea', 'wg-input wg-textarea');
         noteInput.id = 'invite-request-note';
         noteInput.rows = 3;
         noteInput.maxLength = NOTE_MAX;
-        noteInput.placeholder = 'Anything the admin should know';
+        noteInput.placeholder = "Who sent you, or what you'd use it for";
         noteField.append(noteLabel, noteInput, el('p', 'wg-hint', 'Up to ' + NOTE_MAX + ' characters.'));
 
         var status = el('div', 'wg-vstack');
-        body.append(lede, emailField, noteField,
-            facts([['lock', 'What we send', 'Your email and your note. Nothing from your records.']], true),
-            status);
+        body.append(why, el('p', 'wg-hint', ACCOUNT_HINT), el('div', 'wg-divider'),
+            emailField, noteField, el('p', 'wg-shell__fine', REQUEST_FINE), status);
 
         var foot = el('div', 'wg-sheet__foot');
         var notNow = button('wg-btn wg-btn--ghost', 'Not now', null, 'not-now');
@@ -889,7 +935,6 @@
         email.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') { e.preventDefault(); submit(); }
         });
-        head.buttons[0].addEventListener('click', close);
         notNow.addEventListener('click', close);
         backdrop.addEventListener('click', close);
         document.addEventListener('keydown', onKeydown, true);

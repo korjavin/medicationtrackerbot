@@ -621,6 +621,7 @@ html, body {
     --wg-settings-row-gap: 12px;
     --wg-settings-row-pad-y: 12px;
     --wg-settings-row-pad-x: 0px;
+    --wg-settings-nudge-pad-x: 12px;
     --wg-settings-row-divider: 1px solid var(--wg-border-hairline);
     --wg-settings-title-size: 14px;
     --wg-settings-desc-size: 12px;
@@ -2948,6 +2949,61 @@ body:has(.wg-callbar--dock) .wg-toasts {
     font-weight: 600;
     letter-spacing: 0.06em;
     fill: var(--wg-sun);
+}
+
+/* BMI borders (med-a6fb.6, BM1): solid pale hairlines, never mistaken for the
+   dashed sun goal or the coloured lines; label above-right. */
+.wg-weight-chart__band {
+    stroke: var(--wg-fg-5);
+    stroke-width: 1;
+    fill: none;
+}
+
+.wg-weight-chart__band-label {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-chart-axis-tick-size);
+    font-weight: 600;
+    fill: var(--wg-fg-3);
+}
+
+/* BMI read-out beside the Current badge (med-a6fb.5, BM1). */
+.wg-weight-chart-panel__current--bmi {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.wg-weight-bmi {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-left: auto;
+}
+
+.wg-weight-bmi__value {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+}
+
+.wg-weight-bmi-fine {
+    margin: var(--space-xs) 2px 0;
+}
+
+/* No-height nudge (med-a6fb.7, BM1 · no height): ghost row closing the card. */
+.wg-weight-bmi-nudge {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-line);
+}
+
+/* .wg-btn doubled: components.css loads after this file and its
+   .wg-btn{justify-content:center} would win a tie (start-aligned per BM1). */
+.wg-btn.wg-weight-bmi-nudge__go {
+    flex: 1;
+    justify-content: flex-start;
 }
 
 .wg-weight-chart-legend {
@@ -6934,6 +6990,11 @@ body:has(.wg-callbar--dock) .wg-toasts {
     position: relative;
 }
 
+/* RD3 hint slot (med-mt0l): no extra flex gap while empty. */
+.wg-med-confirm-modal__hint:empty {
+    display: none;
+}
+
 .wg-med-confirm-modal__input {
     position: absolute;
     inset: 0;
@@ -7017,7 +7078,7 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-sm);
     align-items: center;
     justify-content: space-between;
-    padding: var(--wg-settings-row-pad-y) var(--wg-settings-row-pad-x);
+    padding: var(--wg-settings-row-pad-y) var(--wg-settings-nudge-pad-x);
     border-left: 3px solid var(--wg-mint-soft);
     border-radius: var(--wg-radius-gloss);
     background: var(--wg-bg-card-inset);

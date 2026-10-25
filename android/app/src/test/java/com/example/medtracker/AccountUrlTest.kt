@@ -89,11 +89,28 @@ class AccountUrlTest {
         "otherapp://i/abc#0a1b2c" to "",
         "wgapp://local/" to "",
         "" to "",
+        // bd med-r1j2.8: the add-device hand-off /d/<sub>#<slot>.<TK> → the account's /claim (web invite.test.js).
+        "https://app.example.com/d/ABC#AbC_d-12.QUJD" to "https://abc.app.example.com/claim#AbC_d-12.QUJD",
+        "medtracker://d/abc#AbC_d-12.QUJD" to "https://abc.app.example.com/claim#AbC_d-12.QUJD",
+        "https://abc.app.example.com/claim#AbC_d-12.QUJD" to "https://abc.app.example.com/claim#AbC_d-12.QUJD",
+        "https://app.example.com/d/abc" to "", // no code
+        "https://app.example.com/d/abc#nodot" to "",
+        "https://app.example.com/d/abc#a.b.c" to "",
+        "https://app.example.com/d/abc#a+b.c" to "",
+        "https://app.example.com/d/abc?x=1#AbC_d-12.QUJD" to "",
+        "https://app.example.com/d/a.b#AbC_d-12.QUJD" to "",
+        "https://app.example.com:8443/d/abc#AbC_d-12.QUJD" to "",
+        "https://u@app.example.com/d/abc#AbC_d-12.QUJD" to "",
+        "https://evil.example/d/abc#AbC_d-12.QUJD" to "",
+        "https://app.example.com.evil.com/d/abc#AbC_d-12.QUJD" to "",
+        "medtracker://d/abc" to "",
+        "medtracker://d/abc?x=1#AbC_d-12.QUJD" to "",
+        "https://app.example.com/i/abc#AbC_d-12.QUJD" to "", // the invite form stays hex-only
     )
 
     @Test
     fun parseInvite() {
-        assertEquals(40, inviteVectors.size)
+        assertEquals(56, inviteVectors.size)
         for ((input, want) in inviteVectors) assertEquals(input, want, AccountUrl.parseInvite(input, base) ?: "")
         assertEquals(null, AccountUrl.parseInvite("https://app.example.com/i/abc#0a1b2c", ""))
     }
@@ -128,6 +145,21 @@ class AccountUrlTest {
         assertEquals("https://appassets.androidplatform.net/?invite=1", Invite.withInvite(LocalOrigin.HOME))
         assertEquals("https://appassets.androidplatform.net/?qa=today&invite=1", Invite.withInvite("${LocalOrigin.HOME}?qa=today"))
         assertEquals("https://abc.app.example.com/?invite=1", Invite.withInvite("https://abc.app.example.com/"))
+        // bd med-r1j2.8: the join erase fires only for its own host, within the code's 10 minutes.
+        val h = "abc.app.example.com"
+        assertTrue(Invite.eraseDue(h, 1_000L, h, 1_000L + Invite.ERASE_TTL_MS))
+        assertFalse(Invite.eraseDue(h, 1_000L, h, 1_001L + Invite.ERASE_TTL_MS)) // expired
+        assertFalse(Invite.eraseDue(h, 1_000L, h, 999L)) // clock went back
+        assertFalse(Invite.eraseDue(h, 1_000L, "xyz.app.example.com", 1_000L)) // another account
+        assertFalse(Invite.eraseDue(null, 1_000L, h, 1_000L))
+        assertFalse(Invite.eraseDue(h, 1_000L, null, 1_000L))
+        // bd med-r1j2.14: only an add-device claim link arms it, as iOS's url.path == "/claim".
+        assertTrue(Invite.armsErase("https://abc.app.example.com/claim#AbC_1.x-Y2"))
+        assertTrue(Invite.armsErase(AccountUrl.parseInvite("https://app.example.com/d/abc#AbC_1.x-Y2", "app.example.com")!!))
+        assertFalse(Invite.armsErase("https://abc.app.example.com/#claim=deadbeef")) // an invite
+        assertFalse(Invite.armsErase("https://abc.app.example.com/"))
+        assertFalse(Invite.armsErase("https://abc.app.example.com/claim/x#a.b"))
+        assertFalse(Invite.armsErase("not a url"))
     }
 
     @Test

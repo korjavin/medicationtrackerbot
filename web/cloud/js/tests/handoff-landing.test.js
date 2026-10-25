@@ -130,8 +130,17 @@ describe('AD8 · no code and AD8 · desktop: the typed code', () => {
     expect(location.href).toBe(`https://${SUB}.med.example/claim#${frag}`);
   });
 
+  // bd med-r1j2.10: the in-app scanner runs on the account host's /claim.
+  it('a phone without a fragment can scan instead: /claim#scan on the account host', async () => {
+    const { location } = await setup({ platform: 'android', location: fakeLocation({ hash: '' }) });
+    expect($('handoff-scan').textContent).toBe(COPY.scan);
+    $('handoff-scan').click();
+    expect(location.href).toBe(`https://${SUB}.med.example/claim#scan`);
+  });
+
   it('a computer with the link gets the code prefilled, Continue on, and the Open my account link', async () => {
     const { location } = await setup({ platform: 'desktop' });
+    expect($('handoff-scan')).toBeNull();
     expect(doc.querySelector('h1').textContent).toBe(COPY.deskTitle);
     expect($('handoff-code').value).toBe(encodeTransferCode(tk));
     await vi.waitFor(() => expect($('handoff-continue').disabled).toBe(false));

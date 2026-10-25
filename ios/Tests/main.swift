@@ -75,6 +75,38 @@ let inviteVectors: [(String, String)] = [
     ("otherapp://i/abc#0a1b2c", ""),
     ("wgapp://local/", ""),
     ("", ""),
+    // The add-device hand-off (bd med-r1j2.7, web med-r1j2.4): /d/<sub>#<slot>.<TK> → /claim#<slot>.<TK>.
+    ("https://app.example.com/d/abc#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("https://APP.example.com/d/ABC#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("medtracker://d/abc#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("MedTracker://D/my-sub-9#s.t", "https://my-sub-9.app.example.com/claim#s.t"),
+    ("https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA", "https://abc.app.example.com/claim#AbC_d-1234567890123456.QUJDREVGR0hJSktMTU5PUA"),
+    ("https://app.example.com/d/abc", ""), // no code
+    ("https://app.example.com/d/abc#", ""),
+    ("https://app.example.com/d/abc#nodot", ""),
+    ("https://app.example.com/d/abc#a.b.c", ""),
+    ("https://app.example.com/d/abc#.b", ""),
+    ("https://app.example.com/d/abc#a.", ""),
+    ("https://app.example.com/d/abc#a+b.c", ""),
+    ("https://app.example.com/d/abc#a%2Eb", ""), // raw fragment
+    ("https://app.example.com/d/abc?x=1#s.t", ""),
+    ("https://app.example.com/d/abc?#s.t", ""),
+    ("https://app.example.com/d/#s.t", ""),
+    ("https://app.example.com/d/a.b#s.t", ""),
+    ("https://app.example.com/d/a/b#s.t", ""),
+    ("https://app.example.com:8443/d/abc#s.t", ""),
+    ("https://u@app.example.com/d/abc#s.t", ""),
+    ("http://app.example.com/d/abc#s.t", ""),
+    ("https://evil.com/d/abc#s.t", ""),
+    ("https://app.example.com.evil.com/d/abc#s.t", ""),
+    ("https://evilapp.example.com/d/abc#s.t", ""),
+    ("https://app.example.com/i/abc#s.t", ""), // an invite token stays hex
+    ("https://app.example.com/d/abc#0a1b2c", ""), // a hex invite token is no hand-off code
+    ("medtracker://d/abc", ""),
+    ("medtracker://d/abc?x=1#s.t", ""),
+    ("medtracker://d:1/abc#s.t", ""),
+    ("medtracker://u@d/abc#s.t", ""),
+    ("medtracker://d/a/b#s.t", ""),
 ]
 for (input, want) in inviteVectors {
     let got = AccountURL.parseInvite(input, base: base)?.absoluteString ?? ""
@@ -96,6 +128,33 @@ precondition(JSONSerialization.isValidJSONObject(slot!))
 InviteSlot.clear(slotDefaults)
 precondition(InviteSlot.pending(slotDefaults) == nil)
 slotDefaults.removePersistentDomain(forName: "wg-invite-slot-test")
+
+// JoinErase (bd med-r1j2.7): only the remembered host, only within the code's 10 minutes.
+let eraseDefaults = UserDefaults(suiteName: "wg-join-erase-test")!
+eraseDefaults.removePersistentDomain(forName: "wg-join-erase-test")
+let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+precondition(!JoinErase.due("abc.app.example.com", at: t0, eraseDefaults), "nothing remembered")
+JoinErase.remember("abc.app.example.com", at: t0, eraseDefaults)
+precondition(JoinErase.due("abc.app.example.com", at: t0, eraseDefaults))
+precondition(JoinErase.due("abc.app.example.com", at: t0 + 9 * 60, eraseDefaults))
+precondition(!JoinErase.due("abc.app.example.com", at: t0 + 10 * 60, eraseDefaults), "expired with the code")
+precondition(!JoinErase.due("abc.app.example.com", at: t0 - 1, eraseDefaults), "clock set back")
+precondition(!JoinErase.due("xyz.app.example.com", at: t0, eraseDefaults), "another account")
+precondition(!JoinErase.due(nil, at: t0, eraseDefaults))
+// local.erase re-checks the intent it started with: a newer one (or none) stops it.
+let held = JoinErase.stamp(eraseDefaults)
+precondition(held == t0.timeIntervalSince1970)
+precondition(JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 60, eraseDefaults))
+JoinErase.remember("abc.app.example.com", at: t0 + 30, eraseDefaults)
+precondition(!JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 60, eraseDefaults), "a newer intent")
+precondition(!JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 11 * 60, eraseDefaults), "expired mid-wipe")
+JoinErase.clear(eraseDefaults)
+precondition(JoinErase.stamp(eraseDefaults) == nil)
+precondition(!JoinErase.due("abc.app.example.com", stamp: held, at: t0 + 60, eraseDefaults), "cancelled mid-wipe")
+JoinErase.remember("abc.app.example.com", at: t0, eraseDefaults)
+JoinErase.clear(eraseDefaults)
+precondition(!JoinErase.due("abc.app.example.com", at: t0, eraseDefaults), "cleared")
+eraseDefaults.removePersistentDomain(forName: "wg-join-erase-test")
 print("AccountURL: ok")
 
 // LocalOrigin (bd med-o7zq.4): request routing, CSP, the bridge's host list.
@@ -202,6 +261,7 @@ tap("/?action=medication_confirm&ids=2,5&scheduled=2026-01-01T09:00:00.000Z",
     "/?action=medication_confirm&ids=2,5&scheduled=2026-01-01T09:00:00.000Z")
 tap("/?tab=meds", "/?tab=meds")
 tap("/?tab=bp", "/?tab=bp")
+tap("/?tab=settings&page=add-device", "/?tab=settings&page=add-device") // the claim push's tap (bd med-r1j2.16)
 for bad in [nil, "", "/?", "/", "?tab=meds", "https://evil.com/?tab=meds", "//evil.com/?tab=meds", "/x?tab=meds",
             "/?tab=meds#claim=x", "/?tab=meds#", "/?tab=meds&next=https://evil.com", "/?reminder_action=bp_snooze",
             "/?tab=me\"ds", "/?tab=meds');alert(1)//\n", "javascript:alert(1)"] as [String?] {
@@ -227,15 +287,82 @@ precondition(!accountOps.contains("lock.status") && !accountOps.contains("lock.s
 precondition(localOps.contains("base.post") && !accountOps.contains("base.post"))
 // push.token (bd med-erq1.4): account only; local mode never reports a token.
 precondition(accountOps.contains("push.token") && !localOps.contains("push.token"))
+precondition(accountOps.contains("local.erase") && localOps.contains("local.erase"), "invite.js probes it in local mode") // bd med-r1j2.7
+// bd med-r1j2.18: app.openSettings in both modes; the forget marker on an account page only.
+precondition(accountOps.contains("app.openSettings") && localOps.contains("app.openSettings"))
+precondition(accountOps.contains("account.leave.forget") && !localOps.contains("account.leave.forget"))
 print("LocalOrigin.ops: ok")
 
+// account.leave without a url (bd med-r1j2.18): the no-arg and {then: "local"} landings unchanged.
+precondition(LocalOrigin.leave([:]) == .invite)
+precondition(LocalOrigin.leave(["forget": true]) == .invite) // forget alone: the plain leave already forgets
+precondition(LocalOrigin.leave(["then": "local"]) == .local)
+precondition(LocalOrigin.leave(["then": "local", "forget": false]) == .local)
+precondition(LocalOrigin.leave(["then": "local", "forget": "true"]) == .local) // only a JSON true
+precondition(LocalOrigin.leave(["then": "local", "forget": true]) == .forgetLocal)
+precondition(LocalOrigin.leave(["then": "account", "forget": true]) == .invite)
+print("LocalOrigin.leave: ok")
+
+// local.reset {dropAttest} (bd med-egb3, Archie 4883): only a JSON true drops the key id and the
+// attested mark; nothing else. The Keychain trial pass is out of resetAttest's reach by signature
+// (no pass parameter, LocalOrigin never imports Security), so a dropAttest leaves it as it was.
+let attestDefaults = UserDefaults(suiteName: "wg-test-reset-attest")!
+attestDefaults.set("other", forKey: "wgUnrelated")
+for args: [String: Any] in [[:], ["dropAttest": false], ["dropAttest": "true"], ["dropAttest": [true]]] {
+    attestDefaults.set("kid", forKey: LocalOrigin.attestKeyIdKey)
+    attestDefaults.set("kid", forKey: LocalOrigin.attestedKey)
+    precondition(!LocalOrigin.resetAttest(args, defaults: attestDefaults), "\(args)")
+    precondition(attestDefaults.string(forKey: LocalOrigin.attestKeyIdKey) == "kid" && attestDefaults.string(forKey: LocalOrigin.attestedKey) == "kid", "\(args) dropped")
+}
+precondition(LocalOrigin.resetAttest(["dropAttest": true], defaults: attestDefaults))
+precondition(attestDefaults.string(forKey: LocalOrigin.attestKeyIdKey) == nil && attestDefaults.string(forKey: LocalOrigin.attestedKey) == nil)
+precondition(attestDefaults.string(forKey: "wgUnrelated") == "other", "dropAttest touched more than the key")
+attestDefaults.removePersistentDomain(forName: "wg-test-reset-attest")
+// The erase's delete rides base.post (bd med-egb3).
+precondition(LocalOrigin.basePostPaths.contains("/api/attest/delete"))
+print("LocalOrigin.resetAttest: ok")
+
+// The shell's own page and getUserMedia (bd med-r1j2.18).
+let acct = "abc.app.example.com"
+func own(_ scheme: String, _ host: String, port: Int = 0, main: Bool = true, local: Bool, account: String? = "abc.app.example.com") -> Bool {
+    LocalOrigin.isOwn(scheme: scheme, host: host, port: port, mainFrame: main, local: local, account: account)
+}
+// The whole origin, port included (WKSecurityOrigin.port is 0 for the default).
+precondition(own("https", acct, port: 443, local: false))
+precondition(!own("https", acct, port: 8443, local: false))
+precondition(!own("https", acct, port: 80, local: false))
+precondition(!own("wgapp", "local", port: 8080, local: true))
+precondition(own("https", acct, local: false))
+precondition(own("https", "ABC.app.example.com", local: false))
+precondition(!own("https", acct, main: false, local: false)) // subframe
+precondition(!own("https", "evil.example.com", local: false)) // foreign host
+precondition(!own("https", "app.example.com", local: false)) // the base domain is no account page
+precondition(!own("https", "xyz.app.example.com", local: false)) // another account
+precondition(!own("http", acct, local: false))
+precondition(!own("https", acct, local: false, account: nil))
+precondition(!own("https", acct, local: true)) // a stored host means nothing in local mode
+precondition(own("wgapp", "local", local: true))
+precondition(!own("wgapp", "local", main: false, local: true))
+precondition(!own("wgapp", "local", local: false))
+precondition(!own("wgapp", "other", local: true))
+precondition(LocalOrigin.media(cameraOnly: true, own: true) == .grant)
+precondition(LocalOrigin.media(cameraOnly: false, own: true) == .prompt) // microphone: WebKit's prompt, as before
+precondition(LocalOrigin.media(cameraOnly: true, own: false) == .deny)
+precondition(LocalOrigin.media(cameraOnly: false, own: false) == .deny)
+print("LocalOrigin.media: ok")
+
 // Push (bd med-erq1.4): the page event, the token encoding, the Diag fingerprint.
-for kind in ["inbox-wake", "dry-queue", "token"] {
+for kind in ["inbox-wake", "dry-queue", "transfer_claimed", "token"] {
     let js = Push.event(kind)!
     // Taken only when a listener cancelled it (onWake's receipt).
     precondition(js == "!document.dispatchEvent(new CustomEvent('wg:native-push',{detail:{kind:'\(kind)'},cancelable:true}))", js)
 }
 for kind in ["", "Inbox-wake", "inbox-wake'", "x');alert(1);('"] { precondition(Push.event(kind) == nil, kind) }
+// The claim push's tap opens add-device (sw.js TRANSFER_CLAIMED_NOTIFICATION); other kinds fall to Today.
+precondition(Push.path("transfer_claimed") == "/?tab=settings&page=add-device")
+precondition(ReminderPath.sanitize(Push.path("transfer_claimed")) == "/?tab=settings&page=add-device")
+let noPath: [Any?] = ["inbox-wake", "dry-queue", "token", "transfer-claimed", "", nil, 42]
+for kind in noPath { precondition(Push.path(kind) == nil) }
 precondition(Push.hex(Data([0x00, 0x0a, 0xff])) == "000aff")
 let fp = Push.fingerprint("abcdef0123456789")
 precondition(fp.count == 8 && fp != Push.fingerprint("abcdef012345678a"), fp)
@@ -482,3 +609,10 @@ let (closed, closedPort) = loopbackSocket()
 close(closed)
 precondition(post("http://127.0.0.1:\(closedPort)", ["path": "/api/attest/enroll", "body": "{}"]).error == "network")
 print("BasePost: ok")
+
+// The left-edge swipe (bd med-y7b4.4): far enough, or a clear flick; and back.state is advertised in both modes.
+precondition(LocalOrigin.backFires(dx: 60, vx: 0) && LocalOrigin.backFires(dx: 25, vx: 800))
+precondition(!LocalOrigin.backFires(dx: 59, vx: 100) && !LocalOrigin.backFires(dx: 10, vx: 2000) && !LocalOrigin.backFires(dx: -80, vx: -900))
+precondition(LocalOrigin.ops(local: true).contains("back.state") && LocalOrigin.ops(local: false).contains("back.state"))
+precondition(LocalOrigin.backJS.contains("'wg:native-back'") && LocalOrigin.backJS.hasPrefix("!document.dispatchEvent("))
+print("NativeBack: ok")

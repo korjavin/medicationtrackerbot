@@ -63,6 +63,17 @@ class LocalOriginTest {
             assertNull("accepted $bad", LocalOrigin.qaHome(bad))
     }
 
+    // local.reset {dropAttest} (bd med-egb3): only a JSON true drops the attest key; the trial pass
+    // and the alias counter survive it (Archie 4883, Andy 4884).
+    @Test
+    fun dropsAttest() {
+        assertTrue(LocalOrigin.dropsAttest(true))
+        for (bad in listOf(null, false, "true", 1, listOf(true))) assertFalse("accepted $bad", LocalOrigin.dropsAttest(bad))
+        assertEquals(setOf("alias", "attested", "counter"), Attest.DROP_KEYS)
+        assertFalse(Attest.DROP_KEYS.contains("pass"))
+        assertFalse(Attest.DROP_KEYS.contains("keyN"))
+    }
+
     @Test
     fun bridgeGate() {
         val acct = "me.example.org"
@@ -98,6 +109,9 @@ class LocalOriginTest {
         val local = LocalOrigin.ops(local = true)
         assertTrue(account.containsAll(listOf("ping", "shell.ops", "account.leave", "notifications.schedule", "health.query")))
         assertTrue(account.contains("notifications.openSettings") && local.contains("notifications.openSettings"))
+        assertTrue(account.contains("app.openSettings") && local.contains("app.openSettings"))
+        assertTrue(account.contains("back.state") && local.contains("back.state"))
+        assertTrue(account.contains("account.leave.forget") && !local.contains("account.leave.forget"))
         assertTrue(account.containsAll(listOf("move.take", "move.clear")))
         // The invite slot and F1's Paste (bd med-ta2n.12.1): both modes.
         val invite = listOf("invite.pending", "invite.clear", "clipboard.read")

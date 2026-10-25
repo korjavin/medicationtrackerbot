@@ -22,8 +22,10 @@ import XCTest
 ///   {"type": "app"}            typeText into the tapped element (real keyboard)
 ///   {"clear": true}            delete the tapped field's text
 ///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label
-///   {"waitFor": "Start"}       any element by label or id, 10 s
+///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds)
 ///   {"keyboard": true}         the software keyboard must be up (implied after "type")
+///   {"edgeSwipe": true, "closes": "#id"}  the shell's left-edge pan
+///   {"pullDown": true}         a real finger pull down from the upper middle (pull to refresh)
 ///
 /// One scene: `TEST_RUNNER_WG_QA_SCENES=food-add-sheet-keyboard xcodebuild test ...`
 /// (comma-separated).
@@ -189,7 +191,35 @@ final class VisualQATests: XCTestCase {
             } else if let label = step["waitFor"] as? String {
                 let el = app.descendants(matching: .any)
                     .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
-                guard el.waitForExistence(timeout: 10) else { return "\"\(label)\" never appeared" }
+                let timeout = step["timeout"] as? Double ?? 10
+                guard el.waitForExistence(timeout: timeout) else { return "\"\(label)\" never appeared" }
+            } else if step["edgeSwipe"] as? Bool == true {
+                // The shell's left-edge pan (bd med-y7b4.4): `closes` shows before it and is gone after.
+                var target: XCUIElement?
+                let closes = step["closes"] as? String
+                if let selector = closes {
+                    let id = selector.hasPrefix("#") ? String(selector.dropFirst()) : selector
+                    let el = QA.webElement(app, id: id, placeholder: step["placeholder"] as? String ?? id)
+                    guard el.waitForExistence(timeout: 10) else { return "no web element \(selector) before the edge swipe" }
+                    target = el
+                }
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)))
+                if let target {
+                    var gone = false
+                    for _ in 0..<20 where !gone {
+                        Thread.sleep(forTimeInterval: 0.25)
+                        gone = !target.exists
+                    }
+                    if !gone { return "\(closes ?? "") still shows after the edge swipe" }
+                }
+            } else if step["pullDown"] as? Bool == true {
+                // A real finger pull from the upper content, clear of the left-edge pan (bd med-y7b4.7):
+                // proves WKWebView delivers the touches to the web pull-to-refresh with bounces off.
+                // Follow it with a waitFor on the pill's busy text.
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)),
+                           withVelocity: XCUIGestureVelocity(600), thenHoldForDuration: 0.1)
             } else if step["keyboard"] as? Bool == true {
                 typed = true
             } else {

@@ -218,7 +218,7 @@ document.getElementById('live-hr-feature-toggle').addEventListener('change', asy
     const root = document.getElementById('weight-unit-segmented');
     if (!root) return;
     root.addEventListener('click', async (event) => {
-        const btn = event.target.closest('.wg-settings-segmented__btn');
+        const btn = event.target.closest('[data-unit]');
         if (!btn || !root.contains(btn)) return;
         const unit = btn.getAttribute('data-unit');
         if (unit !== 'kg' && unit !== 'lb') return;
@@ -737,35 +737,38 @@ async function resolvePushMedications(ids) {
     return ids.map((id) => byId.get(String(id))).filter((m) => m && !m.archived);
 }
 
-// Matches the take sheet's create grace (medintake.js CONFIRM_DUE_GRACE_MS).
-const PUSH_SLOT_GRACE_MS = 10 * 60 * 1000;
-
 // Each med's dose at exactly the reminder's slot (bd med-wi09.4), read off the
-// one dose projection: 'logged' (TAKEN/SKIPPED — a tap after the dose was taken
-// elsewhere must not offer it again), 'due', or 'gone' — no dose of that med at
-// that instant any more (a tz change or schedule edit moved it), which lands on
-// MT6 instead of guessing a neighbour. An unreadable projection counts as due:
-// the sheet acts on exact ids only, so it cannot hit a neighbour either.
-// ponytail: a slot in the last 10 min that the 60s materializer has not stored
-// yet is absent from today's projection (its forecast is future-only), so it
-// counts as due; drop the grace once the projection regenerates past slots
-// (med-wi09.12).
+// one dose projection (stored ∪ regenerated ∪ forecast): 'logged' (TAKEN/
+// SKIPPED — a tap after the dose was taken elsewhere must not offer it again),
+// 'due', or 'gone' — no dose of that med at that instant any more (a tz change
+// or schedule edit moved it), which lands on MT6 instead of guessing a
+// neighbour. An unreadable projection counts as due: the sheet acts on exact
+// ids only, so it cannot hit a neighbour either. A 'gone' verdict is re-read
+// once after the boot sync pull: an edit made on another device may not be in
+// this mirror yet on a cold start.
 async function slotStates(meds, scheduled) {
     const slotMs = Date.parse(scheduled);
     const states = new Map(meds.map((m) => [m, 'due']));
     if (!Number.isFinite(slotMs)) return states;
-    let rows = null;
-    try {
-        const from = new Date(slotMs).toISOString();
-        const to = new Date(slotMs + 999).toISOString();
-        rows = await apiCall(`/api/doses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-    } catch (_) { /* treat as still due */ }
-    if (!Array.isArray(rows)) return states;
-    const recent = slotMs > Date.now() - PUSH_SLOT_GRACE_MS;
+    const read = async () => {
+        try {
+            const from = new Date(slotMs).toISOString();
+            const to = new Date(slotMs + 999).toISOString();
+            const rows = await apiCall(`/api/doses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+            return Array.isArray(rows) ? rows : null;
+        } catch (_) { return null; }
+    };
+    let rows = await read();
+    const missing = (list) => meds.some((m) => !list.some((r) => r && String(r.medId) === String(m.id)));
+    const pulled = window.MedTrackerCloud && window.MedTrackerCloud.pulled;
+    if (rows && missing(rows) && pulled) {
+        await pulled;
+        rows = await read();
+    }
+    if (!rows) return states;
     for (const m of meds) {
         const row = rows.find((r) => r && String(r.medId) === String(m.id));
-        if (row) states.set(m, row.state === 'taken' || row.state === 'skipped' ? 'logged' : 'due');
-        else if (!recent) states.set(m, 'gone');
+        states.set(m, !row ? 'gone' : row.state === 'taken' || row.state === 'skipped' ? 'logged' : 'due');
     }
     return states;
 }
@@ -813,6 +816,8 @@ function handlePushAction(action, params) {
                 }
             }
             showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
+            // Kit RD3 (med-mt0l, med-5vy0): once per device, Generic pref, both modes.
+            if (fromReminder) window.NotifyPermission?.reminderHint(document.getElementById('med-confirm-hint'));
         }, 500);
     } else if (action === 'workout_start') {
         // Coerce to Number — cached workout_next.session.id is numeric, and

@@ -80,9 +80,13 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <!-- configChanges: rotation/theme must not recreate the activity and its WebView. -->
+        <!-- configChanges: rotation/theme must not recreate the activity and its WebView.
+             singleTop (bd med-r1j2.15): FCM's notification tap is the launcher intent + CLEAR_TOP
+             without SINGLE_TOP; standard mode would recreate the activity and lose the page's
+             in-memory state (a live add-device flow). Every intent then reaches onNewIntent. -->
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density"
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait"
@@ -96,7 +100,9 @@
              https://<base>/i/<sub>#<token> (App Link; the server's assetlinks.json already lists
              handle_all_urls for the base) and medtracker://i/<sub>#<token>. The host is the build's
              CLOUD_BASE_DOMAIN (build.gradle.kts manifestPlaceholders), never committed. The
-             trampoline (Invite.kt) hands them to MainActivity like a reminder tap. -->
+             trampoline (Invite.kt) hands them to MainActivity like a reminder tap. The add-device
+             hand-off https://<base>/d/<sub>#<slot>.<TK> and medtracker://d/… (bd med-r1j2.8) take
+             the same path; the <data> elements of a filter combine, so /d/ shares /i/'s scheme+host. -->
         <activity
             android:name=".InviteLinkActivity"
             android:theme="@android:style/Theme.NoDisplay"
@@ -109,12 +115,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${baseDomain}" android:pathPrefix="/i/" />
+                <data android:pathPrefix="/d/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="medtracker" android:host="i" />
+                <data android:host="d" />
             </intent-filter>
         </activity>
         <!-- directBootAware (bd med-nt9p.57): reminders fire on a rebooted phone before the first

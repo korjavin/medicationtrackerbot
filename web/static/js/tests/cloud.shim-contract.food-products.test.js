@@ -323,7 +323,7 @@ describe('cloud shim contract — food products flows (features/food/{products,d
             expect(await window.CloudFoodSearch.search('yogurt', { remote: true })).toEqual([]);
         });
 
-        it('the search UI says "Food database not configured" instead of reporting zero results', async () => {
+        it('the search UI says "Food database not available right now" instead of reporting zero results', async () => {
             const { window } = env;
             window.__MEDTRACKER_CLOUD__ = true;
             vi.stubGlobal('document', window.document);
@@ -334,7 +334,7 @@ describe('cloud shim contract — food products flows (features/food/{products,d
                 await vi.runAllTimersAsync();
 
                 const status = window.document.getElementById('food-search-status');
-                expect(status.textContent).toBe('Food database not configured. Add one in Settings → Integrations.');
+                expect(status.textContent).toBe('Food database not available right now.');
                 expect(status.classList.contains('error')).toBe(true);
             } finally {
                 vi.useRealTimers();

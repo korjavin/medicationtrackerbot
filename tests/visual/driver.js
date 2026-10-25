@@ -23,7 +23,10 @@
     const qa = { scene, done: null, probe };
     window.__wgQA = qa;
     if (!scene) return;
-    pinClock();
+    // &clock=real (the iOS shell's -wgQACapture, add-device-from-link) keeps the
+    // real clock: the page judges the slot's receivedAt (shell time) against
+    // Date.now(), and a join's 10 minutes would never hold at 23:00.
+    if (new URLSearchParams(window.location.search).get('clock') !== 'real') pinClock();
     // Document loads in this launch (the seed import reloads once): a scene
     // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
     let loads = 1;
@@ -153,6 +156,16 @@
         } else if (step.click) {
             await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
             firstVisible(step.click).click();
+        } else if (step.api) {
+            // Writes through the app's own API, e.g. PATCH /api/settings/body.
+            // The write stays in the store for later scenes.
+            await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.fill) {
+            // Types into an input the way a user does (fires `input`).
+            await until(() => firstVisible(step.fill), STEP_MS, `fill ${step.fill}`);
+            const el = firstVisible(step.fill);
+            el.value = step.value;
+            el.dispatchEvent(new window.Event('input', { bubbles: true }));
         } else if (step.tag) {
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.
@@ -176,6 +189,15 @@
             // session does, skipping W1's gate.
             window.WGFirstRun.state.clear();
             if (step.firstrun === 'trial') window.WGFirstRun.state.setStep('trial');
+            // firstrun: "invite" answers a placeholder shell base first, so the
+            // W1 footnote's "Want it on every device? Get an invite" (IM1,
+            // med-er5x) shows in local mode; the link is never followed.
+            if (step.firstrun === 'invite') {
+                window.Attest = {
+                    isSupported: () => true,
+                    status: async () => ({ supported: false, base: 'app.example.com', attested: false }),
+                };
+            }
             window.WGFirstRun.mount({ needs_first_run: true });
         } else if (step.invite) {
             // The F1 "Have an invite?" sheet (bd med-ta2n.6). Its W1 footer
@@ -187,13 +209,25 @@
             // seeded records → "Turn on sync?"; account mode → "Switch account?".
             // Nothing leaves until a tap.
             window.InviteSheet.offer(step.offer);
+        } else if (step.reminderHint) {
+            // Kit RD3 (bd med-mt0l): the take sheet as a reminder tap opens it
+            // (the deeplink's ids + slot), with the one-time lock-screen hint
+            // re-armed for this device. Nothing is written until a tap.
+            try { window.localStorage.removeItem('wg.reminderDetailHint.shown'); } catch (_) { /* hint just won't show */ }
+            const meds = (await window.apiCall('/api/medications')) || [];
+            const med = meds.find((m) => !m.archived);
+            if (!med) throw new Error('reminderHint: no active medication in the seed');
+            window.handlePushAction('medication_confirm', new URLSearchParams({ ids: String(med.id), scheduled: new Date().toISOString() }));
         } else if (step.inviteRequest) {
             // The W5 "Request an invite" sheet (bd med-ta2n.14). Its button
             // needs the shell's base.post op, which no QA pass has: open it
             // directly with a placeholder base and a stub POST, so nothing
             // leaves the page.
-            // inviteRequest: "sent" fills an email and sends (stub 202).
+            // inviteRequest: "sent" fills an email and sends (stub 202); "w4"
+            // opens it the way the W4 protect sheet does (IM2 · W4, med-er5x).
+            const w4 = step.inviteRequest === 'w4' ? { lead: 'copy', eyebrow: '43 records on this phone' } : {};
             const ui = window.InviteSheet.request({
+                ...w4,
                 base: 'app.example.com',
                 post: async () => new Response('{"status":"sent"}', { status: 202 }),
             });
@@ -222,6 +256,15 @@
             // The base arrives async: a full address enables the sun once it has.
             await until(() => { type('anna.app.example.com'); return !go.disabled; }, STEP_MS, 'open account base');
             if (step.openAccount === 'invalid') type('anna.app', true);
+        } else if (step.shellSignedIn) {
+            // The iOS app signed into an account (bd med-y7b4.2), in the cloud
+            // pass: give LocalNotifications its own copy of the bridge with the
+            // shell's platform, which is what settings.js nativeLeaveAccount
+            // reads (CloudVault.leaveAccount is cloud-boot's own). The slot-②
+            // row then shows on the next Settings open; no scene taps it.
+            const ln = window.LocalNotifications;
+            if (!ln) throw new Error('shellSignedIn: no LocalNotifications');
+            ln.__native = Object.assign(Object.create(ln.__native || {}), { platform: 'ios' });
         } else if (step.localFeedback) {
             // Settings → Send feedback in local mode (bd med-ta2n.20) mounts
             // only where the shell has App Attest and base.post, which no QA
@@ -309,6 +352,30 @@
                 try { window.sessionStorage.setItem(KEY, '1'); } catch (_) { /* no storage */ }
                 window.location.reload();
                 await new Promise(() => {}); // the next load runs the scene
+            }
+        } else if (step.pull) {
+            // Pull to refresh (bd med-y7b4.6, kit PR2 / PR3). No QA pass has the
+            // Health import, and a real pull would sync: "busy" pulls over a
+            // stub import that never ends, so the pill stays in its busy state;
+            // "done" shows the ok toast a pull with new readings ends on, kept up;
+            // "stub" only registers that stub, for a real finger drag after
+            // (the iOS native pullDown step, bd med-y7b4.7).
+            if (step.pull === 'stub') {
+                window.AppRefresh.setImport(() => new Promise(() => {}), 'Apple Health', () => true);
+                window.scrollTo(0, 0);
+            } else if (step.pull === 'busy') {
+                window.AppRefresh.setImport(() => new Promise(() => {}), 'Apple Health', () => true);
+                const fire = (type, y) => {
+                    const e = new Event(type, { bubbles: true });
+                    Object.defineProperty(e, 'touches', { value: y === undefined ? [] : [{ clientY: y }] });
+                    document.dispatchEvent(e);
+                };
+                window.scrollTo(0, 0);
+                fire('touchstart', 10);
+                fire('touchmove', 110);
+                fire('touchend');
+            } else {
+                window.safeToast('12 new readings from Apple Health', 'success', { duration: 0 });
             }
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);

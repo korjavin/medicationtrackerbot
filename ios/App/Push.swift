@@ -15,7 +15,15 @@ import Foundation
 /// Foundation only, so Tests/main.swift checks it.
 enum Push {
     /// The server's wake kinds (nativepush.go); 'token' is the shell's own.
-    static let kinds: Set<String> = ["inbox-wake", "dry-queue", "token"]
+    static let kinds: Set<String> = ["inbox-wake", "dry-queue", "transfer_claimed", "token"]
+    /// What a tap on a kind's alert opens (sw.js TRANSFER_CLAIMED_NOTIFICATION,
+    /// bd med-r1j2.16): the claim resumes the add-device approval. Any other
+    /// kind has no path, so the tap lands on Today (ReminderPath.fallback).
+    static let paths = ["transfer_claimed": "/?tab=settings&page=add-device"]
+
+    static func path(_ kind: Any?) -> String? {
+        (kind as? String).flatMap { paths[$0] }
+    }
     /// How long the page has to answer the wake script (Shell.pushEvent); no
     /// answer = not taken, so the alert shows.
     static let answer: TimeInterval = 5

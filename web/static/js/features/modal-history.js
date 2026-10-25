@@ -30,6 +30,12 @@
     // and swallow the user's next real Back. No caller does that today.
     let swallowNextPopstate = false;
     let dialogPushed = false;
+    // Back runs the app's one back order (features/app-back.js, bd
+    // med-y7b4.3); a shell without AppBack (signup) has only modals to close,
+    // which is that order's first rung.
+    function stepBack() {
+        return window.AppBack ? window.AppBack.step() : window.ModalManager.closeTopMostVisibleModal();
+    }
     function isDialogOpen() {
         return !!(window.ModalManager && window.ModalManager.isDialogOpen());
     }
@@ -116,7 +122,7 @@
                 event.stopImmediatePropagation();
             }
             dialogPushed = false;
-            window.ModalManager.closeTopMostVisibleModal();
+            stepBack();
             // A stacked dialog still open → re-push for the next Back.
             if (isDialogOpen()) {
                 dialogPushed = true;
@@ -139,7 +145,7 @@
             event.stopImmediatePropagation();
         }
         poppingFromHistory = true;
-        window.ModalManager.closeTopMostVisibleModal();
+        stepBack();
         poppingFromHistory = false;
         modalPushed = false;
         // Sub-modal closed but parent still open → re-push so next back also works

@@ -24,11 +24,17 @@ func TestRouter_AppleAppSiteAssociation(t *testing.T) {
 	if rec := get(h, "known-sub.app.example.com"); rec.Body.Len() > 0 && rec.Header().Get("Content-Type") == "application/json" {
 		t.Fatalf("unset: AASA served: %q", rec.Body.String())
 	}
-	h.SetAppleAppSiteAssociation("TEAM123456", "")
+	h.SetAppleAppSiteAssociation("TEAM123456", "", true)
 	if rec := get(h, "app.example.com"); rec.Header().Get("Content-Type") == "application/json" {
 		t.Fatalf("half-set: AASA served")
 	}
-	h.SetAppleAppSiteAssociation("TEAM123456", "com.example.app")
+	// HANDOFF_APP_LINKS=1 (bd med-r1j2.7): /d/* joins /i/*.
+	h.SetAppleAppSiteAssociation("TEAM123456", "com.example.app", true)
+	wantHandoff := `{"applinks":{"details":[{"appIDs":["TEAM123456.com.example.app"],"components":[{"/":"/i/*","comment":"invite landing"},{"/":"/d/*","comment":"add-device hand-off"}]}]},"webcredentials":{"apps":["TEAM123456.com.example.app"]}}`
+	if rec := get(h, "app.example.com"); rec.Code != http.StatusOK || rec.Body.String() != wantHandoff {
+		t.Fatalf("handoff: got %d %q", rec.Code, rec.Body.String())
+	}
+	h.SetAppleAppSiteAssociation("TEAM123456", "com.example.app", false)
 	want := `{"applinks":{"details":[{"appIDs":["TEAM123456.com.example.app"],"components":[{"/":"/i/*","comment":"invite landing"}]}]},"webcredentials":{"apps":["TEAM123456.com.example.app"]}}`
 	for _, host := range []string{"app.example.com", "known-sub.app.example.com", "unknown.app.example.com"} {
 		rec := get(h, host)

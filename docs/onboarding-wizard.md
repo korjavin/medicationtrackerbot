@@ -36,6 +36,18 @@ local mode and the bundled app shows W1 ([ios.md](ios.md#the-shell-bd-med-w6gx3)
 (`features/auth-bootstrap.js`). `bootstrapPayload()` in `apishim.js` computes it from the vault on every call and never
 caches; local mode takes the same path through the bundled app's shim.
 
+- **Account mode waits for the first pull** (`med-ejgf`). Until this device has pulled the account's whole tail once
+  (`sync.js` `hasCaughtUp`: the `tailCaughtUpAt` meta key, stamped only on the last page of a successful pull), the
+  shim omits `needs_first_run`, so no pre-pull answer can mount or dismiss the overlay: an empty mirror of an existing
+  account must not run W1, whose flag writes and `{floor:'auto'}` reminder default would overwrite the account's.
+  `cloud-boot.js` re-asks after the boot pull and after every drain (online / visible / sync wake / re-auth) and
+  hands the answer to `AuthBootstrap.mountFirstRun`. A failed pull just leaves the app shell up without W1. Local mode
+  has nothing to pull and is never gated.
+- **…and for the local → cloud move pickup** (`med-ydt2`). The pickup (`cloud-boot.js` `pickUpMovedVault`) imports the
+  local page's stash after the pull and reloads; a stash with records stamps `firstrun` on the way. Until it has settled
+  without a reload the shim omits `needs_first_run` (cloud-boot passes its own `caughtUp` to `installApiShim`) and the
+  re-ask waits, so W1 never mounts over the new account and then vanishes with the reload.
+
 - The flag lives on its own **`firstrun` vault singleton** (`web/domain/settings.js`, `setFirstRunComplete`), not the
   general `settings` record: records are last-writer-wins per whole record, and a lagging device writing `timezone`
   must not resurrect the overlay. Only `setFirstRunComplete` writes it, and only ever `true`. Vault restore with user
@@ -56,8 +68,11 @@ hints and keeps `health` on even without Sleep (`med-ta2n.21`). Continue/Skip wr
 flags**, sequentially (`DEFAULT_FEATURES` is all-on, so an unwritten flag would come back on). Picking Medications
 while notifications are off for the device shows the O3 "Reminders won't fire" note and asks in context.
 
-The footer has the "not a medical device" footnote, the Privacy policy link and, in local mode, *How to get an invite*
-(the request sheet when the shell has `base.post`, else the base landing, else nothing; `med-ta2n.28`). In a v3 shell in
+The footer has the "not a medical device" footnote, the Privacy policy link and, in local mode, *Want it on every
+device? Get an invite* (IM1, `med-er5x`; the request sheet when the shell has `base.post`, else the base landing, else
+nothing; `med-ta2n.28`). The request sheet opens with the four facts of what an account adds (every device · a copy off
+this phone · only you can open it · any browser) and a line that Telegram, AI-assistant connectors and sharing need an
+account too (IM2; from the W4 sheet the copy leads, IM2 · W4). In a v3 shell in
 local mode with no invite already waiting, the footer also shows **F1** "Have an invite?".
 
 After W1, `finishPicker` stores the picks and either completes (POST above, overlay dismissed) or moves to W2.
@@ -83,15 +98,17 @@ and the first-run BYO-key form are gone; the key form lives in Settings → AI &
   (carried in `data.protection`). Written only by deliberate actions (a confirmed backup Share, the card's × / Later) with
   `now()` + `put` — never lazily created, so the derived-writer floor rule does not apply. Shown at 20 records or 7 days
   since first run; × snoozes 14 days; the second dismissal stops it. Replaces the weekly backup toast. The Settings chip
-  reads the same status.
+  reads the same status. Its sync choice reads "An encrypted copy only you can open. Needs an invite." (IM4); picked with
+  no invite waiting it opens the request sheet in the W4 order where the shell has `base.post`, else the W5 page.
 
 ## The local-first path (P1: installed from a store)
 
 1. Store install → shell enters local mode, no native screen → **W1** → (**W2**) → Today with **W3** hints.
 2. Notifications are asked in context (O3), not here.
 3. Later **W4** nudges to back up or turn on sync.
-4. Settings slot ① **Sync & backup** (**W5**): Backup first, then Sync — two facts, *Sync needs an invite for now* with
-   Paste / Scan (F1) and *How to get an invite*, or *An invite is waiting → Turn on sync* when the shell slot holds one.
+4. Settings slot ① **Sync & backup** (**W5**): Backup first, then Sync — the same four facts (IM3), *Sync needs an
+   invite for now* with Paste / Scan (F1) and *No invite? Request one* (or *How to get an invite* where the shell has
+   only a base), or *An invite is waiting → Turn on sync* when the shell slot holds one.
    The old Settings *Move to a cloud account* row is gone; the move runs from P3. Cloud mode keeps the S6 cloud card.
 
 *Sync needs an invite* is deliberate: registration is invite-only ([cloud-mode.md](cloud-mode.md#onboarding--invite--wizard--installed-pwa)).
@@ -107,7 +124,9 @@ the token stays in the URL fragment end to end and never reaches the server.
 ("Get the app for iPhone" / "…Android"), "Continue in the browser" (the PWA stays supported) and, on a desktop, a QR.
 - *Android*: the Play link carries the invite as the Install Referrer; on first launch the shell reads it **once** and files
   it in its pending slot before entering local mode, so the web shows **"Your invite is here"** (P3 · Android: *Sign in
-  with fingerprint* / *Use without sync*) ahead of W1. This transit through Google Play is a privacy-manifest carve-out
+  with fingerprint* / *Use without sync*) ahead of W1. Play answers asynchronously, so the shell holds the page's
+  `invite.pending` reply until that read settles (capped at 10 s; the page waits up to 15 s), and W1 waits on the reply:
+  a late referrer routes the invite instead of flashing W1 (`med-ydt2`). This transit through Google Play is a privacy-manifest carve-out
   (owner-accepted; the "Invite link → Get the app on Android" row of the generated table).
 - *iPhone*: no reliable automatic hand-off. The app starts local as in P1; the landing page's L3 "Installed? Tap to
   continue" opens it (universal link, or `medtracker://i/<sub>#<token>` since Safari will not open a universal link to the

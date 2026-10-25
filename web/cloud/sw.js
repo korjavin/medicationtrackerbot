@@ -347,6 +347,22 @@ const STALE_SYNC_WARNING = { title: 'Med Tracker', body: 'Open the app to keep r
 const INBOX_WAKE_KIND = 'inbox-wake';
 const INBOX_WAKE_NOTIFICATION = { title: 'Med Tracker', body: 'Open the app to record what you sent' };
 
+// The add-device claim (bd med-r1j2.9): a device claimed one of this account's
+// slots and the origin must come back to compare the code and approve. The push
+// is a bare kind tag — no slot, platform or expiry — so the text is generic
+// (internal/cloudserver/nativepush.go transferClaimed* is its native twin). The
+// tap opens Settings → Devices → Add a device: the live Approve screen when
+// this window holds the flow, else the "not open here" end state.
+const TRANSFER_CLAIMED_KIND = 'transfer_claimed';
+const TRANSFER_CLAIMED_NOTIFICATION = {
+  title: 'Approve the new device?',
+  body: 'A new device is waiting · approve it before the code expires',
+  kind: TRANSFER_CLAIMED_KIND,
+  url: '/?tab=settings&page=add-device',
+};
+// The tap's "which window holds the live code?" probe (transfer.js answers).
+const TRANSFER_PROBE_TYPE = 'transfer-live-probe';
+
 // Inlined from crypto.js encryptPushPayload/decryptPushPayload: NK app-layer is
 // AES-GCM(NK, payload, aad="mt/v1/push") with the 12-byte nonce packed ahead of
 // the ciphertext (single BLOB wire column). Kept here so the worker needs no
@@ -370,6 +386,7 @@ function tryDecodeServerPayload(data) {
     // (phishing) notification text on this one non-NK-encrypted channel.
     if (payload && payload.kind === 'server-warning') return { ...STALE_SYNC_WARNING };
     if (payload && payload.kind === INBOX_WAKE_KIND) return { ...INBOX_WAKE_NOTIFICATION, kind: INBOX_WAKE_KIND };
+    if (payload && payload.kind === TRANSFER_CLAIMED_KIND) return { ...TRANSFER_CLAIMED_NOTIFICATION };
   } catch {
     // Not JSON — real NK ciphertext, ignore.
   }
@@ -402,7 +419,9 @@ async function decodePush(data) {
 // A notification tap may only open the app's own root with the query keys the
 // reminder deeplink uses (web/cloud/js/reminder-deeplink.js) — never an
 // arbitrary string out of a payload. Anything else opens '/'.
-const REMINDER_URL_KEYS = new Set(['tab', 'action', 'ids', 'scheduled']);
+// 'page' is the Settings sub-page key of ?tab=settings&page=… (deeplink-router.js
+// routes only a fixed list of pages).
+const REMINDER_URL_KEYS = new Set(['tab', 'action', 'ids', 'scheduled', 'page']);
 function reminderOpenUrl(raw) {
   if (typeof raw !== 'string' || !raw.startsWith('/?')) return '/';
   try {
@@ -449,7 +468,7 @@ const WAKE_ACK_TIMEOUT_MS = 1500;
 // The reply rides a per-push MessageChannel rather than a global SW `message`
 // listener: the port IS the correlation, so there is nothing to match up and
 // nothing to clean up but the port itself.
-function nudgeWindow(client) {
+function nudgeWindow(client, type = INBOX_WAKE_KIND, timeoutMs = WAKE_ACK_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     const finish = (acked) => {
@@ -457,9 +476,29 @@ function nudgeWindow(client) {
       channel.port1.close();
       resolve(acked);
     };
-    const timer = setTimeout(() => finish(false), WAKE_ACK_TIMEOUT_MS);
+    const timer = setTimeout(() => finish(false), timeoutMs);
     channel.port1.onmessage = () => finish(true);
-    client.postMessage({ type: INBOX_WAKE_KIND }, [channel.port2]);
+    client.postMessage({ type }, [channel.port2]);
+  });
+}
+
+// The claim tap's probe budget. A click only grants focus()/openWindow() for a
+// short while (Firefox: ~1 s), so the tap goes to the first window that acks,
+// and falls back after this much — never the 1.5 s wake budget.
+const TRANSFER_PROBE_TIMEOUT_MS = 250;
+
+// Resolves the first window that acks the live-code probe, or null once every
+// window has declined or timed out.
+function firstLiveWindow(windows) {
+  return new Promise((resolve) => {
+    let pending = windows.length;
+    if (!pending) resolve(null);
+    for (const w of windows) {
+      nudgeWindow(w, TRANSFER_PROBE_TYPE, TRANSFER_PROBE_TIMEOUT_MS).then((acked) => {
+        if (acked) resolve(w);
+        else if (--pending === 0) resolve(null);
+      });
+    }
   });
 }
 
@@ -484,12 +523,14 @@ self.addEventListener('push', (event) => {
         // before it shows its own "site updated in the background" one. A chatty
         // day in Telegram can therefore surface a notification per burst anyway.
         const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        const acks = await Promise.all(windows.map(nudgeWindow));
+        const acks = await Promise.all(windows.map((w) => nudgeWindow(w)));
         if (acks.some(Boolean)) return undefined;
       }
       return self.registration.showNotification(n.title, {
         body: n.body,
         actions: NOTIFICATION_ACTIONS[n.kind] || [],
+        // A newer claim replaces the shade entry rather than stacking.
+        ...(n.kind === TRANSFER_CLAIMED_KIND ? { tag: TRANSFER_CLAIMED_KIND } : {}),
         data: { url: n.url || '/' },
       });
     })
@@ -551,8 +592,15 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const route = ACTION_ROUTES[event.action];
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      const client = clients.find((c) => 'focus' in c);
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
+      let client = clients.find((c) => 'focus' in c);
+      if (!route && event.notification.data && event.notification.data.url === TRANSFER_CLAIMED_NOTIFICATION.url) {
+        // The live add-device flow lives in the memory of the tab that made the
+        // code, not necessarily the first one: ask every window (content-free
+        // probe, transfer.js acks only while it holds a live code) and route
+        // the tap to the owner. No ack → the first window, which lands on AD4.
+        client = (await firstLiveWindow(clients.filter((c) => 'focus' in c))) || client;
+      }
       if (!route) {
         // A body tap opens the reminder's own target (med-9d1a): a dose's take
         // sheet, or its section. Warm unlocked tab → the page navigates
