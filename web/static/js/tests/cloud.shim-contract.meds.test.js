@@ -1049,12 +1049,12 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
             .toEqual(upcomingRows.map((d) => [d.medId, d.plannedAt]));
         expect(upcoming[0]).toMatchObject({ source: 'tz_step', step_number: 1, total_steps: 1, note: STEP_NOTE });
 
-        // Meds badge: its own request, its own counter — the stuck PENDING only
-        // (snoozed is not due; the manual log is taken).
-        const badgeRows = await call(env.window.AppNav.dueDosesPath(NOW));
-        expect(env.window.AppNav.countDueDoses(badgeRows)).toBe(1);
-        expect(badgeRows.filter((d) => d.state === 'due').map((d) => d.occId))
-            .toEqual(week.filter((d) => d.state === 'due').map((d) => d.occId));
+        // Meds badge (bd med-ry7b.4): the timeline's pending read, counted —
+        // the stuck PENDING and the snoozed dose (the manual log is taken).
+        const badgeRows = await env.window.readPendingDoses(NOW);
+        expect(env.window.AppNav.countPendingDoses(badgeRows)).toBe(2);
+        expect(badgeRows.map((d) => d.occId))
+            .toEqual(week.filter((d) => d.state === 'due' || d.state === 'snoozed').map((d) => d.occId));
 
         // History: the projection's stored half, legacy wire shape, newest first.
         const history = await call('/api/history?days=1');

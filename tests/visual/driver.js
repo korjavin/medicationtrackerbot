@@ -98,7 +98,7 @@
     // empty here, so the import's replace confirm never shows (importexport.js
     // skips it when hasUserContent() === false).
     async function seed() {
-        const vault = shiftDates(await getJSON('/qa/vault-v1.json'), new Date());
+        const vault = shiftDates(withPileUp(await getJSON('/qa/vault-v1.json')), new Date());
         // The fixture is Europe/Berlin; a different device zone would raise the
         // timezone confirm over every screenshot (bootstrap.js maybeUpdateTimezone).
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -111,6 +111,23 @@
         input.dispatchEvent(new window.Event('change'));
         await window.SettingsImportExport.import();
         if (!(await window.CloudVault.hasUserContent())) throw new Error('seed import failed');
+    }
+
+    // MT4 · pile-up (bd med-ry7b.4): the golden fixture has one dose a day,
+    // so no History day ever lists 2+ pending doses and the bulk pair never
+    // shows. Add a pending 09:00 to the day of the fixture's undone 19:00
+    // (two days back once shifted): that day lists 2 pending under
+    // "Mark all taken / Skip all" (meds-timeline-bulk-undo). Visual seed only;
+    // tests/fixtures/vault-v1.json stays the vault-format pin.
+    function withPileUp(vault) {
+        const meds = vault && vault.data && vault.data.medications;
+        if (meds && Array.isArray(meds.intakes)) {
+            meds.intakes.push({
+                medication_id: 1, scheduled_at: '2026-07-06T07:00:00Z', taken_at: null,
+                status: 'PENDING', snoozed_until: null, source: 'schedule', tz: 'Europe/Berlin',
+            });
+        }
+        return vault;
     }
 
     function setFiles(input, file) {

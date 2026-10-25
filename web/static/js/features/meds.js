@@ -104,15 +104,25 @@ function _slotKey(date) {
 const MEDS_UPCOMING_DAYS = 7;
 let _medsUpcomingState = { doses: [], available: false, due: [] }; // module-state: plan-aware upcoming doses + due (pending) intakes behind the Schedule buckets
 
+// The pending set (bd med-ry7b.4): every due or snoozed dose up to now, of
+// any day since the ledger start (the route defaults from to 0 when status is
+// set). One read, cached under MEDS_TIMELINE_PENDING_KEY: the timeline's focus
+// card + "+N more pending", the Schedule tab's pending buckets and the Meds
+// tab badge + app-bar sub (features/app-nav.js) all count it. While a write's
+// optimistic flip is pending fetchFresh yields null and the flipped rows are
+// read back instead of the pre-write projection.
+async function readPendingDoses(nowMs = Date.now()) {
+    const path = `/api/doses?status=due,snoozed&to=${new Date(nowMs).toISOString()}`;
+    const fetchRows = () => Promise.resolve().then(() => apiCall(path)).catch(() => null);
+    const fresh = await window.DataStore.fetchFresh(MEDS_TIMELINE_PENDING_KEY, fetchRows, ['history']).catch(() => null);
+    return Array.isArray(fresh) ? fresh : window.DataStore.getCached(MEDS_TIMELINE_PENDING_KEY).catch(() => null);
+}
+
 async function loadUpcomingDoses() {
     const read = (path) => Promise.resolve().then(() => apiCall(path)).catch(() => null);
-    const nowMs = Date.now();
     const [res, doses] = await Promise.all([
         read(`/api/medications/upcoming?days=${MEDS_UPCOMING_DAYS}`),
-        // Missed + overdue doses: the occurrence projection's `due` rows over
-        // the same 24h window the Meds tab badge counts (features/app-nav.js
-        // countDueDoses) — the projection owns the rule.
-        read(`/api/doses?from=${new Date(nowMs - 24 * 60 * 60 * 1000).toISOString()}&to=${new Date(nowMs).toISOString()}`),
+        readPendingDoses().catch(() => null),
     ]);
     // `available` separates "the forecast answered, and this med simply has
     // no upcoming dose" from "there is no forecast to consult" (offline /
@@ -120,7 +130,7 @@ async function loadUpcomingDoses() {
     // computation.
     _medsUpcomingState.available = Array.isArray(res);
     _medsUpcomingState.doses = Array.isArray(res) ? res : [];
-    _medsUpcomingState.due = (Array.isArray(doses) ? doses : []).filter((r) => r && r.state === 'due');
+    _medsUpcomingState.due = (Array.isArray(doses) ? doses : []).filter((r) => r && (r.state === 'due' || r.state === 'snoozed'));
     return _medsUpcomingState.doses;
 }
 
@@ -313,7 +323,9 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
 }
 
 function renderMeds() {
-    const list = document.getElementById('med-list');
+    // A page torn down while loadMeds awaited its reads has nothing to paint.
+    const list = document && document.getElementById('med-list');
+    if (!list) return;
     list.replaceChildren();
     const now = new Date();
 
@@ -334,7 +346,7 @@ function renderMeds() {
 
     const nextDoses = _nextDoseByMedId();
 
-    // Missed buckets: due PENDING intakes grouped by their exact slot. A med
+    // Missed buckets: pending (due / snoozed) doses grouped by their exact slot. A med
     // with a missed dose shows there, not again under its next dose.
     const medById = new Map(medications.map((m) => [String(m.id), m]));
     const missedBuckets = new Map(); // scheduled_at -> { at, entries, intakeIds }
@@ -404,7 +416,11 @@ function renderMeds() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     Array.from(missedBuckets.values()).sort((a, b) => a.at - b.at).forEach((bucket) => {
         const time = `${_pad2(bucket.at.getHours())}:${_pad2(bucket.at.getMinutes())}`;
-        const label = bucket.at.getTime() >= todayStart ? time : `${time} · yesterday`;
+        // Pending doses of any day (bd med-ry7b.4): older than yesterday say
+        // how many days ago.
+        const day = new Date(bucket.at.getFullYear(), bucket.at.getMonth(), bucket.at.getDate()).getTime();
+        const daysAgo = Math.round((todayStart - day) / 86400000);
+        const label = daysAgo <= 0 ? time : daysAgo === 1 ? `${time} · yesterday` : `${time} · ${daysAgo} days ago`;
         list.appendChild(_buildMedsBucket(label, {
             pending: true,
             action: {
@@ -450,6 +466,7 @@ function syncMedsAddButton() {
     if (!btn) return;
     const pane = document.querySelector('#meds-view .med-tab-content.active');
     btn.hidden = !!(pane && pane.querySelector('.wg-empty .wg-btn--primary'));
+    if (window.AppNav) window.AppNav.syncMedsSub();
 }
 
 // ==================== Timeline sub-tab (kit v2 TL1–TL4, bd med-ry7b) ====================
@@ -1191,7 +1208,7 @@ async function _tlRead(list, seq, anchor) {
     const [rows, pending] = await Promise.all([
         // Ahead: at least 8 days, so TL3's "Next:" finds a weekly dose too.
         read(MEDS_TIMELINE_KEY, `/api/doses?from=${iso(-(state.back + MEDS_TIMELINE_PAGE_DAYS + 1))}&to=${iso(Math.max(state.ahead + MEDS_TIMELINE_PAGE_DAYS + 1, 8))}`),
-        read(MEDS_TIMELINE_PENDING_KEY, `/api/doses?status=due,snoozed&to=${iso(0)}`),
+        readPendingDoses(nowMs),
     ]);
     // A newer read (a later tap or refresh) owns the screen; a page torn down
     // meanwhile has none.

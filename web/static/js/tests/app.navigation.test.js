@@ -8,7 +8,7 @@
  *   - the segment strip hides with ≤1 enabled section, the Health tab only
  *     when all three are off, and a feature toggle rebuilds without reload;
  *   - gear → Settings and route → Journey, Back returns to the origin tab;
- *   - the Meds badge counts missed + overdue doses and clears once taken.
+ *   - the Meds badge counts every pending dose and clears once taken.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
@@ -222,29 +222,101 @@ describe('Navigation v2 — app-bar actions', () => {
 });
 
 describe('Navigation v2 — Meds badge', () => {
-    it('counts missed + overdue doses and clears once they are taken', async () => {
+    // GET /api/doses as the domain answers it: status keeps only those states,
+    // from defaults to the start of the ledger. `reads` logs every path.
+    function serveDoses(window, getRows) {
+        const reads = [];
+        window.apiCall = vi.fn(async (url) => {
+            if (!String(url).startsWith('/api/doses')) return null;
+            reads.push(String(url));
+            const p = new URL(String(url), 'https://x.test').searchParams;
+            const from = Date.parse(p.get('from') || '') || -Infinity;
+            const to = Date.parse(p.get('to') || '') || Infinity;
+            const states = (p.get('status') || '').split(',').filter(Boolean);
+            return getRows()
+                .filter((r) => Date.parse(r.plannedAt) >= from && Date.parse(r.plannedAt) <= to)
+                .filter((r) => !states.length || states.includes(r.state))
+                .map((r) => ({ ...r }));
+        });
+        return reads;
+    }
+    // A history change re-counts. Re-sent until it lands: a read still in
+    // flight (the boot's tab switch) is shared, so one event can answer stale.
+    async function recount(window, predicate) {
+        for (let i = 0; i < 20; i++) {
+            window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
+            for (let j = 0; j < 10; j++) {
+                if (predicate()) return;
+                await macrotask();
+            }
+        }
+        throw new Error('recount: the badge never matched');
+    }
+
+    it('counts every pending (due or snoozed) dose and clears once they are taken', async () => {
         const { window, cleanup } = await boot();
         const { document } = window;
         try {
             const now = Date.now();
             const iso = (offsetMin) => new Date(now + offsetMin * 60_000).toISOString();
             // Occurrence-projection rows (GET /api/doses): the projection owns
-            // the due rule, the badge only counts `due`.
+            // the pending rule, the badge only counts due + snoozed.
             let rows = [
-                { occId: 1, medId: 1, plannedAt: iso(-300), state: 'due' }, // missed
-                { occId: 2, medId: 1, plannedAt: iso(-10), state: 'due' },  // overdue
+                { occId: 1, medId: 1, plannedAt: iso(-300), state: 'due' },
+                { occId: 2, medId: 1, plannedAt: iso(-10), state: 'due' },
                 { occId: 3, medId: 2, plannedAt: iso(-20), state: 'snoozed', snoozedUntil: iso(30) },
                 { occId: 5, medId: 3, plannedAt: iso(-60), state: 'taken', takenAt: iso(-55) },
             ];
-            window.apiCall = vi.fn(async (url) => (String(url).startsWith('/api/doses?from=') ? rows : null));
+            serveDoses(window, () => rows);
             const badge = () => tab(document, 'meds').querySelector('.wg-tab__badge');
 
-            window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
-            await until(() => badge() && badge().textContent === '2');
+            await recount(window, () => badge() && badge().textContent === '3');
 
-            rows = rows.map((r) => (r.occId <= 2 ? { ...r, state: 'taken', takenAt: iso(0) } : r));
-            window.dispatchEvent(new window.CustomEvent('datastore:changed', { detail: { changedTags: ['history'] } }));
-            await until(() => badge() === null);
+            rows = rows.map((r) => ({ ...r, state: 'taken', takenAt: iso(0) }));
+            await recount(window, () => badge() === null);
+        } finally { cleanup(); }
+    });
+
+    // bd med-ry7b.4: the badge, the timeline focus card + "+N more pending",
+    // the Schedule tab's pending buckets and the app-bar sub count one set:
+    // GET /api/doses?status=due,snoozed&to=now, every day since the ledger start.
+    it('a dose due 3 days ago + one snoozed today → 2, and the app-bar sub says so; taking the old one → 1', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
+        try {
+            const now = Date.now();
+            const iso = (offsetMin) => new Date(now + offsetMin * 60_000).toISOString();
+            window.medications = [
+                { id: 1, name: 'Lisinopril', archived: false },
+                { id: 2, name: 'Metformin', archived: false },
+                { id: 3, name: 'Old', archived: true },
+            ];
+            const rows = [
+                { occId: 'old', medId: 1, plannedAt: iso(-3 * 24 * 60), state: 'due' },
+                { occId: 'today', medId: 2, plannedAt: iso(-20), state: 'snoozed', snoozedUntil: iso(30) },
+            ];
+            const reads = serveDoses(window, () => rows);
+            const badge = () => tab(document, 'meds').querySelector('.wg-tab__badge');
+            const sub = () => document.querySelector('#meds-view [data-meds-sub]');
+
+            await recount(window, () => badge() && badge().textContent === '2');
+            expect(sub().hidden).toBe(false);
+            expect(sub().textContent).toBe('2 active · 2 pending');
+            // The one pending read: status=due,snoozed up to now, no window.
+            expect(reads.length).toBeGreaterThan(0);
+            reads.forEach((path) => {
+                const p = new URL(path, 'https://x.test').searchParams;
+                expect(p.get('status')).toBe('due,snoozed');
+                expect(p.get('from')).toBeNull();
+            });
+
+            rows[0].state = 'taken';
+            await recount(window, () => badge() && badge().textContent === '1');
+            expect(sub().textContent).toBe('2 active · 1 pending');
+
+            rows[1].state = 'taken';
+            await recount(window, () => badge() === null);
+            expect(sub().textContent).toBe('2 active · all taken');
         } finally { cleanup(); }
     });
 });
