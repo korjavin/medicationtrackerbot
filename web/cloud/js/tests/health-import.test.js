@@ -535,6 +535,17 @@ describe('Apple Health import', () => {
                 expect(noneDeleted(other)).toBe(true);
             });
 
+            it('a truncated band night that lands first yields to the fuller Health night', async () => {
+                await vitals().importSamples({ sleep: [band(N0, N0 + 3 * H)] }); // band off the wrist
+                expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'miband', total_minutes: 180 });
+                expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 1 });
+                expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'apple_health', total_minutes: 470, clientTs: W0 + 24 * H });
+                storage.setItem('wg.health.anchors', '{}');
+                expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 0 });
+                await vitals().importSamples({ sleep: [band(N0, N0 + 3 * H)] }); // the re-upload changes nothing
+                expect(records.rows.get(DAY_ID)).toMatchObject({ source: 'apple_health', total_minutes: 470 });
+            });
+
             it('a 30-minute band nap does not replace a Health 8h night plus nap', async () => {
                 const nap = slp(20, N0 + 15 * H, N0 + 16 * H, 1);
                 expect(await runHealthImport({}, opts({ sleep: [...night, nap] }))).toEqual({ added: 1 });

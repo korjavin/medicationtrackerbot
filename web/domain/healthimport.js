@@ -288,10 +288,21 @@ export function createHealthImportDomain({ records, now, timeZone }) {
         if (!best || c.rank > best.rank) best = c;
       }
       const recordId = healthRecordId('sleep', day);
+      // A Mi Band day (converted, bd med-0xad.4) with fewer asleep minutes
+      // yields, whichever arrived first: the same pick the converter makes
+      // (a tie stays with the band). Put at now(), the converter's exception.
+      const held = byId.get(recordId);
+      const band = held && !held.deleted && held.source !== HEALTH_SOURCE ? held : null;
       // Same writes as before, each skip named: any of these leaves the day.
-      if (byId.has(recordId) || aliased.has(recordId)) { skip.exists++; continue; }
+      if ((byId.has(recordId) && !band) || aliased.has(recordId)) { skip.exists++; continue; }
       if (!best.whole) { skip.clipped++; continue; }
       if (best.end > settledBy) { skip.unsettled++; continue; }
+      if (band) {
+        if (best.body.total_minutes <= (Number(band.total_minutes) || 0)) { skip.exists++; continue; }
+        await records.put('sleep', { recordId, clientTs: now(), deleted: false, ...best.body });
+        added++;
+        continue;
+      }
       await records.putIfAbsent('sleep', { recordId, clientTs: 0, deleted: false, ...best.body });
       added++;
     }
