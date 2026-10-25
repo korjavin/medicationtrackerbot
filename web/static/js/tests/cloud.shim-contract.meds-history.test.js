@@ -316,6 +316,80 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    // bd med-wi09.4 — a reminder tap resolves exact ids only. Metformin's dose
+    // moved 30 min off the reminder's slot (a tz change / schedule edit): the
+    // tap must not offer or confirm that neighbour; it lands on the MT6
+    // out-of-date note at that med with the reminder's original time.
+    it('a reminder tap whose slot drifted opens no sheet, confirms nothing, and lands on MT6', async () => {
+        const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
+        const driftedIso = new Date(Date.parse(slotIso) + 30 * 60000).toISOString();
+        env = loadCloudShimFrontendEnv({
+            url: `https://acct.example.test/?action=medication_confirm&ids=1&scheduled=${encodeURIComponent(slotIso)}`,
+            seedRecords: {
+                medication: [seedMedication({ recordId: 1, name: 'Metformin', inventory_count: 5 })],
+                intake: [seedIntake({ recordId: 'intake-drift', medication_id: 1, scheduled_at: driftedIso, status: 'PENDING' })]
+            }
+        });
+        const { window, document } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const landing = vi.spyOn(window, 'showMedsReminderOutOfDate').mockImplementation(() => {});
+            const modal = vi.spyOn(window, 'showMedicationConfirmModal');
+
+            window.handleDeepLinks();
+            await waitFor(() => landing.mock.calls.length > 0);
+
+            expect(landing).toHaveBeenCalledWith({ medId: 1, scheduled: slotIso });
+            expect(modal).not.toHaveBeenCalled();
+            const history = await window.apiCall('/api/history?days=2');
+            expect(history.find((h) => h.id === 'intake-drift').status).toBe('PENDING');
+            expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    // bd med-wi09.4 (Argus 5031) — a chained lineage A → B → C, 49h end to end
+    // (+26h tz move, then +23h schedule edit), on old-client rows stored before
+    // the cut. A reminder for A is out of date: the canonical C belongs to its
+    // own read, so A is never offered or confirmed.
+    it('a reminder tap on a chain-cancelled slot lands on MT6 and confirms nothing', async () => {
+        const A = Math.floor((Date.now() - 72 * HOUR_MS) / 60000) * 60;
+        const B = A + 26 * 3600;
+        const C = B + 23 * 3600;
+        const iso = (s) => new Date(s * 1000).toISOString();
+        const id = (s) => `intake-1-${s}`;
+        const edit = (n, fromS, replacement) => ({
+            recordId: `medsched-1-${n}`, clientTs: 1, deleted: false, medication_id: 1, schedule: JSON.stringify({ type: 'as_needed' }), tz_shift_policy: 'flexible', from: iso(fromS),
+            boundary: [{ medId: 1, kept: [], cancelled: Object.keys(replacement), replacement }],
+        });
+        env = loadCloudShimFrontendEnv({
+            url: `https://acct.example.test/?action=medication_confirm&ids=1&scheduled=${encodeURIComponent(iso(A))}`,
+            seedRecords: {
+                medication: [seedMedication({ recordId: 1, name: 'Metformin', inventory_count: 5 })],
+                intake: [A, B, C].map((s) => seedIntake({ recordId: id(s), medication_id: 1, scheduled_at: iso(s), status: 'PENDING' })),
+                medsched: [edit(1, A - 3600, { [id(A)]: id(B) }), edit(2, A + 3600, { [id(B)]: id(C) })],
+                ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date(Date.now() + 86400000).toISOString() }],
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const landing = vi.spyOn(window, 'showMedsReminderOutOfDate').mockImplementation(() => {});
+            const modal = vi.spyOn(window, 'showMedicationConfirmModal');
+
+            window.handleDeepLinks();
+            await waitFor(() => landing.mock.calls.length > 0);
+
+            expect(landing).toHaveBeenCalledWith({ medId: 1, scheduled: iso(A) });
+            expect(modal).not.toHaveBeenCalled();
+            expect((await window.apiCall(`/api/doses?at=${encodeURIComponent(iso(C))}`)).map((r) => r.occId)).toEqual([id(C)]);
+            expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     // bd med-wi09.2 — explicit dose actions on explicit occIds. Two meds share
     // a past slot: intake-a (Metformin) and intake-b (Aspirin).
     const slotEnv = (statusA, statusB) => {

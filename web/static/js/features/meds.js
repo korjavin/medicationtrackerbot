@@ -1012,6 +1012,25 @@ function showMedsReminderOutOfDate({ medId, scheduled, tz } = {}) {
     switchMedTab('timeline');
 }
 
+// The same landing for a Telegram tap drained in the background (bd
+// med-wi09.4): never switch the app away from what the user is doing. The
+// MT6 note waits for the next Meds → Timeline open, and a toast offers it now.
+function queueMedsReminderOutOfDate(info = {}) {
+    _medsTimelineState.outOfDate = { medId: String(info.medId), scheduled: info.scheduled, tz: info.tz };
+    // Scoped to the unmatched doses: the same tap may have logged its others.
+    const count = Number(info.count) || 1;
+    const med = Array.isArray(medications) ? medications.find((m) => String(m.id) === String(info.medId)) : null;
+    const text = count > 1
+        ? `Telegram reminder out of date for ${count} medications: log them in the app.`
+        : med && med.name
+            ? `Telegram reminder out of date for ${med.name}: log it in the app.`
+            : 'A Telegram reminder was out of date — log that dose in the app.';
+    safeToast(text, 'info', {
+        action: { label: 'Open', onClick: () => showMedsReminderOutOfDate(info) },
+        duration: 8000,
+    });
+}
+
 // Timeline loader (switchMedTab / reloadCurrentTab / refreshMedsAfterMutation).
 // One projection read from the start of the ledger through tomorrow: pending
 // never expires, so Today's Pending needs every due row however old, and in

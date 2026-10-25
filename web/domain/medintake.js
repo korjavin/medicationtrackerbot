@@ -22,7 +22,7 @@
 // medications.js's nextId / weight.js's genId).
 import { localDateTimeParts, localWallToUtcMs, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
-import { applyLineage, evidenceTransitions, loadLineage, regenerateWindow } from './lineage.js';
+import { applyLineage, canonical, evidenceTransitions, loadLineage, regenerateWindow, regenerationStartMs } from './lineage.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -33,6 +33,13 @@ const NEXT_INTAKE_FORECAST_MS = 12 * 60 * 60 * 1000;
 const CLUSTER_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_SNOOZE_MINUTES = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// The projection's doses planned at exactly `ms` (to the second; +999 covers a
+// tz-plan step that keeps its anchor's milliseconds). No pad: applyLineage
+// hides a cancelled dose whose replacement lies outside the read (bd
+// med-wi09.4). Takes the domain so callers' stubs of occurrences() apply.
+export function dosesAtInstant(intake, ms) {
+  return intake.occurrences({ fromMs: ms, toMs: ms + 999 });
+}
 // The only marker a log-past intake carries — logPast writes source:'schedule'
 // like a scheduled dose, so the id prefix is what distinguishes them.
 const MANUAL_ID_PREFIX = 'intake-manual-';
@@ -352,7 +359,7 @@ const MAX_FORECAST_DAYS = 30;
 
 export function projectOccurrences({
   medications = [], intakes = [], tzPlan = null, timeZone, nowMs, fromMs = -Infinity, toMs = Infinity, forecast = true,
-  lineage = null, regenerated = [], cutMs = null,
+  lineage = null, regenerated = [], cutMs = null, regenFromMs = null,
 } = {}) {
   // Keyed by String(id): a vault can hold a med's recordId and an intake's
   // medication_id as number vs string (inbox-apply.js compares the same way);
@@ -464,7 +471,7 @@ export function projectOccurrences({
   const sorted = out.map((r) => [Date.parse(r.plannedAt), r])
     .sort((a, b) => (a[0] - b[0]) || MED_ID_ORDER.compare(String(a[1].medId), String(b[1].medId)))
     .map((x) => x[1]);
-  return applyLineage(sorted, lineage, intakes);
+  return applyLineage(sorted, lineage, intakes, { fromMs, toMs, regenFromMs });
 }
 
 // The stored intake wire shape (toResponse) read back off a stored projection
@@ -666,20 +673,54 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   }
 
   // getIntake for a batch: one intake load and at most one projection (over
-  // the span of the unstored ids) per call, however many ids (F6).
-  async function resolver(ids) {
+  // the span of the checked ids and their lineage canonicals) per call,
+  // however many ids (F6).
+  // `gateStored: false` (deleteFutureIntakes): a cleanup of stored rows takes
+  // a stored row as it is, hidden or not.
+  async function resolver(ids, { gateStored = true } = {}) {
     const stored = await loadIntakes();
     const byId = new Map(stored.map((i) => [String(i.recordId), i]));
-    const unstored = ids.map((id) => /^intake-(.+)-(\d+)$/.exec(String(id)))
-      .filter((m) => m && !byId.has(m[0])).map((m) => Number(m[2]) * 1000);
+    // Checked against the projection: an unstored id (it must list that occId)
+    // and a stored OPEN row (an old client's prediction the projection hides —
+    // a lineage-cancelled slot, an orphan — is not a dose to act on, bd
+    // med-wi09.4). Evidence rows and manual logs are always their own truth.
+    const isOpenSlot = (row) => gateStored && OPEN_STATUSES.has(row.status) && !String(row.recordId).startsWith(MANUAL_ID_PREFIX);
+    const checked = [];
+    const want = [];
+    for (const id of ids) {
+      const row = byId.get(String(id));
+      if (row) {
+        const ms = Date.parse(row.scheduled_at);
+        // Lineage keys are bare slot ids: an imported `-tz_step` row is looked
+        // up by its (med, second), not its recordId.
+        if (isOpenSlot(row) && Number.isFinite(ms)) { checked.push(ms); want.push(slotId(row.medication_id, ms)); }
+        continue;
+      }
+      const m = /^intake-(.+)-(\d+)$/.exec(String(id));
+      if (m && !String(id).startsWith(MANUAL_ID_PREFIX)) { checked.push(Number(m[2]) * 1000); want.push(String(id)); }
+    }
+    // The read also spans each id's lineage canonical, so a stand-in the day
+    // view shows (its canonical never regenerated) stays actionable, and one
+    // whose canonical is listed stays hidden — the same verdict as a wide read.
+    if (want.length) {
+      const table = await loadLineage(records);
+      for (const id of want) {
+        const m = /^intake-(.+)-(\d+)(?:-tz_step)?$/.exec(String(canonical(table, id) ?? ''));
+        if (m) checked.push(Number(m[2]) * 1000);
+      }
+    }
     let projected = new Map();
-    if (unstored.length) {
-      const { rows } = await project({ fromMs: Math.min(...unstored) - 2 * DAY_MS, toMs: Math.max(...unstored) + 2 * DAY_MS });
+    if (checked.length) {
+      const { rows } = await project({ fromMs: Math.min(...checked), toMs: Math.max(...checked) + 999 });
       projected = new Map(rows.map((r) => [r.occId, r]));
     }
     return {
       stored,
-      get: (id) => byId.get(String(id)) || (projected.has(String(id)) ? virtualIntake(projected.get(String(id))) : null),
+      get: (id) => {
+        const row = byId.get(String(id));
+        if (row) return !isOpenSlot(row) || !Number.isFinite(Date.parse(row.scheduled_at)) || projected.has(String(id)) ? row : null;
+        return projected.has(String(id)) ? virtualIntake(projected.get(String(id))) : null;
+      },
     };
   }
 
@@ -813,7 +854,8 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         medications: meds, intakes: live, tzPlan, timeZone, nowMs, fromMs: lf, toMs, forecast, regenerated, cutMs: cut,
       }));
     }
-    const out = applyLineage(rows, lineage, intakes);
+    const regenFromMs = regenerationStartMs({ transitions, intakes, timeZone, cutMs: cut, nowMs, evidence });
+    const out = applyLineage(rows, lineage, intakes, { fromMs, toMs, regenFromMs });
     if (onBoundary) {
       let next = Infinity;
       for (const r of out) {
@@ -1145,7 +1187,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const nowMs = now();
     let deletedCount = 0;
     const ids = uniqueIds(intakeIds);
-    const resolve = await resolver(ids);
+    const resolve = await resolver(ids, { gateStored: false });
     for (const id of ids) {
       const intake = resolve.get(id);
       if (!intake || !OPEN_STATUSES.has(intake.status) || Date.parse(intake.scheduled_at) <= nowMs) continue;
