@@ -510,7 +510,7 @@ export function regenerateWindow({
   return { occurrences };
 }
 
-function canonical(table, id) {
+export function canonical(table, id) {
   let k = table.get(id);
   const seen = new Set([id]);
   while (k && table.has(k) && !seen.has(k)) {
@@ -526,8 +526,19 @@ function canonical(table, id) {
 // both rows stay, flagged `loggedTwice` (the partner's occId), never settled;
 // evidence at C only → C's row is the dose and K's row is hidden (one row, one
 // consumption). `intakes` RAW, so a tombstone counts as evidence.
-export function applyLineage(rows, table, intakes = []) {
+//
+// `fromMs`/`toMs` is the read window the rows came from. A canonical K whose
+// instant lies outside it belongs to K's own read, so its cancelled ids are
+// hidden here too; only a K inside the window that the projection does not
+// list (a switch before the ledger cut, nothing regenerated) keeps them as
+// stand-ins (bd med-wi09.4).
+export function applyLineage(rows, table, intakes = [], { fromMs = -Infinity, toMs = Infinity } = {}) {
   if (!table || table.size === 0) return rows;
+  const outsideRead = (k) => {
+    const m = SLOT_RE.exec(String(k));
+    const ms = m ? Number(m[2]) * 1000 : NaN;
+    return Number.isFinite(ms) && (ms < fromMs || ms > toMs);
+  };
   const ev = evidenceMap(intakes);
   const keyOf = (r) => (r.source === 'manual' ? null : slotId(r.medId, Date.parse(r.plannedAt)));
   const occOf = new Map();
@@ -555,10 +566,11 @@ export function applyLineage(rows, table, intakes = []) {
     } else if (logged.length === 1) {
       for (const m of members) if (m !== logged[0]) hidden.add(m);
     } else {
-      // A canonical the projection doesn't list (a window that cuts K off, or
-      // a switch before the ledger cut, where nothing is regenerated) would
-      // leave the slot empty — so the cancelled rows stay as stand-ins.
-      if (!k || occOf.has(k)) for (const m of members) if (m !== k) hidden.add(m);
+      // A canonical inside the read that the projection doesn't list (a switch
+      // before the ledger cut, where nothing is regenerated) would leave the
+      // slot empty — so the cancelled rows stay as stand-ins. A canonical
+      // outside the read is that read's dose, never a stand-in's here.
+      if (!k || occOf.has(k) || outsideRead(k)) for (const m of members) if (m !== k) hidden.add(m);
     }
   }
   return rows.filter((r) => !hidden.has(keyOf(r))).map((r) => {
