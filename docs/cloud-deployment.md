@@ -451,7 +451,7 @@ default — never set it on the production stack.
 `LITESTREAM_SYNC_INTERVAL` (default `1h`) is your worst-case data-loss window.
 
 > **Retention/deletion policy — the shipped defaults are out of policy.**
-> Backups must expire every object within **7 days**
+> Backups must expire every object within **30 days**
 > ([cloud-operations-security.md §3](cloud-operations-security.md#3-backups--required-deployment-decision)),
 > and account deletion propagates to them by that expiry only (no proactive
 > purge). But this file's defaults are `LITESTREAM_RETENTION_ENABLED=false`

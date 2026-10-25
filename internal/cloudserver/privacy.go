@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"html"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 
-	"github.com/korjavin/medicationtrackerbot/docs"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -22,14 +22,38 @@ const privacyPath = "/privacy"
 
 var privacyEffective = regexp.MustCompile(`Effective (\d{4}-\d{2}-\d{2})`)
 
-// privacyPage is docs/privacy-policy.md rendered once at startup. goldmark
-// escapes raw HTML by default (no WithUnsafe), so the markdown cannot inject
-// markup into the page.
-var privacyPage = renderPrivacyPage(docs.PrivacyPolicy)
+// privacyContact is the policy's contact address: PRIVACY_CONTACT, else
+// SMTP_FROM. Empty = the page points at the in-app feedback form only.
+func privacyContact() string {
+	if c := os.Getenv("PRIVACY_CONTACT"); c != "" {
+		return c
+	}
+	return os.Getenv("SMTP_FROM")
+}
 
-func renderPrivacyPage(md []byte) []byte {
+// privacyEnv returns env var k, or def when unset/empty.
+func privacyEnv(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+// renderPrivacyPage renders docs/privacy-policy.md (once, in New) with the
+// {{HOST}}, {{CONTACT}}, {{NAME}} and {{OPERATOR}} placeholders filled in before parsing, so the repo
+// text carries no domain or address. goldmark escapes raw HTML by default (no
+// WithUnsafe), so neither the markdown nor the env values can inject markup.
+func renderPrivacyPage(md []byte, host, contact, name, operator string) []byte {
+	// One pass, so no value is re-expanded. A contact without "@" is not an
+	// autolink (goldmark would drop <...> as raw HTML): use the feedback-form text.
+	pairs := []string{"{{CONTACT}}", contact}
+	if !strings.Contains(contact, "@") {
+		pairs = []string{"<{{CONTACT}}>", "the in-app feedback form", "{{CONTACT}}", ""}
+	}
+	pairs = append(pairs, "{{NAME}}", name, "{{OPERATOR}}", operator, "{{HOST}}", host)
+	src := []byte(strings.NewReplacer(pairs...).Replace(string(md)))
 	gm := goldmark.New(goldmark.WithExtensions(extension.Table))
-	doc := gm.Parser().Parse(text.NewReader(md))
+	doc := gm.Parser().Parse(text.NewReader(src))
 	// Repo-relative links (cloud-mode.md#…) resolve to nothing on this host;
 	// keep their text, drop the link.
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -46,7 +70,7 @@ func renderPrivacyPage(md []byte) []byte {
 		return ast.WalkContinue, nil
 	})
 	var body bytes.Buffer
-	if err := gm.Renderer().Render(&body, md, doc); err != nil {
+	if err := gm.Renderer().Render(&body, src, doc); err != nil {
 		panic("cloudserver: render privacy policy: " + err.Error())
 	}
 	var b bytes.Buffer
@@ -55,7 +79,7 @@ func renderPrivacyPage(md []byte) []byte {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Med Tracker — Privacy Policy</title>
+<title>` + html.EscapeString(name) + ` — Privacy Policy</title>
 <link rel="stylesheet" href="/css/cloud.css">
 <link rel="stylesheet" href="/static/css/fonts.css">
 </head>
@@ -70,9 +94,9 @@ func renderPrivacyPage(md []byte) []byte {
 	return b.Bytes()
 }
 
-func servePrivacy(w http.ResponseWriter) {
+func servePrivacy(w http.ResponseWriter, page []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Changes ship with a deploy; an hour of staleness is fine for a policy.
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Write(privacyPage)
+	w.Write(page)
 }
