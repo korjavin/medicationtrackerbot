@@ -42,6 +42,27 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
+        # The privacy-URL script below edits the built bundle, outside declared outputs.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # No real domain in the repo (bd med-ffuu.3): the Privacy footer gets its URL
+    # at build time; with WG_BASE_DOMAIN empty it keeps the source plist's text.
+    postBuildScripts:
+      - name: Privacy policy URL in Settings.bundle
+        basedOnDependencyAnalysis: false
+        script: |
+          [ -n "$WG_BASE_DOMAIN" ] || exit 0
+          p="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Settings.bundle/Root.plist"
+          pb=/usr/libexec/PlistBuddy
+          i=0
+          while "$pb" -c "Print :PreferenceSpecifiers:$i" "$p" >/dev/null 2>&1; do
+            if [ "$("$pb" -c "Print :PreferenceSpecifiers:$i:Title" "$p" 2>/dev/null)" = Privacy ]; then
+              "$pb" -c "Set :PreferenceSpecifiers:$i:FooterText \"Privacy policy: https://$WG_BASE_DOMAIN/privacy. In the app: Settings → Account & privacy.\"" "$p"
+              exit $?
+            fi
+            i=$((i+1))
+          done
+          echo "error: no Privacy group in $p"
+          exit 1
     # Passkeys in WKWebView for every account subdomain; confirmed by the
     # server's /.well-known/apple-app-site-association (bd med-w6gx.1).
     entitlements:
