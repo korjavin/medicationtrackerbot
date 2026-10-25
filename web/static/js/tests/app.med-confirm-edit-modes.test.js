@@ -121,7 +121,8 @@ describe('app.js medication confirm edit/log modes', () => {
       window.apiCall = vi.fn().mockResolvedValue({ updated: 0, unchanged: 0, failed: 0, failures: [] });
       await window.confirmSelectedMedications();
       expect(window.apiCall).not.toHaveBeenCalled();
-      expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(true);
+      // Nothing selected: the sheet stays open (toast asserted in the shim-contract suite).
+      expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(false);
 
       window.safeAlert = vi.fn();
       window.showMedicationConfirmModal([3], ['C'], '2026-02-28T10:05:00Z');

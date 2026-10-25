@@ -474,7 +474,7 @@ async function confirmSelectedMedications() {
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
         if (occIds.length === 0) {
-            closeMedicationConfirmModal();
+            safeToast('Select a dose first', 'info');
             return;
         }
         // "Time taken" row: sent only when the user picked a time; otherwise
@@ -517,7 +517,7 @@ async function skipSelectedMedications() {
     const selectedIndices = Array.from(checks).map(c => parseInt(c.dataset.index, 10));
 
     if (selectedIndices.length === 0) {
-        closeMedicationConfirmModal();
+        safeToast('Select a dose first', 'info');
         return;
     }
 

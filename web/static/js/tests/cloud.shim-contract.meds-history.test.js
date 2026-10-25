@@ -298,6 +298,48 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    it('a reminder-tap Skip records SKIPPED on the stored PENDING row without touching stock', async () => {
+        reminderTapEnv('TAKEN');
+        const { window, document } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            window.handleDeepLinks();
+            const list = document.getElementById('med-confirm-list');
+            await waitFor(() => list.querySelectorAll('.med-confirm-check').length > 0);
+            const refresh = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
+            document.getElementById('med-confirm-skip-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+            await waitFor(() => refresh.mock.calls.length > 0);
+
+            expect(await stateOf(window)).toEqual({ a: 'SKIPPED', b: 'TAKEN', stockA: 5, stockB: 5 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('with nothing selected, Skip and Take toast "Select a dose first", write nothing and keep the sheet open', async () => {
+        reminderTapEnv('TAKEN');
+        const { window, document } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            window.handleDeepLinks();
+            const list = document.getElementById('med-confirm-list');
+            await waitFor(() => list.querySelectorAll('.med-confirm-check').length > 0);
+            list.querySelectorAll('.med-confirm-check').forEach((c) => c.setAttribute('aria-pressed', 'false'));
+            const toast = vi.spyOn(window, 'safeToast').mockImplementation(() => {});
+
+            for (const id of ['med-confirm-skip-btn', 'med-confirm-action-btn']) {
+                toast.mockClear();
+                document.getElementById(id).dispatchEvent(new window.Event('click', { bubbles: true }));
+                await waitFor(() => toast.mock.calls.length > 0);
+                expect(toast).toHaveBeenCalledWith('Select a dose first', 'info');
+                expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(false);
+            }
+            expect(await stateOf(window)).toEqual({ a: 'PENDING', b: 'TAKEN', stockA: 5, stockB: 5 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('a reminder tap for a slot already fully logged opens no sheet and changes nothing', async () => {
         reminderTapEnv('TAKEN', 'TAKEN');
         const { window, document } = env;
