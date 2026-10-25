@@ -1,5 +1,5 @@
 // bd med-nt9p.32.15: the account's ways out on the Android shell (account.leave, bd med-nt9p.32.13).
-// Claim the run's invite → Settings → Account → "Use this phone without an account" → straight into
+// Claim the run's invite → Settings → "Use this phone without an account" → straight into
 // local mode → Switch account → open the account again (unlock) → Settings → Account → Delete my
 // account (typed confirm + soft authenticator) → local mode with the web's F1 (bd med-ta2n.12: no
 // native first run), the host forgotten and no leaveHost (A) → force-stop + plain relaunch → local
@@ -21,13 +21,18 @@ const storedHost = async (ctx) => {
   return /name="accountHost">([^<]*)</.exec(xml)?.[1] ?? null;
 };
 
-/** Settings → Account (the page the user opens). */
-async function openAccountPage(page) {
+/** Settings home, with the "Your vault" card (it opens Account & privacy, bd med-y7b4.1) in view. */
+async function openSettingsHome(page) {
   const row = page.locator('[data-settings-open="account"]');
   // A reopened account restores its last section, Settings included (run 39325392612): no gear then.
   if (!(await row.isVisible())) await page.locator('[data-nav-to="settings"]:visible').first().click();
   await row.waitFor({ state: 'visible', timeout: 15_000 });
-  await row.click();
+  return row;
+}
+
+/** Settings → Your vault → Account & privacy (the page the user opens). */
+async function openAccountPage(page) {
+  await (await openSettingsHome(page)).click();
 }
 
 /** The account opened from F1: a warm vault boots straight in; otherwise /unlock's passkey button. */
@@ -75,8 +80,9 @@ export default async function deleteAccount(ctx) {
   });
 
   // 1. Use this phone without an account → local mode, no stop at the first run.
-  await ctx.step('Settings → Account shows "Use this phone without an account"', async () => {
-    await openAccountPage(page);
+  // bd med-y7b4.2: the row sits on the Settings home, slot ② under the vault card.
+  await ctx.step('Settings shows "Use this phone without an account"', async () => {
+    await openSettingsHome(page);
     const btn = page.locator('#settings-leave-account-btn');
     await btn.waitFor({ state: 'visible', timeout: 15_000 });
     const text = await btn.textContent();

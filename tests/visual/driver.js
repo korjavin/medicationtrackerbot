@@ -256,6 +256,15 @@
             // The base arrives async: a full address enables the sun once it has.
             await until(() => { type('anna.app.example.com'); return !go.disabled; }, STEP_MS, 'open account base');
             if (step.openAccount === 'invalid') type('anna.app', true);
+        } else if (step.shellSignedIn) {
+            // The iOS app signed into an account (bd med-y7b4.2), in the cloud
+            // pass: give LocalNotifications its own copy of the bridge with the
+            // shell's platform, which is what settings.js nativeLeaveAccount
+            // reads (CloudVault.leaveAccount is cloud-boot's own). The slot-②
+            // row then shows on the next Settings open; no scene taps it.
+            const ln = window.LocalNotifications;
+            if (!ln) throw new Error('shellSignedIn: no LocalNotifications');
+            ln.__native = Object.assign(Object.create(ln.__native || {}), { platform: 'ios' });
         } else if (step.localFeedback) {
             // Settings → Send feedback in local mode (bd med-ta2n.20) mounts
             // only where the shell has App Attest and base.post, which no QA

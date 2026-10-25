@@ -225,7 +225,8 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   otherwise has no way back (the host is stored the moment the link parses).
   Passive: a returning user unlocks as before.
 - **Use this phone without an account** (bd med-nt9p.32.15, iOS twin in
-  [ios.md](ios.md)): Settings → Account shows the row only once `shell.ops`
+  [ios.md](ios.md)): the Settings home (slot ② under the vault card, bd
+  med-y7b4.2) shows the row only once `shell.ops`
   lists `account.leave` (settings.js `nativeHas`, one probe per page; an APK
   without `shell.ops` rejects the probe and never shows it). After a
   `safeConfirm` it calls `CloudVault.leaveAccount({ then: 'local' })` → bridge
