@@ -727,9 +727,12 @@ async function _applyOptimisticTimeline(mutator) {
     const state = _medsTimelineState;
     const prior = { rows: state.rows, pending: state.pending };
     const apply = (rows) => (Array.isArray(rows) ? mutator(rows) : rows);
-    const handles = [await window.DataStore.applyOptimistic(MEDS_TIMELINE_KEY, apply, ['history'])];
+    // The pending set first: the first key's datastore:changed already
+    // repaints the Meds badge and Today, which read only that key — flipped
+    // first, they read it from cache instead of re-fetching the pre-write set.
+    const handles = [await window.DataStore.applyOptimistic(MEDS_TIMELINE_PENDING_KEY, apply, ['history'])];
     try {
-        handles.push(await window.DataStore.applyOptimistic(MEDS_TIMELINE_PENDING_KEY, apply, ['history']));
+        handles.push(await window.DataStore.applyOptimistic(MEDS_TIMELINE_KEY, apply, ['history']));
     } catch (e) {
         // A half-applied write would leave the first key pending forever.
         await handles[0].rollback();

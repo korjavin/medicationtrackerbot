@@ -1208,8 +1208,14 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         oldRow.querySelector('[data-action="log-missed"]').click();
         const list = document.getElementById('med-confirm-list');
         await vi.waitFor(() => expect(list.querySelectorAll('.med-confirm-check').length).toBeGreaterThan(0));
-        document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
-        await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+        // The take's relay cancel-refire POST (cloud reminders) needs a fetch.
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+            await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+        } finally {
+            delete globalThis.fetch;
+        }
 
         expect(atAct.badge).toEqual(['meds', badge - 1]);
         expect(atAct.reads).toBe(0);
