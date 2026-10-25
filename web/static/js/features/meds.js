@@ -480,6 +480,7 @@ function syncMedsAddButton() {
 const MEDS_TIMELINE_AHEAD_DAYS = 1; // future days on open (Tomorrow)
 const MEDS_TIMELINE_BACK_DAYS = 2; // past days on open (Yesterday + the day before)
 const MEDS_TIMELINE_PAGE_DAYS = 3; // days per "Show 3 …" tap
+const MEDS_TIMELINE_MAX_AHEAD_DAYS = 30; // the projection's forecast horizon
 const MEDS_TIMELINE_LEAD = {
     upcoming: ['', 'pill'],
     due: ['wg-row__lead--sky', 'clock'],
@@ -857,7 +858,10 @@ function _tlDaysAgo(date, ctx) {
 function _tlFutureSection(groups, ctx) {
     const state = _medsTimelineState;
     const section = _medsEl('section', 'wg-section wg-tl-planned wg-timeline__future');
-    section.appendChild(_tlMoreButton('Show 3 more days ahead', 'chev-u', () => _tlPage((s) => { s.ahead += MEDS_TIMELINE_PAGE_DAYS; })));
+    // The projection forecasts 30 days (medintake.js MAX_FORECAST_DAYS).
+    if (state.ahead < MEDS_TIMELINE_MAX_AHEAD_DAYS) {
+        section.appendChild(_tlMoreButton('Show 3 more days ahead', 'chev-u', () => _tlPage((s) => { s.ahead += MEDS_TIMELINE_PAGE_DAYS; })));
+    }
     const list = _medsEl('div', 'wg-list');
     for (let i = state.ahead; i >= 1; i--) {
         const date = _tlShiftDate(ctx.todayDate, i);
@@ -1051,7 +1055,8 @@ function renderTimeline({ anchor = false } = {}) {
     const groups = _tlGroups(rows);
     const { focus, more } = _tlFocus(rows, state.pending, ctx);
     const next = groups.find((g) => g.localDate === ctx.todayDate && g.state === 'upcoming' && g.at > nowMs) || null;
-    const upcoming = groups.find((g) => g.state === 'upcoming' && g.at > nowMs) || null;
+    // The TL3 "Next:" line may lie past the shown days: any read row will do.
+    const upcoming = _tlGroups(all.filter((r) => r.state === 'upcoming' && Date.parse(r.plannedAt) > nowMs))[0] || null;
     const inCard = new Set([focus, next].filter(Boolean).flatMap((g) => g.rows.map((r) => String(r.occId))));
     const listGroups = _tlGroups(rows.filter((r) => !inCard.has(String(r.occId))));
 

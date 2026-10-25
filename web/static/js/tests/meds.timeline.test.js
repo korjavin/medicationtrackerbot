@@ -359,6 +359,16 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(document.querySelector('#med-timeline-list .wg-card--accent')).toBeNull();
     });
 
+    it('TL3 names the next dose even past the shown days', async () => {
+        const { document } = env;
+        env.window.Date.now = () => Date.UTC(2026, 9, 23, 20, 5);
+        await load([
+            berlin(1, '2026-10-23', '08:20', 'taken', { takenAt: '2026-10-23T06:24:00.000Z' }),
+            berlin(4, '2026-10-26', '13:00', 'upcoming'),
+        ]);
+        expect(text(card(document).querySelector('.wg-meta'))).toBe('Next: Mon 26.10 13:00 · 1 med');
+    });
+
     it('TL4 · no missed state: an old dose stays pending — no "missed" anywhere', async () => {
         const { document } = env;
         await load([berlin(1, '2026-10-22', '09:00', 'due'), berlin(1, '2026-10-23', '21:00', 'upcoming')]);
@@ -464,6 +474,21 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             expect(plannedDays(document)).toEqual(['2026-10-24']);
             expect(document.querySelector('.wg-tl-day[aria-expanded="true"]')).toBeNull();
             expect(scrolled.map((el) => el.id)).toEqual(['meds-view', 'meds-view']);
+        });
+
+        it('Show 3 more days ahead stops at the projection\'s 30-day forecast', async () => {
+            const { document, window } = env;
+            serveRange(window, longRange({ ahead: 35 }));
+            window.medications = MEDS;
+            await window.loadTimeline({ anchor: true });
+            const more = () => button(document.querySelector('.wg-timeline__future'), 'Show 3 more days ahead');
+            for (let i = 0; i < 10; i++) {
+                more().click();
+                await settle();
+            }
+            await window.loadTimeline();
+            expect(plannedDays(document)).toHaveLength(31);
+            expect(more()).toBeUndefined();
         });
 
         it('nothing loads by itself: no IntersectionObserver is ever registered', async () => {
