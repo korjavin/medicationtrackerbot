@@ -279,18 +279,19 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(exported.data.protection).toEqual({ ...VAULT_FIXTURE.data.protection, last_backup_at: expect.any(String) });
         expect(Date.parse(exported.data.protection.last_backup_at)).toBeLessThanOrEqual(now);
         // The restore ends with the legacy pass (bd med-0xad.4): the fixture's
-        // bot-era sleep session comes back as its sleep day.
+        // bot-era sleep session stays as the ledger (bd med-0xad.9) beside its sleep day.
         const [night] = VAULT_FIXTURE.data.vitals.sleep;
-        expect(exported.data.vitals.sleep).toEqual([{
+        expect(exported.data.vitals.sleep).toHaveLength(2);
+        expect(exported.data.vitals.sleep).toEqual(expect.arrayContaining([night, {
             ...night, timezone_offset: -120, total_minutes: 450, source: 'miband', source_id: night.day,
-        }]);
+        }]));
         const want = withoutBackup(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data);
         want.vitals = { ...want.vitals, sleep: exported.data.vitals.sleep };
         expect(withoutBackup(exported.data)).toEqual(want);
         const weights = (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight);
         expect(weights.sort()).toEqual(VAULT_FIXTURE.data.weight.logs.map((r) => r.weight).sort());
         // The cloud's importAll runs this same conversion on the file.
-        expect(vaultToRecords(exported, { now }).length).toBe(vaultToRecords(VAULT_FIXTURE, { now }).length);
+        expect(vaultToRecords(exported, { now }).length).toBe(vaultToRecords(VAULT_FIXTURE, { now }).length + 1); // + the day row
         // Restoring its own export again changes nothing.
         await window.CloudVault.importAll(json, { win: window });
         expect(withoutBackup(JSON.parse(await window.CloudVault.exportAll({ win: window })).data)).toEqual(withoutBackup(exported.data));
