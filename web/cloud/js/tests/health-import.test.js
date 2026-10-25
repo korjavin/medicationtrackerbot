@@ -762,6 +762,28 @@ describe('Apple Health import', () => {
             expect([...fresh.rows.values()]).toEqual([expect.objectContaining({ recordId: DAY_ID, total_minutes: 470, deep_minutes: 60 })]);
         });
 
+        it('one night keyed to two days by different zones stays one row, whichever source lands first', async () => {
+            // No zone: UTC files it under 3 Oct. The Watch's Los Angeles zone files
+            // the same night (ending 11:00 local) under 2 Oct.
+            const S = Date.parse('2026-10-02T10:00:00Z');
+            const bed = slp(50, S, S + 8 * H, 0, HAND, null);
+            const watch = [slp(51, S, S + 4 * H, 3, WATCH, 'America/Los_Angeles'), slp(52, S + 4 * H, S + 8 * H, 4, WATCH, 'America/Los_Angeles')];
+            const window = { from: S - 48 * H, to: S + 60 * H };
+            const domain = (recs) => createHealthImportDomain({ records: recs, now: () => S + 24 * H, timeZone: 'UTC' });
+
+            expect(await domain(records).importSamples('sleep', [bed], window)).toMatchObject({ added: 1 });
+            expect(records.rows.has('sleep-hk-2026-10-03')).toBe(true);
+            expect(await domain(records).importSamples('sleep', [bed, ...watch], window))
+                .toMatchObject({ added: 0, skip: { overlap: 1 } });
+            expect([...records.rows.keys()]).toEqual(['sleep-hk-2026-10-03']);
+
+            const other = memRecords();
+            expect(await domain(other).importSamples('sleep', watch, window)).toMatchObject({ added: 1 });
+            // A later read without the Watch samples (another device, access since revoked).
+            expect(await domain(other).importSamples('sleep', [bed], window)).toMatchObject({ added: 0, skip: { overlap: 1 } });
+            expect([...other.rows.keys()]).toEqual(['sleep-hk-2026-10-02']);
+        });
+
         it('a hand-entered Asleep + In Bed night opened right after waking waits to settle, then is written', async () => {
             const asleep = slp(42, N0, N0 + 8 * H, 1, HAND, null);
             const data = { sleep: [asleep, inBed] };

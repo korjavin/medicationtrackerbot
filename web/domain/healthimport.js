@@ -238,8 +238,9 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // (CLAUDE.md rule 12): the first settled version wins, an edit or delete
   // always outranks it, a tombstone keeps the day deleted.
   // Not written, counted in `skip` for the diagnostics line: a day already
-  // there, live or deleted (exists); a day overlapping a non-Health sleep entry
-  // (Mi Band, manual: it wins — overlap); a day whose best version is clipped
+  // there, live or deleted (exists); a day overlapping a live sleep row of
+  // another id — a non-Health entry (Mi Band, manual: it wins) or another
+  // day's Health row (overlap); a day whose best version is clipped
   // by the window (clipped: only a night whose own samples were new in another
   // page, padded 48h and so whole there, sits at an edge) or not settled yet
   // (unsettled: `pending` = the earliest unsettled start, for the caller to
@@ -282,8 +283,12 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const id = healthImportRecordId('sleep', r);
       if (id && id !== r.recordId) aliased.add(id);
     }
-    const others = spans(
-      raw.filter((r) => !r.deleted && !healthImportRecordId('sleep', r)),
+    // Every live sleep row's span: a non-Health entry wins its night, and a
+    // Health row of another day already covering it (sources in different
+    // zones key one night to two days; an In Bed-only day written before the
+    // Watch synced) keeps the night on one row.
+    const taken = spans(
+      raw.filter((r) => !r.deleted),
       (r) => Date.parse(r.start_time), (r) => Date.parse(r.end_time),
     );
 
@@ -322,10 +327,11 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       }
       const recordId = healthRecordId('sleep', day);
       if (byId.has(recordId) || aliased.has(recordId)) { skip.exists++; continue; }
-      if (overlaps(best, others)) { skip.overlap++; continue; }
+      if (overlaps(best, taken)) { skip.overlap++; continue; }
       if (!best.whole) { skip.clipped++; continue; }
       if (best.end > settledBy) { skip.unsettled++; continue; }
       await records.putIfAbsent('sleep', { recordId, clientTs: 0, deleted: false, ...best.body });
+      taken.push(best);
       added++;
     }
     return { added, pending, nights: all.length, skip };
