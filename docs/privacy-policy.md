@@ -76,7 +76,7 @@ list of categories; each is stored only as long as stated.
 |---|---|---|
 | Account | That an account exists, its address (subdomain), creation date, your passkeys' public keys, and for each device whether it is a browser, an Android phone or an iPhone | Life of the account |
 | Sync | When each device synced, the size of each encrypted blob, the IP address it came from, and each record's kind and id | Timestamps with the data; request logs per the log retention below |
-| Reminders | When a reminder should fire, and an encrypted payload we cannot read; for the phone apps, a push token issued by Apple or Google | Queue entries deleted once sent; tokens until you remove the device or they expire |
+| Reminders | When a reminder should fire, and an encrypted payload we cannot read; for the phone apps, a push token issued by Apple or Google, held only for a content-free wake-up, not to carry reminder content | Queue entries deleted once sent; tokens until you remove the device or they expire |
 | Telegram (if linked) | Your chat id and your bot's token, stored encrypted on the server under a server key (this is server-side encryption, not vault-grade) | Until you unlink |
 | Invite request | The email address and note you sent us, or your Telegram name and id, and our decision | 90 days |
 | Feedback | What you write and attach, encrypted on your device to the developer; the app version and feedback kind are readable | Until the developer collects it |
@@ -180,10 +180,12 @@ any time in the Health app or Health Connect.
 
 ## 6. Reminders
 
-Reminders are composed on your device. With an account, our relay stores only
-the fire time and an encrypted payload and wakes the device through Apple,
-Google or your browser vendor's push service, which carries an opaque blob.
-Without an account, reminders are scheduled on the phone itself. You choose
+Reminders are composed on your device. With an account, a browser gets
+reminders through our relay: it stores only the fire time and an encrypted
+payload, and the browser vendor's push service carries that opaque blob. The
+phone apps schedule reminders on the phone itself; what Apple or Google
+deliver to them is a content-free wake-up. Without an account, reminders are
+scheduled on the phone itself. You choose
 what a reminder shows on the lock screen: only "Medication time", or
 **Detailed**, which adds the medication name, visible to anyone holding the
 phone. The app asks when you turn reminders on; you can change it in Settings.
@@ -197,7 +199,7 @@ categories of service providers that handle data on our behalf are:
 |---|---|---|
 | Hosting | The encrypted database and the metadata in section 2 | Always |
 | Backup storage | A copy of the encrypted database; ciphertext and metadata only, expiring within 30 days | Where backups are enabled |
-| Push services (Apple, Google, browser vendors) | Reminder times and an opaque encrypted payload | When you enable reminders |
+| Push services (Apple, Google, browser vendors) | Browsers: reminder times and an opaque encrypted payload. Phone apps: a content-free wake-up only | When you enable reminders |
 | Email relay | The email address and the invite email | When we approve an emailed invite request |
 | AI providers (OpenAI, Anthropic, or the one you chose) | The text or photo of one request | Section 3a, 3b |
 | Voice provider (ElevenLabs) | Audio, transcript, records read aloud | Section 3b |
