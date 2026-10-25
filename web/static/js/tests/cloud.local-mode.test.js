@@ -54,10 +54,12 @@ async function deleteDb() {
 
 // The boot's egress registration (local-policy registerLocalEgress) reads
 // window.document after the shell's setEgressHosts reply; let it finish before
-// a test can end and afterEach unstubs the window (bd med-umqb).
+// a test can end and afterEach unstubs the window (bd med-umqb). The call
+// must have started first: egressIdle only waits for registrations in flight.
 async function egressSettled(bridge) {
     await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', expect.anything()));
-    await new Promise((r) => { setTimeout(r, 0); });
+    const { egressIdle } = await import('../../../cloud/js/local-policy.js');
+    await egressIdle();
 }
 
 async function pendingRows() {
@@ -2845,6 +2847,7 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(window, (spec) => MODULES[spec]());
         await window.MedTrackerCloudReady;
+        if (platform) await egressSettled(call);
         return { window, call };
     }
     const weights = async () => (await env.window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight).sort();
