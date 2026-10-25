@@ -4184,14 +4184,20 @@ body:has(.wg-callbar--dock) .wg-toasts {
    per vital (sleep hours, steps, HR avg, SpO2 avg) — on top of
    the Overview sub-tab. Trend arrow per tile is colored by a per-vital
    "good direction" classifier (sun / alert / neutral / empty).
-   auto-fit grid: four tiles go 2x2 on a phone and one row on desktop
-   (med-0xad.5). */
+   Only ever 2x2 (phone) or 1x4 (wide enough for four tiles of at least
+   --wg-health-summary-tile-min), never three columns (med-0xad.5). */
 .wg-health-summary {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(var(--wg-health-summary-tile-min), 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--wg-health-summary-tile-gap);
     padding: var(--wg-health-summary-tile-pad);
     margin-bottom: var(--space-md);
+}
+
+@media (min-width: 720px) {
+    .wg-health-summary {
+        grid-template-columns: repeat(4, minmax(var(--wg-health-summary-tile-min), 1fr));
+    }
 }
 
 .wg-health-summary__tile {

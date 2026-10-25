@@ -205,7 +205,10 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
 
             await env.window.apiCall('/api/health/overview', 'GET');
 
-            for (const type of ['hrsample', 'spo2sample', 'stresssample']) {
+            // Stress is not read at all (bd med-0xad.5).
+            expect(listRange.mock.calls.some((c) => c[0] === 'stresssample')).toBe(false);
+            expect(list).not.toHaveBeenCalledWith('stresssample');
+            for (const type of ['hrsample', 'spo2sample']) {
                 expect(list).not.toHaveBeenCalledWith(type);
                 const call = listRange.mock.calls.find((c) => c[0] === type);
                 expect(call, `${type} must be read via listRange`).toBeTruthy();
