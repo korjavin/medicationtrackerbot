@@ -43,6 +43,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Reminders: local notifications from the horizon (replace-all, lapse notice, tap guard for another vault) | ✓ (med-w6gx.5, med-o7zq.9) | ✓ exact alarms + boot/update rearm (med-nt9p.7) | parity (iOS 64-slot cap is the platform's; Android caps at 200) |
 | Reminder tap target: a dose opens its take/log sheet (row `url`, `ReminderPath` allowlist), else its section | ✓ (med-w6gx.20, #1102) | ✓ (med-nt9p.52) | parity |
 | Reminder tap on a page without the deep-link router (e.g. unlock) loads the path | ✓ (med-w6gx.27, #1280) | ✓ (med-nt9p.53, #1273) | parity |
+| Stale reminder tap: url passed unchanged; logged dose → "Already logged" toast, moved slot → MT6 (QA-proven) | ✓ (med-wi09.6, #1406) | ✓ (med-wi09.7) | parity |
 | Notifications (bridge ops incl. `notifications.openSettings`) | ✓ | ✓ | parity |
 | Telegram (needs sync) upsell | ✓ | ✓ | parity (web) (med-ta2n.18) |
 | Account gone (`X-Account-Gone`) | ✓ → local mode, home `?invite=1` (med-ta2n.17) | ✓ → local mode, home `?invite=1` (med-ta2n.12, #1251) | parity |

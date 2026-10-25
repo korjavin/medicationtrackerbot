@@ -796,7 +796,7 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/notes",
     "risk": "read",
-    "description": "List MANUAL diary notes (newest first). Each row carries an optional tag: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. NOTE: this returns hand-written journal entries only, NOT device-imported data. For structured sleep phases or wearable HR/SpO2/stress/step time series, use health.overview instead.",
+    "description": "List MANUAL diary notes (newest first). Each row carries an optional tag: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. NOTE: this returns hand-written journal entries only, NOT device-imported data. For structured sleep phases or wearable HR/SpO2/step time series, use health.overview instead.",
     "response_summary": "JSON array of notes with id, content, tag, created_at.",
     "params_schema": {
       "type": "object",
@@ -826,9 +826,9 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/health/overview",
     "risk": "read",
-    "description": "Aggregate dashboard read over a 7d/30d window. This is the source for device-imported sleep and vitals. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis. For manual sleep journaling instead, see health.notes.*.",
-    "response_summary": "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d, stress_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/stress/steps_7d/30d.",
-    "response_example": "{\n  \"sleep_stats_7d\": [\n    {\"date\": \"2026-04-29\", \"light_mins\": 240, \"deep_mins\": 90, \"rem_mins\": 70, \"awake_mins\": 20, \"total_mins\": 420, \"heart_rate_avg\": 56}\n  ],\n  \"average_sleep_hours_7d\": 7.1,\n  \"average_sleep_hours_30d\": 6.8,\n  \"heart_rate_history_7d\": [{\"timestamp\": \"2026-04-29T03:00:00Z\", \"min\": 52, \"max\": 61, \"avg\": 56}],\n  \"spo2_history_7d\": [{\"timestamp\": \"2026-04-29T03:00:00Z\", \"min\": 95, \"max\": 99, \"avg\": 97}],\n  \"stress_history_7d\": [{\"timestamp\": \"2026-04-29T12:00:00Z\", \"min\": 22, \"max\": 48, \"avg\": 33}],\n  \"step_stats_7d\": [{\"date\": \"2026-04-29\", \"steps\": 8421}],\n  \"average_heart_rate_7d\": 62, \"average_spo2_7d\": 97, \"average_stress_7d\": 34, \"average_steps_7d\": 7800\n}"
+    "description": "Aggregate dashboard read over a 7d/30d window. This is the source for device-imported sleep and vitals. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis. For manual sleep journaling instead, see health.notes.*.",
+    "response_summary": "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/steps_7d/30d.",
+    "response_example": "{\n  \"sleep_stats_7d\": [\n    {\"date\": \"2026-04-29\", \"light_mins\": 240, \"deep_mins\": 90, \"rem_mins\": 70, \"awake_mins\": 20, \"total_mins\": 420, \"heart_rate_avg\": 56}\n  ],\n  \"average_sleep_hours_7d\": 7.1,\n  \"average_sleep_hours_30d\": 6.8,\n  \"heart_rate_history_7d\": [{\"timestamp\": \"2026-04-29T03:00:00Z\", \"min\": 52, \"max\": 61, \"avg\": 56}],\n  \"spo2_history_7d\": [{\"timestamp\": \"2026-04-29T03:00:00Z\", \"min\": 95, \"max\": 99, \"avg\": 97}],\n  \"step_stats_7d\": [{\"date\": \"2026-04-29\", \"steps\": 8421}],\n  \"average_heart_rate_7d\": 62, \"average_spo2_7d\": 97, \"average_steps_7d\": 7800\n}"
   },
   {
     "id": "health.sleep.list",

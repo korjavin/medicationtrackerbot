@@ -546,6 +546,7 @@ html, body {
        wg-steps-chart, wg-vitals-chart) reads from here. */
     --wg-health-summary-tile-pad: 14px;
     --wg-health-summary-tile-gap: 10px;
+    --wg-health-summary-tile-min: 140px;
     --wg-health-summary-tile-value-size: 22px;
     --wg-health-summary-tile-label-size: 10.5px;
     --wg-health-summary-tile-trend-size: 11px;
@@ -609,7 +610,6 @@ html, body {
        forthcoming WGVitalsChart component (Task 6) keyed by vital. */
     --wg-health-vitals-hr-line: #ff3b30;
     --wg-health-vitals-spo2-line: #32ade6;
-    --wg-health-vitals-stress-line: #ff9500;
 
     /* Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
        setting-row grid (left column title+description, right column control),
@@ -4181,21 +4181,26 @@ body:has(.wg-callbar--dock) .wg-toasts {
 }
 
 /* Health summary tile row (Phase 8, Task 3). Grid of mono stat tiles — one
-   per vital (sleep hours, steps, HR avg, SpO2 avg, stress avg) — on top of
+   per vital (sleep hours, steps, HR avg, SpO2 avg) — on top of
    the Overview sub-tab. Trend arrow per tile is colored by a per-vital
    "good direction" classifier (sun / alert / neutral / empty).
-   Flex-wrap, not a fixed grid: five tiles on a phone wrap 3 + 2 and the
-   second row stretches instead of leaving an empty sixth cell (med-k6k0). */
+   Only ever 2x2 (phone) or 1x4 (wide enough for four tiles of at least
+   --wg-health-summary-tile-min), never three columns (med-0xad.5). */
 .wg-health-summary {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--wg-health-summary-tile-gap);
     padding: var(--wg-health-summary-tile-pad);
     margin-bottom: var(--space-md);
 }
 
+@media (min-width: 720px) {
+    .wg-health-summary {
+        grid-template-columns: repeat(4, minmax(var(--wg-health-summary-tile-min), 1fr));
+    }
+}
+
 .wg-health-summary__tile {
-    flex: 1 1 88px;
     display: grid;
     grid-template-columns: auto 1fr;
     align-items: baseline;
@@ -6087,7 +6092,7 @@ body:has(.wg-callbar--dock) .wg-toasts {
 }
 
 /* Vitals chart (Phase 8, Task 6). Area + line chart parameterised by vital
-   ('hr' | 'spo2' | 'stress'); the variant modifier on the root svg selects
+   ('hr' | 'spo2'); the variant modifier on the root svg selects
    the --wg-health-vitals-<vital>-line token. Axis + day + guide styling
    matches the sleep + steps charts. */
 .wg-vitals-chart {
@@ -6150,10 +6155,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 .wg-vitals-chart--spo2 {
     color: var(--wg-health-vitals-spo2-line);
-}
-
-.wg-vitals-chart--stress {
-    color: var(--wg-health-vitals-stress-line);
 }
 
 /* Vitals card shell (Phase 8, Task 6). Wraps the WGVitalsChart SVG under

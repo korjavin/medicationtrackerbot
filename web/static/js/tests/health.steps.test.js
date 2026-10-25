@@ -37,9 +37,6 @@ function makeData(overrides) {
         spo2_history_7d: [],
         average_spo2_7d: 0,
         average_spo2_30d: 0,
-        stress_history_7d: [],
-        average_stress_7d: 0,
-        average_stress_30d: 0,
     };
     return Object.assign({}, base, overrides || {});
 }

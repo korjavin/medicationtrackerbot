@@ -353,7 +353,7 @@ All explicit `window.*` assignments are tracked in `web/static/js/tests/architec
 | `window.WGWorkoutChart` | `components/wg-workout-chart.js` | `features/workout.js` (Stats sub-tab sessions-per-week trend chart) |
 | `window.WGSleepChart` | `components/wg-sleep-chart.js` | `features/health.js` (Overview sub-tab sleep stacked-bar + HR overlay card) |
 | `window.WGStepsChart` | `components/wg-steps-chart.js` | `features/health.js` (Overview sub-tab steps bar card) |
-| `window.WGVitalsChart` | `components/wg-vitals-chart.js` | `features/health.js` (Overview sub-tab HR / SpO2 / Stress area+line cards, parameterised by `vital`) |
+| `window.WGVitalsChart` | `components/wg-vitals-chart.js` | `features/health.js` (Overview sub-tab HR / SpO2 area+line cards, parameterised by `vital`) |
 | `window.WGStaleBadge` | `components/wg-stale-badge.js` | `features/today.js`, `features/food.js`, `features/bp.js`, `features/weight.js`, `features/meds.js`, `features/workout.js`, `features/health.js` (per-section freshness chip) |
 | `window.cachedFetch` | `cached-fetch.js` | `features/today-loader.js` (Today next_intake), `features/food.js` (daily log + products) |
 | `window.OfflineNoCacheError` | `cached-fetch.js` | same consumers as `cachedFetch` (catch-and-render-empty-state branch) |

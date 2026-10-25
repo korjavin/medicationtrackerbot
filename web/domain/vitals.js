@@ -14,7 +14,7 @@
 //                turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes)
 //   'daystats' — one record per day (store.DayStat fields: day, steps,
 //                calories, distance)
-//   'hrsample' / 'spo2sample' / 'stresssample' — day-batched: one record per
+//   'hrsample' / 'spo2sample' — day-batched: one record per
 //                stream-day, body {day, samples: [{date_time, tz_offset,
 //                value[, info]}]}. Per-sample records would explode the oplog
 //                (a 90-day Mi-Band history is ~9k HR samples); day-batching
@@ -32,6 +32,7 @@ const SLEEP_RECORD_TYPE = 'sleep';
 const DAYSTATS_RECORD_TYPE = 'daystats';
 const HR_RECORD_TYPE = 'hrsample';
 const SPO2_RECORD_TYPE = 'spo2sample';
+// Legacy Mi Band stress batches: no longer read; unifyLegacy tombstones them.
 const STRESS_RECORD_TYPE = 'stresssample';
 // Mi-Band workouts live in the workout domain's 'miband' record type (see
 // web/domain/workout.js WORKOUT_RECORD_TYPES.MIBAND). The NXK import writes them
@@ -224,7 +225,7 @@ export function createVitalsDomain({ records, now, timeZone }) {
   }
 
   // vitalWindow computes 7d/30d averages + hourly history for one sample
-  // stream, mirroring the repeated HR/SpO2/stress block in handleGetHealthOverview.
+  // stream, mirroring the repeated HR/SpO2 block in handleGetHealthOverview.
   async function vitalWindow(recordType, start7d, start30d, nowMs) {
     const samples = (await readSamples(recordType, start30d, nowMs))
       .filter((s) => s.ms >= start30d && s.ms <= nowMs);
@@ -245,10 +246,9 @@ export function createVitalsDomain({ records, now, timeZone }) {
     const start7dDay = dayString(start7d, timeZone);
     const start30dDay = dayString(start30d, timeZone);
 
-    const [hr, spo2, stress] = await Promise.all([
+    const [hr, spo2] = await Promise.all([
       vitalWindow(HR_RECORD_TYPE, start7d, start30d, nowMs),
       vitalWindow(SPO2_RECORD_TYPE, start7d, start30d, nowMs),
-      vitalWindow(STRESS_RECORD_TYPE, start7d, start30d, nowMs),
     ]);
 
     const sleepDailyAll = foldSleepDaily(await readSleepLogs());
@@ -268,8 +268,6 @@ export function createVitalsDomain({ records, now, timeZone }) {
       average_heart_rate_30d: hr.avg30d,
       average_spo2_7d: spo2.avg7d,
       average_spo2_30d: spo2.avg30d,
-      average_stress_7d: stress.avg7d,
-      average_stress_30d: stress.avg30d,
       average_sleep_hours_7d: avgSleepMins7d === null ? null : avgSleepMins7d / 60,
       average_sleep_hours_30d: avgSleepMins30d === null ? null : avgSleepMins30d / 60,
       average_steps_7d: calcAvg(dayStats7d.map((d) => d.steps)),
@@ -280,8 +278,6 @@ export function createVitalsDomain({ records, now, timeZone }) {
       heart_rate_history_30d: hr.history30d,
       spo2_history_7d: spo2.history7d,
       spo2_history_30d: spo2.history30d,
-      stress_history_7d: stress.history7d,
-      stress_history_30d: stress.history30d,
       step_stats_7d: dayStats7d,
       step_stats_30d: dayStats30d,
     };

@@ -1,7 +1,7 @@
 // Wandergeek Vitals chart — deterministic SVG renderer for the Health
-// Overview HR / SpO2 / Stress cards. Ports the bespoke renderVitalsLineChart
+// Overview HR / SpO2 cards. Ports the bespoke renderVitalsLineChart
 // from features/health.js under the shared component conventions. One
-// component parameterised by `vital` drives the three variants — the only
+// component parameterised by `vital` drives the two variants — the only
 // difference is the colour token + y-range defaults.
 //
 //   • No inline stroke=/fill= on paths or circles. Every visual value
@@ -22,7 +22,7 @@
 //   range   — '7d' | '30d' | 'all' (default 'all'); filters entries to the
 //             most recent N days, anchored on Date.now(). Forwarded in the
 //             dataset.
-//   vital   — 'hr' | 'spo2' | 'stress' (default 'hr'). Drives the colour
+//   vital   — 'hr' | 'spo2' (default 'hr'). Drives the colour
 //             token via CSS class on the root SVG + the empty-state copy.
 //   width   — coord-space width (default 358; SVG scales to container).
 //   height  — coord-space height (default 200).
@@ -53,7 +53,6 @@
     const VITAL_SPECS = {
         hr:     { yMin: 40,  yMax: 160, emptyLabel: 'heart rate' },
         spo2:   { yMin: 85,  yMax: 100, emptyLabel: 'SpO2' },
-        stress: { yMin: 0,   yMax: 100, emptyLabel: 'stress' },
     };
     const DEFAULT_VITAL = 'hr';
 

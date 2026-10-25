@@ -1395,6 +1395,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(leaveOps()).toEqual([['move.stash']]);
         });
 
+        // bd med-ta2n.31: the tapped button shows work in progress until the shell
+        // navigates; a failed move restores it; a second tap does nothing.
+        it('Turn on sync is busy while the move runs, restored when it fails, and a second tap is a no-op (med-ta2n.31)', async () => {
+            const { window, document } = env;
+            allowConsoleNoise();
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            let fail;
+            bridge.mockImplementation((op) => {
+                if (op === 'shell.ops') return Promise.resolve(bootShellOps);
+                if (op === 'move.stash') return new Promise((_, reject) => { fail = reject; });
+                return Promise.resolve(op === 'setEgressHosts' ? { changed: false } : true);
+            });
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            const p3 = await sync(document);
+            const go = p3.querySelector('[data-invite-action="turn-on-sync"]');
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(go.disabled).toBe(true));
+            expect(go.classList.contains('wg-btn--busy')).toBe(true);
+            expect(go.textContent).toBe('Moving your data…');
+            await vi.waitFor(() => expect(typeof fail).toBe('function'));
+            go.click();
+            expect(bridge.mock.calls.filter(([op]) => op === 'move.stash')).toHaveLength(1);
+            fail(new Error('too large'));
+            await vi.waitFor(() => expect(go.disabled).toBe(false));
+            expect(go.classList.contains('wg-btn--busy')).toBe(false);
+            expect(go.textContent).toBe('Turn on sync');
+            expect(p3.querySelector('.wg-error').textContent).toMatch(/too large/);
+        });
+
         it('Not now closes "Turn on sync?" with nothing stashed', async () => {
             const { window, document } = env;
             await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));

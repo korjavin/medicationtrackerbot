@@ -77,6 +77,11 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM=${SMTP_FROM:-}
       - SMTP_FROM_NAME=${SMTP_FROM_NAME:-}
+      # /privacy contact address; unset = SMTP_FROM.
+      - PRIVACY_CONTACT=${PRIVACY_CONTACT:-}
+      # /privacy product and operator names (bd med-l729); optional.
+      - PRIVACY_NAME=${PRIVACY_NAME:-}
+      - PRIVACY_OPERATOR=${PRIVACY_OPERATOR:-}
       - CLOUD_FOOD_DB_URL=${CLOUD_FOOD_DB_URL:-}
       # Operator key for a KEYED food DB, forwarded upstream as X-API-Key.
       # Without it a keyed instance 401s and food search stays broken even
