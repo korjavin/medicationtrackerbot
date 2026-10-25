@@ -606,6 +606,12 @@ function rowsOfDays(c, from, to) {
 // Everything a settled day's rows read besides its own intakes. Stock and
 // bookkeeping fields are left out: a take moves inventory_count and must not
 // drop a year of days.
+// A batch acts once per id (Archie 4934): resolver() is a snapshot, so a
+// repeated id would see its open row twice and move inventory twice.
+function uniqueIds(ids) {
+  return [...new Map(ids.map((id) => [String(id), id])).values()];
+}
+
 function medsKey(meds) {
   return meds.map((m) => [m.recordId ?? m.id, m.name, m.dosage, m.schedule, m.tz_shift_policy, m.created_at,
     m.start_date, m.end_date, !!m.archived, !!m.deleted]);
@@ -620,7 +626,11 @@ function medsKey(meds) {
 //   timeZone — IANA zone string, passed straight through to planDoses
 //   via     — the channel this instance's writes come through (app|mcp|
 //             telegram|native), stamped on every action for mergeIntake.
-export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
+//   onBoundary(atMs)? — told, after each projection, the earliest instant it
+//             listed as still ahead: the next moment a row turns due on the
+//             clock alone. The shell arms its refresh timer there (Archie 4934
+//             point 3); the domain keeps no timer.
+export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoundary }) {
   // An explicit action on `intake` (null = a slot with no stored row yet):
   // rev seen+1, a fresh acted_at, and any old conflict flag resolved.
   function acted(intake, fields, nowMs) {
@@ -803,7 +813,17 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
         medications: meds, intakes: live, tzPlan, timeZone, nowMs, fromMs: lf, toMs, forecast, regenerated, cutMs: cut,
       }));
     }
-    return { meds, rows: applyLineage(rows, lineage, intakes) };
+    const out = applyLineage(rows, lineage, intakes);
+    if (onBoundary) {
+      let next = Infinity;
+      for (const r of out) {
+        // A snooze running out turns its row due on the clock alone too.
+        const ms = Date.parse(r.state === 'upcoming' ? r.plannedAt : r.state === 'snoozed' ? r.snoozedUntil : '');
+        if (ms > nowMs && ms < next) next = ms;
+      }
+      if (next < Infinity) onBoundary(next);
+    }
+    return { meds, rows: out };
   }
 
   // The settled days [a, b] (UTC day numbers): one regeneration over the span,
@@ -947,7 +967,10 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   // {updated, failed, failures[]} so the frontend can roll back only the rows
   // that failed. Cloud mode has no tz-plan gating yet (Task 4), so the only
   // failure reason possible here is "not_found_or_forbidden".
-  async function updateIntakes(updates) {
+  async function updateIntakes(allUpdates) {
+    // One write per id, the first copy wins (see uniqueIds).
+    const seen = new Set();
+    const updates = allUpdates.filter((up) => !seen.has(String(up.id)) && seen.add(String(up.id)));
     let updated = 0;
     const failures = [];
     const nowMs = now();
@@ -987,8 +1010,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
     const takenIso = new Date(Number.isFinite(takenMs) ? takenMs : nowMs).toISOString();
 
     if (intakeIds.length > 0) {
-      const resolve = await resolver(intakeIds);
-      for (const id of intakeIds) {
+      const ids = uniqueIds(intakeIds);
+      const resolve = await resolver(ids);
+      for (const id of ids) {
         const intake = resolve.get(id);
         if (!intake || !OPEN_STATUSES.has(intake.status)) continue;
         await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), -1);
@@ -1104,8 +1128,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   async function cancelIntakes(intakeIds) {
     const nowMs = now();
     let cancelledCount = 0;
-    const resolve = await resolver(intakeIds);
-    for (const id of intakeIds) {
+    const ids = uniqueIds(intakeIds);
+    const resolve = await resolver(ids);
+    for (const id of ids) {
       const intake = resolve.get(id);
       if (!intake || intake.status !== 'TAKEN') continue;
       await putIntake(acted(intake, untakenNote(intake, { status: 'UNTAKEN', taken_at: null }), nowMs), 1);
@@ -1119,8 +1144,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app' }) {
   async function deleteFutureIntakes(intakeIds) {
     const nowMs = now();
     let deletedCount = 0;
-    const resolve = await resolver(intakeIds);
-    for (const id of intakeIds) {
+    const ids = uniqueIds(intakeIds);
+    const resolve = await resolver(ids);
+    for (const id of ids) {
       const intake = resolve.get(id);
       if (!intake || !OPEN_STATUSES.has(intake.status) || Date.parse(intake.scheduled_at) <= nowMs) continue;
       await records.del(INTAKE_RECORD_TYPE, id);

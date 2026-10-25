@@ -369,7 +369,10 @@ export function regenerate({
   // name a replacement inside it (the edit-day pairing, before the switch).
   const start = fromMs - LINEAGE_WINDOW_MS;
   const reach = end + LINEAGE_WINDOW_MS;
-  const changes = [...tr.map((r) => Date.parse(r.switch_at)), ...sc.map((r) => Date.parse(r.from))]
+  // planFrom bounds a segment too (Archie 4934): a plan approved before
+  // tztransition rows carried steps has no transition at its approval, and a
+  // segment straddling it would drop the steps and plan the normal doses.
+  const changes = [...tr.map((r) => Date.parse(r.switch_at)), ...sc.map((r) => Date.parse(r.from)), planFrom]
     .filter((t) => t > start && t <= reach);
   const bounds = [start, ...[...new Set(changes)].sort((a, b) => a - b), reach + 1];
   const lastAt = (rows, key, at) => rows.filter((r) => Date.parse(r[key]) <= at).pop();

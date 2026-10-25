@@ -384,3 +384,26 @@ describe('regenerate() — kept doses from a switch before the window', () => {
         expect(ids(day + 9 * H, day + 20 * H)).not.toContain(keptId);
     });
 });
+
+// Archie 4934 point 4: every plan approved before activation has no
+// tztransition carrying its steps, so its approval must bound a segment.
+describe('regenerate() — approved tz plan with no transition history', () => {
+    const H = 3600000;
+    const day = Date.UTC(2026, 9, 20);
+    const occ = (ms) => `intake-1-${ms / 1000}`;
+    const med = { recordId: 1, schedule: JSON.stringify({ type: 'daily', times: ['08:00', '20:00'] }), created_at: '2026-10-01T00:00:00Z' };
+    const tzPlan = {
+        status: 'APPROVED', approved_at: new Date(day).toISOString(),
+        steps: [{ medicationId: 1, scheduledAtMs: day + 9 * H }, { medicationId: 1, scheduledAtMs: day + 21 * H }],
+    };
+
+    it('regenerates the steps after approval and not the normal doses they suppress', () => {
+        const got = regenerate({ medications: [med], timeZone: 'UTC', fromMs: day - 12 * H, toMs: day + 24 * H, nowMs: day + 22 * H, tzPlan })
+            .map((o) => o.occId);
+        expect(got).toEqual(expect.arrayContaining([occ(day + 9 * H), occ(day + 21 * H)]));
+        expect(got).not.toContain(occ(day + 8 * H));
+        expect(got).not.toContain(occ(day + 20 * H));
+        // Before approval the normal schedule still stands.
+        expect(got).toContain(occ(day - 4 * H));
+    });
+});

@@ -668,6 +668,37 @@ describe('ledger v2 — doses regenerated from the cut (bd med-wi09.12)', () => 
         expect([rowA.status, rowB.status, rowA.rev, rowB.rev]).toEqual(['TAKEN', 'TAKEN', 1, 1]);
     });
 
+    // Archie 4934 point 3: nothing writes when a dose comes due, so the shim's
+    // dose clock invalidates the intake caches at the projection's next
+    // boundary and every mounted surface (Today, Meds) re-reads.
+    it('a dose turns due on the clock alone: the next boundary invalidates the dose caches', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            open({ medication: [med()], ledgercut: [cutRow(day(18, 0))] }, day(18, 7, 59));
+            const invalidate = vi.spyOn(env.window.DataStore, 'invalidateTags');
+            expect(shape(await doses(day(18, 7), day(18, 9)))).toEqual([[iso(day(18, 8)), 'upcoming']]);
+            expect(invalidate).not.toHaveBeenCalled();
+            nowMs = day(18, 8, 1);
+            await vi.advanceTimersByTimeAsync(2 * 60_000);
+            expect(invalidate).toHaveBeenCalledWith(expect.arrayContaining(['medications', 'history']));
+            expect(shape(await doses(day(18, 7), day(18, 9)))).toEqual([[iso(day(18, 8)), 'due']]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    // Archie 4934 point 1: a batch resolves one snapshot, so a repeated id
+    // must act once — one decrement on confirm, one increment on cancel.
+    it('a repeated id in a batch confirm or cancel moves stock once', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med()], ledgercut: [cutRow(day(18, 0))] });
+        const domain = createIntakeDomain({ records, now: () => day(18, 9), timeZone: TZ });
+        const stock = async () => (await records.list('medication'))[0].inventory_count;
+        await domain.confirmSchedule({ intakeIds: [slot(day(18, 8)), slot(day(18, 8))] });
+        expect(await stock()).toBe(29);
+        expect(await domain.cancelIntakes([slot(day(18, 8)), slot(day(18, 8))])).toMatchObject({ cancelled_count: 1 });
+        expect(await stock()).toBe(30);
+    });
+
     // F2 (Archie): a past day's zone comes from its evidence, never the device
     // clock. 08:00 taken in Berlin, 20:00 forgotten; the device is now in New
     // York with no tztransition recorded (an unpinned account).

@@ -5,7 +5,7 @@
 // web/cloud/js/sync.js. The real BP/weight feature code drives window.apiCall
 // exactly as in production (core/api.js:203 delegates to
 // window.offlineAwareApiCall) — this is the Go↔JS domain-contract boundary.
-import { installApiShim } from '../../../../cloud/js/apishim.js';
+import { installApiShim, stopDoseClock } from '../../../../cloud/js/apishim.js';
 import { loadFrontendEnv } from './frontend-harness.js';
 import { cancelReminderRecompute } from '../../../../cloud/js/reminders.js';
 
@@ -141,6 +141,7 @@ export function loadCloudShimFrontendEnv(opts = {}) {
     const innerCleanup = env.cleanup;
     env.cleanup = () => {
         cancelReminderRecompute(ctx);
+        stopDoseClock();
         if (innerCleanup) innerCleanup();
     };
     if (wrapApiCallDirect) {

@@ -639,11 +639,13 @@ export const ORIGIN_EXTERNAL = 'external';
 // toggleFeatureSetting POSTs straight through apiCall — so the guard passed,
 // the emit fired, and the user was told there was new data about the toggle
 // they had just flipped. The origin is known at the call site; use it.
-function notifyRecordsChanged(recordTypes, origin) {
+// Exported for apishim.js's dose clock: a dose coming due repaints like an
+// external intake write, on the shim's own window (`win`).
+export function notifyRecordsChanged(recordTypes, origin, win = typeof window !== 'undefined' ? window : undefined) {
   if (origin === ORIGIN_UI) return;
   const tags = [...new Set([...recordTypes].flatMap((t) => RECORD_TAGS[t] || []))];
   if (tags.length === 0) return;
-  const ds = typeof window !== 'undefined' && window.DataStore;
+  const ds = win && win.DataStore;
   if (!ds || typeof ds.requestTabRefresh !== 'function') return;
   Promise.resolve(typeof ds.invalidateTags === 'function' ? ds.invalidateTags(tags) : undefined)
     .then(() => ds.requestTabRefresh(tags, 'cloud-write'))

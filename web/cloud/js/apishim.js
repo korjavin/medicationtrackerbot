@@ -27,7 +27,9 @@ import {
 } from '../../domain/paginate.js';
 import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
-import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp } from './sync.js';
+import {
+  recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp, notifyRecordsChanged,
+} from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -42,6 +44,34 @@ import { materializing, materializationSettled, withMaterializationStopped } fro
 // Re-exported for the store replacers (cloud-boot.js, local-policy.js) and the
 // tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
 export { materializationSettled, withMaterializationStopped };
+
+// Clock-driven dose refresh (Archie 4934 point 3). Ledger v2 writes nothing
+// when a dose comes due, so nothing would repaint a screen left open across
+// it (Today's missed list, the Meds tab). Every projection names its next
+// boundary (the earliest upcoming plannedAt, or a snooze's end) through the
+// intake domain's onBoundary port; one timer per page fires there and
+// invalidates the intake-derived caches exactly as an external intake write
+// would, so every mounted surface re-reads. Module-level like the old sweep's
+// handle: one shim per page load, a re-install re-arms the single timer.
+// ponytail: setTimeout caps near 24.8 days; a longer wait fires early, and the
+// re-read it causes simply re-arms.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+let doseClock = { at: Infinity, handle: null, timers: null };
+function armDoseClock(atMs, nowMs, timers, win) {
+  if (!(atMs > nowMs)) return;
+  if (doseClock.handle !== null && doseClock.at > nowMs && doseClock.at <= atMs) return;
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  const handle = timers.setTimeout(() => {
+    doseClock = { at: Infinity, handle: null, timers: null };
+    notifyRecordsChanged(['intake'], ORIGIN_EXTERNAL, win);
+  },Math.min(atMs - nowMs + 1, MAX_TIMER_MS));
+  doseClock = { at: atMs, handle, timers };
+}
+// Test teardown: no dose timer outlives its suite (cf. bd med-tc1.3).
+export function stopDoseClock() {
+  if (doseClock.handle !== null) doseClock.timers.clearTimeout(doseClock.handle);
+  doseClock = { at: Infinity, handle: null, timers: null };
+}
 
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
@@ -176,10 +206,12 @@ function debugOnce(key, ...args) {
 //                 nothing to pull and is always caught up. cloud-boot.js
 //                 passes its own through installApiShim: caught up AND the
 //                 local → cloud move pickup settled (bd med-ydt2).
+//   opts.onDoseBoundary(atMs)  the intake domain's onBoundary port; only the
+//                 page's shim passes one (installApiShim's dose clock).
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
-  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp,
+  caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -225,7 +257,7 @@ export function createApiRouter(ctx, {
     medications = createMedicationsDomain({
       records, now, timeZone, rxnorm,
     });
-    intake = createIntakeDomain({ records, now, timeZone, via });
+    intake = createIntakeDomain({ records, now, timeZone, via, onBoundary: onDoseBoundary });
     tzplan = createTzPlanDomain({ records, now, timeZone });
     foodDb = createFoodDbClient({ settingsDomain: settings, operatorFoodDb });
     food = createFoodDomain({
@@ -1689,8 +1721,12 @@ export function createApiRouter(ctx, {
 export function installApiShim(ctx, {
   records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
   win, now: nowOverride, timeZone: timeZoneOverride, caughtUp,
+  // Read at call time so a test's fake timers apply.
+  timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h) },
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
+  const clockNow = nowOverride || (() => Date.now());
+  const onDoseBoundary = (atMs) => armDoseClock(atMs, clockNow(), timers, targetWindow);
   // Two routers over the same records store, differing only in the origin they
   // stamp on writes (med-dvr):
   //
@@ -1707,13 +1743,14 @@ export function installApiShim(ctx, {
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
     recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win, caughtUp,
+    onDoseBoundary,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });
   // Snapshotted on purpose — every use below reads integrations or a product
   // search, never the wall clock, so these survive a buildDomains() rebuild when
   // the pinned settings.timezone resolves (bd med-7ujt). Anything TIME-sensitive
-  // must go through `.domains` at call time, the way runMaterializationSweep
+  // must go through `.domains` at call time, the way the ledger-cut write
   // does below.
   const {
     settings, foodDb, now, aiClient,
