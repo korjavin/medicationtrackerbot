@@ -3757,6 +3757,22 @@ describe('sleep day rows merge by fullness and repair the clientTs order (med-0x
     expect(posted).toEqual([`sleep:${DAY}`]);
   });
 
+  it('a peer\'s full-vault import this device never saw (bump compacted away) replaces, no repair', async () => {
+    await seed([day(450, 100), tomb('sleep-2', 50)]);
+    const bump = { recordId: '__vault_import_bump__', recordType: 'importbump', clientTs: 300, deleted: true };
+    const snap = [day(40, 200), session('sleep-2', 40, 150), bump];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: 10, plaintext: new TextEncoder().encode(JSON.stringify(snap)) });
+    snapshotBody = JSON.stringify({ snapshot_seq: 10, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    seq = 10;
+    await pullOnOpen(ctx);
+    expect((await row(DAY)).total_minutes).toBe(40);
+    expect((await row('sleep-2')).deleted).toBe(false);
+    expect(posted).toEqual([]);
+    // A later compaction carrying the same (now seen) bump reduces as usual.
+    await replaceAllRecords([day(40, 200), bump], { reduceAcked: true });
+    expect((await row(DAY)).total_minutes).toBe(40);
+  });
+
   it('an import replace keeps replace semantics for sleep', async () => {
     await seed([day(450, 100)]);
     await replaceAllRecords([day(40, 200)]);

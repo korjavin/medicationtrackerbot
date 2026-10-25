@@ -435,8 +435,14 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
     const losingPending = [];
     const repairs = [];
     const pendingIds = new Set(pending.map((p) => p.recordId));
-    if (reduceAcked) {
-      for (const r of await readAllRecords()) {
+    const here = reduceAcked ? await readAllRecords() : [];
+    // A snapshot whose import bump this store does not hold carries a peer's
+    // full-vault import it never saw (its bump op is compacted away): replace.
+    const bumpOf = (rows) => rows.find((r) => r.recordId === IMPORT_BUMP_RECORD_ID);
+    const snapBump = bumpOf(records);
+    const unseenImport = !!snapBump && (bumpOf(here) || {}).clientTs !== snapBump.clientTs;
+    if (reduceAcked && !unseenImport) {
+      for (const r of here) {
         const snap = snapshotById.get(r.recordId);
         if (!snap || pendingIds.has(r.recordId) || !REPAIR_TYPES.has(r.recordType)) continue;
         if (MERGE_POLICY[r.recordType](snap, r) === r && !sameBody(snap, r)) {
@@ -1237,6 +1243,11 @@ async function tryForceSnapshot(ctx) {
   // Advance our cursor to the bump so a subsequent pull sees our own snapshot as
   // the floor (no re-bootstrap) once the marker clears.
   await writeMeta({ localLastSeq: snapshotSeq });
+  // The bump tombstone rides in the snapshot (and every later one, as a peer
+  // that pulled the op already holds it): a peer bootstrapping from it whose
+  // store lacks this bump knows the snapshot carries an import it never saw,
+  // and keeps replace semantics (replaceAllRecords reduceAcked, bd med-0xad.9).
+  await putRecord({ ...JSON.parse(new TextDecoder().decode(bumpBody)), recordType: 'importbump' });
   // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
   // pull/flush. A permanent 4xx means the snapshot is larger than the server cap
   // and will NEVER fit, so re-encrypting it every open wedges the app forever and
