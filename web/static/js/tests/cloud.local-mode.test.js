@@ -1234,7 +1234,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(document.getElementById('settings-sync-how').hidden).toBe(false); // the landing link stays
                 // Opened anyway (the W1 entry, a stale page): "not open here" + the landing link, no op call.
                 window.InviteSheet.request();
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = requestSheet(document).querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1308,7 +1308,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 fill(document, 'not an email');
                 expect(sheet.querySelector('.wg-field--error').textContent).toMatch(/Enter an email address like name@example.com/);
                 expect(posts()).toEqual([]);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(posts()).toHaveLength(1));
                 await vi.waitFor(() => expect(sheet.querySelector('.wg-field--error')).not.toBeNull());
                 expect(sheet.querySelector('[data-invite-request="sent"]')).toBeNull();
@@ -1318,11 +1318,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 const { document } = env;
                 answer = { status: 429, headers: { 'Retry-After': '3600' }, body: '{"error":"rate_limited"}' };
                 const sheet = await openRequest(env);
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Too many requests right now — try again in an hour./));
 
                 answer = { status: 404, headers: {}, body: '{"error":"not_enabled"}' };
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 const off = await vi.waitFor(() => {
                     const n = sheet.querySelector('[data-invite-request="off"]');
                     expect(n).not.toBeNull();
@@ -1332,7 +1332,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(off.querySelector('a').getAttribute('href')).toBe(`https://${BASE}/`);
 
                 answer = new Error('network');
-                fill(document, 'a@b.co');
+                fill(document, 'a@b.example');
                 await vi.waitFor(() => expect(sheet.textContent).toMatch(/Couldn't send the request. Check your connection and try again./));
                 expect(sheet.querySelector('[data-invite-request="off"]')).toBeNull();
                 requestAct(document, 'not-now').click();

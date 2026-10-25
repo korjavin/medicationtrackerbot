@@ -36,9 +36,10 @@ function loadFlow({
     fetchMock = null, toggleMock = null, features = null, notifyPermission = null,
     trialOffer = null, localTrial = null, trialAi = false, trialConsent = null,
     local = false, native = null, invite = false, base = null, authBootstrap = false,
+    url = 'https://example.test/',
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
-        url: 'https://example.test/',
+        url,
         runScripts: 'outside-only',
         pretendToBeVisual: true,
     });
@@ -854,7 +855,7 @@ describe('firstrun W1 footnote', () => {
     }
 
     it('shows the disclaimer and Privacy policy below the foot, after Continue/Skip in tab order', async () => {
-        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), invite: true });
+        const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), invite: true, url: 'https://acct.example.test/today' });
         try {
             window.WGFirstRun.mount();
             await flush();
@@ -864,12 +865,36 @@ describe('firstrun W1 footnote', () => {
             const privacy = link(document, 'privacy');
             expect(privacy.textContent).toBe('Privacy policy');
             expect(privacy.getAttribute('href'))
-                .toBe('https://cloud.myhealthbot.ai/privacy');
+                .toBe('https://example.test/privacy'); // the account label stripped (bd med-ffuu.1)
             expect(privacy.target).toBe('_blank');
             expect(privacy.rel).toBe('noopener');
             expect(privacy.classList.contains('wg-link')).toBe(true);
             expect(action(document, 'skip-all').compareDocumentPosition(privacy) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         } finally { cleanup(); }
+    });
+
+    it('local mode links Privacy policy on the shell base, or renders it unlinked without one (bd med-ffuu.1)', async () => {
+        const linked = loadFlow({ fetchMock: okFetch(), local: true, invite: true, native: shell([]), base: 'qa.example.test', url: 'https://acct.example.org/' });
+        try {
+            linked.window.WGFirstRun.mount();
+            await flush();
+            await flush();
+            const privacy = link(linked.document, 'privacy');
+            expect(privacy.tagName).toBe('A');
+            expect(privacy.getAttribute('href')).toBe('https://qa.example.test/privacy');
+        } finally { linked.cleanup(); }
+        for (const opts of [{ local: true, invite: true }, { local: true }]) {
+            const { window, document, cleanup } = loadFlow({ fetchMock: okFetch(), url: 'https://acct.example.org/', ...opts });
+            try {
+                window.WGFirstRun.mount();
+                await flush();
+                await flush();
+                const privacy = link(document, 'privacy');
+                expect(privacy.textContent).toBe('Privacy policy');
+                expect(privacy.tagName).toBe('SPAN');
+                expect(privacy.hasAttribute('href')).toBe(false);
+            } finally { cleanup(); }
+        }
     });
 
     it('has no "Get an invite" line on the web or in account mode', async () => {

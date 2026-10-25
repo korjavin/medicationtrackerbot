@@ -151,7 +151,11 @@
     // links the deleted native first-run screens carried. "Want it on every
     // device? Get an invite" (IM1, bd med-er5x) is local mode only: the W5 request sheet when the shell can
     // base.post, else the base landing page, else nothing.
-    var PRIVACY_URL = 'https://cloud.myhealthbot.ai/privacy';
+    // The privacy page lives on the base host (bd med-ffuu.1, no literal domain
+    // in git): account mode strips the account label off this page's host, the
+    // rule baseDomainURL (web/cloud/js/account-delete.js) uses; local mode takes
+    // the shell's base (InviteSheet.base(), the one base.post targets); no base
+    // → the line renders without a link.
     var DISCLAIMER = 'Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.';
 
     function _externalLink(text, href) {
@@ -165,11 +169,26 @@
     function _renderFootnote(body) {
         body.appendChild(_el('p', 'wg-shell__fine', DISCLAIMER));
         var links = _el('div', 'wg-hstack wg-firstrun-links');
-        var privacy = _externalLink('Privacy policy', PRIVACY_URL);
+        var privacy = _el('span', 'wg-shell__fine', 'Privacy policy');
         privacy.setAttribute('data-firstrun-link', 'privacy');
         links.append(privacy, _el('span', 'wg-spacer'));
         body.appendChild(links);
+        _privacyBase().then(function (base) {
+            if (!base || !privacy.isConnected) return;
+            var a = _externalLink('Privacy policy', 'https://' + base + '/privacy');
+            a.setAttribute('data-firstrun-link', 'privacy');
+            privacy.replaceWith(a);
+        }, function () { /* no base: the line stays unlinked */ });
         _showInviteHowTo(links);
+    }
+
+    function _privacyBase() {
+        if (!document.documentElement.classList.contains('wg-local-vault')) {
+            var parts = window.location.host.split('.');
+            return Promise.resolve(parts.length > 1 ? parts.slice(1).join('.') : window.location.host);
+        }
+        var sheet = window.InviteSheet;
+        return Promise.resolve(sheet && typeof sheet.base === 'function' ? sheet.base() : '');
     }
 
     function _showInviteHowTo(links) {
