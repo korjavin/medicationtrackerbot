@@ -582,7 +582,10 @@
             }
             return false;
         };
-        const scrolledPast = (el) => window.scrollY > 0 && !pinned(el) && rect(el).top - layoutTop + window.scrollY >= -0.5;
+        // It must also sit above the layout top: a header still inside the layout
+        // viewport but hidden by a keyboard pan on a scrolled page is clipped.
+        const scrolledPast = (el) => window.scrollY > 0 && !pinned(el) && rect(el).top < layoutTop
+            && rect(el).top - layoutTop + window.scrollY >= -0.5;
         const probes = {
             scale: vv ? vv.scale : 1,
             hOverflow: document.documentElement.scrollWidth - window.innerWidth,
