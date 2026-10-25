@@ -107,6 +107,8 @@ const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const NATIVE_WEB_MEDIA_CAPTURE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
 const NATIVE_WEB_BARCODE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/barcode.js');
 const NATIVE_CLIPBOARD_JS = path.join(REPO_ROOT, 'web/static/js/native/clipboard.js');
+const NATIVE_BACK_JS = path.join(REPO_ROOT, 'web/static/js/native/back.js');
+const APP_BACK_JS = path.join(REPO_ROOT, 'web/static/js/features/app-back.js');
 const INVITE_JS = path.join(REPO_ROOT, 'web/static/js/features/invite.js');
 
 const _sourceCache = new Map();
@@ -264,6 +266,7 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, NATIVE_WEB_MEDIA_CAPTURE_JS);
   evalFileCached(window, NATIVE_WEB_BARCODE_JS);
   evalFileCached(window, NATIVE_CLIPBOARD_JS);
+  evalFileCached(window, NATIVE_BACK_JS);
   // features/invite.js — the F1 sheet (window.InviteSheet, wg:invite-open).
   evalFileCached(window, INVITE_JS);
 
@@ -393,6 +396,8 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   // modal-history.js must load BEFORE DOMContentLoaded fires so its internal
   // 'DOMContentLoaded' listener can call setupObserver() at the right time.
   // (JSDOM keeps readyState='loading' until its own lifecycle completes.)
+  // features/app-back.js — the one back order (AppBack.step), as in index.html.
+  evalFileCached(window, APP_BACK_JS);
   evalFileCached(window, MODAL_HISTORY_JS);
 
   // back-button.js must load before AppBackButton.setup() is called; it also

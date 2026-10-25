@@ -686,7 +686,10 @@
         // answers get FORCED_PROBE_MS, not PROBE_MS — a bridge slowed past 3 s
         // on a cold start must not drop F1 (iOS flow QA, bd med-w6gx.23.8).
         if ((await within(n.has('invite.pending'), false, forced)) !== true) return;
-        var slot = await within(n.call('invite.pending'), null, forced);
+        // Always the long box (bd med-ydt2): on a first install the Android
+        // shell holds this answer until its Play referrer read settles, and
+        // W1 waits on it, so a late invite routes instead of flashing W1.
+        var slot = await within(n.call('invite.pending'), null, true);
         var invite = slot && typeof slot.url === 'string' ? parse(slot.url, await shellBase()) : null;
         if (invite && !(slot.receivedAt > Date.now() - maxAge(invite.claimUrl))) {
             n.call('invite.clear').catch(function () { /* judged stale again next open */ });

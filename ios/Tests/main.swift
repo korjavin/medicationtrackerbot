@@ -590,3 +590,10 @@ let (closed, closedPort) = loopbackSocket()
 close(closed)
 precondition(post("http://127.0.0.1:\(closedPort)", ["path": "/api/attest/enroll", "body": "{}"]).error == "network")
 print("BasePost: ok")
+
+// The left-edge swipe (bd med-y7b4.4): far enough, or a clear flick; and back.state is advertised in both modes.
+precondition(LocalOrigin.backFires(dx: 60, vx: 0) && LocalOrigin.backFires(dx: 25, vx: 800))
+precondition(!LocalOrigin.backFires(dx: 59, vx: 100) && !LocalOrigin.backFires(dx: 10, vx: 2000) && !LocalOrigin.backFires(dx: -80, vx: -900))
+precondition(LocalOrigin.ops(local: true).contains("back.state") && LocalOrigin.ops(local: false).contains("back.state"))
+precondition(LocalOrigin.backJS.contains("'wg:native-back'") && LocalOrigin.backJS.hasPrefix("!document.dispatchEvent("))
+print("NativeBack: ok")
