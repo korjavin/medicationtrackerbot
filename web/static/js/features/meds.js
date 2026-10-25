@@ -323,7 +323,9 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
 }
 
 function renderMeds() {
-    const list = document.getElementById('med-list');
+    // A page torn down while loadMeds awaited its reads has nothing to paint.
+    const list = document && document.getElementById('med-list');
+    if (!list) return;
     list.replaceChildren();
     const now = new Date();
 
