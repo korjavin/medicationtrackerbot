@@ -35,18 +35,26 @@ func TestDockerCompose_CloudEnvironmentCoverage(t *testing.T) {
 	}
 
 	type goFileInfo struct {
-		path string
-		file *ast.File
+		path   string
+		pkgDir string
+		file   *ast.File
 	}
 	var parsedFiles []goFileInfo
 
-	// Package-level string constants: map[pkgPath]map[constName]string
+	// Package-level string constants: map[pkgDir]map[constName]string
 	pkgConsts := make(map[string]map[string]string)
 
-	// Generic wrapper functions: map[funcName]paramIndex
-	// A wrapper is any function whose body passes one of its own parameters
+	// Wrapper functions:
+	// A wrapper is any function/method whose body passes one of its own parameters
 	// to os.Getenv or os.LookupEnv.
-	wrappers := make(map[string]int)
+	// We key package functions by "pkgDir:funcName" -> paramIndex
+	pkgWrappers := make(map[string]int)
+	// We key method wrappers by "recvType.methodName" or "methodName" -> paramIndex
+	methodWrappers := make(map[string]int)
+
+	// Tracks the exact CallExpr nodes inside wrappers that forward a parameter
+	// so only that specific parameter read is skipped, not literal os.Getenv reads in the same body.
+	wrapperForwardCalls := make(map[*ast.CallExpr]bool)
 
 	// Step 1: Parse all Go files and extract package-level string constants and wrappers.
 	for _, dir := range scanDirs {
@@ -58,9 +66,9 @@ func TestDockerCompose_CloudEnvironmentCoverage(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			parsedFiles = append(parsedFiles, goFileInfo{path: path, file: f})
-
 			pkgDir := filepath.Dir(path)
+			parsedFiles = append(parsedFiles, goFileInfo{path: path, pkgDir: pkgDir, file: f})
+
 			if pkgConsts[pkgDir] == nil {
 				pkgConsts[pkgDir] = make(map[string]string)
 			}
@@ -87,22 +95,36 @@ func TestDockerCompose_CloudEnvironmentCoverage(t *testing.T) {
 			}
 
 			// Detect wrapper functions: functions passing a parameter to os.Getenv / os.LookupEnv
-			ast.Inspect(f, func(n ast.Node) bool {
-				fn, ok := n.(*ast.FuncDecl)
-				if !ok || fn.Type.Params == nil {
-					return true
+			for _, decl := range f.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Type.Params == nil || fn.Body == nil {
+					continue
 				}
+
 				paramIndices := make(map[string]int)
-				currentIdx := 0
+				runningIdx := 0
 				for _, param := range fn.Type.Params.List {
 					for _, pName := range param.Names {
-						paramIndices[pName.Name] = currentIdx
-						currentIdx++
+						paramIndices[pName.Name] = runningIdx
+						runningIdx++
 					}
 				}
 				if len(paramIndices) == 0 {
-					return true
+					continue
 				}
+
+				recvType := ""
+				if fn.Recv != nil && len(fn.Recv.List) > 0 {
+					switch t := fn.Recv.List[0].Type.(type) {
+					case *ast.Ident:
+						recvType = t.Name
+					case *ast.StarExpr:
+						if id, ok := t.X.(*ast.Ident); ok {
+							recvType = id.Name
+						}
+					}
+				}
+
 				ast.Inspect(fn.Body, func(bodyNode ast.Node) bool {
 					call, ok := bodyNode.(*ast.CallExpr)
 					if !ok || len(call.Args) == 0 {
@@ -111,14 +133,21 @@ func TestDockerCompose_CloudEnvironmentCoverage(t *testing.T) {
 					if isOsGetenvOrLookup(call) {
 						if ident, ok := call.Args[0].(*ast.Ident); ok {
 							if pIdx, ok := paramIndices[ident.Name]; ok {
-								wrappers[fn.Name.Name] = pIdx
+								wrapperForwardCalls[call] = true
+								if recvType != "" {
+									methodWrappers[recvType+"."+fn.Name.Name] = pIdx
+									methodWrappers[fn.Name.Name] = pIdx
+								} else {
+									pkgWrappers[pkgDir+":"+fn.Name.Name] = pIdx
+									// Also record unqualified for intra-package calls
+									pkgWrappers[fn.Name.Name] = pIdx
+								}
 							}
 						}
 					}
 					return true
 				})
-				return true
-			})
+			}
 
 			return nil
 		})
@@ -132,20 +161,16 @@ func TestDockerCompose_CloudEnvironmentCoverage(t *testing.T) {
 	envVars := make(map[string][]string)
 
 	for _, gfi := range parsedFiles {
-		pkgDir := filepath.Dir(gfi.path)
-		currentPkgConsts := pkgConsts[pkgDir]
+		currentPkgConsts := pkgConsts[gfi.pkgDir]
 
 		ast.Inspect(gfi.file, func(n ast.Node) bool {
-			// Skip the body of detected wrapper functions so we don't treat
-			// their parameter reference as an unresolvable env read.
-			if fn, ok := n.(*ast.FuncDecl); ok {
-				if _, ok := wrappers[fn.Name.Name]; ok {
-					return false
-				}
-			}
-
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
+				return true
+			}
+
+			// If this call is the parameter-forwarding site inside a wrapper function, skip it.
+			if wrapperForwardCalls[call] {
 				return true
 			}
 
@@ -155,7 +180,18 @@ func TestDockerCompose_CloudEnvironmentCoverage(t *testing.T) {
 					argExpr = call.Args[0]
 				}
 			} else if fnIdent, ok := call.Fun.(*ast.Ident); ok {
-				if pIdx, ok := wrappers[fnIdent.Name]; ok && len(call.Args) > pIdx {
+				// Bare function call: check package wrapper
+				key := gfi.pkgDir + ":" + fnIdent.Name
+				if pIdx, ok := pkgWrappers[key]; ok && len(call.Args) > pIdx {
+					argExpr = call.Args[pIdx]
+				} else if pIdx, ok := pkgWrappers[fnIdent.Name]; ok && len(call.Args) > pIdx {
+					argExpr = call.Args[pIdx]
+				}
+			} else if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				// Method call or package-qualified function call
+				if pIdx, ok := methodWrappers[sel.Sel.Name]; ok && len(call.Args) > pIdx {
+					argExpr = call.Args[pIdx]
+				} else if pIdx, ok := pkgWrappers[sel.Sel.Name]; ok && len(call.Args) > pIdx {
 					argExpr = call.Args[pIdx]
 				}
 			}
@@ -237,6 +273,9 @@ func evalStringExpr(expr ast.Expr, consts map[string]string) (string, bool) {
 // parseCloudServiceEnvironment strictly parses services.cloud.environment from
 // docker-compose.cloud.yml without picking up sibling services (litestream, telegram-bot-api)
 // or global compose settings.
+//
+// Limitations: YAML anchors (<<: *x, environment: *envs), inline flow maps ({}),
+// and quoted keys (- "NAME=x") are not supported. If used, the parser will fail loudly.
 func parseCloudServiceEnvironment(t *testing.T, composePath string) map[string]bool {
 	composeBytes, err := os.ReadFile(composePath)
 	if err != nil {
