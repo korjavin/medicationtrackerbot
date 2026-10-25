@@ -53,10 +53,18 @@ export default async function remindersOffline(ctx) {
       await page.waitForFunction(() => !document.getElementById('cloud-push-toggle').disabled, null, { timeout: 15_000 });
       await ctx.stableShot('settings-notifications-off');
       await page.evaluate(() => document.getElementById('cloud-push-toggle').click()); // a locator click timed out on attempt 2
-      r.permission = await grantBoth(ctx, r);
+      // bd med-nt9p.61: per-stage elapsed ms, so a stall names its stage (the 60 s wait is the native
+      // LocalNotifications permission bridge — settings.js toggleLocalNotifications — not web push).
+      const tm = (r.timings = {});
+      let t0 = Date.now();
+      r.permission = await grantBoth(ctx, r, tm);
+      tm.grantBothMs = Date.now() - t0;
+      tm.foregroundAfterGrant = await ctx.inForeground();
+      t0 = Date.now();
       try {
         await page.waitForFunction(() => document.getElementById('cloud-push-toggle').dataset.subscribed === '1', null, { timeout: 60_000 });
       } finally {
+        tm.subscribedWaitMs = Date.now() - t0;
         r.permissionState = await page.evaluate(() => window.LocalNotifications.permission()).catch((e) => `error ${e?.message}`);
         r.toggle = await page.evaluate(() => {
           const t = document.getElementById('cloud-push-toggle');
@@ -188,9 +196,14 @@ async function openVault(ctx, r) {
  * The system side of Enable: the POST_NOTIFICATIONS prompt's Allow, then the Alarms & reminders
  * switch and Back. A screen that does not show falls back to pm grant / appops; the return says which.
  */
-async function grantBoth(ctx, out) {
+async function grantBoth(ctx, out, tm = {}) {
   const { shell, pkg, device } = ctx;
-  const seen = async (sel, ms) => device.wait(sel, { timeout: ms }).then(() => true, () => false);
+  const seen = async (sel, ms) => { // tm[sel's key]: ms until it showed (or the timeout)
+    const t0 = Date.now();
+    const ok = await device.wait(sel, { timeout: ms }).then(() => true, () => false);
+    tm[sel.res ? 'notifPromptMs' : 'alarmsPageMs'] = Date.now() - t0;
+    return ok;
+  };
   const notes = [];
   const allow = { res: 'com.android.permissioncontroller:id/permission_allow_button' };
   if (await seen(allow, 20_000)) {
@@ -212,7 +225,10 @@ async function grantBoth(ctx, out) {
     await device.tap(alarms);
     await ctx.sleep(1500);
     await ctx.shot('system-alarms-allowed');
+    const t0 = Date.now();
     await shell('input keyevent KEYCODE_BACK');
+    for (const end = Date.now() + 10_000; !(await ctx.inForeground()) && Date.now() < end;) await ctx.sleep(500);
+    tm.resumeMs = Date.now() - t0;
   } else {
     notes.push('appops SCHEDULE_EXACT_ALARM allow (no Alarms & reminders page)');
     await ctx.shot('no-alarms-page');
@@ -345,21 +361,40 @@ async function killApp(ctx) {
   if (await shell(`pidof ${pkg}`).catch(() => '')) throw new Error('the app process is still alive');
 }
 
+/** The emulator's clock, ms (whole seconds: toybox date): the alarm fires on it, and slotUnix came from it. */
+async function deviceMs(shell) {
+  const s = Number(await shell('date +%s'));
+  if (!s) throw new Error('no device clock from `date +%s`');
+  return s * 1000;
+}
+
 /**
  * Polls the notification service for `text` until the slot + 3 min; returns its dumpsys line count once
  * posted. `before`: the count before the post (default now — the slot is still ahead, ≥ 90 s at add).
+ * bd med-nt9p.61: the deadline and postedLateS run on the device clock (runner + clockOffsetMs), and
+ * a slot still > 10 s ahead must have the shell's exact alarm armed, or it fails at once, not at the deadline.
  */
 async function waitNotification(ctx, med, text, out, before, lateMin = 3) {
   const count = async () => Number((await ctx.shell(`dumpsys notification --noredact | grep -c "${text}"`).catch(() => '0')) || 0);
+  const offset = (out.clockOffsetMs = (await deviceMs(ctx.shell)) - Date.now());
+  const now = () => Date.now() + offset;
+  if (med.slotUnix * 1000 - now() > 10_000) {
+    // Pending alarms print as Alarm{… type N origWhen <ms> … <pkg>} (stats sections print only tags);
+    // the shell arms its earliest row, so one of ours must trigger between now and the slot.
+    const lines = (await ctx.shell(`dumpsys alarm | grep "Alarm{.* origWhen .* ${ctx.pkg}}"`).catch(() => '')).split('\n').filter(Boolean);
+    out.alarmPending = lines.map((l) => Number((l.match(/origWhen (\d+)/) || [])[1]));
+    out.alarmArmed = out.alarmPending.some((t) => t >= now() - 60_000 && t <= med.slotUnix * 1000);
+    if (!out.alarmArmed) throw new Error(`no alarm armed for ${med.hhmm} (${Math.round(med.slotUnix - now() / 1000)} s ahead on the device clock): ${lines.join(' | ').slice(0, 300) || 'none pending'}`);
+  }
   out.notificationsBefore = before ??= await count();
   const end = med.slotUnix * 1000 + lateMin * 60_000;
   for (;;) {
     const n = await count();
     if (n > before) { out.notificationLines = n; break; }
-    if (Date.now() > end) throw new Error(`no "${text}" notification by ${med.hhmm} + ${lateMin} min`);
+    if (now() > end) throw new Error(`no "${text}" notification by ${med.hhmm} + ${lateMin} min (device clock, offset ${offset} ms)`);
     await ctx.sleep(5000);
   }
-  out.postedLateS = Math.round(Date.now() / 1000 - med.slotUnix);
+  out.postedLateS = Math.round(now() / 1000 - med.slotUnix);
   out.processAtPost = (await ctx.shell(`pidof ${ctx.pkg}`).catch(() => '')) ? 'started by the alarm' : 'none';
 }
 
@@ -415,7 +450,7 @@ async function staleTaps(ctx, page, med, out) {
       stale: document.querySelector('.wg-timeline__stale')?.offsetParent ? document.querySelector('.wg-timeline__stale').textContent : null,
     }), tapAt);
     const tap = async (body) => {
-      await waitNotification(ctx, { slotUnix: Date.now() / 1000, hhmm: 'now' }, body, (out[`${body} post`] = {}), 0, 1);
+      await waitNotification(ctx, { slotUnix: (await deviceMs(ctx.shell)) / 1000, hhmm: 'now' }, body, (out[`${body} post`] = {}), 0, 1);
       const tapAt = await page.evaluate(() => Date.now());
       await tapNotification(ctx, new RegExp(`.*${body}.*`), body.replace(/ /g, '-').toLowerCase());
       page = (await ctx.attachPage()) || page;
