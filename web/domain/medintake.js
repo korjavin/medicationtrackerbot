@@ -1137,16 +1137,22 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     for (const occId of ids) {
       // Ids compare as String() throughout: a med's recordId and an intake's
       // medication_id (or a JSON occId) can be number vs string (med-wi09.15).
+      // A stored row is kept only through the gated resolver: a stored OPEN
+      // row the projection hides is not a dose to act on (bd med-wi09.21).
       let intake = intakes.find((i) => String(i.recordId) === String(occId)) || null;
       let virtual = false;
-      if (!intake) {
+      if (intake) {
+        intake = resolve.get(occId);
+      } else {
         const m = /^intake-(.+)-(\d+)$/.exec(String(occId));
         const med = m && meds.find((x) => String(x.recordId) === m[1]);
         if (m && med && !tombstoned.has(String(occId))) {
           const sec = Number(m[2]);
           intake = intakes.find((i) => String(i.medication_id) === String(med.recordId)
             && Math.floor(Date.parse(i.scheduled_at) / 1000) === sec) || null;
-          if (!intake) {
+          // Same med and second: the outer read spans this row's slot.
+          if (intake) intake = resolve.get(intake.recordId);
+          else {
             intake = resolve.get(occId);
             virtual = !!intake;
           }

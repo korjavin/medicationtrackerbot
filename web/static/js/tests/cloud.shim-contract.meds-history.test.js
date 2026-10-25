@@ -392,6 +392,62 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    // bd med-wi09.21 — act keeps a stored row only through the med-wi09.4 gate.
+    // A schedule edit cancelled A for B: A's stored OPEN row is hidden, so an
+    // agent's stale id acts on nothing (doses/act and the legacy snooze route),
+    // nor does a bare slot id matching a cancelled row stored under another id.
+    // Evidence (A3 TAKEN) is never gated; the shown B and an imported -tz_step
+    // row still act.
+    it('act refuses a stored open row the projection hides and writes nothing; evidence, shown and -tz_step rows act', async () => {
+        const A = Math.floor((Date.now() - 72 * HOUR_MS) / 60000) * 60;
+        const A2 = A + 3600;
+        const A3 = A + 7200;
+        const B = A + 26 * 3600;
+        const C = B + 3600;
+        const T = Math.floor((Date.now() - 2 * HOUR_MS) / 60000) * 60;
+        const iso = (s) => new Date(s * 1000).toISOString();
+        const id = (s) => `intake-1-${s}`;
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ recordId: 1, name: 'Metformin', inventory_count: 5 })],
+                intake: [
+                    ...[A, B].map((s) => seedIntake({ recordId: id(s), medication_id: 1, scheduled_at: iso(s), status: 'PENDING' })),
+                    seedIntake({ recordId: 'legacy-a2', medication_id: 1, scheduled_at: iso(A2), status: 'PENDING' }),
+                    seedIntake({ recordId: id(A3), medication_id: 1, scheduled_at: iso(A3), status: 'TAKEN', taken_at: iso(A3) }),
+                    seedIntake({ recordId: `${id(T)}-tz_step`, medication_id: 1, scheduled_at: iso(T), status: 'PENDING', source: 'tz_step' }),
+                ],
+                medsched: [{
+                    recordId: 'medsched-1-1', clientTs: 1, deleted: false, medication_id: 1, schedule: JSON.stringify({ type: 'as_needed' }), tz_shift_policy: 'flexible', from: iso(A - 3600),
+                    boundary: [{
+                        medId: 1, kept: [], cancelled: [id(A), id(A2), id(A3)], replacement: { [id(A)]: id(B), [id(A2)]: id(B), [id(A3)]: id(C) },
+                    }],
+                }],
+                ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: new Date(Date.now() + DAY_MS).toISOString() }],
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const before = JSON.stringify(await env.records.list('intake'));
+            for (const action of ['take', 'skip', 'snooze']) {
+                expect(await window.apiCall('/api/doses/act', 'POST', { action, occ_ids: [id(A)] }))
+                    .toMatchObject({ updated: 0, failed: 1, failures: [{ id: id(A), reason: 'not_found' }] });
+            }
+            await expect(window.offlineAwareApiCall('/api/medications/snooze', 'POST', { intake_id: id(A), duration_minutes: 15 }))
+                .rejects.toMatchObject({ status: 404 });
+            expect(await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [id(A2)] }))
+                .toMatchObject({ updated: 0, failed: 1, failures: [{ id: id(A2), reason: 'not_found' }] });
+            expect(JSON.stringify(await env.records.list('intake'))).toBe(before);
+            expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+
+            expect(await window.apiCall('/api/doses/act', 'POST', { action: 'undo', occ_ids: [id(A3)] })).toMatchObject({ updated: 1, failed: 0 });
+            expect(await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [id(B), `${id(T)}-tz_step`] })).toMatchObject({ updated: 2, failed: 0 });
+            expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     // bd med-wi09.2 — explicit dose actions on explicit occIds. Two meds share
     // a past slot: intake-a (Metformin) and intake-b (Aspirin).
     const slotEnv = (statusA, statusB) => {
@@ -577,11 +633,8 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
         env = loadCloudShimFrontendEnv({
             seedRecords: {
-                medication: [seedMedication({ recordId: 1 })],
-                intake: [
-                    seedIntake({ recordId: 'intake-due', medication_id: 1, scheduled_at: slotIso }),
-                    seedIntake({ recordId: 'intake-later', medication_id: 1, scheduled_at: new Date(Date.now() + 8 * HOUR_MS).toISOString() })
-                ]
+                medication: [seedMedication({ recordId: 1, schedule: JSON.stringify({ type: 'daily', times: ['00:00', '06:00', '12:00', '18:00'] }) })],
+                intake: [seedIntake({ recordId: 'intake-due', medication_id: 1, scheduled_at: slotIso })]
             }
         });
         const { window } = env;
@@ -595,10 +648,12 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 body: JSON.stringify({ callback: `s:${Date.parse(slotIso) / 1000}` })
             })));
 
-            await expect(window.offlineAwareApiCall('/api/medications/snooze', 'POST', { intake_id: 'intake-later', duration_minutes: 10 }))
+            // A future dose the projection shows (a stored open row past the
+            // ledger cut with no planned slot is hidden: not_found, med-wi09.21).
+            const later = (await window.apiCall(`/api/doses?from=${new Date(Date.now() + 60 * 1000).toISOString()}`)).find((d) => d.state === 'upcoming');
+            await expect(window.offlineAwareApiCall('/api/medications/snooze', 'POST', { intake_id: later.occId, duration_minutes: 10 }))
                 .rejects.toMatchObject({ status: 409 });
-            const row = (await env.records.list('intake')).find((i) => i.recordId === 'intake-later');
-            expect(row.snoozed_until).toBeFalsy();
+            expect((await env.records.list('intake')).find((i) => i.recordId === later.occId)).toBeUndefined();
         } finally {
             delete globalThis.fetch;
         }
