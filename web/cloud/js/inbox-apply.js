@@ -241,7 +241,18 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     for (const medId of named) {
       const exactId = `intake-${medId}-${slotUnix}`;
       const stored = raw.find((i) => String(i.recordId) === exactId);
-      if (stored) { out.set(medId, stored.deleted ? 'gone' : stored); continue; }
+      if (stored && stored.deleted) { out.set(medId, 'gone'); continue; }
+      if (stored && stored.status !== 'PENDING') { out.set(medId, stored); continue; }
+      if (stored) {
+        // A stored PENDING row counts only while the projection still lists it:
+        // an old client's prediction a schedule edit orphaned is hidden there,
+        // and confirming it would log a dose that no longer exists.
+        const ms = Date.parse(stored.scheduled_at);
+        const own = Number.isFinite(ms) && ms !== slotMs
+          ? await intake.occurrences({ fromMs: ms, toMs: ms + 999 }) : rows;
+        out.set(medId, own.some((r) => String(r.occId) === exactId) ? stored : null);
+        continue;
+      }
       const row = rows.find((r) => String(r.occId) === exactId)
         || rows.find((r) => String(r.medId) === String(medId));
       out.set(medId, row ? { recordId: row.occId, status: ROW_STATUS[row.state] || 'PENDING', taken_at: row.takenAt || null } : null);

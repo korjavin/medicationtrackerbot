@@ -238,6 +238,28 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(onOutOfDate).not.toHaveBeenCalled();
     });
 
+    // An old client's post-cut PENDING prediction at a slot a schedule edit
+    // removed: the projection hides it, so the exact-id row does not count — the
+    // tap is out of date and logs nothing.
+    it('an orphaned stored prediction at the exact id is out of date, not confirmed', async () => {
+        const orphanUnix = SLOT_UNIX + 3600; // DAILY runs at 00:00 only
+        const records = fakeRecords({
+            medication: [{ recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 }],
+            intake: [{ recordId: `intake-med-a-${orphanUnix}`, deleted: false, medication_id: 'med-a', scheduled_at: new Date(orphanUnix * 1000).toISOString(), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' }],
+            ledgercut: CUT_BEFORE_SLOT,
+        });
+        const now = () => DRAIN_MS;
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction(
+            { ...medsNamed(confirmEvent, ['med-a']), slot_unix: orphanUnix, at_unix: orphanUnix + 60 },
+            { intake: domainFor(records, now), records, now, onOutOfDate },
+        );
+
+        expect((await records.list('intake'))[0].status).toBe('PENDING');
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: new Date(orphanUnix * 1000).toISOString() });
+    });
+
     // A stored row for the named med at that very second under another id (a
     // vault-imported tz_step dose) is the same dose: the projection resolves it.
     it('resolves a legacy-id row for the named med at the exact slot instant', async () => {
