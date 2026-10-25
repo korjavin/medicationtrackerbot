@@ -418,8 +418,9 @@ describe('handleDeepLinks – push-action query params', () => {
     }
   });
 
-  // bd med-cnez — a stale tap on a dose taken elsewhere toasts "Already
-  // logged"; the Meds badge must recount on the spot, not at the next pull.
+  // bd med-cnez — the "Already logged" refusal just read the projection, so it
+  // recounts the Meds badge off the same local data. No known product writer
+  // skips the data event; the trigger seen was a QA harness write without one.
   it('a stale dose link on an already-taken dose refreshes the Meds badge', async () => {
     const { window, cleanup } = loadFrontendEnv({ url: DOSE_URL });
 
@@ -447,7 +448,7 @@ describe('handleDeepLinks – push-action query params', () => {
       await window.AppNav.refreshMedsBadge();
       expect(setBadge).toHaveBeenLastCalledWith('meds', 1);
 
-      taken = true; // taken on another device; no datastore event reached this page
+      taken = true; // written without a datastore event (QA harness style)
       window.handleDeepLinks();
       await vi.advanceTimersByTimeAsync(510);
 

@@ -815,8 +815,10 @@ function handlePushAction(action, params) {
                         return;
                     }
                     if (!due.length) {
-                        // Read-only recount: the dose was taken elsewhere and no
-                        // data event told this page (bd med-cnez).
+                        // Belt-and-braces (bd med-cnez): the refusal just read the
+                        // projection, so recount the badge off the same local
+                        // data. No known product writer skips the data event;
+                        // the trigger seen was a QA harness write without one.
                         window.AppNav?.refreshMedsBadge();
                         safeToast('Already logged — nothing left to take for this reminder.', 'info');
                         return;
