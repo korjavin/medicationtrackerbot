@@ -231,6 +231,40 @@
             const med = meds.find((m) => !m.archived);
             if (!med) throw new Error('reminderHint: no active medication in the seed');
             window.handlePushAction('medication_confirm', new URLSearchParams({ ids: String(med.id), scheduled: new Date().toISOString() }));
+        } else if (step.staleReminder) {
+            // A dose reminder gone stale before its tap (bd med-wi09.6): "taken"
+            // takes the dose in-app first; "moved" points the reminder a minute
+            // off the dose, as a schedule edit leaves it. The url is the app's
+            // own (reminderDeeplink), which the shell keeps unchanged
+            // (ios/App/ReminderPath.swift). Its toasts stay up for the shot.
+            const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
+            const row = (Array.isArray(rows) ? rows : [])[0];
+            if (!row) throw new Error('staleReminder: no due dose in the seed');
+            if (step.staleReminder === 'taken') await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [row.occId] });
+            const slotUnix = Date.parse(row.plannedAt) / 1000 + (step.staleReminder === 'moved' ? 60 : 0);
+            const { reminderDeeplink } = await import('/js/reminder-deeplink.js');
+            const url = reminderDeeplink({ kind: 'medication', medicationIds: [row.medId], fireAtUnix: slotUnix, slotUnix });
+            const sm = window.SyncManager;
+            const show = sm.showToast.bind(sm);
+            sm.showToast = (m, t, o) => show(m, t, { ...o, duration: 0 });
+            const ln = window.LocalNotifications;
+            if (ln && ln.isSupported()) {
+                // A real notification for the native `notification` step to tap.
+                // The take's own reschedule (2 s debounce) replaces every
+                // pending one: let it land first. Not awaited: iOS asks for the
+                // permission first (the native allowNotifications step), and
+                // the fire time is on the real clock, not the pinned one.
+                await sleep(3000);
+                ln.requestPermission().then(() => ln.schedule([{
+                    fireAtUnix: Math.floor((window.performance.timeOrigin + window.performance.now()) / 1000) + 6,
+                    title: 'Med Tracker', body: 'QA stale reminder', url,
+                }]));
+            } else {
+                // No shell (Playwright): what Shell.openReminder runs on a tap.
+                window.history.replaceState({}, '', url);
+                window.handleDeepLinks();
+                await until(() => firstVisible('.wg-toast, .wg-timeline__stale, #med-confirm-modal'), STEP_MS, 'reminder landing');
+            }
         } else if (step.inviteRequest) {
             // The W5 "Request an invite" sheet (bd med-ta2n.14). Its button
             // needs the shell's base.post op, which no QA pass has: open it
