@@ -556,6 +556,13 @@ describe('Apple Health import', () => {
                 expect(noneDeleted()).toBe(true);
             });
 
+            it('a bot-era row (timezone_offset in seconds east) files on its own night', async () => {
+                await records.put('sleep', hk(450));
+                await records.put('sleep', { recordId: `sleep-${N0}`, clientTs: 1, deleted: false, ...band(N0, N0 + 8 * H), timezone_offset: 10800 });
+                expect(await shown()).toEqual([`sleep-${N0}`]);
+                expect(noneDeleted()).toBe(true);
+            });
+
             it('a later, fuller .nxk flips the day to the band; a backup round trip keeps both rows and the view', async () => {
                 await records.put('sleep', hk(450));
                 await vitals().importSamples({ sleep: [band(N0, N0 + 3 * H)] }); // battery died

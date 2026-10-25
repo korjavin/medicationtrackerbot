@@ -580,7 +580,8 @@ and weight only asks once, at the next open, for the new types.
   (`vitals.js` `readSleepLogs` → sleep list, daily fold, overview;
   `gamification.js`) goes through `healthsource.js` `visibleSleep`. It groups
   rows by sleep day (`sleepDayOf`, the importer's own boundary, applied to
-  each row's end and `timezone_offset`), and a day holding both a Health day
+  each row's end and `timezone_offset`; a value over 840 is a bot-era
+  seconds-east offset), and a day holding both a Health day
   and Mi Band sessions shows one source: the one with more **asleep** minutes
   (Health: `total_minutes`, asleep-only already; Mi Band, summed over the
   day's sessions: light + deep + rem, else total − awake, else total). A tie

@@ -33,6 +33,15 @@ export function sleepDayOf(endMs, offsetMs) {
   return new Date(endMs + offsetMs + SLEEP_DAY_SHIFT_MS).toISOString().slice(0, 10);
 }
 
+// A sleep row's timezone_offset → ms east of UTC. Stored as minutes WEST,
+// except bot-era rows (bot mode until 2026-07-03, nxk.go) that kept Zepp's
+// SECONDS EAST and can reach the cloud through a vault restore. A real minute
+// offset never exceeds 840 (UTC+14), so anything larger is seconds east.
+function recordOffsetMs(tz) {
+  const v = Number(tz) || 0;
+  return Math.abs(v) > 840 ? v * 1000 : -v * 60_000;
+}
+
 // asleepMinutes: minutes actually asleep, so two sources compare like with
 // like. A Health day's total_minutes is asleep-only already (healthimport.js
 // excludes In Bed and awake), so it is taken as is. A Mi Band total is the
@@ -60,7 +69,7 @@ export function visibleSleep(rows) {
   for (const r of rows) {
     const end = Date.parse(r.end_time);
     if (r.deleted || !Number.isFinite(end)) continue;
-    const day = sleepDayOf(end, -(Number(r.timezone_offset) || 0) * 60_000);
+    const day = sleepDayOf(end, recordOffsetMs(r.timezone_offset));
     if (!days.has(day)) days.set(day, { health: [], other: [] });
     days.get(day)[healthImportRecordId('sleep', r) ? 'health' : 'other'].push(r);
   }
