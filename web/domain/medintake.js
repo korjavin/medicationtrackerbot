@@ -919,8 +919,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return { status: 'skipped' };
   }
 
-  // Ported from handleSnoozeMedication + SnoozeIntake: only an open intake
-  // can be snoozed; default duration matches the server's 10-minute default.
+  // A Telegram Snooze tap (inbox-apply.js); the /api/medications/snooze route
+  // goes through act's snooze. Only an open intake can be snoozed; default
+  // duration matches the server's 10-minute default.
   // A snooze is its own merge branch (snoozed_at), never an action: no rev
   // bump, no status change.
   async function snooze(intakeId, durationMinutes) {

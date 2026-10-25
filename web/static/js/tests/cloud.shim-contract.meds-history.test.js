@@ -497,6 +497,39 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    // The legacy snooze route (MCP medications.snooze) is act's snooze: the
+    // same not_due guard and relay-chain reconcile, its old reply shape kept.
+    it('the legacy snooze route goes through act: a due dose is snoozed and its chain reconciled, a future one fails not_due', async () => {
+        const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ recordId: 1 })],
+                intake: [
+                    seedIntake({ recordId: 'intake-due', medication_id: 1, scheduled_at: slotIso }),
+                    seedIntake({ recordId: 'intake-later', medication_id: 1, scheduled_at: new Date(Date.now() + 8 * HOUR_MS).toISOString() })
+                ]
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const res = await window.apiCall('/api/medications/snooze', 'POST', { intake_id: 'intake-due', duration_minutes: 15 });
+            const stored = (await env.records.list('intake')).find((i) => i.recordId === 'intake-due');
+            expect(res).toEqual({ status: 'snoozed', snoozed_until: stored.snoozed_until });
+            expect(Date.parse(stored.snoozed_until) - Date.parse(stored.snoozed_at)).toBe(15 * 60 * 1000);
+            await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.objectContaining({
+                body: JSON.stringify({ callback: `s:${Date.parse(slotIso) / 1000}` })
+            })));
+
+            await expect(window.apiCall('/api/medications/snooze', 'POST', { intake_id: 'intake-later', duration_minutes: 10 }))
+                .rejects.toMatchObject({ code: 'not_due' });
+            const row = (await env.records.list('intake')).find((i) => i.recordId === 'intake-later');
+            expect(row.snoozed_until).toBeFalsy();
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('a dose stored under a non-bare id (vault-imported tz_step) is not re-offered as a forecast, and act resolves it by slot', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {
@@ -834,11 +867,17 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
             await window.apiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-b'], minutes: 120 });
             const nowUnix = Math.floor(Date.now() / 1000);
             // Nothing in the slot is due any more: the live chain stops.
-            await vi.waitFor(() => expect(refire('cancel-refire')).toEqual([
-                expect.objectContaining({ callback: `s:${slotMs / 1000}` })
-            ]));
-
-            await vi.advanceTimersByTimeAsync(2100);
+            // The snooze-end upload goes out alongside that cancel, not after
+            // the 2s debounce a quick app close would drop: vi.waitFor advances
+            // the fake clock 50ms per poll, well short of 2s.
+            const nowMs = Date.now();
+            await vi.waitFor(() => {
+                expect(refire('cancel-refire')).toEqual([
+                    expect.objectContaining({ callback: `s:${slotMs / 1000}` })
+                ]);
+                expect(pushSchedule.mock.calls.at(-1)?.[1].filter((e) => e.kind === 'medication')).toHaveLength(2);
+            });
+            expect(Date.now() - nowMs).toBeLessThan(2000);
             const entries = pushSchedule.mock.calls.at(-1)[1].filter((e) => e.kind === 'medication');
             expect(entries).toEqual([
                 expect.objectContaining({ fireAtUnix: nowUnix + 600, callback: `s:${slotMs / 1000}`, medicationIds: [1] }),

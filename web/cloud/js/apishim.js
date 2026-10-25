@@ -952,26 +952,50 @@ export function createApiRouter(ctx, {
     }
     // Explicit dose actions on explicit occIds (bd med-wi09.2): take / skip /
     // undo / edit_time / snooze. Per-day bulk is the same route with many ids.
+    // One dose-action path for /api/doses/act and the legacy snooze route.
+    const doseAct = async (args) => {
+      const res = await intake.act(args).catch((err) => {
+        if (err && err.code === 'bad_request') err.status = 400;
+        throw err;
+      });
+      // A snooze uploads its snooze-end reminder at once, alongside the chain
+      // cancel below: a 2s debounce dropped by a quick app close (cloud-boot.js)
+      // would leave the dose with no reminder at all.
+      scheduleReminderRecompute(ctx, { records, timeZone }, args.action === 'snooze' ? 0 : undefined);
+      // A dose confirmed in the app never taps Telegram: reconcile the relay
+      // chain for each acted slot (reconcileMedChain).
+      if (['take', 'skip', 'snooze'].includes(args.action)) {
+        for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
+          await reconcileMedChain(slotMs, args.action === 'snooze');
+        }
+      }
+      return res;
+    };
     if (path === '/api/doses/act' && method === 'POST') {
-      const res = await intake.act({
+      return doseAct({
         occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
         action: body && body.action,
         takenAt: body && body.taken_at,
         minutes: body && body.minutes,
         until: body && body.until,
-      }).catch((err) => {
-        if (err && err.code === 'bad_request') err.status = 400;
-        throw err;
       });
-      // A dose confirmed in the app never taps Telegram: reconcile the relay
-      // chain for each acted slot (reconcileMedChain).
-      if (['take', 'skip', 'snooze'].includes(body.action)) {
-        for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          await reconcileMedChain(slotMs, body.action === 'snooze');
-        }
+    }
+    // The legacy snooze route (MCP medications.snooze) is act's snooze on one
+    // intake: the same not_due guard, 7-day bound and chain reconcile. Its
+    // reply shape is kept; a refused dose throws its reason as before.
+    if (path === '/api/medications/snooze' && method === 'POST') {
+      const minutes = Number(body && body.duration_minutes);
+      const res = await doseAct({
+        occIds: [String(body && body.intake_id)],
+        action: 'snooze',
+        minutes: minutes > 0 ? minutes : undefined,
+      });
+      if (res.failed) {
+        const err = new Error(`intake not snoozed: ${res.failures[0].reason}`);
+        err.code = res.failures[0].reason;
+        throw err;
       }
-      scheduleReminderRecompute(ctx, { records, timeZone });
-      return res;
+      return { status: 'snoozed', snoozed_until: res.doses[0].snoozed_until };
     }
     if (path === '/api/inventory/low' && method === 'GET') return medications.listLowStock();
     if (path === '/api/history' && method === 'GET') {
@@ -985,7 +1009,6 @@ export function createApiRouter(ctx, {
         '/api/medications/log-past': () => intake.logPast(body && body.medication_id, Date.parse(body && body.taken_at)),
         '/api/medications/cancel-intake': () => intake.cancelIntakes((body && body.intake_ids) || []),
         '/api/medications/delete-intake': () => intake.deleteFutureIntakes((body && body.intake_ids) || []),
-        '/api/medications/snooze': () => intake.snooze(body && body.intake_id, body && body.duration_minutes),
         '/api/medications/skip': () => intake.skip(body && body.intake_id),
         '/api/medications/confirm-schedule': () => intake.confirmSchedule({
           scheduledAt: body && body.scheduled_at,
