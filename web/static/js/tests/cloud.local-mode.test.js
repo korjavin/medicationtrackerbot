@@ -1407,6 +1407,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             await vi.waitFor(() => expect(go.disabled).toBe(true));
             expect(go.classList.contains('wg-btn--busy')).toBe(true);
             expect(go.textContent).toBe('Moving your data…');
+            await vi.waitFor(() => expect(typeof fail).toBe('function'));
             go.click();
             expect(bridge.mock.calls.filter(([op]) => op === 'move.stash')).toHaveLength(1);
             fail(new Error('too large'));

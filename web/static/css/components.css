@@ -621,7 +621,7 @@ html{overscroll-behavior-y:contain}
     content: "";
     width: 1em;
     height: 1em;
-    margin-right: var(--space-sm);
+    margin-right: 0.5em;
     border: 2px solid var(--wg-border-strong);
     border-top-color: var(--wg-mint-soft);
     border-radius: 50%;
