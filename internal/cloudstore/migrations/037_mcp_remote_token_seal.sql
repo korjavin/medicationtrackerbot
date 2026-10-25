@@ -15,6 +15,10 @@ ALTER TABLE mcp_remote ADD COLUMN token_nonce BLOB;
 
 -- +goose Down
 -- +goose StatementBegin
+-- WARNING: after the startup conversion the real token lives ONLY in token_ct.
+-- Dropping it makes every hosted MCP connector unrecoverable (the token column
+-- holds a random placeholder): every user must disconnect and re-enable.
+-- Same trade-off as 017's Down for pairing keys.
 ALTER TABLE mcp_remote DROP COLUMN token_nonce;
 ALTER TABLE mcp_remote DROP COLUMN token_ct;
 -- +goose StatementEnd

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,8 +20,8 @@ import (
 // for a legacy row that has not been converted yet.
 type failingTokenResealStore struct{ *cloudstore.Repo }
 
-func (failingTokenResealStore) ResealMCPRemoteToken(context.Context, string, string, []byte, []byte) error {
-	return errors.New("injected reseal failure")
+func (failingTokenResealStore) ResealMCPRemoteToken(context.Context, string, string, []byte, []byte) (bool, error) {
+	return false, errors.New("injected reseal failure")
 }
 
 // mcpAuthStatus runs one request through the hosted endpoint's token check for
@@ -138,8 +140,8 @@ func TestMCPRemoteToken_LegacyRowConversion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.ResealMCPRemoteToken(context.Background(), "acc-old", token, ct, nonce); err != nil {
-		t.Fatal(err)
+	if changed, err := repo.ResealMCPRemoteToken(context.Background(), "acc-old", token, ct, nonce); err != nil || changed {
+		t.Fatalf("replayed conversion: changed=%v err=%v, want a no-op", changed, err)
 	}
 	if again := mcpRemoteRow(t, repo, "acc-old"); again.Token != converted.Token || !bytes.Equal(again.TokenCT, converted.TokenCT) {
 		t.Fatal("re-running the conversion rewrote an already-sealed row")
@@ -170,6 +172,54 @@ func TestMCPRemoteToken_RollbackReEnableWins(t *testing.T) {
 		t.Fatal("stale sealed token still authenticates")
 	}
 	assertTokenSealed(t, repo, "acc-rb", "new-new")
+}
+
+// TestMCPRemoteToken_ConversionScrubsDBFiles is the file-backed guard: after
+// the startup conversion, neither cloud.db nor cloud.db-wal still holds the
+// legacy plaintext token or pairing key, even when the legacy row had already
+// been checkpointed into the main file. In-memory DBs can't see this.
+func TestMCPRemoteToken_ConversionScrubsDBFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cloud.db")
+	d, err := storedb.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	repo, err := cloudstore.New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const token = "q7z-k9w"
+	pairingKey := []byte("PAIRINGKEY-plaintext-32-bytes-xx")
+	if _, err := d.ExecContext(ctx,
+		`INSERT INTO mcp_remote (account_id, token, relay_url, pairing_id, pairing_key, created_at_unix) VALUES (?,?,?,?,?,?)`,
+		"acc-file", token, "wss://acc-file.localhost", "pid-file", pairingKey, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CheckpointTruncate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(path); !bytes.Contains(raw, []byte(token)) {
+		t.Fatal("fixture: legacy token not in cloud.db before conversion")
+	}
+
+	api := restoredAPI(t, repo, repo)
+	if got := mcpAuthStatus(api, "acc-file", token); got == http.StatusNotFound {
+		t.Fatal("converted row: correct token rejected")
+	}
+	for _, f := range []string{path, path + "-wal"} {
+		raw, err := os.ReadFile(f)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if bytes.Contains(raw, []byte(token)) {
+			t.Fatalf("%s still contains the clear token after conversion", filepath.Base(f))
+		}
+		if bytes.Contains(raw, pairingKey) {
+			t.Fatalf("%s still contains the clear pairing key after conversion", filepath.Base(f))
+		}
+	}
 }
 
 // TestMCPRemoteToken_EmptyTokenRowNeverStarts: a row with neither a real nor a

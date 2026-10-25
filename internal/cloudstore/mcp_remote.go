@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 
@@ -87,15 +88,16 @@ func (r *Repo) UpsertMCPRemote(ctx context.Context, accountID, relayURL, pairing
 // (WHERE token = plaintext) so it can't clobber a row a concurrent re-enable
 // rewrote in between. One UPDATE, so a crash leaves the row either fully
 // legacy or fully sealed; re-running on a converted row is a no-op.
-func (r *Repo) ResealMCPRemoteToken(ctx context.Context, accountID, plaintext string, tokenCT, tokenNonce []byte) error {
+// Reports whether the row was converted (false: already converted or rewritten).
+func (r *Repo) ResealMCPRemoteToken(ctx context.Context, accountID, plaintext string, tokenCT, tokenNonce []byte) (bool, error) {
 	placeholder, err := sealedTokenPlaceholder()
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = r.db.ExecContext(ctx,
+	n, err := r.secureDeleteExec(ctx,
 		`UPDATE mcp_remote SET token_ct = ?, token_nonce = ?, token = ? WHERE account_id = ? AND token = ?`,
 		tokenCT, tokenNonce, placeholder, accountID, plaintext)
-	return err
+	return n > 0, err
 }
 
 // ResealMCPRemotePairingKey writes the sealed pairing key for accountID and
@@ -103,10 +105,49 @@ func (r *Repo) ResealMCPRemoteToken(ctx context.Context, accountID, plaintext st
 // reseal of pre-migration rows. Idempotent: re-running against an already-sealed
 // row just rewrites the same sealed bytes and an already-empty plaintext blob.
 func (r *Repo) ResealMCPRemotePairingKey(ctx context.Context, accountID string, pairingKeyCT, pairingKeyNonce []byte) error {
-	_, err := r.db.ExecContext(ctx,
+	_, err := r.secureDeleteExec(ctx,
 		`UPDATE mcp_remote SET pairing_key_ct = ?, pairing_key_nonce = ?, pairing_key = ? WHERE account_id = ?`,
 		pairingKeyCT, pairingKeyNonce, []byte{}, accountID)
 	return err
+}
+
+// secureDeleteExec runs one write with PRAGMA secure_delete=ON on a pinned
+// connection, so the cell holding the replaced plaintext is zeroed in the new
+// page image instead of lingering as free space. The old image still sits in
+// the WAL / main file until CheckpointTruncate copies the new one over it.
+func (r *Repo) secureDeleteExec(ctx context.Context, query string, args ...any) (int64, error) {
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `PRAGMA secure_delete = ON`); err != nil {
+		return 0, err
+	}
+	// Restore the default even if ctx is canceled, so the pooled connection
+	// doesn't keep the slower mode for every later write.
+	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA secure_delete = OFF`) }()
+	res, err := conn.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// CheckpointTruncate runs PRAGMA wal_checkpoint(TRUNCATE): copies every WAL
+// frame into the main file and truncates the WAL to zero bytes, so plaintext
+// that a secure-delete write replaced is gone from both files. Returns an
+// error when the checkpoint could not complete (busy=1, e.g. a reader such as
+// Litestream holds an old snapshot).
+func (r *Repo) CheckpointTruncate(ctx context.Context) error {
+	var busy, logFrames, checkpointed int
+	if err := r.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logFrames, &checkpointed); err != nil {
+		return err
+	}
+	if busy != 0 {
+		return fmt.Errorf("wal checkpoint busy (log=%d checkpointed=%d)", logFrames, checkpointed)
+	}
+	return nil
 }
 
 // DeleteMCPRemote removes accountID's hosted-remote enablement (Disconnect).
