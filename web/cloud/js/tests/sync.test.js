@@ -3417,6 +3417,41 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect((await converge(legacyTake, v2Snooze)).status).toBe('TAKEN');
   });
 
+  // bd med-wi09.23 (Socrates 5626, intake twin of med-0xad.9 H): an
+  // acknowledged TAKEN, an empty queue, a reconnect that bootstraps from an old
+  // bundle's compacted snapshot holding its newer PENDING placeholder.
+  it('an acknowledged TAKEN survives an old-compaction bootstrap and is queued once as a repair', async () => {
+    const v2Take = row({ clientTs: 10, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
+    const placeholder = row({ clientTs: 99999, status: 'PENDING', taken_at: null, rev: 0 });
+    await converge(v2Take, v2Take);
+    await replaceAllRecords([placeholder], { reduceAcked: true });
+    const kept = await getRaw();
+    expect(kept).toMatchObject({ status: 'TAKEN', rev: 1, via: 'app' });
+    expect(kept.clientTs).toBeGreaterThan(99999);
+    expect((await getRaw('pending', (s) => s.getAll())).map((p) => p.recordId)).toEqual([id]);
+  });
+
+  it('no repair when the reducer and clientTs agree, on bootstrap or on a pull', async () => {
+    const placeholder = row({ clientTs: 10, status: 'PENDING', taken_at: null, rev: 0 });
+    const v2Take = row({ clientTs: 500, status: 'TAKEN', taken_at: '2026-01-01T00:05:00.000Z', rev: 1, via: 'app', acted_at: '2026-01-01T00:05:00.000Z' });
+    await converge(placeholder, placeholder);
+    await replaceAllRecords([v2Take], { reduceAcked: true });
+    expect(await getRaw()).toMatchObject({ status: 'TAKEN', clientTs: 500 });
+    expect(await getRaw('pending', (s) => s.getAll())).toEqual([]);
+
+    await converge(v2Take, v2Take);
+    const posts = () => fetch.mock.calls.filter(([u, init]) => String(u) === '/api/sync/ops' && init?.method === 'POST').length;
+    const before = posts();
+    await pull({ ...UNDO, clientTs: 900 });
+    expect(await getRaw()).toMatchObject({ status: 'UNTAKEN', rev: 2, clientTs: 900 });
+    expect(posts()).toBe(before);
+    // Contrast: a newer stale tap pulled over the undo is repaired and posted.
+    await pull({ ...TAP, clientTs: 5000 });
+    expect(await getRaw()).toMatchObject({ status: 'UNTAKEN', rev: 2 });
+    expect((await getRaw()).clientTs).toBeGreaterThan(5000);
+    expect(posts()).toBe(before + 1);
+  });
+
   // HIGH-3 (Archie 4100): an op's AAD binds the seq the old client PREDICTED.
   // For [medication@6, intake@7] a server that stored only the intake would
   // put it at 6, and no device could read it — which is why a gated batch is
