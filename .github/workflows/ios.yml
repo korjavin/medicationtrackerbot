@@ -304,6 +304,11 @@ jobs:
             -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
             WG_BASE_DOMAIN=qa.test | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
+          # HealthKit refuses an app without its entitlement, and an unsigned
+          # build has none: ad-hoc sign it in, so health-kit-import can
+          # authorize and seed (bd med-0xad.2).
+          codesign --force --deep --sign - --entitlements qa/sim-healthkit.entitlements \
+            build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app
 
       - name: Create and boot the simulator
         run: ios/qa/boot-sim.sh "${{ matrix.types }}" "${{ matrix.width }}pt"
