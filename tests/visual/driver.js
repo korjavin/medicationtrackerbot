@@ -190,6 +190,14 @@
             const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
             const occIds = (Array.isArray(rows) ? rows : []).map((r) => r.occId);
             if (occIds.length) await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: occIds });
+        } else if (step.snoozePending) {
+            // Snoozes the newest pending dose for that many minutes, so Today's
+            // Next up shows it "Snoozed until HH:MM" (bd med-ry7b.7). The write
+            // stays until a later takePending.
+            const rows = await window.apiCall(`/api/doses?status=due&to=${new Date().toISOString()}`);
+            const last = (Array.isArray(rows) ? rows : []).slice(-1)[0];
+            if (!last) throw new Error('snoozePending: no pending dose');
+            await window.apiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: [last.occId], minutes: step.snoozePending });
         } else if (step.fill) {
             // Types into an input the way a user does (fires `input`).
             await until(() => firstVisible(step.fill), STEP_MS, `fill ${step.fill}`);

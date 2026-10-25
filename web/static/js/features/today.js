@@ -825,9 +825,10 @@
             return { node: section, hasPrimary: medsOn && allowPrimary };
         }
 
+        // Due by the end of today — past days' pending doses included.
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
-        const todayCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
-        if (todayCount > 0) head.appendChild(el('span', 'wg-meta', `${todayCount} today`));
+        const dueCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
+        if (dueCount > 0) head.appendChild(el('span', 'wg-meta', `${dueCount} due`));
 
         const primaryIdx = !allowPrimary ? -1 : items.findIndex((it) => it.kind === 'med'
             || (it.kind === 'workout' && workoutAction(it.value) !== 'view'));

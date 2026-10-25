@@ -169,7 +169,7 @@ describe('Today v2 — Next up', () => {
         expect(sun[0].getAttribute('data-action')).toBe('start-workout');
         // The no-goal card stays a plain button while Next up owns the sun.
         expect(root.querySelector('[data-action="set-goal"]').classList.contains('wg-btn--primary')).toBe(false);
-        expect(root.querySelector('[data-section="next-up"] .wg-section__head .wg-meta').textContent).toBe('3 today');
+        expect(root.querySelector('[data-section="next-up"] .wg-section__head .wg-meta').textContent).toBe('3 due');
     });
 
     it('a later scheduled dose sorts ahead of a later workout and takes the sun', () => {
