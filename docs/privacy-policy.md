@@ -212,8 +212,8 @@ how many free trials one phone can get after erasing.
 ## 5. Apple Health and Health Connect
 
 If you switch them on, the app **reads** the listed measurements (blood
-pressure, weight, heart rate, sleep and workouts) and stores them in
-your vault like a reading you typed in. It never writes back. Health data is
+pressure, weight, heart rate, sleep and workouts; on Android also steps and
+blood oxygen) and stores them in your vault like a reading you typed in. It never writes back. Health data is
 never used for advertising or sold, and leaves your vault only through the
 optional features in section 3, when you use them. You can withdraw access at
 any time in the Health app or Health Connect.
