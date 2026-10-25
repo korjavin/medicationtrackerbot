@@ -1,6 +1,6 @@
 # MyHealthBot — Privacy Policy
 
-Effective 2026-10-24. This policy covers the MyHealthBot web app at
+Effective YYYY-MM-DD (set to the merge date on approval). This policy covers the MyHealthBot web app at
 `cloud.myhealthbot.ai` and the MyHealthBot iPhone and Android apps (shown as
 "Med Tracker" on your home screen), which open the same web app. "We" is the
 operator of that service. The policy is written by category: what kind of data
@@ -183,10 +183,10 @@ any time in the Health app or Health Connect.
 Reminders are composed on your device. With an account, our relay stores only
 the fire time and an encrypted payload and wakes the device through Apple,
 Google or your browser vendor's push service, which carries an opaque blob.
-Without an account, reminders are scheduled on the phone itself. By default a
-reminder on the lock screen says only "Medication time"; if you choose
-**Detailed**, the medication name is shown there too, visible to anyone
-holding the phone.
+Without an account, reminders are scheduled on the phone itself. You choose
+what a reminder shows on the lock screen: only "Medication time", or
+**Detailed**, which adds the medication name, visible to anyone holding the
+phone. The app asks when you turn reminders on; you can change it in Settings.
 
 ## 7. Where your data is, and who processes it
 
@@ -245,7 +245,7 @@ create accounts for them.
 
 ## 11. Changes
 
-- 2026-10-24: rewritten by data category; product name, contact address, metadata and retention tables, provider categories and your rights added.
+- YYYY-MM-DD: rewritten by data category; product name, contact address, metadata and retention tables, provider categories and your rights added.
 
 Changes to this policy are published at this address: we update the
 effective date at the top and summarise material changes here. A feature that
