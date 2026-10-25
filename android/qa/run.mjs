@@ -106,25 +106,37 @@ const ctx = {
    * softAuthn: the debug-only QA soft authenticator (bd med-nt9p.25, src/debug/DebugHooks.kt).
    */
   async launch({ softAuthn = false } = {}) {
+    const start = () => ctx.coldStart(`-a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity${softAuthn ? ' --ez qaSoftAuthn true' : ''}`);
+    await start();
+    return ctx.localPage((page) => page.locator('[data-invite-action="paste"]').waitFor({ state: 'visible', timeout: 90_000 }), start);
+  },
+  /** am force-stop, then am start -W `args`. */
+  async coldStart(args) {
     await shell(`am force-stop ${pkg}`);
     await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
-    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity${softAuthn ? ' --ez qaSoftAuthn true' : ''}`);
-    return ctx.localPage((page) => page.locator('[data-invite-action="paste"]').waitFor({ state: 'visible', timeout: 90_000 }));
+    await shell(`am start -W ${args}`);
   },
-  /** The shell's page on the local origin once `ready(page)` resolves; one re-attach when the first target closes under us. */
-  async localPage(ready) {
-    // ponytail: one re-attach (run 39249851915, right after pm clear: "Target page, context or browser has been closed").
+  /**
+   * The shell's page on the local origin once `ready(page)` resolves. One recovery when the first
+   * target closes under us or no WebView shows: `restart` (a cold start) when given, else a re-attach.
+   */
+  async localPage(ready, restart) {
+    // ponytail: one recovery (run 39249851915, right after pm clear: "Target page, context or browser has been closed").
+    // bd med-nt9p.62: on a just-settled emulator the first cold start's target closed ~10 s in and no
+    // WebView came back within 15 s (runs 40235627692, 40237163180): a re-attach waits on nothing, relaunch.
     for (let attempt = 1; ; attempt++) {
-      const page = await ctx.attachPage();
-      if (!page) throw new Error('no WebView page (see the run log)');
       try {
+        const page = await ctx.attachPage();
+        if (!page) throw new Error('no WebView page (see the run log)');
         await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
         await ready(page);
         return page;
       } catch (e) {
-        if (attempt > 1 || !/has been closed/.test(String(e?.message))) throw e;
-        log('local page closed while waiting; re-attaching');
-        await ctx.sleep(2000);
+        if (attempt > 1 || !/has been closed|no WebView page/.test(String(e?.message))) throw e;
+        const pid = (await shell(`pidof ${pkg}`).catch(() => '')) || 'none';
+        log(`local page lost (${String(e?.message).split('\n')[0]}), app pid ${pid}; ${restart ? 'relaunching' : 're-attaching'}`);
+        if (restart) await restart();
+        else await ctx.sleep(2000);
       }
     }
   },
@@ -136,11 +148,10 @@ const ctx = {
    * softAuthn: also the QA soft authenticator (launch), for a scenario that later claims an invite.
    */
   async launchLocal(scene, { extra = true, softAuthn = false } = {}) {
-    await shell(`am force-stop ${pkg}`);
-    await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
     const extras = `${extra ? ' --ez wgLocalMode true' : ''}${scene ? ` --es wgQAScene ${scene}` : ''}${softAuthn ? ' --ez qaSoftAuthn true' : ''}`;
-    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity${extras}`);
-    return ctx.localPage((page) => ctx.waitLocalReady(page, scene));
+    const start = () => ctx.coldStart(`-n ${pkg}/com.example.medtracker.MainActivity${extras}`);
+    await start();
+    return ctx.localPage((page) => ctx.waitLocalReady(page, scene), start);
   },
   /** The local app is up: #wg-qa-ready attached (scene; the first one seeds + reloads) or the bottom nav visible. */
   async waitLocalReady(page, scene) {
@@ -243,15 +254,27 @@ const ctx = {
     const a = await shell('dumpsys activity activities');
     return a.split('\n').some((l) => /ResumedActivity/.test(l) && l.includes(`${pkg}/`));
   },
-  /** Attach Playwright to the shell's WebView (DOM, console, CDP); undefined if it cannot. */
+  /**
+   * Attach Playwright to the shell's WebView (DOM, console, CDP); undefined if it cannot.
+   * Each try lands in results.attach (bd med-nt9p.62): ms to the webview target and to the page;
+   * on a failure the error and the app's pid then ('none': the process is gone).
+   */
   async attachPage() {
+    const t0 = Date.now();
+    const rec = { scenario: ctx.scenario };
+    (results.attach ||= []).push(rec);
     try {
       const wv = await device.webView({ pkg }, { timeout: 15_000 });
+      rec.webViewMs = Date.now() - t0;
       // Bounded: a page attach to a process Play services is killing never settled (run 39534712229 hung 40 min).
       ctx.page = await Promise.race([wv.page(), ctx.sleep(30_000).then(() => { throw new Error('page attach timed out'); })]);
+      rec.pageMs = Date.now() - t0;
       return ctx.page;
     } catch (e) {
-      log('webview attach failed:', String(e?.message || e).split('\n')[0]);
+      rec.error = String(e?.message || e).split('\n')[0];
+      rec.failedMs = Date.now() - t0;
+      rec.pid = (await shell(`pidof ${pkg}`).catch(() => '')) || 'none';
+      log('webview attach failed:', rec.error, 'app pid', rec.pid);
       return undefined;
     }
   },
