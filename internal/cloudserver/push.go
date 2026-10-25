@@ -57,6 +57,7 @@ type pushStore interface {
 	DeletePushSubscription(ctx context.Context, accountID, endpoint string) error
 	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 	ReplaceSchedule(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, now time.Time) error
+	GetLedgerCut(ctx context.Context, accountID string) (cloudstore.LedgerCut, error)
 	GetByEndpoint(ctx context.Context, accountID, endpoint string) (*cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
@@ -323,11 +324,26 @@ type putScheduleRequest struct {
 // every not-yet-sent entry is dropped and the batch is inserted in its place
 // (replace-all). Entries the relay
 // has already fired are untouched.
+//
+// The schedule encodes the dose engine's view, so it will take the sync
+// writer gate. For now (bd med-wi09.20) a header-less PUT on an account with
+// a ledger cut is only logged; the 426 ships in med-wi09.22 once prod logs
+// show no such PUTs for 48h (the bundle before med-wi09.20 sets the cut but
+// sends no X-Ledger here).
 func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+	if !ledgerV2(r) {
+		// Diagnostic only while log-only: a failed read never refuses the PUT.
+		cut, err := a.store.GetLedgerCut(r.Context(), session.AccountID)
+		if err != nil {
+			slog.Error("push: schedule ledger cut", "accountID", session.AccountID, "error", err)
+		} else if cut.Seq != nil {
+			slog.Warn("push schedule: header-less PUT on cut account", "account", session.AccountID)
+		}
 	}
 
 	var req putScheduleRequest
