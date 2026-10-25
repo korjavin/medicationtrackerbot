@@ -113,19 +113,19 @@ export default async function healthConnect(ctx) {
     });
 
     await ctx.step('a dense scan pages by limit: hc1s: anchors with more, then the hc1: changes token', async () => {
-      r.paged = await ctx.page.evaluate(async (n) => {
+      r.paged = await ctx.page.evaluate(async () => {
         const out = { pages: [], uuids: 0 };
         const seen = new Set();
         let res = await window.Health.query({ type: 'spo2', anchor: null, from: Date.now() - 90 * 86400_000, limit: 50 });
         for (let i = 0; i < 20; i++) {
           (res.samples || []).forEach((s) => seen.add(s.uuid));
-          out.pages.push({ n: (res.samples || []).length, more: res.more, anchor: String(res.anchor).slice(0, 5) });
+          out.pages.push({ n: (res.samples || []).length, more: res.more, anchor: String(res.anchor).match(/^hc1s?:/)?.[0] || String(res.anchor) });
           if (!res.more) break;
           res = await window.Health.query({ type: 'spo2', anchor: res.anchor, limit: 50 });
         }
         out.uuids = seen.size;
         return out;
-      }, SPO2N);
+      });
       const { pages, uuids } = r.paged;
       const last = pages[pages.length - 1];
       if (pages.length < 2 || !pages.slice(0, -1).every((p) => p.more && p.anchor === 'hc1s:')) throw new Error(`no paging: ${JSON.stringify(r.paged)}`);
