@@ -815,6 +815,9 @@ function handlePushAction(action, params) {
                         return;
                     }
                     if (!due.length) {
+                        // Read-only recount: the dose was taken elsewhere and no
+                        // data event told this page (bd med-cnez).
+                        window.AppNav?.refreshMedsBadge();
                         safeToast('Already logged — nothing left to take for this reminder.', 'info');
                         return;
                     }

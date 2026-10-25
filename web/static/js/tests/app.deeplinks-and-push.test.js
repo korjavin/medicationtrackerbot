@@ -418,6 +418,46 @@ describe('handleDeepLinks – push-action query params', () => {
     }
   });
 
+  // bd med-cnez — a stale tap on a dose taken elsewhere toasts "Already
+  // logged"; the Meds badge must recount on the spot, not at the next pull.
+  it('a stale dose link on an already-taken dose refreshes the Meds badge', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: DOSE_URL });
+
+    try {
+      let taken = false;
+      vi.spyOn(window, 'apiCall').mockImplementation(async (url) => {
+        const state = taken ? 'taken' : 'due';
+        if (url.startsWith('/api/doses?status=')) {
+          return taken ? [] : [{ occId: 'intake-2-1772352000', medId: 2, plannedAt: '2026-03-01T08:00:00.000Z', state: 'due' }];
+        }
+        if (url.startsWith('/api/doses')) {
+          return [{ occId: 'intake-2-1772352000', medId: 2, plannedAt: '2026-03-01T08:00:00.000Z', state }];
+        }
+        return [{ id: 2, name: 'Aspirin' }];
+      });
+      vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      vi.spyOn(window, 'showMedicationConfirmModal').mockImplementation(() => {});
+      const toastSpy = vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+      const setBadge = vi.spyOn(window.WGBottomNav, 'setBadge').mockImplementation(() => {});
+      const bar = window.document.createElement('div');
+      bar.className = 'wg-tabbar';
+      bar.innerHTML = '<a data-nav-id="meds"></a>';
+      window.document.body.appendChild(bar);
+
+      await window.AppNav.refreshMedsBadge();
+      expect(setBadge).toHaveBeenLastCalledWith('meds', 1);
+
+      taken = true; // taken on another device; no datastore event reached this page
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(510);
+
+      expect(toastSpy).toHaveBeenCalledWith('Already logged — nothing left to take for this reminder.', 'info');
+      expect(setBadge).toHaveBeenLastCalledWith('meds', 0);
+    } finally {
+      cleanup();
+    }
+  });
+
   // bd med-wi09.4 — cold start: the med was added on another device and this
   // mirror is still empty. The link waits for the boot pull and resolves again
   // instead of calling the med gone.
