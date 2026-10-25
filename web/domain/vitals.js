@@ -20,6 +20,7 @@
 //                density. Decided while implementing C2a Task 4.
 
 import { dayStartMs } from './bp.js';
+import { visibleSleep } from './healthsource.js';
 
 // The vault holds one user's data; handleListSleepLogs stamps the row's
 // user_id, so the wire shape carries it too.
@@ -208,9 +209,9 @@ export function createVitalsDomain({ records, now, timeZone }) {
     return out;
   }
 
+  // One source per sleep day when Health and Mi Band both hold it (visibleSleep).
   async function readSleepLogs() {
-    const all = await records.list(SLEEP_RECORD_TYPE);
-    return all.filter((r) => !r.deleted);
+    return visibleSleep(await records.list(SLEEP_RECORD_TYPE));
   }
 
   async function readDayStats() {

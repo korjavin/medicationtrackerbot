@@ -27,7 +27,7 @@
 import { createBPDomain, offsetMsAt } from './bp.js';
 import { createWeightDomain } from './weight.js';
 import {
-  HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId, healthNumericId,
+  HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId, healthNumericId, sleepDayOf,
 } from './healthsource.js';
 
 function positive(v) {
@@ -53,10 +53,6 @@ const SLEEP_RANK = { 4: 5, 5: 4, 3: 3, 2: 2, 1: 1 };
 // settled version of a day wins: putIfAbsent at the floor). The cloud side
 // re-reads unsettled nights by time window (health-import.js).
 export const SLEEP_SETTLE_MS = 3 * HOUR_MS;
-// A sleep day runs from 18:00 to 18:00 local, by when a night ENDS: a night
-// ending 07:00 belongs to that date (its wake day), a nap at 15:00 to the
-// same one, a night still going at 18:00 to the next.
-const SLEEP_DAY_SHIFT_MS = 6 * HOUR_MS;
 // HKWorkoutActivityType raw values. running/walking/cycling reuse the history
 // list's labels (web/static/js/features/workout/history.js MIBAND_ACTIVITY_META).
 const WORKOUT_NAMES = {
@@ -213,7 +209,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   }
 
   // importSleep → { added, pending, nights, skip }. Health sleep is one record per sleep day
-  // (SLEEP_DAY_SHIFT_MS), id `sleep-hk-<day>`: every night and nap of that day
+  // (healthsource.js sleepDayOf), id `sleep-hk-<day>`: every night and nap of that day
   // from ONE source, the one with the most asleep minutes (then staged). The
   // key is the same across sources and devices, so copies of a night land on
   // one row instead of piling up. Written once, putIfAbsent at clientTs 0
@@ -222,11 +218,13 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // Not written, counted in `skip` for the diagnostics line (bd med-w6gx.30):
   // a day already there, live or deleted (exists); a day whose best version is
   // clipped by the window (clipped) or not settled (unsettled; `pending` = the
-  // earliest unsettled start, for the caller to re-read by time window); a day
-  // overlapping a non-Health sleep entry (Mi Band, manual: it wins — overlap).
+  // earliest unsettled start, for the caller to re-read by time window).
+  // A day overlapping a Mi Band night is imported too (bd med-w6gx.31): the
+  // read picks one source per day (healthsource.js visibleSleep), so arrival
+  // order never matters and nothing is lost.
   // skip.inBed = the In Bed samples sleepNights left out.
   async function importSleep(samples, bounds) {
-    const skip = { inBed: 0, unsettled: 0, clipped: 0, exists: 0, overlap: 0 };
+    const skip = { inBed: 0, unsettled: 0, clipped: 0, exists: 0 };
     const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
     if (bounds && Number.isFinite(bounds.from) && Number.isFinite(bounds.to) && Array.isArray(samples)) {
       skip.inBed = samples.filter((s) => s && s.value === 0).length;
@@ -240,7 +238,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     const days = new Map(); // day -> source -> nights
     for (const n of all) {
       const offset = offsetMsAt(n.end, zoneOf(n.tz));
-      const day = new Date(n.end + offset + SLEEP_DAY_SHIFT_MS).toISOString().slice(0, 10);
+      const day = sleepDayOf(n.end, offset);
       if (!days.has(day)) days.set(day, new Map());
       const bySrc = days.get(day);
       if (!bySrc.has(n.src)) bySrc.set(n.src, []);
@@ -256,11 +254,6 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const id = healthImportRecordId('sleep', r);
       if (id && id !== r.recordId) aliased.add(id);
     }
-    const others = spans(
-      raw.filter((r) => !r.deleted && !healthImportRecordId('sleep', r)),
-      (r) => Date.parse(r.start_time), (r) => Date.parse(r.end_time),
-    );
-
     let added = 0;
     for (const [day, bySrc] of days) {
       let best = null;
@@ -297,7 +290,6 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const recordId = healthRecordId('sleep', day);
       // Same writes as before, each skip named: any of these leaves the day.
       if (byId.has(recordId) || aliased.has(recordId)) { skip.exists++; continue; }
-      if (overlaps(best, others)) { skip.overlap++; continue; }
       if (!best.whole) { skip.clipped++; continue; }
       if (best.end > settledBy) { skip.unsettled++; continue; }
       await records.putIfAbsent('sleep', { recordId, clientTs: 0, deleted: false, ...best.body });

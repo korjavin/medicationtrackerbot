@@ -73,7 +73,7 @@ export function resetHealthAnchors(storage = globalThis.localStorage) {
 // One diagnostics line per kind per run (bd med-w6gx.30), counts only — no
 // times, no readings; for sleep the HealthKit value histogram (0 In Bed, 1
 // asleep, 2 awake, 3-5 stages), e.g.
-// [health] sleep returned=3 samples=3 values={0:1} nights=0 written=0 skip{inBed:1,unsettled:0,clipped:0,exists:0,overlap:0} anchor=moved
+// [health] sleep returned=3 samples=3 values={0:1} nights=0 written=0 skip{inBed:1,unsettled:0,clipped:0,exists:0} anchor=moved
 function kindLine(kind, st) {
     const obj = (o) => `{${Object.keys(o).map((k) => `${k}:${o[k]}`).join(',')}}`;
     const vals = Object.fromEntries(Object.entries(st.values).sort((a, b) => Number(a[0]) - Number(b[0])));

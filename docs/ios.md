@@ -565,7 +565,8 @@ and weight only asks once, at the next open, for the new types.
 - **Diagnostics** (bd med-w6gx.30): every run posts one line per kind to the
   shell's diagnostics log (`diag.append`, "Copy diagnostics"), counts only —
   `[health] sleep returned=… samples=… values={0:1,…} nights=… written=…
-  skip{inBed,unsettled,clipped,exists,overlap} anchor=moved|kept [error=Name]`.
+  skip{inBed,unsettled,clipped,exists} anchor=moved|kept [error=Name]`
+  (workouts add `overlap`).
   When sleep has never returned a sample but BP or weight have, the Settings
   row points at the Sleep switch in Health's per-app access.
 - **Workouts** → the existing `miband` activity record (Workouts → History,
@@ -573,10 +574,23 @@ and weight only asks once, at the next open, for the new types.
   energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
   UUID. A Health workout **never** creates or edits a strength session, set,
   rotation or progression (docs/workout-depth.md) — it is a history row only.
-- **Overlap rule:**
-  - an entry already in the vault wins — a Mi Band night or ride, a manual
-    entry, or (workouts) one imported earlier from another Health source — and
-    the Health copy that overlaps it in time is skipped;
+- **Sleep: one source per sleep day, picked on read** (bd med-w6gx.31). A
+  Health sleep day is always imported, even when a Mi Band night overlaps it,
+  and a `.nxk` never deletes a Health day: both rows are stored. Every reader
+  (`vitals.js` `readSleepLogs` → sleep list, daily fold, overview;
+  `gamification.js`) goes through `healthsource.js` `visibleSleep`. It groups
+  rows by sleep day (`sleepDayOf`, the importer's own boundary, applied to
+  each row's end and `timezone_offset`; a value over 840 is a bot-era
+  seconds-east offset), and a day holding both a Health day
+  and Mi Band sessions shows one source: the one with more **asleep** minutes
+  (Health: `total_minutes`, asleep-only already; Mi Band, summed over the
+  day's sessions: light + deep + rem, else total − awake, else total). A tie
+  goes to the Mi Band. The loser is hidden, never deleted, so arrival order
+  doesn't matter, and a fuller later `.nxk` flips the day by itself.
+- **Overlap rule (workouts):**
+  - an entry already in the vault wins — a Mi Band ride, a manual entry, or
+    one imported earlier from another Health source — and the Health copy
+    that overlaps it in time is skipped;
   - among new overlapping Health workouts (Watch + a third-party app writing
     the same run), the longest wins, ties to the smaller UUID, so every iPhone
     picks the same one; Health sleep sources compete per sleep day, as above;
@@ -585,12 +599,12 @@ and weight only asks once, at the next open, for the new types.
     record of that visit. Other Health workouts during a session (a treadmill
     run) are kept;
   - a deleted Health workout stays deleted: a rescan does not bring it back.
-- **Known residuals:** the rule is applied once, against what this iPhone has
-  synced at that moment — an entry that arrives later (a Mi Band `.nxk` import
-  of a night already imported from Health) does not displace the Health copy,
-  so that night counts twice until one is removed (sleep has no delete in the
-  app yet), and a skipped Health entry stays skipped after the entry that beat
-  it is deleted, until the toggle is switched off and on (a rescan). A night
+- **Known residuals:** the workout rule is applied once, against what this
+  iPhone has synced at that moment, and a skipped Health workout stays skipped
+  after the entry that beat it is deleted, until the toggle is switched off
+  and on (a rescan). The sleep pick is per whole day: a day's Mi Band and
+  Health rows are never mixed, so a band nap the Health day lacks is hidden
+  when Health wins (and vice versa). A night
   whose samples carry no time zone takes its sleep day in UTC; for a morning
   wake-up that is the local date nearly everywhere, but a zone-less and a
   zoned source can file one night on different days (and so show it twice)
