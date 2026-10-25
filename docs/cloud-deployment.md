@@ -35,8 +35,14 @@ per-subdomain names).
 
 Open `https://portainer.<base>`, finish the initial admin setup, then:
 
-1. Create a stack from a Git repository: this repo, `deploy` branch,
-   compose path `docker-compose.cloud.yml`.
+1. Create a stack from a Git repository: this repo, `deploy` branch
+   (`refs/heads/deploy`), compose path `docker-compose.cloud.yml`.
+   > [!IMPORTANT]
+   > Ensure the repository reference is explicitly set to `refs/heads/deploy`. In `master`,
+   > `docker-compose.cloud.yml` specifies `:latest` without file changes, so Portainer
+   > reuses its locally cached `:latest` image instead of pulling updates. The `deploy`
+   > branch updates the compose image tag to each commit's SHA (`:<sha>`), ensuring every
+   > redeploy pulls and starts the exact target build.
 2. Set stack env vars: `CLOUD_BASE_DOMAIN`, `SESSION_SECRET` (≥32 chars,
    Shannon entropy ≥3.5 — same rule as the bot's session secret). Push is
    zero-config: each account gets its own VAPID keypair generated
@@ -69,6 +75,58 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
 Operators who don't want gitops can instead run
 `docker compose -f docker-compose.cloud.yml up -d` directly against the same
 external `proxy` network.
+
+### Changing stack env (Runbook)
+
+When editing or adding stack environment variables in Portainer (either via the
+web UI or the Portainer API), follow these exact steps to ensure the running image
+tag is preserved and does not silently roll back:
+
+1. **Coordinate / announce before triggering**: If operating in a team, post a notice in
+   your ops / deployment channel that an env update and stack redeployment is starting.
+2. **Record the current build ID**:
+   ```bash
+   PREV_BUILD=$(curl -fsS https://<base-domain>/api/version | sed -n 's/.*"build_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+   echo "Pre-change build: $PREV_BUILD"
+   ```
+3. **Verify the Git Reference**:
+   The stack MUST track `refs/heads/deploy` (not `master` or empty). The `deploy`
+   branch is where CI writes the pinned SHA image tag (`ghcr.io/korjavin/medicationtrackerbot:<sha>`).
+   In `master`, the compose file specifies `:latest`; because the compose file on master
+   does not change between commits, Portainer reuses its locally cached `:latest` image
+   without re-pulling. Pointing to `master` or leaving the reference empty can therefore
+   roll back the running container to whatever stale `:latest` image happens to exist on
+   the Docker host.
+4. **Update stack environment**:
+   - **Via Portainer UI**: Navigate to Stacks → `<stack>` → update environment variables
+     under the **Environment variables** section. Confirm the repository reference is set
+     to `refs/heads/deploy`. Click **Update the stack** (with "Re-pull image" enabled if
+     desired).
+   - **Via Portainer API**: Use `POST /api/stacks/<id>/git?endpointId=<endpoint-id>`
+     providing:
+     - The updated `Env` array (all variables, as Portainer replaces the list).
+     - `AutoUpdate` configuration (preserving `Webhook: "<uuid>"` and interval settings).
+     - `RepositoryReferenceName: "refs/heads/deploy"`.
+     - Git authentication fields: carry over `RepositoryAuthentication` and
+       `RepositoryUsername` from `GET /api/stacks/<id>` (password may be omitted to
+       preserve the stored token/secret).
+     Note that `POST /api/stacks/<id>/git` saves the configuration; trigger the actual
+     redeploy afterwards by calling the webhook via `POST /api/stacks/webhooks/<token>`.
+5. **Verify deployment and build ID**:
+   Poll `/api/version` until the service responds:
+   ```bash
+   CURR_BUILD=$(curl -fsS https://<base-domain>/api/version | sed -n 's/.*"build_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+   echo "Post-change build: $CURR_BUILD"
+   ```
+   The `build_id` is a `YYYYMMDD-HHMM` timestamp (or `dev` in local environments).
+   Compare lexicographically: for an env-only change with no concurrent deployment,
+   `$CURR_BUILD` should equal `$PREV_BUILD` (`[ "$CURR_BUILD" = "$PREV_BUILD" ]`).
+   If `[[ "$CURR_BUILD" < "$PREV_BUILD" ]]`, the redeploy rolled back to an older
+   image — immediately restore `RepositoryReferenceName: "refs/heads/deploy"` and
+   re-trigger the redeploy webhook.
+6. **Verify relevant endpoints and record the change**:
+   Verify `/readyz` and any affected endpoints (e.g. `/privacy`), and record the verified
+   `build_id` in your deployment log or team channel.
 
 ### Food-DB Configuration
 
