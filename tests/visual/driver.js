@@ -357,8 +357,13 @@
             // Pull to refresh (bd med-y7b4.6, kit PR2 / PR3). No QA pass has the
             // Health import, and a real pull would sync: "busy" pulls over a
             // stub import that never ends, so the pill stays in its busy state;
-            // "done" shows the ok toast a pull with new readings ends on, kept up.
-            if (step.pull === 'busy') {
+            // "done" shows the ok toast a pull with new readings ends on, kept up;
+            // "stub" only registers that stub, for a real finger drag after
+            // (the iOS native pullDown step, bd med-y7b4.7).
+            if (step.pull === 'stub') {
+                window.AppRefresh.setImport(() => new Promise(() => {}), 'Apple Health', () => true);
+                window.scrollTo(0, 0);
+            } else if (step.pull === 'busy') {
                 window.AppRefresh.setImport(() => new Promise(() => {}), 'Apple Health', () => true);
                 const fire = (type, y) => {
                     const e = new Event(type, { bubbles: true });
