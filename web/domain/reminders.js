@@ -534,11 +534,10 @@ export function computeReminderHorizon({
       // null: a due dose never fires on its own here (the relay's chain nags it).
       fireAtMs: r.state === 'due' ? null : Date.parse(r.state === 'snoozed' ? r.snoozedUntil : r.plannedAt),
     }));
-  // One reminder per upcoming slot, and one per slot holding a snooze (bd
-  // med-4j49): it fires at the slot's EARLIEST snooze end and names every
-  // open dose of the slot — the relay chain it restarts is slot-wide, and one
-  // row per callback keeps a Telegram tap's identity unambiguous.
-  // ponytail: a later snooze of a slot-mate is nagged from the earliest end on.
+  // One reminder per upcoming slot, and one per (slot, snooze end) (bd
+  // med-4j49): each snoozed dose fires at its own snoozed_until, with its
+  // slot's callback. A Telegram tap resolves its doses by the tapped
+  // message's own row (MedIDsForMessage), so rows sharing a callback stay apart.
   const bySlot = new Map();
   const add = (slot, t) => {
     // Carry the identity of every med the reminder names for this slot so
@@ -551,15 +550,18 @@ export function computeReminderHorizon({
   };
   for (const t of targets) {
     if (t.fireAtMs === null) continue;
-    const snoozed = t.fireAtMs !== t.scheduledAtMs;
-    const key = `${t.scheduledAtMs}|${snoozed ? 'snooze' : 'slot'}`;
-    if (!bySlot.has(key)) bySlot.set(key, { slotMs: t.scheduledAtMs, fireAtMs: t.fireAtMs, snoozed, names: [], medicationIds: [] });
-    const slot = bySlot.get(key);
-    slot.fireAtMs = Math.min(slot.fireAtMs, t.fireAtMs);
+    const key = `${t.scheduledAtMs}|${t.fireAtMs}`;
+    if (!bySlot.has(key)) {
+      bySlot.set(key, { slotMs: t.scheduledAtMs, fireAtMs: t.fireAtMs, snoozed: t.fireAtMs !== t.scheduledAtMs, names: [], medicationIds: [] });
+    }
   }
+  // A snooze-end reminder names the slot's doses open at that instant: the
+  // still-due ones and those whose snooze has ended by then — never a mate
+  // still snoozed past it.
   for (const slot of bySlot.values()) {
     for (const t of targets) {
-      if (t.scheduledAtMs === slot.slotMs && (slot.snoozed || t.fireAtMs === slot.slotMs)) add(slot, t);
+      if (t.scheduledAtMs !== slot.slotMs) continue;
+      if (slot.snoozed ? (t.fireAtMs === null || (t.fireAtMs !== t.scheduledAtMs && t.fireAtMs <= slot.fireAtMs)) : t.fireAtMs === slot.slotMs) add(slot, t);
     }
   }
   for (const slot of bySlot.values()) {
