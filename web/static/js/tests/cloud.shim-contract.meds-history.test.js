@@ -621,11 +621,8 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
         env = loadCloudShimFrontendEnv({
             seedRecords: {
-                medication: [seedMedication({ recordId: 1 })],
-                intake: [
-                    seedIntake({ recordId: 'intake-due', medication_id: 1, scheduled_at: slotIso }),
-                    seedIntake({ recordId: 'intake-later', medication_id: 1, scheduled_at: new Date(Date.now() + 8 * HOUR_MS).toISOString() })
-                ]
+                medication: [seedMedication({ recordId: 1, schedule: JSON.stringify({ type: 'daily', times: ['00:00', '06:00', '12:00', '18:00'] }) })],
+                intake: [seedIntake({ recordId: 'intake-due', medication_id: 1, scheduled_at: slotIso })]
             }
         });
         const { window } = env;
@@ -639,10 +636,12 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 body: JSON.stringify({ callback: `s:${Date.parse(slotIso) / 1000}` })
             })));
 
-            await expect(window.offlineAwareApiCall('/api/medications/snooze', 'POST', { intake_id: 'intake-later', duration_minutes: 10 }))
+            // A future dose the projection shows (a stored open row past the
+            // ledger cut with no planned slot is hidden: not_found, med-wi09.21).
+            const later = (await window.apiCall(`/api/doses?from=${new Date(Date.now() + 60 * 1000).toISOString()}`)).find((d) => d.state === 'upcoming');
+            await expect(window.offlineAwareApiCall('/api/medications/snooze', 'POST', { intake_id: later.occId, duration_minutes: 10 }))
                 .rejects.toMatchObject({ status: 409 });
-            const row = (await env.records.list('intake')).find((i) => i.recordId === 'intake-later');
-            expect(row.snoozed_until).toBeFalsy();
+            expect((await env.records.list('intake')).find((i) => i.recordId === later.occId)).toBeUndefined();
         } finally {
             delete globalThis.fetch;
         }
