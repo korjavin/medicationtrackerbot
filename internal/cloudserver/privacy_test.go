@@ -34,7 +34,9 @@ func TestRouter_PrivacyPage(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
+		"<title>MyHealthBot — Privacy Policy</title>",
 		"<h1>MyHealthBot — Privacy Policy</h1>",
+		"run by its developer",
 		"<h2>8. Your rights, and deleting your data</h2>",
 		"<table>",
 		"<strong>Your health records are end-to-end encrypted.</strong>",
@@ -57,7 +59,7 @@ func TestRouter_PrivacyPage(t *testing.T) {
 
 // The policy text carries {{HOST}} / {{CONTACT}}; the deployment fills them in.
 func TestRenderPrivacyPage_Placeholders(t *testing.T) {
-	body := string(renderPrivacyPage(docs.PrivacyPolicy, "example.test", "privacy@example.test"))
+	body := string(renderPrivacyPage(docs.PrivacyPolicy, "example.test", "privacy@example.test", "MyHealthBot", "its developer"))
 	for _, want := range []string{"<code>example.test</code>", `<a href="mailto:privacy@example.test">`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
@@ -69,7 +71,7 @@ func TestRenderPrivacyPage_Placeholders(t *testing.T) {
 }
 
 func TestRenderPrivacyPage_NoContact(t *testing.T) {
-	body := string(renderPrivacyPage(docs.PrivacyPolicy, "example.test", ""))
+	body := string(renderPrivacyPage(docs.PrivacyPolicy, "example.test", "", "MyHealthBot", "its developer"))
 	if !strings.Contains(body, "the in-app feedback form") {
 		t.Error("empty contact should point at the in-app feedback form")
 	}
@@ -113,5 +115,17 @@ func TestDocs_NoRealDomainsOrEmails(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRenderPrivacyPage_NameAndOperator(t *testing.T) {
+	body := string(renderPrivacyPage(docs.PrivacyPolicy, "example.test", "", "Acme Health", "Acme Ltd"))
+	for _, want := range []string{"<title>Acme Health — Privacy Policy</title>", "<h1>Acme Health — Privacy Policy</h1>", "run by Acme Ltd"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q", want)
+		}
+	}
+	if strings.Contains(body, "{{") {
+		t.Error("unfilled placeholder")
 	}
 }

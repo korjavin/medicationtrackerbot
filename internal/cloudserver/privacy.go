@@ -31,16 +31,26 @@ func privacyContact() string {
 	return os.Getenv("SMTP_FROM")
 }
 
+// privacyEnv returns env var k, or def when unset/empty.
+func privacyEnv(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
 // renderPrivacyPage renders docs/privacy-policy.md (once, in New) with the
-// {{HOST}} and {{CONTACT}} placeholders filled in before parsing, so the repo
+// {{HOST}}, {{CONTACT}}, {{NAME}} and {{OPERATOR}} placeholders filled in before parsing, so the repo
 // text carries no domain or address. goldmark escapes raw HTML by default (no
 // WithUnsafe), so neither the markdown nor the env values can inject markup.
-func renderPrivacyPage(md []byte, host, contact string) []byte {
+func renderPrivacyPage(md []byte, host, contact, name, operator string) []byte {
 	s := string(md)
 	if contact == "" {
 		s = strings.ReplaceAll(s, "<{{CONTACT}}>", "the in-app feedback form")
 	}
 	s = strings.ReplaceAll(s, "{{CONTACT}}", contact)
+	s = strings.ReplaceAll(s, "{{NAME}}", name)
+	s = strings.ReplaceAll(s, "{{OPERATOR}}", operator)
 	md = []byte(strings.ReplaceAll(s, "{{HOST}}", host))
 	gm := goldmark.New(goldmark.WithExtensions(extension.Table))
 	doc := gm.Parser().Parse(text.NewReader(md))
@@ -69,7 +79,7 @@ func renderPrivacyPage(md []byte, host, contact string) []byte {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MyHealthBot — Privacy Policy</title>
+<title>` + html.EscapeString(name) + ` — Privacy Policy</title>
 <link rel="stylesheet" href="/css/cloud.css">
 <link rel="stylesheet" href="/static/css/fonts.css">
 </head>

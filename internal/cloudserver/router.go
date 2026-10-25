@@ -117,7 +117,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		buildID:      buildID,
 		api:          api,
 		landingRaw:   landing,
-		privacyPage:  renderPrivacyPage(docs.PrivacyPolicy, baseDomain, privacyContact()),
+		privacyPage:  renderPrivacyPage(docs.PrivacyPolicy, baseDomain, privacyContact(), privacyEnv("PRIVACY_NAME", "MyHealthBot"), privacyEnv("PRIVACY_OPERATOR", "its developer")),
 		inviteIndex:  invite,
 		handoffIndex: handoff,
 	}

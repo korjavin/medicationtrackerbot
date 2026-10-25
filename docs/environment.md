@@ -112,5 +112,7 @@ SMTP_FROM=invites@example.com         # Required with SMTP_HOST. Sender address 
 SMTP_FROM_NAME="Med Tracker"          # Optional. Display name on From.
                                       # A partial or malformed SMTP_* set (HOST without FROM or vice versa, USERNAME without PASSWORD, a non-numeric PORT, a FROM with a display name) logs an error naming the variables — never their values — and leaves the feature OFF; cmd/cloud still starts.
 PRIVACY_CONTACT=privacy@example.com   # Optional. Contact address on the base-domain /privacy page: fills {{CONTACT}} in docs/privacy-policy.md as a mailto link ({{HOST}} becomes CLOUD_BASE_DOMAIN). Unset = SMTP_FROM; both unset = the page names the in-app feedback form instead, no mailto. Read once at startup.
+PRIVACY_NAME=MyHealthBot   # Optional. Product name on the /privacy page: fills {{NAME}} in docs/privacy-policy.md and the HTML title. Default `MyHealthBot`. Read once at startup.
+PRIVACY_OPERATOR=its developer   # Optional. Fills {{OPERATOR}} ("run by ...") in docs/privacy-policy.md. Default `its developer`. Read once at startup.
 FEEDBACK_AGE_IDENTITY=/path/dev.key   # Dev/ops only, NOT read by the server. Default for the `-identity` flag of the `cmd/feedbackpull` decrypt CLI: the age private key (counterpart to FEEDBACK_AGE_RECIPIENT) the developer uses to drain + decrypt the feedback queue. Keep it off the server host.
 ```
