@@ -130,7 +130,7 @@ targets:
         NSCameraUsageDescription: Scan food barcodes, take meal photos and scan your account QR code.
         # Voice calls and voice notes in feedback (getUserMedia audio).
         NSMicrophoneUsageDescription: Talk to the voice assistant and record voice notes in feedback.
-        NSHealthShareUsageDescription: Import your blood pressure, weight, sleep and workouts from Apple Health into your encrypted vault.
+        NSHealthShareUsageDescription: Import your blood pressure, weight, sleep, workouts, steps, heart rate and blood oxygen from Apple Health into your encrypted vault.
         # Read-only, but App Store upload validation rejects a HealthKit app
         # without the update string too (seen on the med-w6gx.6 dispatch).
         NSHealthUpdateUsageDescription: Med Tracker only reads from Apple Health and never writes to it.
