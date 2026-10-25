@@ -89,22 +89,20 @@ const DAY_ROW_ID = /^sleep-hk-(\d{4}-\d{2}-\d{2})$/;
 // day or session is never resurrected). A ledger row is immutable, so plain
 // clientTs LWW. A day row is a projection, so the FULLER wins (asleep
 // minutes): a newer day row folded from a partial ledger can no longer bury
-// a fuller one. Equal minutes: the same body keeps local, else the newer.
-// Remaining ties break on the body, so the result never depends on which
-// side is local (commutative up to an identical body).
+// a fuller one. Then the newer clientTs, then the body: a total order
+// (minutes, clientTs, body), so the fold is commutative and associative and
+// never depends on arrival order. An identical copy at the same clientTs
+// keeps local.
 export function mergeSleep(local, incoming) {
   if (!local) return incoming;
-  if (local.deleted) return local;
-  if (incoming.deleted) return incoming;
-  if (DAY_ROW_ID.test(local.recordId)) {
+  if (!local.deleted !== !incoming.deleted) return local.deleted ? local : incoming;
+  if (!local.deleted && DAY_ROW_ID.test(local.recordId)) {
     const d = asleepMinutes(incoming) - asleepMinutes(local);
     if (d) return d > 0 ? incoming : local;
   }
-  const [lb, ib] = [bodyKey(local), bodyKey(incoming)];
-  if (lb === ib) return local;
   const ts = (incoming.clientTs || 0) - (local.clientTs || 0);
   if (ts) return ts > 0 ? incoming : local;
-  return ib > lb ? incoming : local;
+  return bodyKey(incoming) > bodyKey(local) ? incoming : local;
 }
 
 // visibleSleep (bd med-w6gx.31): the sleep rows every reader shows, given the

@@ -3675,17 +3675,18 @@ describe('sleep day rows merge by fullness and repair the clientTs order (med-0x
 
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('mergeSleep is commutative: the same winner whichever side is local', () => {
-    const rows = [
-      day(450, 100), day(40, 200), day(450, 300, { notes: 'x' }), day(450, 100, { notes: 'y' }),
-      day(450, 100, { notes: 'z' }), tomb(DAY, 50),
-      session('sleep-1', 450, 10), session('sleep-1', 470, 5), session('sleep-1', 460, 5), tomb('sleep-1', 1),
+  it('mergeSleep folds to the same row, body and clientTs, in every arrival order', () => {
+    const days = [
+      day(450, 100, { notes: 'X' }), day(450, 300, { notes: 'X' }), day(450, 200, { notes: 'Y' }), // Argus' repro
+      day(40, 400), day(450, 200, { notes: 'Z' }), tomb(DAY, 50), tomb(DAY, 60),
     ];
-    const key = (r) => JSON.stringify({ ...r, clientTs: undefined });
-    for (const a of rows) {
-      for (const b of rows) {
-        if (a.recordId !== b.recordId || (a.deleted && b.deleted)) continue;
-        expect(key(mergeSleep(a, b)), `${key(a)} vs ${key(b)}`).toBe(key(mergeSleep(b, a)));
+    const sessions = [session('sleep-1', 450, 10), session('sleep-1', 470, 5), session('sleep-1', 460, 5), session('sleep-1', 450, 30), tomb('sleep-1', 1)];
+    const perms = (xs) => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p])));
+    const triples = (xs) => xs.flatMap((a, i) => xs.slice(i + 1).flatMap((b, j) => xs.slice(i + j + 2).map((c) => [a, b, c])));
+    for (const set of [days, sessions]) {
+      for (const t of [...triples(set), set]) {
+        const results = new Set(perms(t).map((p) => JSON.stringify(p.reduce((acc, r) => mergeSleep(acc, r), null))));
+        expect(results.size, JSON.stringify(t)).toBe(1);
       }
     }
     expect(mergeSleep(day(40, 200), day(450, 100)).total_minutes).toBe(450); // fuller beats newer
@@ -3768,9 +3769,14 @@ describe('sleep day rows merge by fullness and repair the clientTs order (med-0x
     expect((await row(DAY)).total_minutes).toBe(40);
     expect((await row('sleep-2')).deleted).toBe(false);
     expect(posted).toEqual([]);
-    // A later compaction carrying the same (now seen) bump reduces as usual.
+    // Once the bump is seen, a later compaction carrying it reduces as usual:
+    // a fuller acknowledged day row is kept and queued once as a repair.
+    await seed([day(450, 250)]);
     await replaceAllRecords([day(40, 200), bump], { reduceAcked: true });
-    expect((await row(DAY)).total_minutes).toBe(40);
+    const kept = await row(DAY);
+    expect(kept.total_minutes).toBe(450);
+    expect(kept.clientTs).toBeGreaterThan(250);
+    expect((await getAll('pending')).map((p) => p.recordId)).toEqual([DAY]);
   });
 
   it('an import replace keeps replace semantics for sleep', async () => {
