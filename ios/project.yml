@@ -56,8 +56,12 @@ targets:
           i=0
           while "$pb" -c "Print :PreferenceSpecifiers:$i" "$p" >/dev/null 2>&1; do
             if [ "$("$pb" -c "Print :PreferenceSpecifiers:$i:Title" "$p" 2>/dev/null)" = Privacy ]; then
-              "$pb" -c "Set :PreferenceSpecifiers:$i:FooterText \"Privacy policy: https://$WG_BASE_DOMAIN/privacy. In the app: Settings → Account & privacy.\"" "$p"
-              exit $?
+              want="Privacy policy: https://$WG_BASE_DOMAIN/privacy. In the app: Settings → Account & privacy."
+              "$pb" -c "Set :PreferenceSpecifiers:$i:FooterText \"$want\"" "$p" || exit 1
+              # Fail the build unless the footer reads exactly that (no stray quotes).
+              [ "$("$pb" -c "Print :PreferenceSpecifiers:$i:FooterText" "$p")" = "$want" ] && exit 0
+              echo "error: Privacy FooterText not set in $p"
+              exit 1
             fi
             i=$((i+1))
           done
