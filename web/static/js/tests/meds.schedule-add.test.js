@@ -37,6 +37,7 @@ describe('Meds — app-bar Add CTA (med-xso6.18)', () => {
         expect(addBtn.classList.contains('wg-btn')).toBe(true);
         expect(addBtn.classList.contains('wg-btn--ghost')).toBe(true);
         expect(addBtn.classList.contains('wg-btn--icon')).toBe(true);
+        expect(document.querySelector('#add-btn i.wg-ico[data-icon="plus"]')).not.toBeNull();
         expect(addBtn.classList.contains('wg-btn--primary')).toBe(false);
         expect(addBtn.classList.contains('wg-toolbar-btn')).toBe(false);
         expect(addBtn.getAttribute('aria-label')).toBe('Add medication');
