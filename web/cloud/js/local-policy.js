@@ -872,7 +872,9 @@ export const ERASE_RECORD_FAILED_COPY = 'The anonymous install record on the ser
 const ERASE_RECORD_MS = 45_000;
 async function eraseInstallRecord(win) {
   const attest = await attestStatus(win);
-  if (!attest) return 'none';
+  // No attested key: nothing the shell could sign with (assert would answer
+  // no_key), so no challenge is fetched — offline, no false failure.
+  if (!attest || attest.attested !== true) return 'none';
   const out = await sharedAttestClient(attest.base, win).erase(AbortSignal.timeout(ERASE_RECORD_MS));
   if (out === 'deleted' || out === 'unknown') return 'deleted';
   return out === 'no_key' ? 'none' : 'failed';

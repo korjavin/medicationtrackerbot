@@ -3561,6 +3561,16 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             expect(win.safeConfirm).not.toHaveBeenCalled();
             expect(resets()).toEqual([['local.reset']]);
         });
+
+        it('a never-enrolled install (attested false) asks our server nothing', async () => {
+            await boot(freshInstall());
+            reply.erase = () => new Response(null, { status: 204 });
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });
+            expect(toBase()).toEqual([]);
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+        });
     });
 });
 
