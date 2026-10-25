@@ -805,4 +805,52 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
             delete globalThis.fetch;
         }
     });
+
+    // Two snooze ends in one recent slot fire separately: the first names only
+    // the dose open by then, so the relay chain its send starts (tg_med_ids)
+    // never nags or confirms the mate snoozed for longer.
+    it('two snooze ends in a recent slot reach web push and local mode at their own times, each naming only the doses open by then', async () => {
+        const slotMs = Math.floor((Date.now() - 30 * 60 * 1000) / 60000) * 60000;
+        const slotIso = new Date(slotMs).toISOString();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    seedMedication({ recordId: 1, name: 'Metformin' }),
+                    seedMedication({ recordId: 2, name: 'Aspirin' })
+                ],
+                intake: [
+                    seedIntake({ recordId: 'intake-a', medication_id: 1, scheduled_at: slotIso }),
+                    seedIntake({ recordId: 'intake-b', medication_id: 2, scheduled_at: slotIso })
+                ]
+            }
+        });
+        const { window } = env;
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
+        const refire = (path) => fetchMock.mock.calls.filter(([url]) => url === `/api/telegram/${path}`)
+            .map(([, init]) => JSON.parse(init.body));
+        try {
+            await window.apiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-a'], minutes: 10 });
+            await window.apiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-b'], minutes: 120 });
+            const nowUnix = Math.floor(Date.now() / 1000);
+            // Nothing in the slot is due any more: the live chain stops.
+            await vi.waitFor(() => expect(refire('cancel-refire')).toEqual([
+                expect.objectContaining({ callback: `s:${slotMs / 1000}` })
+            ]));
+
+            await vi.advanceTimersByTimeAsync(2100);
+            const entries = pushSchedule.mock.calls.at(-1)[1].filter((e) => e.kind === 'medication');
+            expect(entries).toEqual([
+                expect.objectContaining({ fireAtUnix: nowUnix + 600, callback: `s:${slotMs / 1000}`, medicationIds: [1] }),
+                expect.objectContaining({ fireAtUnix: nowUnix + 7200, callback: `s:${slotMs / 1000}`, medicationIds: [1, 2] })
+            ]);
+            const local = localNotificationItems(entries, { delivery: 'webpush' }, nowUnix);
+            expect(local.slice(0, 2).map((i) => i.fireAtUnix)).toEqual([nowUnix + 600, nowUnix + 7200]);
+            expect(local[0].body).toContain('Metformin');
+            expect(local[0].body).not.toContain('Aspirin');
+            expect(local[1].body).toContain('Aspirin');
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
 });
