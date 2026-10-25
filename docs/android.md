@@ -150,7 +150,10 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   only (no `accountHost`, no `wgLocalMode`, flag `wgInstallReferrerDone` unset —
   an upgrade sets the flag without reading) the shell reads `installReferrer`
   once, takes `invite=<landing URL>` (decoded once, then `parseInvite`) and
-  fills the slot only if it is still empty, dated by Play's click time. The
+  fills the slot only if it is still empty, dated by Play's click time. While
+  that read runs, `invite.pending` replies are held (capped at 10 s) and answered
+  with the slot once it settles; a page that got the invite that way needs no
+  `?invite=1` reload (bd med-ydt2: W1 flashed before a late referrer). The
   emulator has no Play: the hand-off is an owner internal-track check.
   Bridge ops (both modes): `invite.pending` → `{url, receivedAt}` or `null`;
   `invite.clear` → `true`; `clipboard.read` (Android only) → the primary clip's

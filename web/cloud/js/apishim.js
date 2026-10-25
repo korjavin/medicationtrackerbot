@@ -177,7 +177,9 @@ function debugOnce(key, ...args) {
 //                 so W1 never runs on an empty mirror of an existing account
 //                 (bd med-ejgf). Defaults to sync.js hasCaughtUp on the real
 //                 sync store; any injected store (local mode, tests) has
-//                 nothing to pull and is always caught up.
+//                 nothing to pull and is always caught up. cloud-boot.js
+//                 passes its own through installApiShim: caught up AND the
+//                 local → cloud move pickup settled (bd med-ydt2).
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
@@ -1691,7 +1693,7 @@ export function createApiRouter(ctx, {
 // serves its own CSP).
 export function installApiShim(ctx, {
   records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
-  win, now: nowOverride, timeZone: timeZoneOverride,
+  win, now: nowOverride, timeZone: timeZoneOverride, caughtUp,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   // Two routers over the same records store, differing only in the origin they
@@ -1709,7 +1711,7 @@ export function installApiShim(ctx, {
   // both, which keeps the harness a drop-in swap.
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
-    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win,
+    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win, caughtUp,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });

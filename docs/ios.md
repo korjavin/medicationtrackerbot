@@ -213,6 +213,10 @@ Not covered by flow QA; check on a TestFlight build before release:
    an account". Local mode opens with the account's records on the device.
 3. **Delete account:** Settings → delete account. The app lands in local mode
    on "Have an invite?", and a relaunch stays local.
+4. **Swipe back (bd med-y7b4.4, either mode):** a left-edge swipe closes an
+   open sheet, then a Settings sub-page, then returns to the previous tab; on
+   Today it does nothing (no Safari, no blank page). The `back-swipe-*`
+   visual scenes cover the sheet, the sub-page and Today on the Simulator.
 
 A passkey stand-in for these (a Debug-only WKUserScript injecting
 `android/app/src/debug/assets/qa-softauthn.js` on a `qa.test` account origin)
@@ -556,6 +560,12 @@ and weight only asks once, at the next open, for the new types.
   every later run first re-reads sleep by time window (`health.query {type:
   "sleep", from: start − 48h, to: now}`, no anchor), until nothing is left
   settling.
+- **Diagnostics** (bd med-w6gx.30): every run posts one line per kind to the
+  shell's diagnostics log (`diag.append`, "Copy diagnostics"), counts only —
+  `[health] sleep returned=… samples=… values={0:1,…} nights=… written=…
+  skip{inBed,unsettled,clipped,exists,overlap} anchor=moved|kept [error=Name]`.
+  When sleep has never returned a sample but BP or weight have, the Settings
+  row points at the Sleep switch in Health's per-app access.
 - **Workouts** → the existing `miband` activity record (Workouts → History,
   labelled *Apple Health*): type name, start/end, duration, distance, active
   energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
