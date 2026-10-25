@@ -20,8 +20,7 @@ import (
 const projectDomainB64 = "bXloZWFsdGhib3QuYWk="
 
 // Known hits owned by other beads, one line each.
-var pendingNative = map[string]bool{
-}
+var pendingNative = map[string]bool{}
 
 var (
 	emailRe = regexp.MustCompile(`[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})`)
