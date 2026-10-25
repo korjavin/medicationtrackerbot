@@ -471,14 +471,6 @@
           "tz_offset": 7200,
           "value": 97
         }
-      ],
-      "stress": [
-        {
-          "date_time": "2026-07-08T09:00:00Z",
-          "tz_offset": 7200,
-          "value": 42,
-          "info": "relaxed"
-        }
       ]
     },
     "diary": {

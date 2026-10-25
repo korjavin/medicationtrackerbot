@@ -75,6 +75,7 @@ window.MedTrackerCloudReady = (async function boot() {
         const justPicked = policy.showLeaveToastOnce({ win: window });
         await policy.pickupLeaveStash({ win: window, justPicked })
             .catch((e) => console.error('[local] leave pickup failed', e));
+        shimCall.unifyLegacy().catch((e) => console.error('[local] legacy sleep/stress conversion failed', e));
         const records = localRecordsPort();
         policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records, win: window });
         policy.startLocalHealthImport({ ctx: LOCAL_CTX, records, win: window });

@@ -420,12 +420,29 @@ window.MedTrackerCloudReady = (async function boot() {
             // import, and if not why (sync.js forceSnapshot; bd med-o7zq.6): a
             // move from another device must not be called done while the only
             // durable copy is still elsewhere.
+            let upload;
             try {
-                return { upload: await forceSnapshot(ctx) };
+                upload = await forceSnapshot(ctx);
             } catch (err) {
                 console.warn('[cloud] import applied locally; sync to other devices deferred', err);
-                return { upload: 'retrying' };
+                upload = 'retrying';
             }
+            // One sleep model, no stress (bd med-0xad.4): the file may carry
+            // legacy sleep sessions, and a replace keeps the (no longer
+            // managed) stress rows. Converted here as ordinary ops on top of
+            // the snapshot; a failure is left to the next boot's pass.
+            // A merge reads this mirror too: only past a pull in this page load.
+            try {
+                const [{ recordsPort, pulledThisSession }, { createVitalsDomain }] = await Promise.all([
+                    import('/js/sync.js'),
+                    import('/domain/vitals.js'),
+                ]);
+                if (merge && !pulledThisSession()) throw new Error('mirror not pulled this session');
+                await createVitalsDomain({ records: recordsPort(ctx), now: Date.now, timeZone: 'UTC' }).unifyLegacy();
+            } catch (err) {
+                console.warn('[cloud] legacy sleep/stress conversion deferred to the next boot', err);
+            }
+            return { upload };
         },
         async resetLocalSync() {
             // Clear the server inbox backlog FIRST — while sync is still wedged.
@@ -502,7 +519,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount, requestFreshDrain }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount, requestFreshDrain, pulledThisSession }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
@@ -556,6 +573,23 @@ window.MedTrackerCloudReady = (async function boot() {
         const pulled = Promise.resolve(pullOnOpen(ctx));
         if (window.MedTrackerCloud) window.MedTrackerCloud.pulled = pulled.then(() => {}, () => {});
         await pulled;
+        // One sleep model, no stress (bd med-0xad.4): convert whatever legacy
+        // rows the mirror has (none: no writes), but only once a pull in this
+        // page load reached the tail; an offline boot retries after each
+        // drain (onSettled below) until it has run. Not awaited.
+        let unified = false;
+        const unifyLegacy = () => {
+            if (unified) return;
+            Promise.resolve().then(() => {
+                if (unified || !pulledThisSession()) return null;
+                unified = true;
+                return shimCall.unifyLegacy();
+            }).catch((e) => {
+                unified = false; // a failed or paused run retries on the next drain
+                console.error('[cloud-boot] legacy sleep/stress conversion failed', e);
+            });
+        };
+        unifyLegacy();
         // bd med-ejgf: the shim reports needs_first_run false until this
         // device has pulled the account once, so W1 never writes flags or the
         // reminder default over an existing account from an empty mirror. The
@@ -687,7 +721,7 @@ window.MedTrackerCloudReady = (async function boot() {
             const host = document.getElementById('app-banners');
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: askFirstRun });
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { unifyLegacy(); return askFirstRun(); } });
         // Pull to refresh (bd med-y7b4.6): one more drain through the same
         // single-slot guard. Registered after the boot pull so the two never
         // overlap. What lands repaints through notifyRecordsChanged.

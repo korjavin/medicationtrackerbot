@@ -28,8 +28,10 @@
 //     rotation is one-per-group `rotation-<groupId>`.
 //   - intake: scheduled slots re-mint `intake-<medId>-<slotUnixSeconds>`;
 //     manual (taken_at == scheduled_at) mint `intake-manual-...`.
-//   - vitals hr/spo2/stress are day-batched ({day, samples:[...]}); the vault
+//   - vitals hr/spo2 are day-batched ({day, samples:[...]}); the vault
 //     flattens them to per-sample arrays and this packs/unpacks by UTC day.
+//     Stress is gone (bd med-0xad.4): an older file's vitals.stress is
+//     accepted and ignored, never written.
 //   - weightgoal is append-only history (many rows), not a singleton — the
 //     vault carries `weight.goals[]` oldest-first; only the newest is current.
 //   - singletons: bpgoal, weight-unit, settings, features, activelocation,
@@ -89,7 +91,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'workoutgroup', 'workoutvariant', 'workoutexercise', 'exerciselibrary',
   'workoutrotation', 'workoutsession', 'exerciselog', 'miband', 'equipment',
   'location', 'activelocation',
-  'sleep', 'daystats', 'hrsample', 'spo2sample', 'stresssample',
+  'sleep', 'daystats', 'hrsample', 'spo2sample',
   'note',
   'tracker', 'trackerlog',
   'tzplan', 'tzhistory', 'tztransition', 'medsched',
@@ -167,7 +169,7 @@ export function mergeRecords(existing, rawIncoming) {
 // ponytail: the unioned base row is not re-split at vitals.js
 // MAX_SAMPLES_PER_RECORD; it lands via the snapshot, and the next
 // importDayBatched of that day re-partitions it.
-const DAY_BATCH_TYPES = new Set(['hrsample', 'spo2sample', 'stresssample']);
+const DAY_BATCH_TYPES = new Set(['hrsample', 'spo2sample']);
 
 function unionDayBatches(existing, incoming, taken) {
   const unions = new Map();
@@ -488,7 +490,6 @@ export function recordsToVault(records, { now, includeSecrets = true, backupAt }
     day_stats: sortBy(pick('daystats'), (r) => r.day).map((r) => stripMeta(r)),
     heart: unpackSamples('hrsample'),
     spo2: unpackSamples('spo2sample'),
-    stress: unpackSamples('stresssample'),
   };
 
   // --- diary ---
@@ -901,7 +902,7 @@ export function vaultToRecords(vault, { now } = {}) {
   for (const ds of vitals.day_stats || []) push('daystats', `daystats-${ds.day}`, { ...ds });
   packSamples('hrsample', vitals.heart || [], push, sampleCutoffMs);
   packSamples('spo2sample', vitals.spo2 || [], push, sampleCutoffMs);
-  packSamples('stresssample', vitals.stress || [], push, sampleCutoffMs);
+  // vitals.stress (older files) is ignored (bd med-0xad.4).
 
   // --- diary (numeric-string recordId, as notes.js mints) ---
   for (const n of (data.diary || {}).notes || []) push('note', String(mintNum()), { ...n });
@@ -1094,10 +1095,9 @@ const HOUR_MS = 60 * 60 * 1000;
 // have produced over the raw ones.
 //
 // The shape is unchanged — {date_time, tz_offset, value} — so vitals.js needs
-// no change, no new record type, no vault-format bump. Two deliberate losses,
-// both invisible: a bucket's min/max collapse to its mean (bucketVitals only
-// ever surfaces min/max inside the 30d window, which stays raw), and a stress
-// sample's `info` label is dropped (a text label has no mean).
+// no change, no new record type, no vault-format bump. One deliberate loss,
+// invisible: a bucket's min/max collapse to its mean (bucketVitals only
+// ever surfaces min/max inside the 30d window, which stays raw).
 //
 // Idempotent: re-importing a cloud export re-buckets already-hourly samples to
 // themselves — one sample per hour, mean of one value, date_time already at the
@@ -1127,7 +1127,7 @@ function hourlyAverages(samples) {
 // vitals.js readSamples expects. Samples within a batch stay ascending.
 //
 // Samples older than cutoffMs are hourly-averaged first: on a real 3-year
-// archive the raw heart/spo2/stress streams are 105 MiB (57% of the vault) that
+// archive the raw heart/spo2 streams are 105 MiB (57% of the vault) that
 // the UI can never display. cutoffMs is relative to import time, not to the
 // vault's exported_at.
 function packSamples(recordType, samples, push, cutoffMs) {

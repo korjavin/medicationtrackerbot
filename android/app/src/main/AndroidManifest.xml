@@ -22,8 +22,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <!-- Health Connect import (bd med-nt9p.8, .9): READ only, exactly what the Play declaration lists.
-         Heart rate, calories and distance are a workout's totals. -->
+    <!-- Health Connect import (bd med-nt9p.8, .9, med-0xad.3): READ only, exactly what the Play declaration lists.
+         Heart rate is its own kind and a workout's average; calories and distance are a workout's totals. -->
     <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
     <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
@@ -31,6 +31,10 @@
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <!-- Older than 30 days before the grant; requested only where Health Connect offers it. -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
 
     <application
         android:name=".App"
