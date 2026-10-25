@@ -299,16 +299,17 @@ jobs:
           command -v xcodegen >/dev/null || brew install xcodegen
           xcodegen generate
           xcodebuild -version
+          # HealthKit refuses an app without its entitlement and the unsigned
+          # build carries none: link it in as Xcode's simulated-entitlements
+          # section (bd med-0xad.2, scene health-kit-import). A codesign with
+          # --entitlements instead made the app fail to launch (run 40227725896).
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
-            WG_BASE_DOMAIN=qa.test | tail -n 30
+            WG_BASE_DOMAIN=qa.test \
+            'OTHER_LDFLAGS=$(inherited) -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker $(SRCROOT)/qa/sim-healthkit.entitlements' \
+            | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
-          # HealthKit refuses an app without its entitlement, and an unsigned
-          # build has none: ad-hoc sign it in, so health-kit-import can
-          # authorize and seed (bd med-0xad.2).
-          codesign --force --deep --sign - --entitlements qa/sim-healthkit.entitlements \
-            build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app
 
       - name: Create and boot the simulator
         run: ios/qa/boot-sim.sh "${{ matrix.types }}" "${{ matrix.width }}pt"
