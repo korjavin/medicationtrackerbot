@@ -2,6 +2,9 @@ package cloudstore
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"strings"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -15,8 +18,16 @@ import (
 // than one here would never be usable anyway.
 type MCPRemote struct {
 	AccountID string
-	Token     string
-	RelayURL  string
+	// Token is the legacy plaintext token column. For rows written or converted
+	// since migration 037 it holds a random placeholder (IsSealedTokenPlaceholder)
+	// and the real token lives sealed in TokenCT/TokenNonce. Any other value is
+	// a real plaintext token: a pre-037 row, or one an older binary re-enabled
+	// after a rollback (its upsert leaves token_ct stale) — the cloudserver
+	// layer trusts it over TokenCT, seals it, and swaps in a placeholder.
+	Token      string
+	TokenCT    []byte
+	TokenNonce []byte
+	RelayURL   string
 	PairingID string
 	// PairingKeyCT/PairingKeyNonce hold the pairing key sealed at rest under the
 	// HKDF-derived AES-GCM key (see internal/cloudserver mcp_seal.go), mirroring
@@ -30,17 +41,60 @@ type MCPRemote struct {
 	CreatedAt       time.Time
 }
 
+// sealedTokenPrefix marks the token column's placeholder. Real tokens are
+// Crockford base32 plus '-', so they can never contain ':'.
+const sealedTokenPrefix = "sealed:"
+
+// IsSealedTokenPlaceholder reports whether a token column value is the
+// placeholder written alongside a sealed token (not a real plaintext token).
+func IsSealedTokenPlaceholder(s string) bool {
+	return strings.HasPrefix(s, sealedTokenPrefix)
+}
+
+// sealedTokenPlaceholder returns a fresh random value for the NOT NULL legacy
+// token column. Random, not empty or constant: an older binary (pre-037) still
+// compares the presented token against this column, and "" or a fixed string
+// would be a guessable token for it. 128 random bits can't be guessed.
+func sealedTokenPlaceholder() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return sealedTokenPrefix + hex.EncodeToString(b), nil
+}
+
 // UpsertMCPRemote inserts or replaces accountID's hosted-remote enablement.
 // Re-enable (a fresh POST /api/mcp/remote) rotates every field, including the
 // token — the only events that change it, per the plan, are this and delete.
-// The pairing key is stored sealed (pairingKeyCT/pairingKeyNonce); the legacy
-// plaintext pairing_key column is written empty so no plaintext key ever lands
-// at rest.
-func (r *Repo) UpsertMCPRemote(ctx context.Context, accountID, token, relayURL, pairingID string, pairingKeyCT, pairingKeyNonce []byte, now time.Time) error {
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO mcp_remote (account_id, token, relay_url, pairing_id, pairing_key, pairing_key_ct, pairing_key_nonce, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(account_id) DO UPDATE SET token = excluded.token, relay_url = excluded.relay_url, pairing_id = excluded.pairing_id, pairing_key = excluded.pairing_key, pairing_key_ct = excluded.pairing_key_ct, pairing_key_nonce = excluded.pairing_key_nonce, created_at_unix = excluded.created_at_unix`,
-		accountID, token, relayURL, pairingID, []byte{}, pairingKeyCT, pairingKeyNonce, storedb.TimeToUnix(now))
+// The token and pairing key are stored sealed (tokenCT/tokenNonce,
+// pairingKeyCT/pairingKeyNonce); the legacy plaintext columns get a random
+// placeholder / an empty blob so neither secret ever lands at rest in clear.
+func (r *Repo) UpsertMCPRemote(ctx context.Context, accountID, relayURL, pairingID string, tokenCT, tokenNonce, pairingKeyCT, pairingKeyNonce []byte, now time.Time) error {
+	placeholder, err := sealedTokenPlaceholder()
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx,
+		`INSERT INTO mcp_remote (account_id, token, token_ct, token_nonce, relay_url, pairing_id, pairing_key, pairing_key_ct, pairing_key_nonce, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(account_id) DO UPDATE SET token = excluded.token, token_ct = excluded.token_ct, token_nonce = excluded.token_nonce, relay_url = excluded.relay_url, pairing_id = excluded.pairing_id, pairing_key = excluded.pairing_key, pairing_key_ct = excluded.pairing_key_ct, pairing_key_nonce = excluded.pairing_key_nonce, created_at_unix = excluded.created_at_unix`,
+		accountID, placeholder, tokenCT, tokenNonce, relayURL, pairingID, []byte{}, pairingKeyCT, pairingKeyNonce, storedb.TimeToUnix(now))
+	return err
+}
+
+// ResealMCPRemoteToken writes the sealed token for accountID and replaces the
+// plaintext token column with a placeholder — the one-time startup conversion
+// of rows holding a plaintext token. Guarded on the plaintext it converted
+// (WHERE token = plaintext) so it can't clobber a row a concurrent re-enable
+// rewrote in between. One UPDATE, so a crash leaves the row either fully
+// legacy or fully sealed; re-running on a converted row is a no-op.
+func (r *Repo) ResealMCPRemoteToken(ctx context.Context, accountID, plaintext string, tokenCT, tokenNonce []byte) error {
+	placeholder, err := sealedTokenPlaceholder()
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx,
+		`UPDATE mcp_remote SET token_ct = ?, token_nonce = ?, token = ? WHERE account_id = ? AND token = ?`,
+		tokenCT, tokenNonce, placeholder, accountID, plaintext)
 	return err
 }
 
@@ -65,7 +119,7 @@ func (r *Repo) DeleteMCPRemote(ctx context.Context, accountID string) error {
 // rebuild the runtime hosted-shim registry (the relay's pairing table is
 // in-memory, so every enablement needs re-registering after a restart).
 func (r *Repo) ListMCPRemote(ctx context.Context) ([]MCPRemote, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT account_id, token, relay_url, pairing_id, pairing_key, pairing_key_ct, pairing_key_nonce, created_at_unix FROM mcp_remote`)
+	rows, err := r.db.QueryContext(ctx, `SELECT account_id, token, token_ct, token_nonce, relay_url, pairing_id, pairing_key, pairing_key_ct, pairing_key_nonce, created_at_unix FROM mcp_remote`)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +131,7 @@ func (r *Repo) ListMCPRemote(ctx context.Context) ([]MCPRemote, error) {
 			m           MCPRemote
 			createdUnix int64
 		)
-		if err := rows.Scan(&m.AccountID, &m.Token, &m.RelayURL, &m.PairingID, &m.PairingKey, &m.PairingKeyCT, &m.PairingKeyNonce, &createdUnix); err != nil {
+		if err := rows.Scan(&m.AccountID, &m.Token, &m.TokenCT, &m.TokenNonce, &m.RelayURL, &m.PairingID, &m.PairingKey, &m.PairingKeyCT, &m.PairingKeyNonce, &createdUnix); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = storedb.UnixToTime(createdUnix)
