@@ -80,7 +80,7 @@ list of categories; each is stored only as long as stated.
 | Telegram (if linked) | Your chat id and your bot's token, stored encrypted on the server under a server key (this is server-side encryption, not vault-grade) | Until you unlink |
 | Invite request | The email address and note you sent us, or your Telegram name and id, and our decision | 90 days |
 | Feedback | What you write and attach, encrypted on your device to the developer; the app version and feedback kind are readable | Until the developer collects it |
-| Logs | Structured application logs: account address, timestamps, request outcomes, fingerprints. Secrets, provider keys, tokens and request bodies are never logged (enforced by tests). The reverse proxy's access log is off | Bounded by log rotation on the server, measured in days or megabytes, not months |
+| Logs | Structured application logs: account address, timestamps, request outcomes, fingerprints. Secrets, provider keys, tokens and request bodies are never logged (enforced by tests). The reverse proxy's access log is off | Bounded by size, not time: the server keeps about 30 MB of recent log lines and drops older ones; a redeploy wipes them |
 
 We do not build profiles, do not correlate metadata with content (we have no
 content), and do not share this metadata with anyone except the service
