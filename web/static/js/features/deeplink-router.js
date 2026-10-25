@@ -189,11 +189,14 @@ function maybeRunStartParamDeepLink() {
         const timedOut = Date.now() - startedAt >= 5000;
         if (modalReady && (flagsReady || timedOut)) {
             clearInterval(checkInterval);
+            // Still startup routing, though it lands after AppBack.ready():
+            // it replaces the restored section instead of stacking it.
+            const go = (t) => (window.AppBack ? window.AppBack.replace(() => switchTab(t)) : switchTab(t));
             if (!isDeepLinkFeatureEnabled('bp')) {
-                switchTab('today');
+                go('today');
                 return;
             }
-            switchTab('bp');
+            go('bp');
             setTimeout(showBPRecordModal, 500);
         }
     }, 100);

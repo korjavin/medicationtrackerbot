@@ -48,6 +48,10 @@ const ALLOWLIST = [
         reason: 'wires the in-app back chevron to section navigation — no API reads',
     },
     {
+        file: 'app-back.js',
+        reason: 'the one back order (AppBack.step: modal → previous section → root) — no API reads',
+    },
+    {
         file: 'bootstrap.js',
         reason: 'post-auth init orchestrator; its only API calls are the one-shot timezone prompt (GET /api/tz-suggestion/should-prompt, then POST /api/settings or the dismiss), not a section data read',
     },

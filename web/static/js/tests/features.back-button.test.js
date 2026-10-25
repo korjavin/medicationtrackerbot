@@ -29,6 +29,7 @@ const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
 const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js');
 const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
+const APP_BACK_JS = path.join(REPO_ROOT, 'web/static/js/features/app-back.js');
 
 function createEnv() {
     const dom = new JSDOM(
@@ -53,6 +54,8 @@ function createEnv() {
     window.eval(fs.readFileSync(STORE_JS, 'utf8'));
     // Real ModalManager: back-button.js asks it whether a modal is open.
     window.eval(fs.readFileSync(MODAL_MANAGER_JS, 'utf8'));
+    // The back order itself (AppBack.step) that the handler runs.
+    window.eval(fs.readFileSync(APP_BACK_JS, 'utf8'));
     // Load the messenger adapter so back-button.js can call
     // window.MessengerAdapter.{isBackButtonSupported,onBack,showBack,hideBack}
     // (the BrowserAdapter renders the in-app chevron observed below).
