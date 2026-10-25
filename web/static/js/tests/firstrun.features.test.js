@@ -351,8 +351,11 @@ describe('firstrun W1 module picker', () => {
     // firstrun record carries the picks W3 reads.
     it('persists flags and picks the cloud domain layer reads back', async () => {
         const records = createInMemoryRecordsPort();
+        // Effects stubbed: the real 2 s reminder recompute timer would fire
+        // in a later test (indexedDB is not defined there).
         const router = createApiRouter(null, {
             records, now: () => Date.parse('2026-07-10T12:00:00.000Z'), timeZone: 'UTC',
+            effects: { scheduleReminderRecompute: () => {} },
         });
         const fetchMock = vi.fn(async (url, opts) => {
             const method = (opts && opts.method) || 'GET';
