@@ -115,7 +115,7 @@ func newFixture(t *testing.T, mut func(*Config)) *fixture {
 	g := &fakeGoogle{t: t}
 	srv := httptest.NewServer(g)
 	t.Cleanup(srv.Close)
-	g.sa = ServiceAccount{ClientEmail: "verifier@proj.iam.gserviceaccount.com", PrivateKey: rk, TokenURI: srv.URL + "/token"}
+	g.sa = ServiceAccount{ClientEmail: "verifier@example.iam.gserviceaccount.com", PrivateKey: rk, TokenURI: srv.URL + "/token"}
 	ek, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	pubDER, _ := x509.MarshalPKIXPublicKey(&ek.PublicKey)
 	f := &fixture{g: g, challenge: []byte("0123456789abcdef0123456789abcdef"), key: ek, pubDER: pubDER, keyID: KeyID(pubDER)}
