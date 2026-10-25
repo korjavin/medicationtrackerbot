@@ -3191,6 +3191,30 @@ func TestRearmRefire(t *testing.T) {
 		t.Errorf("re-arm fires in %v, want ~1h", d)
 	}
 
+	// med-4j49: an in-app snooze re-arms at its end (fire_at), superseding the
+	// pending row; a past fire_at falls back to ~1h.
+	snoozeEnd := now.Add(10 * time.Minute).Unix()
+	body = fmt.Sprintf(`{"callback":%q,"med_ids":"2","fire_at":%d}`, fresh, snoozeEnd)
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
+		t.Fatalf("snooze rearm status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil {
+		t.Fatalf("DueScheduledPushes (snooze): %v", err)
+	}
+	if len(due) != 1 || due[0].FireAt.Unix() != snoozeEnd || due[0].TGMedIDs != "2" {
+		t.Fatalf("snooze re-arm = %+v, want one row at %d carrying 2", due, snoozeEnd)
+	}
+	body = fmt.Sprintf(`{"callback":%q,"med_ids":"2,9","fire_at":%d}`, fresh, now.Add(-time.Minute).Unix())
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
+		t.Fatalf("past fire_at rearm status = %d", rec.Code)
+	}
+	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil {
+		t.Fatalf("DueScheduledPushes (past fire_at): %v", err)
+	}
+	if len(due) != 1 || due[0].FireAt.Sub(now) < 55*time.Minute || due[0].FireAt.Sub(now) > 65*time.Minute {
+		t.Fatalf("past fire_at re-arm = %+v, want one row ~1h out", due)
+	}
+
 	// Past the 6h cap the chain is over: a no-op, not a fresh nag.
 	stale := fmt.Sprintf("s:%d", now.Add(-7*time.Hour).Unix())
 	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(fmt.Sprintf(`{"callback":%q}`, stale))); rec.Code != http.StatusNoContent {

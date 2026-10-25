@@ -216,7 +216,7 @@ export function createApiRouter(ctx, {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
-  const { sendTestPush, cancelMedRefire, cancelReminderRefire } = reminderEffects;
+  const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;
   // Only the user's own writes may ask for notification permission (bd
   // med-ckm5.4): an agent's or the inbox drain's write must not open a sheet,
   // least of all right after launch.
@@ -942,8 +942,6 @@ export function createApiRouter(ctx, {
     }
     // Explicit dose actions on explicit occIds (bd med-wi09.2): take / skip /
     // undo / edit_time / snooze. Per-day bulk is the same route with many ids.
-    // The reminder recompute below re-arms the push schedule for every action,
-    // snooze included (the same re-arm as /api/medications/snooze).
     if (path === '/api/doses/act' && method === 'POST') {
       const res = await intake.act({
         occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
@@ -962,6 +960,19 @@ export function createApiRouter(ctx, {
           const slotRows = await intake.listWindow({ fromMs: slotMs, toMs: slotMs });
           if (!slotRows.some((row) => row.status === 'PENDING')) cancelMedRefire(slotMs);
         }
+      }
+      // A snoozed due dose is in no reminder horizon (it is not upcoming), so
+      // its reminder re-arms on the relay's Telegram chain for the slot, at the
+      // snooze end (bd med-4j49). A future slot keeps its primary fire.
+      if (body.action === 'snooze') {
+        const bySlot = new Map();
+        for (const d of res.doses) {
+          const slotMs = Date.parse(d.scheduled_at);
+          if (!(slotMs <= now())) continue;
+          if (!bySlot.has(slotMs)) bySlot.set(slotMs, { medIds: [], fireAtMs: Date.parse(d.snoozed_until) });
+          bySlot.get(slotMs).medIds.push(d.medication_id);
+        }
+        for (const [slotMs, { medIds, fireAtMs }] of bySlot) rearmMedRefire(slotMs, medIds, { fireAtMs });
       }
       scheduleReminderRecompute(ctx, { records, timeZone });
       return res;

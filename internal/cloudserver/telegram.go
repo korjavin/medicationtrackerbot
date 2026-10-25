@@ -1513,6 +1513,10 @@ func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
 type rearmRefireRequest struct {
 	Callback string `json:"callback"`
 	MedIDs   string `json:"med_ids"`
+	// FireAt (unix seconds, optional) is an in-app snooze's end (med-4j49): the
+	// chain's next message lands then instead of ~1h out. Absent, past, or
+	// further than maxMedRefireWindow away falls back to the ~1h default.
+	FireAt int64 `json:"fire_at"`
 }
 
 // RearmRefire schedules ONE re-fire ~1h out for a med slot whose Confirm tap the
@@ -1557,7 +1561,11 @@ func (t *TelegramAPI) RearmRefire(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent) // past the cap: nothing to re-arm
 		return
 	}
-	if err := t.store.RescheduleRelayRefire(r.Context(), sess.AccountID, now.Add(time.Hour), medRefireText, req.Callback, req.MedIDs, 0); err != nil {
+	fireAt := now.Add(time.Hour)
+	if at := time.Unix(req.FireAt, 0).UTC(); req.FireAt > 0 && at.After(now) && at.Sub(now) <= maxMedRefireWindow {
+		fireAt = at
+	}
+	if err := t.store.RescheduleRelayRefire(r.Context(), sess.AccountID, fireAt, medRefireText, req.Callback, req.MedIDs, 0); err != nil {
 		slog.Error("telegram rearm refire", "error", err, "account", sess.AccountID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

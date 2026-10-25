@@ -415,7 +415,7 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
     });
 
     it('snooze (bd med-4j49) writes snoozed_until on its own branch — status, rev and stock untouched — and refuses a resolved dose', async () => {
-        slotEnv('PENDING', 'TAKEN');
+        const slotIso = slotEnv('PENDING', 'TAKEN');
         const { window } = env;
         try {
             const before = Date.now();
@@ -430,6 +430,11 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 .filter((d) => d.occId === 'intake-a');
             expect(row).toMatchObject({ state: 'snoozed', snoozedUntil: a.snoozed_until });
             expect(await stateOf(window)).toEqual({ a: 'PENDING', b: 'TAKEN', stockA: 5, stockB: 5 });
+            // The due dose's reminder re-arms on the relay chain at the snooze end.
+            const rearm = globalThis.fetch.mock.calls.find(([url]) => url === '/api/telegram/rearm-refire');
+            expect(JSON.parse(rearm[1].body)).toEqual({
+                callback: `s:${Math.floor(Date.parse(slotIso) / 1000)}`, med_ids: '1', fire_at: Math.floor(Date.parse(a.snoozed_until) / 1000),
+            });
 
             // `until` sets the end directly; a past or unparseable one is a 400.
             const until = new Date(Date.now() + 2 * HOUR_MS).toISOString();

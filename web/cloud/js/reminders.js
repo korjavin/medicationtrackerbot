@@ -414,8 +414,12 @@ export function cancelReminderRefire(stem, { fetchImpl } = {}) {
 // drain could only partly apply — a named dose that is still PENDING after the
 // tap (med-kbpf). medIds names those doses so a tap on the re-fired message
 // still resolves by identity. The relay no-ops it past its 6h cap.
-export function rearmMedRefire(slotMs, medIds = [], { fetchImpl } = {}) {
-  postRefire('rearm-refire', medStem(slotMs), { med_ids: (medIds || []).join(',') }, fetchImpl);
+// fireAtMs (an in-app snooze's end, bd med-4j49) moves the chain's next message
+// there instead of ~1h out; a relay without fire_at ignores it and uses 1h.
+export function rearmMedRefire(slotMs, medIds = [], { fetchImpl, fireAtMs } = {}) {
+  const extra = { med_ids: (medIds || []).join(',') };
+  if (Number.isFinite(fireAtMs)) extra.fire_at = Math.floor(fireAtMs / 1000);
+  postRefire('rearm-refire', medStem(slotMs), extra, fetchImpl);
 }
 
 // Drops a pending debounced recompute for `ctx` without running it. A live page
