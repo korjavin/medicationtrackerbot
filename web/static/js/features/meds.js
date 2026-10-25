@@ -1022,7 +1022,10 @@ function _tlPastSection(date, groups, occ, ctx) {
     const label = date === _tlShiftDate(ctx.todayDate, -1) ? `Yesterday · ${_tlDayName(date)}` : _tlDayName(date);
     const meta = !occ.length ? 'No doses' : pending ? `${pending} pending` : `${taken} of ${occ.length} taken`;
     section.appendChild(_tlHead(label, { meta }));
-    if (pending) section.appendChild(_tlBulkActions(date));
+    // The bulk pair only for 2+ listed pending doses: one row has its own
+    // Take / Skip, and the card's dose is not listed here (Iris 5020).
+    const listed = groups.reduce((n, g) => n + (g.state === 'due' || g.state === 'snoozed' ? g.rows.length : 0), 0);
+    if (listed >= 2) section.appendChild(_tlBulkActions(date));
     if (groups.length) {
         section.appendChild(_tlList(groups.slice().sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state])), ctx));
     }

@@ -315,7 +315,26 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         const yesterday = document.querySelector('section[data-local-date="2026-10-22"]');
         expect(text(yesterday.querySelector('.wg-section__head .wg-meta'))).toBe('1 pending');
         expect(yesterday.querySelector('.wg-timeline__row')).toBeNull();
+        // Its only pending dose is the card's: no bulk pair (Iris 5020).
+        expect(yesterday.querySelector('.wg-timeline__bulk')).toBeNull();
         expect(text(document.querySelector('section[data-local-date="2026-10-21"] .wg-section__head .wg-meta'))).toBe('No doses');
+    });
+
+    it('a History day shows Mark all taken / Skip all only for 2+ listed pending doses', async () => {
+        const { document } = env;
+        await load([
+            berlin(1, '2026-10-21', '08:20', 'due'),
+            berlin(1, '2026-10-22', '08:20', 'due'),
+            berlin(2, '2026-10-22', '21:30', 'due'),
+            berlin(1, '2026-10-23', '08:20', 'taken', { takenAt: '2026-10-23T06:24:00.000Z' }),
+        ]);
+        // The card holds 22.10 21:30; 22.10 08:20 and 21.10 08:20 are one listed row each.
+        const day = (d) => document.querySelector(`section[data-local-date="${d}"]`);
+        expect(text(day('2026-10-22').querySelector('.wg-section__head .wg-meta'))).toBe('2 pending');
+        expect(day('2026-10-22').querySelectorAll('.wg-timeline__row')).toHaveLength(1);
+        expect(day('2026-10-22').querySelector('.wg-timeline__bulk')).toBeNull();
+        expect(day('2026-10-21').querySelector('.wg-timeline__row .wg-btn')).not.toBeNull();
+        expect(day('2026-10-21').querySelector('.wg-timeline__bulk')).toBeNull();
     });
 
     it('a dose left pending 4 days ago is the card and in the count while History still shows 2 days', async () => {
