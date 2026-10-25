@@ -414,6 +414,38 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    it('snooze (bd med-4j49) writes snoozed_until on its own branch — status, rev and stock untouched — and refuses a resolved dose', async () => {
+        slotEnv('PENDING', 'TAKEN');
+        const { window } = env;
+        try {
+            const before = Date.now();
+            const res = await act(window, { action: 'snooze', occ_ids: ['intake-a', 'intake-b'], minutes: 10 });
+            expect(res).toMatchObject({ updated: 1, failed: 1, failures: [{ id: 'intake-b', reason: 'not_pending' }] });
+            const a = (await env.records.list('intake')).find((i) => i.recordId === 'intake-a');
+            expect(a).toMatchObject({ status: 'PENDING', rev: 0 });
+            expect(Date.parse(a.snoozed_until) - Date.parse(a.snoozed_at)).toBe(10 * 60 * 1000);
+            expect(Date.parse(a.snoozed_at)).toBeGreaterThanOrEqual(before);
+            expect(res.doses[0]).toMatchObject({ id: 'intake-a', status: 'PENDING', snoozed_until: a.snoozed_until });
+            const [row] = (await window.apiCall('/api/doses?from=1970-01-01T00:00:00Z&to=2100-01-01T00:00:00Z'))
+                .filter((d) => d.occId === 'intake-a');
+            expect(row).toMatchObject({ state: 'snoozed', snoozedUntil: a.snoozed_until });
+            expect(await stateOf(window)).toEqual({ a: 'PENDING', b: 'TAKEN', stockA: 5, stockB: 5 });
+
+            // `until` sets the end directly; a past or unparseable one is a 400.
+            const until = new Date(Date.now() + 2 * HOUR_MS).toISOString();
+            await act(window, { action: 'snooze', occ_ids: ['intake-a'], until });
+            expect((await env.records.list('intake')).find((i) => i.recordId === 'intake-a').snoozed_until).toBe(until);
+            await expect(window.offlineAwareApiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-a'], until: new Date(Date.now() - HOUR_MS).toISOString() }))
+                .rejects.toMatchObject({ status: 400 });
+
+            // A take after the snooze is an ordinary take.
+            expect(await act(window, { action: 'take', occ_ids: ['intake-a'] })).toMatchObject({ updated: 1, failed: 0 });
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 4, stockB: 5 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('take / skip of a forecast occId creates that exact slot once; an id that is no real slot fails', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {

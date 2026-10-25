@@ -239,7 +239,7 @@ export const CLOUD_EXTRA = [
     method: 'POST',
     path: '/api/doses/act',
     risk: 'write',
-    description: 'Act on exact doses by occId (from medications.doses.list or medications.history ids); nothing else is touched. take: pending or not-yet-recorded → taken (−1 stock). skip: pending or not-yet-recorded → skipped. undo: taken/skipped → pending (+1 stock if it was taken). edit_time: change taken_at of a taken dose. A dose already in the target state is counted unchanged, so repeating a bulk take is safe.',
+    description: 'Act on exact doses by occId (from medications.doses.list or medications.history ids); nothing else is touched. take: pending or not-yet-recorded → taken (−1 stock). skip: pending or not-yet-recorded → skipped. undo: taken/skipped → pending (+1 stock if it was taken). edit_time: change taken_at of a taken dose. snooze: pending or not-yet-recorded → snoozed until `until`, else now + `minutes` (default 10); the dose stays pending and reminders re-arm. A dose already in the target state is counted unchanged, so repeating a bulk take is safe.',
     response_summary: 'Object {updated, unchanged, failed, failures: [{id, reason (not_found|not_pending|not_taken)}], doses: [the written intake rows]}. Check failed > 0.',
     required: ['occ_ids', 'action'],
     body_schema: {
@@ -247,8 +247,10 @@ export const CLOUD_EXTRA = [
       required: ['occ_ids', 'action'],
       properties: {
         occ_ids: { type: 'array', items: { type: ['string', 'integer'] }, description: 'Exact dose occIds.' },
-        action: { type: 'string', enum: ['take', 'skip', 'undo', 'edit_time'] },
+        action: { type: 'string', enum: ['take', 'skip', 'undo', 'edit_time', 'snooze'] },
         taken_at: { type: 'string', description: 'RFC3339; take: when it was taken (default now); edit_time: required.' },
+        minutes: { type: 'integer', minimum: 1, description: 'snooze: duration in minutes (default 10); ignored when until is set.' },
+        until: { type: 'string', description: 'snooze: RFC3339 future instant the snooze ends.' },
       },
     },
     response_example: {

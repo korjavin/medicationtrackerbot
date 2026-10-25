@@ -3349,6 +3349,15 @@ describe('intake rows merge by rev / via / acted_at, not clientTs (med-wi09.11)'
     expect(await converge(snoozed, SKIP)).toEqual(a);
   });
 
+  // bd med-4j49: the act snooze on a never-acted dose (rev 0, newer clientTs)
+  // racing a take on another device — the take wins on both, the snooze rides along.
+  it('a concurrent act snooze and take converge to taken on both devices', async () => {
+    const snoozed = row({ clientTs: 9500, status: 'PENDING', taken_at: null, rev: 0, via: 'app', tz: 'UTC', snoozed_until: '2026-01-01T00:20:00.000Z', snoozed_at: '2026-01-01T00:10:00.000Z' });
+    const a = await converge(snoozed, TAP);
+    expect(a).toMatchObject({ status: 'TAKEN', rev: 1, taken_at: TAP.taken_at, snoozed_until: '2026-01-01T00:20:00.000Z' });
+    expect(await converge(TAP, snoozed)).toEqual(a);
+  });
+
   it('a tombstone never resurrects — not by a pulled op, not by a local write', async () => {
     const tomb = { recordId: id, recordType: 'intake', clientTs: 100, deleted: true };
     expect((await converge(tomb, { ...UNDO, rev: 9, clientTs: 99999 })).deleted).toBe(true);

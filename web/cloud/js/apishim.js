@@ -941,12 +941,16 @@ export function createApiRouter(ctx, {
       });
     }
     // Explicit dose actions on explicit occIds (bd med-wi09.2): take / skip /
-    // undo / edit_time. Per-day bulk is the same route with many ids.
+    // undo / edit_time / snooze. Per-day bulk is the same route with many ids.
+    // The reminder recompute below re-arms the push schedule for every action,
+    // snooze included (the same re-arm as /api/medications/snooze).
     if (path === '/api/doses/act' && method === 'POST') {
       const res = await intake.act({
         occIds: Array.isArray(body && body.occ_ids) ? body.occ_ids : [],
         action: body && body.action,
         takenAt: body && body.taken_at,
+        minutes: body && body.minutes,
+        until: body && body.until,
       }).catch((err) => {
         if (err && err.code === 'bad_request') err.status = 400;
         throw err;
