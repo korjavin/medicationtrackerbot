@@ -297,53 +297,73 @@ const ModalManager = {
             || ModalManager._visibleStack().length > 0;
     },
 
-    closeTopMostVisibleModal() {
+    // The close Back / Esc would run right now, or null when nothing is open.
+    // AppBack.canStep() asks this without closing anything (bd med-y7b4.3).
+    _topCloser() {
         // The in-page dialog sits above every registered modal: Back cancels
         // it first. The last-mounted one is the topmost.
         const cancels = document.querySelectorAll('mt-modal.mt-confirm-modal .mt-confirm-modal__cancel');
         if (cancels.length) {
-            cancels[cancels.length - 1].click();
-            return true;
+            const cancel = cancels[cancels.length - 1];
+            return () => cancel.click();
         }
         // Most recently opened first: the real top, whatever the modal.
         const stack = ModalManager._visibleStack();
         if (stack.length) {
             const id = stack[stack.length - 1];
             const fn = ModalManager._closers[id];
-            if (typeof fn === 'function') fn();
-            else ModalManager.close(id);
-            return true;
+            return typeof fn === 'function' ? () => fn() : () => ModalManager.close(id);
         }
         // Shown without ModalManager.open: the legacy priority list, then any
         // other visible <mt-modal> (Settings invite / delete-account) — so Esc
         // and Back close every modal, registered or not (med-xso6.34).
         for (const modalDef of ModalManager.getClosePriorityModalDefs()) {
             const modal = document.getElementById(modalDef.id);
-            if (modal && !modal.classList.contains('hidden')) {
-                modalDef.fn();
-                return true;
-            }
+            if (modal && !modal.classList.contains('hidden')) return modalDef.fn;
         }
         const loose = document.querySelectorAll('mt-modal:not(.hidden):not(.mt-confirm-modal)');
         if (loose.length) {
             const modal = loose[loose.length - 1];
-            if (typeof modal.close === 'function') modal.close();
-            else modal.classList.add('hidden');
-            return true;
+            return () => {
+                if (typeof modal.close === 'function') modal.close();
+                else modal.classList.add('hidden');
+            };
         }
-        return false;
+        return null;
+    },
+
+    hasClosable() {
+        return !!ModalManager._topCloser();
+    },
+
+    closeTopMostVisibleModal() {
+        const close = ModalManager._topCloser();
+        if (!close) return false;
+        close();
+        return true;
     }
 };
 
 // The legacy close-priority lists are the initial registrations.
 ModalManager.getClosePriorityModalDefs().forEach((d) => ModalManager.register(d.id, d.fn));
 
-// Esc = Back for modals (med-xso6.34): one shared handler closes the topmost
-// modal, whichever it is. In-page dialogs handle Esc themselves in the capture
-// phase and preventDefault, so a dialog's Esc never also closes its parent.
+// Esc = Back (med-xso6.34, bd med-y7b4.3): the one shared handler. In the app
+// it is AppBack.step(), the same order as browser Back and the shells' back
+// op; in a shell without AppBack (signup) it closes the topmost modal, which is
+// step's first rung. In-page dialogs handle Esc themselves in the capture phase
+// and preventDefault, so a dialog's Esc never also closes its parent. Esc in a
+// field with nothing open stays with the field: it does not leave the section.
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
-    if (ModalManager.closeTopMostVisibleModal()) e.preventDefault();
+    const app = window.AppBack;
+    if (!app) {
+        if (ModalManager.closeTopMostVisibleModal()) e.preventDefault();
+        return;
+    }
+    const t = e.target;
+    const inField = !!(t && t.closest && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
+    if (inField && !ModalManager.hasClosable()) return;
+    if (app.step()) e.preventDefault();
 });
 
 window.ModalManager = ModalManager;

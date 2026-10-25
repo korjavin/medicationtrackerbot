@@ -21,6 +21,8 @@ const MODAL_HISTORY_SRC = fs.readFileSync(
     path.join(REPO_ROOT, 'web/static/js/features/modal-history.js'), 'utf8');
 const BACK_BUTTON_SRC = fs.readFileSync(
     path.join(REPO_ROOT, 'web/static/js/features/back-button.js'), 'utf8');
+const APP_BACK_SRC = fs.readFileSync(
+    path.join(REPO_ROOT, 'web/static/js/features/app-back.js'), 'utf8');
 const UTILS_SRC = fs.readFileSync(
     path.join(REPO_ROOT, 'web/static/js/core/utils.js'), 'utf8');
 const MODAL_MANAGER_SRC = fs.readFileSync(
@@ -51,6 +53,7 @@ function createBrowserEnv() {
     window.eval(UTILS_SRC);
     window.eval(MODAL_MANAGER_SRC);
     window.eval(STORE_SRC);
+    window.eval(APP_BACK_SRC);
     window.eval(ADAPTER_SRC);
     window.eval(MODAL_HISTORY_SRC);
     window.eval(BACK_BUTTON_SRC);
