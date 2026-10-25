@@ -181,6 +181,23 @@ export default async function inviteLink(ctx) {
     page = p;
   });
 
+  // bd med-egb3: local.reset {dropAttest: true} (sent by the erase after the server's 204) drops the
+  // attest key material, never the trial pass. The QA build has no Play Integrity project, so no key
+  // can be enrolled here; the pass (attest.setPass writes it regardless) is what this pins.
+  await ctx.step('local.reset {dropAttest}: the trial pass survives', async () => {
+    const set = await call(page, 'attest.setPass', { pass: 'qa.pass' });
+    expect(set.ok, `attest.setPass: ${JSON.stringify(set)}`);
+    for (const args of [{ dropAttest: 'true' }, { dropAttest: true }]) {
+      const res = await call(page, 'local.reset', args);
+      expect(res.ok && res.result === true, `local.reset ${JSON.stringify(args)}: ${JSON.stringify(res)}`);
+      const xml = await shell(`run-as ${pkg} cat shared_prefs/wg_trial.xml`);
+      expect(/name="pass">qa\.pass</.test(xml), `local.reset ${JSON.stringify(args)} dropped the pass: ${xml}`);
+      expect(!/name="(alias|attested|counter)"/.test(xml), `attest key material left: ${xml}`);
+    }
+    r.dropAttestKeepsPass = true;
+    await call(page, 'attest.setPass', { pass: '' });
+  });
+
   // W1 (web #1234) shows "Have an invite?" only in a v3 shell, in local mode, with no slot.
   await ctx.step('W1: "Have an invite?" with an empty slot; once one waits, "Your invite is here"', async () => {
     // An empty local origin, so the bundled app boots into W1 (as local-smoke wipes it).
