@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -28,17 +29,14 @@ var (
 	emailRe = regexp.MustCompile(`[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})`)
 	// Reserved for documentation/testing (RFC 2606, RFC 6761).
 	reservedRe = regexp.MustCompile(`(^|\.)example\.(com|org|net)$|\.(test|example|invalid|localhost)$`)
-	// Email-domain allowlist by category.
-	allowedEmailRe = []*regexp.Regexp{
-		// Not an email: asset names like mark@2x.png, pkg@x.js.
-		regexp.MustCompile(`\.(png|jpe?g|gif|webp|svg|pdf|js|mjs|css|json|md|html)$`),
-		// Google service-account identities: the format Google mandates, used as test fakes.
-		regexp.MustCompile(`\.iam\.gserviceaccount\.com$`),
-		// CI git commit identity (GitHub Actions bot) in workflow config.
-		regexp.MustCompile(`(^|\.)github\.com$`),
-	}
-	skipDirs = map[string]bool{".git": true, "node_modules": true, "vendor": true, ".claude": true}
-	skipExts = map[string]bool{
+	// Not an email: asset scale names like mark@2x.png.
+	assetScaleRe = regexp.MustCompile(`^\d+x\.(png|jpe?g|gif|webp|pdf)$`)
+	// Google service-account test fakes: the format Google mandates, fake project "example".
+	fakeServiceAccountRe = regexp.MustCompile(`^example\.iam\.gserviceaccount\.com$`)
+	// CI git commit identity, in workflow config only.
+	ciIdentity = "actions" + "@github.com" // split: this file is scanned too
+	skipDirs   = map[string]bool{".git": true, "node_modules": true, "vendor": true, ".claude": true}
+	skipExts   = map[string]bool{
 		// images
 		".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".ico": true, ".icns": true, ".svg": true,
 		// fonts
@@ -50,19 +48,17 @@ var (
 	}
 )
 
-// projectDomains is the project domain family: the encoded constant, plus
-// CLOUD_BASE_DOMAIN's registrable part when set to a real (non-reserved) host.
-func projectDomains(t *testing.T) []string {
+// projectDomains is the project domain family: the encoded constant, plus the
+// full configured base (CLOUD_BASE_DOMAIN) when it is a real, multi-label host.
+// The full base, not its last two labels: those can be a public suffix (co.uk).
+func projectDomains(t *testing.T, env string) []string {
 	b, err := base64.StdEncoding.DecodeString(projectDomainB64)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := []string{string(b)}
-	if env := strings.ToLower(strings.TrimSpace(os.Getenv("CLOUD_BASE_DOMAIN"))); env != "" && !reservedRe.MatchString(env) {
-		// ponytail: last two labels; a public-suffix domain (co.uk) needs a PSL lookup.
-		if labels := strings.Split(env, "."); len(labels) >= 2 {
-			out = append(out, strings.Join(labels[len(labels)-2:], "."))
-		}
+	if env = strings.ToLower(strings.TrimSpace(env)); strings.Contains(env, ".") && !reservedRe.MatchString(env) {
+		out = append(out, env)
 	}
 	var fam []string
 	for _, d := range out {
@@ -89,17 +85,50 @@ func skipped(rel string) bool {
 	return skipNames[base] || skipExts[strings.ToLower(path.Ext(base))]
 }
 
-func emailAllowed(domain string) bool {
+func emailAllowed(rel, addr, domain string) bool {
 	domain = strings.ToLower(domain)
-	if reservedRe.MatchString(domain) {
+	switch {
+	case reservedRe.MatchString(domain), assetScaleRe.MatchString(domain), fakeServiceAccountRe.MatchString(domain):
 		return true
-	}
-	for _, re := range allowedEmailRe {
-		if re.MatchString(domain) {
-			return true
-		}
+	case strings.ToLower(addr) == ciIdentity:
+		return strings.HasPrefix(rel, ".github/workflows/")
 	}
 	return false
+}
+
+func TestEmailAllowed(t *testing.T) {
+	for _, c := range []struct {
+		rel, addr string
+		ok        bool
+	}{
+		{"docs/x.md", "a@b.example.org", true},
+		{"docs/x.md", "a@qa.test", true},
+		{"ios/Contents.json", "mark@2x.png", true},
+		{"x_test.go", "svc@example.iam.gserviceaccount.com", true},
+		{".github/workflows/deploy.yml", ciIdentity, true},
+		// Negative cases are split at the @ so this file stays clean under its own scan.
+		{"docs/x.md", "support" + "@clinic.md", false},
+		{"docs/x.md", ciIdentity, false},
+		{".github/workflows/deploy.yml", "operator" + "@github.com", false},
+		{"x_test.go", "owner" + "@realproject.iam.gserviceaccount.com", false},
+		{"docs/x.md", "a" + "@b.co", false},
+	} {
+		m := emailRe.FindStringSubmatch(c.addr)
+		if m == nil || emailAllowed(c.rel, m[0], m[1]) != c.ok {
+			t.Errorf("emailAllowed(%s, %s) want %v", c.rel, c.addr, c.ok)
+		}
+	}
+}
+
+func TestProjectDomains_FullBase(t *testing.T) {
+	base := "cloud.health" + ".co.uk" // split: this file is scanned too
+	fam := projectDomains(t, base)
+	if !slices.Contains(fam, base) || slices.Contains(fam, "co.uk") {
+		t.Errorf("family %v: want the full base, never its public suffix", fam)
+	}
+	if len(projectDomains(t, "qa.test")) != len(projectDomains(t, "")) {
+		t.Error("a reserved base must not join the family")
+	}
 }
 
 // TestRepo_NoProjectDomainOrRealEmail: no real project domain and no email
@@ -117,7 +146,7 @@ func TestRepo_NoProjectDomainOrRealEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
-	fam := projectDomains(t)
+	fam := projectDomains(t, os.Getenv("CLOUD_BASE_DOMAIN"))
 	for _, rel := range strings.Split(strings.TrimRight(string(list), "\x00"), "\x00") {
 		if rel == "" || skipped(rel) {
 			continue
@@ -144,7 +173,7 @@ func TestRepo_NoProjectDomainOrRealEmail(t *testing.T) {
 				}
 			}
 			for _, m := range emailRe.FindAllStringSubmatch(line, -1) {
-				if !emailAllowed(m[1]) {
+				if !emailAllowed(rel, m[0], m[1]) {
 					t.Errorf("%s:%d: email %q; use an example.com/.org/.net/.test address", rel, n, m[0])
 				}
 			}
