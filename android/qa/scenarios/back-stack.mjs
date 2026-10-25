@@ -93,6 +93,17 @@ export default async function backStack(ctx) {
   await claimAccount(ctx, page);
   await go('today');
   await trail('account');
+  // bd med-8bgs: a page without the app (/api/version) opened right as the app reports canStep: true.
+  // That late report must not stick to the new page — Back there walks the web view's history.
+  await ctx.step('account: Back on a page without the app returns to the app', async () => {
+    await page.evaluate(() => { window.switchTab('meds'); location.assign('/api/version'); });
+    await page.waitForURL(/\/api\/version/, { timeout: 15_000 });
+    await sleep(1500);
+    await back();
+    await page.waitForFunction(() => !!window.AppStore, null, { timeout: 30_000 });
+  });
+  await ctx.shot('account-back-from-version');
+  await go('today');
   await ctx.step('account: Back at Today leaves the app', leaves);
   await ctx.shot('account-left');
 }
