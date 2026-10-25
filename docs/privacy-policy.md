@@ -81,7 +81,7 @@ list of categories; each is stored only as long as stated.
 | Sync | When each device synced, the size of each encrypted blob, the IP address it came from, and each record's kind and id | Timestamps with the data; request logs per the log retention below |
 | Reminders | When a reminder should fire, and an encrypted payload we cannot read; for the phone apps, a push token issued by Apple or Google, held only for a content-free wake-up, not to carry reminder content | The payload is erased when the reminder is sent and Telegram tap ids after 48 hours; the row with its fire and sent times stays with the account; tokens until you remove the device or they expire |
 | Hosted AI-assistant connector (if enabled) | The connector's credentials (access token and pairing key), stored encrypted under a server key; backups made before the conversion on 2026-10-25 hold the token in clear until they expire within 30 days | Until you disconnect it |
-| Free trial | Usage counters, on the account or on the anonymous install record of section 4 | Account counters for the life of the account; install records have no automatic expiry today; Erase data on this device deletes this phone's record (section 4) |
+| Free trial | Usage counters, on the account or on the anonymous install record of section 4 | Account counters for the life of the account; install records have no automatic expiry today; Erase data on this device deletes this phone's current record (section 4) |
 | Telegram (if linked) | Your chat id and your bot's token, stored encrypted on the server under a server key (this is server-side encryption, not vault-grade) | Until you unlink |
 | Invite request | The email address and note you sent us, or your Telegram name and id, and our decision | Deleted within an hour after 90 days; the copy shown to the developer in their Telegram chat stays there (section 3h) |
 | Feedback | What you write and attach, encrypted on your device to the developer; the app version and feedback kind are readable | Until the developer collects it |
@@ -182,7 +182,7 @@ In this mode three things can leave the phone, each your choice:
   installs apart the app uses Apple App Attest and DeviceCheck on iPhone and
   one Google Play Integrity token on Android; no health data and no account
   are involved. The install record has no automatic expiry today; **Erase data on
-  this device** (below) deletes this phone's record. It holds no health data.
+  this device** (below) deletes this phone's current record. It holds no health data.
 - **Feedback and invite requests**, which reach us as in section 2. Sending
   feedback from this mode creates the same anonymous install record, without
   the trial.
