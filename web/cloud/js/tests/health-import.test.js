@@ -729,59 +729,25 @@ describe('Apple Health import', () => {
         const sleepLine = () => lines.filter((l) => l.startsWith('[health] sleep ')).pop();
         beforeEach(() => { lines.length = 0; });
 
-        it('an In Bed-only night counts as asleep, with one counts-only diagnostics line per kind', async () => {
-            const data = { sleep: [inBed] };
+        it('posts one counts-only diagnostics line per kind; a rescan names the day already there', async () => {
+            const data = { sleep: night };
             expect(await runHealthImport({}, { ...opts(data), diag: (l) => lines.push(l) })).toEqual({ added: 1 });
-            expect(records.rows.get(DAY_ID)).toMatchObject({
-                day: '2026-10-02', total_minutes: 480, light_minutes: null, deep_minutes: null, rem_minutes: null,
-                awake_minutes: 0, clientTs: 0, source: 'apple_health',
-            });
             expect(lines).toEqual([
                 '[health] bp returned=0 samples=0 written=0 skip{invalid:0,exists:0} anchor=kept',
                 '[health] weight returned=0 samples=0 written=0 skip{invalid:0,exists:0} anchor=kept',
-                '[health] sleep returned=1 samples=1 values={0:1} nights=1 written=1 skip{inBed:0,unsettled:0,clipped:0,exists:0,overlap:0} anchor=moved',
+                '[health] sleep returned=6 samples=6 values={0:1,2:1,3:2,4:1,5:1} nights=1 written=1 '
+                    + 'skip{inBed:1,unsettled:0,clipped:0,exists:0,overlap:0} anchor=moved',
                 '[health] workout returned=0 samples=0 written=0 skip{invalid:0,exists:0,overlap:0} anchor=kept',
             ]);
+            storage.setItem('wg.health.anchors', '{}');
+            await runHealthImport({}, { ...opts(data), diag: (l) => lines.push(l) });
+            expect(sleepLine()).toMatch(/ nights=1 written=0 skip\{inBed:1,unsettled:0,clipped:0,exists:1,overlap:0\} anchor=moved$/);
         });
 
-        it('In Bed never changes a night that has sleep in it: a Watch night syncing later lands on the same row', async () => {
-            const data = { sleep: [inBed] };
-            await runHealthImport({}, opts(data));
-            const before = records.rows.get(DAY_ID);
-            // The Watch syncs that night after the manual In Bed entry was written,
-            // plus a hand-entered In Bed nap the same day: the day keeps one row.
-            const nap = slp(41, N0 + 17 * H, N0 + 18 * H, 0, HAND, null);
-            data.sleep = [inBed, ...night, nap];
-            expect(await runHealthImport({}, { ...opts(data), diag: (l) => lines.push(l) })).toEqual({ added: 0 });
-            expect([...records.rows.values()]).toEqual([before]);
-            expect(sleepLine()).toMatch(/ nights=1 written=0 skip\{inBed:3,unsettled:0,clipped:0,exists:1,overlap:0\}/);
-            // Read together, the Watch night wins its day and In Bed is left out.
-            const fresh = memRecords();
-            await createHealthImportDomain({ records: fresh, now: () => W0 + 24 * H, timeZone: 'UTC' })
-                .importSamples('sleep', [inBed, ...night, nap], { from: N0 - 48 * H, to: N0 + 60 * H });
-            expect([...fresh.rows.values()]).toEqual([expect.objectContaining({ recordId: DAY_ID, total_minutes: 470, deep_minutes: 60 })]);
-        });
-
-        it('one night keyed to two days by different zones stays one row, whichever source lands first', async () => {
-            // No zone: UTC files it under 3 Oct. The Watch's Los Angeles zone files
-            // the same night (ending 11:00 local) under 2 Oct.
-            const S = Date.parse('2026-10-02T10:00:00Z');
-            const bed = slp(50, S, S + 8 * H, 0, HAND, null);
-            const watch = [slp(51, S, S + 4 * H, 3, WATCH, 'America/Los_Angeles'), slp(52, S + 4 * H, S + 8 * H, 4, WATCH, 'America/Los_Angeles')];
-            const window = { from: S - 48 * H, to: S + 60 * H };
-            const domain = (recs) => createHealthImportDomain({ records: recs, now: () => S + 24 * H, timeZone: 'UTC' });
-
-            expect(await domain(records).importSamples('sleep', [bed], window)).toMatchObject({ added: 1 });
-            expect(records.rows.has('sleep-hk-2026-10-03')).toBe(true);
-            expect(await domain(records).importSamples('sleep', [bed, ...watch], window))
-                .toMatchObject({ added: 0, skip: { overlap: 1 } });
-            expect([...records.rows.keys()]).toEqual(['sleep-hk-2026-10-03']);
-
-            const other = memRecords();
-            expect(await domain(other).importSamples('sleep', watch, window)).toMatchObject({ added: 1 });
-            // A later read without the Watch samples (another device, access since revoked).
-            expect(await domain(other).importSamples('sleep', [bed], window)).toMatchObject({ added: 0, skip: { overlap: 1 } });
-            expect([...other.rows.keys()]).toEqual(['sleep-hk-2026-10-02']);
+        it('an In Bed-only night is still left out, and the line says so', async () => {
+            expect(await runHealthImport({}, { ...opts({ sleep: [inBed] }), diag: (l) => lines.push(l) })).toEqual({ added: 0 });
+            expect(sleepLine()).toBe('[health] sleep returned=1 samples=1 values={0:1} nights=0 written=0 '
+                + 'skip{inBed:1,unsettled:0,clipped:0,exists:0,overlap:0} anchor=moved');
         });
 
         it('a hand-entered Asleep + In Bed night opened right after waking waits to settle, then is written', async () => {

@@ -532,9 +532,7 @@ and weight only asks once, at the next open, for the new types.
   `Health.swift` answers a sleep page with *every* sleep sample (all sources)
   from 48h before the page's earliest new sample to 48h after its latest, plus
   that window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
-  *In Bed* ignored — except an *In Bed* stretch overlapping no sleep sample, on a
-  sleep day with no other night, counts as plain asleep: a manual Health entry,
-  bd med-w6gx.30), keeps only nights whole inside the window, and maps
+  *In Bed* ignored), keeps only nights whole inside the window, and maps
   Core/Deep/REM/Awake to light/deep/rem/awake minutes (`total_minutes` = asleep
   time). Overlapping samples of one night count each minute once, as the
   highest of deep > REM > core > awake > unspecified, so the minutes never
@@ -551,10 +549,6 @@ and weight only asks once, at the next open, for the new types.
     (CLAUDE.md rule 12): the **first settled version of a day wins**, an edit
     always outranks it, and a deleted day stays deleted (its tombstone also
     rides in vault backups). Manual and Mi Band entries live under other ids.
-    A day overlapping any live sleep row of another id is not written — a
-    manual or Mi Band entry wins its night, and so does another day's Health
-    row (two sources in different zones key one night to two days; an In
-    Bed-only day written before the Watch synced), so a night stays one row.
 - **Settling:** a sleep day is written only once its last sample ended **3h**
   ago (`SLEEP_SETTLE_MS`), so a night still being written is not frozen as a
   fragment. A night still settling when its samples were read leaves its
