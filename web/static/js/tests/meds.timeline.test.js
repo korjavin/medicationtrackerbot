@@ -196,13 +196,13 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         env = null;
     });
 
-    it('reads one display window (the shown days + a page each side) and every pending dose up to now', async () => {
+    it('reads one display window (the shown days + a page each side, a week ahead at least) and every pending dose up to now', async () => {
         await load(normalDay());
         const paths = env.window.apiCall.mock.calls.map(([p]) => String(p)).filter((p) => p.startsWith('/api/doses'));
         expect(paths).toHaveLength(2);
         const win = new URL(paths.find((p) => p.includes('from=')), 'https://x.test').searchParams;
         expect(Date.parse(win.get('from'))).toBe(NOW - 6 * DAY);
-        expect(Date.parse(win.get('to'))).toBe(NOW + 5 * DAY);
+        expect(Date.parse(win.get('to'))).toBe(NOW + 8 * DAY);
         const pending = new URL(paths.find((p) => p.includes('status=')), 'https://x.test').searchParams;
         expect(pending.get('status')).toBe('due,snoozed');
         expect(pending.get('from')).toBeNull();
@@ -359,14 +359,33 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(document.querySelector('#med-timeline-list .wg-card--accent')).toBeNull();
     });
 
-    it('TL3 names the next dose even past the shown days', async () => {
-        const { document } = env;
-        env.window.Date.now = () => Date.UTC(2026, 9, 23, 20, 5);
-        await load([
+    it('TL3 names the next dose past the shown days — nothing tomorrow, a weekly dose next Friday', async () => {
+        const { document, window } = env;
+        window.Date.now = () => Date.UTC(2026, 9, 23, 20, 5);
+        serveRange(window, [
             berlin(1, '2026-10-23', '08:20', 'taken', { takenAt: '2026-10-23T06:24:00.000Z' }),
-            berlin(4, '2026-10-26', '13:00', 'upcoming'),
+            berlin(4, '2026-10-30', '13:00', 'upcoming'),
         ]);
-        expect(text(card(document).querySelector('.wg-meta'))).toBe('Next: Mon 26.10 13:00 · 1 med');
+        window.medications = MEDS;
+        await window.loadTimeline();
+        expect(plannedDays(document)).toEqual([]);
+        expect(text(card(document).querySelector('.wg-meta'))).toBe('Next: Fri 30.10 13:00 · 1 med');
+    });
+
+    it('the card holds exactly one dose: two due at the same latest instant → one in the card, its slot mate in Pending and the count', async () => {
+        const { document } = env;
+        const fixture = [berlin(1, '2026-10-23', '08:20', 'due'), berlin(2, '2026-10-23', '08:20', 'due'), berlin(1, '2026-10-24', '08:20', 'upcoming')];
+        env.window.medications = MEDS;
+        const server = serveDoses(env.window, fixture);
+        await env.window.loadTimeline();
+        const focusRows = card(document).querySelectorAll('.wg-timeline__row');
+        expect(focusRows).toHaveLength(1);
+        expect(focusRows[0].dataset.occIds).toBe(fixture[0].occId);
+        expect(text(card(document).querySelector('.wg-tl-focus__label .wg-meta'))).toBe('+1 more pending');
+        expect(blockRows(document.querySelector('.wg-timeline__today'), 'Pending').map((r) => r.dataset.occIds)).toEqual([fixture[1].occId]);
+        focusRows[0].querySelector('.wg-btn--primary').click();
+        await vi.waitFor(() => expect(server.posts).toHaveLength(1));
+        expect(server.posts[0]).toEqual({ action: 'take', occ_ids: [fixture[0].occId] });
     });
 
     it('TL4 · no missed state: an old dose stays pending — no "missed" anywhere', async () => {
@@ -402,6 +421,26 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             day().click();
             expect(day().getAttribute('aria-expanded')).toBe('false');
             expect(document.querySelectorAll('.wg-timeline__future .wg-timeline__row')).toHaveLength(0);
+        });
+
+        it('an unfolded day stays read-only whatever a dose\'s stored state: no sheet, no buttons', async () => {
+            const { document } = env;
+            await load([
+                berlin(1, '2026-10-24', '08:20', 'taken', { takenAt: '2026-10-23T12:00:00.000Z' }),
+                berlin(2, '2026-10-24', '13:00', 'skipped'),
+                berlin(3, '2026-10-24', '21:30', 'snoozed', { snoozedUntil: '2026-10-24T20:00:00.000Z' }),
+                berlin(4, '2026-10-24', '22:00', 'upcoming'),
+            ]);
+            document.querySelector('.wg-tl-day[data-local-date="2026-10-24"]').click();
+            const planned = Array.from(document.querySelectorAll('.wg-timeline__future .wg-timeline__row'));
+            expect(planned.map((r) => r.dataset.state)).toEqual(['taken', 'skipped', 'snoozed', 'upcoming']);
+            planned.forEach((r) => {
+                expect(r.getAttribute('role')).toBeNull();
+                expect(r.getAttribute('tabindex')).toBeNull();
+                expect(r.querySelector('button')).toBeNull();
+                r.click();
+            });
+            expect(document.getElementById('med-confirm-modal').classList.contains('hidden')).toBe(true);
         });
 
         it('today\'s remaining doses never fold into the future block', async () => {

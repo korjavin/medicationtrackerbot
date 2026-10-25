@@ -621,13 +621,14 @@ function _tlRowButton(label, ghost, onClick) {
 
 // One group = one kit row. Upcoming rows are read-only (Schedule's Take N
 // takes them early); every other row is a button that opens the sheet.
-function _tlRow(group, ctx, { chip = true } = {}) {
+// readOnly (an unfolded planned day): no sheet, no buttons, whatever the state.
+function _tlRow(group, ctx, { chip = true, readOnly = false } = {}) {
     const row = _medsEl('div', 'wg-row wg-timeline__row');
     row.dataset.state = group.state;
     row.dataset.localDate = group.localDate;
     row.dataset.occIds = group.rows.map((r) => String(r.occId)).join(' ');
     row.dataset.medIds = group.rows.map((r) => String(r.medId)).join(' ');
-    if (group.state !== 'upcoming') {
+    if (group.state !== 'upcoming' && !readOnly) {
         row.setAttribute('role', 'button');
         row.tabIndex = 0;
         row.addEventListener('click', () => _tlOpenSheet(group, ctx));
@@ -661,7 +662,7 @@ function _tlRow(group, ctx, { chip = true } = {}) {
     body.appendChild(meta);
     row.appendChild(body);
     // Pending rows keep Take / Skip for the odd one out (MT4); Take stamps now.
-    if (_tlIsPending(group)) {
+    if (_tlIsPending(group) && !readOnly) {
         const occIds = group.rows.map((r) => r.occId);
         const trail = _medsEl('span', 'wg-row__trail');
         trail.appendChild(_tlRowButton('Skip', true, () => _tlAct('skip', [{ occIds }])));
@@ -893,7 +894,7 @@ function _tlFutureSection(groups, ctx) {
             toggle();
         });
         list.appendChild(row);
-        if (open) day.forEach((g) => list.appendChild(_tlRow(g, ctx, { chip: false })));
+        if (open) day.forEach((g) => list.appendChild(_tlRow(g, ctx, { chip: false, readOnly: true })));
     }
     if (list.children.length) section.appendChild(list);
     return section;
@@ -912,8 +913,12 @@ function _tlFocus(rows, pending, ctx) {
     });
     const all = Array.from(byOcc.values())
         .filter((r) => (r.state === 'due' || r.state === 'snoozed') && Date.parse(r.plannedAt) <= ctx.nowMs);
-    const focus = _tlGroups(all).sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state]))[0] || null;
-    return { focus, more: focus ? all.length - focus.rows.length : 0 };
+    // Exactly one dose, never its slot mates: latest, due before snoozed,
+    // then a stable order by occId.
+    const [first] = all.slice().sort((a, b) => (Date.parse(b.plannedAt) - Date.parse(a.plannedAt))
+        || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state])
+        || String(a.occId).localeCompare(String(b.occId), undefined, { numeric: true }));
+    return { focus: first ? _tlGroups([first])[0] : null, more: Math.max(0, all.length - 1) };
 }
 
 function _tlFocusLabel(text, meta) {
@@ -1158,7 +1163,8 @@ async function _tlRead(list, seq, anchor) {
         return Array.isArray(fresh) ? fresh : window.DataStore.getCached(key).catch(() => null);
     };
     const [rows, pending] = await Promise.all([
-        read(MEDS_TIMELINE_KEY, `/api/doses?from=${iso(-(state.back + MEDS_TIMELINE_PAGE_DAYS + 1))}&to=${iso(state.ahead + MEDS_TIMELINE_PAGE_DAYS + 1)}`),
+        // Ahead: at least 8 days, so TL3's "Next:" finds a weekly dose too.
+        read(MEDS_TIMELINE_KEY, `/api/doses?from=${iso(-(state.back + MEDS_TIMELINE_PAGE_DAYS + 1))}&to=${iso(Math.max(state.ahead + MEDS_TIMELINE_PAGE_DAYS + 1, 8))}`),
         read(MEDS_TIMELINE_PENDING_KEY, `/api/doses?status=due,snoozed&to=${iso(0)}`),
     ]);
     // A newer read (a later tap or refresh) owns the screen.
