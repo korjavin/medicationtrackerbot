@@ -35,11 +35,12 @@ export default async function pullRefresh(ctx) {
       const toast = window.safeToast;
       window.safeToast = (m, type) => { window.__qaPtr.toasts.push([m, type]); return toast(m, type); };
       let last = '';
-      setInterval(() => {
+      // A mutation observer, not a poll: a fast sync paints and drops the busy pill within ms.
+      new MutationObserver(() => {
         const p = document.querySelector('.wg-ptr');
         const s = p ? `${p.className}|${p.textContent}` : '';
         if (s !== last) { window.__qaPtr.pill.push(s); last = s; }
-      }, 25);
+      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'], characterData: true });
     }
     return !!rec;
   });
@@ -59,6 +60,7 @@ export default async function pullRefresh(ctx) {
     while (Date.now() < end && (await page.evaluate(() => !!document.querySelector('.wg-ptr')))) await sleep(250);
     await sleep(500);
     const got = (r[label] = await record());
+    if (await page.evaluate(() => !!document.querySelector('.wg-ptr'))) throw new Error(`the refresh never finished: ${JSON.stringify(got.pill)}`);
     if (!got.touch.touchmove) throw new Error(`no touchmove reached the page: ${JSON.stringify(got.touch)}`);
     if (got.touch.touchcancel) throw new Error(`the WebView cancelled the touch: ${JSON.stringify(got.touch)}`);
     const bad = got.toasts.find(([, t]) => t === 'error');
