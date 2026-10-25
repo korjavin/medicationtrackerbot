@@ -96,6 +96,21 @@ func (r *Repo) DeleteAttestInstall(ctx context.Context, keyID string) error {
 	})
 }
 
+// DeleteAttestBucket is the user's own erase (bd med-egb3, local mode's
+// "Erase data on this device"; contract point 2): one device's whole trial —
+// every install in the bucket (the stale rows a reinstall leaves behind
+// included) and the bucket with its counters and pass hash. The caller has
+// proved membership with an assertion. A bucket already gone is no error.
+func (r *Repo) DeleteAttestBucket(ctx context.Context, bucketID string) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM attest_installs WHERE bucket_id = ?`, bucketID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM attest_buckets WHERE bucket_id = ?`, bucketID)
+		return err
+	})
+}
+
 // AttestInstall loads an install with its bucket's lifetime count;
 // sql.ErrNoRows when unknown.
 func (r *Repo) AttestInstall(ctx context.Context, keyID string) (*AttestInstall, error) {

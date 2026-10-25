@@ -16,6 +16,7 @@
 // a feedback send the user taps (bd med-ta2n.20, local-policy.js).
 
 const STATE_KEY = 'wg:local-trial';
+const ERASE_PATH = '/api/attest/delete';
 
 function b64(bytes) {
   let s = '';
@@ -39,6 +40,8 @@ async function errorCode(res) {
 //                                      (or of the challenge fetch, when that failed)
 //   post(pathAndQuery, body, signal) → Response of the signed POST
 //   get(pathAndQuery, signal)        → Response of the signed GET (empty body)
+//   erase(signal)                    → 'deleted' | 'unknown' | 'no_key' | 'failed'
+//                                      (the install record's deletion, bd med-egb3)
 // Every response goes to onResponse(res, pathAndQuery) first.
 //
 // The signed input (attest.go chat): clientDataHash = SHA256(challenge ‖
@@ -201,8 +204,31 @@ export function createAttestClient({
     }
   }
 
+  // The erase's deletion of this install's record (bd med-egb3; server:
+  // attest.go eraseInstall). Unlike request(), it never enrolls: a key the
+  // server or the shell does not have has nothing to delete. One re-sign for
+  // an expired challenge (the cached one is usually stale by then), nothing
+  // else retried. Resolves 'deleted' (204), 'unknown' (the server has no such
+  // install: 404, or install_unknown), 'no_key' (the shell has none) or
+  // 'failed' (offline, an old shell's `invalid path`, 5xx, …); never throws.
+  async function erase(signal) {
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const out = await signedRequest('POST', ERASE_PATH, '', signal);
+        if (out.needsKey) return 'no_key';
+        if (out.res.ok) return 'deleted';
+        if (out.res.status === 404) return 'unknown';
+        const { code } = await errorCode(out.res);
+        if (code === 'install_unknown') return 'unknown';
+        if (code !== 'challenge_invalid') break;
+      }
+    } catch { /* network, op error: below */ }
+    return 'failed';
+  }
+
   return {
     enroll,
+    erase,
     feedbackRecipient,
     post: (pathAndQuery, body, signal) => request('POST', pathAndQuery, body, signal),
     // An empty body: the digest is SHA256(pathAndQuery ‖ "\n") (attest.go food routes).

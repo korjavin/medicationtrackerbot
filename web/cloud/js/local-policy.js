@@ -827,24 +827,63 @@ export const LOCAL_VAULT = {
   // pending and delivered reminders and the BYOK host mirror, and the app
   // starts over empty. Throws, before anything is reported done, when the
   // records could not be erased.
+  // First (bd med-egb3, contract points 3-4 in its topic), while the shell
+  // still holds the attest key: our server deletes this device's anonymous
+  // install record and trial budget. Best effort, never retried: when that
+  // fails the user is asked whether to erase anyway (Cancel keeps
+  // everything); only a confirmed deletion lets the shell drop the key and
+  // trial pass (local.reset {dropAttest: true}) — after a failed one they
+  // stay, so an offline erase never loses an iPhone's trial for good.
+  // Resolves { erased, installRecord } with installRecord 'deleted' | 'none'
+  // (no shell key, nothing sent) | 'failed'.
   async eraseDevice({ win = globalThis.window } = {}) {
+    const installRecord = await eraseInstallRecord(win);
+    if (installRecord === 'failed') {
+      const anyway = typeof win.safeConfirm === 'function' && await win.safeConfirm(ERASE_RECORD_FAILED_COPY, null, {
+        title: 'Erase anyway?', icon: 'trash', confirmLabel: 'Erase anyway', destructive: true,
+      });
+      if (!anyway) return { erased: false, installRecord };
+    }
     await stopHealthImport();
     await clearLocalVault(); // holds the dose writers off itself
     try { win.localStorage.clear(); } catch { /* storage blocked: nothing kept there */ }
     try { win.sessionStorage.clear(); } catch { /* same */ }
     const native = shellNative(win);
-    if (native) await native.call('local.reset').catch(() => {});
+    if (native) {
+      await (installRecord === 'deleted' ? native.call('local.reset', { dropAttest: true }) : native.call('local.reset')).catch(() => {});
+    }
     win.location.replace('/');
+    return { erased: true, installRecord };
   },
 };
 
+export const ERASE_RECORD_FAILED_COPY = 'The anonymous install record on the server could not be deleted (offline, or the app needs an update). Erase this device anyway?';
+
+// eraseDevice's server step (bd med-egb3; server: attest.go eraseInstall):
+// 'deleted' (204, or the server no longer knows the key), 'none' (no shell
+// attest, or the shell has no key: nothing to delete) or 'failed' (an old
+// shell's `invalid path`, offline, 5xx, the step bound).
+async function eraseInstallRecord(win) {
+  const attest = await attestStatus(win);
+  if (!attest) return 'none';
+  let out;
+  try {
+    out = await bounded(sharedAttestClient(attest.base, win).erase());
+  } catch {
+    return 'failed';
+  }
+  if (out === 'deleted' || out === 'unknown') return 'deleted';
+  return out === 'no_key' ? 'none' : 'failed';
+}
+
 // The base-host routes the shell POSTs for the page (bridge op base.post, bd
-// med-ta2n.24 §A: an invite request, feedback, and the attest enroll they
-// need). The local CSP never lists our base domain for these; the trial's
+// med-ta2n.24 §A: an invite request, feedback, the attest enroll they need,
+// and the erase's install-record delete, bd med-egb3). The local CSP never lists our base domain for these; the trial's
 // chat/food/voice keep window.fetch under the trial-on CSP. One list, the
 // shells' basePostPaths / BASE_POST_PATHS.
 export const BASE_POST_PATHS = Object.freeze([
   '/api/attest/challenge',
+  '/api/attest/delete',
   '/api/attest/enroll',
   '/api/attest/feedback',
   '/api/invite-requests',

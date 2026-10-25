@@ -303,6 +303,23 @@ precondition(LocalOrigin.leave(["then": "local", "forget": true]) == .forgetLoca
 precondition(LocalOrigin.leave(["then": "account", "forget": true]) == .invite)
 print("LocalOrigin.leave: ok")
 
+// local.reset {dropAttest} (bd med-egb3): only a JSON true drops the key id, the attested mark and the pass.
+let attestDefaults = UserDefaults(suiteName: "wg-test-reset-attest")!
+for args: [String: Any] in [[:], ["dropAttest": false], ["dropAttest": "true"], ["dropAttest": [true]]] {
+    attestDefaults.set("kid", forKey: LocalOrigin.attestKeyIdKey)
+    attestDefaults.set("kid", forKey: LocalOrigin.attestedKey)
+    var passDropped = false
+    precondition(!LocalOrigin.resetAttest(args, defaults: attestDefaults, dropPass: { passDropped = true }), "\(args)")
+    precondition(attestDefaults.string(forKey: LocalOrigin.attestKeyIdKey) == "kid" && attestDefaults.string(forKey: LocalOrigin.attestedKey) == "kid" && !passDropped, "\(args) dropped")
+}
+var attestPassDropped = false
+precondition(LocalOrigin.resetAttest(["dropAttest": true], defaults: attestDefaults, dropPass: { attestPassDropped = true }))
+precondition(attestDefaults.string(forKey: LocalOrigin.attestKeyIdKey) == nil && attestDefaults.string(forKey: LocalOrigin.attestedKey) == nil && attestPassDropped)
+attestDefaults.removePersistentDomain(forName: "wg-test-reset-attest")
+// The erase's delete rides base.post (bd med-egb3).
+precondition(LocalOrigin.basePostPaths.contains("/api/attest/delete"))
+print("LocalOrigin.resetAttest: ok")
+
 // The shell's own page and getUserMedia (bd med-r1j2.18).
 let acct = "abc.app.example.com"
 func own(_ scheme: String, _ host: String, port: Int = 0, main: Bool = true, local: Bool, account: String? = "abc.app.example.com") -> Bool {

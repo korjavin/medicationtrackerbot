@@ -1110,6 +1110,8 @@ function bindLocalErase() {
                 title: `Erase data on this ${device}?`, icon: 'trash', confirmLabel: 'Erase', destructive: true, typedConfirm: 'ERASE',
                 facts: [
                     { text: `All records, settings and keys on this ${device}`, gone: true },
+                    // bd med-egb3: eraseDevice asks our server to delete it first.
+                    { text: "The anonymous trial record on the server (a phone restored from this one's backup loses its remaining trial too)", gone: true },
                     { text: 'Backup files you exported stay where you saved them' },
                 ],
             },
@@ -1118,7 +1120,10 @@ function bindLocalErase() {
         btn.disabled = true;
         errorEl.hidden = true;
         try {
-            await window.CloudVault.eraseDevice();
+            // { erased: false }: the server record could not be deleted and
+            // the user kept everything (local-policy.js eraseDevice).
+            const res = await window.CloudVault.eraseDevice();
+            if (res && res.erased === false) btn.disabled = false;
         } catch (e) {
             errorEl.textContent = `The erase did not finish: ${e.message || 'the data could not be deleted.'} Try again.`;
             errorEl.hidden = false;

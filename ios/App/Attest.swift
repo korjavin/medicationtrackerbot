@@ -44,8 +44,9 @@ enum Attest {
     /// The install's App Attest key id, and that id once attested.
     /// UserDefaults, not the Keychain: a reinstall must not find them, since
     /// App Attest keys do not survive one.
-    static let keyIdKey = "wgAttestKeyId"
-    static let attestedKey = "wgAttestAttested"
+    /// local.reset {dropAttest: true} drops both and the pass (LocalOrigin.resetAttest, bd med-egb3).
+    static let keyIdKey = LocalOrigin.attestKeyIdKey
+    static let attestedKey = LocalOrigin.attestedKey
 
     /// The trial pass (bd med-o7zq.26) is the opposite: the Keychain, so it
     /// outlives a reinstall and the next install rejoins the same trial

@@ -83,6 +83,21 @@ class Attest(private val context: Context) {
 
     fun close() = scope.cancel()
 
+    /**
+     * local.reset {dropAttest: true} (bd med-egb3, contract point 4): our server deleted this
+     * device's install record, so the key and the pass go too and the next enroll mints a key the
+     * server cannot link to the erased one. Both aliases' Keystore entries (each in runCatching),
+     * then wg_trial cleared with commit() before local.reset answers. A copy of the pass in Auto
+     * Backup is harmless: its bucket is gone, so the server answers trial_pass_invalid and the
+     * page drops it and enrolls afresh (local-trial.js doEnroll).
+     */
+    fun drop() {
+        val ks = runCatching { keyStore() }.getOrNull()
+        setOfNotNull(prefs.getString(ALIAS, null), prefs.getString(ATTESTED, null))
+            .forEach { alias -> runCatching { ks?.deleteEntry(alias) } }
+        prefs.edit().clear().commit()
+    }
+
     private val projectNumber get() = BuildConfig.PLAY_CLOUD_PROJECT_NUMBER.toLongOrNull()
 
     private val supported

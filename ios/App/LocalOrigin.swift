@@ -29,7 +29,7 @@ enum LocalOrigin {
     /// normalization. Twin of Android LocalOrigin.BASE_POST_PATHS and the page's
     /// BASE_POST_PATHS (local-policy.js); the trial chat/food/voice stay page fetch.
     static let basePostPaths: Set<String> = [
-        "/api/attest/challenge", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
+        "/api/attest/challenge", "/api/attest/delete", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
     ]
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
     static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash",
@@ -70,6 +70,26 @@ enum LocalOrigin {
     static func leave(_ args: [String: Any]) -> Leave {
         guard args["then"] as? String == "local" else { return .invite }
         return args["forget"] as? Bool == true ? .forgetLocal : .local
+    }
+
+    /// The install's App Attest key id and that id once attested (Attest.swift).
+    static let attestKeyIdKey = "wgAttestKeyId"
+    static let attestedKey = "wgAttestAttested"
+
+    /// local.reset {dropAttest: true} (bd med-egb3, contract point 4): only a
+    /// JSON true, which the page sends only once our server deleted this
+    /// device's install record. Drops the key id, its attested mark and (via
+    /// dropPass) the Keychain trial pass, so the next enroll mints a fresh key
+    /// the server cannot link to the erased one. Without it all three stay: a
+    /// failed delete must not cost an iPhone its trial for good (DeviceCheck
+    /// bit0 set, pass gone). True when it dropped them.
+    @discardableResult
+    static func resetAttest(_ args: [String: Any], defaults: UserDefaults = .standard, dropPass: () -> Void) -> Bool {
+        guard args["dropAttest"] as? Bool == true else { return false }
+        defaults.removeObject(forKey: attestKeyIdKey)
+        defaults.removeObject(forKey: attestedKey)
+        dropPass()
+        return true
     }
 
     /// The page this shell has open (bd med-r1j2.18): the main frame of the

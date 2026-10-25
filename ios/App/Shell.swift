@@ -647,6 +647,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             move.clear()
             leaveStash.clear()
             setInvite(nil) // no claim token left behind after Erase
+            // {dropAttest: true} only after our server deleted the install record (bd med-egb3).
+            LocalOrigin.resetAttest(body["args"] as? [String: Any] ?? [:], dropPass: { try? Attest.writePass("") })
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)

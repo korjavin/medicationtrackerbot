@@ -63,6 +63,13 @@ class LocalOriginTest {
             assertNull("accepted $bad", LocalOrigin.qaHome(bad))
     }
 
+    // local.reset {dropAttest} (bd med-egb3): only a JSON true drops the attest key and pass.
+    @Test
+    fun dropsAttest() {
+        assertTrue(LocalOrigin.dropsAttest(true))
+        for (bad in listOf(null, false, "true", 1, listOf(true))) assertFalse("accepted $bad", LocalOrigin.dropsAttest(bad))
+    }
+
     @Test
     fun bridgeGate() {
         val acct = "me.example.org"

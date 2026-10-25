@@ -3192,7 +3192,8 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             if (op === 'setEgressHosts') return { changed: false };
             if (op !== 'base.post') return null;
             fetched.push({ url: `https://${TRIAL_BASE}${args.path}`, headers: args.headers, body: args.body });
-            const answer = { '/api/attest/challenge': reply.challenge, '/api/attest/enroll': reply.enroll, '/api/attest/feedback': reply.feedback }[args.path];
+            // reply.erase unset = a shell from before /api/attest/delete (bd med-egb3): `invalid path`.
+            const answer = { '/api/attest/challenge': reply.challenge, '/api/attest/enroll': reply.enroll, '/api/attest/feedback': reply.feedback, '/api/attest/delete': reply.erase }[args.path];
             if (!answer) throw new Error('invalid path');
             return shellReply(await answer()); // an answer that throws is the op's error string
         });
@@ -3471,6 +3472,95 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
             expect(pageHitBase()).toBe(false);
         });
     }
+
+    // bd med-egb3: Erase data on this device first asks our server, through
+    // the shell, to delete this device's install record, signed by its key;
+    // only a confirmed deletion lets the shell drop the key and pass.
+    describe('erase deletes the install record', () => {
+        const attestedInstall = () => ({ ...freshInstall(), status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: true })) });
+        let replace;
+        const eraseWin = (confirm) => {
+            replace = vi.fn();
+            return {
+                localStorage: env.window.localStorage,
+                sessionStorage: env.window.sessionStorage,
+                LocalNotifications: env.window.LocalNotifications,
+                Attest: env.window.Attest,
+                fetch: env.window.fetch,
+                safeConfirm: vi.fn(async () => confirm),
+                location: { replace },
+            };
+        };
+        const resets = () => bridge.mock.calls.filter(([op]) => op === 'local.reset');
+
+        it('204: signed over the empty body, then the erase and local.reset {dropAttest: true}', async () => {
+            const { createHash } = await import('node:crypto');
+            await boot(attestedInstall());
+            reply.erase = () => new Response(null, { status: 204, headers: { 'X-Attest-Challenge': 'c9' } });
+            env.window.localStorage.setItem('wg.marker', '1');
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'deleted' });
+            expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/delete']);
+            const digest = createHash('sha256').update('/api/attest/delete\n').digest('base64');
+            expect(fetched[1]).toMatchObject({ body: '', headers: { 'X-Attest-Key-Id': 'key-1', 'X-Attest-Challenge': 'c1', 'X-Attest-Assertion': `sig:c1:${digest}` } });
+            expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(env.window.localStorage.getItem('wg.marker')).toBeNull();
+            expect(resets()).toEqual([['local.reset', { dropAttest: true }]]);
+            expect(replace).toHaveBeenCalledWith('/');
+            expect(pageHitBase()).toBe(false);
+        });
+
+        it('install_unknown (already gone) counts as deleted; a stale challenge is re-signed once; never an enroll', async () => {
+            await boot(attestedInstall());
+            const answers = [
+                new Response(JSON.stringify({ error: 'challenge_invalid' }), { status: 400, headers: { 'X-Attest-Challenge': 'c5' } }),
+                new Response(JSON.stringify({ error: 'install_unknown' }), { status: 401 }),
+            ];
+            reply.erase = () => answers.shift();
+            expect(await env.window.CloudVault.eraseDevice({ win: eraseWin(true) })).toEqual({ erased: true, installRecord: 'deleted' });
+            expect(paths()).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/delete']);
+            expect(fetched[2].headers['X-Attest-Challenge']).toBe('c5');
+            expect(env.window.Attest.enroll).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset', { dropAttest: true }]]);
+        });
+
+        it('a failure (an old shell\'s invalid path) asks first: Cancel keeps everything, nothing retried', async () => {
+            await boot(attestedInstall()); // reply.erase unset: invalid path
+            env.window.localStorage.setItem('wg.marker', '1');
+            const win = eraseWin(false);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: false, installRecord: 'failed' });
+            expect(win.safeConfirm).toHaveBeenCalledTimes(1);
+            expect(win.safeConfirm.mock.calls[0][0]).toBe('The anonymous install record on the server could not be deleted (offline, or the app needs an update). Erase this device anyway?');
+            expect(paths().filter((p) => p === '/api/attest/delete')).toHaveLength(1);
+            expect(env.window.localStorage.getItem('wg.marker')).toBe('1');
+            expect(resets()).toEqual([]);
+            expect(replace).not.toHaveBeenCalled();
+        });
+
+        it('a failure confirmed with Erase anyway erases, but keeps the shell\'s key and pass', async () => {
+            await boot(attestedInstall());
+            reply.erase = () => new Response(JSON.stringify({ error: 'erase_unavailable' }), { status: 503 });
+            env.window.localStorage.setItem('wg.marker', '1');
+            expect(await env.window.CloudVault.eraseDevice({ win: eraseWin(true) })).toEqual({ erased: true, installRecord: 'failed' });
+            expect(env.window.localStorage.getItem('wg.marker')).toBeNull();
+            expect(resets()).toEqual([['local.reset']]);
+            expect(replace).toHaveBeenCalledWith('/');
+        });
+
+        it('no key in the shell: nothing to delete, no question, no enroll', async () => {
+            const attest = attestedInstall();
+            attest.assert = vi.fn(async () => { throw new Error('no_key'); });
+            await boot(attest);
+            reply.erase = () => new Response(null, { status: 204 });
+            const win = eraseWin(true);
+            expect(await env.window.CloudVault.eraseDevice({ win })).toEqual({ erased: true, installRecord: 'none' });
+            expect(paths()).not.toContain('/api/attest/delete');
+            expect(attest.enroll).not.toHaveBeenCalled();
+            expect(win.safeConfirm).not.toHaveBeenCalled();
+            expect(resets()).toEqual([['local.reset']]);
+        });
+    });
 });
 
 function fromB64(s) {
