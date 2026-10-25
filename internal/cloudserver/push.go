@@ -325,9 +325,11 @@ type putScheduleRequest struct {
 // (replace-all). Entries the relay
 // has already fired are untouched.
 //
-// The schedule encodes the dose engine's view, so it takes the sync writer
-// gate (bd med-wi09.20): once the account's ledger cut is set, a writer
-// without X-Ledger: 2 gets 426 and the schedule stays as it is.
+// The schedule encodes the dose engine's view, so it will take the sync
+// writer gate. For now (bd med-wi09.20) a header-less PUT on an account with
+// a ledger cut is only logged; the 426 ships in med-wi09.22 once prod logs
+// show no such PUTs for 48h (the bundle before med-wi09.20 sets the cut but
+// sends no X-Ledger here).
 func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
@@ -342,8 +344,7 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if cut.Seq != nil {
-			writeUpdateRequired(w, session.AccountID, "push/schedule")
-			return
+			slog.Warn("push schedule: header-less PUT on cut account", "account", session.AccountID)
 		}
 	}
 

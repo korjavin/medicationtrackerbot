@@ -331,10 +331,10 @@ func TestNativeTokens_Routes(t *testing.T) {
 	}
 }
 
-// TestPutSchedule_WriterGate guards bd med-wi09.20: PUT /api/push/schedule
-// takes the sync writer gate. Before the account's ledger cut any writer
-// replaces the schedule; after it, a writer without X-Ledger: 2 gets 426 and
-// the schedule is untouched, while an X-Ledger: 2 writer still gets 204.
+// TestPutSchedule_WriterGate guards bd med-wi09.20's log-only phase: a PUT
+// /api/push/schedule without X-Ledger: 2 still replaces the schedule (204)
+// before and after the account's ledger cut; the after-cut case is only
+// logged until med-wi09.22 turns it into a 426.
 func TestPutSchedule_WriterGate(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -387,11 +387,11 @@ func TestPutSchedule_WriterGate(t *testing.T) {
 		t.Fatalf("AppendOps ledgercut: %v", err)
 	}
 
-	if code := put(false, "old-2"); code != http.StatusUpgradeRequired {
-		t.Fatalf("post-cut PUT without header = %d, want 426", code)
+	if code := put(false, "old-2"); code != http.StatusNoContent {
+		t.Fatalf("post-cut PUT without header = %d, want 204 (log-only until med-wi09.22)", code)
 	}
-	if got := scheduled(); got != "new-1" {
-		t.Fatalf("schedule after refused PUT = %q, want new-1 untouched", got)
+	if got := scheduled(); got != "old-2" {
+		t.Fatalf("schedule after header-less PUT = %q, want old-2", got)
 	}
 	if code := put(true, "new-2"); code != http.StatusNoContent {
 		t.Fatalf("post-cut PUT with header = %d, want 204", code)

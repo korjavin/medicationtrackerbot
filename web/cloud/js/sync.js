@@ -104,8 +104,8 @@ function isUpdateRequiredStatus(status) {
 // med-wi09.12): once the account's ledger cut is set the server answers 426 to
 // a writer without it (med-wi09.8). A header only — queued legacy payloads go
 // up unchanged and the intake reducer still ranks them legacy. The reminder
-// schedule PUT (push.js) sends the same headers: it takes the same gate
-// (med-wi09.20).
+// schedule PUT (push.js) sends the same headers: it gets the same gate in
+// med-wi09.22 (logged only until then, med-wi09.20).
 export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Ledger': '2' };
 
 // The pull's ledger_cut_at is the account's cut; the local ledgercut singleton

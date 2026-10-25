@@ -428,7 +428,7 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
     entries.push(entry);
   }
   // X-Ledger: 2 (WRITE_HEADERS): the schedule encodes the dose engine's view,
-  // so it takes the sync writer gate (med-wi09.20).
+  // so it gets the sync writer gate in med-wi09.22 (logged only until then).
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: WRITE_HEADERS,
