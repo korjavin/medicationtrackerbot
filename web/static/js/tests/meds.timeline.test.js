@@ -696,7 +696,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         it('M2 Snooze 10m snoozes the sheet\'s own occIds and shows "Snoozed until HH:MM" before the POST resolves (bd med-4j49)', async () => {
             const fixture = normalDay();
             const server = await serve(fixture);
-            const [dated] = blockRows(today(), 'Thu 22.10');
+            const dated = yesterday().querySelector('.wg-timeline__row[data-state="due"]');
             const occId = dated.dataset.occIds;
             dated.click();
             const release = server.hold();
@@ -718,7 +718,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         it('a failed M2 snooze rolls the row back to due', async () => {
             const fixture = normalDay();
             await serve(fixture, { fail: true });
-            const [dated] = blockRows(today(), 'Thu 22.10');
+            const dated = yesterday().querySelector('.wg-timeline__row[data-state="due"]');
             const occId = dated.dataset.occIds;
             dated.click();
             await env.window.snoozeMedicationConfirm();
