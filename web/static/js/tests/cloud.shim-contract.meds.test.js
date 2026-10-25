@@ -784,6 +784,76 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         // cached medications list — the offline doses_due_24h path.
         expect(missed(due.map((d) => ({ ...d, name: '' })))[0].names).toEqual(['Atorvastatin', 'Metformin']);
     });
+
+    // bd med-wi09.18 — trigger-next-intake (MCP op, voice) writes the cluster
+    // the Home card shows, read off the same projection rows; the raw planner
+    // disagrees with them whenever a stored row keeps or cancels a dose.
+    describe('trigger-next-intake confirms the cluster next-intake shows (bd med-wi09.18)', () => {
+        const EARLY = at(6);
+        const reload = (seed) => {
+            env.cleanup();
+            env = loadCloudShimFrontendEnv({ seedRecords: seed, now: () => EARLY, timeZone: TZ });
+        };
+        const trigger = () => env.window.apiCall('/api/medications/trigger-next-intake', 'POST', {});
+        const intakeRows = async () => (await env.records.list('intake'))
+            .map((i) => [i.recordId, i.medication_id, i.scheduled_at, i.status, i.source])
+            .sort((a, b) => a[0].localeCompare(b[0]));
+
+        it('a kept 08:00 is written, not the edited 09:00; cancelled and archived doses are not', async () => {
+            reload({
+                medication: [
+                    // Edited 08:00 → 09:00 after today's 08:00 row was stored untaken.
+                    med(1, 'Metformin', { type: 'daily', times: ['09:00'] }),
+                    // 07:00 today was cancelled (tombstone); the planner still yields it.
+                    med(2, 'Losartan', { type: 'daily', times: ['07:00'] }),
+                    // Archived, with a stored PENDING row in the 08:00 cluster.
+                    { ...med(3, 'Aspirin', { type: 'daily', times: ['08:00'] }), archived: true }
+                ],
+                intake: [
+                    intake(slotId(1, at(8)), 1, at(8)),
+                    intake(slotId(2, at(7)), 2, at(7), { deleted: true }),
+                    intake(slotId(3, at(8)), 3, at(8))
+                ]
+            });
+
+            const next = await call('/api/medications/next-intake');
+            expect(next).toEqual({ scheduled_at: iso(at(8)), medication_ids: [1], medication_names: ['Metformin'] });
+
+            const res = await trigger();
+            expect(res).toMatchObject({
+                status: 'confirmed', scheduled_at: next.scheduled_at, medication_count: 1, medication_names: ['Metformin']
+            });
+            expect(await intakeRows()).toEqual([
+                [slotId(1, at(8)), 1, iso(at(8)), 'TAKEN', 'schedule'],
+                [slotId(3, at(8)), 3, iso(at(8)), 'PENDING', 'schedule']
+            ]);
+        });
+
+        it('a two-med cluster 5 min apart: each confirmed at its own instant, tz_step kept', async () => {
+            const step = at(8) + 5 * 60_000;
+            reload({
+                medication: [
+                    med(1, 'Metformin', { type: 'daily', times: ['08:00'] }),
+                    med(2, 'Losartan', { type: 'daily', times: ['14:00'] })
+                ],
+                intake: [],
+                tzplan: [{
+                    ...seedRecords().tzplan[0],
+                    steps: [{ medicationId: 2, medName: 'Losartan', stepNumber: 1, totalSteps: 1, scheduledAtMs: step, note: 'step' }]
+                }]
+            });
+
+            const next = await call('/api/medications/next-intake');
+            expect(next).toMatchObject({ scheduled_at: iso(at(8)), medication_ids: [1, 2] });
+
+            const res = await trigger();
+            expect(res).toMatchObject({ scheduled_at: iso(at(8)), medication_count: 2 });
+            expect(await intakeRows()).toEqual([
+                [slotId(1, at(8)), 1, iso(at(8)), 'TAKEN', 'schedule'],
+                [slotId(2, step), 2, iso(step), 'TAKEN', 'tz_step']
+            ]);
+        });
+    });
 });
 
 // bd med-wi09.9 — schedule history: one immutable medsched-* row per change,
