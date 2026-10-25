@@ -335,7 +335,8 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   (num), `user_modified` (bool), `notes` (str), optional `source` / `source_id` (as bp:
   an Apple Health sleep day, `source_id` = its `day`; re-minted as `sleep-hk-<day>`).
 - **day_stat** — `day` (`YYYY-MM-DD`), `steps`, `calories`, `distance` (num).
-- **sample** (heart/spo2/stress) — `date_time` (RFC3339), `tz_offset` (seconds),
+- **sample** (heart/spo2/stress) — `date_time` (RFC3339), `tz_offset` (seconds;
+  absent on samples imported from Apple Health / Health Connect, no reader uses it),
   `value` (num), optional `type` (int sample-kind discriminator, omitted when 0), and
   optional `info` (str). Storage is unix-seconds INTEGER server-side;
   the format uses RFC3339, matching the vitals wire form and the cloud sample body.
