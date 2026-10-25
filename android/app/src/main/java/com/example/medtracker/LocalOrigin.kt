@@ -35,15 +35,15 @@ object LocalOrigin {
      * base.post's paths (contract med-ta2n.24 A2): exact match, no query, no normalization. Twin of
      * iOS LocalOrigin.basePostPaths; the trial chat/food/voice paths stay page fetch.
      */
+    val BASE_POST_PATHS = setOf(
+        "/api/attest/challenge", "/api/attest/delete", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
+    )
+
     /**
      * local.reset {dropAttest} (bd med-egb3, contract point 4): only a JSON true (no optBoolean
      * coercion of "true"), which the page sends only once our server deleted the install record.
      */
     fun dropsAttest(flag: Any?): Boolean = flag == true
-
-    val BASE_POST_PATHS = setOf(
-        "/api/attest/challenge", "/api/attest/delete", "/api/attest/enroll", "/api/attest/feedback", "/api/invite-requests",
-    )
 
     /**
      * Bridge ops only an account page may call (bd med-nt9p.32.13); the bundled app gets "unsupported".
