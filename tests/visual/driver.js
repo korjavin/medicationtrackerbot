@@ -238,7 +238,8 @@
             // own (reminderDeeplink), which the shell keeps unchanged
             // (ios/App/ReminderPath.swift). Its toasts stay up for the shot.
             const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
-            const row = (Array.isArray(rows) ? rows : [])[0];
+            // The latest one: the timeline's focus card, so the shot shows it.
+            const row = (Array.isArray(rows) ? rows : []).sort((a, b) => Date.parse(b.plannedAt) - Date.parse(a.plannedAt))[0];
             if (!row) throw new Error('staleReminder: no due dose in the seed');
             if (step.staleReminder === 'taken') {
                 // The take's own reschedule (2 s debounce) replaces every pending
@@ -259,10 +260,17 @@
             // ready wait and the permission alert. Resolves how many the shell
             // scheduled (Playwright's stub bridge: 0).
             const ln = window.LocalNotifications;
-            const schedule = () => ln.schedule([{
-                fireAtUnix: Math.floor((window.performance.timeOrigin + window.performance.now()) / 1000) + 15,
-                title: 'Med Tracker', body: 'QA stale reminder', url,
-            }]);
+            const realNow = () => Math.floor((window.performance.timeOrigin + window.performance.now()) / 1000);
+            let fireAtUnix = 0;
+            const schedule = () => {
+                if (!fireAtUnix) fireAtUnix = realNow() + 15;
+                if (realNow() >= fireAtUnix) return Promise.resolve(0);
+                return ln.schedule([{ fireAtUnix, title: 'Med Tracker', body: 'QA stale reminder', url }]);
+            };
+            // Every app schedule is replace-all (e.g. its re-run once the
+            // permission is granted, reminders.js askPermissionIfNeeded): add
+            // ours back after each one until it fires.
+            document.addEventListener('wg:local-reminders-scheduled', () => { if (fireAtUnix) schedule(); });
             let scheduled = 0;
             if (ln && ln.isSupported()) {
                 // Not granted yet: iOS shows its alert (the native

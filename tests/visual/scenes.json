@@ -226,7 +226,7 @@
       "ready": ["#med-timeline-tab.active", "#med-timeline-list .wg-timeline__today"] },
     { "name": "reminder-stale-taken", "localOnly": true, "platform": "ios",
       "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }, { "click": ".med-tab[data-tab=\"timeline\"]" }, { "staleReminder": "taken" },
-        { "click": "[data-notify-choice=\"not-now\"]", "optional": true }],
+        { "click": "[data-notify-choice=\"not-now\"]", "optional": true }, { "click": ".med-tab[data-tab=\"schedule\"]" }, { "click": ".med-tab[data-tab=\"timeline\"]" }],
       "native": [{ "allowNotifications": true }, { "notification": "QA stale reminder" }, { "waitFor": "Already logged — nothing left to take for this reminder." }],
       "ready": ["#med-timeline-tab.active", "#med-timeline-list .wg-timeline__today"] },
     { "name": "meds-timeline-done",
