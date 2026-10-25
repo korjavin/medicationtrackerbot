@@ -52,31 +52,22 @@ tests, not convention:
 
 ### 1.2 Application-log retention
 
-The `medtracker-cloud` container logs to Docker's default `json-file` driver.
-**That driver does not rotate on its own** — an unconfigured host grows
-`*-json.log` without bound until the disk fills. Retention is therefore
-whatever bound the operator sets, in one of two places:
+Every service in `docker-compose.cloud.yml` (the `x-logging` anchor) logs to
+Docker's `json-file` driver with rotation configured:
 
-- **Docker daemon default** (`/etc/docker/daemon.json` `log-opts`) — applies to
-  every container on the host.
-- **Per-service `logging:` block** in `docker-compose.cloud.yml` — explicit and
-  version-controlled, and the recommended posture:
+```yaml
+logging:
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+```
 
-  ```yaml
-  services:
-    cloud:
-      logging:
-        driver: json-file
-        options:
-          max-size: "10m"   # recommended bound — tune to disk + audit needs
-          max-file: "3"     # ~30 MB of history retained, older lines dropped
-  ```
-
-  The `10m` / `3` figures above are a **recommended default**, not a mandated
-  retention period; raise them if you need a longer operational window, lower
-  them to shed history faster. Whatever you pick, it is the effective
-  retention for anything in the application log (which, per §1.1, is metadata
-  and fingerprints — no plaintext health data, no raw capabilities).
+That keeps about 30 MB of history per container; older lines are dropped, and
+the log is wiped when a redeploy recreates the container. This is the
+effective retention for anything in the application log (which, per §1.1, is
+metadata and fingerprints — no plaintext health data, no raw capabilities).
+Change it in the compose file, not per host.
 
 ### 1.3 Reverse-proxy access logs — required decision
 
