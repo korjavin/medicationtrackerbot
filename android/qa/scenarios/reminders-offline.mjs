@@ -379,8 +379,12 @@ async function waitNotification(ctx, med, text, out, before, lateMin = 3) {
   const offset = (out.clockOffsetMs = (await deviceMs(ctx.shell)) - Date.now());
   const now = () => Date.now() + offset;
   if (med.slotUnix * 1000 - now() > 10_000) {
-    out.alarmArmed = Number(await ctx.shell('dumpsys alarm | grep -c "Notifications.Fire"').catch(() => '0')) || 0;
-    if (!out.alarmArmed) throw new Error(`no alarm armed for ${med.hhmm} (${Math.round(med.slotUnix - now() / 1000)} s ahead on the device clock)`);
+    // Pending alarms print as Alarm{… type N origWhen <ms> … <pkg>} (stats sections print only tags);
+    // the shell arms its earliest row, so one of ours must trigger between now and the slot.
+    const lines = (await ctx.shell(`dumpsys alarm | grep "Alarm{.* origWhen .* ${ctx.pkg}}"`).catch(() => '')).split('\n').filter(Boolean);
+    out.alarmPending = lines.map((l) => Number((l.match(/origWhen (\d+)/) || [])[1]));
+    out.alarmArmed = out.alarmPending.some((t) => t >= now() - 60_000 && t <= med.slotUnix * 1000);
+    if (!out.alarmArmed) throw new Error(`no alarm armed for ${med.hhmm} (${Math.round(med.slotUnix - now() / 1000)} s ahead on the device clock): ${lines.join(' | ').slice(0, 300) || 'none pending'}`);
   }
   out.notificationsBefore = before ??= await count();
   const end = med.slotUnix * 1000 + lateMin * 60_000;
