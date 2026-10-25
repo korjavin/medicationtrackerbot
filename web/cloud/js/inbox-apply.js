@@ -19,7 +19,7 @@
 //     vault we ask the relay to edit its "⏳ Queued" placeholder into a
 //     confirmation WE composed — the relay forwards that string verbatim, the
 //     same contract it already has for outbound reminder text.
-import { createIntakeDomain } from '../../domain/medintake.js';
+import { createIntakeDomain, dosesAtInstant } from '../../domain/medintake.js';
 import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
@@ -234,12 +234,9 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // PENDING prediction (bd med-wi09.12), so the dose usually has no row yet:
   // confirm()/snooze() write the evidence at that exact occId. The +999 covers
   // a tz-plan step that keeps its anchor's milliseconds (the occId floors).
-  // The projection is read a day either side and then narrowed to the instant:
-  // a lineage replacement (tz switch, schedule edit) outside a one-second
-  // window would leave its cancelled dose standing in as if still due.
-  // ponytail: ±1 day covers tz/schedule moves; widen if lineage ever spans more.
-  const atInstant = async (ms) => (await intake.occurrences({ fromMs: ms - 86400000, toMs: ms + 86400000 + 999 }))
-    .filter((r) => { const p = Date.parse(r.plannedAt); return p >= ms && p <= ms + 999; });
+  // dosesAtInstant reads lineage-safe (a cancelled dose never stands in for
+  // its replacement) and narrows to the instant.
+  const atInstant = (ms) => dosesAtInstant(intake, ms);
   const resolveNamed = async () => {
     const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
     const rows = await atInstant(slotMs);

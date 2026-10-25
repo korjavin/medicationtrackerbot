@@ -260,6 +260,32 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: new Date(orphanUnix * 1000).toISOString(), count: 1 });
     });
 
+    // A lineage partner more than a day away (UTC+14 ↔ UTC−12 pairs sit up to
+    // 26h apart): the slot's stored dose was cancelled into a replacement 25h
+    // later. The projection must see the replacement to hide the cancelled
+    // dose — a ±24h read would let it stand in and get confirmed.
+    it('a slot cancelled into a lineage replacement 25h away is out of date, not confirmed', async () => {
+        const repUnix = SLOT_UNIX + 25 * 3600;
+        const iso = (s) => new Date(s * 1000).toISOString();
+        const pending = (s) => ({ recordId: `intake-med-a-${s}`, deleted: false, medication_id: 'med-a', scheduled_at: iso(s), status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' });
+        const records = fakeRecords({
+            medication: [{ recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 }],
+            intake: [pending(SLOT_UNIX), pending(repUnix)],
+            medsched: [{
+                recordId: 'medsched-med-a-edit', clientTs: 1, deleted: false, medication_id: 'med-a', schedule: DAILY, tz_shift_policy: 'flexible', from: iso(SLOT_UNIX - 3600),
+                boundary: [{ medId: 'med-a', kept: [], cancelled: [`intake-med-a-${SLOT_UNIX}`], replacement: { [`intake-med-a-${SLOT_UNIX}`]: `intake-med-a-${repUnix}` } }],
+            }],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: iso(SLOT_UNIX + 3 * 86400) }],
+        });
+        const now = () => (SLOT_UNIX + 30 * 3600) * 1000;
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, onOutOfDate });
+
+        expect((await records.list('intake')).every((i) => i.status === 'PENDING')).toBe(true);
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: SLOT_ISO, count: 1 });
+    });
+
     // A stored row for the named med at that very second under another id (a
     // vault-imported tz_step dose) is the same dose: the projection resolves it.
     it('resolves a legacy-id row for the named med at the exact slot instant', async () => {

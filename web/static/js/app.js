@@ -752,16 +752,9 @@ async function slotStates(meds, scheduled) {
     if (!Number.isFinite(slotMs)) return states;
     const read = async () => {
         try {
-            // A day either side, then narrowed to the instant: a lineage
-            // replacement outside a one-second window would leave its
-            // cancelled dose standing in as still due.
-            const from = new Date(slotMs - 86400000).toISOString();
-            const to = new Date(slotMs + 86400000 + 999).toISOString();
-            const rows = await apiCall(`/api/doses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-            return Array.isArray(rows) ? rows.filter((r) => {
-                const p = Date.parse(r && r.plannedAt);
-                return p >= slotMs && p <= slotMs + 999;
-            }) : null;
+            // ?at= reads lineage-safe in the domain (dosesAtInstant).
+            const rows = await apiCall(`/api/doses?at=${encodeURIComponent(new Date(slotMs).toISOString())}`);
+            return Array.isArray(rows) ? rows : null;
         } catch (_) { return null; }
     };
     let rows = await read();

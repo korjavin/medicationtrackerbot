@@ -9,7 +9,7 @@ import { createSettingsDomain } from '../../domain/settings.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
 import { createRemindersDomain, measureReminderStem } from '../../domain/reminders.js';
 import { createMedicationsDomain } from '../../domain/medications.js';
-import { createIntakeDomain } from '../../domain/medintake.js';
+import { createIntakeDomain, dosesAtInstant } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
@@ -931,6 +931,10 @@ export function createApiRouter(ctx, {
     // with its state. Defaults: the last 24 h through the next 7 days.
     if (path === '/api/doses' && method === 'GET') {
       const nowMs = now();
+      // ?at=<iso>: the doses planned at exactly that instant (a reminder's
+      // slot), read lineage-safe (bd med-wi09.4).
+      const atMs = Date.parse(params.get('at') || '');
+      if (Number.isFinite(atMs)) return dosesAtInstant(intake, atMs);
       const isoParam = (name, fallback) => {
         const ms = Date.parse(params.get(name) || '');
         return Number.isFinite(ms) ? ms : fallback;

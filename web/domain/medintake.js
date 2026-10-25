@@ -33,6 +33,17 @@ const NEXT_INTAKE_FORECAST_MS = 12 * 60 * 60 * 1000;
 const CLUSTER_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_SNOOZE_MINUTES = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// How far either side of an instant the projection must read to see a lineage
+// partner (up to 26h apart, UTC+14 ↔ UTC−12): a narrower window leaves a
+// cancelled dose standing in for its out-of-window replacement.
+const LINEAGE_PAD_MS = 2 * DAY_MS;
+
+// The projection's doses planned at exactly `ms` (to the second), read
+// lineage-safe. Takes the domain so callers' stubs of occurrences() apply.
+export async function dosesAtInstant(intake, ms) {
+  const rows = await intake.occurrences({ fromMs: ms - LINEAGE_PAD_MS, toMs: ms + LINEAGE_PAD_MS + 999 });
+  return rows.filter((r) => { const p = Date.parse(r.plannedAt); return p >= ms && p <= ms + 999; });
+}
 // The only marker a log-past intake carries — logPast writes source:'schedule'
 // like a scheduled dose, so the id prefix is what distinguishes them.
 const MANUAL_ID_PREFIX = 'intake-manual-';
@@ -674,7 +685,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       .filter((m) => m && !byId.has(m[0])).map((m) => Number(m[2]) * 1000);
     let projected = new Map();
     if (unstored.length) {
-      const { rows } = await project({ fromMs: Math.min(...unstored) - 2 * DAY_MS, toMs: Math.max(...unstored) + 2 * DAY_MS });
+      const { rows } = await project({ fromMs: Math.min(...unstored) - LINEAGE_PAD_MS, toMs: Math.max(...unstored) + LINEAGE_PAD_MS });
       projected = new Map(rows.map((r) => [r.occId, r]));
     }
     return {
