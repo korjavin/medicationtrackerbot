@@ -675,21 +675,25 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   // getIntake for a batch: one intake load and at most one projection (over
   // the span of the checked ids and their lineage canonicals) per call,
   // however many ids (F6).
-  async function resolver(ids) {
+  // `gateStored: false` (deleteFutureIntakes): a cleanup of stored rows takes
+  // a stored row as it is, hidden or not.
+  async function resolver(ids, { gateStored = true } = {}) {
     const stored = await loadIntakes();
     const byId = new Map(stored.map((i) => [String(i.recordId), i]));
     // Checked against the projection: an unstored id (it must list that occId)
     // and a stored OPEN row (an old client's prediction the projection hides —
     // a lineage-cancelled slot, an orphan — is not a dose to act on, bd
     // med-wi09.4). Evidence rows and manual logs are always their own truth.
-    const isOpenSlot = (row) => OPEN_STATUSES.has(row.status) && !String(row.recordId).startsWith(MANUAL_ID_PREFIX);
+    const isOpenSlot = (row) => gateStored && OPEN_STATUSES.has(row.status) && !String(row.recordId).startsWith(MANUAL_ID_PREFIX);
     const checked = [];
     const want = [];
     for (const id of ids) {
       const row = byId.get(String(id));
       if (row) {
         const ms = Date.parse(row.scheduled_at);
-        if (isOpenSlot(row) && Number.isFinite(ms)) { checked.push(ms); want.push(String(id)); }
+        // Lineage keys are bare slot ids: an imported `-tz_step` row is looked
+        // up by its (med, second), not its recordId.
+        if (isOpenSlot(row) && Number.isFinite(ms)) { checked.push(ms); want.push(slotId(row.medication_id, ms)); }
         continue;
       }
       const m = /^intake-(.+)-(\d+)$/.exec(String(id));
@@ -1182,7 +1186,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const nowMs = now();
     let deletedCount = 0;
     const ids = uniqueIds(intakeIds);
-    const resolve = await resolver(ids);
+    const resolve = await resolver(ids, { gateStored: false });
     for (const id of ids) {
       const intake = resolve.get(id);
       if (!intake || !OPEN_STATUSES.has(intake.status) || Date.parse(intake.scheduled_at) <= nowMs) continue;

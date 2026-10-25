@@ -2435,4 +2435,26 @@ describe('inbox-apply.js — taps on lineage-cancelled slots', () => {
         await intake.confirm(id(a), a * 1000);
         expect((await records.list('intake'))[0].status).toBe('TAKEN');
     });
+
+    // Argus 5057: an imported tz_step row keys `intake-<m>-<s>-tz_step`, while
+    // lineage keys are bare slot ids — the resolver looks its canonical up by
+    // (med, second), so the stand-in stays actionable under its own id.
+    it('an imported -tz_step stand-in is listed and actionable under its own id', async () => {
+        const a = sec('2026-06-30T08:00:00Z');
+        const k = sec('2026-06-30T20:00:00Z');
+        const stepId = `${id(a)}-tz_step`;
+        const records = fakeRecords({
+            medication: [med],
+            intake: [{ ...pending(a), recordId: stepId, source: 'tz_step' }],
+            medsched: [edit(1, a - 3600, { [id(a)]: id(k) })],
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: iso(a + 3 * 86400) }],
+        });
+        const now = () => (a + 2 * 86400) * 1000;
+        const intake = domainFor(records, now);
+        const day = Date.parse('2026-06-30T00:00:00Z');
+        expect((await intake.occurrences({ fromMs: day, toMs: day + 86400000 - 1 })).map((r) => r.occId)).toEqual([stepId]);
+
+        await intake.confirm(stepId, a * 1000);
+        expect((await records.list('intake'))[0]).toMatchObject({ recordId: stepId, status: 'TAKEN' });
+    });
 });
