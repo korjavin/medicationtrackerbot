@@ -500,7 +500,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount, requestFreshDrain }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
@@ -667,10 +667,15 @@ window.MedTrackerCloudReady = (async function boot() {
         // overlap. What lands repaints through notifyRecordsChanged.
         // ponytail: "arrived" is the records generation moving, so a local
         // write landing mid-pull also counts; a per-pull op count if it matters.
+        // AppRefresh is a classic body script: wait for the parse to finish, so
+        // a fast boot cannot skip this and the Health import's setImport below.
+        if (document.readyState === 'loading') {
+            await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+        }
         if (window.AppRefresh && typeof window.AppRefresh.setSync === 'function') {
             window.AppRefresh.setSync(async () => {
                 const before = getRecordsChangeCount();
-                await requestDrain(ctx);
+                await requestFreshDrain(ctx);
                 const st = await getSyncStatus(ctx);
                 if (st.authExpired) throw new Error('Session expired · tap Re-authenticate to sync');
                 if (st.updateRequired) throw new Error('Update required · reload to keep syncing');

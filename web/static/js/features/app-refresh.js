@@ -78,6 +78,7 @@
 
     async function work(section) {
         let added = 0;
+        let failure = null; // the first failure's toast text
         if (isHealth(section) && canImport()) {
             const fix = `Couldn't read ${importLabel} · check its access in Settings`;
             try {
@@ -85,10 +86,10 @@
                 added = (r && r.added) || 0;
             } catch (e) {
                 console.error('[refresh] health import failed', e);
-                toast(fix, 'error');
-                return;
+                failure = fix;
             }
         }
+        // The sync leg is independent: a failed import still pulls.
         let arrived = false;
         if (syncer) {
             try {
@@ -96,11 +97,11 @@
                 arrived = !!(r && r.arrived);
             } catch (e) {
                 console.error('[refresh] sync pull failed', e);
-                toast((e && e.message) || 'Sync failed · try again', 'error');
-                return;
+                failure = failure || (e && e.message) || 'Sync failed · try again';
             }
         }
-        if (added > 0) toast(`${added} new reading${added === 1 ? '' : 's'} from ${importLabel}`, 'success');
+        if (failure) toast(failure, 'error');
+        else if (added > 0) toast(`${added} new reading${added === 1 ? '' : 's'} from ${importLabel}`, 'success');
         else if (arrived) toast('Synced · new entries', 'success');
     }
 

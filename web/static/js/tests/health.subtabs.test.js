@@ -217,15 +217,16 @@ describe('Health pull to refresh (med-y7b4.6)', () => {
         expect(calls).toEqual(['import', 'pull']);
     });
 
-    it('a failed import shows a danger toast with the fix and skips the pull, no dialog', async () => {
+    it('a failed import still pulls, then shows one danger toast with the fix, no dialog', async () => {
         allowConsoleNoise();
         const { window } = env;
         const confirmSpy = vi.spyOn(window, 'confirm');
         register(window, { importer: async () => { throw new Error('denied'); } });
         pull(window);
         await window.AppRefresh.run();
+        expect(calls).toEqual(['pull']);
+        expect(window.safeToast).toHaveBeenCalledTimes(1);
         expect(window.safeToast).toHaveBeenCalledWith("Couldn't read Health Connect · check its access in Settings", 'error');
-        expect(calls).toEqual([]);
         expect(confirmSpy).not.toHaveBeenCalled();
     });
 

@@ -294,6 +294,8 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-ptr--busy>.wg-ico{color:var(--wg-mint);animation:wg-ptr-spin 1s linear infinite}
 @keyframes wg-ptr-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.wg-ptr--busy>.wg-ico{animation:none}}
+/* The browser's own pull to refresh (Chrome on Android) would reload the page on the same drag. */
+html{overscroll-behavior-y:contain}
 /* scrim, dialog, sheet */
 .wg-scrim{position:absolute;inset:0;z-index:var(--wg-z-dialog);display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(4,14,12,.62);backdrop-filter:blur(3px)}
 .wg-scrim--sheet{z-index:var(--wg-z-sheet);align-items:flex-end;padding:56px 0 0}

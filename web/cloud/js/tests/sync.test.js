@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -1387,6 +1387,34 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBe(2);
     await idle();
     expect(opsGets).toBe(2); // exactly one follow-up
+  });
+
+  it('requestFreshDrain (pull to refresh) resolves only after a GET that started after it, sharing the slot (bd med-y7b4.6)', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    let held = true;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (held) { held = false; await gate; } // hold the drain already running
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const first = nextOpsGet();
+    requestDrain(ctx); // a visibility / SSE drain, its GET already sent
+    await first;
+    let done = false;
+    const fresh = requestFreshDrain(ctx).then(() => { done = true; });
+    await idle();
+    expect(done).toBe(false);
+    expect(opsGets).toBe(1); // still one drain at a time
+    release();
+    await fresh;
+    expect(opsGets).toBe(2); // the pull the refresh asked for ran before it resolved
+    await idle();
+    expect(opsGets).toBe(2); // and no extra one after
   });
 
   it('a post-teardown online event no longer drains', async () => {
