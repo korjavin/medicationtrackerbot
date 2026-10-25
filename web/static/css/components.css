@@ -616,16 +616,23 @@ html{overscroll-behavior-y:contain}
     display: none;
 }
 
-/* Busy leave button (bd med-ta2n.31): the wizard-spinner ring, shared keyframes. */
+/* Busy leave button (bd med-ta2n.31): a spinner ring on the shared `spin` keyframes; spacing comes from .wg-btn gap. */
 .wg-btn--busy::before {
     content: "";
     width: 1em;
     height: 1em;
-    margin-right: 0.5em;
     border: 2px solid var(--wg-border-strong);
     border-top-color: var(--wg-mint-soft);
     border-radius: 50%;
     animation: spin 0.9s linear infinite;
+}
+
+/* On the sun-filled primary the default track is invisible and the disabled .42
+   opacity would dim the arc: ink-coloured ring, full opacity while busy. */
+.wg-btn--primary.wg-btn--busy[disabled] { opacity: 1; }
+.wg-btn--primary.wg-btn--busy::before {
+    border-color: color-mix(in srgb, var(--wg-fg-on-sun) 25%, transparent);
+    border-top-color: var(--wg-fg-on-sun);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1028,8 +1028,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                     // #1244: always stashed, so an older stash can never reach the new account.
                     await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                     expect(window.Clipboard.readText).toHaveBeenCalledTimes(1);
-                    tap(screen, 'without-sync');
-                    expect(document.getElementById('invite-ready')).toBeNull();
+                    // The shell navigates away; the overlay stays until then.
+                    document.getElementById('invite-ready').remove();
                 }
                 expect(offDevice()).toEqual([]);
             });
@@ -1642,9 +1642,20 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 it('Sign in → move.stash then local.leave {url}', async () => {
                     const { window, document } = env;
                     slotted({ url: CLAIM, receivedAt: Date.now() });
-                    window.InviteSheet.boot();
-                    tap(await ready(document), 'sign-in');
+                    let released = false;
+                    window.InviteSheet.boot().then(() => { released = true; });
+                    const screen = await ready(document);
+                    tap(screen, 'sign-in');
                     await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+                    // Navigation is the end state: the button stays busy and the sheet stays locked.
+                    const btn = screen.querySelector('[data-invite-action="sign-in"]');
+                    expect(btn.classList.contains('wg-btn--busy')).toBe(true);
+                    expect(btn.disabled).toBe(true);
+                    await new Promise((r) => { setTimeout(r, 20); });
+                    tap(screen, 'without-sync');
+                    await new Promise((r) => { setTimeout(r, 20); });
+                    expect(document.getElementById('invite-ready')).not.toBeNull();
+                    expect(released).toBe(false);
                 });
             });
         });
