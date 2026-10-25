@@ -404,6 +404,14 @@
             window.apiCall = (endpoint, method, ...rest) => (endpoint === '/api/settings/integrations' && (!method || method === 'GET')
                 ? call(endpoint, method, ...rest).then((p) => (p && p.openai ? { ...p, openai: { ...p.openai, api_key: '' } } : p))
                 : call(endpoint, method, ...rest));
+        } else if (step.emptyOverview) {
+            // Vitals with no data (bd med-0xad.5): answer the overview read with
+            // an empty object, so every tile shows a dash and every card its
+            // empty state. The vault keeps its rows; the stub lasts this load.
+            const call = window.apiCall;
+            window.apiCall = (endpoint, method, ...rest) => (String(endpoint).startsWith('/api/health/overview') && (!method || method === 'GET')
+                ? Promise.resolve({})
+                : call(endpoint, method, ...rest));
         } else if (step.kitNudge) {
             // The Emergency Kit nudge (bd med-ta2n.15) waits 2 days after
             // sign-in, and the cloud pass signs in fresh: answer the card's

@@ -97,8 +97,6 @@ function makeOverview(extra = {}) {
         heart_rate_history_30d: [],
         spo2_history_7d: [],
         spo2_history_30d: [],
-        stress_history_7d: [],
-        stress_history_30d: [],
         average_sleep_hours_7d: 7.4,
         average_sleep_hours_30d: 7.1,
         average_steps_7d: 8200,
@@ -107,8 +105,6 @@ function makeOverview(extra = {}) {
         average_heart_rate_30d: 64,
         average_spo2_7d: 97,
         average_spo2_30d: 97,
-        average_stress_7d: 35,
-        average_stress_30d: 40,
         ...extra
     };
 }

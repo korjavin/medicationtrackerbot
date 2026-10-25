@@ -2,11 +2,10 @@
 //
 // Asserts:
 //   • renderHealthSummaryTiles(data, range) renders one tile per vital
-//     (sleep, steps, HR, SpO2, stress) with mono value, uppercase label,
+//     (sleep, steps, HR, SpO2 — no stress, bd med-0xad.5) with mono value, uppercase label,
 //     and a per-vital trend arrow variant (sun / alert / neutral / empty).
 //   • Trend classifier flips per-vital:
 //       steps / spo2: up = sun, down = alert
-//       stress:       down = sun, up   = alert
 //       sleep:        toward 8h = sun, away = alert
 //       hr:           active in [50,90] = sun, out = alert
 //   • Empty-tile fallback: missing/zero value → "—" placeholder, no trend.
@@ -26,9 +25,7 @@ function makeData(overrides) {
         average_heart_rate_7d: 68,
         average_heart_rate_30d: 70,
         average_spo2_7d: 97,
-        average_spo2_30d: 96,
-        average_stress_7d: 42,
-        average_stress_30d: 48
+        average_spo2_30d: 96
     };
     return Object.assign({}, base, overrides || {});
 }
@@ -117,7 +114,7 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
     });
 
     describe('renderHealthSummaryTiles', () => {
-        it('renders one tile per vital in sleep/steps/hr/spo2/stress order', () => {
+        it('renders one tile per vital in sleep/steps/hr/spo2 order', () => {
             const { window } = env;
             const tiles = window.renderHealthSummaryTiles(makeData(), '7d');
             expect(tiles.classList.contains('wg-card')).toBe(true);
@@ -125,9 +122,9 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
             expect(tiles.getAttribute('data-range')).toBe('7d');
 
             const perTile = tiles.querySelectorAll('.wg-health-summary__tile');
-            expect(perTile.length).toBe(5);
+            expect(perTile.length).toBe(4);
             expect(Array.from(perTile).map((t) => t.getAttribute('data-vital')))
-                .toEqual(['sleep', 'steps', 'hr', 'spo2', 'stress']);
+                .toEqual(['sleep', 'steps', 'hr', 'spo2']);
         });
 
         it('formats the sleep tile with one decimal + "h" unit', () => {
@@ -171,21 +168,6 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
             expect(trend.textContent).toBe('\u2193');
         });
 
-        it('stress trend: down vs 30d = sun variant (lower stress is better)', () => {
-            const { window } = env;
-            const tiles = window.renderHealthSummaryTiles(makeData({ average_stress_7d: 30, average_stress_30d: 50 }), '7d');
-            const trend = tiles.querySelector('[data-vital="stress"] .wg-health-summary__trend');
-            expect(trend.getAttribute('data-variant')).toBe('sun');
-            expect(trend.textContent).toBe('\u2193');
-        });
-
-        it('stress trend: up vs 30d = alert variant', () => {
-            const { window } = env;
-            const tiles = window.renderHealthSummaryTiles(makeData({ average_stress_7d: 70, average_stress_30d: 50 }), '7d');
-            const trend = tiles.querySelector('[data-vital="stress"] .wg-health-summary__trend');
-            expect(trend.getAttribute('data-variant')).toBe('alert');
-        });
-
         it('sleep trend: closer to 8h = sun, farther = alert', () => {
             const { window } = env;
 
@@ -226,9 +208,7 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
                 average_heart_rate_7d: 70,
                 average_heart_rate_30d: 68,
                 average_spo2_7d: 97,
-                average_spo2_30d: 96,
-                average_stress_7d: 40,
-                average_stress_30d: 45
+                average_spo2_30d: 96
             }, '7d');
             const sleepTile = tiles.querySelector('[data-vital="sleep"]');
             expect(sleepTile.classList.contains('wg-health-summary__tile--empty')).toBe(true);
@@ -237,6 +217,17 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
             const trend = sleepTile.querySelector('.wg-health-summary__trend');
             expect(trend.getAttribute('data-variant')).toBe('empty');
             expect(trend.textContent).toBe('');
+        });
+
+        it('no data at all: four dashed tiles, none for stress', () => {
+            const { window } = env;
+            const tiles = window.renderHealthSummaryTiles({}, '7d');
+            const perTile = Array.from(tiles.querySelectorAll('.wg-health-summary__tile'));
+            expect(perTile.map((t) => t.getAttribute('data-vital'))).toEqual(['sleep', 'steps', 'hr', 'spo2']);
+            perTile.forEach((t) => {
+                expect(t.classList.contains('wg-health-summary__tile--empty')).toBe(true);
+                expect(t.querySelector('.wg-health-summary__value').textContent).toBe('\u2014');
+            });
         });
 
         it('neutral trend when active equals other average', () => {

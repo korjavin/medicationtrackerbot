@@ -98,7 +98,8 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
     // bd med-0xad.4 — the boot's legacy pass (the shim seam's unifyLegacy)
     // folds a night's Mi Band sessions into one sleep-hk-<day> row and drops
     // stress: the overview shows the same nights, /api/health/sleep (MCP
-    // health.sleep.list) keeps its row shape, and the Stress card has no data.
+    // health.sleep.list) keeps its row shape, and the stress batches are gone. The overview never
+    // carries a stress key (bd med-0xad.5).
     it('after the legacy pass: same nights in the overview, same sleep row shape, no stress', async () => {
         const HOUR = 60 * 60 * 1000;
         const wake = new Date();
@@ -128,7 +129,7 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
         const nights = (o) => o.sleep_stats_7d.map((s) => s.date);
         const before = { overview: await shim('/api/health/overview', 'GET'), sleep: await shim('/api/health/sleep', 'GET') };
         expect(before.sleep).toHaveLength(2);
-        expect(before.overview.average_stress_7d).toBe(40);
+        expect(Object.keys(before.overview).filter((k) => k.includes('stress'))).toEqual([]);
 
         await shim.unifyLegacy();
 
@@ -138,9 +139,7 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
         const sleep = await shim('/api/health/sleep', 'GET');
         expect(sleep).toEqual([expect.objectContaining({ id: `sleep-hk-${day}`, day, total_minutes: 450 })]);
         expect(Object.keys(sleep[0]).sort()).toEqual(Object.keys(before.sleep[0]).sort());
-        // Stress card: no data left to show.
-        expect(overview.average_stress_7d).toBeNull();
-        expect(overview.stress_history_7d).toEqual([]);
+        expect(Object.keys(overview).filter((k) => k.includes('stress'))).toEqual([]);
         expect(await env.records.list('stresssample')).toEqual([]);
     });
 
@@ -206,7 +205,10 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
 
             await env.window.apiCall('/api/health/overview', 'GET');
 
-            for (const type of ['hrsample', 'spo2sample', 'stresssample']) {
+            // Stress is not read at all (bd med-0xad.5).
+            expect(listRange.mock.calls.some((c) => c[0] === 'stresssample')).toBe(false);
+            expect(list).not.toHaveBeenCalledWith('stresssample');
+            for (const type of ['hrsample', 'spo2sample']) {
                 expect(list).not.toHaveBeenCalledWith(type);
                 const call = listRange.mock.calls.find((c) => c[0] === type);
                 expect(call, `${type} must be read via listRange`).toBeTruthy();

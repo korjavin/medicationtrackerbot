@@ -37,10 +37,7 @@ function buildHealthOverviewPayload() {
     average_heart_rate_30d: 72,
     spo2_history_7d: [{ timestamp: Date.now(), min: 95, max: 99, avg: 97 }],
     average_spo2_7d: 97,
-    average_spo2_30d: 96,
-    stress_history_7d: [{ timestamp: Date.now(), min: 20, max: 65, avg: 40 }],
-    average_stress_7d: 40,
-    average_stress_30d: 44
+    average_spo2_30d: 96
   };
 }
 
@@ -287,7 +284,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(document.querySelector('#weight-goal-card.wg-weight-goal-card')).toBeTruthy();
 
       // Phase 8, Task 6: vitals chart renders via WGVitalsChart parameterised
-      // by vital ('hr'|'spo2'|'stress') under the .wg-vitals-chart--<vital>
+      // by vital ('hr'|'spo2') under the .wg-vitals-chart--<vital>
       // class — colour comes from --wg-health-vitals-*-line tokens, not a
       // JS color argument.
       const tsBase = Date.now() - (24 * 60 * 60 * 1000);
@@ -378,7 +375,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(html).toContain('Steps');
       expect(html).toContain('Heart Rate');
       expect(html).toContain('SpO2');
-      expect(html).toContain('Stress Level');
+      expect(html).not.toContain('Stress');
       // Phase 8, Task 4: sleep card now renders via WGSleepChart inside a
       // .wg-sleep-card shell, not the legacy renderSleepChart helper.
       expect(content.querySelector('.wg-sleep-card')).toBeTruthy();
@@ -388,11 +385,10 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(content.querySelector('.wg-steps-card')).toBeTruthy();
       expect(content.querySelector('.wg-steps-card svg.wg-steps-chart')).toBeTruthy();
       // Phase 8, Task 6: vitals cards now render via WGVitalsChart inside
-      // .wg-vitals-card shells — one per vital (hr / spo2 / stress).
-      expect(content.querySelectorAll('.wg-vitals-card').length).toBe(3);
+      // .wg-vitals-card shells — one per vital (hr / spo2); no Stress card (bd med-0xad.5).
+      expect(content.querySelectorAll('.wg-vitals-card').length).toBe(2);
       expect(content.querySelector('.wg-vitals-card--hr svg.wg-vitals-chart')).toBeTruthy();
       expect(content.querySelector('.wg-vitals-card--spo2 svg.wg-vitals-chart')).toBeTruthy();
-      expect(content.querySelector('.wg-vitals-card--stress svg.wg-vitals-chart')).toBeTruthy();
       expect(loadSWRSpy).toHaveBeenCalledWith(expect.objectContaining({
         key: expect.stringMatching(/^health_overview/),
         tags: ['health'],
