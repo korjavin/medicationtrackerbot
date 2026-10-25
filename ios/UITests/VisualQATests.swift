@@ -22,10 +22,12 @@ import XCTest
 ///   {"type": "app"}            typeText into the tapped element (real keyboard)
 ///   {"clear": true}            delete the tapped field's text
 ///   {"tapButton": "Only on this device"}  native (SwiftUI) button by label
-///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds)
+///   {"waitFor": "Start"}       any element by label or id, 10 s (or "timeout": seconds; "contains": true matches part of the label)
 ///   {"keyboard": true}         the software keyboard must be up (implied after "type")
 ///   {"edgeSwipe": true, "closes": "#id"}  the shell's left-edge pan
 ///   {"pullDown": true}         a real finger pull down from the upper middle (pull to refresh)
+///   {"allowNotifications": true}  tap the system permission alert's Allow, if it shows within 3 s
+///   {"notification": "body"}   tap the banner of a delivered notification with that text, 30 s
 ///
 /// One scene: `TEST_RUNNER_WG_QA_SCENES=food-add-sheet-keyboard xcodebuild test ...`
 /// (comma-separated).
@@ -155,6 +157,7 @@ final class VisualQATests: XCTestCase {
     private func perform(_ steps: [[String: Any]], in app: XCUIApplication) -> String? {
         var field: XCUIElement?
         var typed = false
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         for step in steps {
             if let selector = step["tap"] as? String {
                 let id = selector.hasPrefix("#") ? String(selector.dropFirst()) : selector
@@ -189,8 +192,8 @@ final class VisualQATests: XCTestCase {
                 guard button.waitForExistence(timeout: 10) else { return "no button \"\(label)\"" }
                 button.tap()
             } else if let label = step["waitFor"] as? String {
-                let el = app.descendants(matching: .any)
-                    .matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
+                let format = step["contains"] as? Bool == true ? "label CONTAINS %@ OR identifier == %@" : "label == %@ OR identifier == %@"
+                let el = app.descendants(matching: .any).matching(NSPredicate(format: format, label, label)).firstMatch
                 let timeout = step["timeout"] as? Double ?? 10
                 guard el.waitForExistence(timeout: timeout) else { return "\"\(label)\" never appeared" }
             } else if step["edgeSwipe"] as? Bool == true {
@@ -220,6 +223,17 @@ final class VisualQATests: XCTestCase {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
                     .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)),
                            withVelocity: XCUIGestureVelocity(600), thenHoldForDuration: 0.1)
+            } else if step["allowNotifications"] as? Bool == true {
+                // The system's notification permission alert, only on the first ask of a run.
+                let allow = springboard.buttons["Allow"]
+                if allow.waitForExistence(timeout: 3) { allow.tap() }
+            } else if let body = step["notification"] as? String {
+                // A real local notification's banner (bd med-wi09.6): the tap goes
+                // through Notifications.didReceive → ReminderPath → Shell.openReminder.
+                let banner = springboard.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label CONTAINS %@", body)).firstMatch
+                guard banner.waitForExistence(timeout: step["timeout"] as? Double ?? 30) else { return "no notification \"\(body)\"" }
+                banner.tap()
             } else if step["keyboard"] as? Bool == true {
                 typed = true
             } else {

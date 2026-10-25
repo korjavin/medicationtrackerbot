@@ -3,6 +3,7 @@ package com.example.medtracker
 import android.app.Activity
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.aggregate.AggregateMetric
 import androidx.health.connect.client.changes.UpsertionChange
 import androidx.health.connect.client.permission.HealthPermission
@@ -10,10 +11,13 @@ import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ChangesTokenRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -25,10 +29,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.Period
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -44,6 +52,7 @@ import kotlin.reflect.KClass
  *   health.authorize {types}               → Boolean (false: no Health Connect on this device)
  *   health.query {type, anchor?, limit?}   → {samples, anchor, returned, more}
  *   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
+ *   health.query {type: "steps", from, to?} → {samples: [{day, steps, tz}], returned, more: false}
  *
  * Kinds: "bp" {uuid, start, systolic, diastolic}, "weight" {uuid, start, kg},
  * "sleep" {uuid, start, end, value, source, tz?} (value = HealthKit's
@@ -51,11 +60,21 @@ import kotlin.reflect.KClass
  * covers, padded like Health.swift) and "workout" {uuid, start, end, activity,
  * duration, hr?, energy?, distance?} (activity = HealthKit's
  * HKWorkoutActivityType raw value, so the page's name table applies).
+ * "hr" {uuid, start, value} (bpm; one sample per HeartRateRecord series point,
+ * uuid "<recordId>-<index>"), "spo2" {uuid, start, value} (percent 0-100) and
+ * "steps", a windowed daily aggregate (bd med-0xad.3): one {day: "YYYY-MM-DD",
+ * steps, tz} per local day in this device's zone, Health Connect's own
+ * cross-app dedupe (aggregateGroupByPeriod) — never a sum of records.
  * The page stores these as `source: 'apple_health'` on purpose: healthsource.js derives the stable -hk- recordId only for that value — do not "fix" it to a Health Connect source.
  *
  * Anchor = "hc1:" + a Health Connect Changes token. No anchor (or an expired
- * token) reads the last 30 days and starts a token; older history needs
- * READ_HEALTH_DATA_HISTORY, out of v1. Reads happen only when the page asks,
+ * token) reads from `from` (ms; the page sends 90 days back for hr/spo2), else
+ * the last 30 days, and starts a token; hr/spo2 scans answer about `limit`
+ * samples per page with more: true and an "hc1s:" scan anchor until drained, and
+ * only then the Changes token. Data older than 30 days before the grant needs
+ * READ_HEALTH_DATA_HISTORY, asked for with the read types where the device
+ * offers it (bd med-0xad.3); without it the reads answer what is readable.
+ * An unknown type: authorize ignores it, query rejects. Reads happen only when the page asks,
  * i.e. while the app is in the foreground — never in the background.
  */
 class HealthConnect(private val activity: Activity, private val diag: (String) -> Unit = {}) {
@@ -106,8 +125,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         if (!available()) return false
         val types = args.optJSONArray("types") ?: JSONArray()
         val kinds = (0 until types.length()).map { types.optString(it) }.filter { it in KINDS }
-        if (kinds.isEmpty()) throw IllegalArgumentException("no known types")
-        ask(kinds)
+        if (kinds.isNotEmpty()) ask(kinds)
         return true
     }
 
@@ -116,7 +134,11 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     /** Requests the read permissions of `kinds` not granted yet (one dialog), and remembers they were asked. */
     private suspend fun ask(kinds: Collection<String>) {
         prefs.edit().putStringSet(ASKED, asked() + kinds).apply()
-        val perms = kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) }.toSet() -
+        val history = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY.takeIf {
+            client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) ==
+                HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
+        }
+        val perms = (kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) } + listOfNotNull(history)).toSet() -
             client.permissionController.getGrantedPermissions()
         if (perms.isEmpty()) return
         suspendCancellableCoroutine { cont ->
@@ -133,7 +155,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
 
     private suspend fun query(args: JSONObject): JSONObject {
         val kind = args.optString("type")
-        val types = KINDS[kind] ?: return page(JSONArray(), null, 0, false)
+        val types = KINDS[kind] ?: throw IllegalArgumentException("unknown type: $kind")
         if (!available()) return page(JSONArray(), null, 0, false)
         // The med-nt9p.8 build answered authorize for sleep/workout without
         // asking, and the page then recorded them as asked (wg.health.asked),
@@ -147,6 +169,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             diag("health $kind denied")
             return page(JSONArray(), null, 0, false)
         }
+
+        if (kind == "steps") return steps(args)
 
         if (kind == "sleep") {
             val from = args.optDouble("from"); val to = args.optDouble("to")
@@ -173,18 +197,48 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             }
             // Unused for 30 days: start over below (known readings are skipped by id).
         }
+        // A dense kind's scan cut short by `limit`: "hc1s:<changes token> <from ms> <page token>".
+        val cont = args.optString("anchor").takeIf { it.startsWith(SCAN_PREFIX) }
+            ?.removePrefix(SCAN_PREFIX)?.split(' ', limit = 3)?.takeIf { it.size == 3 && it[1].toLongOrNull() != null }
         val records = changed ?: run {
+            val limit = args.optInt("limit", 0).takeIf { kind in DENSE && it > 0 }
+            if (cont != null && limit != null) {
+                mode = "scan-cont"
+                val from = TimeRangeFilter.after(Instant.ofEpochMilli(cont[1].toLong()))
+                // A page token Health Connect no longer takes: rescan from the start (known readings are skipped).
+                val next = runCatching { readUntil(type, from, cont[2], limit) }.getOrNull()
+                if (next != null) {
+                    anchor = next.second?.let { "$SCAN_PREFIX${cont[0]} ${cont[1]} $it" } ?: (PREFIX + cont[0])
+                    more = next.second != null
+                    return@run next.first.also { returned = it.size }
+                }
+                mode = "scan"
+            }
             // The token first, so a reading saved during the read comes back as a change (a no-op by id).
-            anchor = PREFIX + client.getChangesToken(ChangesTokenRequest(setOf(type)))
-            // ponytail: the whole 30-day window in one answer (limit ignored) — a
-            // month of readings is small; page it if a scale's history ever isn't.
-            readAll(type, TimeRangeFilter.after(Instant.now().minus(HISTORY_DAYS, ChronoUnit.DAYS)))
-                .also { returned = it.size }
+            val changesToken = client.getChangesToken(ChangesTokenRequest(setOf(type)))
+            anchor = PREFIX + changesToken
+            val fromMs = args.optDouble("from").takeUnless { it.isNaN() }?.toLong()
+                ?: Instant.now().minus(HISTORY_DAYS, ChronoUnit.DAYS).toEpochMilli()
+            val filter = TimeRangeFilter.after(Instant.ofEpochMilli(fromMs))
+            if (limit == null) {
+                // ponytail: bp/weight answer the whole window at once (limit ignored) — a
+                // month of readings is small; page them like DENSE if a scale's history ever isn't.
+                readAll(type, filter)
+            } else {
+                // hr/spo2 (a watch writes HR about once a minute): about `limit` samples per answer.
+                val (recs, pageToken) = readUntil(type, filter, null, limit)
+                if (pageToken != null) {
+                    anchor = "$SCAN_PREFIX$changesToken $fromMs $pageToken"
+                    more = true
+                }
+                recs
+            }.also { returned = it.size }
         }
 
         // Copy diagnostics (bd med-nt9p.59): per kind, how it read and how much came back.
         diag("health $kind $mode read=$returned records=${records.size} more=$more")
-        return when (kind) {
+        // Off the main thread: a page of samples can be large; the answer is posted from Main in handle.
+        return withContext(Dispatchers.Default) { when (kind) {
             "sleep" -> {
                 // Like Health.swift: the changes find what is new; the answer is
                 // every sleep sample around it, with the window as from/to.
@@ -199,9 +253,9 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             "workout" -> JSONArray().apply {
                 records.filterIsInstance<ExerciseSessionRecord>().forEach { put(workout(it, granted)) }
             }.let { page(it, anchor, returned, more) }
-            else -> JSONArray().apply { records.forEach { r -> sample(r)?.let { put(it) } } }
+            else -> JSONArray().apply { records.forEach { r -> samples(r).forEach { put(it) } } }
                 .let { page(it, anchor, returned, more) }
-        }
+        } }
     }
 
     private suspend fun readAll(type: KClass<out Record>, filter: TimeRangeFilter): List<Record> {
@@ -218,16 +272,62 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         return out
     }
 
+    /** Records from `pageToken` on until they hold at least `limit` samples; the token to go on from, null when drained. */
+    private suspend fun readUntil(type: KClass<out Record>, filter: TimeRangeFilter, pageToken: String?, limit: Int): Pair<List<Record>, String?> {
+        val out = mutableListOf<Record>()
+        var points = 0
+        var token = pageToken
+        do {
+            @Suppress("UNCHECKED_CAST")
+            val r = client.readRecords(
+                ReadRecordsRequest(type as KClass<Record>, filter, pageSize = DENSE_PAGE, pageToken = token)
+            )
+            out += r.records
+            points += r.records.sumOf { (it as? HeartRateRecord)?.samples?.size ?: 1 }
+            token = r.pageToken
+        } while (token != null && points < limit)
+        return out to token
+    }
+
     private fun page(samples: JSONArray, anchor: String?, returned: Int, more: Boolean) =
         JSONObject().put("samples", samples).put("returned", returned).put("more", more)
             .apply { if (anchor != null) put("anchor", anchor) }
 
-    private fun sample(r: Record): JSONObject? = when (r) {
-        is BloodPressureRecord -> JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
-            .put("systolic", r.systolic.inMillimetersOfMercury).put("diastolic", r.diastolic.inMillimetersOfMercury)
-        is WeightRecord -> JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
-            .put("kg", r.weight.inKilograms)
-        else -> null
+    private fun samples(r: Record): List<JSONObject> = when (r) {
+        is BloodPressureRecord -> listOf(JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
+            .put("systolic", r.systolic.inMillimetersOfMercury).put("diastolic", r.diastolic.inMillimetersOfMercury))
+        is WeightRecord -> listOf(JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
+            .put("kg", r.weight.inKilograms))
+        // A series: the page merges by instant, so a series that grows re-sends its points harmlessly.
+        is HeartRateRecord -> r.samples.mapIndexed { i, p ->
+            JSONObject().put("uuid", "${r.metadata.id}-$i").put("start", p.time.toEpochMilli()).put("value", p.beatsPerMinute)
+        }
+        is OxygenSaturationRecord -> listOf(JSONObject().put("uuid", uuid(r.metadata.id)).put("start", r.time.toEpochMilli())
+            .put("value", r.percentage.value))
+        else -> emptyList()
+    }
+
+    /** Daily step totals over [from, to] (default: the last 7 days to now), whole local days in the device zone. */
+    private suspend fun steps(args: JSONObject): JSONObject {
+        val zone = ZoneId.systemDefault()
+        val now = Instant.now()
+        val from = args.optDouble("from").takeUnless { it.isNaN() }?.let { Instant.ofEpochMilli(it.toLong()) }
+            ?: now.minus(7, ChronoUnit.DAYS)
+        val to = args.optDouble("to").takeUnless { it.isNaN() }?.let { Instant.ofEpochMilli(it.toLong()) } ?: now
+        val start = from.atZone(zone).toLocalDate().atStartOfDay()
+        val end = LocalDateTime.ofInstant(to, zone)
+        val out = JSONArray()
+        if (end.isAfter(start)) {
+            client.aggregateGroupByPeriod(
+                AggregateGroupByPeriodRequest(setOf(StepsRecord.COUNT_TOTAL), TimeRangeFilter.between(start, end), Period.ofDays(1))
+            ).forEach { g ->
+                g.result[StepsRecord.COUNT_TOTAL]?.let {
+                    out.put(JSONObject().put("day", g.startTime.toLocalDate().toString()).put("steps", it).put("tz", zone.id))
+                }
+            }
+        }
+        diag("health steps aggregate days=${out.length()}")
+        return page(out, null, out.length(), false)
     }
 
     /**
@@ -283,6 +383,9 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         val KINDS: Map<String, List<KClass<out Record>>> = mapOf(
             "bp" to listOf(BloodPressureRecord::class),
             "weight" to listOf(WeightRecord::class),
+            "steps" to listOf(StepsRecord::class),
+            "hr" to listOf(HeartRateRecord::class),
+            "spo2" to listOf(OxygenSaturationRecord::class),
             "sleep" to listOf(SleepSessionRecord::class),
             "workout" to listOf(
                 ExerciseSessionRecord::class, HeartRateRecord::class,
@@ -290,6 +393,10 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             ),
         )
         const val PREFIX = "hc1:"
+        const val SCAN_PREFIX = "hc1s:"
+        /** Kinds whose first scan pages by `limit` (samples), DENSE_PAGE records per Health Connect read. */
+        val DENSE = setOf("hr", "spo2")
+        const val DENSE_PAGE = 100
         const val ASKED = "asked"
         const val HISTORY_DAYS = 30L
         const val REQUEST_PERMISSIONS = 7301
