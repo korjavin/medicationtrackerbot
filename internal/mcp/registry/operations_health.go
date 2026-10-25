@@ -4,14 +4,14 @@ import "encoding/json"
 
 // HealthOperations returns BP, weight, and diary-note operations.
 //
-// Sleep, heart rate, SpO2, stress, and steps come from TWO distinct sources —
+// Sleep, heart rate, SpO2, and steps come from TWO distinct sources —
 // do not confuse them:
 //
-//   - Device-imported time series (wearable / Mi Band): per-night sleep with
-//     light/deep/REM/awake phases + efficiency, continuous HR/SpO2/stress
+//   - Device-imported time series (Apple Health / Health Connect): per-night
+//     sleep with light/deep/REM/awake phases + efficiency, continuous HR/SpO2
 //     samples, and daily step aggregates. These are READ via `health.overview`
 //     (fields sleep_stats_7d/30d, heart_rate_history_*, spo2_history_*,
-//     stress_history_*, step_stats_*, average_*). This is the source for any
+//     step_stats_*, average_*). This is the source for any
 //     "sleep recovery / phase breakdown / vitals trend" analysis.
 //   - Manual diary notes tagged SLEEP/HR/SPO2/STEPS/STRESS/NOTE: free-text
 //     journaling, written/read via `health.notes.create` / `health.notes.list`.
@@ -337,8 +337,8 @@ output(result)`,
 			Method:          "GET",
 			Path:            "/api/health/overview",
 			Risk:            RiskRead,
-			Description:     "Aggregate dashboard read over a 7d/30d window. This is the source for device-imported sleep and vitals. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis. For manual sleep journaling instead, see health.notes.*.",
-			ResponseSummary: "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d, stress_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/stress/steps_7d/30d.",
+			Description:     "Aggregate dashboard read over a 7d/30d window. This is the source for device-imported sleep and vitals. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis. For manual sleep journaling instead, see health.notes.*.",
+			ResponseSummary: "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/steps_7d/30d.",
 			ResponseExample: `{
   "sleep_stats_7d": [
     {"date": "2026-04-29", "light_mins": 240, "deep_mins": 90, "rem_mins": 70, "awake_mins": 20, "total_mins": 420, "heart_rate_avg": 56}
@@ -347,9 +347,8 @@ output(result)`,
   "average_sleep_hours_30d": 6.8,
   "heart_rate_history_7d": [{"timestamp": "2026-04-29T03:00:00Z", "min": 52, "max": 61, "avg": 56}],
   "spo2_history_7d": [{"timestamp": "2026-04-29T03:00:00Z", "min": 95, "max": 99, "avg": 97}],
-  "stress_history_7d": [{"timestamp": "2026-04-29T12:00:00Z", "min": 22, "max": 48, "avg": 33}],
   "step_stats_7d": [{"date": "2026-04-29", "steps": 8421}],
-  "average_heart_rate_7d": 62, "average_spo2_7d": 97, "average_stress_7d": 34, "average_steps_7d": 7800
+  "average_heart_rate_7d": 62, "average_spo2_7d": 97, "average_steps_7d": 7800
 }`,
 			Example: `result = api.call("health.overview")
 # per-night sleep phases for the last 30 days:
@@ -395,7 +394,7 @@ output(result)`,
     "before_id": {"type": "integer", "description": "Pagination cursor — this is how you page: pass the id of the last note on the previous page to get the next one. A full page means there may be more."}
   }
 }`),
-			Description:     "List MANUAL diary notes (newest first). Each row carries an optional tag: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. NOTE: this returns hand-written journal entries only, NOT device-imported data. For structured sleep phases or wearable HR/SpO2/stress/step time series, use health.overview instead.",
+			Description:     "List MANUAL diary notes (newest first). Each row carries an optional tag: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. NOTE: this returns hand-written journal entries only, NOT device-imported data. For structured sleep phases or wearable HR/SpO2/step time series, use health.overview instead.",
 			ResponseSummary: "JSON array of notes with id, content, tag, created_at.",
 			ResponseExample: `[
   {"id": 51, "content": "8h, woke once at 4am", "tag": "SLEEP", "created_at": "2026-04-29T06:40:00Z"},

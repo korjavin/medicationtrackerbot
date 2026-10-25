@@ -89,7 +89,6 @@ function renderHealthRangeSelector(opts) {
 // Direction arrow (↑/↓/·) is independent of variant; it reflects the sign of
 // (active - other). The variant flips per vital:
 //   steps/spo2: up = sun, down = alert
-//   stress:     down = sun, up   = alert
 //   sleep:      toward 8h = sun, away from 8h = alert
 //   hr:         active avg inside [50,90] = sun, else = alert
 function classifyHealthTrend(vital, active, other) {
@@ -100,10 +99,6 @@ function classifyHealthTrend(vital, active, other) {
         case 'spo2':
             if (delta > 0) return 'sun';
             if (delta < 0) return 'alert';
-            return 'neutral';
-        case 'stress':
-            if (delta < 0) return 'sun';
-            if (delta > 0) return 'alert';
             return 'neutral';
         case 'sleep': {
             const distActive = Math.abs(active - 8);
@@ -133,8 +128,7 @@ const HEALTH_SUMMARY_VITALS = [
     { vital: 'sleep',  label: 'SLEEP',  unit: 'h',     activeKey7: 'average_sleep_hours_7d', activeKey30: 'average_sleep_hours_30d' },
     { vital: 'steps',  label: 'STEPS',  unit: '',      activeKey7: 'average_steps_7d',       activeKey30: 'average_steps_30d' },
     { vital: 'hr',     label: 'HR',     unit: 'bpm',   activeKey7: 'average_heart_rate_7d',  activeKey30: 'average_heart_rate_30d' },
-    { vital: 'spo2',   label: 'SPO2',   unit: '%',     activeKey7: 'average_spo2_7d',        activeKey30: 'average_spo2_30d' },
-    { vital: 'stress', label: 'STRESS', unit: '/100',  activeKey7: 'average_stress_7d',      activeKey30: 'average_stress_30d' }
+    { vital: 'spo2',   label: 'SPO2',   unit: '%',     activeKey7: 'average_spo2_7d',        activeKey30: 'average_spo2_30d' }
 ];
 
 function formatSummaryValue(vital, value) {
@@ -310,8 +304,7 @@ function renderStepsCard(data, activeRange) {
 
 const HEALTH_VITAL_SPECS = {
     hr:     { title: 'Heart Rate',   historyKey7: 'heart_rate_history_7d', historyKey30: 'heart_rate_history_30d', avg7Key: 'average_heart_rate_7d', avg30Key: 'average_heart_rate_30d', unit: 'bpm',   emptyLabel: 'heart rate' },
-    spo2:   { title: 'SpO2',         historyKey7: 'spo2_history_7d',       historyKey30: 'spo2_history_30d',       avg7Key: 'average_spo2_7d',       avg30Key: 'average_spo2_30d',       unit: '%',     emptyLabel: 'SpO2' },
-    stress: { title: 'Stress Level', historyKey7: 'stress_history_7d',     historyKey30: 'stress_history_30d',     avg7Key: 'average_stress_7d',     avg30Key: 'average_stress_30d',     unit: '/ 100', emptyLabel: 'stress' }
+    spo2:   { title: 'SpO2',         historyKey7: 'spo2_history_7d',       historyKey30: 'spo2_history_30d',       avg7Key: 'average_spo2_7d',       avg30Key: 'average_spo2_30d',       unit: '%',     emptyLabel: 'SpO2' }
 };
 
 function formatVitalAvg(value) {
@@ -385,11 +378,10 @@ function renderHealthOverviewContent(content, data) {
 
     content.appendChild(renderVitalCard('hr', data, activeRange));
     content.appendChild(renderVitalCard('spo2', data, activeRange));
-    content.appendChild(renderVitalCard('stress', data, activeRange));
 
     const disclaimer = document.createElement('p');
     disclaimer.className = 'wg-section-label wg-health-disclaimer';
-    disclaimer.textContent = 'DATA SOURCE \u00B7 .nxk backups';
+    disclaimer.textContent = 'DATA SOURCE \u00B7 Apple Health / Health Connect';
     content.appendChild(disclaimer);
 }
 
