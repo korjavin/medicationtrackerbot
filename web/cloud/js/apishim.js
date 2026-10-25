@@ -237,6 +237,16 @@ export function createApiRouter(ctx, {
   // reads through these bindings, so reassigning them in buildDomains() is what
   // makes the resolved zone reach the whole router without touching a single
   // domain module's signature (they all take timeZone as a captured string).
+  // The relay's hourly re-fire chain for a dose slot (ReplaceSchedule keeps
+  // it) after an app write: stopped once nothing in the slot is still due — a
+  // snoozed dose is not due (bd med-4j49), its snooze-end reminder restarts
+  // the chain naming every open dose of the slot. narrow (a snooze that left
+  // slot-mates due): the pending re-fire keeps its time but names only them.
+  async function reconcileMedChain(slotMs, narrow) {
+    const due = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs })).filter((r) => r.state === 'due');
+    if (!due.length) cancelMedRefire(slotMs);
+    else if (narrow) rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true });
+  }
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
   let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment; let trackers;
@@ -953,24 +963,11 @@ export function createApiRouter(ctx, {
         if (err && err.code === 'bad_request') err.status = 400;
         throw err;
       });
-      // Same rule as confirm-schedule below: stop the relay's re-fire chain
-      // for a slot only once nothing there is left PENDING.
-      if (body.action === 'take' || body.action === 'skip') {
+      // A dose confirmed in the app never taps Telegram: reconcile the relay
+      // chain for each acted slot (reconcileMedChain).
+      if (['take', 'skip', 'snooze'].includes(body.action)) {
         for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          const slotRows = await intake.listWindow({ fromMs: slotMs, toMs: slotMs });
-          if (!slotRows.some((row) => row.status === 'PENDING')) cancelMedRefire(slotMs);
-        }
-      }
-      // A snooze (bd med-4j49) reconciles the relay's hourly chain for the
-      // slot, which ReplaceSchedule keeps: the recompute below files the
-      // snooze-end reminder (it names the slot's still-due mates too). Every
-      // open dose snoozed → stop the chain until that reminder restarts it;
-      // some still due → the chain names only those.
-      if (body.action === 'snooze') {
-        for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          const due = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs })).filter((r) => r.state === 'due');
-          if (due.length) rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true });
-          else cancelMedRefire(slotMs);
+          await reconcileMedChain(slotMs, body.action === 'snooze');
         }
       }
       scheduleReminderRecompute(ctx, { records, timeZone });
@@ -1007,12 +1004,8 @@ export function createApiRouter(ctx, {
         // re-fire for meds still PENDING at the same instant.
         if (path === '/api/medications/confirm-schedule' && body && body.scheduled_at) {
           const slotMs = Date.parse(body.scheduled_at);
-          const slotRows = Number.isFinite(slotMs)
-            ? await intake.listWindow({ fromMs: slotMs, toMs: slotMs })
-            : [];
-          if (!slotRows.some((row) => row.status === 'PENDING')) {
-            cancelMedRefire(slotMs);
-          }
+          if (Number.isFinite(slotMs)) await reconcileMedChain(slotMs, false);
+          else cancelMedRefire(slotMs);
         }
         scheduleReminderRecompute(ctx, { records, timeZone });
         return res;

@@ -795,8 +795,9 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
             expect(localNotificationItems(entries, { delivery: 'webpush' }, Math.floor(Date.now() / 1000)))
                 .toEqual(expect.arrayContaining([expect.objectContaining({ fireAtUnix: endUnix })]));
 
-            // Every open dose snoozed: the chain stops until the snooze-end reminder restarts it.
-            await window.apiCall('/api/doses/act', 'POST', { action: 'snooze', occ_ids: ['intake-b'], minutes: 10 });
+            // The still-due mate is taken: only a snoozed dose is left, so the
+            // chain stops until the snooze-end reminder restarts it.
+            await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: ['intake-b'] });
             await vi.waitFor(() => expect(refire('cancel-refire')).toEqual([
                 expect.objectContaining({ callback: `s:${slotMs / 1000}` })
             ]));
