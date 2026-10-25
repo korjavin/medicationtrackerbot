@@ -37,7 +37,7 @@ gh run download <run> -n ios-visual-web-compare -D /tmp/claude-vw/<run>-webcmp
 |---|---|---|
 | `scale` | `visualViewport.scale` is not 1: focus-zoom happened | none; real bug (input under 16px) |
 | `hOverflow` | `scrollWidth > innerWidth` | an off-canvas element that is clipped by an ancestor; look at the PNG |
-| `clippedTop` | a sheet/app/page header sits above the visible top | page behind an open sheet panned by the keyboard (driver already ignores headers outside the top `mt-modal`); compare with the PNG |
+| `clippedTop` | a sheet/app/page header sits above the visible top | page behind an open sheet panned by the keyboard (driver already ignores headers outside the top `mt-modal`, and in-flow headers the document scrolled past); compare with the PNG |
 | `canvasOverflow` | a `canvas`/chart `svg` over 64px wider than its parent | an intentionally scrollable chart strip |
 | `focusUnderKeyboard`, `bottomNavCovered` | focused field behind the keyboard / tab bar below the viewport | `bottomNavCovered` is meaningless in scenes where the keyboard is up |
 | `readyLost` (`failed` has `ready`) | a ready selector vanished before the shot: the app switched away | race with a late redraw; re-run once before filing |
@@ -47,7 +47,7 @@ gh run download <run> -n ios-visual-web-compare -D /tmp/claude-vw/<run>-webcmp
 
 ## Add a scene
 
-1. Add an entry to `tests/visual/scenes.json`: `name`, `steps` (`tab` / `click` / `tag` / `settingsPage` / `consent` — opens `TrialConsent.request(<scope>)`, a sheet with no tap path on CI), `ready` (selectors that must be visible), optional `native` (XCUITest `tap`, `type`, `clear`, `tapButton`, `waitFor`, `keyboard`) and `mask` (fraction rects blanked in diffs for volatile pixels). Names starting `native-` are SwiftUI-only.
+1. Add an entry to `tests/visual/scenes.json`: `name`, `steps` (`tab` / `click` / `tag` / `settingsPage` / `consent` — opens `TrialConsent.request(<scope>)`, a sheet with no tap path on CI), `ready` (selectors that must be visible), optional `native` (XCUITest `tap`, `type`, `clear`, `tapButton`, `waitFor`, `keyboard`, `allowNotifications`, `notification` — tap a real local notification's banner, as `reminder-stale-*` do; their Allow leaves notifications granted on that Simulator, so a local re-run on it shows `settings-notifications` granted) and `mask` (fraction rects blanked in diffs for volatile pixels). Names starting `native-` are SwiftUI-only.
 2. No Swift change: `ios/UITests/VisualQATests.swift` and `driver.js` read the same file. The Playwright tiers pick it up too.
 3. Label a PR and check the new PNG by eye before trusting it.
 

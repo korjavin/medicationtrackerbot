@@ -131,7 +131,7 @@ Conventions that carry real weight:
   same id; last-writer-wins picks one body and both converge.
 - **Singletons** carry a fixed recordId — settings, feature flags, tab order,
   food targets, integrations keys, reminder prefs, trial consent.
-- **Day-batched vitals.** `hrsample` / `spo2sample` / `stresssample` store one
+- **Day-batched vitals.** `hrsample` / `spo2sample` store one
   record per stream-day holding that day's samples, so a 90-day import does
   not explode into thousands of ops. The domain layer expands them in memory.
 

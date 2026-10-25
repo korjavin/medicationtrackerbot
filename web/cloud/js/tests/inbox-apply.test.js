@@ -1078,7 +1078,7 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
             at_unix: SLOT_UNIX,
             sleep: [{
                 start_time: SLEEP_START, end_time: SLEEP_END, timezone_offset: 0,
-                day: '2026-01-01', total_minutes: 480, deep_minutes: 120, heart_rate_avg: 58,
+                day: '2026-01-01', total_minutes: 480, light_minutes: 300, deep_minutes: 120, rem_minutes: 60, heart_rate_avg: 58,
                 user_modified: false,
             }],
             hr: [
@@ -1114,7 +1114,9 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         const jan1 = hr.find((r) => r.recordId === 'hrsample-2026-01-01');
         expect(jan1.samples).toHaveLength(2);
         expect(await records.list('spo2sample')).toHaveLength(1);
-        expect(await records.list('stresssample')).toHaveLength(1);
+        // Stress is dropped (bd med-0xad.4); sleep lands as its sleep day.
+        expect(await records.list('stresssample')).toEqual([]);
+        expect((await records.list('sleep'))[0].recordId).toBe('sleep-hk-2026-01-02');
 
         const miband = await records.list('miband');
         expect(miband).toHaveLength(1);
@@ -1134,7 +1136,7 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         expect(await records.list('hrsample')).toHaveLength(2);
         expect((await records.list('hrsample')).find((r) => r.recordId === 'hrsample-2026-01-01').samples).toHaveLength(2);
         expect(await records.list('spo2sample')).toHaveLength(1);
-        expect(await records.list('stresssample')).toHaveLength(1);
+        expect(await records.list('stresssample')).toEqual([]);
         expect(await records.list('miband')).toHaveLength(1);
     });
 
@@ -1177,7 +1179,7 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
                 vitals: {
                     sleep: [{
                         start_time: SLEEP_START, end_time: SLEEP_END, timezone_offset: 0,
-                        day: '2026-01-01', total_minutes: 480, deep_minutes: 120, heart_rate_avg: 58,
+                        day: '2026-01-01', total_minutes: 480, light_minutes: 300, deep_minutes: 120, rem_minutes: 60, heart_rate_avg: 58,
                     }],
                 },
                 workouts: {

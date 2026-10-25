@@ -211,6 +211,41 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     }
   });
 
+  // bd med-0xad.4: the legacy sleep/stress conversion writes at now(), so it
+  // never runs on a mirror no pull of this page load brought to the tail.
+  it('converts legacy sleep only after a pull in this page load reached the tail, once', async () => {
+    let pulled = false;
+    let drainOpts;
+    let runs = 0;
+    const shimCall = async () => null;
+    shimCall.unifyLegacy = async () => { runs++; };
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': {
+          pullOnOpen: async () => {}, // offline: returns without reaching the tail
+          pulledThisSession: () => pulled,
+          hasCaughtUp: async () => true,
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(0); // offline boot: no writes
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(0); // a drain that still did not reach the tail
+    pulled = true;
+    await drainOpts.onSettled();
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs).toBe(1);
+  });
+
   it('a failed first-run re-ask is retried on the next drain', async () => {
     let drainOpts;
     let calls = 0;

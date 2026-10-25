@@ -95,6 +95,55 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
         expect(today.heart_rate_avg).toBe(60);
     });
 
+    // bd med-0xad.4 — the boot's legacy pass (the shim seam's unifyLegacy)
+    // folds a night's Mi Band sessions into one sleep-hk-<day> row and drops
+    // stress: the overview shows the same nights, /api/health/sleep (MCP
+    // health.sleep.list) keeps its row shape, and the Stress card has no data.
+    it('after the legacy pass: same nights in the overview, same sleep row shape, no stress', async () => {
+        const HOUR = 60 * 60 * 1000;
+        const wake = new Date();
+        wake.setUTCDate(wake.getUTCDate() - 2);
+        wake.setUTCHours(7, 0, 0, 0);
+        const W = wake.getTime();
+        const day = wake.toISOString().slice(0, 10);
+        const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
+        const session = (start, end, extra) => ({
+            recordId: `sleep-${start}`, clientTs: 5, deleted: false, start_time: iso(start), end_time: iso(end),
+            timezone_offset: 0, day, total_minutes: (end - start) / 60000, user_modified: false, notes: '', ...extra,
+        });
+        const stressAt = new Date(Date.now() - 2 * HOUR);
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                sleep: [
+                    session(W - 8 * HOUR, W - 4 * HOUR, { light_minutes: 150, deep_minutes: 60, rem_minutes: 30, heart_rate_avg: 58 }),
+                    session(W - 3.5 * HOUR, W, { light_minutes: 120, deep_minutes: 50, rem_minutes: 40, heart_rate_avg: 56 }),
+                ],
+                stresssample: [{
+                    recordId: `stresssample-${stressAt.toISOString().slice(0, 10)}`, clientTs: 5, deleted: false,
+                    samples: [{ date_time: stressAt.toISOString(), tz_offset: 0, value: 40 }],
+                }],
+            },
+        });
+        const shim = env.window.offlineAwareApiCall;
+        const nights = (o) => o.sleep_stats_7d.map((s) => s.date);
+        const before = { overview: await shim('/api/health/overview', 'GET'), sleep: await shim('/api/health/sleep', 'GET') };
+        expect(before.sleep).toHaveLength(2);
+        expect(before.overview.average_stress_7d).toBe(40);
+
+        await shim.unifyLegacy();
+
+        const overview = await shim('/api/health/overview', 'GET');
+        expect(nights(overview)).toEqual(nights(before.overview));
+        expect(overview.sleep_stats_7d.find((s) => s.date === day)).toMatchObject({ deep_mins: 110, total_mins: 450 });
+        const sleep = await shim('/api/health/sleep', 'GET');
+        expect(sleep).toEqual([expect.objectContaining({ id: `sleep-hk-${day}`, day, total_minutes: 450 })]);
+        expect(Object.keys(sleep[0]).sort()).toEqual(Object.keys(before.sleep[0]).sort());
+        // Stress card: no data left to show.
+        expect(overview.average_stress_7d).toBeNull();
+        expect(overview.stress_history_7d).toEqual([]);
+        expect(await env.records.list('stresssample')).toEqual([]);
+    });
+
     // med-9z3.9 — handleListSleepLogs guards `days` with `err == nil && d > 0`
     // (health_handlers.go), so a non-positive value keeps the 90d default. The
     // shim's intParam let 0/-5 through into `now - days*DAY`, producing an empty

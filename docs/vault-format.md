@@ -83,7 +83,7 @@ slots (`intake-<med>-<slot>`, `session-<group>-<date>`, `-hk-` rows,
 `daystats-<day>` and other per-day aggregates, `trackerlog:<tracker>:<date>`,
 gamification weeks and milestones), and secrets — `integrations` / `apitokens` land only when the
 receiver has none, and are then whole rows (no per-key union). The vitals day
-batches (`hrsample-<day>`, `spo2sample-<day>`, `stresssample-<day>`) are the
+batches (`hrsample-<day>`, `spo2sample-<day>`) are the
 exception: when both sides hold a day, the file's samples are unioned into the
 receiver's row by instant (the receiver's sample wins a shared instant), so a
 reading only the file has is not lost. Re-minted leaf
@@ -114,7 +114,8 @@ are the exception and are not remapped.
   content, so a device that already has that slot converges by LWW instead of double-logging.
   An Apple Health bp reading / weight log (`source: "apple_health"` with a `source_id`)
   is re-minted as `bp-hk-<uuid>` / `weight-hk-<uuid>` for the same reason: the next
-  Health scan finds it instead of adding it again. Apple Health sleep logs and miband
+  Health scan finds it instead of adding it again. Sleep logs keyed by their day
+  (`source_id` = `day`, Apple Health or a converted Mi Band day, bd med-0xad.4) and miband
   workouts (bd med-w6gx.7) likewise become `sleep-hk-<day>` / `miband-hk-<uuid>`, a
   workout's body `id` 1e14 + the UUID's last 48 bits, a band no other miband id
   reaches (healthsource.js `healthNumericId`).
@@ -309,33 +310,37 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 [Vitals day-batching](#vitals-day-batching)).
 
 > **Cloud import downsamples old samples.** `vaultToRecords` collapses
-> `heart`/`spo2`/`stress` samples older than **60 days** to one per UTC hour,
+> `heart`/`spo2` samples older than **60 days** to one per UTC hour,
 > `value` = round(mean). The shape is unchanged, so nothing downstream cares. The
 > cloud UI only ever renders hourly buckets over a 7d/30d window, so beyond that
 > window per-minute resolution is carried only to be discarded — on a real 3-year
 > archive it was 105 MiB, 57% of the vault. 60d leaves a month of margin on the
-> 30d window. Two losses, both invisible: a bucket's min/max collapse to its mean
-> (only surfaced inside the still-raw 30d window), and a stress sample's `info`
-> label is dropped. The transform is idempotent, so re-importing a cloud export
-> never drifts.
+> 30d window. One loss, invisible: a bucket's min/max collapse to its mean
+> (only surfaced inside the still-raw 30d window). The transform is idempotent,
+> so re-importing a cloud export never drifts.
 
 ```json
 "vitals": {
   "sleep": [ { sleep_log } ],
   "day_stats": [ { day_stat } ],
   "heart": [ { sample } ],
-  "spo2": [ { sample } ],
-  "stress": [ { sample } ]
+  "spo2": [ { sample } ]
 }
 ```
 
-- **sleep_log** — `start_time` (RFC3339), `end_time` (RFC3339), `timezone_offset` (num),
+- **sleep_log** — one per **sleep day** (bd med-0xad.4). `start_time` (RFC3339), `end_time` (RFC3339), `timezone_offset` (num),
   `day` (`YYYY-MM-DD`), `light_minutes`, `deep_minutes`, `rem_minutes`,
   `awake_minutes`, `total_minutes`, `turn_over_count`, `heart_rate_avg`, `spo2_avg`
-  (num), `user_modified` (bool), `notes` (str), optional `source` / `source_id` (as bp:
-  an Apple Health sleep day, `source_id` = its `day`; re-minted as `sleep-hk-<day>`).
+  (num), `user_modified` (bool), `notes` (str), optional `source` / `source_id`
+  (`source_id` = its `day`, re-minted as `sleep-hk-<day>`; `source` is `apple_health`
+  or `miband`). Older files may carry one entry per Mi Band session (no `source_id`):
+  import mints those as `sleep-<start_time_ms>` and the app's conversion pass
+  (`vitals.js` `unifyLegacy`) folds them into the day row on its next boot.
+- **stress** — older files carry `vitals.stress` samples: import accepts and ignores
+  them, export never writes the key. No version bump (still v1).
 - **day_stat** — `day` (`YYYY-MM-DD`), `steps`, `calories`, `distance` (num).
-- **sample** (heart/spo2/stress) — `date_time` (RFC3339), `tz_offset` (seconds),
+- **sample** (heart/spo2) — `date_time` (RFC3339), `tz_offset` (seconds;
+  absent on samples imported from Apple Health / Health Connect, no reader uses it),
   `value` (num), optional `type` (int sample-kind discriminator, omitted when 0), and
   optional `info` (str). Storage is unix-seconds INTEGER server-side;
   the format uses RFC3339, matching the vitals wire form and the cloud sample body.
@@ -650,7 +655,7 @@ files stay readable:
 | Domain field | Legacy server storage | Vault wire form |
 |---|---|---|
 | `intake.scheduled_at` / `taken_at` / `snoozed_until` | unix-**seconds** INTEGER | RFC3339 |
-| `vitals` sample `date_time` (heart/spo2/stress) | unix-**millis** INTEGER (`time.UnixMilli`) | RFC3339 |
+| `vitals` sample `date_time` (heart/spo2) | unix-**millis** INTEGER (`time.UnixMilli`) | RFC3339 |
 | `weight.goal.set_at` | unix-seconds INTEGER | RFC3339 |
 | `miband.source_start_ms` / `source_end_ms` / `gps.ts_ms` | **milliseconds** INTEGER | **milliseconds** (kept as-is) |
 | everything else | DATETIME text | RFC3339 passthrough |
@@ -698,7 +703,8 @@ Export → import → export (and each single hop) must be
   compared. A reader that re-adds `category`/`weight_trend` does not break equality.
 - **Deterministic re-minting** — cloud import re-mints scheduled-intake, scheduled-session,
   and rotation recordIds by rule, so a legacy file (no recordIds) and its cloud
-  round-trip converge to the same ids rather than duplicating. Sleep and miband rows also
+  round-trip converge to the same ids rather than duplicating. Sleep days re-mint as
+  `sleep-hk-<day>`; a legacy per-session sleep entry and miband rows
   re-mint on their natural keys (`sleep-<start_time_ms>`, `miband-<source_start_ms>`) — the
   same keys the `.nxk` migration path mints — so a full-vault import followed by a Mi Band
   `.nxk` migration of the same night/session converges to one record instead of double-
@@ -739,7 +745,10 @@ dismissal — so the seeded QA vault shows the W4 card, med-ta2n.4). The Vitest 
 any field-name drift fails the pin. A second fixture,
 `tests/fixtures/vault-v1-botexport.json`, is FROZEN (its generator was deleted with
 the bot runtime): real legacy export output, kept to prove old exports remain
-importable.
+importable. Since bd med-0xad.4 the main fixture carries no `vitals.stress`; the bot
+export keeps its stress block, which import ignores. The main fixture's one sleep entry is
+a bot-era session (no `source_id`, `timezone_offset` in seconds east): import still mints
+it as `sleep-<start_ms>`, and the round-trip test runs the conversion pass over it.
 
 Every list-shaped block carries **≥2 rows** on purpose (two gamification targets, two
 ledger rows, two band overrides, two experiments — one active + one resolved, two modes, two api tokens, two tz plans — one `COMPLETED` + one `PENDING_APPROVAL`, two

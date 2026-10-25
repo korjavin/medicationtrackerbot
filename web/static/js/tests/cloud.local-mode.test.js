@@ -52,6 +52,16 @@ async function deleteDb() {
     });
 }
 
+// The boot's egress registration (local-policy registerLocalEgress) reads
+// window.document after the shell's setEgressHosts reply; let it finish before
+// a test can end and afterEach unstubs the window (bd med-umqb). The call
+// must have started first: egressIdle only waits for registrations in flight.
+async function egressSettled(bridge) {
+    await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', expect.anything()));
+    const { egressIdle } = await import('../../../cloud/js/local-policy.js');
+    await egressIdle();
+}
+
 async function pendingRows() {
     const db = await openDb();
     try {
@@ -268,7 +278,15 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         const withoutBackup = (d) => { const c = { ...d }; delete c.protection; return c; };
         expect(exported.data.protection).toEqual({ ...VAULT_FIXTURE.data.protection, last_backup_at: expect.any(String) });
         expect(Date.parse(exported.data.protection.last_backup_at)).toBeLessThanOrEqual(now);
-        expect(withoutBackup(exported.data)).toEqual(withoutBackup(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data));
+        // The restore ends with the legacy pass (bd med-0xad.4): the fixture's
+        // bot-era sleep session comes back as its sleep day.
+        const [night] = VAULT_FIXTURE.data.vitals.sleep;
+        expect(exported.data.vitals.sleep).toEqual([{
+            ...night, timezone_offset: -120, total_minutes: 450, source: 'miband', source_id: night.day,
+        }]);
+        const want = withoutBackup(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data);
+        want.vitals = { ...want.vitals, sleep: exported.data.vitals.sleep };
+        expect(withoutBackup(exported.data)).toEqual(want);
         const weights = (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight);
         expect(weights.sort()).toEqual(VAULT_FIXTURE.data.weight.logs.map((r) => r.weight).sort());
         // The cloud's importAll runs this same conversion on the file.
@@ -504,6 +522,7 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         // Boot reschedules the device's reminders (the lapse-notice refill);
         // let it land before the test reads the schedule or tears the db down.
         await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+        await egressSettled(bridge);
     });
 
     afterEach(() => {
@@ -685,11 +704,12 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             }),
         };
         if (healthOn) env.window.localStorage.setItem('wg.health.enabled', 'true');
-        env.window.localStorage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout']));
+        env.window.localStorage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2']));
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
         await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+        await egressSettled(bridge);
     });
 
     afterEach(() => {
@@ -1375,6 +1395,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(leaveOps()).toEqual([['move.stash']]);
         });
 
+        // bd med-ta2n.31: the tapped button shows work in progress until the shell
+        // navigates; a failed move restores it; a second tap does nothing.
+        it('Turn on sync is busy while the move runs, restored when it fails, and a second tap is a no-op (med-ta2n.31)', async () => {
+            const { window, document } = env;
+            allowConsoleNoise();
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            let fail;
+            bridge.mockImplementation((op) => {
+                if (op === 'shell.ops') return Promise.resolve(bootShellOps);
+                if (op === 'move.stash') return new Promise((_, reject) => { fail = reject; });
+                return Promise.resolve(op === 'setEgressHosts' ? { changed: false } : true);
+            });
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            const p3 = await sync(document);
+            const go = p3.querySelector('[data-invite-action="turn-on-sync"]');
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(go.disabled).toBe(true));
+            expect(go.classList.contains('wg-btn--busy')).toBe(true);
+            expect(go.textContent).toBe('Moving your data…');
+            await vi.waitFor(() => expect(typeof fail).toBe('function'));
+            go.click();
+            expect(bridge.mock.calls.filter(([op]) => op === 'move.stash')).toHaveLength(1);
+            fail(new Error('too large'));
+            await vi.waitFor(() => expect(go.disabled).toBe(false));
+            expect(go.classList.contains('wg-btn--busy')).toBe(false);
+            expect(go.textContent).toBe('Turn on sync');
+            expect(p3.querySelector('.wg-error').textContent).toMatch(/too large/);
+        });
+
         it('Not now closes "Turn on sync?" with nothing stashed', async () => {
             const { window, document } = env;
             await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
@@ -1982,7 +2032,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await egressSettled(bridge);
     });
 
     afterEach(async () => {
@@ -2134,7 +2184,7 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await egressSettled(bridge);
     });
 
     afterEach(async () => {
@@ -2334,7 +2384,7 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await egressSettled(bridge);
         conv = { endSession: vi.fn(async () => {}), setMicMuted: vi.fn() };
         startSession = vi.fn(async (opts) => { opts.onConnect(); return conv; });
         env.window.__fakeSDK = { Conversation: { startSession } };
@@ -2516,7 +2566,7 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await egressSettled(bridge);
     });
 
     afterEach(async () => {
@@ -2702,7 +2752,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
-        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        await egressSettled(bridge);
     });
 
     afterEach(async () => {
@@ -2835,6 +2885,7 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(window, (spec) => MODULES[spec]());
         await window.MedTrackerCloudReady;
+        if (platform) await egressSettled(call);
         return { window, call };
     }
     const weights = async () => (await env.window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight).sort();
@@ -3192,6 +3243,7 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
+        await egressSettled(bridge);
         toasts = [];
         if (!env.window.SyncManager) env.window.SyncManager = {};
         env.window.SyncManager.showToast = (message) => { toasts.push(message); };
@@ -3481,8 +3533,6 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         // reads window.document, which afterEach unstubs.
         async function bootSettled(attest) {
             await boot(attest);
-            await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', expect.anything()));
-            await new Promise((r) => { setTimeout(r, 0); });
         }
 
         it('204: signed over the empty body, then the erase and local.reset {dropAttest: true}', async () => {

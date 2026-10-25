@@ -103,8 +103,10 @@ function isUpdateRequiredStatus(status) {
 // Every oplog push and snapshot POST declares the v2 dose ledger (bd
 // med-wi09.12): once the account's ledger cut is set the server answers 426 to
 // a writer without it (med-wi09.8). A header only — queued legacy payloads go
-// up unchanged and the intake reducer still ranks them legacy.
-const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Ledger': '2' };
+// up unchanged and the intake reducer still ranks them legacy. The reminder
+// schedule PUT (push.js) sends the same headers: it gets the same gate in
+// med-wi09.22 (logged only until then, med-wi09.20).
+export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Ledger': '2' };
 
 // The pull's ledger_cut_at is the account's cut; the local ledgercut singleton
 // carries it as `at` for the projection (medintake.js loadCutMs). A local-only
@@ -926,6 +928,7 @@ async function pullTail(ctx) {
     // reads it (bd med-ejgf); lastSyncedAt is also stamped by any accepted
     // push, so it cannot say that. resetLocalSync clears both with sync_meta.
     await writeMeta(body.next ? { lastSyncedAt: Date.now() } : { lastSyncedAt: Date.now(), tailCaughtUpAt: Date.now() });
+    if (!body.next) tailPulledThisSession = true;
     notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
     if (!body.next) break;
   }
@@ -1244,6 +1247,15 @@ export async function isBootstrapped() {
 // (bd med-ejgf). resetLocalSync clears it.
 export async function hasCaughtUp() {
   return (await withStore('sync_meta', 'readonly', (store) => reqToPromise(store.get('tailCaughtUpAt')))) != null;
+}
+
+// True once a pull in THIS page load reached the end of the server's tail.
+// hasCaughtUp stays set forever; a writer that must not run on a stale
+// mirror (the legacy sleep conversion, bd med-0xad.4) asks this instead: an
+// offline boot, or one held by a pending forced snapshot, never sets it.
+let tailPulledThisSession = false;
+export function pulledThisSession() {
+  return tailPulledThisSession;
 }
 
 // Max re-post attempts when a concurrent writer keeps interleaving (below).
