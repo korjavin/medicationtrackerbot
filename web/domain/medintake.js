@@ -1166,7 +1166,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
 
     const { meds, timeMs: clusterEarliestMs, rows } = await nextCluster(nowMs);
     const cluster = rows.map((r) => ({
-      medicationId: r.medId, scheduledAtMs: Date.parse(r.plannedAt), source: r.source,
+      occId: String(r.occId), medicationId: r.medId, scheduledAtMs: Date.parse(r.plannedAt), source: r.source,
     }));
 
     if (cluster.length === 0) throw notFound('No upcoming scheduled intakes found');
@@ -1178,15 +1178,18 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       const med = meds.find((m) => sameMed(m.recordId, target.medicationId));
       if (med) medNames.push(med.name);
 
-      const existing = intakes.find((i) => sameMed(i.medication_id, target.medicationId)
-        && Date.parse(i.scheduled_at) === target.scheduledAtMs);
+      // Confirm-or-create at the row's exact id (bd med-wi09.12): its stored
+      // row, else a legacy-id row for the same med at the same instant.
+      const existing = intakes.find((i) => String(i.recordId) === target.occId)
+        || intakes.find((i) => sameMed(i.medication_id, target.medicationId)
+          && Date.parse(i.scheduled_at) === target.scheduledAtMs);
 
       if (existing && OPEN_STATUSES.has(existing.status)) {
         await putIntake(acted(existing, { status: 'TAKEN', taken_at: nowIso }, nowMs), -1);
         confirmedCount++;
       } else if (!existing) {
         const record = acted(null, {
-          recordId: slotId(target.medicationId, target.scheduledAtMs),
+          recordId: target.occId,
           deleted: false,
           medication_id: target.medicationId,
           scheduled_at: new Date(target.scheduledAtMs).toISOString(),
