@@ -93,9 +93,11 @@ func TestDockerCompose_CloudEnvironmentCoverage(t *testing.T) {
 					return true
 				}
 				paramIndices := make(map[string]int)
-				for idx, param := range fn.Type.Params.List {
+				currentIdx := 0
+				for _, param := range fn.Type.Params.List {
 					for _, pName := range param.Names {
-						paramIndices[pName.Name] = idx
+						paramIndices[pName.Name] = currentIdx
+						currentIdx++
 					}
 				}
 				if len(paramIndices) == 0 {
@@ -280,6 +282,10 @@ func parseCloudServiceEnvironment(t *testing.T, composePath string) map[string]b
 
 			if inCloud {
 				trimmed := strings.TrimSpace(raw)
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+					continue
+				}
+
 				if trimmed == "environment:" {
 					inCloudEnv = true
 					continue
