@@ -534,10 +534,11 @@ export function computeReminderHorizon({
       // null: a due dose never fires on its own here (the relay's chain nags it).
       fireAtMs: r.state === 'due' ? null : Date.parse(r.state === 'snoozed' ? r.snoozedUntil : r.plannedAt),
     }));
-  // One reminder per (slot, fire time): a slot's snoozed doses fire at their
-  // snooze end (bd med-4j49), its unsnoozed slot-mates keep their own fire. A
-  // snooze-end reminder also names the slot's still-due mates: the relay chain
-  // it restarts is slot-wide and must keep nagging them.
+  // One reminder per upcoming slot, and one per slot holding a snooze (bd
+  // med-4j49): it fires at the slot's EARLIEST snooze end and names every
+  // open dose of the slot — the relay chain it restarts is slot-wide, and one
+  // row per callback keeps a Telegram tap's identity unambiguous.
+  // ponytail: a later snooze of a slot-mate is nagged from the earliest end on.
   const bySlot = new Map();
   const add = (slot, t) => {
     // Carry the identity of every med the reminder names for this slot so
@@ -550,20 +551,25 @@ export function computeReminderHorizon({
   };
   for (const t of targets) {
     if (t.fireAtMs === null) continue;
-    const key = `${t.scheduledAtMs}|${t.fireAtMs}`;
-    if (!bySlot.has(key)) bySlot.set(key, { slotMs: t.scheduledAtMs, fireAtMs: t.fireAtMs, names: [], medicationIds: [] });
-    add(bySlot.get(key), t);
+    const snoozed = t.fireAtMs !== t.scheduledAtMs;
+    const key = `${t.scheduledAtMs}|${snoozed ? 'snooze' : 'slot'}`;
+    if (!bySlot.has(key)) bySlot.set(key, { slotMs: t.scheduledAtMs, fireAtMs: t.fireAtMs, snoozed, names: [], medicationIds: [] });
+    const slot = bySlot.get(key);
+    slot.fireAtMs = Math.min(slot.fireAtMs, t.fireAtMs);
   }
   for (const slot of bySlot.values()) {
-    if (slot.fireAtMs === slot.slotMs) continue;
-    for (const t of targets) if (t.fireAtMs === null && t.scheduledAtMs === slot.slotMs) add(slot, t);
+    for (const t of targets) {
+      if (t.scheduledAtMs === slot.slotMs && (slot.snoozed || t.fireAtMs === slot.slotMs)) add(slot, t);
+    }
   }
   for (const slot of bySlot.values()) {
     const slotUnix = Math.floor(slot.slotMs / 1000);
     // callback carries the SLOT, not a medication: one Telegram message covers
     // every med due at this instant, so one Confirm tap covers all of them.
     // The relay appends ":confirm"/":snooze" to build the two buttons.
-    entries.push({ fireAtUnix: Math.floor(slot.fireAtMs / 1000), kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
+    // slotUnix: the planned instant, which a snooze-end fire no longer equals —
+    // the deeplink's take sheet targets the dose by it.
+    entries.push({ fireAtUnix: Math.floor(slot.fireAtMs / 1000), slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
   }
 
   // Re-reminders for still-PENDING doses are no longer client-pre-computed. For
