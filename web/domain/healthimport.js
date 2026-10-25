@@ -356,7 +356,8 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // samples are skipped, never thrown on — one odd entry in Health must not
   // stall every later import behind the same anchor.
   // importVitals(kind, samples) → { added, skip }: steps / hr / spo2 into the
-  // vitals rows. `added` counts rows written (a day total raised, a day batch
+  // vitals rows. Samples carry no tz_offset: it would be this device's zone,
+  // so two devices would rewrite each other's batches, and no reader uses it. `added` counts rows written (a day total raised, a day batch
   // that gained samples), so an unchanged re-read reports 0.
   const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
   const VITALS = {
@@ -371,7 +372,9 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       key: 'hr',
     },
     spo2: {
-      valid: (s) => Number.isFinite(s.start) && positive(s.value) && s.value <= 100,
+      // Percent; a 0-1 fraction (the wrong HealthKit unit) or a value under
+      // 50 is a bug upstream, counted in skip.invalid rather than stored as 1%.
+      valid: (s) => Number.isFinite(s.start) && s.value >= 50 && s.value <= 100,
       map: (s) => ({ date_time: rfc3339(s.start), value: Math.round(s.value) }),
       key: 'spo2',
     },

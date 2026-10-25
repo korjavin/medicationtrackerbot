@@ -16,7 +16,7 @@ vi.mock('../sync.js', () => ({
     flushConfirmed: vi.fn(async () => true),
 }));
 
-import { runHealthImport, startHealthImport, healthStatusText } from '../health-import.js';
+import { runHealthImport, startHealthImport, healthStatusText, resetHealthAnchors } from '../health-import.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
@@ -961,14 +961,43 @@ describe('Apple Health import', () => {
             expect(await runHealthImport({}, opts(h3))).toEqual({ added: 0 });
             expect(records.rows.get('daystats-2026-10-10')).toMatchObject({ steps: 3000 });
 
-            // Read by window, never by anchor: a year back until steps were
-            // seen, then a week.
+            // Read by window, never by anchor: a year back until days came
+            // back, then a week before the last such read.
             const windows = [h1, h2, h3].map((h) => h.args.find((a) => a.type === 'steps'));
             expect(windows).toEqual([
                 { type: 'steps', from: NOW - 365 * D, to: NOW },
                 { type: 'steps', from: NOW - 7 * D, to: NOW },
                 { type: 'steps', from: NOW - 7 * D, to: NOW },
             ]);
+
+            // Closed for three weeks: the read reaches back past the gap.
+            const later = NOW + 21 * D;
+            const h4 = vitalsHealth({ steps: steps(3000) });
+            await runHealthImport({}, { ...opts(h4), now: () => later });
+            expect(h4.args.find((a) => a.type === 'steps')).toEqual({ type: 'steps', from: NOW - 7 * D, to: later });
+
+            // The switch-on rescan / reset forgets the window with the anchors.
+            resetHealthAnchors(storage);
+            const h5 = vitalsHealth({ steps: [] });
+            await runHealthImport({}, opts(h5));
+            expect(h5.args.find((a) => a.type === 'steps')).toEqual({ type: 'steps', from: NOW - 365 * D, to: NOW });
+            // Nothing came back (access denied): the next read is a year again.
+            const h6 = vitalsHealth({ steps: [] });
+            await runHealthImport({}, opts(h6));
+            expect(h6.args.find((a) => a.type === 'steps').from).toBe(NOW - 365 * D);
+        });
+
+        it('a kind an older shell rejects is no longer counted as asked', async () => {
+            allowConsoleNoise(); // the rejected kind is logged by design
+            storage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2']));
+            const h = vitalsHealth({});
+            const query = h.query;
+            h.query = async (args) => {
+                if (args.type === 'steps' || args.type === 'spo2') throw new Error('unknown type');
+                return query(args);
+            };
+            await runHealthImport({}, opts(h));
+            expect(JSON.parse(storage.getItem('wg.health.asked'))).toEqual(['bp', 'weight', 'sleep', 'workout', 'hr']);
         });
 
         it('day-batches HR and SpO2 by UTC day; a re-read of the same instants adds nothing', async () => {
@@ -1015,15 +1044,19 @@ describe('Apple Health import', () => {
             expect(ov.spo2_history_7d).toEqual([{ timestamp: at('2026-10-10T03:00:00Z'), min: 97, max: 97, avg: 97 }]);
         });
 
-        it('skips malformed samples (a day without steps, SpO2 as a fraction above 100)', async () => {
+        it('skips malformed samples (a day without steps, SpO2 as a 0-1 fraction or above 100)', async () => {
             const h = vitalsHealth({
                 steps: [{ day: '10/08/2026', steps: 10 }, { day: '2026-10-08', steps: 0 }, { day: '2026-10-09', steps: 50 }],
-                spo2: [{ uuid: U1, start: at('2026-10-10T03:00:00Z'), value: 970 }],
+                spo2: [
+                    { uuid: U1, start: at('2026-10-10T03:00:00Z'), value: 970 },
+                    { uuid: U2, start: at('2026-10-10T04:00:00Z'), value: 0.97 },
+                ],
             });
             const lines = [];
             expect(await runHealthImport({}, { ...opts(h), diag: (l) => lines.push(l) })).toEqual({ added: 1 });
-            expect(lines).toContain('[health] steps returned=3 samples=3 written=1 skip{invalid:2} anchor=kept');
-            expect(lines).toContain('[health] spo2 returned=1 samples=1 written=0 skip{invalid:1} anchor=moved');
+            expect(lines).toContain('[health] steps returned=3 samples=3 written=1 skip{invalid:2} anchor=moved');
+            expect(lines).toContain('[health] spo2 returned=2 samples=2 written=0 skip{invalid:2} anchor=moved');
+            expect(records.rows.has('spo2sample-2026-10-10')).toBe(false);
         });
     });
 });

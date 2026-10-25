@@ -23,9 +23,11 @@ import { diagLine } from './passkey-diag.js';
 // Sleep and workouts: bd med-w6gx.7. Steps, HR and SpO2: bd med-0xad.1.
 export const HEALTH_KINDS = ['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2'];
 const DAY_MS = 24 * 3600 * 1000;
-// Steps are daily totals read by time window, not by anchor: the whole last
-// year until a run has seen any, then the last week (a day's total keeps
-// growing, and a late sync can raise an earlier day; the writer keeps the max).
+// Steps are daily totals read by time window, not by anchor. anchors.steps is
+// the ms of the last read that returned days: the next read starts a week
+// before it (a day's total keeps growing and a late sync can raise an earlier
+// day; the writer keeps the max), so days the app stayed closed are covered.
+// No anchors.steps (first run, rescan, reset): the whole last year.
 const STEPS_FIRST_DAYS = 365;
 const STEPS_DAYS = 7;
 // HR/SpO2 are dense: the first anchored read (no anchor yet) starts this far back.
@@ -156,8 +158,18 @@ export async function runHealthImport(ctx, {
                 }
             }
             if (kind === 'steps') {
-                const days = seen.steps > 0 ? STEPS_DAYS : STEPS_FIRST_DAYS;
-                await take(await health.query({ type: 'steps', from: now() - days * DAY_MS, to: now() }));
+                const at = now();
+                const lastRead = Number(anchors.steps);
+                const from = Number.isFinite(lastRead) && lastRead > 0
+                    ? Math.min(lastRead, at) - STEPS_DAYS * DAY_MS : at - STEPS_FIRST_DAYS * DAY_MS;
+                const res = await health.query({ type: 'steps', from, to: at });
+                await take(res);
+                // Like an anchor: kept only once something came back.
+                if (res && res.returned > 0) {
+                    anchors.steps = String(at);
+                    writeJSON(storage, ANCHORS_KEY, anchors);
+                    st.anchor = 'moved';
+                }
             }
             for (let page = 0; kind !== 'steps' && page < MAX_PAGES; page++) {
                 const q = { type: kind, anchor: anchors[kind] || null, limit: PAGE };
@@ -182,6 +194,13 @@ export async function runHealthImport(ctx, {
             st.error = (e && e.name) || 'Error';
             lastError = e;
             failed++;
+            // A shell that predates this kind dropped it from the authorize
+            // sheet and rejects its query: forget it was asked, so the build
+            // that knows it shows the sheet (startHealthImport re-asks).
+            const asked = readJSON(storage, ASKED_KEY, []);
+            if (Array.isArray(asked) && asked.includes(kind)) {
+                writeJSON(storage, ASKED_KEY, asked.filter((k) => k !== kind));
+            }
         }
         seen[kind] = (seen[kind] || 0) + st.samples;
         diag(kindLine(kind, st));
