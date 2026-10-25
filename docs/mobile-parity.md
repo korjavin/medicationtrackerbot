@@ -38,7 +38,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | File chooser (`<input type=file>`, `.age` / `.nxk` restore) | ✓ (med-2au7) | ✓ `ACTION_GET_CONTENT` `*/*` + `EXTRA_MIME_TYPES` (med-nt9p.10) | parity |
 | Anonymous trial attestation (AI, food DB, voice) | App Attest (med-o7zq.16, .20, .23) | Play Integrity client shipped (med-nt9p.32.8.4), device-recall flag OFF | divergent: platform API; Android owner checks open: med-nt9p.32.8.5, .32.8.7, .32.8.9 |
 | Trial reinstall rejoins the same device bucket | ✓ keychain pass (med-o7zq.26) | ✓ `wg_trial` prefs in the backup rules (med-nt9p.32.8.4, .32.5) | parity |
-| Health data (BP + weight; sleep + workouts; steps, HR, SpO2) | HealthKit (med-w6gx.6, .7; steps/HR/SpO2 med-0xad.2) | Health Connect (med-nt9p.8, .9; steps/HR/SpO2 med-0xad.3) | divergent: platform API; iOS follow-ups med-w6gx.18 open |
+| Health data (BP + weight; sleep + workouts) | HealthKit (med-w6gx.6, .7) | Health Connect (med-nt9p.8, .9) | divergent: platform API; iOS follow-ups med-w6gx.18 open |
 | Reminders: local notifications from the horizon (replace-all, lapse notice, tap guard for another vault) | ✓ (med-w6gx.5, med-o7zq.9) | ✓ exact alarms + boot/update rearm (med-nt9p.7) | parity (iOS 64-slot cap is the platform's; Android caps at 200) |
 | Reminder tap target: a dose opens its take/log sheet (row `url`, `ReminderPath` allowlist), else its section | ✓ (med-w6gx.20, #1102) | ✓ (med-nt9p.52) | parity |
 | Reminder tap on a page without the deep-link router (e.g. unlock) loads the path | ✓ (med-w6gx.27, #1280) | ✓ (med-nt9p.53, #1273) | parity |

@@ -28,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
@@ -67,7 +68,9 @@ import kotlin.reflect.KClass
  *
  * Anchor = "hc1:" + a Health Connect Changes token. No anchor (or an expired
  * token) reads from `from` (ms; the page sends 90 days back for hr/spo2), else
- * the last 30 days, and starts a token; older history needs
+ * the last 30 days, and starts a token; hr/spo2 scans answer about `limit`
+ * samples per page with more: true and an "hc1s:" scan anchor until drained, and
+ * only then the Changes token; older history needs
  * READ_HEALTH_DATA_HISTORY, out of v1. Reads happen only when the page asks,
  * i.e. while the app is in the foreground — never in the background.
  */
@@ -188,19 +191,48 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             }
             // Unused for 30 days: start over below (known readings are skipped by id).
         }
+        // A dense kind's scan cut short by `limit`: "hc1s:<changes token> <from ms> <page token>".
+        val cont = args.optString("anchor").takeIf { it.startsWith(SCAN_PREFIX) }
+            ?.removePrefix(SCAN_PREFIX)?.split(' ', limit = 3)?.takeIf { it.size == 3 && it[1].toLongOrNull() != null }
         val records = changed ?: run {
+            val limit = args.optInt("limit", 0).takeIf { kind in DENSE && it > 0 }
+            if (cont != null && limit != null) {
+                mode = "scan-cont"
+                val from = TimeRangeFilter.after(Instant.ofEpochMilli(cont[1].toLong()))
+                // A page token Health Connect no longer takes: rescan from the start (known readings are skipped).
+                val next = runCatching { readUntil(type, from, cont[2], limit) }.getOrNull()
+                if (next != null) {
+                    anchor = next.second?.let { "$SCAN_PREFIX${cont[0]} ${cont[1]} $it" } ?: (PREFIX + cont[0])
+                    more = next.second != null
+                    return@run next.first.also { returned = it.size }
+                }
+                mode = "scan"
+            }
             // The token first, so a reading saved during the read comes back as a change (a no-op by id).
-            anchor = PREFIX + client.getChangesToken(ChangesTokenRequest(setOf(type)))
-            // ponytail: the whole 30-day window in one answer (limit ignored) — a
-            // month of readings is small; page it if a scale's history ever isn't.
-            val from = args.optDouble("from").takeUnless { it.isNaN() }?.let { Instant.ofEpochMilli(it.toLong()) }
-            readAll(type, TimeRangeFilter.after(from ?: Instant.now().minus(HISTORY_DAYS, ChronoUnit.DAYS)))
-                .also { returned = it.size }
+            val changesToken = client.getChangesToken(ChangesTokenRequest(setOf(type)))
+            anchor = PREFIX + changesToken
+            val fromMs = args.optDouble("from").takeUnless { it.isNaN() }?.toLong()
+                ?: Instant.now().minus(HISTORY_DAYS, ChronoUnit.DAYS).toEpochMilli()
+            val filter = TimeRangeFilter.after(Instant.ofEpochMilli(fromMs))
+            if (limit == null) {
+                // ponytail: bp/weight answer the whole window at once (limit ignored) — a
+                // month of readings is small; page them like DENSE if a scale's history ever isn't.
+                readAll(type, filter)
+            } else {
+                // hr/spo2 (a watch writes HR about once a minute): about `limit` samples per answer.
+                val (recs, pageToken) = readUntil(type, filter, null, limit)
+                if (pageToken != null) {
+                    anchor = "$SCAN_PREFIX$changesToken $fromMs $pageToken"
+                    more = true
+                }
+                recs
+            }.also { returned = it.size }
         }
 
         // Copy diagnostics (bd med-nt9p.59): per kind, how it read and how much came back.
         diag("health $kind $mode read=$returned records=${records.size} more=$more")
-        return when (kind) {
+        // Off the main thread: a page of samples can be large; the answer is posted from Main in handle.
+        return withContext(Dispatchers.Default) { when (kind) {
             "sleep" -> {
                 // Like Health.swift: the changes find what is new; the answer is
                 // every sleep sample around it, with the window as from/to.
@@ -217,7 +249,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             }.let { page(it, anchor, returned, more) }
             else -> JSONArray().apply { records.forEach { r -> samples(r).forEach { put(it) } } }
                 .let { page(it, anchor, returned, more) }
-        }
+        } }
     }
 
     private suspend fun readAll(type: KClass<out Record>, filter: TimeRangeFilter): List<Record> {
@@ -232,6 +264,23 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             pageToken = r.pageToken
         } while (pageToken != null)
         return out
+    }
+
+    /** Records from `pageToken` on until they hold at least `limit` samples; the token to go on from, null when drained. */
+    private suspend fun readUntil(type: KClass<out Record>, filter: TimeRangeFilter, pageToken: String?, limit: Int): Pair<List<Record>, String?> {
+        val out = mutableListOf<Record>()
+        var points = 0
+        var token = pageToken
+        do {
+            @Suppress("UNCHECKED_CAST")
+            val r = client.readRecords(
+                ReadRecordsRequest(type as KClass<Record>, filter, pageSize = DENSE_PAGE, pageToken = token)
+            )
+            out += r.records
+            points += r.records.sumOf { (it as? HeartRateRecord)?.samples?.size ?: 1 }
+            token = r.pageToken
+        } while (token != null && points < limit)
+        return out to token
     }
 
     private fun page(samples: JSONArray, anchor: String?, returned: Int, more: Boolean) =
@@ -338,6 +387,10 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             ),
         )
         const val PREFIX = "hc1:"
+        const val SCAN_PREFIX = "hc1s:"
+        /** Kinds whose first scan pages by `limit` (samples), DENSE_PAGE records per Health Connect read. */
+        val DENSE = setOf("hr", "spo2")
+        const val DENSE_PAGE = 100
         const val ASKED = "asked"
         const val HISTORY_DAYS = 30L
         const val REQUEST_PERMISSIONS = 7301

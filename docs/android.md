@@ -567,7 +567,10 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   Health Connect dedupes across apps by priority, records are never summed.
   `hr` (`HeartRateRecord`, a series: one sample per point, uuid
   `<recordId>-<index>`, `value` bpm) and `spo2` (`OxygenSaturationRecord`,
-  `value` = percent) are anchored like bp.
+  `value` = percent) are anchored like bp, but their scans page: about
+  `limit` samples per answer (`more: true`, a `hc1s:` scan anchor) until
+  drained, and only then the Changes token — a watch writes HR about once a
+  minute. Sample JSON is built off the main thread.
 - **Workouts:** `ExerciseSessionRecord`; `activity` is the
   `HKWorkoutActivityType` raw value (a small map in `hkActivity`; unmapped →
   3000, shown as "Workout") so the page's name table and strength rule apply.
