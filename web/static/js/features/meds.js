@@ -490,10 +490,10 @@ const MEDS_TIMELINE_LEAD = {
 };
 const MEDS_TIMELINE_KEY = 'doses_timeline'; // DataStore key of the window's projection rows
 const MEDS_TIMELINE_PENDING_KEY = 'doses_pending'; // DataStore key of the pending-only read
-// module-state: window rows, pending rows, the shown window (days ahead /
-// back, reset on every visit), unfolded planned days, the latest read's
-// sequence number + the read queue, the MT6 note
-let _medsTimelineState = { rows: null, pending: null, ahead: MEDS_TIMELINE_AHEAD_DAYS, back: MEDS_TIMELINE_BACK_DAYS, open: new Set(), seq: 0, chain: null, ctx: null, outOfDate: null };
+// Window rows, pending rows, the shown window (days ahead / back, reset on
+// every visit), unfolded planned days, the latest read's sequence number +
+// the read queue, the MT6 note.
+let _medsTimelineState = { rows: null, pending: null, ahead: MEDS_TIMELINE_AHEAD_DAYS, back: MEDS_TIMELINE_BACK_DAYS, open: new Set(), seq: 0, chain: null, ctx: null, outOfDate: null }; // module-state: the timeline's rows, window and read queue
 
 // 'YYYY-MM-DD' of an instant on the tracked zone's calendar.
 function _tlDatePart(ms, tz) {

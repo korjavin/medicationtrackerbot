@@ -6676,8 +6676,8 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-tl-focus {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px 8px 10px;
+    gap: var(--wg-s1);
+    padding: var(--wg-s2) var(--wg-s2) calc(var(--wg-s2) + var(--wg-s1) / 2);
 }
 
 .wg-tl-focus .wg-row {
@@ -6689,17 +6689,17 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 8px 0;
+    padding: calc(var(--wg-s1) * 1.5) var(--wg-s2) 0;
 }
 
 .wg-tl-focus--done {
-    padding: 14px;
+    padding: calc(var(--wg-s3) + var(--wg-s1) / 2);
 }
 
 .wg-tl-planned {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--wg-s2);
 }
 
 .wg-tl-planned .wg-list {
@@ -6720,7 +6720,7 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: calc(var(--wg-s1) * 1.5);
     width: 100%;
     height: 40px;
     border: 1px solid var(--wg-line);
@@ -6732,7 +6732,7 @@ body:has(.wg-callbar--dock) .wg-toasts {
 }
 
 .wg-section > .wg-tl-more {
-    margin-top: 8px;
+    margin-top: var(--wg-s2);
 }
 
 /* Food day navigator (kit .wg-daynav, F1). The hidden <input type="date">
