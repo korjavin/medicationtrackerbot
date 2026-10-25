@@ -17,7 +17,6 @@ const ANDROID = path.join(ANDROID_DIR, fs.readdirSync(ANDROID_DIR, { recursive: 
 
 const PLATFORM_ONLY = {
     chrome: 'Android system bars',
-    'back.state': 'twin pending med-y7b4.4/.5: the second of the two PRs removes this entry',
     'clipboard.read': 'Android: WebView has no clipboard-read permission UI; iOS and the web read navigator.clipboard from the tap',
 };
 
@@ -62,7 +61,8 @@ describe('native bridge op parity', () => {
             return m ? [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1]).sort() : [];
         };
         const iosPaths = paths(IOS, /\bbasePostPaths\b[^=]*=\s*\[([\s\S]*?)\]/);
-        expect(iosPaths).toEqual(['/api/attest/challenge', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
+        // /api/attest/delete: the erase's install-record delete (bd med-egb3).
+        expect(iosPaths).toEqual(['/api/attest/challenge', '/api/attest/delete', '/api/attest/enroll', '/api/attest/feedback', '/api/invite-requests']);
         expect(paths(ANDROID, /\bBASE_POST_PATHS\s*=\s*setOf\(([\s\S]*?)\)/)).toEqual(iosPaths);
         expect(paths(path.join(ROOT, 'web/cloud/js/local-policy.js'), /\bBASE_POST_PATHS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]/)).toEqual(iosPaths);
     });

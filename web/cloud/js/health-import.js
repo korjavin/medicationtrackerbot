@@ -87,7 +87,8 @@ function timeZone() {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
 
-// One import pass over every kind. Returns { added }, or null when off.
+// One import pass over every kind. Returns { added }, or null when off;
+// rejects when every kind failed.
 // The anchor is saved after each page's writes are in the local store, so a
 // crash mid-run re-reads at most one page — which putIfAbsent makes a no-op.
 export async function runHealthImport(ctx, {
@@ -106,6 +107,8 @@ export async function runHealthImport(ctx, {
     // do is most likely switched off in Health's per-type access (statusText).
     const seen = { ...(last.seen || {}) };
     let added = 0;
+    let lastError = null;
+    let failed = 0;
     for (const kind of HEALTH_KINDS) {
         const st = { returned: 0, samples: 0, values: {}, nights: 0, written: 0, skip: {}, anchor: 'kept', error: null };
         // One kind failing (e.g. a type this device was never asked access
@@ -162,6 +165,8 @@ export async function runHealthImport(ctx, {
         } catch (e) {
             console.error(`[health] ${kind} import failed`, e);
             st.error = (e && e.name) || 'Error';
+            lastError = e;
+            failed++;
         }
         seen[kind] = (seen[kind] || 0) + st.samples;
         diag(kindLine(kind, st));
@@ -176,6 +181,9 @@ export async function runHealthImport(ctx, {
     // One chunked push for the whole batch instead of one POST per reading;
     // a failure leaves the rows pending for the next sync, nothing is lost.
     if (added > 0) await flush().catch(() => {});
+    // Every kind failed: the store could not be read at all (pull to refresh
+    // shows the fix). One kind failing alone stays a log line.
+    if (failed === HEALTH_KINDS.length) throw lastError;
     return { added };
 }
 
@@ -216,6 +224,7 @@ export function startHealthImport(ctx, {
         await recomputeAndPush(ctx);
     },
     run = (opts) => runHealthImport(ctx, opts),
+    appRefresh = globalThis.AppRefresh,
 } = {}) {
     if (!health || !health.isSupported()) return null;
     let inFlight = null;
@@ -223,17 +232,33 @@ export function startHealthImport(ctx, {
         const desc = doc.getElementById(ROW_ID)?.querySelector('.wg-setting__desc');
         if (desc) desc.textContent = healthStatusText(storage, health);
     };
-    const importNow = () => {
+    // One pass at a time; rejects when the pass failed (pull to refresh toasts it).
+    const pass = () => {
         if (inFlight) return inFlight;
-        inFlight = run({ health, storage })
+        inFlight = Promise.resolve()
+            .then(() => run({ health, storage }))
             .then(async (r) => {
                 if (r && r.added > 0) await afterImport().catch((e) => console.error('[health] reminder recompute failed', e));
                 return r;
             })
-            .catch((e) => { console.error('[health] import failed', e); return null; })
             .finally(() => { inFlight = null; refresh(); });
         return inFlight;
     };
+    const importNow = () => pass().catch((e) => { console.error('[health] import failed', e); return null; });
+    // Pull to refresh on Health (bd med-y7b4.6). An import switched off in
+    // Settings has nothing to read: it resolves { added: 0 }. AppRefresh is a
+    // classic body script: started mid-parse, register once it has loaded.
+    const registerRefresh = () => {
+        const ar = appRefresh || globalThis.AppRefresh;
+        if (!ar || typeof ar.setImport !== 'function') return;
+        ar.setImport(() => pass().then((r) => r || { added: 0 }), healthLabel(health),
+            () => isHealthImportEnabled(storage));
+    };
+    if (!appRefresh && doc && doc.readyState === 'loading') {
+        doc.addEventListener('DOMContentLoaded', registerRefresh, { once: true });
+    } else {
+        registerRefresh();
+    }
 
     mountHealthRow(doc, storage, health, async (on) => {
         if (!on) {

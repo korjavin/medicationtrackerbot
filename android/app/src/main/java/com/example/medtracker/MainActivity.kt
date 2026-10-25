@@ -174,7 +174,28 @@ class MainActivity : Activity() {
         ) { done(it == "true") }
     }
 
-    private val back = OnBackInvokedCallback { web.goBack() }
+    /**
+     * The page's back.state (bd med-y7b4.5, web/static/js/native/back.js): null until the current page
+     * reports it (pages without the app: /unlock, /claim, error pages), reset on every main-frame load.
+     */
+    private var pageCanStep: Boolean? = null
+    /**
+     * bd med-8bgs: the main-frame load (onPageStarted), and the load whose page sent its shell.ops probe.
+     * A page's back.state always follows its probe (native/index.js has()), so one arriving while they
+     * differ, or a wg:native-back answer from an earlier load, is the outgoing page's: ignored.
+     */
+    private var loadGen = 0
+    private var probedGen = -1
+    private val back = OnBackInvokedCallback {
+        if (pageCanStep == null) return@OnBackInvokedCallback web.goBack()
+        val gen = loadGen
+        // The page owns its history: never web.goBack() here, its popstate would step AppBack again.
+        web.evaluateJavascript("!document.dispatchEvent(new CustomEvent('wg:native-back',{cancelable:true}))") {
+            // false: a race, the page hit its root before its back.state arrived. Drop the callback and
+            // let the system own the next Back (on Android 12+ it moves the root task back, not finish()).
+            if (it != "true" && gen == loadGen) { pageCanStep = false; updateBack() }
+        }
+    }
     private var backRegistered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -660,6 +681,9 @@ class MainActivity : Activity() {
 
         override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
             loadFailed = false
+            loadGen++
+            pageCanStep = null
+            updateBack()
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
@@ -799,6 +823,14 @@ class MainActivity : Activity() {
             answer(null, "forbidden")
             return
         }
+        // The page's back stack (bd med-y7b4.5): a report, not a capability, so it lands behind the lock too.
+        if (msg.optString("op") == "shell.ops") probedGen = loadGen
+        if (msg.optString("op") == "back.state") {
+            if (probedGen != loadGen) return answer(true)
+            pageCanStep = msg.optJSONObject("args")?.optBoolean("canStep") == true
+            updateBack()
+            return answer(true)
+        }
         // A page still running behind the lock gets no native capability.
         if (concealed) return answer(null, "locked")
         val op = msg.optString("op")
@@ -861,6 +893,8 @@ class MainActivity : Activity() {
                 leave.clear()
                 setInvite(null) // A4: no claim token left behind after Erase
                 Notifications.clear(this)
+                // Only after our server deleted the install record (bd med-egb3): key material goes (pass stays) before the answer.
+                if (LocalOrigin.dropsAttest(msg.optJSONObject("args")?.opt("dropAttest"))) attest.drop()
                 answer(true)
             }
             // "Join and erase", account side (bd med-r1j2.8, cloud-boot.js finishJoinErase): the joined
@@ -1050,9 +1084,12 @@ class MainActivity : Activity() {
 
     private fun isLight(c: Int) = Color.luminance(c) > 0.5f
 
-    /** Back walks the web view's history while the page shows, then leaves the app. */
+    /**
+     * While the page shows, Back goes to the page while it can step (back.state), else — a page without
+     * the app — walks the web view's history; at the root no callback, so predictive back peeks the launcher.
+     */
     private fun updateBack() {
-        val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack()
+        val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && (pageCanStep ?: web.canGoBack())
         if (want == backRegistered) return
         if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, back)
         else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)

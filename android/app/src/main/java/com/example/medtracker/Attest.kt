@@ -83,6 +83,22 @@ class Attest(private val context: Context) {
 
     fun close() = scope.cancel()
 
+    /**
+     * local.reset {dropAttest: true} (bd med-egb3, contract point 4, Archie 4883): our server
+     * answered 204 for this key's bucket, so the key material goes and the next enroll mints a key
+     * the server cannot link to the erased one. Both aliases' Keystore entries (each in
+     * runCatching), then [DROP_KEYS] removed with commit() before local.reset answers. PASS stays
+     * (it may name an older bucket the delete did not reach; a pass for a deleted bucket is refused
+     * with trial_pass_invalid and the page drops it), and so does KEY_N, so a new alias never
+     * reuses an old name.
+     */
+    fun drop() {
+        val ks = runCatching { keyStore() }.getOrNull()
+        setOfNotNull(prefs.getString(ALIAS, null), prefs.getString(ATTESTED, null))
+            .forEach { alias -> runCatching { ks?.deleteEntry(alias) } }
+        prefs.edit().apply { DROP_KEYS.forEach { remove(it) } }.commit()
+    }
+
     private val projectNumber get() = BuildConfig.PLAY_CLOUD_PROJECT_NUMBER.toLongOrNull()
 
     private val supported
@@ -194,6 +210,9 @@ class Attest(private val context: Context) {
         private const val KEY_N = "keyN"
         private const val ATTESTED = "attested"
         private const val COUNTER = "counter"
+
+        /** What dropAttest removes from wg_trial (bd med-egb3): never PASS or KEY_N (LocalOriginTest.dropsAttest). */
+        internal val DROP_KEYS = setOf(ALIAS, ATTESTED, COUNTER)
 
         /** Prepared once per process (Play's recommendation), lazily inside the first enroll. */
         @Volatile private var provider: StandardIntegrityTokenProvider? = null

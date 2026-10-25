@@ -222,7 +222,8 @@ describe('zone history — tztransition-* on every zone change and plan approve 
         const rows = await env.records.list('tztransition');
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({
-            old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', steps: [], boundary: null
+            // No meds, so the lineage (bd med-wi09.10) cancels nothing.
+            old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', steps: [], boundary: []
         });
         const sec = Math.floor(Date.parse(rows[0].switch_at) / 1000);
         expect(rows[0].recordId).toMatch(new RegExp(`^tztransition-${sec}-[a-z0-9]+$`));
@@ -236,7 +237,7 @@ describe('zone history — tztransition-* on every zone change and plan approve 
         env = loadCloudShimFrontendEnv({ seedRecords: { tzplan: [seedPendingPlan()] } });
         await env.window.apiCall('/api/tz-plan/tzplan-current/approve', 'POST');
         const [row] = await env.records.list('tztransition');
-        expect(row).toMatchObject({ old_tz: 'America/New_York', new_tz: 'Asia/Tokyo', boundary: null });
+        expect(row).toMatchObject({ old_tz: 'America/New_York', new_tz: 'Asia/Tokyo', boundary: [] });
         expect(row.steps.map((s) => s.stepNumber)).toEqual([1, 2]);
 
         env.cleanup();
@@ -325,15 +326,15 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         ]);
     });
 
-    it('stops rendering once the last step is past, before the status flip catches up', async () => {
+    it('stops rendering once the last step is past; the read itself flips the status', async () => {
         const { window, document } = env;
 
         await window.TZPlanBanner.refresh();
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).not.toBeNull();
 
-        // Push every step into the past without touching the status — this is
-        // the window between the final dose and the shim's next materialization
-        // sweep (60s), where a tab left open would otherwise keep showing an
+        // Push every step into the past without touching the status. There is
+        // no sweep to complete the plan any more (bd med-wi09.12): the next
+        // read of the current plan does, so a tab left open never keeps an
         // in-progress card with nothing left in it.
         window.reloadCurrentTab.mockClear();
         const [rec] = await env.records.list('tzplan');
@@ -344,7 +345,7 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
 
         await window.TZPlanBanner.refresh();
         const { plan } = await window.apiCall('/api/tz-plan/current');
-        expect(plan.status).toBe('APPROVED');
+        expect(plan.status).toBe('COMPLETED');
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
         // The step count is part of the render key, so the already-mounted card
         // gets repainted away rather than lingering until an unrelated render.
@@ -358,7 +359,7 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).not.toBeNull();
         window.reloadCurrentTab.mockClear();
 
-        // Same call the shim's materialization sweep makes, on a clock past the
+        // Same call getCurrentPlan makes on every read, on a clock past the
         // last step — driven explicitly so the flip is deterministic.
         const afterAllSteps = Date.now() + 24 * 3600_000;
         await createTzPlanDomain({
@@ -421,7 +422,7 @@ describe('planDosesWithTzPlan — per-med future-step suppression (web/domain/tz
     // The suppression is judged per TARGET, not once against `now`. Judging it
     // once meant a forecast dropped every normal dose in the window as soon as
     // the med had any future step — including doses landing well AFTER the
-    // last step, which materializeDueDoses will create when that instant
+    // last step, which the projection regenerates once that instant
     // arrives. The forecast then under-reported reality and the reminder
     // horizon skipped a real dose.
     it('keeps a normal dose that lands after the medication\'s last step', () => {
