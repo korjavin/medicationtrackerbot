@@ -30,7 +30,7 @@ const ALLOWLIST = new Map([
     ['web/domain/gamification.js', 'both sleep reads are filtered through visibleSleep before scoring'],
 ]);
 
-const SLEEP_READ_RE = /\.(?:list|listRaw|listRange|get|getRaw)\(\s*(?:['"`]sleep['"`]|SLEEP_RECORD_TYPE)\b/;
+const SLEEP_READ_RE = /\.(?:list|listRaw|listRange|get|getRaw)\(\s*(?:['"`]sleep['"`]|SLEEP_RECORD_TYPE\b)/;
 
 function collectJsFiles(dir, results = []) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
