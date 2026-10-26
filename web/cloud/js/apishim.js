@@ -335,13 +335,28 @@ export function createApiRouter(ctx, {
   // recordsChangeCount above), so the memo is once-only there; shimCall's
   // re-arm after a settings/tz-plan write covers an in-tab change on that path.
   // ponytail: no cross-tab invalidation. Reload covers it.
+  //
+  // An account with no pin gets one zone (bd med-wi09.19): once the mirror has
+  // caught up, the first device that finds neither a pin nor a floor floors
+  // its own zone as the account's (settings.ensureTimeZoneFloor, clientTs 0,
+  // putIfAbsent). Waiting for caughtUp keeps a freshly-unlocked device from
+  // flooring its zone over an account another device already floored; a race
+  // that slips through is settled by sync's tzfloor reducer. Local-only mode
+  // (portFactory) never floors: one device, and its zone already is the
+  // account's, so a floor would only stop it following the device on travel
+  // with nothing to keep in step.
+  const floorsTimeZone = !portFactory;
+  async function resolveGeneralTz() {
+    if (floorsTimeZone && await caughtUp()) return settings.ensureTimeZoneFloor();
+    return settings.getGeneral();
+  }
   let tzReady = null;
   let tzStamp = -1;
   function ensureTimeZone() {
     const stamp = recordsChangeCount ? recordsChangeCount() : 0;
     if (!tzReady || tzStamp !== stamp) {
       tzStamp = stamp;
-      tzReady = settings.getGeneral()
+      tzReady = resolveGeneralTz()
         // `tzStamp !== stamp` means a newer resolve superseded this one while
         // its read was in flight. Two reads are separate IDB transactions and
         // can settle out of order, so without this the older one could rebuild
@@ -450,6 +465,7 @@ export function createApiRouter(ctx, {
       bp_reminder_status: bpStatus,
       weight_reminder_status: weightStatus,
       timezone: general.timezone,
+      timezone_source: general.timezone_source,
       weight_unit_preference: weightUnit,
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
       // Body settings (med-a6fb): the Settings height field's read source —

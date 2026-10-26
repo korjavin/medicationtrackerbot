@@ -1277,6 +1277,13 @@
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="globe"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Address</span><span class="wg-setting__desc" id="settings-account-host"></span></span>
                     </div>
+                    <!-- The account's zone (bd med-wi09.19): a pick, or the first
+                         device's zone floored as the account's. Read-only. -->
+                    <div class="wg-setting wg-settings-hidden" id="settings-account-tz-row">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Time zone</span><span class="wg-setting__desc" id="settings-account-tz-desc"></span></span>
+                        <span class="wg-setting__value wg-setting__value--wrap" id="settings-account-tz"></span>
+                    </div>
                     <button type="button" class="wg-setting" data-settings-open="operator">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="eye"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">What the operator can see</span><span class="wg-setting__desc">Sync times and sizes. Never what your records say.</span></span>

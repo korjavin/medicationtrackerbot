@@ -3885,3 +3885,117 @@ describe('sleep day rows merge by fullness and repair the clientTs order (med-0x
     expect(await getAll('pending')).toEqual([]);
   });
 });
+
+// bd med-wi09.19: two devices that floor the account zone before seeing each
+// other hold two tzfloor bodies at clientTs 0, which strict-> LWW never
+// converges. The reducer keeps the earliest `at` (then the smaller zone name)
+// on every path, and re-stamps a winner LWW would drop so older bundles agree.
+describe('tzfloor rows converge on the earliest floor (med-wi09.19)', () => {
+  const floor = (timezone, at, clientTs = 0) => ({
+    recordId: 'tzfloor', recordType: 'tzfloor', clientTs, deleted: false, timezone, at,
+  });
+  let ctx;
+  let pulledOps;
+  let posted;
+  let seq;
+
+  const getAll = async (store) => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction(store, 'readonly').objectStore(store).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const seed = async (records, pending = []) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta', 'pending'], 'readwrite');
+        for (const r of records) tx.objectStore('records').put(r);
+        for (const r of pending) tx.objectStore('pending').put({ recordId: r.recordId, recordType: r.recordType });
+        tx.objectStore('sync_meta').put(5, 'localLastSeq');
+        tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const row = async () => (await getAll('records')).find((r) => r.recordId === 'tzfloor');
+  const pull = async (record) => {
+    seq += 1;
+    const { recordType, ...body } = record;
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType, recordId: record.recordId, seq,
+      plaintext: new TextEncoder().encode(JSON.stringify(body)),
+    });
+    pulledOps.push({ seq, record_type_tag: `${recordType}:${record.recordId}`, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    await pullOnOpen(ctx);
+  };
+
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    pulledOps = [];
+    posted = [];
+    seq = 5;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) {
+        return new Response(JSON.stringify({ ops: pulledOps.splice(0, pulledOps.length), next: false }), { status: 200 });
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        posted.push(...ops.map((o) => o.record_type_tag));
+        return new Response(JSON.stringify({ assigned: ops.map(() => (seq += 1)) }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  });
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('an earlier incoming floor replaces the local one and is re-stamped; a later one is ignored', async () => {
+    await seed([floor('Europe/Berlin', 200)]);
+    await pull(floor('America/New_York', 100));
+    const won = await row();
+    expect(won.timezone).toBe('America/New_York');
+    expect(won.clientTs).toBeGreaterThan(0); // out-stamps the tie for LWW clients
+    expect(posted).toEqual(['tzfloor:tzfloor']);
+
+    await pull(floor('Europe/Berlin', 200));
+    expect((await row()).timezone).toBe('America/New_York');
+    expect(posted).toEqual(['tzfloor:tzfloor']);
+  });
+
+  it('equal `at` goes to the smaller zone name, whichever side holds it', async () => {
+    await seed([floor('Europe/Berlin', 100)]);
+    await pull(floor('America/New_York', 100));
+    expect((await row()).timezone).toBe('America/New_York');
+  });
+
+  it('a pending floor meets a snapshot floor: the earlier one stands', async () => {
+    await seed([floor('Europe/Berlin', 200)], [floor('Europe/Berlin', 200)]);
+    await replaceAllRecords([floor('America/New_York', 100)]);
+    expect((await row()).timezone).toBe('America/New_York');
+    expect(await getAll('pending')).toEqual([]);
+
+    await seed([floor('Europe/Berlin', 50)], [floor('Europe/Berlin', 50)]);
+    await replaceAllRecords([floor('America/New_York', 100)]);
+    const kept = await row();
+    expect(kept.timezone).toBe('Europe/Berlin');
+    expect(kept.clientTs).toBeGreaterThan(0);
+  });
+});

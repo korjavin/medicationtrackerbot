@@ -34,6 +34,12 @@ function fakeRecords(seed = {}) {
       store[type].push({ ...record });
       return record;
     },
+    putIfAbsent: async (type, record) => {
+      const existing = (store[type] || []).find((r) => r.recordId === record.recordId);
+      if (existing) return existing;
+      (store[type] = store[type] || []).push({ ...record });
+      return record;
+    },
     del: async (type, id) => {
       store[type] = (store[type] || []).filter((r) => r.recordId !== id);
     },

@@ -131,7 +131,7 @@
       "ready": [".mt-confirm-modal .wg-dialog__facts", ".mt-confirm-modal .wg-dialog__confirm"] },
     { "name": "settings-account", "cloudOnly": true,
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "account" }],
-      "ready": ["#settings-account-kit-row", "#delete-account-open"] },
+      "ready": ["#settings-account-kit-row", "#settings-account-tz-row", "#delete-account-open"] },
     { "name": "settings-home-shell", "cloudOnly": true,
       "steps": [{ "tab": "today" }, { "shellSignedIn": true }, { "tab": "settings" }],
       "ready": ["#settings-vault-card", "#settings-leave-account-btn"] },

@@ -349,6 +349,33 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.needs_first_run).toBe(false);
     });
 
+    // bd med-wi09.19: the floored zone shows as the account's zone, then an
+    // explicit pick replaces it (copy: Miles, Zulip 5852).
+    it('Account page: the floored zone reads as the account zone; an explicit pick replaces it', async () => {
+        allowConsoleNoise(); // loadSettings touches routes this suite does not map
+        env.cleanup();
+        env = loadCloudShimFrontendEnv({ timeZone: 'Europe/Berlin' });
+        installApiCache(env.window);
+        env.window.SettingsIntegrations._setTelegramLoader(() => Promise.resolve({ mountTelegram: () => {} }));
+        const { window, document } = env;
+        const rowEl = document.getElementById('settings-account-tz-row');
+        expect(rowEl.classList.contains('wg-settings-hidden')).toBe(true);
+
+        await window.loadSettings();
+        await vi.waitFor(() => expect(rowEl.classList.contains('wg-settings-hidden')).toBe(false));
+        expect(document.getElementById('settings-account-tz').textContent).toBe('Europe/Berlin');
+        expect(document.getElementById('settings-account-tz-desc').textContent)
+            .toBe('Set from your first device. Doses and reminders follow it on every device.');
+        expect((await env.records.list('tzfloor'))[0]).toMatchObject({ timezone: 'Europe/Berlin', clientTs: 0 });
+
+        await window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+        await window.DataStore.invalidateKey('settings_bundle');
+        await window.loadSettings();
+        await vi.waitFor(() => expect(document.getElementById('settings-account-tz').textContent).toBe('Asia/Tokyo'));
+        expect(document.getElementById('settings-account-tz-desc').textContent)
+            .toBe('Doses and reminders follow this zone on every device.');
+    });
+
     it('completing first run leaves GET /api/settings shape unchanged and does not clobber the singleton', async () => {
         const { window } = env;
 

@@ -697,6 +697,19 @@ async function resumeAddDevice() {
 // test seam.
 function loadPrivacyModule() { return import('/js/privacy.js'); }
 
+// The account's zone row (bd med-wi09.19, copy: Miles). Read-only: the one
+// way to change the zone today is the launch prompt (bootstrap.js
+// maybeUpdateTimezone). 'floor' = the first device's zone, taken as the account's.
+function paintAccountTimeZone(timezone, source) {
+    const row = document.getElementById('settings-account-tz-row');
+    if (!row) return;
+    row.classList.toggle('wg-settings-hidden', !timezone);
+    document.getElementById('settings-account-tz').textContent = timezone || '';
+    document.getElementById('settings-account-tz-desc').textContent = source === 'floor'
+        ? 'Set from your first device. Doses and reminders follow it on every device.'
+        : 'Doses and reminders follow this zone on every device.';
+}
+
 let _operatorVisibilityRendered = false; // module-state: render the static content once across repeated loadSettings() calls
 
 async function bindOperatorVisibility() {
@@ -1281,6 +1294,7 @@ async function loadSettings() {
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
         applyReminderSummaries(bundle.bpReminderStatus, bundle.weightReminderStatus);
+        paintAccountTimeZone(bundle.timezone, bundle.timezoneSource);
     };
 
     const fetchBundle = async () => {
@@ -1340,6 +1354,7 @@ async function loadSettings() {
             featureSettings: features || {},
             tabOrder,
             timezone: settingsRes?.timezone || '',
+            timezoneSource: settingsRes?.timezone_source || '',
             serverTime: settingsRes?.server_time || '',
             serverTimezone: settingsRes?.server_timezone || '',
             dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',
