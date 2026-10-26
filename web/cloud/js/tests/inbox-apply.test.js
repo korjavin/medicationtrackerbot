@@ -791,6 +791,12 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(warn).toHaveBeenCalledTimes(1);
         expect(editReply).toHaveBeenCalledWith(13, expect.stringMatching(/Nothing was due/));
         expect(rearmRefire).not.toHaveBeenCalled();
+        // Generic verbosity never turns the no-op into "✅ Recorded." (Argus 6065).
+        await applyIntakeSlotAction(
+            { kind: INTAKE_SLOT_ACTION, slot_unix: SLOT_UNIX, action: 'confirm', at_unix: TAP_UNIX, message_id: 14 },
+            { intake: domainFor(records, now), records, now, editReply, rearmRefire, verbosity: 'generic' },
+        );
+        expect(editReply).toHaveBeenCalledWith(14, expect.stringMatching(/Nothing was due/));
         warn.mockRestore();
     });
 
@@ -2498,6 +2504,14 @@ describe('inbox-apply.js — a tap on a deleted dose slot', () => {
         // your device" left standing either (bd med-944k): it says nothing was due.
         expect(editReply).toHaveBeenCalledTimes(1);
         expect(editReply).toHaveBeenCalledWith(77, 'ℹ️ Nothing was due — no medications to confirm.');
+
+        // Generic verbosity too (Argus 6065): a no-op never reads "✅ Recorded.".
+        const generic = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...medsNamed(confirmEvent, ['med-a']), message_id: 78 },
+            { intake: domainFor(records, now), records, now, editReply: generic, verbosity: 'generic' },
+        );
+        expect(generic).toHaveBeenCalledWith(78, 'ℹ️ Nothing was due — no medications to confirm.');
         // Nothing was taken, so nothing came off the shelf.
         expect((await records.list('medication'))[0].inventory_count).toBe(30);
     });

@@ -508,6 +508,10 @@ function replyTrialConsent(reply, what, err) {
 // health value ever crosses Telegram — honouring it here too, or a user who
 // chose generic reminders would still get "Recorded BP 120/80" echoed back.
 function confirmationText(intent, result, verbosity) {
+  // A write that recorded nothing never reads as success, generic or not (bd
+  // med-944k, Argus 6065); these texts carry no health value.
+  if (intent.kind === 'intake' && !(result && result.confirmed)) return 'ℹ️ Nothing was due — no medications to confirm.';
+  if (intent.kind === 'food' && !(result && result.items && result.items.length)) return 'ℹ️ Could not log any food from that.';
   if (verbosity === 'generic') return '✅ Recorded.';
   switch (intent.kind) {
     case 'bp': {
@@ -519,13 +523,11 @@ function confirmationText(intent, result, verbosity) {
     case 'note':
       return '✅ Note saved.';
     case 'food': {
-      const n = result && result.items ? result.items.length : 0;
-      if (!n) return 'ℹ️ Could not log any food from that.';
+      const n = result.items.length;
       return `✅ Logged ${n} food item${n === 1 ? '' : 's'}.`;
     }
     case 'intake': {
-      const n = result && result.confirmed;
-      if (!n) return 'ℹ️ Nothing was due — no medications to confirm.';
+      const n = result.confirmed;
       return `✅ Confirmed ${n} medication${n === 1 ? '' : 's'}.`;
     }
     case 'workout':
