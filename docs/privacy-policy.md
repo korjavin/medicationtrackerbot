@@ -119,8 +119,10 @@ through your own ElevenLabs account or, on the free trial, ours. The
 assistant's spoken answers are written by an AI model; each turn passes through
 our server in transit (not stored) to your device and then to your AI provider
 or, without one, ours. This relay sees that turn's transcript and the records
-it quotes. There is no way to make a voice call to a third party end-to-end
-encrypted.
+it quotes. A photo you send during a call does not go to ElevenLabs: your
+device keeps it in memory and sends it with the next turn to your AI provider
+or, without one, through our server (in transit, not stored) to ours. There is
+no way to make a voice call to a third party end-to-end encrypted.
 
 **c. Telegram.** If you link your own Telegram bot, reminder and message text
 passes through our server to Telegram in the clear (a chat bot cannot be

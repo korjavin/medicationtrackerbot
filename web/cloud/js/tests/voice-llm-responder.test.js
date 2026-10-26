@@ -3,7 +3,7 @@
  * in internal/cloudserver/voice_llm_relay.go.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createVoiceLLMResponder, STATUS_UNKNOWN_CALL } from '../voice-llm-responder.js';
+import { createVoiceLLMResponder, STATUS_UNKNOWN_CALL, PHOTO_MARKER } from '../voice-llm-responder.js';
 
 class FakeSocket {
   constructor(url) {
@@ -230,5 +230,128 @@ describe('voice-llm-responder (bd med-h849.2)', () => {
     const p2 = responder.start();
     responder.stop();
     await expect(p2).rejects.toThrow(/stopped/);
+  });
+});
+
+// bd med-ku8r: an in-call photo is held in this tab and rides the next turn on
+// its marker message, then is gone.
+describe('voice-llm-responder — pending photo (bd med-ku8r)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const IMG = 'data:image/jpeg;base64,AAAA';
+  const turn = (extra = []) => ({
+    messages: [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: PHOTO_MARKER },
+      ...extra,
+    ],
+  });
+  async function started(chatStream = async ({ onChunk }) => { onChunk('x'); }) {
+    const made = makeResponder(chatStream);
+    const p = made.responder.start();
+    const [sock] = FakeSocket.instances;
+    sock.recv({ type: 'hello', call: 'tok' });
+    await p;
+    return { ...made, sock };
+  }
+
+  it('attaches the photo to the marker message of the next turn only, and resolves when answered', async () => {
+    const { aiClient, responder, sock } = await started();
+    const answered = responder.setPendingImage(IMG);
+    sock.recv({ id: 1, type: 'request', body: turn() });
+    await expect(answered).resolves.toBeUndefined();
+    expect(aiClient.chatStream.mock.calls[0][0].body.messages[1]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: PHOTO_MARKER },
+        { type: 'image_url', image_url: { url: IMG } },
+      ],
+    });
+    // The next turn goes as ElevenLabs sent it: no image.
+    const later = turn([{ role: 'assistant', content: 'A salad.' }, { role: 'user', content: 'thanks' }]);
+    sock.recv({ id: 2, type: 'request', body: later });
+    await drain();
+    expect(aiClient.chatStream.mock.calls[1][0].body).toEqual(later);
+    expect(JSON.stringify(sock.sent)).not.toContain(IMG);
+    responder.stop();
+  });
+
+  it('queues up to 3 photos onto one turn and refuses a 4th', async () => {
+    const { aiClient, responder, sock } = await started();
+    const all = [1, 2, 3].map((n) => responder.setPendingImage(`${IMG}${n}`));
+    expect(() => responder.setPendingImage(IMG)).toThrow(/too many photos/);
+    sock.recv({ id: 1, type: 'request', body: turn() });
+    await Promise.all(all);
+    const parts = aiClient.chatStream.mock.calls[0][0].body.messages[1].content;
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(3);
+    responder.stop();
+  });
+
+  it('a failed vision turn rejects with its cause', async () => {
+    const { responder, sock } = await started(async () => { throw new Error('vision model refused'); });
+    const answered = responder.setPendingImage(IMG);
+    sock.recv({ id: 1, type: 'request', body: turn() });
+    await expect(answered).rejects.toThrow('vision model refused');
+    responder.stop();
+  });
+
+  it('a next turn without the marker drops the photo with an error', async () => {
+    const { aiClient, responder, sock } = await started();
+    const answered = responder.setPendingImage(IMG);
+    const body = { messages: [{ role: 'user', content: 'hello' }] };
+    sock.recv({ id: 1, type: 'request', body });
+    await expect(answered).rejects.toThrow(/did not get the photo/);
+    expect(aiClient.chatStream.mock.calls[0][0].body).toEqual(body);
+    responder.stop();
+  });
+
+  it('a cancelled photo turn hands the photo to the re-sent turn, exactly once', async () => {
+    let hang = true;
+    const { aiClient, responder, sock } = await started(({ signal, onChunk }) => {
+      if (!hang) { onChunk('x'); return Promise.resolve(); }
+      hang = false; // the first (slow vision) turn waits for its cancel
+      return new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
+    });
+    const answered = responder.setPendingImage(IMG);
+    sock.recv({ id: 1, type: 'request', body: turn() });
+    await drain();
+    sock.recv({ id: 1, type: 'cancel' });
+    await drain();
+    sock.recv({ id: 2, type: 'request', body: turn() });
+    await expect(answered).resolves.toBeUndefined();
+    const images = (call) => call[0].body.messages[1].content.filter((p) => p.type === 'image_url');
+    expect(images(aiClient.chatStream.mock.calls[0])).toHaveLength(1);
+    expect(images(aiClient.chatStream.mock.calls[1])).toHaveLength(1);
+    sock.recv({ id: 3, type: 'request', body: turn() });
+    await drain();
+    expect(aiClient.chatStream.mock.calls[2][0].body).toEqual(turn());
+    responder.stop();
+  });
+
+  it('cancel() takes a queued photo back out before any turn', async () => {
+    const { aiClient, responder, sock } = await started();
+    const answered = responder.setPendingImage(IMG);
+    answered.cancel(new Error('not announced'));
+    await expect(answered).rejects.toThrow('not announced');
+    sock.recv({ id: 1, type: 'request', body: turn() });
+    await drain();
+    expect(JSON.stringify(aiClient.chatStream.mock.calls[0][0].body)).not.toContain('image_url');
+    responder.stop();
+  });
+
+  it('stop() (hang-up) drops a queued photo, and a stopped leg refuses one', async () => {
+    const { responder } = await started();
+    const answered = responder.setPendingImage(IMG);
+    responder.stop();
+    await expect(answered).rejects.toThrow(/call ended/);
+    expect(() => responder.setPendingImage(IMG)).toThrow(/not connected/);
   });
 });

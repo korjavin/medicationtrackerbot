@@ -30,7 +30,45 @@ export const STATUS_REPLACED = 4409;
 // The server sends {"type":"budget_exhausted"} first, then closes with it.
 export const STATUS_BUDGET = 4429;
 
-// createVoiceLLMResponder → { start(): Promise<callToken>, stop(), usesTrialAI() }.
+// In-call photos (bd med-ku8r). ElevenLabs refuses file uploads for custom-LLM
+// agents, so the call tab keeps the photo itself and tells the agent with this
+// marker as a user message (elevenlabs-call.js sendUserMessage). The next turn
+// gets the queued photos as image_url parts on its newest marker message, then
+// the queue is cleared. Memory only, this tab only: never stored, never sent
+// over the relay socket. aiclient.chatStream routes that turn to the vision
+// credentials and strips images from later history.
+export const PHOTO_MARKER = '[User sent a photo]';
+const MAX_PENDING_IMAGES = 3;
+
+// A message's text whether content is a string or OpenAI text parts.
+function textOf(m) {
+  if (typeof m.content === 'string') return m.content;
+  if (!Array.isArray(m.content)) return '';
+  return m.content.map((p) => (p && p.type === 'text' ? p.text : '')).join('');
+}
+
+// body with the images on its newest user message when that message is the
+// marker, else null (the photos are then dropped, not deferred). Only the
+// newest user message: aiclient.chatStream routes to vision by that one.
+function withImages(body, images) {
+  const messages = Array.isArray(body && body.messages) ? body.messages : [];
+  let at = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i] && messages[i].role === 'user') { at = i; break; }
+  }
+  if (at < 0 || textOf(messages[at]).trim() !== PHOTO_MARKER) return null;
+  const next = messages.slice();
+  next[at] = {
+    ...messages[at],
+    content: [
+      { type: 'text', text: PHOTO_MARKER },
+      ...images.map((p) => ({ type: 'image_url', image_url: { url: p.url } })),
+    ],
+  };
+  return { ...body, messages: next };
+}
+
+// createVoiceLLMResponder → { start(): Promise<callToken>, stop(), setPendingImage(), usesTrialAI() }.
 // start() dials the device leg and resolves with the hello's call token (the
 // value elevenlabs-call.js passes as customLlmExtraBody.call), then serves
 // requests until stop(). A blip mid-call redials with ?call=<token> to reclaim.
@@ -51,6 +89,46 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
   let reconnectTimer = null;
   let reconnectDelay = RECONNECT_MIN_MS;
   const turns = new Map(); // request id -> AbortController
+  let pendingImages = []; // { url, resolve, reject }, the next turn's photos
+
+  function settleImages(images, err) {
+    for (const p of images) {
+      if (err) p.reject(err);
+      else p.resolve();
+    }
+  }
+
+  // A cancelled turn is usually re-sent (ElevenLabs' cascade timeout, a leg
+  // blip): its photos go back to the front for the re-sent turn, which drops
+  // them if its newest user message is no longer the marker. After stop()
+  // there is no next turn, so they fail.
+  function requeue(images) {
+    if (stopped) settleImages(images, new Error('the call ended'));
+    else pendingImages = images.concat(pendingImages);
+  }
+
+  // Queues one photo (a data: URL) for the next turn and returns a promise
+  // that resolves when that turn was answered, rejects when it failed or never
+  // carried the photo. Throws at once (nothing queued) when there is no leg or
+  // the queue is full, so the caller doesn't announce a photo that can't ride.
+  function setPendingImage(url) {
+    if (stopped) throw new Error('the AI relay is not connected');
+    if (pendingImages.length >= MAX_PENDING_IMAGES) {
+      throw new Error('too many photos waiting, let the agent answer first');
+    }
+    let entry;
+    const answered = new Promise((resolve, reject) => { entry = { url, resolve, reject }; });
+    pendingImages.push(entry);
+    // cancel(err): take the photo back out of the queue (the caller could not
+    // announce it) and reject with err; a no-op once a turn took it.
+    answered.cancel = (err) => {
+      const i = pendingImages.indexOf(entry);
+      if (i < 0) return;
+      pendingImages.splice(i, 1);
+      entry.reject(err || new Error('photo cancelled'));
+    };
+    return answered;
+  }
 
   function wsURL() {
     // `location` only when no url was injected (tests run without one).
@@ -69,9 +147,18 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
     turns.clear();
   }
 
-  async function serve(sock, id, body) {
+  async function serve(sock, id, frameBody) {
     const ctrl = new AbortController();
     turns.set(id, ctrl);
+    // The queued photos ride this turn only, whatever its outcome.
+    const images = pendingImages;
+    pendingImages = [];
+    let body = frameBody;
+    if (images.length) {
+      body = withImages(frameBody, images) || frameBody;
+      if (body === frameBody) settleImages(images, new Error('the agent did not get the photo, send it again'));
+    }
+    const carried = body === frameBody ? [] : images;
     const t0 = now();
     let ttfc = null;
     let outcome = 'ok';
@@ -95,20 +182,27 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
         if (!transient || ttfc !== null || ctrl.signal.aborted) throw err;
         await attempt();
       }
-      if (ctrl.signal.aborted) outcome = 'cancel';
-      else send(sock, { id, type: 'end' });
+      if (ctrl.signal.aborted) {
+        outcome = 'cancel';
+        requeue(carried);
+      } else {
+        send(sock, { id, type: 'end' });
+        settleImages(carried);
+      }
     } catch (err) {
       if (ctrl.signal.aborted) {
         outcome = 'cancel';
+        requeue(carried);
       } else {
         outcome = 'error';
+        settleImages(carried, err);
         // Logs only: the server speaks its own fixed sentence, never this.
         send(sock, { id, type: 'error', message: String((err && (err.code || err.message)) || 'error').slice(0, 200) });
       }
     } finally {
       if (turns.get(id) === ctrl) turns.delete(id);
       // Latency for the live-verification bead; sizes/timings only, no content.
-      console.debug('[voice-llm] turn', { id, outcome, ttfc_ms: ttfc, total_ms: now() - t0 });
+      console.debug('[voice-llm] turn', { id, outcome, ttfc_ms: ttfc, total_ms: now() - t0, photos: carried.length });
     }
   }
 
@@ -209,11 +303,14 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
     const p = pendingStart;
     pendingStart = null;
     if (p) p.reject(new Error('voice relay stopped'));
+    const images = pendingImages;
+    pendingImages = [];
+    settleImages(images, new Error('the call ended'));
     abortTurns();
     const sock = ws;
     ws = null;
     if (sock) sock.close();
   }
 
-  return { start, stop, usesTrialAI: () => aiClient.usesTrial() };
+  return { start, stop, setPendingImage, usesTrialAI: () => aiClient.usesTrial() };
 }

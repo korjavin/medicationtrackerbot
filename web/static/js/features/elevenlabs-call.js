@@ -159,11 +159,6 @@
         throw new Error(`Failed to get signed URL (${resp.status})`);
     }
 
-    // Which account the current call's conversation lives in: the operator's
-    // trial agent (photo uploads go through the trial route) or the user's
-    // own (browser-direct with the vault key). Set by fetchSignedURL.
-    let callOnTrial = false;
-
     async function fetchSignedURL() {
         // There is no server signed-URL route — mint it browser-direct
         // from the vault's ElevenLabs key (BYO; key never crosses /api). First
@@ -171,8 +166,7 @@
         // reprovisions only on a toolset-version bump) so the user configures
         // only the API key. Provisioning errors surface as the call status.
         const hasKey = await window.CloudElevenLabs.hasKey();
-        callOnTrial = !hasKey && trialVoiceAvailable();
-        if (callOnTrial) {
+        if (!hasKey && trialVoiceAvailable()) {
             await ensureTrialVoiceConsent();
             return fetchTrialSignedURL();
         }
@@ -498,6 +492,9 @@
     let activeMessage = '';
     let activeMuted = false;
     let activeUploading = false;
+    // A failed photo's message stays on the call bar until the user's next
+    // action (next send, mute, end call); live mode changes don't replace it.
+    let photoError = '';
 
     // A call is "in flight" from the moment startCall() flips to 'connecting',
     // before activeConversation exists. Both the mount path and the start guard
@@ -672,7 +669,8 @@
             else if (state === 'error') label.textContent = 'Try again';
         }
         if (status) {
-            status.textContent = message || (state === 'connecting' ? 'Connecting…' : 'In call');
+            status.textContent = (state === 'in_call' && photoError)
+                || message || (state === 'connecting' ? 'Connecting…' : 'In call');
         }
         if (error) {
             error.textContent = state === 'error' ? (message || '') : '';
@@ -685,6 +683,9 @@
             muteBtn.disabled = state === 'connecting';
         }
         if (photoBtn) {
+            // Anonymous local-trial turns are answered server-side and never
+            // reach this tab, so a photo could not ride them (med-adje).
+            photoBtn.hidden = localTrialVoice();
             photoBtn.disabled = state === 'connecting' || activeUploading;
             photoBtn.setAttribute('aria-label', activeUploading ? 'Sending…' : 'Send photo');
         }
@@ -747,6 +748,7 @@
         if (state === 'idle' || state === 'error') {
             activeMuted = false;
             activeUploading = false;
+            photoError = '';
         }
         applyState(activeCard, state, activeMessage);
         // A call that fails while docked over another tab undocks back into
@@ -762,6 +764,7 @@
                     message: activeMessage,
                     muted: activeMuted,
                     uploading: activeUploading,
+                    photoError,
                 },
             }));
         } catch (_) { /* ignore */ }
@@ -773,12 +776,14 @@
             message: activeMessage,
             muted: activeMuted,
             uploading: activeUploading,
+            photoError,
         };
     }
 
     function setMute(muted) {
         if (!activeConversation) return;
         const next = Boolean(muted);
+        photoError = ''; // the user's next action clears a photo failure
         if (typeof activeConversation.setMicMuted !== 'function') {
             // Same privacy concern as the throw path below: never claim the
             // mic is muted when we couldn't actually mute it.
@@ -806,18 +811,10 @@
         setMute(!activeMuted);
     }
 
-    function resolveConversationId(conv) {
-        return (typeof conv.getId === 'function')
-            ? conv.getId()
-            : (conv.conversationId || conv.id || null);
-    }
-
-    // In-call photos are downscaled + re-encoded before upload (bd med-ku8r):
-    // ElevenLabs may inline the image into the custom-LLM turn as base64, and
-    // that turn crosses the voice LLM relay under its 2 MiB body cap
-    // (voice_llm_relay.go voiceMaxBodyBytes). 768 KiB → ~1 MiB of base64,
-    // leaving room for the transcript and tool specs. Re-encoding also drops
-    // EXIF (location) from camera photos.
+    // In-call photos are downscaled + re-encoded before they are sent (bd
+    // med-ku8r): 768 KiB → ~1 MiB of base64 in the vision turn, well under the
+    // trial proxy's body cap. Re-encoding also drops EXIF (location) from
+    // camera photos.
     const PHOTO_MAX_BYTES = 768 * 1024;
     const PHOTO_STEPS = [[1600, 0.85], [1280, 0.75], [1024, 0.65], [768, 0.6]];
 
@@ -854,72 +851,33 @@
         throw photoTooLarge();
     }
 
-    // Trial twin of CloudElevenLabs.uploadFile: the operator's server holds
-    // the trial agent's key and forwards the photo (POST
-    // /api/trial/elevenlabs/conversations/{id}/files). Errors map by the
-    // proxy's machine-readable body, like fetchTrialSignedURL.
-    async function uploadTrialFile(conversationId, file) {
-        if (typeof conversationId !== 'string' || /[/?#]/.test(conversationId)) {
-            throw new Error('Invalid conversation id');
-        }
-        const form = new FormData();
-        form.append('file', file, file.name || 'photo.jpg');
-        const resp = await fetch(`/api/trial/elevenlabs/conversations/${encodeURIComponent(conversationId)}/files`, {
-            method: 'POST',
-            body: form,
+    function readDataURL(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error || new Error('Could not read the photo'));
+            reader.readAsDataURL(blob);
         });
-        let data = null;
-        try { data = await resp.json(); } catch (_) { /* non-JSON — reverse-proxy error page */ }
-        if (resp.ok) {
-            if (!data || !data.file_id) throw new Error('Response missing file_id');
-            return data.file_id;
-        }
-        const code = (data && data.error) || '';
-        if (code === 'trial_rate_limit') {
-            throw new Error('Trial limit reached — try again in a minute or add your own ElevenLabs key in Settings → Integrations.');
-        }
-        if (code === 'trial_not_configured') {
-            throw new Error('Set your ElevenLabs API key in Settings → Integrations');
-        }
-        if (code === 'file_too_large') throw photoTooLarge();
-        const err = new Error(`Photo upload failed (HTTP ${resp.status})`);
-        if (code === 'upstream_error' && data.upstream_status) err.status = data.upstream_status;
-        if (code === 'upstream_error' && typeof data.upstream_message === 'string') err.upstreamMessage = data.upstream_message;
-        throw err;
     }
 
-    // File upload for the in-call "Send photo" control: through the trial
-    // route when the call is on the operator's trial agent, else POSTed
-    // straight to api.elevenlabs.io with the user's vault key
-    // (window.CloudElevenLabs.uploadFile — the BYO seam, key never crosses /api).
-    async function uploadFile(conv, file) {
-        const conversationId = resolveConversationId(conv);
-        if (!conversationId) {
-            throw new Error('Conversation id unavailable');
-        }
-        if (localTrialVoice()) {
-            throw new Error('Sending photos is not available on the free trial call yet.');
-        }
-        if (callOnTrial) {
-            await ensureTrialVoiceConsent();
-            return uploadTrialFile(conversationId, file);
-        }
-        return window.CloudElevenLabs.uploadFile(conversationId, file);
-    }
+    // The marker the agent hears for a photo; the voice LLM responder
+    // attaches the photo to it (voice-llm-responder.js PHOTO_MARKER).
+    const PHOTO_MARKER = '[User sent a photo]';
 
-    // The call-bar line for a failed photo: the cause, never a bare
-    // "failed". err.status is ElevenLabs' own HTTP status (BYO direct, or
-    // relayed by the trial route as upstream_status).
+    // The call-bar line for a failed photo: the cause, never a bare "failed".
     function photoErrorMessage(err) {
-        if (err && err.status) {
-            const base = `ElevenLabs rejected the photo (HTTP ${err.status})`;
-            return err.upstreamMessage ? `${base}: ${err.upstreamMessage}` : base;
-        }
-        if (err && err.name === 'TypeError') return 'Photo upload failed — check your connection.';
-        return (err && err.message) || 'Photo upload failed';
+        const reason = (err && err.name === 'TypeError')
+            ? 'check your connection'
+            : ((err && err.message) || 'unknown error');
+        return `Couldn't send the photo: ${reason}`;
     }
-    let lastPhotoError = '';
 
+    // In-call "Send photo" (bd med-ku8r). ElevenLabs refuses file uploads for
+    // custom-LLM agents, so the photo never goes to ElevenLabs: it is queued in
+    // this tab's voice LLM responder (memory only) and the agent is told with a
+    // marker user message, which triggers a turn; the responder attaches the
+    // photo to that turn, which goes to the user's AI vision model (or the
+    // operator's trial AI). Resolves once that turn was answered.
     async function sendPhoto(file) {
         if (!activeConversation) {
             throw new Error('No active call');
@@ -940,38 +898,42 @@
         // after the user has already ended the call.
         const conv = activeConversation;
         activeUploading = true;
-        // Clear a prior photo-failure message so a retry starts clean, but
-        // preserve live mode-change messages like "Listening…" / "Agent
-        // speaking…" — wiping those would leave the call card looking dead
-        // for the duration of the upload.
-        const startMessage = ((lastPhotoError && activeMessage === lastPhotoError) || activeMessage === 'Image required')
-            ? ''
-            : activeMessage;
-        setState(activeState, startMessage);
+        // A new send is the user's next action: it clears a prior photo
+        // failure. Live mode-change messages ("Listening…") are kept.
+        photoError = '';
+        setState(activeState, activeMessage === 'Image required' ? '' : activeMessage);
         try {
-            const fileId = await uploadFile(conv, await shrinkPhoto(file));
-            if (conv !== activeConversation) {
-                // Call ended mid-upload — bail without touching UI state.
-                return;
+            const relay = window.CloudVoiceLLM;
+            if (!relay || typeof relay.setPendingImage !== 'function') {
+                throw new Error('this call has no AI relay');
             }
-            if (typeof conv.sendMultimodalMessage !== 'function') {
-                throw new Error('SDK missing sendMultimodalMessage');
+            if (typeof conv.sendUserMessage !== 'function') {
+                throw new Error('SDK missing sendUserMessage');
             }
-            conv.sendMultimodalMessage({ fileId });
+            const dataURL = await readDataURL(await shrinkPhoto(file));
+            if (conv !== activeConversation) return; // hung up meanwhile
+            // Queue before announcing, so the turn the marker triggers finds it.
+            const answered = relay.setPendingImage(dataURL);
+            try {
+                conv.sendUserMessage(PHOTO_MARKER);
+            } catch (err) {
+                // Not announced: take it back out so a retry doesn't send it twice.
+                if (typeof answered.cancel === 'function') answered.cancel(err);
+                answered.catch(() => { /* observed: err is rethrown below */ });
+                throw err;
+            }
+            await answered;
         } catch (err) {
-            console.warn('[call] photo upload failed:', err);
+            console.warn('[call] photo send failed:', err);
             if (conv === activeConversation && activeState === 'in_call') {
                 activeUploading = false;
-                lastPhotoError = photoErrorMessage(err);
-                setState('in_call', lastPhotoError);
+                photoError = photoErrorMessage(err);
+                setState('in_call', activeMessage);
             }
             throw err;
         }
         if (conv === activeConversation && activeState === 'in_call') {
             activeUploading = false;
-            // Re-broadcast whatever the controller currently shows (could be
-            // a mode-change status set during the upload). Don't clobber it
-            // with an empty string.
             setState(activeState, activeMessage);
         }
     }
@@ -1148,7 +1110,7 @@
         muteBtn.setAttribute('aria-pressed', 'false');
         add(muteBtn);
 
-        // Photo upload: see uploadFile() (trial route or browser-direct BYO).
+        // Send photo: see sendPhoto() (held in this tab, rides the next AI turn).
         const photoInput = document.createElement('input');
         photoInput.type = 'file';
         photoInput.accept = 'image/*';
