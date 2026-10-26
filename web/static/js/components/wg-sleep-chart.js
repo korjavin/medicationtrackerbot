@@ -4,7 +4,7 @@
 //
 //   • No inline stroke=/fill= on paths, rects or circles. Every visual value
 //     comes from a CSS token via a class on the SVG child element
-//     (`.wg-sleep-chart__stage--{deep|light|rem|awake}`, `__hr-line`,
+//     (`.wg-sleep-chart__stage--{deep|light|rem|awake|asleep}`, `__hr-line`,
 //     `__hr-dot`, `__hr-label`, `__guide`, `__axis-label`, `__bar-label`,
 //     `__day-label`).
 //   • Reuses window.ChartUtils.animateLine when available for the HR
@@ -233,6 +233,11 @@
             drawSegment(dayStat.deep_mins, 'deep');
             drawSegment(dayStat.light_mins, 'light');
             drawSegment(dayStat.rem_mins, 'rem');
+            // An unstaged night (Apple Health asleepUnspecified only, bd
+            // med-z36q) has total minutes but no phases: one plain bar.
+            if (!dayStat.deep_mins && !dayStat.light_mins && !dayStat.rem_mins) {
+                drawSegment(dayStat.total_mins, 'asleep');
+            }
             drawSegment(dayStat.awake_mins, 'awake');
 
             if (dayStat.total_mins > 0) {
