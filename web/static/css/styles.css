@@ -6655,16 +6655,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: none;
 }
 
-/* The stepper value is an editable input (the amount added or counted). */
-.wg-meds-stock__qty {
-    width: 100%;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    color: var(--wg-fg-1);
-    outline: none;
-}
-
 /* Meds timeline (kit v2 TL1–TL4, bd med-ry7b). Kit markup throughout — day
    sections are .wg-section, rows .wg-row; the .wg-tl-* additions come from
    screens-meds-timeline-v2.html: the focus card, the folded planned days and

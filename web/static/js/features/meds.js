@@ -1510,18 +1510,18 @@ function openStockSheet(med, opts = {}) {
     minus.type = 'button';
     minus.setAttribute('aria-label', 'Decrease');
     minus.appendChild(_medsIcon('minus'));
-    const val = _medsEl('span', 'wg-stepper__val');
-    const input = _medsEl('input', 'wg-meds-stock__qty');
+    // The value is the input itself, as in the editor's steppers
+    // (input.wg-stepper__val: centred, no native spin buttons).
+    const input = _medsEl('input', 'wg-stepper__val wg-meds-stock__qty');
     input.type = 'number';
     input.min = '0';
     input.inputMode = 'numeric';
     input.setAttribute('aria-label', 'Doses');
-    val.append(input, _medsEl('small', '', 'doses'));
     const plus = _medsEl('button', 'wg-stepper__btn');
     plus.type = 'button';
     plus.setAttribute('aria-label', 'Increase');
     plus.appendChild(_medsIcon('plus'));
-    stepper.append(minus, val, plus);
+    stepper.append(minus, input, plus);
     stepField.append(stepLabel, stepper);
 
     const hint = _medsEl('p', 'wg-hint', "Count what's in the pack. Doses you log from now on are taken off this number.");
