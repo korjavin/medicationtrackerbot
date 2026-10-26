@@ -754,6 +754,23 @@ run the [verify check](#verify-replication-is-live) (§6). `Restarting` means th
 credentials are missing and it is saying so; `Exited (0)` means someone set
 `LITESTREAM_DISABLED=1`. Either way there is no off-host backup right now.
 
+**On a redeploy it shows up as a crash loop:** `Failed to open database ...
+disk I/O error (4874)` (`SQLITE_IOERR_SHMSIZE`). ext4 keeps the last 5% of the
+disk for root, so the root litestream sidecar keeps writing while the app (uid
+1000) cannot grow `cloud.db-shm` past its first page. It looks like a
+permissions problem and is not one. Free space, then restart the app.
+
+**Prevention.** Every deploy pulls a new image and nothing removes the old one
+(237 stale images, 31.7GB, filled the 38GB disk on 2026-10-26). The host runs a
+daily prune; `crontab -l` on the host should show:
+
+```cron
+30 3 * * * docker image prune -af --filter until=72h >/dev/null 2>&1
+```
+
+Free disk (`df -h /`) is part of every prod check; 85% used or more is a
+finding, reported without waiting to be asked.
+
 A single runaway account cannot do this: `CLOUD_ACCOUNT_QUOTA_BYTES` is on by
 default (50MB per account) and the server answers an over-quota write with 413,
 which the client surfaces as "Vault is full", not as a sync failure.
