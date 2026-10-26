@@ -162,6 +162,7 @@ func vapidSubjectFor(endpoint, subject, baseDomain string) string {
 type relayStore interface {
 	DueScheduledPushes(ctx context.Context, now time.Time) ([]cloudstore.ScheduledPush, error)
 	MarkPushSent(ctx context.Context, id int64, sentAt time.Time, tgMessageID int64) error
+	PushIsPending(ctx context.Context, id int64) (bool, error)
 	List(ctx context.Context, accountID string) ([]cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
 	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error)
@@ -297,6 +298,13 @@ func (rl *Relay) Tick(ctx context.Context) {
 	subsByAccount := make(map[string][]cloudstore.PushSubscription)
 	keysByAccount := make(map[string]cloudstore.AccountVAPIDKeys)
 	for _, p := range due {
+		// due is a snapshot: a send earlier in this tick may have deleted this
+		// row (scheduleMedRefire replaces the slot's pending refire), and
+		// sending it anyway would leave the earlier message live (med-xk3h).
+		// On a lookup error fall through: at-most-once beats dropping a reminder.
+		if pending, err := rl.store.PushIsPending(ctx, p.ID); err == nil && !pending {
+			continue
+		}
 		// An empty delivery is a pre-C3b row: web push, as before.
 		delivery := p.Delivery
 		if delivery == "" {
