@@ -668,23 +668,46 @@ function _tlRowButton(label, ghost, onClick) {
     return btn;
 }
 
+// "Next today" outside this window before its slot opens the take sheet
+// instead of taking in one tap (bd med-wt2q: a 01:40 tap took the 08:20 doses).
+const MEDS_NEXT_TAKE_WINDOW_MS = 60 * 60 * 1000;
+
+// "Next today" ahead of the window: the take sheet on the group's occIds with
+// "Due at 08:20. Mark taken now?" above the actions. Its Take works as ever;
+// a dose not due yet has nothing to snooze or skip.
+function _tlOpenEarlySheet(group, ctx) {
+    const rows = group.rows;
+    const names = rows.map((r) => {
+        const med = ctx.medById.get(String(r.medId));
+        return (med && med.name) || r.name || 'Medication';
+    });
+    showMedicationConfirmModal(rows.map((r) => r.medId), names, rows[0].plannedAt, 'confirm', rows.map((r) => r.occId));
+    document.getElementById('med-confirm-snooze-btn').classList.add('hidden');
+    document.getElementById('med-confirm-skip-btn').classList.add('hidden');
+    const note = _medsEl('p', 'wg-hint', `Due at ${group.localTime}. Mark taken now?`);
+    note.dataset.earlyTake = '';
+    document.getElementById('med-confirm-hint').replaceChildren(note);
+}
+
 // One group = one kit row. Upcoming rows are read-only (Schedule's Take N
 // takes them early); every other row is a button that opens the sheet.
 // readOnly (an unfolded planned day): no sheet, no buttons, whatever the state.
-function _tlRow(group, ctx, { chip = true, readOnly = false } = {}) {
+// open: what a tap does instead (the early "Next today" row).
+function _tlRow(group, ctx, { chip = true, readOnly = false, open = null } = {}) {
     const row = _medsEl('div', 'wg-row wg-timeline__row');
     row.dataset.state = group.state;
     row.dataset.localDate = group.localDate;
     row.dataset.occIds = group.rows.map((r) => String(r.occId)).join(' ');
     row.dataset.medIds = group.rows.map((r) => String(r.medId)).join(' ');
-    if (group.state !== 'upcoming' && !readOnly) {
+    const opener = open || (group.state !== 'upcoming' && !readOnly ? () => _tlOpenSheet(group, ctx) : null);
+    if (opener) {
         row.setAttribute('role', 'button');
         row.tabIndex = 0;
-        row.addEventListener('click', () => _tlOpenSheet(group, ctx));
+        row.addEventListener('click', opener);
         row.addEventListener('keydown', (e) => {
             if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
             e.preventDefault();
-            _tlOpenSheet(group, ctx);
+            opener();
         });
     }
 
@@ -721,9 +744,40 @@ function _tlRow(group, ctx, { chip = true, readOnly = false } = {}) {
     return row;
 }
 
-// rows.map that merges patches[occId] into the matching rows.
+// rows.map that merges patches[occId] into the matching rows. .restore(ids)
+// is the inverse for just those ids: each row as this patch first saw it, so
+// a partly refused write returns only the refused doses (bd med-2l38).
 function _tlPatchRows(patches) {
-    return (rows) => rows.map((r) => (r && patches.has(String(r.occId)) ? { ...r, ...patches.get(String(r.occId)) } : r));
+    const before = new Map();
+    const mutate = (rows) => rows.map((r) => {
+        const id = r && String(r.occId);
+        if (!r || !patches.has(id)) return r;
+        if (!before.has(id)) before.set(id, r);
+        return { ...r, ...patches.get(id) };
+    });
+    mutate.restore = (ids) => (rows) => rows.map((r) => {
+        const id = r && String(r.occId);
+        return id && ids.has(id) && before.has(id) ? before.get(id) : r;
+    });
+    mutate.ids = new Set(patches.keys());
+    return mutate;
+}
+
+// The timeline's rows (window ∪ pending) for these occIds, as
+// {occId, medId, plannedAt, name}; unknown ids are left out.
+function _tlDoses(occIds) {
+    const state = _medsTimelineState;
+    const byOcc = new Map([...(state.pending || []), ...(state.rows || [])].filter(Boolean).map((r) => [String(r.occId), r]));
+    return occIds.map((id) => byOcc.get(String(id))).filter(Boolean)
+        .map((r) => ({ occId: String(r.occId), medId: r.medId, plannedAt: r.plannedAt, name: r.name }));
+}
+
+// A dose's medication name off the timeline's rows, or null.
+function _tlDoseName(occId) {
+    const [dose] = _tlDoses([occId]);
+    if (!dose) return null;
+    const med = Array.isArray(medications) ? medications.find((m) => String(m.id) === String(dose.medId)) : null;
+    return (med && med.name) || dose.name || null;
 }
 
 // The optimistic row of a past log (no plan behind it) until the re-read.
@@ -780,9 +834,11 @@ async function _applyOptimisticTimeline(mutator) {
 }
 
 // The timeline's own writes (row Take / Skip, bulk, the bulk Undo): flip the
-// rows in place, POST /api/doses/act once per batch ({occIds, takenAt?} — one
-// taken_at each), then commit, or roll back on any failure. Resolves true
-// when every id applied.
+// rows in place (a take or skip also clears the dose from Today's
+// next-intake card), POST /api/doses/act once per batch ({occIds, takenAt?} —
+// one taken_at each), then settle: the doses that landed stay, only refused
+// ones go back, named in a toast (bd med-2l38). Resolves true when every id
+// applied.
 async function _tlAct(action, batches) {
     const nowIso = new Date().toISOString();
     const patch = (takenAt) => ({
@@ -794,31 +850,23 @@ async function _tlAct(action, batches) {
     batches.forEach((b) => b.occIds.forEach((id) => patches.set(String(id), patch(b.takenAt))));
     if (!patches.size) return false;
 
-    const handles = [await _applyOptimisticTimeline(_tlPatchRows(patches))];
-    let ok = true;
-    try {
-        for (const b of batches) {
-            const body = { action, occ_ids: b.occIds };
-            if (b.takenAt) body.taken_at = b.takenAt;
-            const res = await apiCall('/api/doses/act', 'POST', body);
-            if (!res || typeof res !== 'object') { ok = false; break; }
-            if (Number(res.failed) > 0) {
-                ok = false;
-                safeToast("Couldn't update some doses. Please try again.", 'error');
-                break;
-            }
+    const mutate = _tlPatchRows(patches);
+    const handles = [await _applyOptimisticTimeline(mutate)];
+    const next = action === 'undo' ? null : await _optimisticNextIntake(_tlDoses([...patches.keys()]));
+    const failed = new Set();
+    for (const b of batches) {
+        let refused;
+        try {
+            refused = await _actOnDoses(action, b.occIds, b.takenAt);
+        } catch (_) {
+            refused = b.occIds;
         }
-    } catch (_) {
-        ok = false;
+        refused.forEach((id) => failed.add(String(id)));
     }
-    if (ok) {
-        await _commitOptimistic(handles);
-        if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
-    } else {
-        await _rollbackOptimistic(handles);
-    }
+    await _settleDoseWrite(handles, mutate, failed, next);
+    if (failed.size < patches.size && window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
     refreshMedsAfterMutation();
-    return ok;
+    return failed.size === 0;
 }
 
 // MT4 · pile-up: one bulk pair per earlier day that still has pending doses.
@@ -985,7 +1033,8 @@ function _tlFocusLabel(text, meta) {
 
 // TL1 / TL4 · the focus card, the one accent card: exactly one pending dose
 // (a day chip when it isn't today's) whose Take is the sun, "+N more pending"
-// as a count only, then the next dose due today with a raised Take. TL3 ·
+// as a count only, then the next dose due today with a raised Take (only
+// within MEDS_NEXT_TAKE_WINDOW_MS of its slot; earlier a tap opens the sheet). TL3 ·
 // nothing pending and nothing left today: no accent, no buttons, the next dose.
 function _tlFocusCard({ focus, more, next, upcoming }, ctx) {
     const card = _medsEl('section', 'wg-card wg-tl-focus');
@@ -1017,12 +1066,23 @@ function _tlFocusCard({ focus, more, next, upcoming }, ctx) {
     }
     if (next) {
         card.appendChild(_tlFocusLabel('Next today'));
-        const row = _tlRow(next, ctx);
-        const occIds = next.rows.map((r) => r.occId);
-        const trail = _medsEl('span', 'wg-row__trail');
-        trail.appendChild(_tlRowButton(occIds.length > 1 ? `Take ${occIds.length}` : 'Take', false, () => _tlAct('take', [{ occIds }])));
-        row.appendChild(trail);
-        card.appendChild(row);
+        const ahead = next.at - ctx.nowMs;
+        if (ahead > MEDS_NEXT_TAKE_WINDOW_MS) {
+            // Too early for one tap: no button, "in 6 h", a tap opens the sheet.
+            const row = _tlRow(next, ctx, { chip: false, open: () => _tlOpenEarlySheet(next, ctx) });
+            const mins = Math.round(ahead / 60000);
+            row.querySelector('.wg-row__meta').appendChild(window.WGChip.create({
+                text: mins < 60 ? `in ${mins} min` : `in ${Math.floor(mins / 60)} h`, state: 'pending', small: true,
+            }));
+            card.appendChild(row);
+        } else {
+            const row = _tlRow(next, ctx);
+            const occIds = next.rows.map((r) => r.occId);
+            const trail = _medsEl('span', 'wg-row__trail');
+            trail.appendChild(_tlRowButton(occIds.length > 1 ? `Take ${occIds.length}` : 'Take', false, () => _tlAct('take', [{ occIds }])));
+            row.appendChild(trail);
+            card.appendChild(row);
+        }
     }
     return card;
 }

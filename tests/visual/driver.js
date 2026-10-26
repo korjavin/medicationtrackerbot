@@ -26,7 +26,9 @@
     // &clock=real (the iOS shell's -wgQACapture, add-device-from-link) keeps the
     // real clock: the page judges the slot's receivedAt (shell time) against
     // Date.now(), and a join's 10 minutes would never hold at 23:00.
-    if (new URLSearchParams(window.location.search).get('clock') !== 'real') pinClock();
+    // &clock=HH:MM (a scene's "clock", run.mjs) pins that time instead of 23:00.
+    const clock = new URLSearchParams(window.location.search).get('clock');
+    if (clock !== 'real') pinClock(/^\d\d:\d\d$/.test(clock || '') ? clock.split(':').map(Number) : [23, 0]);
     // Document loads in this launch (the seed import reloads once): a scene
     // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
     let loads = 1;
@@ -44,11 +46,11 @@
     // cloud pass injects it with addInitScript), before any app script.
     // ponytail: ticks from the pin, so a scene that lives > 60 s shows 23:01;
     // freeze outright (Playwright clock.setFixedTime style) if that shows up.
-    function pinClock() {
+    function pinClock([hour, minute]) {
         const Real = window.Date;
         if (Real.wgQAPinned) return; // the jsdom suite re-evaluates the driver
         const d = new Real();
-        const pin = new Real(d.getFullYear(), d.getMonth(), d.getDate(), 23, 0, 0).getTime();
+        const pin = new Real(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0).getTime();
         const t0 = window.performance.now();
         const now = () => pin + Math.floor(window.performance.now() - t0);
         function QADate(...args) {
