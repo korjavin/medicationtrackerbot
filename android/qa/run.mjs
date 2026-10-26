@@ -131,6 +131,7 @@ const ctx = {
   /**
    * The shell's page on the local origin once `ready(page)` resolves. One recovery when the first
    * target closes under us or no WebView shows: `restart` (a cold start) when given, else a re-attach.
+   * None while ctx.noRecovery (openClaim's retry, which already spent the one recovery).
    */
   async localPage(ready, restart) {
     // ponytail: one recovery (run 39249851915, right after pm clear: "Target page, context or browser has been closed").
