@@ -631,6 +631,8 @@ const RECORD_TAGS = {
   foodtargets: ['food', 'food_targets'],
   medication: ['medications'],
   restock: ['medications'],
+  // bd med-wi09.13: the stock ledger moves the derived inventory_count.
+  stock: ['medications'],
   intake: ['medications', 'history'],
   // bd med-wi09.12: the cut moves where the projection starts regenerating.
   ledgercut: ['medications', 'history'],

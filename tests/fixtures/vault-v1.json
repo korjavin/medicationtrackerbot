@@ -17,6 +17,7 @@
           "rxcui": "29046",
           "normalized_name": "lisinopril",
           "inventory_count": 28,
+          "pack_size": 28,
           "tz_shift_policy": "flexible",
           "created_at": "2026-06-01T08:00:00Z"
         }
@@ -107,6 +108,23 @@
               "replacement": { "intake-1-1782028800": "intake-1-1782032400" }
             }
           ]
+        }
+      ],
+      "stock": [
+        {
+          "id": "stock-1-1782982800000-seed28",
+          "medication_id": 1,
+          "kind": "audit",
+          "count": 28,
+          "at": "2026-07-02T09:00:00.000Z",
+          "seed": true
+        },
+        {
+          "id": "stock-1-1783252800000-p7d2w9ke",
+          "medication_id": 1,
+          "kind": "refill",
+          "n": 28,
+          "at": "2026-07-05T12:00:00.000Z"
         }
       ]
     },

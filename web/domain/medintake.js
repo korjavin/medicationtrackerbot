@@ -23,6 +23,7 @@
 import { localDateTimeParts, localWallToUtcMs, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
 import { applyLineage, canonical, evidenceTransitions, loadLineage, regenerateWindow, regenerationStartMs } from './lineage.js';
+import { createStockDomain } from './stock.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -638,6 +639,7 @@ function medsKey(meds) {
 //             clock alone. The shell arms its refresh timer there (Archie 4934
 //             point 3); the domain keeps no timer.
 export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoundary }) {
+  const stock = createStockDomain({ records, now });
   // An explicit action on `intake` (null = a slot with no stored row yet):
   // rev seen+1, a fresh acted_at, and any old conflict flag resolved.
   function acted(intake, fields, nowMs) {
@@ -784,12 +786,27 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return plan && plan.status === 'APPROVED' ? plan : null;
   }
 
-  // `delta` moves inventory only when the write actually landed: the reducer
-  // can refuse it (a tombstoned slot is terminal).
-  async function putIntake(intake, delta = 0) {
+  // Stock is derived from TAKEN evidence (stock.js, bd med-wi09.13), so a
+  // write moves no number: it seeds the med's ledger first if it has none, and
+  // a write that landed refreshes the inventory_count mirror older clients
+  // read. The reducer can refuse a write (a tombstoned slot is terminal).
+  // `prev` is the row this write replaces (null for a new one): a write that
+  // neither enters nor leaves TAKEN nor moves a TAKEN dose's time (skip,
+  // snooze) moves no stock and skips both. `touched` (a Set, batch writers)
+  // defers the mirror: the writer calls stock.mirrorMany(touched) once after
+  // its loop, so N doses read the evidence once, not N times. Order stays
+  // seed (pre-write state) → put → mirror (post-write state).
+  async function putIntake(intake, prev, touched) {
+    const wasTaken = !!prev && prev.status === 'TAKEN';
+    const isTaken = intake.status === 'TAKEN';
+    const movesStock = wasTaken !== isTaken || (isTaken && prev.taken_at !== intake.taken_at);
+    if (movesStock) await stock.ensureSeed(intake.medication_id);
     const stored = await records.put(INTAKE_RECORD_TYPE, intake);
     const landed = !stored || (!stored.deleted && stored.status === intake.status);
-    if (delta && landed) await adjustInventory(intake.medication_id, delta);
+    if (landed && movesStock) {
+      if (touched) touched.add(String(intake.medication_id));
+      else await stock.mirror(intake.medication_id);
+    }
     return landed;
   }
 
@@ -926,21 +943,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return states ? rows.filter((r) => states.includes(r.state)) : rows;
   }
 
-  // Best-effort, matching the server's DecrementInventory calls: a null/
-  // untracked inventory_count (or a missing medication) is a silent no-op.
-  async function adjustInventory(medId, delta) {
-    const meds = await records.list(MEDICATION_RECORD_TYPE);
-    // String(): an intake's medication_id may be number vs string against the
-    // med's recordId (med-wi09.15) — a strict miss silently skips the stock move.
-    const med = meds.find((m) => String(m.recordId) === String(medId) && !m.deleted);
-    if (!med || med.inventory_count === null || med.inventory_count === undefined) return;
-    await records.put(MEDICATION_RECORD_TYPE, {
-      ...med,
-      clientTs: now(),
-      inventory_count: med.inventory_count + delta,
-    });
-  }
-
   // The REMINDER CALLBACK (a Telegram tap drained by inbox-apply.js): PENDING ->
   // TAKEN, decrement inventory. A callback may only move rev 0 -> 1 (bd
   // med-wi09.11): a dose any explicit action already touched is not its to
@@ -951,7 +953,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     if (!intake || intake.status !== 'PENDING' || intakeRev(intake) !== 0) throw notPending();
     const nowMs = now();
     const updated = acted(intake, { status: 'TAKEN', taken_at: new Date(takenAtMs ?? nowMs).toISOString() }, nowMs);
-    await putIntake(updated, -1);
+    await putIntake(updated, intake);
     return toResponse(updated);
   }
 
@@ -959,7 +961,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   async function skip(intakeId) {
     const intake = await getIntake(intakeId);
     if (!intake || !OPEN_STATUSES.has(intake.status)) throw notPending();
-    await putIntake(acted(intake, { status: 'SKIPPED' }, now()));
+    await putIntake(acted(intake, { status: 'SKIPPED' }, now()), intake);
     return { status: 'skipped' };
   }
 
@@ -975,7 +977,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const minutes = durationMinutes > 0 ? durationMinutes : DEFAULT_SNOOZE_MINUTES;
     const nowMs = now();
     const snoozedUntil = new Date(nowMs + minutes * 60 * 1000).toISOString();
-    await putIntake(snoozed(intake, snoozedUntil, nowMs));
+    await putIntake(snoozed(intake, snoozedUntil, nowMs), intake);
     return { status: 'snoozed', snoozed_until: snoozedUntil };
   }
 
@@ -1008,7 +1010,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       snoozed_until: null,
       source: 'schedule',
     }, nowMs);
-    await putIntake(record, -1);
+    await putIntake(record, null);
     return toResponse(record);
   }
 
@@ -1024,6 +1026,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const failures = [];
     const nowMs = now();
     const resolve = await resolver(updates.map((up) => up.id));
+    const touched = new Set();
     for (const up of updates) {
       const intake = resolve.get(up.id);
       if (!intake) {
@@ -1036,12 +1039,10 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         : null;
       // A revert to PENDING is an undo: stored as UNTAKEN (bd med-wi09.11).
       const status = up.status === 'PENDING' && !OPEN_STATUSES.has(prevStatus) ? 'UNTAKEN' : up.status;
-      let delta = 0;
-      if (up.status === 'PENDING' && prevStatus === 'TAKEN') delta = 1;
-      else if (up.status === 'TAKEN' && OPEN_STATUSES.has(prevStatus)) delta = -1;
-      await putIntake(acted(intake, untakenNote(intake, { status, taken_at: takenAt }), nowMs), delta);
+      await putIntake(acted(intake, untakenNote(intake, { status, taken_at: takenAt }), nowMs), intake, touched);
       updated++;
     }
+    await stock.mirrorMany(touched);
     return { updated, failed: failures.length, failures };
   }
 
@@ -1057,6 +1058,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const nowMs = now();
     const takenMs = takenAt ? Date.parse(takenAt) : NaN;
     const takenIso = new Date(Number.isFinite(takenMs) ? takenMs : nowMs).toISOString();
+    const touched = new Set();
 
     if (intakeIds.length > 0) {
       const ids = uniqueIds(intakeIds);
@@ -1064,21 +1066,24 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       for (const id of ids) {
         const intake = resolve.get(id);
         if (!intake || !OPEN_STATUSES.has(intake.status)) continue;
-        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), -1);
+        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), intake, touched);
       }
+      await stock.mirrorMany(touched);
       return { status: 'confirmed' };
     }
 
     const scheduledAtMs = Date.parse(scheduledAt);
+    // One read: each med's write touches only its own slot.
+    const intakes = await loadIntakes();
     for (const medId of medicationIds) {
-      const intakes = await loadIntakes();
       const intake = intakes.find((i) => String(i.medication_id) === String(medId)
         && Date.parse(i.scheduled_at) === scheduledAtMs)
         || (Number.isFinite(scheduledAtMs) ? await getIntake(slotId(medId, scheduledAtMs)) : null);
       if (intake && OPEN_STATUSES.has(intake.status)) {
-        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), -1);
+        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), intake, touched);
       }
     }
+    await stock.mirrorMany(touched);
 
     return { status: 'confirmed' };
   }
@@ -1134,6 +1139,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const ids = [...new Set(occIds)];
     const [resolve, meds] = await Promise.all([resolver(ids), loadMeds()]);
     const intakes = resolve.stored;
+    const touched = new Set();
     for (const occId of ids) {
       // Ids compare as String() throughout: a med's recordId and an intake's
       // medication_id (or a JSON occId) can be number vs string (med-wi09.15).
@@ -1163,14 +1169,13 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       // UNTAKEN (an earlier undo) acts exactly like PENDING here.
       const status = wireStatus(intake.status);
       let next = null;
-      let delta = 0;
       if (action === 'snooze') {
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
         // A dose not due yet has nothing to snooze, and a snoozed row would
         // drop out of the reminder horizon (only upcoming rows fire).
         if (Date.parse(intake.scheduled_at) > nowMs) { fail(occId, 'not_due'); continue; }
         const record = snoozed(intake, snoozeIso, nowMs);
-        if (!(await putIntake(record))) { fail(occId, 'not_found'); continue; }
+        if (!(await putIntake(record, intake, touched))) { fail(occId, 'not_found'); continue; }
         result.updated++;
         result.doses.push(toResponse(record));
         continue;
@@ -1179,7 +1184,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         if (status === 'TAKEN') { result.unchanged++; continue; }
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
         next = { status: 'TAKEN', taken_at: takenIso };
-        delta = -1;
       } else if (action === 'skip') {
         if (status === 'SKIPPED') { result.unchanged++; continue; }
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
@@ -1188,7 +1192,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         if (virtual) { fail(occId, 'not_found'); continue; }
         if (status === 'PENDING') { result.unchanged++; continue; }
         next = { status: 'UNTAKEN', taken_at: null };
-        if (status === 'TAKEN') delta = 1;
       } else {
         if (status !== 'TAKEN') { fail(occId, 'not_taken'); continue; }
         if (intake.taken_at === takenIso) { result.unchanged++; continue; }
@@ -1196,10 +1199,11 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       }
 
       const record = acted(intake, untakenNote(intake, next), nowMs);
-      if (!(await putIntake(record, delta))) { fail(occId, 'not_found'); continue; }
+      if (!(await putIntake(record, intake, touched))) { fail(occId, 'not_found'); continue; }
       result.updated++;
       result.doses.push(toResponse(record));
     }
+    await stock.mirrorMany(touched);
     return result;
   }
 
@@ -1210,12 +1214,14 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     let cancelledCount = 0;
     const ids = uniqueIds(intakeIds);
     const resolve = await resolver(ids);
+    const touched = new Set();
     for (const id of ids) {
       const intake = resolve.get(id);
       if (!intake || intake.status !== 'TAKEN') continue;
-      await putIntake(acted(intake, untakenNote(intake, { status: 'UNTAKEN', taken_at: null }), nowMs), 1);
+      await putIntake(acted(intake, untakenNote(intake, { status: 'UNTAKEN', taken_at: null }), nowMs), intake, touched);
       cancelledCount++;
     }
+    await stock.mirrorMany(touched);
     return { status: 'cancelled', cancelled_count: cancelledCount, requested_count: intakeIds.length };
   }
 
@@ -1253,6 +1259,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
 
     const medNames = [];
     let confirmedCount = 0;
+    const touched = new Set();
 
     for (const target of cluster) {
       const med = meds.find((m) => sameMed(m.recordId, target.medicationId));
@@ -1265,7 +1272,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
           && Date.parse(i.scheduled_at) === target.scheduledAtMs);
 
       if (existing && OPEN_STATUSES.has(existing.status)) {
-        await putIntake(acted(existing, { status: 'TAKEN', taken_at: nowIso }, nowMs), -1);
+        await putIntake(acted(existing, { status: 'TAKEN', taken_at: nowIso }, nowMs), existing, touched);
         confirmedCount++;
       } else if (!existing) {
         const record = acted(null, {
@@ -1279,10 +1286,11 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
           source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
         }, nowMs);
         intakes.push(record);
-        if (await putIntake(record, -1)) confirmedCount++;
+        if (await putIntake(record, null, touched)) confirmedCount++;
       }
       // Already TAKEN/SKIPPED members were filtered out of `cluster` above.
     }
+    await stock.mirrorMany(touched);
 
     return {
       status: 'confirmed',

@@ -47,6 +47,9 @@
 //     both keeping their recordId as `id` (append-only, no singleton) and
 //     exported in effective order (instant, recordId). Older files omit both
 //     keys; older clients ignore them.
+//   - the stock ledger (bd med-wi09.13): `stock-<medId>-<ms>-<rand>` rows ride
+//     in medications.stock keeping their recordId as `id`, ordered by (at,
+//     id); a seed keeps its content-addressed id. Omitted when empty.
 //   - intake + workoutsession (and Apple Health bp/weight/miband/sleep -hk-) tombstones at
 //     deterministic slot ids are suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
@@ -84,7 +87,7 @@ export const VAULT_VERSION = 1;
 // preserves records whose type is NOT here (nk, voiceprovisioning) so a replace
 // never drops device or crypto state.
 export const VAULT_MANAGED_TYPES = new Set([
-  'medication', 'intake', 'restock',
+  'medication', 'intake', 'restock', 'stock',
   'bp', 'bpgoal',
   'weight', 'weightgoal', 'weightunitpref',
   'foodlog', 'foodproduct', 'fooddaystatus',
@@ -389,6 +392,9 @@ export function recordsToVault(records, { now, includeSecrets = true, backupAt }
   // history-free store exports byte-identical to an older client.
   const medscheds = sortByEffective(pick('medsched'), 'from');
   if (medscheds.length > 0) medications.schedules = medscheds.map((r) => ({ id: r.recordId, ...stripMeta(r) }));
+  // Stock ledger (bd med-wi09.13), (at, id) order; omitted when empty.
+  const stock = sortByEffective(pick('stock'), 'at');
+  if (stock.length > 0) medications.stock = stock.map((r) => ({ id: r.recordId, ...stripMeta(r) }));
 
   // --- bp ---
   const bpGoal = singleton('bpgoal', 'bpgoal');
@@ -785,6 +791,7 @@ export function vaultToRecords(vault, { now } = {}) {
   }
   for (const r of meds.restocks || []) push('restock', mintNum(), { ...r });
   for (const s of meds.schedules || []) historyFromVault('medsched', s, push);
+  for (const s of meds.stock || []) historyFromVault('stock', s, push);
 
   // --- bp ---
   const bp = data.bp || {};

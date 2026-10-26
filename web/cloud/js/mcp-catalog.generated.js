@@ -1369,7 +1369,7 @@ export const CATALOG = [
       "id"
     ],
     "risk": "write",
-    "description": "Add a restock event to a medication, increasing its inventory_count.",
+    "description": "Record pills added to a medication (a refill in its stock ledger), increasing its inventory_count. inventory_count is derived: the last count + refills since − doses taken since.",
     "response_summary": "Object {status:\"restocked\", quantity_added, inventory_count}.",
     "required": [
       "id",
@@ -1455,6 +1455,35 @@ export const CATALOG = [
           "type": "integer",
           "minimum": 1,
           "description": "Defaults to 10 if omitted or non-positive"
+        }
+      }
+    }
+  },
+  {
+    "id": "medications.stock_audit",
+    "topic": "medications",
+    "method": "POST",
+    "path": "/api/medications/{id}/stock-audit",
+    "path_params": [
+      "id"
+    ],
+    "risk": "write",
+    "description": "Record a stock count for a medication: the count becomes the new starting point, doses taken after it are subtracted and refills after it added. Earlier history is not rewritten. Starts tracking an untracked medication.",
+    "response_summary": "Object {status:\"counted\", inventory_count}.",
+    "required": [
+      "id",
+      "count"
+    ],
+    "body_schema": {
+      "type": "object",
+      "required": [
+        "count"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pills the user has right now (a physical count)"
         }
       }
     }
@@ -1570,7 +1599,14 @@ export const CATALOG = [
             "integer",
             "null"
           ],
-          "description": "Replace inventory count (units remaining); null leaves it untracked"
+          "description": "Stock tracking: null stops tracking; a number on an untracked medication starts tracking at that count. On a tracked medication the number is ignored: correct the stock with medications.stock_audit, add pills with medications.restock"
+        },
+        "pack_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Optional pills per pack (offers a one-tap +1 pack refill); omit to keep, null to clear"
         },
         "tz_shift_policy": {
           "type": "string",

@@ -1293,53 +1293,12 @@ function logMedicationPast(id, name) {
 }
 
 
-// Stock sub-tab (kit v2 M3, med-xso6.18; tab id stays `inventory`). One
-// `.wg-card` per medication that tracks inventory, out/low first. Each card
-// shows the remaining doses, "N a day · lasts N days", the last refill
-// (`/api/medications/{id}/restocks`), and a Refill button that opens preset
-// `.wg-pick` chips (+30/+60/+90/Other stepper) with the primary previewing the
-// new total ("Add 30 → 47"). Confirming writes through
-// DataStore.applyOptimistic, then POSTs the existing `/restock` route.
-
-function _formatRestockedDate(iso) {
-    if (!iso) return null;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleDateString(undefined, {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    });
-}
-
-// Dedupe in-flight restocks fetches per medication id. `loadInventory()`
-// renders twice — once eagerly from cache, once after `loadMeds()` — so
-// without this map each tab open would fire 2×N GETs. Cleared on resolve so
-// a subsequent render (e.g. after a refill mutation) re-fetches fresh data.
-const _lastRefilledInflight = new Map();
-
-async function _fetchLastRefilledAt(medId) {
-    const inflight = _lastRefilledInflight.get(medId);
-    if (inflight) return inflight;
-    const promise = (async () => {
-        try {
-            const restocks = await apiCall(`/api/medications/${medId}/restocks`);
-            if (!Array.isArray(restocks) || restocks.length === 0) return null;
-            // Restocks come back newest-first from the server; guard by sorting
-            // defensively in case a client mutates order.
-            const sorted = restocks.slice().sort((a, b) => {
-                return new Date(b.restocked_at).getTime() - new Date(a.restocked_at).getTime();
-            });
-            return sorted[0].restocked_at;
-        } catch (_) {
-            return null;
-        } finally {
-            _lastRefilledInflight.delete(medId);
-        }
-    })();
-    _lastRefilledInflight.set(medId, promise);
-    return promise;
-}
+// Stock sub-tab (kit v2 ST4, bd med-wi09.13; tab id stays `inventory`). One
+// `.wg-row` per medication that tracks stock, problems first under "Needs
+// attention", each with one Update action that opens the Update stock sheet
+// (ST1–ST3). The count is the domain's derived stock (inventory_count on the
+// wire: the last count + refills since − doses taken since); `med.stock`
+// carries that ledger for the sheet's history.
 
 const MEDS_REFILL_PRESETS = [30, 60, 90];
 
@@ -1349,183 +1308,298 @@ function _formatDailyUsage(daily) {
     return `${Math.max(1, Math.round(daily * 7))} a week`;
 }
 
+function _stockDay(iso) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+// Row meta: "17 left · lasts 8 days"; an as-needed med says so instead.
 function _stockMeta(med) {
     const count = med.inventory_count;
-    if (count < 0) return `Logged ${-count} doses beyond stock`;
     const daily = calculateDailyUsage(med);
-    if (!daily) return 'As needed';
-    const days = Math.floor(count / daily);
-    return `${_formatDailyUsage(daily)} · lasts ${days} day${days === 1 ? '' : 's'}`;
+    const parts = [];
+    if (count > 0) parts.push(`${count} left`);
+    if (!daily) parts.push('As needed');
+    else if (count > 0) {
+        const days = Math.floor(count / daily);
+        parts.push(`lasts ${days} day${days === 1 ? '' : 's'}`);
+    }
+    return parts.join(' · ');
 }
 
-// out (danger) → low (warn) → ok.
-function _stockRank(med) {
-    const state = formatStock(med.inventory_count, med).state;
-    return state === 'danger' ? 0 : state === 'warn' ? 1 : 2;
+// Sheet summary after "App has N": " · 2 a day · lasts 8 days".
+function _stockUsage(med) {
+    const daily = calculateDailyUsage(med);
+    if (!daily) return ' · as needed';
+    const days = Math.max(0, Math.floor(med.inventory_count / daily));
+    return ` · ${_formatDailyUsage(daily)} · lasts ${days} day${days === 1 ? '' : 's'}`;
 }
 
-// Optimistic restock: bump the cached + in-memory count, POST the existing
-// route, then commit (keeping the server's count) or roll back. The card is
-// only repainted in place while the POST is in flight, so withSubmit's
-// disabled button keeps guarding against a second (non-idempotent) restock.
-async function _refillMed(med, qty, btn) {
-    const id = med.id;
-    const before = med.inventory_count;
-    const setCount = (list, count) => (Array.isArray(list)
-        ? list.map((m) => (m && m.id === id ? { ...m, inventory_count: count } : m))
-        : list);
-    await withSubmit(btn, async () => {
-        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
-            ? await window.DataStore.applyOptimistic('medications', (prev) => setCount(prev, before + qty), ['medications'])
-            : null;
-        medications = setCount(medications, before + qty);
-        const countEl = btn.closest('.wg-meds-stock__card')?.querySelector('.wg-meds-stock__count');
-        if (countEl && countEl.firstChild) countEl.firstChild.textContent = String(Math.max(0, before + qty));
-
-        let res = null;
-        try {
-            res = await apiCall(`/api/medications/${id}/restock`, 'POST', { quantity: qty });
-        } catch (_) { res = null; }
-        if (!res) {
-            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-            medications = setCount(medications, before);
-            renderInventory();
-            return;
-        }
-        if (typeof res.inventory_count === 'number' && res.inventory_count !== before + qty) {
-            medications = setCount(medications, res.inventory_count);
-            if (handle) { try { await handle.commit(medications); } catch (_) { /* best-effort */ } }
-        } else if (handle) {
-            try { await handle.commit(null); } catch (_) { /* best-effort */ }
-        }
-        renderInventory();
+// Out (with "N over" when negative) or Low; none when fine.
+function _stockChip(med) {
+    const stock = formatStock(med.inventory_count, med);
+    if (stock.state === 'ok') return null;
+    const chip = window.WGChip.create({
+        text: stock.state === 'danger' ? stock.label : 'Low',
+        state: stock.state,
+        small: true,
+        icon: stock.state === 'warn' ? 'alert' : undefined,
     });
+    chip.classList.add('wg-meds-stock__chip');
+    return chip;
 }
 
-// The inline refill panel: preset picks + an "Other" stepper; the primary
-// previews the resulting total.
-function _buildRefillPanel(med, onCancel) {
-    const panel = _medsEl('div', 'wg-vstack wg-meds-stock__refill');
-    panel.hidden = true;
-    panel.appendChild(_medsEl('span', 'wg-label', 'Refill · doses'));
+function _buildStockRow(med) {
+    const row = _medsEl('div', 'wg-row wg-meds-stock__row');
+    row.dataset.medId = String(med.id);
+    row.dataset.stock = formatStock(med.inventory_count, med).state;
+    const lead = _medsEl('span', 'wg-row__lead');
+    lead.appendChild(_medsIcon('pill'));
+    const body = _medsEl('span', 'wg-row__body');
+    body.appendChild(_medsEl('span', 'wg-row__title wg-meds-stock__name', med.dosage ? `${med.name} · ${med.dosage}` : med.name));
+    const meta = _medsEl('span', 'wg-row__meta wg-meds-stock__meta', _stockMeta(med));
+    const chip = _stockChip(med);
+    if (chip) meta.appendChild(chip);
+    body.appendChild(meta);
+    const trail = _medsEl('span', 'wg-row__trail');
+    const update = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-stock__update', 'Update');
+    update.type = 'button';
+    update.addEventListener('click', () => openStockSheet(med));
+    trail.appendChild(update);
+    row.append(lead, body, trail);
+    return row;
+}
 
+// The medication after a stock write: the new count, and the ledger the
+// sheet's history reads.
+function _stockAfter(med, mode, value, count) {
+    const at = new Date().toISOString();
+    const prev = med.stock || { counted: med.inventory_count, counted_at: null, seed: true, refills: [], taken: 0 };
+    const stock = mode === 'counted'
+        ? { counted: value, counted_at: at, seed: false, refills: [], taken: 0 }
+        : { ...prev, refills: [{ n: value, at }, ...(prev.refills || [])] };
+    return { ...med, inventory_count: count, stock };
+}
+
+// Optimistic stock write (CLAUDE.md rule 9): patch the cached + in-memory med,
+// POST the ledger route (Added → /restock, Counted → /stock-audit), then
+// commit with the domain's derived count or roll back. Resolves the updated
+// med, or null when the write failed.
+async function _writeStock(med, mode, value) {
+    const before = (Array.isArray(medications) ? medications : []).find((m) => m && m.id === med.id) || med;
+    const expected = mode === 'counted' ? value : before.inventory_count + value;
+    const patch = (list, next) => (Array.isArray(list) ? list.map((m) => (m && m.id === med.id ? next(m) : m)) : list);
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('medications', (prev) => patch(prev, (m) => _stockAfter(m, mode, value, expected)), ['medications'])
+        : null;
+    medications = patch(medications, (m) => _stockAfter(m, mode, value, expected));
+    let res = null;
+    try {
+        res = mode === 'counted'
+            ? await apiCall(`/api/medications/${med.id}/stock-audit`, 'POST', { count: value })
+            : await apiCall(`/api/medications/${med.id}/restock`, 'POST', { quantity: value });
+    } catch (_) { res = null; }
+    if (!res) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        medications = patch(medications, () => before);
+        renderInventory();
+        return null;
+    }
+    if (typeof res.inventory_count === 'number' && res.inventory_count !== expected) {
+        medications = patch(medications, (m) => ({ ...m, inventory_count: res.inventory_count }));
+        if (handle) { try { await handle.commit(medications); } catch (_) { /* best-effort */ } }
+    } else if (handle) {
+        try { await handle.commit(null); } catch (_) { /* best-effort */ }
+    }
+    renderInventory();
+    return medications.find((m) => m && m.id === med.id) || null;
+}
+
+// The read-only ledger under the form (ST3), newest first: doses taken since
+// the starting point as one summary row, the refills, then the starting point.
+function _buildStockHistory(med) {
+    const s = med.stock;
+    const section = _medsEl('section', 'wg-section wg-meds-stock__history');
+    const head = _medsEl('div', 'wg-section__head');
+    head.append(_medsEl('span', 'wg-eyebrow', 'History'), _medsEl('span', 'wg-meta', 'newest first'));
+    const list = _medsEl('div', 'wg-list');
+    const row = (icon, title, meta) => {
+        const r = _medsEl('div', 'wg-row wg-row--pad');
+        const lead = _medsEl('span', 'wg-row__lead');
+        lead.appendChild(_medsIcon(icon));
+        const body = _medsEl('span', 'wg-row__body');
+        body.append(_medsEl('span', 'wg-row__title', title), _medsEl('span', 'wg-row__meta', meta));
+        r.append(lead, body);
+        list.appendChild(r);
+    };
+    const since = s.counted_at ? _stockDay(s.counted_at) : '';
+    if (s.taken > 0) {
+        const daily = calculateDailyUsage(med);
+        row('pill', since ? `−${s.taken} taken since ${since}` : `−${s.taken} taken`,
+            daily ? `${_formatDailyUsage(daily)} · from the dose log` : 'From the dose log');
+    }
+    (s.refills || []).forEach((f) => row('box', `+${f.n} · ${_stockDay(f.at)}`, 'Added'));
+    const start = s.seed ? `${s.counted} in stock` : `Counted ${s.counted}`;
+    row('check', since ? `${start} · ${since}` : start, "Starting point for today's number");
+    section.append(head, list, _medsEl('p', 'wg-hint', "Something wrong? Add a new count. History isn't edited."));
+    return section;
+}
+
+// The Update stock sheet (kit ST1–ST3): one sheet, an Added | Counted switch
+// (Added is the default). Added: "+1 pack (N)" first when the med has a pack
+// size, presets +30/+60/+90 and a stepper for any other amount — one value;
+// the primary previews "Add 30 → 47". Counted: the stepper prefilled with the
+// app's number, the primary says "Set to 45 (app had 47)". opts.onDone(med)
+// runs after a write landed (the editor repaints its stock row).
+let _stockSheetClose = null; // module-state: closer of the one open Update stock sheet, so a reopen replaces it
+function openStockSheet(med, opts = {}) {
+    if (_stockSheetClose) _stockSheetClose();
+    const modal = _medsEl('mt-modal', 'wg-modal wg-sheet wg-meds-stocksheet');
+    modal.id = 'stock-sheet';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    const backdrop = _medsEl('div', 'mt-confirm-backdrop wg-sheet-backdrop');
+    const head = window.WGSheet.header({
+        eyebrow: med.dosage ? `${med.name} · ${med.dosage}` : med.name,
+        title: 'Update stock',
+        actions: [{ label: 'Close', icon: 'x' }],
+    });
+
+    const body = _medsEl('div', 'wg-sheet__body');
+    const seg = _medsEl('div', 'wg-seg wg-seg--accent wg-meds-stocksheet__mode');
+    const modeBtn = (mode, label) => {
+        const b = _medsEl('button', 'wg-seg__opt', label);
+        b.type = 'button';
+        b.dataset.mode = mode;
+        seg.appendChild(b);
+        return b;
+    };
+    const addedBtn = modeBtn('added', 'Added');
+    const countedBtn = modeBtn('counted', 'Counted');
+
+    const summary = _medsEl('div', 'wg-hstack');
+    const has = _medsEl('span', 'wg-meta wg-meds-stocksheet__has');
+    has.append('App has ', _medsEl('b', 'wg-dim', String(med.inventory_count)), _stockUsage(med));
+    summary.append(has, _medsEl('span', 'wg-spacer'));
+    const chip = _stockChip(med);
+    if (chip) summary.appendChild(chip);
+
+    const picksField = _medsEl('div', 'wg-field');
+    picksField.appendChild(_medsEl('span', 'wg-label', 'How many did you get?'));
     const picks = _medsEl('div', 'wg-picks');
-    const stepper = _medsEl('div', 'wg-stepper wg-meds-stock__stepper');
-    stepper.hidden = true;
+    picks.setAttribute('data-single', '');
+    const presets = [...(med.pack_size ? [{ value: med.pack_size, pack: true }] : []), ...MEDS_REFILL_PRESETS.map((value) => ({ value }))];
+    presets.forEach((p) => {
+        const pick = _medsEl('button', 'wg-pick wg-meds-stocksheet__pick');
+        pick.type = 'button';
+        pick.dataset.qty = String(p.value);
+        if (p.pack) {
+            pick.dataset.pack = '';
+            pick.append(_medsIcon('box', 'wg-ico--sm'), '+1 pack ', _medsEl('small', '', `(${p.value})`));
+        } else {
+            pick.textContent = `+${p.value}`;
+        }
+        picks.appendChild(pick);
+    });
+    picksField.appendChild(picks);
+
+    const stepField = _medsEl('div', 'wg-field');
+    const stepLabel = _medsEl('span', 'wg-label');
+    const stepper = _medsEl('div', 'wg-stepper');
     const minus = _medsEl('button', 'wg-stepper__btn');
     minus.type = 'button';
     minus.setAttribute('aria-label', 'Decrease');
     minus.appendChild(_medsIcon('minus'));
+    // The value is the input itself, as in the editor's steppers
+    // (input.wg-stepper__val: centred, no native spin buttons).
     const input = _medsEl('input', 'wg-stepper__val wg-meds-stock__qty');
     input.type = 'number';
-    input.min = '1';
+    input.min = '0';
     input.inputMode = 'numeric';
-    input.setAttribute('aria-label', 'Doses to add');
+    input.setAttribute('aria-label', 'Doses');
     const plus = _medsEl('button', 'wg-stepper__btn');
     plus.type = 'button';
     plus.setAttribute('aria-label', 'Increase');
     plus.appendChild(_medsIcon('plus'));
     stepper.append(minus, input, plus);
+    stepField.append(stepLabel, stepper);
 
-    const foot = _medsEl('div', 'wg-card__foot');
-    const cancel = _medsEl('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-meds-stock__cancel', 'Cancel');
-    cancel.type = 'button';
-    const confirm = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-stock__confirm');
-    confirm.type = 'button';
-    foot.append(cancel, confirm);
+    const hint = _medsEl('p', 'wg-hint', "Count what's in the pack. Doses you log from now on are taken off this number.");
+    body.append(seg, summary, picksField, stepField, hint);
+    if (med.stock) body.appendChild(_buildStockHistory(med));
 
-    let qty = MEDS_REFILL_PRESETS[0];
+    const foot = _medsEl('div', 'wg-sheet__foot');
+    const primary = _medsEl('button', 'wg-btn wg-btn--primary wg-meds-stocksheet__save');
+    primary.type = 'button';
+    foot.appendChild(primary);
+    modal.append(_medsEl('div', 'wg-sheet__grab'), head.el, body, foot);
+
+    let mode = 'added';
+    const value = { added: MEDS_REFILL_PRESETS[0], counted: Math.max(0, med.inventory_count) };
+    const valid = () => Number.isInteger(value[mode]) && (mode === 'counted' ? value[mode] >= 0 : value[mode] > 0);
     const paint = () => {
-        const valid = Number.isInteger(qty) && qty > 0;
-        confirm.disabled = !valid || confirm.hasAttribute('data-submit-in-flight');
-        confirm.textContent = valid ? `Add ${qty} → ${med.inventory_count + qty}` : 'Add';
+        addedBtn.setAttribute('aria-pressed', String(mode === 'added'));
+        countedBtn.setAttribute('aria-pressed', String(mode === 'counted'));
+        picksField.hidden = mode !== 'added';
+        hint.hidden = mode !== 'counted';
+        stepLabel.textContent = mode === 'added' ? 'Other amount' : 'How many do you have now?';
+        if (document.activeElement !== input) input.value = Number.isInteger(value[mode]) ? String(value[mode]) : '';
+        // One value: the chip matching the amount is pressed (the pack chip
+        // wins a tie with an equal preset).
+        const pressed = presets.findIndex((x) => x.value === value.added);
+        picks.querySelectorAll('.wg-pick').forEach((p, i) => p.setAttribute('aria-pressed', String(i === pressed)));
+        const v = value[mode];
+        if (!valid()) primary.textContent = mode === 'added' ? 'Add' : 'Set';
+        else if (mode === 'added') primary.textContent = `Add ${v} → ${med.inventory_count + v}`;
+        else primary.textContent = `Set to ${v} (app had ${med.inventory_count})`;
+        primary.disabled = !valid() || primary.hasAttribute('data-submit-in-flight');
     };
-    const choose = (pick, value) => {
-        picks.querySelectorAll('.wg-pick').forEach((p) => p.setAttribute('aria-pressed', p === pick ? 'true' : 'false'));
-        stepper.hidden = value !== null;
-        if (value === null) {
-            input.value = String(qty);
-            try { input.focus(); } catch (_) { /* jsdom */ }
-        } else {
-            qty = value;
-        }
+    addedBtn.addEventListener('click', () => { mode = 'added'; paint(); });
+    countedBtn.addEventListener('click', () => { mode = 'counted'; paint(); });
+    picks.querySelectorAll('.wg-pick').forEach((p) => p.addEventListener('click', () => {
+        value.added = Number(p.dataset.qty);
         paint();
-    };
-    [...MEDS_REFILL_PRESETS, null].forEach((value, i) => {
-        const pick = _medsEl('button', 'wg-pick', value === null ? 'Other' : `+${value}`);
-        pick.type = 'button';
-        pick.dataset.qty = value === null ? 'other' : String(value);
-        pick.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
-        pick.addEventListener('click', () => choose(pick, value));
-        picks.appendChild(pick);
-    });
-    const step = (delta) => {
-        qty = Math.max(1, (parseInt(input.value, 10) || 0) + delta);
-        input.value = String(qty);
+    }));
+    const step = (d) => {
+        const cur = Number.isInteger(value[mode]) ? value[mode] : 0;
+        value[mode] = Math.max(mode === 'added' ? 1 : 0, cur + d);
         paint();
     };
     minus.addEventListener('click', () => step(-1));
     plus.addEventListener('click', () => step(1));
     input.addEventListener('input', () => {
-        qty = parseInt(input.value, 10);
+        value[mode] = input.value === '' ? NaN : Number(input.value);
         paint();
     });
-    cancel.addEventListener('click', onCancel);
-    confirm.addEventListener('click', () => {
-        if (Number.isInteger(qty) && qty > 0) _refillMed(med, qty, confirm);
-    });
 
-    panel.append(picks, stepper, foot);
-    paint();
-    return panel;
-}
-
-function _buildInventoryCard(med) {
-    const stock = formatStock(med.inventory_count, med);
-    const card = _medsEl('div', 'wg-card wg-meds-stock__card');
-    if (stock.state === 'danger') card.classList.add('wg-card--danger');
-    card.dataset.medId = String(med.id);
-    card.dataset.stock = stock.state;
-
-    const head = _medsEl('div', 'wg-card__head');
-    const titles = _medsEl('span', 'wg-vstack');
-    titles.appendChild(_medsEl('span', 'wg-card__title wg-meds-stock__name',
-        med.dosage ? `${med.name} · ${med.dosage}` : med.name));
-    titles.appendChild(_medsEl('span', 'wg-meta wg-meds-stock__meta', _stockMeta(med)));
-    const refilled = _medsEl('span', 'wg-meta wg-meds-stock__refilled');
-    refilled.hidden = true;
-    titles.appendChild(refilled);
-    head.appendChild(titles);
-    if (stock.state !== 'ok') {
-        const chip = window.WGChip.create({ text: stock.state === 'danger' ? 'Out' : 'Low', state: stock.state });
-        chip.classList.add('wg-meds-stock__chip');
-        head.appendChild(chip);
+    function close() {
+        if (_stockSheetClose !== close) return false;
+        _stockSheetClose = null;
+        window.ModalManager.close(modal.id);
+        window.ModalManager.register(modal.id, null);
+        modal.remove();
+        backdrop.remove();
+        return true;
     }
-    card.appendChild(head);
+    primary.addEventListener('click', () => withSubmit(primary, async () => {
+        if (!valid()) return;
+        const updated = await _writeStock(med, mode, value[mode]);
+        if (!updated) {
+            safeToast("Stock wasn't updated. Try again.", 'error');
+            return;
+        }
+        close();
+        if (typeof opts.onDone === 'function') opts.onDone(updated);
+    }));
+    head.buttons[0].addEventListener('click', close);
+    backdrop.addEventListener('click', close);
 
-    const row = _medsEl('div', 'wg-hstack');
-    const count = _medsEl('span', 'wg-stat__value wg-meds-stock__count', String(Math.max(0, med.inventory_count)));
-    count.appendChild(_medsEl('small', '', 'doses'));
-    row.appendChild(count);
-    row.appendChild(_medsEl('span', 'wg-spacer'));
-    const refillBtn = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-stock__refill-btn');
-    refillBtn.type = 'button';
-    refillBtn.appendChild(_medsIcon('box', 'wg-ico--sm'));
-    refillBtn.appendChild(document.createTextNode('Refill'));
-    row.appendChild(refillBtn);
-    card.appendChild(row);
-
-    const panel = _buildRefillPanel(med, () => {
-        panel.hidden = true;
-        refillBtn.hidden = false;
-    });
-    card.appendChild(panel);
-    refillBtn.addEventListener('click', () => {
-        panel.hidden = false;
-        refillBtn.hidden = true;
-    });
-
-    return card;
+    _stockSheetClose = close;
+    document.body.append(backdrop, modal);
+    window.ModalManager.register(modal.id, close);
+    window.ModalManager.open(modal.id);
+    paint();
+    return close;
 }
 
 function renderInventory() {
@@ -1536,7 +1610,7 @@ function renderInventory() {
 
     const tracked = (Array.isArray(medications) ? medications : [])
         .filter((m) => m && m.inventory_count !== null && m.inventory_count !== undefined)
-        .sort((a, b) => _stockRank(a) - _stockRank(b) || (a.name || '').localeCompare(b.name || ''));
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     if (tracked.length === 0) {
         list.appendChild(createEmptyState({
@@ -1548,22 +1622,12 @@ function renderInventory() {
         return;
     }
 
-    tracked.forEach((med) => {
-        const card = _buildInventoryCard(med);
-        list.appendChild(card);
-        // Kick off the last-refilled fetch; fill the line in-place when it
-        // resolves so the rest of the card paints immediately. If the card
-        // has been detached (e.g. another render supplanted it), drop the
-        // update — its querySelector would silently target a stale node.
-        _fetchLastRefilledAt(med.id).then((iso) => {
-            if (!card.isConnected) return;
-            const line = card.querySelector('.wg-meds-stock__refilled');
-            const formatted = _formatRestockedDate(iso);
-            if (!line || !formatted) return;
-            line.textContent = `Last refilled ${formatted}`;
-            line.hidden = false;
-        });
-    });
+    // Problems first: out (danger) before low (warn), then the rest by name.
+    const rank = (m) => ({ danger: 0, warn: 1 })[formatStock(m.inventory_count, m).state] ?? 2;
+    const attention = tracked.filter((m) => rank(m) < 2).sort((a, b) => rank(a) - rank(b));
+    const fine = tracked.filter((m) => rank(m) === 2);
+    if (attention.length) list.appendChild(_buildMedsBucket('Needs attention', { rows: attention.map(_buildStockRow) }));
+    if (fine.length) list.appendChild(_buildMedsBucket('Fine', { rows: fine.map(_buildStockRow) }));
     syncMedsAddButton();
 }
 
@@ -1741,6 +1805,7 @@ async function saveMedication() {
         start_date: startDateRaw ? new Date(startDateRaw).toISOString() : null,
         end_date: endDateRaw ? new Date(endDateRaw).toISOString() : null,
         inventory_count: inventoryCount,
+        pack_size: trackInventory ? (parseInt(document.getElementById('med-pack-size').value, 10) || null) : null,
         tz_shift_policy: tzShiftPolicy
     };
 
@@ -1763,6 +1828,7 @@ async function saveMedication() {
             start_date: payload.start_date,
             end_date: payload.end_date,
             inventory_count: payload.inventory_count,
+            pack_size: payload.pack_size || undefined,
             tz_shift_policy: payload.tz_shift_policy,
             _optimistic: true
         };

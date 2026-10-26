@@ -118,6 +118,27 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(() => vaultToRecords(bad, { now: NOW })).toThrow(/Corrupt backup/);
   });
 
+  // bd med-wi09.13: the stock ledger keeps its ids (a seed's names its body)
+  // and pack_size rides on the medication; a file without them imports none.
+  it('carries the stock ledger by id and pack_size; older files import without it (med-wi09.13)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const stock = records.filter((r) => r.recordType === 'stock');
+    expect(stock.map((r) => r.recordId)).toEqual(fixture.data.medications.stock.map((s) => s.id));
+    expect(stock[0]).toMatchObject({ kind: 'audit', count: 28, seed: true });
+    expect(stock[1]).toMatchObject({ kind: 'refill', n: 28 });
+    expect(records.find((r) => r.recordType === 'medication').pack_size).toBe(28);
+
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.medications.stock;
+    const legacyRecords = vaultToRecords(legacy, { now: NOW });
+    expect(legacyRecords.some((r) => r.recordType === 'stock')).toBe(false);
+    expect('stock' in recordsToVault(legacyRecords, { now: NOW }).data.medications).toBe(false);
+
+    const bad = JSON.parse(JSON.stringify(fixture));
+    bad.data.medications.stock[0].id = 'medication';
+    expect(() => vaultToRecords(bad, { now: NOW })).toThrow(/Corrupt backup/);
+  });
+
   // bd med-ta2n.4: a restored backup remembers its last backup and dismissals;
   // a file without the block leaves this device's state alone.
   it('carries the W4 protection state; an older file imports none and keeps the destination record', () => {
@@ -311,6 +332,9 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       // And the schedule / zone history (med-wi09.9).
       delete d.medications.schedules;
       delete d.tz.transitions;
+      // And the stock ledger + pack size (med-wi09.13).
+      delete d.medications.stock;
+      for (const m of d.medications.items) delete m.pack_size;
       // Gyms are cloud-only too (med-8j5w.1): the locations list, the
       // active-gym singleton and the per-session stamp.
       if (d.workouts) {
