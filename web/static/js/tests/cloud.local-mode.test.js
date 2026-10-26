@@ -138,7 +138,9 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
             medication_id: med.id, taken_at: new Date(Date.now() - HOUR).toISOString(),
         });
         expect(intake.status).toBe('TAKEN');
-        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
+        // Stock ledger (med-wi09.13): the starting count is an audit stamped at
+        // creation, so a dose dated an hour before it is already inside it.
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
         const editedAt = new Date(Date.now() - HOUR / 2).toISOString();
         const upd = await window.apiCall('/api/intakes/update', 'POST', {
             updates: [{ id: intake.id, status: 'TAKEN', taken_at: editedAt }],

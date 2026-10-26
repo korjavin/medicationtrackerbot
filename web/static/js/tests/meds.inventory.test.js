@@ -1,22 +1,24 @@
-// Meds Stock sub-tab (kit v2 M3, med-xso6.18; Phase 5 Task 6 before it).
+// Meds Stock sub-tab (kit v2 ST4) and the Update stock sheet (ST1–ST3),
+// bd med-wi09.13.
 //
-// Exercises renderInventory(): one `.wg-card.wg-meds-stock__card` per
-// medication that tracks inventory, out/low first, a "N a day · lasts N days"
-// meta line, Out/Low chips, the last-refilled line from
-// `/api/medications/{id}/restocks`, and the Refill panel (preset `.wg-pick`
-// chips + an "Other" stepper; the primary previews "Add N → total") writing
-// through DataStore.applyOptimistic on the existing `/restock` route.
+// Exercises renderInventory(): one `.wg-row.wg-meds-stock__row` per
+// medication that tracks inventory, problems first under "Needs attention",
+// "N left · lasts N days" meta, Out (· N over) / Low chips and one Update
+// action that opens the sheet. The sheet: an Added | Counted switch, "+1 pack
+// (N)" only with a pack size, presets + stepper as one value, the primary
+// previewing the result, a read-only history, and writes through
+// DataStore.applyOptimistic on /restock (Added) and /stock-audit (Counted).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 const DAILY = JSON.stringify({ type: 'daily', times: ['08:00'] });
+const TWICE = JSON.stringify({ type: 'daily', times: ['08:00', '20:00'] });
 
 async function seedMedications(window, meds) {
     window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh(meds);
     });
-    // Baseline apiCall stub; individual tests override with specific behavior.
     window.apiCall = vi.fn().mockResolvedValue([]);
     await window.loadMeds();
 }
@@ -27,9 +29,12 @@ async function flushMicrotasks() {
     for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
-const cardOf = (document, id) => document.querySelector(`.wg-meds-stock__card[data-med-id="${id}"]`);
+const rowOf = (document, id) => document.querySelector(`.wg-meds-stock__row[data-med-id="${id}"]`);
+const sheet = (document) => document.getElementById('stock-sheet');
+const primary = (document) => sheet(document).querySelector('.wg-meds-stocksheet__save');
+const picks = (document) => Array.from(sheet(document).querySelectorAll('.wg-pick'));
 
-describe('Meds Stock sub-tab (kit v2 M3)', () => {
+describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () => {
     let env;
 
     beforeEach(() => {
@@ -45,7 +50,6 @@ describe('Meds Stock sub-tab (kit v2 M3)', () => {
     it('the sub-tab reads "Stock" but keeps the inventory tab id', () => {
         const { document } = env;
         const tab = document.querySelector('#med-subtabs .med-tab[data-tab="inventory"]');
-        expect(tab).not.toBeNull();
         expect(tab.textContent.trim()).toBe('Stock');
         expect(document.getElementById('med-inventory-tab')).not.toBeNull();
     });
@@ -56,219 +60,166 @@ describe('Meds Stock sub-tab (kit v2 M3)', () => {
             { id: 1, name: 'Allopurinol', dosage: '100mg', schedule: DAILY, archived: false, inventory_count: null }
         ]);
         window.renderInventory();
-
         const list = document.getElementById('med-inventory-list');
-        expect(list.classList.contains('wg-meds-stock')).toBe(true);
-        const empty = list.querySelector('.wg-empty');
-        expect(empty).not.toBeNull();
-        expect(empty.textContent).toMatch(/no inventory tracked/i);
-        expect(list.querySelector('.wg-meds-stock__card')).toBeNull();
+        expect(list.querySelector('.wg-empty').textContent).toMatch(/no inventory tracked/i);
+        expect(list.querySelector('.wg-meds-stock__row')).toBeNull();
     });
 
-    it('sorts out → low → ok (then by name) and shows Out / Low chips', async () => {
+    it('problems first under "Needs attention" (out, then low), the rest under "Fine", one Update each', async () => {
         const { window, document } = env;
         await seedMedications(window, [
             { id: 1, name: 'Allopurinol', dosage: '100mg', schedule: DAILY, archived: false, inventory_count: 60 },
             { id: 2, name: 'Bisoprolol', dosage: '5mg', schedule: DAILY, archived: false, inventory_count: 3 },
-            { id: 3, name: 'Candesartan', dosage: '8mg', schedule: DAILY, archived: false, inventory_count: 0 },
+            { id: 3, name: 'Ibuprofen', dosage: '400mg', schedule: JSON.stringify({ type: 'as_needed' }), archived: false, inventory_count: -17 },
             { id: 4, name: 'Metformin', dosage: '500mg', schedule: DAILY, archived: false, inventory_count: null }
         ]);
         window.renderInventory();
 
-        const cards = Array.from(document.querySelectorAll('.wg-meds-stock__card'));
-        expect(cards.map((c) => c.dataset.medId)).toEqual(['3', '2', '1']);
-        expect(cards.map((c) => c.dataset.stock)).toEqual(['danger', 'warn', 'ok']);
-        cards.forEach((c) => expect(c.classList.contains('wg-card')).toBe(true));
-        expect(cards[0].classList.contains('wg-card--danger')).toBe(true);
+        const sections = Array.from(document.querySelectorAll('#med-inventory-list .wg-section'));
+        expect(sections.map((s) => s.querySelector('.wg-eyebrow').textContent)).toEqual(['Needs attention', 'Fine']);
+        expect(Array.from(sections[0].querySelectorAll('.wg-meds-stock__row')).map((r) => r.dataset.medId)).toEqual(['3', '2']);
+        expect(Array.from(sections[1].querySelectorAll('.wg-meds-stock__row')).map((r) => r.dataset.medId)).toEqual(['1']);
 
-        const chip = (c) => c.querySelector('.wg-meds-stock__chip');
-        expect(chip(cards[0]).textContent).toBe('Out');
-        expect(chip(cards[0]).classList.contains('wg-chip--danger')).toBe(true);
-        expect(chip(cards[1]).textContent).toBe('Low');
-        expect(chip(cards[1]).classList.contains('wg-chip--warn')).toBe(true);
-        expect(chip(cards[2])).toBeNull();
+        const chip = (id) => rowOf(document, id).querySelector('.wg-meds-stock__chip');
+        expect(chip('3').textContent).toBe('Out · 17 over');
+        expect(chip('3').classList.contains('wg-chip--danger')).toBe(true);
+        expect(chip('2').textContent).toBe('Low');
+        expect(chip('2').classList.contains('wg-chip--warn')).toBe(true);
+        expect(chip('1')).toBeNull();
 
-        expect(cards[2].querySelector('.wg-meds-stock__name').textContent).toBe('Allopurinol · 100mg');
-        const count = cards[2].querySelector('.wg-meds-stock__count');
-        expect(count.classList.contains('wg-stat__value')).toBe(true);
-        expect(count.textContent).toBe('60doses');
+        expect(rowOf(document, '1').querySelector('.wg-meds-stock__name').textContent).toBe('Allopurinol · 100mg');
+        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('60 left · lasts 60 days');
+        expect(rowOf(document, '3').querySelector('.wg-meds-stock__meta').textContent).toBe('As neededOut · 17 over');
+        document.querySelectorAll('.wg-meds-stock__row').forEach((r) => {
+            expect(r.querySelector('.wg-meds-stock__update').textContent).toBe('Update');
+        });
     });
 
-    it('meta line reads usage and how long the stock lasts', async () => {
+    it('Update opens the sheet on Added: presets without a pack size, +30 preselected, "Add 30 → 47"; the stepper is the same value', async () => {
         const { window, document } = env;
         await seedMedications(window, [
-            { id: 1, name: 'Aspirin', schedule: JSON.stringify({ type: 'daily', times: ['08:00', '20:00'] }), archived: false, inventory_count: 20 },
-            { id: 2, name: 'Vitamin D', schedule: DAILY, archived: false, inventory_count: 1 },
-            { id: 3, name: 'Ibuprofen', schedule: JSON.stringify({ type: 'as_needed' }), archived: false, inventory_count: 12 }
+            { id: 1, name: 'Metformin', dosage: '1000mg', schedule: TWICE, archived: false, inventory_count: 17 }
         ]);
         window.renderInventory();
-        const meta = (id) => cardOf(document, id).querySelector('.wg-meds-stock__meta').textContent;
-        expect(meta('1')).toBe('2 a day · lasts 10 days');
-        expect(meta('2')).toBe('1 a day · lasts 1 day');
-        expect(meta('3')).toBe('As needed');
-    });
+        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
 
-    it('negative stock shows 0 doses and how many doses were logged beyond stock', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Aspirin', dosage: '100mg', schedule: DAILY, archived: false, inventory_count: -17 }
-        ]);
-        window.renderInventory();
-        const card = cardOf(document, '1');
-        expect(card.querySelector('.wg-meds-stock__count').firstChild.textContent).toBe('0');
-        expect(card.querySelector('.wg-meds-stock__meta').textContent).toBe('Logged 17 doses beyond stock');
-        expect(card.querySelector('.wg-meds-stock__chip').textContent).toBe('Out');
-    });
+        const s = sheet(document);
+        expect(s.querySelector('.wg-sheethead__title').textContent).toBe('Update stock');
+        expect(s.querySelector('.wg-eyebrow').textContent).toBe('Metformin · 1000mg');
+        expect(s.querySelector('.wg-seg--accent [data-mode="added"]').getAttribute('aria-pressed')).toBe('true');
+        expect(s.querySelector('.wg-meds-stocksheet__has').textContent).toBe('App has 17 · 2 a day · lasts 8 days');
+        expect(picks(document).map((p) => p.textContent)).toEqual(['+30', '+60', '+90']);
+        expect(picks(document)[0].getAttribute('aria-pressed')).toBe('true');
+        expect(primary(document).textContent).toBe('Add 30 → 47');
 
-    it('shows "Last refilled" from the newest /restocks row; stays hidden without one', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 },
-            { id: 2, name: 'Bisoprolol', schedule: DAILY, archived: false, inventory_count: 60 }
-        ]);
-        window.apiCall = vi.fn(async (endpoint) => (endpoint === '/api/medications/1/restocks'
-            ? [
-                { id: 10, medication_id: 1, quantity: 30, restocked_at: '2026-04-10T12:00:00Z' },
-                { id: 11, medication_id: 1, quantity: 60, restocked_at: '2026-04-18T12:00:00Z' }
-            ]
-            : []));
-        window.renderInventory();
-
-        const refilled1 = cardOf(document, '1').querySelector('.wg-meds-stock__refilled');
-        expect(refilled1.hidden).toBe(true);
-        await flushMicrotasks();
-
-        expect(window.apiCall).toHaveBeenCalledWith('/api/medications/1/restocks');
-        expect(refilled1.hidden).toBe(false);
-        expect(refilled1.textContent).toMatch(/^Last refilled \S/);
-        expect(cardOf(document, '2').querySelector('.wg-meds-stock__refilled').hidden).toBe(true);
-    });
-
-    it('Refill opens preset picks (+30 default); picking updates the "Add N → total" primary; Other shows the stepper', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 17 }
-        ]);
-        window.renderInventory();
-
-        const card = cardOf(document, '1');
-        const refillBtn = card.querySelector('.wg-meds-stock__refill-btn');
-        const panel = card.querySelector('.wg-meds-stock__refill');
-        const confirm = panel.querySelector('.wg-meds-stock__confirm');
-        expect(panel.hidden).toBe(true);
-
-        refillBtn.click();
-        expect(panel.hidden).toBe(false);
-        expect(refillBtn.hidden).toBe(true);
-
-        const picks = Array.from(panel.querySelectorAll('.wg-picks .wg-pick'));
-        expect(picks.map((p) => p.textContent)).toEqual(['+30', '+60', '+90', 'Other']);
-        expect(picks[0].getAttribute('aria-pressed')).toBe('true');
-        expect(confirm.textContent).toBe('Add 30 → 47');
-
-        picks[1].click();
-        expect(picks[1].getAttribute('aria-pressed')).toBe('true');
-        expect(picks[0].getAttribute('aria-pressed')).toBe('false');
-        expect(confirm.textContent).toBe('Add 60 → 77');
-
-        const stepper = panel.querySelector('.wg-meds-stock__stepper');
-        expect(stepper.hidden).toBe(true);
-        picks[3].click();
-        expect(stepper.hidden).toBe(false);
-        const input = stepper.querySelector('.wg-meds-stock__qty');
+        picks(document)[1].click();
+        expect(primary(document).textContent).toBe('Add 60 → 77');
+        const input = s.querySelector('.wg-meds-stock__qty');
         expect(input.value).toBe('60');
-        stepper.querySelector('[aria-label="Increase"]').click();
-        expect(confirm.textContent).toBe('Add 61 → 78');
+        s.querySelector('[aria-label="Increase"]').click();
+        expect(primary(document).textContent).toBe('Add 61 → 78');
+        expect(picks(document).some((p) => p.getAttribute('aria-pressed') === 'true')).toBe(false);
 
         input.value = '0';
         input.dispatchEvent(new window.Event('input'));
-        expect(confirm.disabled).toBe(true);
+        expect(primary(document).disabled).toBe(true);
 
-        panel.querySelector('.wg-meds-stock__cancel').click();
-        expect(panel.hidden).toBe(true);
-        expect(refillBtn.hidden).toBe(false);
+        s.querySelector('.wg-sheethead .wg-btn').click();
+        expect(sheet(document)).toBeNull();
     });
 
-    it('confirm writes optimistically, POSTs the existing /restock route, and commits', async () => {
+    it('a pack size adds "+1 pack (N)" first (ST1)', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [
+            { id: 1, name: 'Metformin', schedule: TWICE, archived: false, inventory_count: 17, pack_size: 28 }
+        ]);
+        window.renderInventory();
+        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        expect(picks(document).map((p) => p.textContent)).toEqual(['+1 pack (28)', '+30', '+60', '+90']);
+        picks(document)[0].click();
+        expect(primary(document).textContent).toBe('Add 28 → 45');
+    });
+
+    it('Counted prefills the app\'s number and says what it replaces (ST2), then POSTs /stock-audit', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [
+            { id: 1, name: 'Metformin', schedule: TWICE, archived: false, inventory_count: 47 }
+        ]);
+        const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
+        vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue(handle);
+        const posts = [];
+        window.apiCall = vi.fn(async (endpoint, method, body) => {
+            if (method === 'POST') { posts.push({ endpoint, body }); return { status: 'counted', inventory_count: body.count }; }
+            return [];
+        });
+        window.renderInventory();
+        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        sheet(document).querySelector('[data-mode="counted"]').click();
+
+        expect(sheet(document).querySelector('.wg-meds-stock__qty').value).toBe('47');
+        expect(sheet(document).querySelector('.wg-hint').hidden).toBe(false);
+        expect(primary(document).textContent).toBe('Set to 47 (app had 47)');
+        sheet(document).querySelector('[aria-label="Decrease"]').click();
+        sheet(document).querySelector('[aria-label="Decrease"]').click();
+        expect(primary(document).textContent).toBe('Set to 45 (app had 47)');
+
+        primary(document).click();
+        await flushMicrotasks();
+        expect(posts).toEqual([{ endpoint: '/api/medications/1/stock-audit', body: { count: 45 } }]);
+        expect(handle.commit).toHaveBeenCalled();
+        expect(sheet(document)).toBeNull();
+        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('45 left · lasts 22 days');
+    });
+
+    it('Added writes optimistically through /restock, commits and repaints; a failure rolls back and keeps the sheet', async () => {
         const { window, document } = env;
         await seedMedications(window, [
             { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 17 }
         ]);
         const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
         const applySpy = vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue(handle);
-        let posted = null;
+        let fail = true;
         window.apiCall = vi.fn(async (endpoint, method, body) => {
-            if (endpoint.endsWith('/restock') && method === 'POST') {
-                posted = { endpoint, body };
-                return { status: 'restocked', quantity_added: body.quantity, inventory_count: 17 + body.quantity };
-            }
-            return [];
+            if (method !== 'POST') return [];
+            return fail ? null : { status: 'restocked', quantity_added: body.quantity, inventory_count: 17 + body.quantity };
         });
+        window.safeToast = vi.fn();
         window.renderInventory();
+        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
 
-        cardOf(document, '1').querySelector('.wg-meds-stock__refill-btn').click();
-        cardOf(document, '1').querySelector('.wg-meds-stock__confirm').click();
+        primary(document).click();
         await flushMicrotasks();
-
-        expect(applySpy).toHaveBeenCalledWith('medications', expect.any(Function), ['medications']);
-        const mutator = applySpy.mock.calls[0][1];
-        expect(mutator([{ id: 1, inventory_count: 17 }, { id: 2, inventory_count: 5 }]))
-            .toEqual([{ id: 1, inventory_count: 47 }, { id: 2, inventory_count: 5 }]);
-        expect(posted).toEqual({ endpoint: '/api/medications/1/restock', body: { quantity: 30 } });
-        expect(handle.commit).toHaveBeenCalled();
-        expect(handle.rollback).not.toHaveBeenCalled();
-        expect(cardOf(document, '1').querySelector('.wg-meds-stock__count').firstChild.textContent).toBe('47');
-    });
-
-    it('while the restock POST is in flight the card shows the new count and the confirm stays disabled', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 17 }
-        ]);
-        vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue({ commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) });
-        let release;
-        const posts = [];
-        window.apiCall = vi.fn((endpoint, method, body) => {
-            if (method !== 'POST') return Promise.resolve([]);
-            posts.push(body);
-            return new Promise((r) => { release = () => r({ inventory_count: 47 }); });
-        });
-        window.renderInventory();
-
-        const card = cardOf(document, '1');
-        card.querySelector('.wg-meds-stock__refill-btn').click();
-        const confirm = card.querySelector('.wg-meds-stock__confirm');
-        confirm.click();
-        await flushMicrotasks();
-
-        expect(cardOf(document, '1')).toBe(card);
-        expect(card.querySelector('.wg-meds-stock__count').firstChild.textContent).toBe('47');
-        expect(confirm.disabled).toBe(true);
-        confirm.click();
-        await flushMicrotasks();
-        expect(posts.length).toBe(1);
-
-        release();
-        await flushMicrotasks();
-        expect(cardOf(document, '1').querySelector('.wg-meds-stock__refill').hidden).toBe(true);
-    });
-
-    it('a failed restock rolls the optimistic count back', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 17 }
-        ]);
-        const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
-        vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue(handle);
-        window.apiCall = vi.fn(async (endpoint, method) => (method === 'POST' ? null : []));
-        window.renderInventory();
-
-        cardOf(document, '1').querySelector('.wg-meds-stock__refill-btn').click();
-        cardOf(document, '1').querySelector('.wg-meds-stock__confirm').click();
-        await flushMicrotasks();
-
         expect(handle.rollback).toHaveBeenCalled();
-        expect(handle.commit).not.toHaveBeenCalled();
-        expect(cardOf(document, '1').querySelector('.wg-meds-stock__count').firstChild.textContent).toBe('17');
+        expect(window.safeToast).toHaveBeenCalled();
+        expect(sheet(document)).not.toBeNull();
+        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('17 left · lasts 17 days');
+
+        fail = false;
+        primary(document).click();
+        await flushMicrotasks();
+        expect(applySpy).toHaveBeenCalledWith('medications', expect.any(Function), ['medications']);
+        const mutated = applySpy.mock.calls[1][1]([{ id: 1, inventory_count: 17 }, { id: 2, inventory_count: 5 }]);
+        expect(mutated[0]).toMatchObject({ id: 1, inventory_count: 47, stock: { refills: [{ n: 30 }] } });
+        expect(mutated[1]).toEqual({ id: 2, inventory_count: 5 });
+        expect(window.apiCall).toHaveBeenLastCalledWith('/api/medications/1/restock', 'POST', { quantity: 30 });
+        expect(handle.commit).toHaveBeenCalled();
+        expect(sheet(document)).toBeNull();
+        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('47 left · lasts 47 days');
+    });
+
+    it('the history under the form is the read-only ledger, newest first (ST3)', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [{
+            id: 1, name: 'Metformin', schedule: TWICE, archived: false, inventory_count: 47,
+            stock: { counted: 39, counted_at: '2026-10-12T10:00:00Z', seed: false, refills: [{ n: 30, at: '2026-10-20T10:00:00Z' }], taken: 22 },
+        }]);
+        window.renderInventory();
+        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        const titles = Array.from(sheet(document).querySelectorAll('.wg-meds-stock__history .wg-row__title')).map((t) => t.textContent);
+        expect(titles).toHaveLength(3);
+        expect(titles[0]).toMatch(/^−22 taken since /);
+        expect(titles[1]).toMatch(/^\+30 · /);
+        expect(titles[2]).toMatch(/^Counted 39 · /);
+        expect(sheet(document).querySelector('.wg-meds-stock__history .wg-hint').textContent).toBe("Something wrong? Add a new count. History isn't edited.");
     });
 });

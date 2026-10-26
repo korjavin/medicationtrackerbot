@@ -438,8 +438,10 @@ describe('Medication editor page (kit M5–M6)', () => {
         track.checked = true;
         track.dispatchEvent(new window.Event('change'));
         expect(fields.classList.contains('hidden')).toBe(false);
-        // No restock history for an unsaved medication.
-        expect(document.getElementById('restock-section').classList.contains('hidden')).toBe(true);
+        // A new medication has no ledger yet: the stepper is its starting stock.
+        expect(document.getElementById('med-stock-row').classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('med-pack-size-btn').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('med-pack-size-value').textContent).toBe('Not set');
 
         document.getElementById('med-inventory-inc').click();
         document.getElementById('med-inventory-inc').click();
@@ -512,11 +514,10 @@ describe('Medication editor page (kit M5–M6)', () => {
             start_date: '2026-09-01T00:00:00.000Z',
             end_date: null,
             inventory_count: 30,
+            pack_size: 28,
+            stock: { counted: 20, counted_at: '2026-09-12T10:00:00Z', seed: false, refills: [{ n: 28, at: '2026-09-21T10:00:00Z' }], taken: 18 },
             tz_shift_policy: 'medium',
         }]);
-        window.apiCall = vi.fn().mockResolvedValue([
-            { quantity: 98, restocked_at: '2026-09-21T10:00:00Z' },
-        ]);
         window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '', normalized_name: '', warning: '' });
 
         window.showEditModal(1);
@@ -531,12 +532,45 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(document.getElementById('med-start-date-value').textContent).toBe('2026-09-01');
         expect(document.getElementById('med-end-date-value').textContent).toBe('Ongoing');
         expect(document.getElementById('med-supplement').checked).toBe(true);
-        expect(document.getElementById('med-inventory-count').value).toBe('30');
-        expect(document.getElementById('restock-section').classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('restock-history').textContent).toContain('+98 on');
+        // A tracked med's stock is read-only, derived from its ledger (ST5).
+        expect(document.getElementById('inventory-fields').classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('med-stock-row').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('med-stock-value').textContent).toBe('30');
+        expect(document.getElementById('med-stock-desc').textContent).toMatch(/^Counted 20 on \S+ \S+ · \+28 since · \u221218 taken$/);
+        expect(document.getElementById('med-pack-size-value').textContent).toBe('28');
         expect(document.getElementById('med-tz-policy-value').textContent).toBe('Medium · 3h');
         // Active meds cannot be deleted from the editor.
         expect(document.getElementById('med-delete-block').classList.contains('hidden')).toBe(true);
+    });
+
+    it('pack size is picked in a prompt and saved; the stock row\'s Update opens the stock sheet (ST5)', async () => {
+        const { document, window } = env;
+        await seedMedications(window, [{
+            id: 1, name: 'Metformin', dosage: '1000mg', schedule: JSON.stringify({ type: 'as_needed' }),
+            archived: false, inventory_count: 47, tz_shift_policy: 'flexible',
+        }]);
+        window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '', normalized_name: '', warning: '' });
+        window.showEditModal(1);
+        await flush();
+
+        window.safePrompt = vi.fn().mockResolvedValue('28');
+        document.getElementById('med-pack-size-btn').click();
+        await flush();
+        expect(window.safePrompt).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ title: 'Pack size' }));
+        expect(document.getElementById('med-pack-size-value').textContent).toBe('28');
+
+        document.getElementById('med-stock-update').click();
+        const sheet = document.getElementById('stock-sheet');
+        expect(sheet).not.toBeNull();
+        expect(sheet.querySelector('.wg-pick[data-pack]').textContent).toBe('+1 pack (28)');
+        sheet.querySelector('.wg-sheethead .wg-btn').click();
+        expect(document.getElementById('stock-sheet')).toBeNull();
+
+        window.DataStore.applyOptimistic = vi.fn().mockResolvedValue({ commit: vi.fn(), rollback: vi.fn() });
+        window.loadMeds = vi.fn();
+        await window.saveMedication();
+        expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications/1', 'POST',
+            expect.objectContaining({ pack_size: 28, inventory_count: 47 }));
     });
 
     it('shows the interaction warning inline once the Rx match resolves, and Save does not alert it again', async () => {
@@ -654,6 +688,8 @@ describe('Medication editor page (kit M5–M6)', () => {
             start_date: null,
             end_date: null,
             inventory_count: null,
+            // The optional pack size (bd med-wi09.13, ST5).
+            pack_size: null,
             tz_shift_policy: 'flexible',
         });
     });

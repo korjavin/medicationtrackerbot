@@ -2375,9 +2375,18 @@
                             <button type="button" class="wg-stepper__btn" id="med-inventory-inc" aria-label="Increase"><i class="wg-ico" data-icon="plus"></i></button>
                         </div>
                     </div>
-                    <div id="restock-section" class="wg-setting hidden">
-                        <span class="wg-setting__body"><span class="wg-setting__title">Restock history</span><span class="wg-setting__desc" id="restock-history"></span></span>
+                    <!-- A tracked med's stock is derived from its ledger (kit ST5): read-only, Update opens the stock sheet. -->
+                    <div id="med-stock-row" class="wg-setting hidden">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Stock</span><span class="wg-setting__desc" id="med-stock-desc"></span></span>
+                        <span class="wg-setting__value" id="med-stock-value"></span>
+                        <button type="button" class="wg-btn wg-btn--sm" id="med-stock-update">Update</button>
                     </div>
+                    <button type="button" class="wg-setting hidden" id="med-pack-size-btn">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Pack size</span><span class="wg-setting__desc">Optional · makes a refill one tap</span></span>
+                        <span class="wg-setting__value" id="med-pack-size-value">Not set</span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <input type="hidden" id="med-pack-size">
                 </div>
             </section>
 

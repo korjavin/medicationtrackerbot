@@ -6643,18 +6643,13 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-sm);
 }
 
-/* Kit display rules beat the UA [hidden] rule. */
-.wg-meds-stock__refill[hidden],
-.wg-meds-stock__stepper[hidden],
-.wg-meds-stock__refill-btn[hidden] {
+/* Update stock sheet (kit ST1-ST3): kit display rules beat the UA [hidden]
+   rule for the mode-dependent field and hint. */
+.wg-meds-stocksheet [hidden] {
     display: none;
 }
 
-.wg-meds-stock__refill {
-    margin-top: var(--space-md);
-}
-
-/* The stepper value is an editable input in the "Other" refill amount. */
+/* The stepper value is an editable input (the amount added or counted). */
 .wg-meds-stock__qty {
     width: 100%;
     min-width: 0;

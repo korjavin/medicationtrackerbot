@@ -72,9 +72,9 @@ function fillMedEditor(med) {
     const hasInventory = m.inventory_count !== null && m.inventory_count !== undefined;
     document.getElementById('med-track-inventory').checked = hasInventory;
     document.getElementById('med-inventory-count').value = hasInventory ? m.inventory_count : '';
-    document.getElementById('restock-history').textContent = '';
+    setMedPackSize(m.pack_size || null);
+    setMedStockRow(med && hasInventory ? med : null);
     toggleInventoryFields();
-    if (med && hasInventory) loadRestockHistory(med.id);
 
     let sched = { type: 'daily', times: [] };
     if (med) {
@@ -136,11 +136,66 @@ function setScheduleType(type) {
     toggleScheduleFields();
 }
 
+// Inventory section (kit ST5): a med already tracking stock shows it read-only
+// with Update (the number is derived from the ledger, bd med-wi09.13); a new
+// or untracked med gets the stepper for its starting stock. Pack size shows
+// whenever stock is tracked.
+let _medEditorStockMed = null; // module-state: the tracked med the open editor shows in its stock row (null = new/untracked)
 function toggleInventoryFields() {
     const track = document.getElementById('med-track-inventory').checked;
-    document.getElementById('inventory-fields').classList.toggle('hidden', !track);
-    // Restock history exists only for a saved medication; refills live on the Stock tab.
-    document.getElementById('restock-section').classList.toggle('hidden', !(track && editingMedId));
+    document.getElementById('inventory-fields').classList.toggle('hidden', !track || !!_medEditorStockMed);
+    document.getElementById('med-stock-row').classList.toggle('hidden', !track || !_medEditorStockMed);
+    document.getElementById('med-pack-size-btn').classList.toggle('hidden', !track);
+}
+
+// "Counted 39 on 12 Oct · +30 since · −22 taken".
+function medStockSummary(med) {
+    const s = med.stock;
+    if (!s) return '';
+    const day = s.counted_at ? new Date(s.counted_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+    const parts = [s.seed ? `${s.counted} in stock${day ? ` on ${day}` : ''}` : `Counted ${s.counted}${day ? ` on ${day}` : ''}`];
+    const added = (s.refills || []).reduce((sum, f) => sum + f.n, 0);
+    if (added) parts.push(`+${added} since`);
+    if (s.taken) parts.push(`\u2212${s.taken} taken`);
+    return parts.join(' · ');
+}
+
+function setMedStockRow(med) {
+    _medEditorStockMed = med;
+    document.getElementById('med-stock-value').textContent = med ? String(med.inventory_count) : '';
+    document.getElementById('med-stock-desc').textContent = med ? medStockSummary(med) : '';
+}
+
+// The editor's Update opens the stock sheet; a landed write repaints the row.
+function openMedEditorStock() {
+    if (!_medEditorStockMed) return;
+    // The pack chip follows the editor's pack size, saved or not.
+    const pack = parseInt(document.getElementById('med-pack-size').value, 10) || null;
+    openStockSheet({ ..._medEditorStockMed, pack_size: pack }, {
+        onDone: (updated) => {
+            setMedStockRow(updated);
+            document.getElementById('med-inventory-count').value = String(updated.inventory_count);
+        },
+    });
+}
+
+function setMedPackSize(n) {
+    document.getElementById('med-pack-size').value = n ? String(n) : '';
+    const label = document.getElementById('med-pack-size-value');
+    label.textContent = n ? String(n) : 'Not set';
+    label.classList.toggle('wg-muted', !n);
+}
+
+async function chooseMedPackSize() {
+    const current = document.getElementById('med-pack-size').value;
+    const raw = await safePrompt('Pills in one pack. Leave empty for none.', {
+        title: 'Pack size', label: 'Pack size', value: current, inputMode: 'numeric',
+    });
+    if (raw === null || raw === undefined) return;
+    const n = Number(String(raw).trim());
+    if (String(raw).trim() === '') setMedPackSize(null);
+    else if (Number.isInteger(n) && n > 0) setMedPackSize(n);
+    else safeToast('Pack size must be a whole number above 0.', 'error');
 }
 
 // The stock stepper. It never steps below zero; a negative ("N over") count
@@ -149,14 +204,6 @@ function stepMedInventory(delta) {
     const input = document.getElementById('med-inventory-count');
     const cur = parseInt(input.value, 10) || 0;
     input.value = String(delta < 0 && cur <= 0 ? cur : cur + delta);
-}
-
-async function loadRestockHistory(medId) {
-    const restocks = await apiCall(`/api/medications/${medId}/restocks`);
-    const desc = document.getElementById('restock-history');
-    desc.textContent = (!restocks || restocks.length === 0)
-        ? 'No restocks logged yet.'
-        : restocks.slice(0, 3).map((r) => `+${r.quantity} on ${formatDate(r.restocked_at)}`).join(' · ');
 }
 
 // Start/End value rows: the hidden date input is only the picker the row
@@ -772,7 +819,8 @@ window.MedsHistory = {
     setScheduleType,
     toggleInventoryFields,
     stepMedInventory,
-    loadRestockHistory,
+    openMedEditorStock,
+    chooseMedPackSize,
     setMedDate,
     syncMedDateLabel,
     openMedDatePicker,

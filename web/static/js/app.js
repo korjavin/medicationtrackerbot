@@ -446,6 +446,8 @@ function bindMedicationControls() {
         bindChange('med-track-inventory', () => toggleInventoryFields());
         bindClick('med-inventory-dec', () => stepMedInventory(-1));
         bindClick('med-inventory-inc', () => stepMedInventory(1));
+        bindClick('med-stock-update', () => openMedEditorStock());
+        bindClick('med-pack-size-btn', () => chooseMedPackSize());
         bindClick('med-tz-policy-btn', () => chooseMedTzPolicy());
         bindClick('med-delete-btn', () => deleteMedFromEditor());
     });
@@ -716,7 +718,7 @@ window.reloadCurrentTab = reloadCurrentTab;
 
 // refreshMedsAfterMutation, the medication add modal + form helpers
 // (showAddModal / setMedModalHeader / closeModal / toggleScheduleFields /
-// addTimeInput / toggleInventoryFields / loadRestockHistory / isLowOnStock …)
+// addTimeInput / toggleInventoryFields / openMedEditorStock / isLowOnStock …)
 // moved to features/meds-history.js (Plan 2026-06-10 finish-app-js-split, Task 1).
 // Init
 // loadMeds() removed to avoid redundant call. It is called by checkAuth -> switchTab.
