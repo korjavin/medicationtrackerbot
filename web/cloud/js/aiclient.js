@@ -343,6 +343,28 @@ async function fileToDataURL(file) {
   });
 }
 
+// Only the NEWEST user message counts: the photo stays in the ElevenLabs
+// history, and routing every later turn to vision creds would silence the
+// call when the vision triple falls back to a text-only model.
+function hasImagePart(messages) {
+  if (!Array.isArray(messages)) return false;
+  const last = [...messages].reverse().find((m) => m && m.role === 'user');
+  return Boolean(last && Array.isArray(last.content)
+    && last.content.some((p) => p && p.type === 'image_url'));
+}
+
+// Messages without image parts are returned as-is (text-only turns stay
+// byte-identical).
+function stripImageParts(messages) {
+  return messages.map((m) => {
+    if (!m || !Array.isArray(m.content) || !m.content.some((p) => p && p.type === 'image_url')) return m;
+    return {
+      ...m,
+      content: m.content.map((p) => (p && p.type === 'image_url' ? { type: 'text', text: '[photo shared earlier]' } : p)),
+    };
+  });
+}
+
 // trialErrorInfo extracts the trial proxy's machine-readable error code
 // ({"error":"trial_not_configured"} etc.) and the real upstream status it
 // relays ({"upstream_status":401}) from a failed response body. Both fall back
@@ -822,7 +844,13 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
   // mapped like chat()) or when signal aborts the fetch. Trial calls gate on
   // the `voice` consent scope.
   async function chatStream({ body, signal, onChunk }) {
-    const { text } = await credentials();
+    // A turn whose newest user message carries an image (an in-call photo, bd med-ku8r — ElevenLabs is
+    // expected to hand it over as an OpenAI image_url part, data: or https:)
+    // goes to the vision triple, like parseMealFromImage: the text model may
+    // not read images at all. Text-only turns are unchanged.
+    const image = hasImagePart(body && body.messages);
+    const creds = await credentials();
+    const text = image ? creds.vision : creds.text;
     const useTrial = !text.apiKey;
     // The attest route answers no stream (stream_unsupported): no voice trial in local mode.
     if (useTrial && (trialTransport || !trialAIAvailable())) throw noKeyError();
@@ -833,8 +861,12 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
       elevenlabs_extra_body: _extra, user: _user, user_id: _userId, model: _model, ...req
     } = body || {};
     req.stream = true;
+    // A text-credential turn never sends an image: a photo still in the
+    // history becomes a short text part, so a text-only model can't 400 on it.
+    if (!image && Array.isArray(req.messages)) req.messages = stripImageParts(req.messages);
     const headers = { 'Content-Type': 'application/json' };
-    let endpoint = '/api/trial/openai/chat/completions'; // trial: server forces the model
+    // trial: server forces the model
+    let endpoint = `/api/trial/openai/chat/completions${image ? '?vision=1' : ''}`;
     if (!useTrial) {
       req.model = text.model;
       if (Array.isArray(req.tools) && req.tools.length && isLunaModel(text.model)) req.reasoning_effort = 'none';

@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 9;
+export const TOOLSET_VERSION = 10;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -407,7 +407,15 @@ export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds, silenceE
         ...(silenceEndCallSeconds ? { silence_end_call_timeout: silenceEndCallSeconds } : {}),
       },
       tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
-      ...(maxDurationSeconds ? { conversation: { max_duration_seconds: maxDurationSeconds } } : {}),
+      // In-call "Send photo" (bd med-ku8r): file_input is ElevenLabs' documented
+      // gate for uploaded images (changelog 2026-04-01, docs → multimodal input).
+      // One image in memory: older uploads collapse to ElevenLabs' summary, so a
+      // turn carries at most one photo and stays under the voice LLM relay's
+      // 2 MiB body cap (voice_llm_relay.go voiceMaxBodyBytes).
+      conversation: {
+        file_input: { enabled: true, max_files_in_memory: 1 },
+        ...(maxDurationSeconds ? { max_duration_seconds: maxDurationSeconds } : {}),
+      },
       language_presets: Object.fromEntries(
         Object.entries(FIRST_MESSAGE_TRANSLATIONS).map(([lang, text]) => [
           lang, {

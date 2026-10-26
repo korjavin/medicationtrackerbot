@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -407,6 +408,8 @@ describe('features/elevenlabs-call.js — setMute / toggleMute', () => {
 });
 
 describe('features/elevenlabs-call.js — sendPhoto', () => {
+    // Every failed upload console.warns its cause (bd med-ku8r).
+    beforeEach(() => allowConsoleNoise());
     function makeImageBlob(window) {
         // Use the jsdom Blob with an image MIME type. Real bytes are
         // irrelevant — sendPhoto only checks instanceof Blob + type.
@@ -481,6 +484,8 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             // Upload-start broadcast must NOT have wiped the listening status.
             expect(events[events.length - 1].message).toBe('Listening…');
             expect(events[events.length - 1].uploading).toBe(true);
+            // The photo is shrunk first, so the upload starts a tick later.
+            await vi.waitFor(() => expect(resolveUpload).toBeTypeOf('function'));
             resolveUpload();
             await sendPromise;
             // Final broadcast: still preserves the live message.
@@ -574,7 +579,7 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
             const last = events[events.length - 1];
             expect(last.state).toBe('in_call');
-            expect(last.message).toBe('Photo upload failed');
+            expect(last.message).toBe('network');
             expect(last.uploading).toBe(false);
             // sendMultimodalMessage must NOT have been called.
             expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
@@ -585,12 +590,13 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('CloudElevenLabs.uploadFile rejection surfaces "Photo upload failed" and rejects', async () => {
+    it('CloudElevenLabs.uploadFile rejection surfaces its cause, warns in the console, and rejects', async () => {
         const { window, conversation, events, cleanup } = createConversationEnv();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         window.CloudElevenLabs = {
             hasKey: async () => true,
             fetchSignedURL: async () => 'wss://stub.example/',
-            uploadFile: vi.fn(async () => { throw new Error('no key'); }),
+            uploadFile: vi.fn(async () => { throw new Error('Set your ElevenLabs API key in Settings → Integrations'); }),
         };
         try {
             await startCall(window);
@@ -598,8 +604,147 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
             const last = events[events.length - 1];
             expect(last.state).toBe('in_call');
-            expect(last.message).toBe('Photo upload failed');
+            expect(last.message).toBe('Set your ElevenLabs API key in Settings → Integrations');
+            expect(warn).toHaveBeenCalledWith('[call] photo upload failed:', expect.any(Error));
             expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+            cleanup();
+        }
+    });
+
+    it('BYO upstream rejection names ElevenLabs and the HTTP status', async () => {
+        const { window, events, cleanup } = createConversationEnv();
+        window.CloudElevenLabs.uploadFile = vi.fn(async () => {
+            const err = new Error('Failed to upload file (422)');
+            err.status = 422;
+            throw err;
+        });
+        try {
+            await startCall(window);
+            await expect(window.WGCallAgent.sendPhoto(makeImageBlob(window))).rejects.toThrow();
+            expect(events[events.length - 1].message).toBe('ElevenLabs rejected the photo (HTTP 422)');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('downscales before upload: the re-encoded JPEG is what gets sent', async () => {
+        const { window, events, cleanup } = createConversationEnv();
+        const small = new window.Blob(['small-jpeg'], { type: 'image/jpeg' });
+        const close = vi.fn();
+        window.createImageBitmap = vi.fn(async () => ({ width: 4000, height: 3000, close }));
+        const drawn = [];
+        window.HTMLCanvasElement.prototype.getContext = function () {
+            return { drawImage: (_b, _x, _y, w, h) => drawn.push([w, h]) };
+        };
+        window.HTMLCanvasElement.prototype.toBlob = function (cb, type) {
+            expect(type).toBe('image/jpeg');
+            cb(small);
+        };
+        try {
+            await startCall(window);
+            await window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            expect(drawn[0]).toEqual([1600, 1200]);
+            expect(window.CloudElevenLabs.uploadFile.mock.calls[0][1]).toBe(small);
+            expect(close).toHaveBeenCalled();
+            expect(events[events.length - 1].uploading).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a photo that cannot be shrunk under the limit is refused with the limit, nothing uploaded', async () => {
+        const { window, events, cleanup } = createConversationEnv();
+        try {
+            await startCall(window);
+            // No createImageBitmap in jsdom → the original is the candidate.
+            const big = new window.Blob([new Uint8Array(800 * 1024)], { type: 'image/jpeg' });
+            await expect(window.WGCallAgent.sendPhoto(big)).rejects.toMatchObject({ code: 'photo_too_large' });
+            expect(window.CloudElevenLabs.uploadFile).not.toHaveBeenCalled();
+            expect(events[events.length - 1].message).toBe('Photo is too large to send — the limit is 768 KB.');
+        } finally {
+            cleanup();
+        }
+    });
+});
+
+describe('features/elevenlabs-call.js — sendPhoto on the trial agent (bd med-ku8r)', () => {
+    // A call minted from the trial route (no vault key + trial flag); the
+    // upload then goes through /api/trial/elevenlabs/conversations/{id}/files.
+    beforeEach(() => allowConsoleNoise());
+    async function trialCall({ uploadStatus = 200, uploadBody = { file_id: 'file_trial' }, consent = { voice: true } } = {}) {
+        const env = createConversationEnv();
+        const { window } = env;
+        const meta = window.document.createElement('meta');
+        meta.setAttribute('name', 'medtracker-trial-voice');
+        meta.setAttribute('content', '1');
+        window.document.head.appendChild(meta);
+        window.apiCall = vi.fn(async () => consent);
+        window.CloudElevenLabs = { hasKey: vi.fn(async () => false), fetchSignedURL: vi.fn(), uploadFile: vi.fn() };
+        const fetch = vi.fn(async (url) => {
+            if (url === '/api/trial/elevenlabs/signed-url') {
+                return { ok: true, status: 200, json: async () => ({ signed_url: 'wss://trial.example/s' }) };
+            }
+            if (url === '/api/trial/elevenlabs/conversations/conv_test/files') {
+                return {
+                    ok: uploadStatus === 200,
+                    status: uploadStatus,
+                    json: async () => {
+                        if (typeof uploadBody === 'string') throw new SyntaxError('not JSON');
+                        return uploadBody;
+                    },
+                };
+            }
+            throw new Error(`Unexpected fetch: ${url}`);
+        });
+        window.fetch = fetch;
+        await startCall(window);
+        expect(window.WGCallAgent.getState().state).toBe('in_call');
+        return { ...env, fetch };
+    }
+
+    it('uploads through the trial route (never the vault-key seam) and sends the file id', async () => {
+        const { window, conversation, fetch, cleanup } = await trialCall();
+        try {
+            await window.WGCallAgent.sendPhoto(new window.Blob(['x'], { type: 'image/jpeg' }));
+            const [url, init] = fetch.mock.calls[1];
+            expect(url).toBe('/api/trial/elevenlabs/conversations/conv_test/files');
+            expect(init.method).toBe('POST');
+            expect(init.body.get('file')).toBeTruthy();
+            expect(window.CloudElevenLabs.uploadFile).not.toHaveBeenCalled();
+            expect(conversation.sendMultimodalMessage).toHaveBeenCalledWith({ fileId: 'file_trial' });
+        } finally {
+            cleanup();
+        }
+    });
+
+    it.each([
+        [429, { error: 'trial_rate_limit', retry_after_seconds: 60 }, /^Trial limit reached/],
+        [503, { error: 'trial_not_configured' }, /^Set your ElevenLabs API key/],
+        [413, { error: 'file_too_large', max_bytes: 2097152 }, /^Photo is too large to send — the limit is 768 KB\.$/],
+        [502, { error: 'upstream_error', upstream_status: 400 }, /^ElevenLabs rejected the photo \(HTTP 400\)$/],
+        [502, '502 Bad Gateway', /^Photo upload failed \(HTTP 502\)$/],
+    ])('HTTP %i maps to its own call-bar message', async (uploadStatus, uploadBody, want) => {
+        const { window, events, cleanup } = await trialCall({ uploadStatus, uploadBody });
+        try {
+            await expect(window.WGCallAgent.sendPhoto(new window.Blob(['x'], { type: 'image/jpeg' }))).rejects.toThrow();
+            const last = events[events.length - 1];
+            expect(last.state).toBe('in_call');
+            expect(last.message).toMatch(want);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('revoked voice consent mid-call: consent copy, no upload', async () => {
+        const { window, events, fetch, cleanup } = await trialCall();
+        try {
+            window.apiCall = vi.fn(async () => ({ voice: false }));
+            await expect(window.WGCallAgent.sendPhoto(new window.Blob(['x'], { type: 'image/jpeg' })))
+                .rejects.toMatchObject({ code: 'trial_consent_required' });
+            expect(events[events.length - 1].message).toMatch(/needs your consent/);
+            expect(fetch).toHaveBeenCalledTimes(1); // the signed URL only
         } finally {
             cleanup();
         }
