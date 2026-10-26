@@ -144,7 +144,7 @@ const ctx = {
         await ready(page);
         return page;
       } catch (e) {
-        if (attempt > 1 || !(await ctx.pageLost(e, 'localPage', restart ? 'relaunch' : 're-attach'))) throw e;
+        if (attempt > 1 || ctx.noRecovery || !(await ctx.pageLost(e, 'localPage', restart ? 'relaunch' : 're-attach'))) throw e;
         if (restart) await restart();
         else await ctx.sleep(2000);
       }
@@ -250,16 +250,21 @@ const ctx = {
     // bd med-nt9p.64: run 40242381050 lost the app (home screen) right after launch()'s page was
     // ready, so openLink's first locator threw "has been closed". One relaunch, as localPage does;
     // the invite is only claimed later, on /unlock, so a second F1 pass is safe. One recovery in all:
-    // none here once launch()'s localPage has already relaunched.
+    // none here once launch()'s localPage has relaunched, and none in localPage on the retry.
     const before = (results.recoveries || []).length;
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await ctx.launch(opts);
-        await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
-        break;
-      } catch (e) {
-        if (attempt > 1 || (results.recoveries || []).length > before || !(await ctx.pageLost(e, 'openClaim', 'relaunch'))) throw e;
+    try {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await ctx.launch(opts);
+          await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
+          break;
+        } catch (e) {
+          if (attempt > 1 || (results.recoveries || []).length > before || !(await ctx.pageLost(e, 'openClaim', 'relaunch'))) throw e;
+          ctx.noRecovery = true;
+        }
       }
+    } finally {
+      ctx.noRecovery = false;
     }
     const page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page (see the run log)');
