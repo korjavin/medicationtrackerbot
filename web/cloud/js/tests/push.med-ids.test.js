@@ -7,6 +7,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { recomputeAndPush, cancelMedRefire, rearmMedRefire } from '../reminders.js';
+import { requestFreshDrain } from '../sync.js';
+
+// Only the drain is stubbed (relay fencing, bd med-wi09.14): a test drives what
+// "the pull landed" means for its fake records port.
+vi.mock('../sync.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  requestFreshDrain: vi.fn(async () => {}),
+}));
 
 const NOW_UNIX = 1767225600; // 2026-01-01T00:00:00Z
 const NOW_MS = NOW_UNIX * 1000;
@@ -167,5 +175,154 @@ describe('the re-fire controls check the response and retry once', () => {
 
     expect(bodies[0]).toEqual(['/api/telegram/rearm-refire', { callback: `s:${NOW_UNIX}`, med_ids: '2,9' }]);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+// bd med-wi09.14 — relay fencing. The horizon PUT carries the pulled cursor it
+// was built from and the ledger generation; a device with unflushed writes
+// defers the PUT until a pull has flushed them, and a 409 (the relay holds a
+// horizon from a newer seq) leads to one pull + rebuild + PUT, never a loop.
+describe('relay fencing: the schedule PUT is built from acknowledged state', () => {
+  const ctx = { accountId: 'acct-1' };
+  const seed = {
+    medication: [{ recordId: 2, deleted: false, name: 'A', dosage: '10mg', schedule: '{"type":"daily","times":["09:00"]}' }],
+    reminderdeliverypref: [{ recordId: 'reminderdeliverypref', deleted: false, delivery: 'telegram', verbosity: 'detailed' }],
+  };
+  let puts;
+  let basis;
+  const records = () => ({ ...fakeRecords(seed), horizonBasis: async () => ({ ...basis }) });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_MS);
+    puts = [];
+    requestFreshDrain.mockReset();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete globalThis.fetch;
+    vi.restoreAllMocks();
+  });
+
+  const fence = (body) => ({ based_on_seq: body.based_on_seq, generation: body.generation });
+  const okFetch = () => vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return { ok: true, status: 204 }; });
+
+  it('sends based_on_seq + generation when nothing is pending', async () => {
+    basis = { seq: 7, pending: 0 };
+    globalThis.fetch = okFetch();
+
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 7, generation: 2 }]);
+    expect(puts[0].entries.length).toBeGreaterThan(0);
+    expect(requestFreshDrain).not.toHaveBeenCalled();
+  });
+
+  it('defers the PUT while writes are unflushed, then builds once after the pull', async () => {
+    basis = { seq: 7, pending: 1 };
+    globalThis.fetch = okFetch();
+    requestFreshDrain.mockImplementation(async () => { basis = { seq: 8, pending: 0 }; });
+
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+
+    // One PUT, after the pull: the cursor it carries is the post-drain one.
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 8, generation: 2 }]);
+    expect(requestFreshDrain).toHaveBeenCalledTimes(1);
+  });
+
+  // Archie 5808 (breakage F1): a queue that cannot drain (quota, wedged, 426)
+  // must not stop the relay horizon — the post-drain pass PUTs fenced with the
+  // cursor it captured, never more than it pulled.
+  it('a drain that leaves writes pending still PUTs once, fenced at the captured cursor', async () => {
+    basis = { seq: 7, pending: 2 };
+    globalThis.fetch = okFetch();
+
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 7, generation: 2 }]);
+    expect(requestFreshDrain).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stuck device whose cursor is stale gets 409 on that pass, and no second PUT', async () => {
+    basis = { seq: 7, pending: 2 };
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return { ok: false, status: 409 }; });
+
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+    await vi.waitFor(() => expect(puts).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 7, generation: 2 }]);
+    expect(requestFreshDrain).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 409 pulls, rebuilds and PUTs once from the newer cursor', async () => {
+    basis = { seq: 5, pending: 0 };
+    globalThis.fetch = vi.fn(async (url, init) => {
+      puts.push(JSON.parse(init.body));
+      return puts.length === 1 ? { ok: false, status: 409 } : { ok: true, status: 204 };
+    });
+    requestFreshDrain.mockImplementation(async () => { basis = { seq: 9, pending: 0 }; });
+
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+    await vi.waitFor(() => expect(puts).toHaveLength(2));
+
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 5, generation: 2 }, { based_on_seq: 9, generation: 2 }]);
+  });
+
+  it('a second 409 after the rebuild stops there', async () => {
+    basis = { seq: 5, pending: 0 };
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return { ok: false, status: 409 }; });
+
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+    await vi.waitFor(() => expect(puts).toHaveLength(2));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(puts).toHaveLength(2);
+    expect(requestFreshDrain).toHaveBeenCalledTimes(1);
+  });
+
+  // Argus 5809 #3: a pull landing during the async build must not inflate
+  // based_on_seq — the basis is read before the build.
+  it('based_on_seq is the cursor read before the build, not one a mid-build pull moved', async () => {
+    basis = { seq: 7, pending: 0 };
+    globalThis.fetch = okFetch();
+    const port = records();
+    // listRaw is read only by the build itself (the pref floor before the
+    // basis read uses list).
+    const listRaw = port.listRaw;
+    port.listRaw = async (type) => { basis = { seq: 30, pending: 0 }; return listRaw(type); };
+
+    await recomputeAndPush(ctx, { records: port, timeZone: 'UTC' });
+
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 7, generation: 2 }]);
+  });
+
+  // Argus 5809 #2: Settings awaits recomputeAndPush to say "Reminder delivery
+  // updated." — a deferred PUT that then fails must reject that promise, not
+  // resolve before the PUT ran.
+  it('a deferred PUT that fails rejects recomputeAndPush; one that lands resolves after it', async () => {
+    basis = { seq: 7, pending: 1 };
+    requestFreshDrain.mockImplementation(async () => { basis = { seq: 8, pending: 0 }; });
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return { ok: false, status: 500 }; });
+
+    await expect(recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' })).rejects.toThrow('Could not schedule the reminder.');
+    expect(puts).toHaveLength(1);
+
+    basis = { seq: 8, pending: 1 };
+    puts = [];
+    globalThis.fetch = okFetch();
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 8, generation: 2 }]);
+  });
+
+  it('a records port without horizonBasis sends the legacy unfenced body', async () => {
+    globalThis.fetch = okFetch();
+
+    await recomputeAndPush(ctx, { records: fakeRecords(seed), timeZone: 'UTC' });
+
+    expect(puts).toHaveLength(1);
+    expect('based_on_seq' in puts[0]).toBe(false);
+    expect('generation' in puts[0]).toBe(false);
   });
 });

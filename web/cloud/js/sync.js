@@ -108,6 +108,10 @@ function isUpdateRequiredStatus(status) {
 // schedule PUT (push.js) sends the same headers: it gets the same gate in
 // med-wi09.22 (logged only until then, med-wi09.20).
 export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Ledger': '2' };
+// The dose-ledger generation this bundle derives with — the X-Ledger number.
+// The reminder horizon PUT carries it as `generation` (relay fencing, bd
+// med-wi09.14): the relay compares based_on_seq only within one generation.
+export const LEDGER_GENERATION = 2;
 
 // The pull's ledger_cut_at is the account's cut; the local ledgercut singleton
 // carries it as `at` for the projection (medintake.js loadCutMs). A local-only
@@ -560,6 +564,22 @@ async function markPending(recordId, recordType) {
 
 async function readPending() {
   return withStore('pending', 'readonly', (store) => reqToPromise(store.getAll()));
+}
+
+// What a reminder horizon built now would be based on (relay fencing, bd
+// med-wi09.14): the pulled cursor and the pending-queue size, read in one
+// transaction so a flush cannot slip between them. seq is null before
+// bootstrap. The horizon is fenced only when pending is 0: then every local
+// write has a server seq at or below the cursor.
+async function readHorizonBasis() {
+  return withDb((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(['sync_meta', 'pending'], 'readonly');
+    const seqReq = tx.objectStore('sync_meta').get('localLastSeq');
+    const countReq = tx.objectStore('pending').count();
+    tx.oncomplete = () => resolve({ seq: seqReq.result ?? null, pending: countReq.result });
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
 }
 
 // --- device-local plaintext values (NK, demo reminders) -------------------
@@ -1887,6 +1907,11 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     // tombstoned slot is a deliberate delete, not something to re-fill.
     putIfAbsent: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush, ifAbsent: true }),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin, { flush }),
+    // { seq, pending } for the relay fence (bd med-wi09.14, reminders.js).
+    horizonBasis: async () => {
+      await bootstrapIfNeeded(ctx);
+      return readHorizonBasis();
+    },
   };
 }
 

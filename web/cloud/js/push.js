@@ -356,11 +356,15 @@ export async function sendTestPush(ctx) {
 // the last-run recompute the last schedule served.
 const pushChains = new Map();
 
-export function pushSchedule(ctx, reminders, pref = {}) {
+// fence ({ based_on_seq, generation }, bd med-wi09.14) rides in the body when
+// the caller built the horizon from acknowledged state; without it the PUT is
+// the legacy unfenced replace. Resolves { stale: true } on the relay's 409 (a
+// newer horizon is stored — pull and rebuild), undefined on success.
+export function pushSchedule(ctx, reminders, pref = {}, fence = null) {
   const key = (ctx && ctx.accountId) || ctx;
   const run = (pushChains.get(key) || Promise.resolve())
     .catch(() => {})
-    .then(() => pushScheduleInner(ctx, reminders, pref));
+    .then(() => pushScheduleInner(ctx, reminders, pref, fence));
   // Store a settled-swallowing tail so a rejected push can't wedge the chain,
   // but return the real promise so callers still see the failure.
   pushChains.set(key, run.catch(() => {}));
@@ -376,7 +380,7 @@ export function pushSchedule(ctx, reminders, pref = {}) {
 // relay would 400 must never sink the whole replace-all schedule.
 const MAX_TG_MED_IDS_LEN = 2048;
 
-async function pushScheduleInner(ctx, reminders, pref = {}) {
+async function pushScheduleInner(ctx, reminders, pref = {}, fence = null) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   // The sealed body follows the lock-screen value (getDeliveryPref's
@@ -432,8 +436,9 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: WRITE_HEADERS,
-    body: JSON.stringify({ entries }),
+    body: JSON.stringify(fence ? { entries, ...fence } : { entries }),
   });
+  if (res.status === 409) return { stale: true };
   if (!res.ok) throw new Error('Could not schedule the reminder.');
 }
 

@@ -693,6 +693,70 @@ describe('Reminders & notifications page (kit S8, med-ckm5.8)', () => {
         }
     });
 
+    // Argus 5809 #2 (bd med-wi09.14): the pref write leaves a pending op, so the
+    // fenced PUT is deferred to after a pull. Settings must report that PUT's
+    // failure, not "Reminder delivery updated." before it ran.
+    it('a deferred schedule PUT that fails shows the error, not "updated"', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        const store = {
+            medication: [{ recordId: 2, deleted: false, name: 'A', dosage: '10mg', schedule: '{"type":"daily","times":["09:00"]}' }],
+            reminderdeliverypref: [{ recordId: 'reminderdeliverypref', deleted: false, delivery: 'telegram', verbosity: 'detailed' }],
+        };
+        let basis = { seq: 4, pending: 1 };
+        const records = {
+            list: async (t) => (store[t] || []).map((r) => ({ ...r })),
+            listRaw: async (t) => (store[t] || []).map((r) => ({ ...r })),
+            listRange: async () => [],
+            put: async (t, r) => r,
+            del: async () => {},
+            horizonBasis: async () => ({ ...basis }),
+        };
+        // Only the drain is stubbed: this test decides what its pull flushes.
+        vi.resetModules();
+        const requestFreshDrain = vi.fn(async () => { basis = { seq: 5, pending: 0 }; });
+        vi.doMock('../../../../web/cloud/js/sync.js', async (importOriginal) => ({
+            ...(await importOriginal()),
+            requestFreshDrain,
+        }));
+        const { recomputeAndPush: realRecomputeAndPush } = await import('../../../../web/cloud/js/reminders.js');
+        const puts = [];
+        vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+            puts.push(JSON.parse(init.body));
+            return { ok: false, status: 503 };
+        }));
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            stubCloudModules(window, {
+                push: { subscribe: vi.fn(), unsubscribe: vi.fn(), getSubscription: vi.fn().mockResolvedValue({}) },
+                reminders: {
+                    sendTestPush: vi.fn(),
+                    recomputeAndPush: (ctx) => realRecomputeAndPush(ctx, { records, timeZone: 'UTC' }),
+                    remindersDomain: () => ({
+                        getDeliveryPref: async () => ({ delivery: 'telegram', verbosity: 'detailed' }),
+                        setDeliveryPref: async (p) => p,
+                    }),
+                },
+            });
+            window.MedTrackerCloud = { ctx: { accountId: 'acc-1' } };
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+            document.querySelector('.wg-settings-home [data-settings-open="notifications"]').click();
+
+            document.querySelector('#cloud-reminder-verbosity .wg-choice[data-value="generic"]').click();
+            const status = document.getElementById('cloud-reminder-delivery-status');
+            await vi.waitFor(() => expect(status.textContent).toBe('Could not schedule the reminder.'));
+            expect(requestFreshDrain).toHaveBeenCalledTimes(1);
+            expect(puts).toHaveLength(1);
+            expect(puts[0]).toMatchObject({ based_on_seq: 5, generation: 2 });
+        } finally {
+            vi.unstubAllGlobals();
+            vi.doUnmock('../../../../web/cloud/js/sync.js');
+            vi.resetModules();
+            cleanup();
+        }
+    });
+
     it('"Remind me about" summarises the reminder times; Medications closes the page onto Meds', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();

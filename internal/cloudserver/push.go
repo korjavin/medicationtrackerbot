@@ -56,7 +56,7 @@ type pushStore interface {
 	UpsertPushSubscription(ctx context.Context, accountID, endpoint, p256dh, auth string, now time.Time) error
 	DeletePushSubscription(ctx context.Context, accountID, endpoint string) error
 	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
-	ReplaceSchedule(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, now time.Time) error
+	ReplaceScheduleFenced(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, fence *cloudstore.ScheduleFence, now time.Time) error
 	GetLedgerCut(ctx context.Context, accountID string) (cloudstore.LedgerCut, error)
 	GetByEndpoint(ctx context.Context, accountID, endpoint string) (*cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
@@ -318,12 +318,23 @@ func validTGMedIDs(s string) bool {
 
 type putScheduleRequest struct {
 	Entries []scheduleEntryWire `json:"entries"`
+	// Relay fencing (med-wi09.14): both or neither. based_on_seq is the account
+	// seq the device had pulled, with nothing pending, when it started the
+	// build; generation is the dose-ledger generation (X-Ledger number) it was
+	// built under. Clients before med-wi09.14 send neither (legacy: accepted,
+	// stored fence untouched).
+	BasedOnSeq *int64 `json:"based_on_seq"`
+	Generation *int64 `json:"generation"`
 }
 
 // PutSchedule replaces the caller's session account's pending push schedule:
 // every not-yet-sent entry is dropped and the batch is inserted in its place
 // (replace-all). Entries the relay
 // has already fired are untouched.
+//
+// Relay fencing (med-wi09.14): a body with {based_on_seq, generation} is
+// refused with 409 when it was built from an older acknowledged seq than the
+// stored horizon under the same generation (cloudstore.ReplaceScheduleFenced).
 //
 // The schedule encodes the dose engine's view, so it will take the sync
 // writer gate. For now (bd med-wi09.20) a header-less PUT on an account with
@@ -355,6 +366,14 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	if len(req.Entries) > maxScheduleEntries {
 		http.Error(w, "too many schedule entries", http.StatusBadRequest)
 		return
+	}
+	var fence *cloudstore.ScheduleFence
+	if req.BasedOnSeq != nil || req.Generation != nil {
+		if req.BasedOnSeq == nil || req.Generation == nil || *req.BasedOnSeq < 0 || *req.Generation < 1 {
+			http.Error(w, "based_on_seq and generation go together", http.StatusBadRequest)
+			return
+		}
+		fence = &cloudstore.ScheduleFence{BasedOnSeq: *req.BasedOnSeq, Generation: *req.Generation}
 	}
 	entries := make([]cloudstore.ScheduledPushInput, len(req.Entries))
 	for i, e := range req.Entries {
@@ -406,7 +425,13 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := a.store.ReplaceSchedule(r.Context(), session.AccountID, entries, time.Now().UTC()); err != nil {
+	if err := a.store.ReplaceScheduleFenced(r.Context(), session.AccountID, entries, fence, time.Now().UTC()); err != nil {
+		if errors.Is(err, cloudstore.ErrScheduleStale) {
+			// The client pulls, rebuilds and PUTs again (web/cloud/js/reminders.js).
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "stale_schedule"})
+			return
+		}
+		slog.Error("push: replace schedule", "accountID", session.AccountID, "error", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}

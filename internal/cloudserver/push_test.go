@@ -400,3 +400,93 @@ func TestPutSchedule_WriterGate(t *testing.T) {
 		t.Fatalf("schedule after v2 PUT = %q, want new-2", got)
 	}
 }
+
+// TestPutSchedule_Fencing guards bd med-wi09.14 (Archie 5800): under one
+// generation a lower based_on_seq is refused with 409 and leaves the schedule
+// as it was, an equal one renews, a higher one replaces; a different
+// generation wins in either direction and resets the epoch; a legacy body
+// (no fence) replaces as before and moves no stored value; half a fence is 400.
+func TestPutSchedule_Fencing(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	fireAt := time.Now().Add(time.Hour).Unix()
+	put := func(ct string, seq, gen *int64) int {
+		raw, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{{FireAtUnix: fireAt, CT: []byte(ct)}}, BasedOnSeq: seq, Generation: gen})
+		r := httptest.NewRequest(http.MethodPut, "/api/push/schedule", bytes.NewReader(raw))
+		r.Host = host
+		r.AddCookie(session)
+		r.Header.Set("X-Ledger", "2")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	n := func(v int64) *int64 { return &v }
+	scheduled := func() string {
+		due, err := store.DueScheduledPushes(t.Context(), time.Now().Add(2*time.Hour))
+		if err != nil {
+			t.Fatalf("DueScheduledPushes: %v", err)
+		}
+		var cts []string
+		for _, p := range due {
+			if p.AccountID == account.ID {
+				cts = append(cts, string(p.CT))
+			}
+		}
+		return strings.Join(cts, ",")
+	}
+
+	// The account's oplog is at seq 12: the stored fence is capped there.
+	ops := make([]cloudstore.OpInput, 12)
+	for i := range ops {
+		ops[i] = cloudstore.OpInput{RecordTypeTag: "note:n", Nonce: []byte("n"), CT: []byte("c")}
+	}
+	if _, err := store.AppendOps(t.Context(), account.ID, ops, 0, true, time.Now().UTC()); err != nil {
+		t.Fatalf("AppendOps: %v", err)
+	}
+
+	steps := []struct {
+		name     string
+		ct       string
+		seq, gen *int64
+		code     int
+		want     string
+	}{
+		{"first fenced PUT", "a", n(10), n(2), http.StatusNoContent, "a"},
+		{"lower seq is stale", "stale", n(9), n(2), http.StatusConflict, "a"},
+		{"equal seq renews", "b", n(10), n(2), http.StatusNoContent, "b"},
+		{"higher seq replaces", "c", n(12), n(2), http.StatusNoContent, "c"},
+		{"legacy body replaces", "legacy", nil, nil, http.StatusNoContent, "legacy"},
+		{"legacy moved no fence", "stale2", n(11), n(2), http.StatusConflict, "legacy"},
+		{"higher generation wins at a lower seq", "g3", n(5), n(3), http.StatusNoContent, "g3"},
+		{"same generation, lower seq after the epoch reset", "g3stale", n(4), n(3), http.StatusConflict, "g3"},
+		{"lower generation wins too (rollback)", "g2", n(1), n(2), http.StatusNoContent, "g2"},
+		{"the rolled-back epoch fences by its own seq", "g2stale", n(0), n(2), http.StatusConflict, "g2"},
+		{"seq without generation", "half", n(20), nil, http.StatusBadRequest, "g2"},
+		{"generation without seq", "half", nil, n(2), http.StatusBadRequest, "g2"},
+		{"generation 0", "zero", n(20), n(0), http.StatusBadRequest, "g2"},
+		// Breakage F3: a cursor ahead of the server (DB restored from a backup)
+		// is accepted but stored capped at last_seq 12, so a device freshly
+		// pulled to 12 ties instead of being fenced out.
+		{"ahead cursor accepted", "ahead", n(50), n(2), http.StatusNoContent, "ahead"},
+		{"fresh device at last_seq ties the capped fence", "fresh", n(12), n(2), http.StatusNoContent, "fresh"},
+		{"below last_seq is still stale", "older", n(11), n(2), http.StatusConflict, "fresh"},
+	}
+	for _, s := range steps {
+		if code := put(s.ct, s.seq, s.gen); code != s.code {
+			t.Fatalf("%s: status = %d, want %d", s.name, code, s.code)
+		}
+		if got := scheduled(); got != s.want {
+			t.Fatalf("%s: schedule = %q, want %q", s.name, got, s.want)
+		}
+	}
+}
