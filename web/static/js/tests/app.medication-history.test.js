@@ -501,11 +501,15 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
       const commitSpy = vi.spyOn(window, '_commitOptimistic');
       const rollbackSpy = vi.spyOn(window, '_rollbackOptimistic');
       const closeSpy = vi.spyOn(window, 'closeMedicationConfirmModal');
+      // A failed take still repaints the meds view (bd med-2l38); stubbed so
+      // the fire-and-forget loads don't outlive the test's DOM.
+      const refreshSpy = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
 
       await window.confirmSelectedMedications();
 
       expect(rollbackSpy).toHaveBeenCalled();
       expect(commitSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalled();
       expect(safeAlertSpy.mock.calls.map((c) => c[0])).not.toContain('Confirmed!');
       // Falsy resolution still closes the modal (the catch path is the one that keeps it open).
       expect(closeSpy).toHaveBeenCalled();
