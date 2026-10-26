@@ -8,7 +8,7 @@
 // (there must be none), the SDK user_message frames, the vision turn's status,
 // the call-bar status line, console warnings, and a screenshot. Logs go to
 // stderr; stdout carries exactly one JSON line:
-//   {files_requests, user_messages, vision_status, callbar, console, verdict, detail}
+//   {files_requests, failed_requests, user_messages, vision_status, callbar, console, verdict, detail}
 // verdict: PASS (no /files request, the marker was sent, no error on the call
 // bar), REPRO (any of those failed), BLOCKED (never got as far as the send).
 //
@@ -26,7 +26,7 @@ const SCREENSHOT = process.env.SCREENSHOT || 'trial-photo.png';
 
 const log = (msg) => console.error(msg);
 const result = {
-  files_requests: 0, user_messages: [], vision_status: null, callbar: null, console: [], verdict: 'BLOCKED', detail: '',
+  files_requests: 0, failed_requests: {}, user_messages: [], vision_status: null, callbar: null, console: [], verdict: 'BLOCKED', detail: '',
 };
 
 class Blocked extends Error {}
@@ -64,6 +64,11 @@ async function main() {
     }
   });
   page.on('pageerror', (e) => result.console.push(`[pageerror] ${e.message}`.slice(0, 500)));
+  // Which requests fail (e.g. ERR_INSUFFICIENT_RESOURCES = a request burst), counted per path.
+  page.on('requestfailed', (r) => {
+    const key = `${r.method()} ${new URL(r.url()).pathname} ${r.failure()?.errorText || ''}`;
+    result.failed_requests[key] = (result.failed_requests[key] || 0) + 1;
+  });
 
   const cdp = await context.newCDPSession(page);
   await cdp.send('WebAuthn.enable');
