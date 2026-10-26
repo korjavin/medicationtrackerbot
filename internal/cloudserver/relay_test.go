@@ -1146,3 +1146,25 @@ func TestRelay_ClientRowAndRefireDueTogetherLeaveOneLiveMessage(t *testing.T) {
 		t.Fatalf("want one pending refire superseding message 2, got %+v", future)
 	}
 }
+
+// pendingErrStore fails the Tick's pending re-check.
+type pendingErrStore struct{ *cloudstore.Repo }
+
+func (pendingErrStore) PushIsPending(context.Context, int64) (bool, error) {
+	return false, errors.New("db fault")
+}
+
+// med-xk3h: a failed pending lookup fails open — the row still sends.
+func TestRelay_PendingLookupErrorStillSends(t *testing.T) {
+	store, h, host, session, _ := medRefireChainSetup(t)
+	now := time.Now().UTC()
+	stem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: stem},
+	}})
+	tg := &fakeTGSender{}
+	NewRelay(pendingErrStore{store}, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(context.Background())
+	if len(tg.sent) != 1 {
+		t.Fatalf("lookup error must fail open and send: sent=%v", tg.sent)
+	}
+}

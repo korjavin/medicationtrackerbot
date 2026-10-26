@@ -301,7 +301,8 @@ func (rl *Relay) Tick(ctx context.Context) {
 		// due is a snapshot: a send earlier in this tick may have deleted this
 		// row (scheduleMedRefire replaces the slot's pending refire), and
 		// sending it anyway would leave the earlier message live (med-xk3h).
-		// On a lookup error fall through: at-most-once beats dropping a reminder.
+		// On a lookup error fall through (fail open): a duplicate reminder is
+		// better than a dropped one.
 		if pending, err := rl.store.PushIsPending(ctx, p.ID); err == nil && !pending {
 			continue
 		}
