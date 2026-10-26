@@ -515,12 +515,17 @@ async function _optimisticNextIntake(doses) {
 }
 
 // Settles a dose write on the act's refused occIds (bd med-2l38): none →
-// commit; some → only those rows go back (a restore flip over the timeline
-// keys, then commit), so the doses that landed never flash back to due.
-// `mutate` is the write's _tlPatchRows; `next` an _optimisticNextIntake settle.
+// commit; all → roll back; some → only those rows go back (a restore flip
+// over the timeline keys, then commit), so the doses that landed never flash
+// back to due. `mutate` is the write's _tlPatchRows; `next` an
+// _optimisticNextIntake settle.
 async function _settleDoseWrite(handles, mutate, failed, next) {
-    if (failed.size) handles.push(await _applyOptimisticTimeline(mutate.restore(failed)));
-    await _commitOptimistic(handles);
+    if (failed.size && [...mutate.ids].every((id) => failed.has(id))) {
+        await _rollbackOptimistic(handles);
+    } else {
+        if (failed.size) handles.push(await _applyOptimisticTimeline(mutate.restore(failed)));
+        await _commitOptimistic(handles);
+    }
     if (next) await next(failed);
 }
 

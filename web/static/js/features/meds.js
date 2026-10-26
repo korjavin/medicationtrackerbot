@@ -759,6 +759,7 @@ function _tlPatchRows(patches) {
         const id = r && String(r.occId);
         return id && ids.has(id) && before.has(id) ? before.get(id) : r;
     });
+    mutate.ids = new Set(patches.keys());
     return mutate;
 }
 
