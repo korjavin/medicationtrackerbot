@@ -14,17 +14,23 @@
 //     internal/domain/medplan/medplan.go's PlanDoses output sort compares
 //     medicationId with numeric subtraction, and intake records (Task 3)
 //     reference medication_id by this same number.
-//   restock — medication_id, quantity, note, restocked_at.
+//   restock — medication_id, quantity, note, restocked_at. Written by older
+//     clients only; still counted as refills (stock.js).
+//   stock — the stock ledger (stock.js, bd med-wi09.13). A med's stock is
+//     derived from it; inventory_count on the record is a mirror for older
+//     clients (null = untracked) and pack_size an optional pack size.
 //
 // Intake records (owned by web/domain's Task 3 intake state machine) are
 // only *read* here, to compute last_taken_at and to cancel pending intakes
 // on archive — this module never writes intake status.
 import { getDaysOfStockRemaining, listLowOnStock, historyRecordId } from './medschedule.js';
 import { boundary } from './lineage.js';
+import {
+  createStockDomain, deriveStock, withDerivedStock, STOCK_RECORD_TYPE,
+} from './stock.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
-const RESTOCK_RECORD_TYPE = 'restock';
 // History (bd med-wi09.9): one immutable medsched-<medId>-<fromSec>-<rand> per
 // schedule/policy change — medication_id, schedule, tz_shift_policy, from
 // (ISO). The generation a med was created with lives at the `base` suffix
@@ -109,8 +115,11 @@ function lastTakenAtFor(medId, intakes) {
 
 // Ported from the Medication struct's JSON tags (repo.go:54-69) — last_taken_at
 // has no omitempty (always present, null if never taken); rxcui/
-// normalized_name/inventory_count do.
-function toResponse(record, intakes = []) {
+// normalized_name/inventory_count do. inventory_count is the DERIVED stock
+// (stock.js), never the record's mirror; `stock` carries the ledger behind it
+// for the Update stock sheet (ST3): the starting count and when, refills since
+// (newest first), doses taken since.
+function toResponse(record, intakes = [], sources = null) {
   const resp = {
     id: record.recordId,
     name: record.name,
@@ -126,10 +135,21 @@ function toResponse(record, intakes = []) {
   };
   if (record.rxcui) resp.rxcui = record.rxcui;
   if (record.normalized_name) resp.normalized_name = record.normalized_name;
-  if (record.inventory_count !== null && record.inventory_count !== undefined) {
-    resp.inventory_count = record.inventory_count;
+  if (record.pack_size) resp.pack_size = record.pack_size;
+  const s = deriveStock(record, sources || { intakes });
+  if (s) {
+    resp.inventory_count = s.count;
+    resp.stock = s.audit
+      ? { counted: s.audit.count, counted_at: s.audit.at, seed: s.audit.seed, refills: s.refills, taken: s.taken }
+      : { counted: s.count, counted_at: null, seed: true, refills: [], taken: 0 };
   }
   return resp;
+}
+
+// An optional positive whole pack size, else null.
+function normalizePackSize(raw) {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 function toRestockResponse(record) {
@@ -166,6 +186,7 @@ export function createMedicationsDomain({
     async checkInteractions() { return []; },
   };
   const rx = rxnorm || noopRxnorm;
+  const stock = createStockDomain({ records, now });
 
   async function searchRxNorm(name) {
     try {
@@ -233,6 +254,11 @@ export function createMedicationsDomain({
 
     const all = await records.list(MEDICATION_RECORD_TYPE);
     assertNoDuplicate(all, name, dosage, null);
+    const startCount = input && input.inventory_count !== undefined && input.inventory_count !== null
+      ? Number(input.inventory_count) : null;
+    if (startCount !== null && !(Number.isInteger(startCount) && startCount >= 0)) {
+      throw Object.assign(new Error('inventory_count must be a whole number, 0 or more'), { code: 'invalid_count' });
+    }
 
     const { rxcui, normalizedName } = await searchRxNorm(name);
 
@@ -250,11 +276,14 @@ export function createMedicationsDomain({
       end_date: toISOStringOrNull(input && input.end_date),
       rxcui: rxcui || '',
       normalized_name: normalizedName || '',
-      inventory_count: input && input.inventory_count !== undefined ? input.inventory_count : null,
+      inventory_count: startCount,
+      pack_size: normalizePackSize(input && input.pack_size),
       tz_shift_policy: tzShiftPolicy,
       created_at: new Date(nowMs).toISOString(),
     };
     await records.put(MEDICATION_RECORD_TYPE, record);
+    // Starting stock is the med's first count.
+    if (record.inventory_count !== null) await stock.audit(record.recordId, record.inventory_count);
     await records.put(MEDSCHED_RECORD_TYPE, medschedRecord(record.recordId, record, record.created_at, nowMs, 'base'));
 
     const warning = await computeWarning(rxcui);
@@ -263,11 +292,15 @@ export function createMedicationsDomain({
 
   // update mirrors handleUpdateMedication's full-replace semantics exactly,
   // including its quirks: name/dosage/schedule/archived/start_date/end_date/
-  // rxcui/normalized_name/inventory_count/tz_shift_policy are all
-  // unconditionally overwritten from the input (an omitted start_date/
-  // end_date/inventory_count clears it; an omitted tz_shift_policy resets to
-  // "flexible") — only `supplement` is preserved when the input omits it,
-  // matching the server's *bool-nil guard.
+  // rxcui/normalized_name/tz_shift_policy are all unconditionally overwritten
+  // from the input (an omitted start_date/end_date clears it; an omitted
+  // tz_shift_policy resets to "flexible") — only `supplement` and `pack_size`
+  // are preserved when the input omits them.
+  // inventory_count is tracking, not a count (bd med-wi09.13): null/omitted
+  // stops tracking; a number on an untracked med starts it at that count (an
+  // audit); on a tracked med the number is ignored — the stock moves only
+  // through the ledger (restock / stock-audit), so an editor that read the
+  // count before a dose landed cannot set it back.
   async function update(id, input) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
     const existing = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
@@ -299,13 +332,25 @@ export function createMedicationsDomain({
       end_date: toISOStringOrNull(input && input.end_date),
       rxcui: rxcui || '',
       normalized_name: normalizedName || '',
-      inventory_count: input && input.inventory_count !== undefined ? input.inventory_count : null,
       tz_shift_policy: tzShiftPolicy,
     };
+    const wantCount = input && input.inventory_count !== undefined && input.inventory_count !== null
+      ? Number(input.inventory_count) : null;
+    const wasTracked = existing.inventory_count !== null && existing.inventory_count !== undefined;
+    const startTracking = wantCount !== null && !wasTracked;
+    if (wantCount === null) updated.inventory_count = null;
+    else if (startTracking) {
+      if (!Number.isInteger(wantCount) || wantCount < 0) {
+        throw Object.assign(new Error('inventory_count must be a whole number, 0 or more'), { code: 'invalid_count' });
+      }
+      updated.inventory_count = wantCount;
+    }
     if (input && input.supplement !== undefined && input.supplement !== null) {
       updated.supplement = !!input.supplement;
     }
+    if (input && input.pack_size !== undefined) updated.pack_size = normalizePackSize(input.pack_size);
     await records.put(MEDICATION_RECORD_TYPE, updated);
+    if (startTracking) await stock.audit(existing.recordId, wantCount);
     if ((existing.schedule || '') !== schedule || (existing.tz_shift_policy || 'flexible') !== tzShiftPolicy) {
       // Floored backfill of the pre-history generation (no-op when the base
       // row already exists), then the edit itself at a real stamp.
@@ -356,8 +401,10 @@ export function createMedicationsDomain({
 
     await records.del(MEDICATION_RECORD_TYPE, id);
     // Its schedule history goes with it: nothing dangles in an export.
-    for (const h of await records.list(MEDSCHED_RECORD_TYPE)) {
-      if (!h.deleted && String(h.medication_id) === String(id)) await records.del(MEDSCHED_RECORD_TYPE, h.recordId);
+    for (const type of [MEDSCHED_RECORD_TYPE, STOCK_RECORD_TYPE]) {
+      for (const h of await records.list(type)) {
+        if (!h.deleted && String(h.medication_id) === String(id)) await records.del(type, h.recordId);
+      }
     }
   }
 
@@ -365,58 +412,45 @@ export function createMedicationsDomain({
   // repo.go's List's `ORDER BY m.name ASC` (binary/ordinal, not locale-aware).
   async function list({ archived = false } = {}) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const intakes = await records.list(INTAKE_RECORD_TYPE);
+    const src = await stock.sources();
     return all
       .filter((m) => !m.deleted && (archived || !m.archived))
       .slice()
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-      .map((m) => toResponse(m, intakes));
+      .map((m) => toResponse(m, src.intakes, src));
   }
 
   async function get(id) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
     const med = all.find((m) => String(m.recordId) === String(id) && !m.deleted);
     if (!med) return null;
-    const intakes = await records.list(INTAKE_RECORD_TYPE);
-    return toResponse(med, intakes);
+    const src = await stock.sources();
+    return toResponse(med, src.intakes, src);
   }
 
-  // restock mirrors handleRestock + repo.go's CreateRestock: adds to
-  // inventory_count (COALESCE-to-0, so it starts tracking even if untracked
-  // before) and logs a restock row.
+  // POST /restock — a refill row in the stock ledger (stock.js). An untracked
+  // med starts tracking at that amount, like the old COALESCE-to-0 restock.
   async function restock(medId, quantity, note) {
-    if (!(quantity > 0)) {
-      const err = new Error('Quantity must be positive');
-      err.code = 'invalid_quantity';
-      throw err;
-    }
-    const all = await records.list(MEDICATION_RECORD_TYPE);
-    const med = all.find((m) => String(m.recordId) === String(medId) && !m.deleted);
-    if (!med) throw notFound('medication not found');
-
-    const nowMs = now();
-    const newCount = (med.inventory_count || 0) + quantity;
-    await records.put(MEDICATION_RECORD_TYPE, { ...med, clientTs: nowMs, inventory_count: newCount });
-
-    const restockAll = await records.list(RESTOCK_RECORD_TYPE);
-    await records.put(RESTOCK_RECORD_TYPE, {
-      recordId: nextId(restockAll, nowMs),
-      clientTs: nowMs,
-      deleted: false,
-      medication_id: medId,
-      quantity,
-      note: note || '',
-      restocked_at: new Date(nowMs).toISOString(),
-    });
-
-    return { status: 'restocked', quantity_added: quantity, inventory_count: newCount };
+    return stock.refill(medId, quantity, note);
   }
 
-  // listRestocks mirrors handleListRestocks: newest-first for one medication.
+  // POST /stock-audit — a count: the new starting point for the stock.
+  async function stockAudit(medId, count) {
+    return stock.audit(medId, count);
+  }
+
+  // listRestocks mirrors handleListRestocks: newest-first for one medication —
+  // the ledger's refills plus older clients' restock rows, in the restock shape.
   async function listRestocks(medId) {
-    const all = await records.list(RESTOCK_RECORD_TYPE);
-    return all
+    const { stock: rows, restocks } = await stock.sources();
+    const refills = rows
+      .filter((r) => !r.deleted && r.kind === 'refill' && String(r.medication_id) === String(medId))
+      .map((r) => ({
+        recordId: r.recordId, medication_id: r.medication_id, quantity: r.n, note: r.note, restocked_at: r.at,
+      }));
+    return restocks
       .filter((r) => !r.deleted && String(r.medication_id) === String(medId))
+      .concat(refills)
       .sort((a, b) => Date.parse(b.restocked_at) - Date.parse(a.restocked_at))
       .map(toRestockResponse);
   }
@@ -425,12 +459,13 @@ export function createMedicationsDomain({
   // enrichment, both ported to medschedule.js.
   async function listLowStock(daysThreshold = DEFAULT_LOW_STOCK_THRESHOLD_DAYS) {
     const all = await records.list(MEDICATION_RECORD_TYPE);
-    const intakes = await records.list(INTAKE_RECORD_TYPE);
-    const meds = all.filter((m) => !m.deleted);
+    const src = await stock.sources();
+    const meds = withDerivedStock(all.filter((m) => !m.deleted), src);
     const nowMs = now();
     const low = listLowOnStock(meds, nowMs, daysThreshold);
+    const byId = new Map(all.map((m) => [String(m.recordId), m]));
     return low.map((m) => {
-      const resp = toResponse(m, intakes);
+      const resp = toResponse(byId.get(String(m.recordId)), src.intakes, src);
       const daysRemaining = getDaysOfStockRemaining(m);
       if (daysRemaining !== null && daysRemaining !== undefined) resp.days_remaining = daysRemaining;
       return resp;
@@ -438,6 +473,6 @@ export function createMedicationsDomain({
   }
 
   return {
-    create, update, remove, list, get, restock, listRestocks, listLowStock, rxCheck,
+    create, update, remove, list, get, restock, stockAudit, listRestocks, listLowStock, rxCheck,
   };
 }

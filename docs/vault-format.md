@@ -133,14 +133,18 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   "items": [ { medication } ],
   "intakes": [ { intake } ],      // flat list across all meds
   "restocks": [ { restock } ],
-  "schedules": [ { medsched } ]   // optional, cloud-only — omitted when empty
+  "schedules": [ { medsched } ],  // optional, cloud-only — omitted when empty
+  "stock": [ { stock } ]          // optional, cloud-only — omitted when empty
 }
 ```
 
 - **medication** — `id` (number, FK glue), `name`, `dosage`, `schedule`, `archived`
   (bool), `supplement` (bool), `start_date` (RFC3339|null), `end_date`
   (RFC3339|null), `rxcui` (str), `normalized_name` (str), `inventory_count`
-  (num|null), `tz_shift_policy` (`flexible`|`medium`|`strict`), `created_at` (RFC3339).
+  (num|null), `tz_shift_policy` (`flexible`|`medium`|`strict`), `created_at` (RFC3339),
+  optional `pack_size` (positive integer|null, bd med-wi09.13). Since the stock ledger
+  `inventory_count` is a mirror kept for older clients (null = stock not tracked);
+  the current stock is derived from `stock` (below).
 - **intake** — `medication_id` (number → medication.id), `scheduled_at` (RFC3339),
   `taken_at` (RFC3339|null), `status` (`PENDING`|`TAKEN`|`SKIPPED`), `snoozed_until`
   (RFC3339|null), `source` (`schedule`|`tz_step`), plus `tz_plan_id` (number|absent →
@@ -159,6 +163,16 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   re-mint as `intake-manual-<ms>-<rand>` unless the file already carries a cloud
   recordId to preserve.
 - **restock** — `medication_id` (number), `quantity` (num), `note` (str), `restocked_at` (RFC3339).
+  Written only by clients older than the stock ledger; still counted as a refill.
+- **stock** (bd med-wi09.13) — the stock ledger, one immutable row per movement: `id`
+  (the recordId, `stock-<medId>-<ms>-<rand>`), `medication_id` (number → medication.id),
+  `kind` (`refill`|`audit`), `n` (refill: pills added) or `count` (audit: pills counted),
+  `at` (RFC3339), optional `note` (str). A **seed** audit (`seed: true`, id suffix
+  `seed<count>`) is the old `inventory_count` taken over at the first stock-moving write.
+  Current stock = the starting audit's count (the latest real audit, else the earliest
+  seed) + refills (and legacy restocks) after it − `TAKEN` intakes whose `taken_at` is
+  after it. Exported in (`at`, `id`) order. Import keeps the id; an id without the
+  `stock-` prefix fails the import before the wipe.
 - **medsched** (bd med-wi09.9) — schedule history, one immutable row per
   schedule/policy change: `id` (the recordId, `medsched-<medId>-<fromSec>-<rand>`;
   the generation a med was created with uses the suffix `base`, `from` =
@@ -726,6 +740,8 @@ Export → import → export (and each single hop) must be
 - **Cloud-only history** — `medications.schedules` and `tz.transitions`
   (med-wi09.9). Older files omit them and import no history; older clients
   ignore both keys. Stripped the same way.
+- **Cloud-only stock ledger** — `medications.stock` and `pack_size` on a medication
+  (med-wi09.13). Older files omit them; older clients ignore both. Stripped the same way.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy
   bot import normalized every timestamp to UTC before storing it
   (`2026-07-07T12:00:00+02:00` → `2026-07-07T10:00:00Z`), because
@@ -753,7 +769,8 @@ it as `sleep-<start_ms>`, and the round-trip test runs the conversion pass over 
 
 Every list-shaped block carries **≥2 rows** on purpose (two gamification targets, two
 ledger rows, two band overrides, two experiments — one active + one resolved, two modes, two api tokens, two tz plans — one `COMPLETED` + one `PENDING_APPROVAL`, two
-schedule-history rows — the `base` generation + one edit, two zone transitions — one
+schedule-history rows — the `base` generation + one edit, two stock rows — a seed audit +
+one refill, two zone transitions — one
 flexible-only + one applied plan with steps) so
 an exporter that drops all but the newest row fails the pin rather than passing it. The
 reminder blocks cover both shapes: `bp_reminder` has a non-null `snoozed_until`,

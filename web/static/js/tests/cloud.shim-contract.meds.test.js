@@ -1387,3 +1387,142 @@ describe('schedule history — medsched-* on every schedule/policy edit (bd med-
         expect(await env.records.list('medsched')).toHaveLength(0);
     });
 });
+
+// bd med-wi09.13: stock is a ledger — the last count + refills since − doses
+// taken since — and medication.inventory_count is a write-only mirror of it.
+describe('stock ledger (bd med-wi09.13)', () => {
+    const T = (hh) => Date.UTC(2026, 9, 20, hh, 0, 0);
+    const iso = (ms) => new Date(ms).toISOString();
+    const AS_NEEDED = JSON.stringify({ type: 'as_needed' });
+    const med = (over = {}) => ({
+        recordId: 1, clientTs: 1, deleted: false, name: 'Metformin', dosage: '500mg', schedule: AS_NEEDED,
+        archived: false, supplement: false, inventory_count: 10, tz_shift_policy: 'flexible', created_at: iso(T(0)), ...over,
+    });
+    const audit = (count, atMs, id = 'a1') => ({
+        recordId: `stock-1-${atMs}-${id}`, clientTs: atMs, deleted: false, medication_id: 1, kind: 'audit', count, at: iso(atMs),
+    });
+    const takenRow = (atMs, id = `intake-manual-${atMs}-1`) => ({
+        recordId: id, clientTs: atMs, deleted: false, medication_id: 1, scheduled_at: iso(atMs), taken_at: iso(atMs),
+        status: 'TAKEN', snoozed_until: null, source: 'schedule', rev: 1, via: 'app', acted_at: iso(atMs),
+    });
+    let env;
+    let clock;
+    const open = (seedRecords) => {
+        env = loadCloudShimFrontendEnv({ seedRecords, now: () => clock, timeZone: 'UTC' });
+        return env;
+    };
+    const derived = async (e = env) => (await e.window.apiCall('/api/medications'))[0].inventory_count;
+    const mirror = async (e = env) => (await e.records.list('medication'))[0].inventory_count;
+
+    afterEach(() => {
+        if (env) env.cleanup();
+        env = null;
+    });
+
+    it('an offline dose at 11:00 and an online refill at 12:00 both land: 10 − 1 + 10 = 19', async () => {
+        clock = T(12);
+        open({ medication: [med()], stock: [audit(10, T(9))] });
+        const res = await env.window.apiCall('/api/medications/1/restock', 'POST', { quantity: 10 });
+        expect(res).toEqual({ status: 'restocked', quantity_added: 10, inventory_count: 20 });
+        // The phone's dose syncs in after the refill.
+        await env.records.put('intake', takenRow(T(11)));
+        expect(await derived()).toBe(19);
+        expect(await env.window.apiCall('/api/inventory/low', 'GET')).toEqual([]);
+    });
+
+    it('two concurrent refills from two devices both count', async () => {
+        clock = T(12);
+        const seed = () => ({ medication: [med()], stock: [audit(10, T(9))] });
+        const a = loadCloudShimFrontendEnv({ seedRecords: seed(), now: () => clock, timeZone: 'UTC' });
+        const b = loadCloudShimFrontendEnv({ seedRecords: seed(), now: () => clock, timeZone: 'UTC' });
+        try {
+            await a.window.apiCall('/api/medications/1/restock', 'POST', { quantity: 30 });
+            await b.window.apiCall('/api/medications/1/restock', 'POST', { quantity: 30 });
+            // Sync: each device receives the other's refill row (distinct ids).
+            const rowsA = await a.records.list('stock');
+            const rowsB = await b.records.list('stock');
+            for (const r of rowsB) await a.records.put('stock', r);
+            for (const r of rowsA) await b.records.put('stock', r);
+            expect(await derived(a)).toBe(70);
+            expect(await derived(b)).toBe(70);
+        } finally {
+            a.cleanup();
+            b.cleanup();
+        }
+    });
+
+    it('moving taken_at across a count changes the stock: a dose before the count is already in it', async () => {
+        clock = T(12);
+        open({ medication: [med()], stock: [audit(10, T(10))] });
+        const dose = await env.window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: iso(T(11)) });
+        expect(await derived()).toBe(9);
+        await env.window.apiCall('/api/doses/act', 'POST', { action: 'edit_time', occ_ids: [dose.id], taken_at: iso(T(9)) });
+        expect(await derived()).toBe(10);
+        await env.window.apiCall('/api/doses/act', 'POST', { action: 'edit_time', occ_ids: [dose.id], taken_at: iso(T(11) + 60000) });
+        expect(await derived()).toBe(9);
+        expect(await mirror()).toBe(9);
+    });
+
+    it('a count is the new starting point: later doses come off it, earlier ones are not rewritten', async () => {
+        clock = T(12);
+        open({ medication: [med()], stock: [audit(10, T(8))], intake: [takenRow(T(9))] });
+        expect(await derived()).toBe(9);
+        const res = await env.window.apiCall('/api/medications/1/stock-audit', 'POST', { count: 45 });
+        expect(res).toEqual({ status: 'counted', inventory_count: 45 });
+        clock = T(13);
+        await env.window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: iso(T(13)) });
+        const [m] = await env.window.apiCall('/api/medications');
+        expect(m.inventory_count).toBe(44);
+        expect(m.stock).toMatchObject({ counted: 45, seed: false, refills: [], taken: 1 });
+        expect(await mirror()).toBe(44);
+        await expect(env.window.offlineAwareApiCall('/api/medications/1/stock-audit', 'POST', { count: -1 }))
+            .rejects.toMatchObject({ status: 400 });
+    });
+
+    it('a med tracked before the ledger is seeded at its first move (floored, put-if-absent) and keeps its number', async () => {
+        clock = T(12);
+        // Old inventory 5, after a dose an old client already took off it.
+        open({ medication: [med({ inventory_count: 5 })], intake: [takenRow(T(8))] });
+        expect(await derived()).toBe(5);
+        const dose = await env.window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: iso(T(11)) });
+        expect(await derived()).toBe(4);
+        expect(await mirror()).toBe(4);
+        const [seed] = await env.records.list('stock');
+        // Back-projected over the evidence: 5 + the 1 dose already taken off it.
+        expect(seed).toMatchObject({ recordId: `stock-1-${T(12)}-seed6`, clientTs: 0, kind: 'audit', count: 6, seed: true });
+        // An undo of a dose from before the seed still gives it back.
+        await env.window.apiCall('/api/doses/act', 'POST', { action: 'undo', occ_ids: [takenRow(T(8)).recordId] });
+        await env.window.apiCall('/api/doses/act', 'POST', { action: 'undo', occ_ids: [dose.id] });
+        expect(await derived()).toBe(6);
+        expect(await mirror()).toBe(6);
+        // An older client's write to the mirror is not read.
+        await env.records.put('medication', { ...(await env.records.list('medication'))[0], inventory_count: 99 });
+        expect(await derived()).toBe(6);
+    });
+
+    it('two devices seeding differently converge: the earliest seed wins, a real count beats any seed', async () => {
+        clock = T(12);
+        const seed = (atMs, count) => ({ ...audit(count, atMs, `seed${count}`), clientTs: 0, seed: true });
+        open({ medication: [med()], stock: [seed(T(10), 12), seed(T(9), 11)], intake: [takenRow(T(8))] });
+        // Seeds count every dose: 11 − 1.
+        expect(await derived()).toBe(10);
+        expect((await env.window.apiCall('/api/medications'))[0].stock).toMatchObject({ counted: 10, seed: true, taken: 0 });
+        await env.records.put('stock', audit(30, T(7), 'real'));
+        expect(await derived()).toBe(29);
+    });
+
+    it('pack_size is optional: kept when an update omits it, cleared by null', async () => {
+        clock = T(12);
+        open({ medication: [med()] });
+        const base = { name: 'Metformin', dosage: '500mg', schedule: AS_NEEDED, inventory_count: 10 };
+        await env.window.apiCall('/api/medications/1', 'POST', { ...base, pack_size: 28 });
+        expect((await env.window.apiCall('/api/medications'))[0].pack_size).toBe(28);
+        await env.window.apiCall('/api/medications/1', 'POST', base);
+        expect((await env.window.apiCall('/api/medications'))[0].pack_size).toBe(28);
+        // A tracked med's count is not set through the editor.
+        await env.window.apiCall('/api/medications/1', 'POST', { ...base, inventory_count: 50, pack_size: null });
+        const [m] = await env.window.apiCall('/api/medications');
+        expect(m.pack_size).toBeUndefined();
+        expect(m.inventory_count).toBe(10);
+    });
+});

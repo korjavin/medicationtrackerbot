@@ -23,6 +23,7 @@
 import { localDateTimeParts, localWallToUtcMs, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
 import { applyLineage, canonical, evidenceTransitions, loadLineage, regenerateWindow, regenerationStartMs } from './lineage.js';
+import { createStockDomain } from './stock.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -638,6 +639,7 @@ function medsKey(meds) {
 //             clock alone. The shell arms its refresh timer there (Archie 4934
 //             point 3); the domain keeps no timer.
 export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoundary }) {
+  const stock = createStockDomain({ records, now });
   // An explicit action on `intake` (null = a slot with no stored row yet):
   // rev seen+1, a fresh acted_at, and any old conflict flag resolved.
   function acted(intake, fields, nowMs) {
@@ -784,12 +786,15 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return plan && plan.status === 'APPROVED' ? plan : null;
   }
 
-  // `delta` moves inventory only when the write actually landed: the reducer
-  // can refuse it (a tombstoned slot is terminal).
-  async function putIntake(intake, delta = 0) {
+  // Stock is derived from TAKEN evidence (stock.js, bd med-wi09.13), so a
+  // write moves no number: it seeds the med's ledger first if it has none, and
+  // a write that landed refreshes the inventory_count mirror older clients
+  // read. The reducer can refuse a write (a tombstoned slot is terminal).
+  async function putIntake(intake) {
+    await stock.ensureSeed(intake.medication_id);
     const stored = await records.put(INTAKE_RECORD_TYPE, intake);
     const landed = !stored || (!stored.deleted && stored.status === intake.status);
-    if (delta && landed) await adjustInventory(intake.medication_id, delta);
+    if (landed) await stock.mirror(intake.medication_id);
     return landed;
   }
 
@@ -926,21 +931,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return states ? rows.filter((r) => states.includes(r.state)) : rows;
   }
 
-  // Best-effort, matching the server's DecrementInventory calls: a null/
-  // untracked inventory_count (or a missing medication) is a silent no-op.
-  async function adjustInventory(medId, delta) {
-    const meds = await records.list(MEDICATION_RECORD_TYPE);
-    // String(): an intake's medication_id may be number vs string against the
-    // med's recordId (med-wi09.15) — a strict miss silently skips the stock move.
-    const med = meds.find((m) => String(m.recordId) === String(medId) && !m.deleted);
-    if (!med || med.inventory_count === null || med.inventory_count === undefined) return;
-    await records.put(MEDICATION_RECORD_TYPE, {
-      ...med,
-      clientTs: now(),
-      inventory_count: med.inventory_count + delta,
-    });
-  }
-
   // The REMINDER CALLBACK (a Telegram tap drained by inbox-apply.js): PENDING ->
   // TAKEN, decrement inventory. A callback may only move rev 0 -> 1 (bd
   // med-wi09.11): a dose any explicit action already touched is not its to
@@ -951,7 +941,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     if (!intake || intake.status !== 'PENDING' || intakeRev(intake) !== 0) throw notPending();
     const nowMs = now();
     const updated = acted(intake, { status: 'TAKEN', taken_at: new Date(takenAtMs ?? nowMs).toISOString() }, nowMs);
-    await putIntake(updated, -1);
+    await putIntake(updated);
     return toResponse(updated);
   }
 
@@ -1008,7 +998,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       snoozed_until: null,
       source: 'schedule',
     }, nowMs);
-    await putIntake(record, -1);
+    await putIntake(record);
     return toResponse(record);
   }
 
@@ -1036,10 +1026,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         : null;
       // A revert to PENDING is an undo: stored as UNTAKEN (bd med-wi09.11).
       const status = up.status === 'PENDING' && !OPEN_STATUSES.has(prevStatus) ? 'UNTAKEN' : up.status;
-      let delta = 0;
-      if (up.status === 'PENDING' && prevStatus === 'TAKEN') delta = 1;
-      else if (up.status === 'TAKEN' && OPEN_STATUSES.has(prevStatus)) delta = -1;
-      await putIntake(acted(intake, untakenNote(intake, { status, taken_at: takenAt }), nowMs), delta);
+      await putIntake(acted(intake, untakenNote(intake, { status, taken_at: takenAt }), nowMs));
       updated++;
     }
     return { updated, failed: failures.length, failures };
@@ -1064,7 +1051,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       for (const id of ids) {
         const intake = resolve.get(id);
         if (!intake || !OPEN_STATUSES.has(intake.status)) continue;
-        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), -1);
+        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs));
       }
       return { status: 'confirmed' };
     }
@@ -1076,7 +1063,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         && Date.parse(i.scheduled_at) === scheduledAtMs)
         || (Number.isFinite(scheduledAtMs) ? await getIntake(slotId(medId, scheduledAtMs)) : null);
       if (intake && OPEN_STATUSES.has(intake.status)) {
-        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs), -1);
+        await putIntake(acted(intake, { status: 'TAKEN', taken_at: takenIso }, nowMs));
       }
     }
 
@@ -1163,7 +1150,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       // UNTAKEN (an earlier undo) acts exactly like PENDING here.
       const status = wireStatus(intake.status);
       let next = null;
-      let delta = 0;
       if (action === 'snooze') {
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
         // A dose not due yet has nothing to snooze, and a snoozed row would
@@ -1179,7 +1165,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         if (status === 'TAKEN') { result.unchanged++; continue; }
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
         next = { status: 'TAKEN', taken_at: takenIso };
-        delta = -1;
       } else if (action === 'skip') {
         if (status === 'SKIPPED') { result.unchanged++; continue; }
         if (status !== 'PENDING') { fail(occId, 'not_pending'); continue; }
@@ -1188,7 +1173,6 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
         if (virtual) { fail(occId, 'not_found'); continue; }
         if (status === 'PENDING') { result.unchanged++; continue; }
         next = { status: 'UNTAKEN', taken_at: null };
-        if (status === 'TAKEN') delta = 1;
       } else {
         if (status !== 'TAKEN') { fail(occId, 'not_taken'); continue; }
         if (intake.taken_at === takenIso) { result.unchanged++; continue; }
@@ -1196,7 +1180,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       }
 
       const record = acted(intake, untakenNote(intake, next), nowMs);
-      if (!(await putIntake(record, delta))) { fail(occId, 'not_found'); continue; }
+      if (!(await putIntake(record))) { fail(occId, 'not_found'); continue; }
       result.updated++;
       result.doses.push(toResponse(record));
     }
@@ -1213,7 +1197,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     for (const id of ids) {
       const intake = resolve.get(id);
       if (!intake || intake.status !== 'TAKEN') continue;
-      await putIntake(acted(intake, untakenNote(intake, { status: 'UNTAKEN', taken_at: null }), nowMs), 1);
+      await putIntake(acted(intake, untakenNote(intake, { status: 'UNTAKEN', taken_at: null }), nowMs));
       cancelledCount++;
     }
     return { status: 'cancelled', cancelled_count: cancelledCount, requested_count: intakeIds.length };
@@ -1265,7 +1249,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
           && Date.parse(i.scheduled_at) === target.scheduledAtMs);
 
       if (existing && OPEN_STATUSES.has(existing.status)) {
-        await putIntake(acted(existing, { status: 'TAKEN', taken_at: nowIso }, nowMs), -1);
+        await putIntake(acted(existing, { status: 'TAKEN', taken_at: nowIso }, nowMs));
         confirmedCount++;
       } else if (!existing) {
         const record = acted(null, {
@@ -1279,7 +1263,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
           source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
         }, nowMs);
         intakes.push(record);
-        if (await putIntake(record, -1)) confirmedCount++;
+        if (await putIntake(record)) confirmedCount++;
       }
       // Already TAKEN/SKIPPED members were filtered out of `cluster` above.
     }

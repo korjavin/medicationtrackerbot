@@ -79,6 +79,8 @@ export function stopDoseClock() {
 // generic catch, so nothing else needs a status.
 function withDuplicateStatus(err) {
   if (err && err.code === 'duplicate') err.status = 409;
+  if (err && (err.code === 'invalid_count' || err.code === 'invalid_quantity')) err.status = 400;
+  if (err && err.code === 'not_found') err.status = 404;
   throw err;
 }
 
@@ -1052,7 +1054,17 @@ export function createApiRouter(ctx, {
     if (method === 'POST') {
       const m = /^\/api\/medications\/([^/]+)\/restock$/.exec(path);
       if (m) {
-        const res = await medications.restock(Number(m[1]), body && body.quantity, body && body.note);
+        const res = await medications.restock(Number(m[1]), body && body.quantity, body && body.note).catch(withDuplicateStatus);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
+    // A stock count (bd med-wi09.13, Update stock · Counted): the new
+    // starting point of the med's stock ledger.
+    if (method === 'POST') {
+      const m = /^\/api\/medications\/([^/]+)\/stock-audit$/.exec(path);
+      if (m) {
+        const res = await medications.stockAudit(Number(m[1]), body && body.count).catch(withDuplicateStatus);
         scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
       }

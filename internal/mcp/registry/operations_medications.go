@@ -170,7 +170,8 @@ output(result)`,
     "supplement":      {"type": ["boolean", "null"]},
     "start_date":      {"type": ["string", "null"]},
     "end_date":        {"type": ["string", "null"]},
-    "inventory_count": {"type": ["integer", "null"], "description": "Replace inventory count (units remaining); null leaves it untracked"},
+    "inventory_count": {"type": ["integer", "null"], "description": "Stock tracking: null stops tracking; a number on an untracked medication starts tracking at that count. On a tracked medication the number is ignored: correct the stock with medications.stock_audit, add pills with medications.restock"},
+    "pack_size":       {"type": ["integer", "null"], "description": "Optional pills per pack (offers a one-tap +1 pack refill); omit to keep, null to clear"},
     "tz_shift_policy": {"type": "string", "enum": ["", "flexible", "medium", "strict"]}
   }
 }`),
@@ -438,7 +439,7 @@ output({"rejected": 12})`,
     "note":     {"type": "string", "description": "Optional free-form note (e.g. pharmacy, batch)"}
   }
 }`),
-			Description:     "Add a restock event to a medication, increasing its inventory_count.",
+			Description:     "Record pills added to a medication (a refill in its stock ledger), increasing its inventory_count. inventory_count is derived: the last count + refills since − doses taken since.",
 			ResponseSummary: "Object {status:\"restocked\", quantity_added, inventory_count}.",
 			Example: `api.call(
     "medications.restock",
@@ -446,6 +447,29 @@ output({"rejected": 12})`,
     body={"quantity": 30, "note": "Pharmacy refill"},
 )
 output({"restocked": 1})`,
+		},
+		{
+			ID:         "medications.stock_audit",
+			Topic:      "medications",
+			Method:     "POST",
+			Path:       "/api/medications/{id}/stock-audit",
+			Risk:       RiskWrite,
+			PathParams: []string{"id"},
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["count"],
+  "properties": {
+    "count": {"type": "integer", "minimum": 0, "description": "Pills the user has right now (a physical count)"}
+  }
+}`),
+			Description:     "Record a stock count for a medication: the count becomes the new starting point, doses taken after it are subtracted and refills after it added. Earlier history is not rewritten. Starts tracking an untracked medication.",
+			ResponseSummary: "Object {status:\"counted\", inventory_count}.",
+			Example: `api.call(
+    "medications.stock_audit",
+    path_params={"id": 1},
+    body={"count": 45},
+)
+output({"counted": 1})`,
 		},
 	}
 }

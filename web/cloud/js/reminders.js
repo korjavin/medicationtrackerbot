@@ -16,6 +16,7 @@ import {
 } from '../../domain/reminders.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
+import { withDerivedStock } from '../../domain/stock.js';
 import { recordsPort } from './sync.js';
 import { pushSchedule, sendTestPush } from './push.js';
 import { KIND_SECTION, reminderDeeplink } from './reminder-deeplink.js';
@@ -67,7 +68,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   const [
     medications, intakes, tzplans, bps, weights,
     workoutGroups, workoutVariants, workoutExercises, workoutRotations, workoutSessions,
-    weekPlans, trackers, trackerLogs,
+    weekPlans, trackers, trackerLogs, stock, restocks,
   ] = await Promise.all([
     records.list(MEDICATION_RECORD_TYPE),
     // RAW, tombstones included: a dose slot deleted on purpose must suppress
@@ -90,12 +91,16 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     records.list(WEEK_PLAN_RECORD_TYPE),
     records.list(TRACKER_RECORD_TYPE),
     records.list(TRACKER_LOG_RECORD_TYPE),
+    records.list('stock'),
+    records.list('restock'),
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
   const weighInPushText = await computeWeighInPushText(records, remindersDomain, timeZone, now, features);
 
   const entries = await remindersDomain.buildHorizon({
-    medications: medications.filter((m) => !m.deleted),
+    // Low-stock math reads the derived stock (bd med-wi09.13), never the
+    // inventory_count mirror.
+    medications: withDerivedStock(medications.filter((m) => !m.deleted), { stock, restocks, intakes }),
     intakes,
     bps: bps.filter((b) => !b.deleted),
     weights: weights.filter((w) => !w.deleted),
