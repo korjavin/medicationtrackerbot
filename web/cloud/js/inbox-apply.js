@@ -182,7 +182,20 @@ function isAlreadyApplied(err) {
 // gone. Nothing is guessed — the app shows the timeline at that med (MT6).
 export const OUT_OF_DATE_TEXT = 'This reminder is out of date — open the app to log it.';
 
-const ROW_STATUS = { taken: 'TAKEN', skipped: 'SKIPPED' };
+// The receipt lines for a Confirm tap's settled doses (bd med-944k). A tap that
+// records nothing must say so on the message — the relay's static "✅
+// Confirmed — waiting for your device" is otherwise left standing over a dose
+// still Due. Only a dose already TAKEN reads as done; a dose the user undid
+// (UNTAKEN) or skipped is "not recorded". Generic verbosity carries no counts.
+function intakeReceiptLines({ confirmed, already, notRecorded }, verbosity) {
+  const generic = verbosity === 'generic';
+  const meds = (n) => `${n} medication${n === 1 ? '' : 's'}`;
+  const lines = [];
+  if (confirmed) lines.push(confirmationText({ kind: 'intake' }, { confirmed }, verbosity));
+  if (already) lines.push(generic ? '✅ Already recorded.' : `✅ Already taken: ${meds(already)}.`);
+  if (notRecorded) lines.push(generic ? '⚠️ Not recorded — open the app to mark it taken.' : `⚠️ Not recorded: ${meds(notRecorded)} — open the app to mark ${notRecorded === 1 ? 'it' : 'them'} taken.`);
+  return lines;
+}
 
 // applyIntakeSlotAction confirms (or snoozes) the meds a slot reminder named.
 //
@@ -227,37 +240,31 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   const named = (Array.isArray(event.medication_ids) ? event.medication_ids : [])
     .filter((id) => id !== null && id !== undefined && id !== '');
 
-  // medId → the dose this slot names, in the stored-row shape ({recordId,
-  // status, taken_at}): the stored row with the exact slot id ('gone' when it
-  // is tombstoned), else the projection's dose of that med at this very
-  // second, else null. Nothing stores a
-  // PENDING prediction (bd med-wi09.12), so the dose usually has no row yet:
-  // confirm()/snooze() write the evidence at that exact occId. The +999 covers
-  // a tz-plan step that keeps its anchor's milliseconds (the occId floors).
+  // medId → the dose this slot names: the row the domain's own resolver
+  // (intake.getIntake, the lookup confirm()/snooze() act through) returns for
+  // the stored row with the exact slot id ('gone' when it is tombstoned), else
+  // for the projection's dose of that med at this very second, else null.
+  // Nothing stores a PENDING prediction (bd med-wi09.12), so the dose usually
+  // has no row yet and getIntake hands back a virtual open row: confirm()/
+  // snooze() write the evidence at that exact occId. The +999 covers a tz-plan
+  // step that keeps its anchor's milliseconds (the occId floors).
   // dosesAtInstant reads lineage-safe (a cancelled dose never stands in for
-  // its replacement) and narrows to the instant.
-  const atInstant = (ms) => dosesAtInstant(intake, ms);
+  // its replacement) and narrows to the instant. Asking getIntake (bd
+  // med-944k) keeps ONE verdict on "actionable": an id confirm() could not
+  // resolve is unresolved here (out of date), never a swallowed not_pending,
+  // and a stored PENDING prediction the projection no longer lists is null.
   const resolveNamed = async () => {
     const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
-    const rows = await atInstant(slotMs);
+    const rows = await dosesAtInstant(intake, slotMs);
     const out = new Map();
     for (const medId of named) {
       const exactId = `intake-${medId}-${slotUnix}`;
       const stored = raw.find((i) => String(i.recordId) === exactId);
       if (stored && stored.deleted) { out.set(medId, 'gone'); continue; }
-      if (stored && stored.status !== 'PENDING') { out.set(medId, stored); continue; }
-      if (stored) {
-        // A stored PENDING row counts only while the projection still lists it:
-        // an old client's prediction a schedule edit orphaned is hidden there,
-        // and confirming it would log a dose that no longer exists.
-        const ms = Date.parse(stored.scheduled_at);
-        const own = Number.isFinite(ms) && ms !== slotMs ? await atInstant(ms) : rows;
-        out.set(medId, own.some((r) => String(r.occId) === exactId) ? stored : null);
-        continue;
-      }
-      const row = rows.find((r) => String(r.occId) === exactId)
+      const row = stored ? null : rows.find((r) => String(r.occId) === exactId)
         || rows.find((r) => String(r.medId) === String(medId));
-      out.set(medId, row ? { recordId: row.occId, status: ROW_STATUS[row.state] || 'PENDING', taken_at: row.takenAt || null } : null);
+      const id = stored ? exactId : row && String(row.occId);
+      out.set(medId, (id && await intake.getIntake(id)) || null);
     }
     return out;
   };
@@ -304,6 +311,9 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
       }
       applied += 1;
     } catch (e) {
+      // not_pending on a dose getIntake resolved: a concurrent drainer took it
+      // (the receipt counts it TAKEN) or the domain refused it (the receipt
+      // says "not recorded"). Not retryable either way, so no re-queue.
       if (!isAlreadyApplied(e)) throw e;
     }
   }
@@ -321,34 +331,38 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // successor then carries the chain on. This idempotent backstop closes that
   // gap at drain latency. ponytail: a durable "confirmed" marker on the stem
   // would close it at tap time; add if the gap is ever hit in practice.
-  let confirmed = 0;
+  const lines = [];
   if (event.action === 'confirm') {
     const after = await resolveNamed();
     const stillDue = named.filter((medId) => isPending(after.get(medId)));
     if (stillDue.length) rearmRefire(slotMs, stillDue);
     else cancelRefire(slotMs);
-    // Count every named med THIS tap confirmed, not just the writes from the
-    // final attempt: an at-least-once redelivery after a partial success
-    // re-runs with the earlier meds already TAKEN, so `applied` alone would
-    // undercount the receipt. taken_at === atIso is exactly this tap's set.
-    confirmed = named.filter((medId) => {
+    // Settle every resolved named med from the vault as it now stands, not
+    // from this attempt's writes: an at-least-once redelivery after a partial
+    // success re-runs with the earlier meds already TAKEN, so `applied` alone
+    // would undercount. taken_at === atIso is exactly this tap's set; any
+    // other TAKEN was taken before the tap; everything else (UNTAKEN after an
+    // undo, SKIPPED, a not_pending refusal) recorded nothing. A tombstoned
+    // slot is the user's deletion and stays silent.
+    const settled = { confirmed: 0, already: 0, notRecorded: 0 };
+    for (const medId of named) {
       const dose = after.get(medId);
-      return !!dose && dose !== 'gone' && dose.status === 'TAKEN' && dose.taken_at === atIso;
-    }).length;
-  }
-
-  // Edit the original reminder message to a receipt and drop its buttons (the
-  // edit sends no reply_markup — bug 1). Only when something changed or a med
-  // is out of date: an at-least-once redelivery (flush-false re-queues the
-  // event, inbox.js:174) or a double-tap re-runs this with every intake already
-  // TAKEN/snoozed (applied === 0), and editing then would clobber the good
-  // "✅ Confirmed N" receipt with "ℹ️ Nothing was due". message_id is also
-  // absent when Telegram omitted cq.Message for an old message → editReply is a
-  // safe no-op.
-  const lines = [];
-  if (event.action === 'confirm' && (applied > 0 || (unresolved.length && confirmed > 0))) {
-    lines.push(confirmationText({ kind: 'intake' }, { confirmed }, verbosity));
-  } else if (event.action !== 'confirm' && applied > 0) {
+      if (unresolved.includes(medId) || dose === 'gone') continue;
+      if (dose && dose.status === 'TAKEN') settled[dose.taken_at === atIso ? 'confirmed' : 'already'] += 1;
+      else settled.notRecorded += 1;
+    }
+    // Edit the original reminder message to a receipt and drop its buttons
+    // (the edit sends no reply_markup — bug 1) — whenever the drain recorded
+    // nothing, too (bd med-944k: never a silent ack). The one skip is a
+    // redelivery or double-tap of a tap that already landed whole (nothing
+    // applied now, every med confirmed at this tap's instant): that receipt
+    // is already on the message. message_id is absent when Telegram omitted
+    // cq.Message for an old message → editReply is a safe no-op.
+    const landedWhole = applied === 0 && !unresolved.length && settled.confirmed > 0 && !settled.already && !settled.notRecorded;
+    if (!landedWhole) lines.push(...intakeReceiptLines(settled, verbosity));
+    // Every named slot tombstoned: still answer the message.
+    if (!landedWhole && !lines.length && !unresolved.length) lines.push(confirmationText({ kind: 'intake' }, { confirmed: 0 }, verbosity));
+  } else if (applied > 0) {
     lines.push(verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.');
   }
   if (unresolved.length) lines.push(OUT_OF_DATE_TEXT);

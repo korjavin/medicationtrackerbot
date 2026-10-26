@@ -408,6 +408,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const real = domainFor(records, now);
         const raced = {
             occurrences: real.occurrences,
+            getIntake: real.getIntake,
             confirm: vi.fn(async () => {
                 const err = new Error('intake is not pending');
                 err.code = 'not_pending';
@@ -429,6 +430,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const real = domainFor(records, now);
         const broken = {
             occurrences: real.occurrences,
+            getIntake: real.getIntake,
             confirm: async () => { throw new Error('vault write failed'); },
             snooze: real.snooze,
         };
@@ -910,6 +912,87 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect((await records.list('medication'))[0].inventory_count).toBe(30);
         expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-a', scheduled: SLOT_ISO, count: 1 });
         expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
+    });
+
+    // bd med-944k — the production shape: a 08:20 Asia/Tbilisi reminder (04:20Z)
+    // for five meds whose slot rows an in-app take + undo had left UNTAKEN rev
+    // 2. The tap (relay refire message 1041, tapped 07:14:56Z) recorded nothing
+    // and used to ack with the relay's static "✅ Confirmed — waiting for your
+    // device" still on the message. The callback still may not touch a dose an
+    // explicit action owns (rev 0 → 1 only), but it must say so.
+    it('a tap on undone (UNTAKEN) doses records nothing and says so on the message', async () => {
+        const slot = 1792988400;
+        const meds = [2, 4, 7, 9, 16];
+        const untaken = (m) => ({
+            recordId: `intake-${m}-${slot}`, deleted: false, medication_id: m, scheduled_at: '2026-10-26T04:20:00.000Z', taken_at: null,
+            status: 'UNTAKEN', snoozed_until: null, source: 'schedule', clientTs: 1792964411771, rev: 2,
+            acted_at: '2026-10-25T21:40:12.818Z', via: 'app', tz: 'Asia/Tbilisi', note: 'Undone; was taken at 2026-10-25T21:40:00.802Z',
+        });
+        const records = fakeRecords({
+            medication: meds.map((m) => ({ recordId: m, deleted: false, name: `Med ${m}`, schedule: '{"type":"daily","times":["08:20"]}', inventory_count: 30 })),
+            intake: meds.map(untaken),
+            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-10-20T00:00:00.000Z' }],
+        });
+        const now = () => Date.parse('2026-10-26T07:30:00Z');
+        const intake = createIntakeDomain({ records, now, timeZone: 'Asia/Tbilisi', via: 'telegram' });
+        const editReply = vi.fn(async () => {});
+        const event = { kind: INTAKE_SLOT_ACTION, action: 'confirm', slot_unix: slot, at_unix: 1792998896, message_id: 1041, medication_ids: meds };
+        await applyIntakeSlotAction(event, { intake, records, now, editReply });
+
+        expect(await records.list('intake')).toEqual(meds.map(untaken));
+        for (const m of await records.list('medication')) expect(m.inventory_count).toBe(30);
+        expect(editReply).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledWith(1041, '⚠️ Not recorded: 5 medications — open the app to mark them taken.');
+    });
+
+    it('a tap on a dose already taken in the app reports it done, with no second write', async () => {
+        const s = seed();
+        const takenIso = new Date((SLOT_UNIX + 120) * 1000).toISOString();
+        s.intake[0] = { ...s.intake[0], status: 'TAKEN', taken_at: takenIso, rev: 1, via: 'app' };
+        s.medication[0] = { ...s.medication[0], inventory_count: 29 };
+        const records = fakeRecords(s);
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction({ ...medsNamed(confirmEvent, ['med-a']), message_id: 31 }, { intake: domainFor(records, now), records, now, editReply });
+
+        expect((await records.list('intake')).find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`))
+            .toMatchObject({ status: 'TAKEN', taken_at: takenIso, rev: 1, via: 'app' });
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-a').inventory_count).toBe(29);
+        expect(editReply).toHaveBeenCalledWith(31, '✅ Already taken: 1 medication.');
+    });
+
+    it('generic verbosity reports a no-op tap without counts', async () => {
+        const s = seed();
+        s.intake[0] = { ...s.intake[0], status: 'SKIPPED', rev: 1, via: 'app' };
+        const records = fakeRecords(s);
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction({ ...medsNamed(confirmEvent, ['med-a']), message_id: 32 }, { intake: domainFor(records, now), records, now, editReply, verbosity: 'generic' });
+
+        expect((await records.list('intake')).find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('SKIPPED');
+        expect(editReply).toHaveBeenCalledWith(32, '⚠️ Not recorded — open the app to mark it taken.');
+    });
+
+    // Archie (bd med-944k): a projection id the domain's resolver cannot act
+    // on used to reach confirm(), throw not_pending, and be swallowed as
+    // "already applied". It is out of date instead, and confirm is never asked.
+    it('a projection dose the domain cannot resolve is out of date, never a swallowed not_pending', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const real = domainFor(records, now);
+        const confirm = vi.fn(real.confirm);
+        const intake = {
+            ...real,
+            confirm,
+            occurrences: async () => [{ occId: `intake-med-c-${SLOT_UNIX}-tz_step`, medId: 'med-c', state: 'due', plannedAt: SLOT_ISO }],
+        };
+        const editReply = vi.fn(async () => {});
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction({ ...medsNamed(confirmEvent, ['med-c']), message_id: 33 }, { intake, records, now, editReply, onOutOfDate });
+
+        expect(confirm).not.toHaveBeenCalled();
+        expect(editReply).toHaveBeenCalledWith(33, OUT_OF_DATE_TEXT);
+        expect(onOutOfDate).toHaveBeenCalledWith({ medId: 'med-c', scheduled: SLOT_ISO, count: 1 });
     });
 
     // LOW-5 (known, bd med-wi09.12): ON the cut day a stored row covers a slot
@@ -2372,8 +2455,10 @@ describe('inbox-apply.js — a tap on a deleted dose slot', () => {
             { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: true },
         ]);
         expect((await records.list('intake')).filter((i) => !i.deleted)).toHaveLength(0);
-        // No receipt at all, and in particular never "✅ Confirmed …".
-        expect(editReply).not.toHaveBeenCalled();
+        // Never "✅ Confirmed …" — and never the relay's static "waiting for
+        // your device" left standing either (bd med-944k): it says nothing was due.
+        expect(editReply).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledWith(77, 'ℹ️ Nothing was due — no medications to confirm.');
         // Nothing was taken, so nothing came off the shelf.
         expect((await records.list('medication'))[0].inventory_count).toBe(30);
     });

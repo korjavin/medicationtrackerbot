@@ -1457,6 +1457,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     withDueRows,
     dueToday,
     doseLog,
+    getIntake,
     confirm,
     skip,
     snooze,
