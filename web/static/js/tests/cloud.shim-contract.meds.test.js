@@ -1669,4 +1669,16 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
         expect(await callLocal('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'device' });
         expect(await local.list('tzfloor')).toEqual([]);
     });
+
+    it('waits for the first pull, then floors on the next call (an empty pull bumps no counter)', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med] });
+        let up = false;
+        const call = createApiRouter({}, {
+            records, win: {}, effects, now: () => NOW, timeZone: 'Europe/Berlin', caughtUp: async () => up,
+        });
+        expect((await call('/api/settings')).timezone_source).toBe('device');
+        expect(await records.list('tzfloor')).toEqual([]);
+        up = true;
+        expect((await call('/api/settings')).timezone_source).toBe('floor');
+    });
 });

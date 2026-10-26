@@ -345,10 +345,13 @@ export function createApiRouter(ctx, {
   // (portFactory) never floors: one device, and its zone already is the
   // account's, so a floor would only stop it following the device on travel
   // with nothing to keep in step.
+  // A resolve that had to defer the floor (not caught up yet) is not
+  // memoized: an empty pull bumps no counter, so the memo would never retry.
   const floorsTimeZone = !portFactory;
   async function resolveGeneralTz() {
-    if (floorsTimeZone && await caughtUp()) return settings.ensureTimeZoneFloor();
-    return settings.getGeneral();
+    if (!floorsTimeZone) return { general: await settings.getGeneral(), deferred: false };
+    if (await caughtUp()) return { general: await settings.ensureTimeZoneFloor(), deferred: false };
+    return { general: await settings.getGeneral(), deferred: true };
   }
   let tzReady = null;
   let tzStamp = -1;
@@ -361,8 +364,9 @@ export function createApiRouter(ctx, {
         // its read was in flight. Two reads are separate IDB transactions and
         // can settle out of order, so without this the older one could rebuild
         // to the pre-write zone and stick until the next counter bump.
-        .then((general) => {
+        .then(({ general, deferred }) => {
           if (tzStamp !== stamp) return;
+          if (deferred) tzReady = null;
           if (general && general.timezone && general.timezone !== timeZone) {
             buildDomains(general.timezone);
           }

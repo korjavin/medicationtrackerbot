@@ -657,7 +657,9 @@ const RECORD_TAGS = {
   location: ['workout'],
   activelocation: ['workout'],
   settings: ['settings'],
-  tzfloor: ['settings'],
+  // A floor that lands from a peer can move the account zone, so the dose
+  // projections (Today's next_intake, the timeline) repaint with Settings.
+  tzfloor: ['settings', 'medications', 'history'],
   features: ['settings', 'feature_settings'],
   taborder: ['settings'],
   integrations: ['settings'],
