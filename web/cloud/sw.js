@@ -20,6 +20,23 @@ const CACHE_PREFIX = 'medtracker-cloud';
 // each deploy gets a fresh cache and activate prunes the old ones below.
 const SHELL_CACHE = `${CACHE_PREFIX}-shell-${SW_VERSION}`;
 
+// This worker's build, as the served document spells it: deploy.yml stamps
+// SW_VERSION = 'v' + BUILD_TS and every `?v=` asset fingerprint in index.html
+// with the same BUILD_TS (the key the server's buildIDFrom reads). null on an
+// unstamped tree (go run, plain docker build): the placeholder does not start
+// with 'v', and there is no build to compare, so dev keeps refreshing '/'.
+// (Never compare against the placeholder literal — the deploy sed rewrites
+// every occurrence in this file.)
+const BUILD_TS = SW_VERSION.charAt(0) === 'v' ? SW_VERSION.slice(1) : null;
+const DOC_FINGERPRINT_RE = /\?v=([^"'&]+)/;
+
+// How long a cache MISS for a navigation or a render-blocking asset (css,
+// script) may wait for response headers before it is treated as offline. The
+// browser paints white while respondWith is pending, and a dead connection
+// after device sleep can hang for minutes (med-gacq). Bounds time-to-headers
+// only: once the response arrives its body streams without a deadline.
+const MISS_TIMEOUT_MS = 5000;
+
 // Same-origin subresource refs in a served document: <script src> and
 // <link href> tags only — all root-relative in web/static/index.html plus the
 // tags router.go injects. Anchor hrefs (<a href="/devices">) are navigation
@@ -245,8 +262,39 @@ function offlineFallback(request, surface) {
 // restarting behind Traefik) is functionally offline — docs/technical-
 // decisions.md "5xx-as-offline", same as web/static/sw.js: serve the cached
 // copy, the raw 5xx only when nothing is cached.
+//
+// Navigations and render-blocking assets race the network against
+// MISS_TIMEOUT_MS; a timeout takes the rejection path (offlineFallback, so a
+// navigation still gets the cached '/' shell when one exists and a ceremony
+// page never does). An asset gets the error: unstyled beats a white screen.
+// A timer race, not AbortController: fetch(request, { signal }) throws for a
+// navigate-mode Request. The losing fetch is simply dropped (never cached).
+function boundedFetch(request) {
+  const bounded =
+    request.mode === 'navigate' || request.destination === 'style' || request.destination === 'script';
+  if (!bounded) return fetch(request);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('sw: network timeout ' + request.url)), MISS_TIMEOUT_MS);
+  });
+  return Promise.race([fetch(request), timeout]).finally(() => clearTimeout(timer));
+}
+
+// A navigation that failed or timed out with nothing cached to serve: a
+// standalone document, not a rejection — an installed PWA's own network-error
+// page has no way back. Never cached (only ok responses are). No script and no
+// redirect, so it is safe at ceremony paths too (it is not the app shell, so no
+// ping-pong); the link reloads the same URL.
+function retryDocument() {
+  return new Response(
+    '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      "<title>Med Tracker</title><p>Can't reach the server.</p><p><a href=\"\">Retry</a></p>",
+    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }
+  );
+}
+
 function fetchAndCache(event, request) {
-  return fetch(request).then(
+  return boundedFetch(request).then(
     (response) => {
       if (response.ok) {
         const clone = response.clone();
@@ -258,6 +306,7 @@ function fetchAndCache(event, request) {
     },
     (err) =>
       offlineFallback(request, () => {
+        if (request.mode === 'navigate') return retryDocument();
         throw err;
       })
   );
@@ -266,10 +315,23 @@ function fetchAndCache(event, request) {
 // Background refresh of the '/' app document for stale-while-revalidate. Its
 // failure must NEVER reject the already-served cached response, so it swallows
 // everything — the next open simply serves whatever last succeeded.
+//
+// Only a document of THIS worker's build is stored (med-gacq). After a deploy
+// the server's '/' references ?v=<new> assets this cache does not hold; stored
+// here, the next open served it and every render-blocking asset missed → white
+// screen until force-close. A different fingerprint leaves the cached '/'
+// untouched: the waiting worker owns the new build. Within one build the
+// per-account CSP refresh still lands.
 function revalidateShell() {
   return fetch('/')
-    .then((response) => {
-      if (response.ok) return caches.open(SHELL_CACHE).then((cache) => cache.put('/', response));
+    .then(async (response) => {
+      if (!response.ok) return;
+      if (BUILD_TS) {
+        const m = (await response.clone().text()).match(DOC_FINGERPRINT_RE);
+        if (!m || m[1] !== BUILD_TS) return;
+      }
+      const cache = await caches.open(SHELL_CACHE);
+      await cache.put('/', response);
     })
     .catch(() => {});
 }
