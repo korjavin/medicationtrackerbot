@@ -1013,3 +1013,56 @@ func TestRelay_RetentionSweepWithoutInserts(t *testing.T) {
 		t.Errorf("live share link: err = %v; want kept", err)
 	}
 }
+
+// TestRelay_ClientRowSupersedesLiveSlotMessage (med-ru2e): a client-origin med
+// row (the snooze-end reminder) deletes the slot's live Telegram message; a w:
+// row, a slot with no live message, and a row already carrying an id are not
+// given a different one.
+func TestRelay_ClientRowSupersedesLiveSlotMessage(t *testing.T) {
+	store, h, host, session, _ := medRefireChainSetup(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	stem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	entry := func(cb string) scheduleEntryWire {
+		return scheduleEntryWire{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: cb}
+	}
+	tg := &fakeTGSender{}
+	relay := NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0)
+
+	// No live message yet: the first send deletes nothing.
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry(stem)}})
+	relay.Tick(ctx)
+	if len(tg.sent) != 1 || len(tg.deleted) != 0 {
+		t.Fatalf("first send: sent=%v deleted=%v", tg.sent, tg.deleted)
+	}
+
+	// Snooze-end: a fresh client row for the same slot supersedes message 1.
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry(stem)}})
+	relay.Tick(ctx)
+	if len(tg.sent) != 2 || len(tg.deleted) != 1 || tg.deleted[0] != 1 {
+		t.Fatalf("client row must delete live message 1: sent=%v deleted=%v", tg.sent, tg.deleted)
+	}
+
+	// A workout row is untouched.
+	wStem := "w:12:" + now.Format("20060102")
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry(wStem)}})
+	relay.Tick(ctx)
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry(wStem)}})
+	relay.Tick(ctx)
+	if len(tg.deleted) != 1 {
+		t.Fatalf("w: rows must not supersede: deleted=%v", tg.deleted)
+	}
+}
+
+// A row that already names a message to delete keeps it.
+func TestRelay_AdoptLiveSlotMessageKeepsExisting(t *testing.T) {
+	store, _, _, _, accountID := medRefireChainSetup(t)
+	tg := &fakeTGSender{}
+	rl := NewRelay(store, &fakeSender{}, tg, 0)
+	p := cloudstore.ScheduledPush{AccountID: accountID, TGCallback: "s:1767225600", SupersedesMessageID: 77}
+	rl.adoptLiveSlotMessage(context.Background(), &p)
+	if p.SupersedesMessageID != 77 {
+		t.Fatalf("existing supersedes id overwritten: %d", p.SupersedesMessageID)
+	}
+}

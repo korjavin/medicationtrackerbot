@@ -167,6 +167,7 @@ type relayStore interface {
 	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error)
 	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
+	LastReminderMessageID(ctx context.Context, accountID, tgCallback string) (int64, error)
 	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback, tgMedIDs string, supersedesMessageID int64) error
 	ScrubSentPushIdentity(ctx context.Context, before time.Time) (int64, error)
 	SweepExpiredInviteRequests(ctx context.Context, now time.Time) error
@@ -311,6 +312,7 @@ func (rl *Relay) Tick(ctx context.Context) {
 			tgSent      bool
 		)
 		if delivery == cloudstore.DeliveryTelegram || delivery == cloudstore.DeliveryBoth {
+			rl.adoptLiveSlotMessage(ctx, &p)
 			tgMessageID, tgSent = rl.sendTelegram(ctx, p)
 		}
 
@@ -383,6 +385,22 @@ func (rl *Relay) sendWebPush(
 	for _, sub := range subs {
 		rl.send(ctx, sub, keys, p.CT)
 	}
+}
+
+// adoptLiveSlotMessage keeps one live reminder per med slot (med-ru2e): a
+// client-origin row (e.g. the snooze-end reminder) carries no
+// supersedes_message_id, so fill it from the slot's live message, as a relay
+// re-fire already has. Workout and other stems are left alone.
+func (rl *Relay) adoptLiveSlotMessage(ctx context.Context, p *cloudstore.ScheduledPush) {
+	if p.SupersedesMessageID != 0 || !strings.HasPrefix(p.TGCallback, tgclient.CallbackSlotPrefix) {
+		return
+	}
+	id, err := rl.store.LastReminderMessageID(ctx, p.AccountID, p.TGCallback)
+	if err != nil {
+		slog.Warn("push relay: look up live slot message", "accountID", p.AccountID, "error", err)
+		return
+	}
+	p.SupersedesMessageID = id
 }
 
 // sendTelegram forwards p.TGText to the account's linked bot. Every failure is
