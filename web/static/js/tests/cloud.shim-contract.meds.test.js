@@ -1511,6 +1511,32 @@ describe('stock ledger (bd med-wi09.13)', () => {
         expect(await derived()).toBe(29);
     });
 
+    it('a refill on a tracked med with no ledger yet seeds it first: derived and mirror = old + n', async () => {
+        clock = T(12);
+        // Old inventory 10, after a dose an old client already took off it.
+        open({ medication: [med({ inventory_count: 10 })], intake: [takenRow(T(8))] });
+        const res = await env.window.apiCall('/api/medications/1/restock', 'POST', { quantity: 5 });
+        expect(res).toMatchObject({ status: 'restocked', inventory_count: 15 });
+        const seed = (await env.records.list('stock')).find((r) => r.seed);
+        expect(seed).toMatchObject({ kind: 'audit', count: 11, clientTs: 0 });
+        expect(await derived()).toBe(15);
+        expect(await mirror()).toBe(15);
+    });
+
+    it('an older client\'s restock row after the seed counts into derived stock and the next mirror', async () => {
+        clock = T(12);
+        const seed = { ...audit(10, T(9), 'seed10'), clientTs: 0, seed: true };
+        open({ medication: [med({ inventory_count: 10 })], stock: [seed] });
+        // An old bundle's POST /restock: a `restock` row (and its own mirror bump, ignored).
+        await env.records.put('restock', {
+            recordId: 'restock-old-1', clientTs: T(10), deleted: false, medication_id: 1, quantity: 5, restocked_at: iso(T(10)),
+        });
+        expect(await derived()).toBe(15);
+        await env.window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: iso(T(11)) });
+        expect(await derived()).toBe(14);
+        expect(await mirror()).toBe(14);
+    });
+
     it('a batch of N dose writes reads the intake evidence a bounded number of times, not N (breakage F3)', async () => {
         clock = T(12);
         const rows = [7, 8, 9, 10, 11].map((h) => takenRow(T(h)));
