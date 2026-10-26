@@ -16,7 +16,7 @@ CONTAINER="${CONTAINER:-medtracker-cloud}"
 PLAYWRIGHT_IMAGE="${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.56.0-noble}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-INVITE="$(docker exec "$CONTAINER" ./cloud admin invite)"
+INVITE="$(docker exec -u 1000:1000 "$CONTAINER" ./cloud admin invite)"
 SUB="$(sed -n 's/^subdomain: *//p' <<<"$INVITE" | head -1)"
 URL="$(grep -oE 'https://[^[:space:]]+#[^[:space:]]+' <<<"$INVITE" | head -1)"
 [ -n "$SUB" ] && [ -n "$URL" ] || { echo "could not parse the invite:" >&2; echo "$INVITE" >&2; exit 1; }
@@ -25,8 +25,8 @@ cleanup() {
   if [ "${KEEP_ACCOUNT:-}" = "1" ]; then
     echo "kept test account: $SUB" >&2
   else
-    printf '%s\n' "$SUB" | docker exec -i "$CONTAINER" ./cloud admin delete "$SUB" >&2 \
-      || echo "DELETE FAILED — remove by hand: docker exec -it $CONTAINER ./cloud admin delete $SUB" >&2
+    printf '%s\n' "$SUB" | docker exec -u 1000:1000 -i "$CONTAINER" ./cloud admin delete "$SUB" >&2 \
+      || echo "DELETE FAILED — remove by hand: docker exec -u 1000:1000 -it $CONTAINER ./cloud admin delete $SUB" >&2
   fi
 }
 trap cleanup EXIT
