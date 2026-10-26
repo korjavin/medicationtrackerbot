@@ -702,9 +702,10 @@ function loadPrivacyModule() { return import('/js/privacy.js'); }
 // maybeUpdateTimezone). 'floor' = the first device's zone, taken as the account's.
 function paintAccountTimeZone(timezone, source) {
     const row = document.getElementById('settings-account-tz-row');
-    if (!row) return;
-    row.classList.toggle('wg-settings-hidden', !timezone);
-    document.getElementById('settings-account-tz').textContent = timezone || '';
+    // A bundle without a zone (a failed /api/settings read) keeps what shows.
+    if (!row || !timezone) return;
+    row.classList.remove('wg-settings-hidden');
+    document.getElementById('settings-account-tz').textContent = timezone;
     document.getElementById('settings-account-tz-desc').textContent = source === 'floor'
         ? 'Set from your first device. Doses and reminders follow it on every device.'
         : 'Doses and reminders follow this zone on every device.';
@@ -1274,6 +1275,7 @@ async function loadSettings() {
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
+        paintAccountTimeZone(bundle.timezone, bundle.timezoneSource);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
         window.WeightUnitState.applyAuthoritative(bundle.weightUnitPreference);
         applyBundleBody(bundle.body);
@@ -1294,7 +1296,6 @@ async function loadSettings() {
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
         applyReminderSummaries(bundle.bpReminderStatus, bundle.weightReminderStatus);
-        paintAccountTimeZone(bundle.timezone, bundle.timezoneSource);
     };
 
     const fetchBundle = async () => {
