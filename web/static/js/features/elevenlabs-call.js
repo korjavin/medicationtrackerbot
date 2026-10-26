@@ -884,6 +884,7 @@
         if (code === 'file_too_large') throw photoTooLarge();
         const err = new Error(`Photo upload failed (HTTP ${resp.status})`);
         if (code === 'upstream_error' && data.upstream_status) err.status = data.upstream_status;
+        if (code === 'upstream_error' && typeof data.upstream_message === 'string') err.upstreamMessage = data.upstream_message;
         throw err;
     }
 
@@ -910,7 +911,10 @@
     // "failed". err.status is ElevenLabs' own HTTP status (BYO direct, or
     // relayed by the trial route as upstream_status).
     function photoErrorMessage(err) {
-        if (err && err.status) return `ElevenLabs rejected the photo (HTTP ${err.status})`;
+        if (err && err.status) {
+            const base = `ElevenLabs rejected the photo (HTTP ${err.status})`;
+            return err.upstreamMessage ? `${base}: ${err.upstreamMessage}` : base;
+        }
         if (err && err.name === 'TypeError') return 'Photo upload failed — check your connection.';
         return (err && err.message) || 'Photo upload failed';
     }
