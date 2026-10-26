@@ -4029,6 +4029,13 @@ describe('tzfloor rows converge on the earliest floor (med-wi09.19)', () => {
     online = true;
     await fresh.pullOnOpen(ctx);
     expect(fresh.pulledThisSession()).toBe(true);
+    // A local → cloud move pickup still pending (the shim's caughtUp false)
+    // blocks the floor too (Argus r2).
+    const moving = createApiRouter(ctx, {
+      win: {}, timeZone: 'Europe/Berlin', effects: { scheduleReminderRecompute() {} }, caughtUp: async () => false,
+    });
+    expect((await moving('/api/settings')).timezone_source).toBe('device');
+    expect(await row()).toBeUndefined();
     expect((await call('/api/settings')).timezone_source).toBe('floor');
     expect(await row()).toMatchObject({ timezone: 'Europe/Berlin', clientTs: 0 });
   });

@@ -212,16 +212,17 @@ function debugOnce(key, ...args) {
 //   opts.onDoseBoundary(atMs)  the intake domain's onBoundary port; only the
 //                 page's shim passes one (installApiShim's dose clock).
 //   opts.canFloor async () => bool: may this router floor the account zone
-//                 now (bd med-wi09.19)? Default on the real sync store: a pull
-//                 in THIS page load reached the tail (sync.js
-//                 pulledThisSession), so an offline boot never floors against
-//                 a stale mirror. An injected store defaults to opts.caughtUp;
+//                 now (bd med-wi09.19)? Default on the real sync store:
+//                 opts.caughtUp (so the local → cloud move pickup window
+//                 blocks it too) AND a pull in THIS page load reached the tail
+//                 (sync.js pulledThisSession), so an offline boot never floors
+//                 against a stale mirror. An injected store defaults to opts.caughtUp;
 //                 the inbox applier passes () => false. Local mode never floors.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
   caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
-  canFloor = recordsOverride ? caughtUp : async () => pulledThisSession(),
+  canFloor = recordsOverride ? caughtUp : async () => (await caughtUp()) && pulledThisSession(),
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
