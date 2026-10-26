@@ -1458,6 +1458,8 @@ describe('stock ledger (bd med-wi09.13)', () => {
         expect(await derived()).toBe(9);
         await env.window.apiCall('/api/doses/act', 'POST', { action: 'edit_time', occ_ids: [dose.id], taken_at: iso(T(9)) });
         expect(await derived()).toBe(10);
+        // A time edit alone (TAKEN stays TAKEN) still refreshes the mirror.
+        expect(await mirror()).toBe(10);
         await env.window.apiCall('/api/doses/act', 'POST', { action: 'edit_time', occ_ids: [dose.id], taken_at: iso(T(11) + 60000) });
         expect(await derived()).toBe(9);
         expect(await mirror()).toBe(9);
