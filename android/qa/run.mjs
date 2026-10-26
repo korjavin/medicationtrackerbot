@@ -249,14 +249,16 @@ const ctx = {
     if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
     // bd med-nt9p.64: run 40242381050 lost the app (home screen) right after launch()'s page was
     // ready, so openLink's first locator threw "has been closed". One relaunch, as localPage does;
-    // the invite is only claimed later, on /unlock, so a second F1 pass is safe.
+    // the invite is only claimed later, on /unlock, so a second F1 pass is safe. One recovery in all:
+    // none here once launch()'s localPage has already relaunched.
+    const before = (results.recoveries || []).length;
     for (let attempt = 1; ; attempt++) {
       try {
         await ctx.launch(opts);
         await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
         break;
       } catch (e) {
-        if (attempt > 1 || !(await ctx.pageLost(e, 'openClaim', 'relaunch'))) throw e;
+        if (attempt > 1 || (results.recoveries || []).length > before || !(await ctx.pageLost(e, 'openClaim', 'relaunch'))) throw e;
       }
     }
     const page = await ctx.attachPage();
