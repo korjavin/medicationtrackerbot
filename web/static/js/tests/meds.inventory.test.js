@@ -114,6 +114,7 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
 
         picks(document)[1].click();
         expect(primary(document).textContent).toBe('Add 60 → 77');
+        expect(s.querySelector('.wg-meds-stocksheet__unit').textContent).toBe('doses');
         const input = s.querySelector('.wg-meds-stock__qty');
         expect(input.value).toBe('60');
         s.querySelector('[aria-label="Increase"]').click();
@@ -126,6 +127,59 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
 
         s.querySelector('.wg-sheethead .wg-btn').click();
         expect(sheet(document)).toBeNull();
+    });
+
+    it('the app-bar sub on the Stock tab reads "N need a refill"; none needed keeps the default', async () => {
+        const { window, document } = env;
+        const sub = document.querySelector('#meds-view [data-meds-sub]');
+        const AS_NEEDED = JSON.stringify({ type: 'as_needed' });
+        await seedMedications(window, [
+            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 },
+            { id: 2, name: 'Bisoprolol', schedule: DAILY, archived: false, inventory_count: 3 },
+            { id: 3, name: 'Ibuprofen', schedule: AS_NEEDED, archived: false, inventory_count: -17 }
+        ]);
+        window.sessionStorage.setItem('mt-meds-subtab', 'inventory');
+        window.renderInventory();
+        expect(sub.textContent).toBe('2 need a refill');
+
+        await seedMedications(window, [
+            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 },
+            { id: 3, name: 'Ibuprofen', schedule: AS_NEEDED, archived: false, inventory_count: -17 }
+        ]);
+        window.renderInventory();
+        expect(sub.textContent).toBe('1 needs a refill');
+
+        await seedMedications(window, [
+            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 }
+        ]);
+        window.renderInventory();
+        expect(sub.textContent).toBe('1 active');
+    });
+
+    it('leaving the Stock tab restores the default sub; a stock write on it re-syncs the count', async () => {
+        const { window, document } = env;
+        const sub = document.querySelector('#meds-view [data-meds-sub]');
+        await seedMedications(window, [
+            { id: 1, name: 'Bisoprolol', schedule: DAILY, archived: false, inventory_count: 3 },
+            { id: 2, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 }
+        ]);
+        window.sessionStorage.setItem('mt-meds-subtab', 'inventory');
+        window.renderInventory();
+        expect(sub.textContent).toBe('1 needs a refill');
+
+        const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
+        vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue(handle);
+        window.apiCall = vi.fn(async (endpoint, method) => (method === 'POST' ? { status: 'restocked', inventory_count: 33 } : []));
+        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        primary(document).click();
+        await flushMicrotasks();
+        expect(sub.textContent).toBe('2 active');
+
+        window.sessionStorage.setItem('mt-meds-subtab', 'inventory');
+        window.renderInventory();
+        window.switchMedTab('timeline');
+        expect(sub.textContent).toMatch(/active/);
+        expect(sub.textContent).not.toMatch(/refill/);
     });
 
     it('a pack size adds "+1 pack (N)" first (ST1)', async () => {

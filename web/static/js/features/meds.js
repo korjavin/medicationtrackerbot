@@ -1521,7 +1521,11 @@ function openStockSheet(med, opts = {}) {
     plus.type = 'button';
     plus.setAttribute('aria-label', 'Increase');
     plus.appendChild(_medsIcon('plus'));
-    stepper.append(minus, input, plus);
+    // The unit sits under the value, as the kit's small (ST1/ST2).
+    const unit = _medsEl('small', 'wg-meds-stocksheet__unit');
+    const val = _medsEl('div', 'wg-meds-stocksheet__val');
+    val.append(input, unit);
+    stepper.append(minus, val, plus);
     stepField.append(stepLabel, stepper);
 
     const hint = _medsEl('p', 'wg-hint', "Count what's in the pack. Doses you log from now on are taken off this number.");
@@ -1544,6 +1548,7 @@ function openStockSheet(med, opts = {}) {
         hint.hidden = mode !== 'counted';
         stepLabel.textContent = mode === 'added' ? 'Other amount' : 'How many do you have now?';
         if (document.activeElement !== input) input.value = Number.isInteger(value[mode]) ? String(value[mode]) : '';
+        unit.textContent = value[mode] === 1 ? 'dose' : 'doses';
         // One value: the chip matching the amount is pressed (the pack chip
         // wins a tie with an equal preset).
         const pressed = presets.findIndex((x) => x.value === value.added);
@@ -1623,9 +1628,8 @@ function renderInventory() {
     }
 
     // Problems first: out (danger) before low (warn), then the rest by name.
-    const rank = (m) => ({ danger: 0, warn: 1 })[formatStock(m.inventory_count, m).state] ?? 2;
-    const attention = tracked.filter((m) => rank(m) < 2).sort((a, b) => rank(a) - rank(b));
-    const fine = tracked.filter((m) => rank(m) === 2);
+    const attention = stockAttentionMeds(tracked);
+    const fine = tracked.filter((m) => !attention.includes(m));
     if (attention.length) list.appendChild(_buildMedsBucket('Needs attention', { rows: attention.map(_buildStockRow) }));
     if (fine.length) list.appendChild(_buildMedsBucket('Fine', { rows: fine.map(_buildStockRow) }));
     syncMedsAddButton();
