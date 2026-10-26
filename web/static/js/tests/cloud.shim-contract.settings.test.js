@@ -365,8 +365,12 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         await vi.waitFor(() => expect(rowEl.classList.contains('wg-settings-hidden')).toBe(false));
         expect(document.getElementById('settings-account-tz').textContent).toBe('Europe/Berlin');
         expect(document.getElementById('settings-account-tz-desc').textContent)
-            .toBe('Set from your first device. Doses and reminders follow it on every device.');
+            .toBe('Set automatically. Doses and reminders follow it on every device.');
         expect((await env.records.list('tzfloor'))[0]).toMatchObject({ timezone: 'Europe/Berlin', clientTs: 0 });
+        // A bundle without a zone never blanks or hides what shows.
+        window.paintAccountTimeZone('', '');
+        expect(rowEl.classList.contains('wg-settings-hidden')).toBe(false);
+        expect(document.getElementById('settings-account-tz').textContent).toBe('Europe/Berlin');
 
         await window.apiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
         await window.DataStore.invalidateKey('settings_bundle');
@@ -374,6 +378,37 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         await vi.waitFor(() => expect(document.getElementById('settings-account-tz').textContent).toBe('Asia/Tokyo'));
         expect(document.getElementById('settings-account-tz-desc').textContent)
             .toBe('Doses and reminders follow this zone on every device.');
+    });
+
+    // Argus r1 (1): Today's refetch writes the shared settings_bundle row;
+    // Settings opening on that cached row must show the floor's copy, and a
+    // Today refetch whose /api/settings read failed must not overwrite it.
+    it('Settings opens on the bundle Today cached and shows the floor copy, even with /api/settings down', async () => {
+        allowConsoleNoise();
+        env.cleanup();
+        env = loadCloudShimFrontendEnv({ timeZone: 'Europe/Berlin' });
+        installApiCache(env.window);
+        env.window.SettingsIntegrations._setTelegramLoader(() => Promise.resolve({ mountTelegram: () => {} }));
+        const { window, document } = env;
+        const bundle = await window.fetchSettingsBundle();
+        expect(bundle).toMatchObject({ timezone: 'Europe/Berlin', timezoneSource: 'floor' });
+        await window.DataStore.setCached('settings_bundle', bundle);
+
+        const realApiCall = window.apiCall;
+        window.apiCall = (endpoint, ...rest) => (endpoint === '/api/settings'
+            ? Promise.resolve(null) : realApiCall(endpoint, ...rest));
+        expect(await window.fetchSettingsBundle()).toBeNull();
+        await window.loadSettings();
+        await vi.waitFor(() => expect(document.getElementById('settings-account-tz').textContent).toBe('Europe/Berlin'));
+        expect(document.getElementById('settings-account-tz-desc').textContent)
+            .toBe('Set automatically. Doses and reminders follow it on every device.');
+    });
+
+    it('local mode: the row reads as this device\'s zone', async () => {
+        const { document } = env;
+        env.window.paintAccountTimeZone('Asia/Tokyo', 'device');
+        expect(document.getElementById('settings-account-tz-desc').textContent)
+            .toBe('Set from this device. Doses and reminders follow it.');
     });
 
     it('completing first run leaves GET /api/settings shape unchanged and does not clobber the singleton', async () => {

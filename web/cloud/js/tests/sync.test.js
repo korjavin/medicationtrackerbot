@@ -447,6 +447,17 @@ describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
     expect(ds.requestTabRefresh).toHaveBeenCalledWith(['workout'], 'cloud-write');
   });
 
+  // bd med-wi09.19: a floor landing can move the account zone, so the dose
+  // projections (Today's next_intake, the timeline) repaint with Settings.
+  it('a tzfloor write repaints Settings and the dose projections', async () => {
+    stubDataStore();
+    stubSync();
+
+    await writeRecord(ctx, 'tzfloor', { recordId: 'tzfloor', clientTs: 0, deleted: false, timezone: 'Europe/Berlin', at: 1 });
+
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['settings', 'medications', 'history'], 'cloud-write');
+  });
+
   // med-dvr: the original guard here was hasAnyPendingOptimistic(), which is only
   // ever true for writes that go through DataStore.applyOptimistic. Settings
   // writes do not — toggleFeatureSetting POSTs straight through apiCall — so the
@@ -3978,6 +3989,48 @@ describe('tzfloor rows converge on the earliest floor (med-wi09.19)', () => {
     await pull(floor('Europe/Berlin', 200));
     expect((await row()).timezone).toBe('America/New_York');
     expect(posted).toEqual(['tzfloor:tzfloor']);
+  });
+
+  it('the repaired copy coming back to the device that floored first is a no-op, nothing queued', async () => {
+    await seed([floor('Europe/Berlin', 100)]);
+    await pull(floor('Europe/Berlin', 100, 5000));
+    expect(await row()).toMatchObject({ timezone: 'Europe/Berlin', clientTs: 0 });
+    expect(await getAll('pending')).toEqual([]);
+    expect(posted).toEqual([]);
+  });
+
+  // Argus r1 (3): the default gate on the real store is a pull in THIS page
+  // load (pulledThisSession), not the persistent caught-up marker, so an
+  // offline boot of a synced device never floors against a stale mirror.
+  it('an offline boot of a synced device does not floor; the first pull of the session does', async () => {
+    vi.resetModules();
+    const fresh = await import('../sync.js');
+    const { createApiRouter } = await import('../apishim.js');
+    await seed([]);
+    const db = await openDb();
+    await new Promise((resolve) => {
+      const tx = db.transaction('sync_meta', 'readwrite');
+      tx.objectStore('sync_meta').put(1, 'tailCaughtUpAt'); // caught up in an earlier session
+      tx.oncomplete = resolve;
+    });
+    db.close();
+    expect(await fresh.hasCaughtUp()).toBe(true);
+    let online = false;
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (!online) throw new TypeError('Failed to fetch');
+      return realFetch(url, init);
+    }));
+    await fresh.pullOnOpen(ctx);
+    const call = createApiRouter(ctx, { win: {}, timeZone: 'Europe/Berlin', effects: { scheduleReminderRecompute() {} } });
+    expect((await call('/api/settings')).timezone_source).toBe('device');
+    expect(await row()).toBeUndefined();
+
+    online = true;
+    await fresh.pullOnOpen(ctx);
+    expect(fresh.pulledThisSession()).toBe(true);
+    expect((await call('/api/settings')).timezone_source).toBe('floor');
+    expect(await row()).toMatchObject({ timezone: 'Europe/Berlin', clientTs: 0 });
   });
 
   it('equal `at` goes to the smaller zone name, whichever side holds it', async () => {

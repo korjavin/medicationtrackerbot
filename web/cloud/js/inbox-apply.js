@@ -871,7 +871,12 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // path with the app (med-vcv.2). Tests inject agentOverride to stub the loop.
   const agent = agentOverride || (() => {
     const settings = createSettingsDomain({ records, now, timeZone });
-    const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram' });
+    // canFloor false: the inbox drain may run before this page's first pull,
+    // so it never floors the account zone (bd med-wi09.19); the page's own
+    // router does once it has pulled.
+    const router = createApiRouter(ctx, {
+      records, now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram', canFloor: async () => false,
+    });
     const dispatcher = createDispatcher({ router, now });
     const aiClient = createAIClient({ settingsDomain: settings });
     return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher, prefs, history });

@@ -67,7 +67,8 @@ const INTEGRATIONS_RECORD_ID = 'integrations';
 // with no pinned settings.timezone used to resolve to each device's own zone,
 // so two devices projected different dose instants (different occIds and
 // reminders). The first device that resolves such an account writes
-// {timezone: <device zone>, at: <now>} here at clientTs 0 via putIfAbsent.
+// {timezone, at: <now>} here at clientTs 0 via putIfAbsent; the zone is the
+// one its dose evidence is in (medintake.js evidenceZone), else its own.
 // Its own record, not a field on `settings`: that singleton is whole-record
 // LWW, so a clientTs-0 copy of it could not carry one field without losing
 // the merge for all of them (or winning it). getGeneral reads a pin first,
@@ -90,6 +91,17 @@ export function mergeTzFloor(local, incoming) {
   const ia = Number(incoming.at) || 0;
   const tz = (r) => String(r.timezone || '');
   return ia < la || (ia === la && tz(incoming) < tz(local)) ? incoming : local;
+}
+
+// readableZone: may this engine format in `tz`? (bd med-wi09.19 F4)
+function readableZone(tz) {
+  if (!tz) return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 export const FIRSTRUN_RECORD_TYPE = 'firstrun';
@@ -228,33 +240,40 @@ function findSingleton(all, recordId) {
 //   now()    — current time in ms epoch
 //   timeZone — IANA zone string used until the user overrides it via setTimezone
 export function createSettingsDomain({ records, now, timeZone }) {
-  // timezone_source: 'pinned' (an explicit pick), 'floor' (the first device's
-  // zone, see TZFLOOR_RECORD_TYPE) or 'device' (nothing stored yet).
+  // timezone_source: 'pinned' (an explicit pick), 'floor' (derived, see
+  // TZFLOOR_RECORD_TYPE) or 'device' (nothing stored yet). A stored zone this
+  // engine's Intl rejects (tzdata older than the writer's, e.g. Europe/Kyiv on
+  // an old WebView) is skipped for the next candidate, but still names the
+  // source: an unreadable pin is a pin, so no floor is written over it.
   async function getGeneral() {
     const [all, floors] = await Promise.all([
       records.list(GENERAL_RECORD_TYPE), records.list(TZFLOOR_RECORD_TYPE),
     ]);
     const rec = findSingleton(all, GENERAL_RECORD_ID);
     const floor = findSingleton(floors, TZFLOOR_RECORD_ID);
+    const pin = rec && rec.timezone;
+    const floored = floor && floor.timezone;
     let source = 'device';
-    if (rec && rec.timezone) source = 'pinned';
-    else if (floor && floor.timezone) source = 'floor';
+    if (pin) source = 'pinned';
+    else if (floored) source = 'floor';
     return {
-      timezone: (rec && rec.timezone) || (floor && floor.timezone) || timeZone,
+      timezone: [pin, floored].find(readableZone) || timeZone,
       timezone_source: source,
       dismissed_tz_suggestion: (rec && rec.dismissed_tz_suggestion) || '',
       ...readBodySettings(rec),
     };
   }
 
-  // ensureTimeZoneFloor: with neither a pin nor a floor stored, floor this
-  // device's zone as the account's (derived write: clientTs 0, putIfAbsent).
-  // Resolves to the general settings as they read afterwards.
-  async function ensureTimeZoneFloor() {
+  // ensureTimeZoneFloor(zone): with neither a pin nor a floor stored, floor
+  // `zone` as the account's (derived write: clientTs 0, putIfAbsent). The
+  // caller passes the intake domain's evidenceZone() (the zone the last logged
+  // doses are in, else the device's); settings never reads intakes. Resolves
+  // to the general settings as they read afterwards.
+  async function ensureTimeZoneFloor(zone = timeZone) {
     const general = await getGeneral();
     if (general.timezone_source !== 'device') return general;
     await records.putIfAbsent(TZFLOOR_RECORD_TYPE, {
-      recordId: TZFLOOR_RECORD_ID, clientTs: 0, deleted: false, timezone: timeZone, at: now(),
+      recordId: TZFLOOR_RECORD_ID, clientTs: 0, deleted: false, timezone: zone || timeZone, at: now(),
     });
     return getGeneral();
   }

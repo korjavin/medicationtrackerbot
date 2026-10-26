@@ -1670,6 +1670,66 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
         expect(await local.list('tzfloor')).toEqual([]);
     });
 
+    // Breakage F1 (Archie 5889): the floor takes the zone the dose evidence is
+    // in, so a device whose last logged dose is New York-stamped does not
+    // switch today's slots to Berlin (a reminder at 02:00 NY that vanishes as
+    // "out of date", and the 08:00 NY dose due with no reminder).
+    it('floors the zone of the last logged dose, not the flooring device\'s own', async () => {
+        const yesterdayNY = Date.UTC(2026, 2, 9, 12, 0); // 08:00 New York (EDT)
+        const taken = {
+            recordId: `intake-1-${yesterdayNY / 1000}`, clientTs: yesterdayNY, deleted: false, medication_id: 1,
+            scheduled_at: iso(yesterdayNY), taken_at: iso(yesterdayNY), status: 'TAKEN', snoozed_until: null,
+            source: 'schedule', tz: 'America/New_York', rev: 1,
+        };
+        const a = createInMemoryRecordsPort({ medication: [med], intake: [taken] });
+        const onA = await doses(device(a, 'Europe/Berlin'));
+        expect(await floorOf(a)).toMatchObject({ timezone: 'America/New_York', clientTs: 0 });
+        expect(onA.map((d) => d.plannedAt)).toEqual([iso(Date.UTC(2026, 2, 10, 12, 0))]); // 08:00 NY, not 07:00Z
+
+        const b = createInMemoryRecordsPort();
+        await sync(a, b);
+        const callB = device(b, 'America/New_York', NOW + 2 * 3600_000); // 07:00Z: past 08:00 Berlin
+        expect((await doses(callB)).map((d) => [d.occId, d.state])).toEqual(onA.map((d) => [d.occId, 'upcoming']));
+    });
+
+    it('a zone this engine cannot read is skipped, keeps its source, and is never floored over', async () => {
+        const pinned = createInMemoryRecordsPort({
+            medication: [med], settings: [{ recordId: 'settings', clientTs: NOW, deleted: false, timezone: 'Mars/Olympus_Mons' }],
+        });
+        expect(await device(pinned, 'Europe/Berlin')('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'pinned' });
+        expect(await pinned.list('tzfloor')).toEqual([]);
+
+        const floored = createInMemoryRecordsPort({
+            medication: [med], tzfloor: [{ recordId: 'tzfloor', clientTs: 0, deleted: false, timezone: 'Mars/Olympus_Mons', at: 1 }],
+        });
+        expect(await device(floored, 'Asia/Tokyo')('/api/settings')).toMatchObject({ timezone: 'Asia/Tokyo', timezone_source: 'floor' });
+    });
+
+    // Argus r1 (2), kept per Miles 5887: a device in another zone now gets the
+    // launch travel prompt; a dismissal sticks for that detected zone.
+    it('the launch prompt fires on a device off the floored zone, and a dismissal sticks', async () => {
+        const a = createInMemoryRecordsPort({ medication: [med] });
+        await doses(device(a, 'Europe/Berlin'));
+        const b = createInMemoryRecordsPort();
+        await sync(a, b);
+        const callB = device(b, 'America/New_York');
+        const ask = () => callB(`/api/tz-suggestion/should-prompt?detected_tz=${encodeURIComponent('America/New_York')}`);
+        expect(await ask()).toMatchObject({ prompt: true, current_tz: 'Europe/Berlin' });
+        await callB('/api/tz-suggestion/dismiss', 'POST', { detected_tz: 'America/New_York' });
+        expect((await ask()).prompt).toBe(false);
+        expect(await callB('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'floor' });
+    });
+
+    it('a router told not to floor (the inbox applier) never writes one', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med] });
+        const call = createApiRouter({}, {
+            records, win: {}, effects, now: () => NOW, timeZone: 'Europe/Berlin', canFloor: async () => false,
+        });
+        expect((await call('/api/settings')).timezone_source).toBe('device');
+        await doses(call);
+        expect(await records.list('tzfloor')).toEqual([]);
+    });
+
     it('waits for the first pull, then floors on the next call (an empty pull bumps no counter)', async () => {
         const records = createInMemoryRecordsPort({ medication: [med] });
         let up = false;

@@ -231,12 +231,11 @@ async function fetchSettingsBundle() {
         apiCall('/api/weight/reminder/status', 'GET'),
         apiCall('/api/settings', 'GET')
     ]);
-    // apiCall returns null on any GET failure (network, 5xx, 4xx). If every
-    // endpoint failed, signal total failure so DataStore.fetchFresh does not
-    // overwrite a valid cached bundle with zeroed defaults.
-    if (featureSettingsRes === null && foodTargetsRes === null
-        && bpReminderStatus === null && weightReminderStatus === null
-        && settingsRes === null) {
+    // apiCall returns null on any GET failure (network, 5xx, 4xx). Without
+    // /api/settings the bundle has no zone, so signal failure (as Settings' own
+    // fetcher does) and DataStore.fetchFresh keeps the valid cached bundle
+    // rather than overwriting it with blanks (bd med-wi09.19).
+    if (settingsRes === null) {
         return null;
     }
     // tab_order is delivered via /api/bootstrap (no standalone GET endpoint);
@@ -254,6 +253,7 @@ async function fetchSettingsBundle() {
         featureSettings: featureSettingsRes || {},
         tabOrder,
         timezone: settingsRes?.timezone || '',
+        timezoneSource: settingsRes?.timezone_source || '',
         serverTime: settingsRes?.server_time || '',
         serverTimezone: settingsRes?.server_timezone || '',
         dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',

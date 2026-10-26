@@ -29,6 +29,7 @@ import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import {
   recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp, notifyRecordsChanged,
+  pulledThisSession,
 } from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
@@ -210,10 +211,17 @@ function debugOnce(key, ...args) {
 //                 local → cloud move pickup settled (bd med-ydt2).
 //   opts.onDoseBoundary(atMs)  the intake domain's onBoundary port; only the
 //                 page's shim passes one (installApiShim's dose clock).
+//   opts.canFloor async () => bool: may this router floor the account zone
+//                 now (bd med-wi09.19)? Default on the real sync store: a pull
+//                 in THIS page load reached the tail (sync.js
+//                 pulledThisSession), so an offline boot never floors against
+//                 a stale mirror. An injected store defaults to opts.caughtUp;
+//                 the inbox applier passes () => false. Local mode never floors.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
   caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
+  canFloor = recordsOverride ? caughtUp : async () => pulledThisSession(),
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -336,21 +344,28 @@ export function createApiRouter(ctx, {
   // re-arm after a settings/tz-plan write covers an in-tab change on that path.
   // ponytail: no cross-tab invalidation. Reload covers it.
   //
-  // An account with no pin gets one zone (bd med-wi09.19): once the mirror has
-  // caught up, the first device that finds neither a pin nor a floor floors
-  // its own zone as the account's (settings.ensureTimeZoneFloor, clientTs 0,
-  // putIfAbsent). Waiting for caughtUp keeps a freshly-unlocked device from
-  // flooring its zone over an account another device already floored; a race
-  // that slips through is settled by sync's tzfloor reducer. Local-only mode
+  // An account with no pin gets one zone (bd med-wi09.19): once a pull in this
+  // page load has reached the tail (opts.canFloor), the first device that
+  // finds neither a pin nor a floor floors the zone its dose evidence is in
+  // (intake.evidenceZone: the zone every device already projects past days
+  // in; its own zone when nothing was logged) as the account's
+  // (settings.ensureTimeZoneFloor, clientTs 0, putIfAbsent). The gate keeps a
+  // freshly-unlocked or offline-booted device from flooring its zone over an
+  // account another device already floored; a race that slips through is
+  // settled by sync's tzfloor reducer. Local-only mode
   // (portFactory) never floors: one device, and its zone already is the
   // account's, so a floor would only stop it following the device on travel
   // with nothing to keep in step.
-  // A resolve that had to defer the floor (not caught up yet) is not
+  // A resolve that had to defer the floor (no pull this session yet) is not
   // memoized: an empty pull bumps no counter, so the memo would never retry.
   const floorsTimeZone = !portFactory;
   async function resolveGeneralTz() {
     if (!floorsTimeZone) return { general: await settings.getGeneral(), deferred: false };
-    if (await caughtUp()) return { general: await settings.ensureTimeZoneFloor(), deferred: false };
+    if (await canFloor()) {
+      const general = await settings.getGeneral();
+      if (general.timezone_source !== 'device') return { general, deferred: false };
+      return { general: await settings.ensureTimeZoneFloor(await intake.evidenceZone()), deferred: false };
+    }
     return { general: await settings.getGeneral(), deferred: true };
   }
   let tzReady = null;
