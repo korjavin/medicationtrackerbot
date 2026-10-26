@@ -255,13 +255,13 @@ func trialUploadRequest(t *testing.T, host, convID, ctype string, data []byte, s
 
 func TestTrialProxy_ElevenLabsUploadFile(t *testing.T) {
 	const trialKey = "xi-trial-secret-key"
-	var gotKey, gotPath, gotType string
+	var gotKey, gotPath, gotType, gotName string
 	var gotData []byte
 	upstreamStatus := http.StatusOK
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotKey, gotPath = r.Header.Get("xi-api-key"), r.URL.Path
 		if f, hdr, err := r.FormFile("file"); err == nil {
-			gotType = hdr.Header.Get("Content-Type")
+			gotType, gotName = hdr.Header.Get("Content-Type"), hdr.Filename
 			gotData, _ = io.ReadAll(f)
 		}
 		w.WriteHeader(upstreamStatus)
@@ -294,6 +294,16 @@ func TestTrialProxy_ElevenLabsUploadFile(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), trialKey) {
 		t.Fatal("xi-api-key leaked in response")
+	}
+
+	// image/jpg is folded to image/jpeg + photo.jpg; image/heic is refused before upstream.
+	gotType, gotName = "", ""
+	if rec := do(trialUploadRequest(t, host, "conv_abc", "image/jpg", jpeg, session)); rec.Code != http.StatusOK || gotType != "image/jpeg" || gotName != "photo.jpg" {
+		t.Fatalf("jpg alias: status = %d, type %q, name %q", rec.Code, gotType, gotName)
+	}
+	gotType = ""
+	if rec := do(trialUploadRequest(t, host, "conv_abc", "image/heic", jpeg, session)); rec.Code != http.StatusUnsupportedMediaType || gotType != "" {
+		t.Fatalf("heic: status = %d (upstream type %q), want 415 without upstream", rec.Code, gotType)
 	}
 
 	// Unauthenticated → 401.
@@ -346,6 +356,66 @@ func TestTrialProxy_ElevenLabsUploadFile(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "trial_rate_limit") {
 		t.Fatalf("429 body = %q", rec.Body.String())
+	}
+}
+
+func TestTrialProxy_ElevenLabsUploadRefusalLogged(t *testing.T) {
+	var upstreamBody string
+	var upstreamStatus int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(upstreamStatus)
+		w.Write([]byte(upstreamBody))
+	}))
+	defer upstream.Close()
+	var logBuf bytes.Buffer
+	captureSlog(t, slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	cfg := TrialConfig{ElevenLabsAPIKey: "xi-k", ElevenLabsAgentID: "agent-1", RatePerMinute: 100}
+	h, trialAPI, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	trialAPI.elevenLabsConversationsBase = upstream.URL
+	session := registerAndGetSession(t, h, host, claimToken)
+	jpeg := []byte("\xff\xd8\xff fake jpeg")
+
+	for _, tc := range []struct {
+		name, body string
+		status     int
+		want       []string
+		wantMsg    string
+		notWant    []string
+	}{
+		{"object", `{"detail":{"status":"invalid_file","message":"Unsupported image"}}`, 400,
+			[]string{`"el_status":"invalid_file"`, `"el_message":"Unsupported image"`, `"upstream_status":400`}, "Unsupported image", nil},
+		{"list", `{"detail":[{"loc":["body","file"],"msg":"field required","type":"missing"}]}`, 422,
+			[]string{`"el_status":"missing"`, `"el_message":"field required"`}, "field required", nil},
+		{"non-json", `<html>secret-body-text</html>`, 400,
+			[]string{`"el_unparsed":true`}, "", []string{"secret-body-text", "el_message"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logBuf.Reset()
+			upstreamBody, upstreamStatus = tc.body, tc.status
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, trialUploadRequest(t, host, "conv_abc", "image/jpeg", jpeg, session))
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d, want 502", rec.Code)
+			}
+			if tc.wantMsg == "" && strings.Contains(rec.Body.String(), "upstream_message") {
+				t.Errorf("unparsed body relayed a message: %q", rec.Body.String())
+			}
+			if tc.wantMsg != "" && !strings.Contains(rec.Body.String(), `"upstream_message":"`+tc.wantMsg+`"`) {
+				t.Errorf("response lacks upstream_message %q: %q", tc.wantMsg, rec.Body.String())
+			}
+			logged := logBuf.String()
+			for _, w := range tc.want {
+				if !strings.Contains(logged, w) {
+					t.Errorf("log lacks %s: %q", w, logged)
+				}
+			}
+			for _, nw := range tc.notWant {
+				if strings.Contains(logged, nw) || strings.Contains(rec.Body.String(), nw) {
+					t.Errorf("leaked %q", nw)
+				}
+			}
+		})
 	}
 }
 

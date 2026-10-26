@@ -724,6 +724,7 @@ describe('features/elevenlabs-call.js — sendPhoto on the trial agent (bd med-k
         [503, { error: 'trial_not_configured' }, /^Set your ElevenLabs API key/],
         [413, { error: 'file_too_large', max_bytes: 2097152 }, /^Photo is too large to send — the limit is 768 KB\.$/],
         [502, { error: 'upstream_error', upstream_status: 400 }, /^ElevenLabs rejected the photo \(HTTP 400\)$/],
+        [502, { error: 'upstream_error', upstream_status: 400, upstream_message: 'Image too small' }, /^ElevenLabs rejected the photo \(HTTP 400\): Image too small$/],
         [502, '502 Bad Gateway', /^Photo upload failed \(HTTP 502\)$/],
     ])('HTTP %i maps to its own call-bar message', async (uploadStatus, uploadBody, want) => {
         const { window, events, cleanup } = await trialCall({ uploadStatus, uploadBody });
