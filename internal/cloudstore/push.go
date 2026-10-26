@@ -515,3 +515,13 @@ func (r *Repo) CancelRelayRefire(ctx context.Context, accountID, tgCallback stri
 	}
 	return res.RowsAffected()
 }
+
+// PushIsPending reports whether the scheduled push id still exists unsent. The
+// relay Tick iterates a snapshot, and a send earlier in the same tick can delete
+// a later snapshot row (RescheduleRelayRefire), so it re-checks before sending.
+func (r *Repo) PushIsPending(ctx context.Context, id int64) (bool, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM scheduled_pushes WHERE id = ? AND sent_at_unix IS NULL`, id).Scan(&n)
+	return n > 0, err
+}

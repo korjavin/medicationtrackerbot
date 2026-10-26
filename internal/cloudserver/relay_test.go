@@ -1108,3 +1108,63 @@ func TestRelay_ClientRowSkipsConfirmedAndRelayRowsDoNotAdopt(t *testing.T) {
 		t.Fatalf("confirmed receipt must not be deleted: sent=%v deleted=%v", tg.sent, tg.deleted)
 	}
 }
+
+// TestRelay_ClientRowAndRefireDueTogetherLeaveOneLiveMessage (med-xk3h): a
+// client row C and the slot's pending relay refire R are both due in one tick,
+// C first. C adopts message 1 and sends 2; scheduleMedRefire deletes R and
+// queues R'. The stale R from the snapshot must not send a third message.
+func TestRelay_ClientRowAndRefireDueTogetherLeaveOneLiveMessage(t *testing.T) {
+	store, h, host, session, accountID := medRefireChainSetup(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	stem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	tg := &fakeTGSender{}
+	relay := NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0)
+	entry := scheduleEntryWire{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: stem}
+
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry}})
+	relay.Tick(ctx) // message 1 live; R queued superseding 1
+
+	// Make R due, and add a client row C due earlier so it sorts first.
+	if err := store.RescheduleRelayRefire(ctx, accountID, now.Add(-time.Second), "Time to take: X", stem, "", 1); err != nil {
+		t.Fatal(err)
+	}
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry}})
+	relay.Tick(ctx)
+
+	if len(tg.sent) != 2 {
+		t.Fatalf("stale refire sent a second message: sent=%v", tg.sent)
+	}
+	if len(tg.deleted) != 1 || tg.deleted[0] != 1 {
+		t.Fatalf("want only message 1 deleted, got %v", tg.deleted)
+	}
+	future, err := store.DueScheduledPushes(ctx, now.Add(90*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(future) != 1 || future[0].SupersedesMessageID != 2 {
+		t.Fatalf("want one pending refire superseding message 2, got %+v", future)
+	}
+}
+
+// pendingErrStore fails the Tick's pending re-check.
+type pendingErrStore struct{ *cloudstore.Repo }
+
+func (pendingErrStore) PushIsPending(context.Context, int64) (bool, error) {
+	return false, errors.New("db fault")
+}
+
+// med-xk3h: a failed pending lookup fails open — the row still sends.
+func TestRelay_PendingLookupErrorStillSends(t *testing.T) {
+	store, h, host, session, _ := medRefireChainSetup(t)
+	now := time.Now().UTC()
+	stem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: stem},
+	}})
+	tg := &fakeTGSender{}
+	NewRelay(pendingErrStore{store}, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(context.Background())
+	if len(tg.sent) != 1 {
+		t.Fatalf("lookup error must fail open and send: sent=%v", tg.sent)
+	}
+}
