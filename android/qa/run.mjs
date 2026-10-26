@@ -100,6 +100,18 @@ const ctx = {
     }
   },
   /**
+   * True when `e` is the shell's page going away under us ("has been closed", no WebView); then logs
+   * it and records { scenario, where, error, pid, action } in results.recoveries ('none': the process is gone).
+   */
+  async pageLost(e, where, action) {
+    const error = String(e?.message || e).split('\n')[0];
+    if (!/has been closed|no WebView page/.test(error)) return false;
+    const pid = (await shell(`pidof ${pkg}`).catch(() => '')) || 'none';
+    (results.recoveries ||= []).push({ scenario: ctx.scenario, where, error, pid, action });
+    log(`${where}: page lost (${error}), app pid ${pid}; ${action}`);
+    return true;
+  },
+  /**
    * Cold start through the launcher's Switch account (bd med-ta2n.12: there is no native first run):
    * any stored account forgotten, local mode on home?invite=1, so the web's F1 "Have an invite?"
    * sheet is open (over W1 on an empty device). Returns the page.
@@ -132,9 +144,7 @@ const ctx = {
         await ready(page);
         return page;
       } catch (e) {
-        if (attempt > 1 || !/has been closed|no WebView page/.test(String(e?.message))) throw e;
-        const pid = (await shell(`pidof ${pkg}`).catch(() => '')) || 'none';
-        log(`local page lost (${String(e?.message).split('\n')[0]}), app pid ${pid}; ${restart ? 'relaunching' : 're-attaching'}`);
+        if (attempt > 1 || !(await ctx.pageLost(e, 'localPage', restart ? 'relaunch' : 're-attach'))) throw e;
         if (restart) await restart();
         else await ctx.sleep(2000);
       }
@@ -237,8 +247,18 @@ const ctx = {
    */
   async openClaim(opts = {}) {
     if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
-    await ctx.launch(opts);
-    await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
+    // bd med-nt9p.64: run 40242381050 lost the app (home screen) right after launch()'s page was
+    // ready, so openLink's first locator threw "has been closed". One relaunch, as localPage does;
+    // the invite is only claimed later, on /unlock, so a second F1 pass is safe.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await ctx.launch(opts);
+        await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
+        break;
+      } catch (e) {
+        if (attempt > 1 || !(await ctx.pageLost(e, 'openClaim', 'relaunch'))) throw e;
+      }
+    }
     const page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page (see the run log)');
     await page.waitForURL(/\/unlock/, { timeout: 30_000 });
