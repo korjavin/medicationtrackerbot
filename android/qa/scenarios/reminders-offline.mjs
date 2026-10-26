@@ -200,7 +200,9 @@ async function grantBoth(ctx, out, tm = {}) {
   const { shell, pkg, device } = ctx;
   const seen = async (sel, ms) => { // tm[sel's key]: ms until it showed (or the timeout)
     const t0 = Date.now();
-    const ok = await device.wait(sel, { timeout: ms }).then(() => true, () => false);
+    // bd med-nt9p.63: ctx.waitFor taps "Wait" on a launcher ANR dialog; run 40241614395 had both
+    // system screens up under one, unseen, so the app never resumed and Enable stayed disabled.
+    const ok = await ctx.waitFor(sel, ms).then(() => true, () => false);
     tm[sel.res ? 'notifPromptMs' : 'alarmsPageMs'] = Date.now() - t0;
     return ok;
   };
