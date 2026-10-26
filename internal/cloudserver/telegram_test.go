@@ -3294,3 +3294,33 @@ func TestTelegramDisabledStatus(t *testing.T) {
 		t.Fatalf("unauthenticated status = %d, want 401", rec.Code)
 	}
 }
+
+// med-ru2e: a Confirm tap turns the tapped message into the Taken receipt, so it
+// stops being the slot's live reminder and is never handed out for deletion.
+func TestChildWebhook_MedConfirmForgetsSentMessage(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	const stem = "s:1767225600"
+	if err := f.store.ReplaceSchedule(ctx, f.accountID, []cloudstore.ScheduledPushInput{
+		{FireAt: now.Add(-time.Minute), Delivery: cloudstore.DeliveryTelegram, TGText: "Time to take", TGCallback: stem},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+	pending, err := f.store.DueScheduledPushes(ctx, now)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("DueScheduledPushes = %+v, %v", pending, err)
+	}
+	if err := f.store.MarkPushSent(ctx, pending[0].ID, now, 9); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate(stem+":confirm", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if id, err := f.store.LastReminderMessageID(ctx, f.accountID, stem); err != nil || id != 0 {
+		t.Fatalf("LastReminderMessageID after confirm = %d, %v; want 0", id, err)
+	}
+}

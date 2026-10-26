@@ -1066,3 +1066,45 @@ func TestRelay_AdoptLiveSlotMessageKeepsExisting(t *testing.T) {
 		t.Fatalf("existing supersedes id overwritten: %d", p.SupersedesMessageID)
 	}
 }
+
+// med-ru2e: a confirmed message (receipt) is not adopted by a later client row,
+// and a relay-origin row (RearmRefire shape: supersedes 0) never adopts.
+func TestRelay_ClientRowSkipsConfirmedAndRelayRowsDoNotAdopt(t *testing.T) {
+	store, h, host, session, accountID := medRefireChainSetup(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	stem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	entry := scheduleEntryWire{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: stem}
+	tg := &fakeTGSender{}
+	relay := NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0)
+
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry}})
+	relay.Tick(ctx) // message 1 is live
+
+	// Relay-origin row with supersedes 0 (as RearmRefire inserts): must not delete 1.
+	if _, err := store.CancelRelayRefire(ctx, accountID, stem); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertRelayRefire(ctx, accountID, now.Add(-time.Second), "Medication reminder", stem); err != nil {
+		t.Fatal(err)
+	}
+	relay.Tick(ctx)
+	if len(tg.deleted) != 0 {
+		t.Fatalf("relay-origin row adopted a message: deleted=%v", tg.deleted)
+	}
+
+	// Confirm on message 1 and the latest send (2), then a client row fires.
+	if _, err := store.CancelRelayRefire(ctx, accountID, stem); err != nil { // Confirm cancels the chain
+		t.Fatal(err)
+	}
+	for _, id := range []int64{1, 2} {
+		if err := store.ForgetSentMessage(ctx, accountID, stem, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{entry}})
+	relay.Tick(ctx)
+	if len(tg.sent) != 3 || len(tg.deleted) != 0 {
+		t.Fatalf("confirmed receipt must not be deleted: sent=%v deleted=%v", tg.sent, tg.deleted)
+	}
+}

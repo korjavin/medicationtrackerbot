@@ -2044,6 +2044,11 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
 			slog.Error("telegram callback: cancel med relay refire", "error", err, "ref", ref)
 		}
+		// The message is now a receipt, not a live reminder: keep a later
+		// client-origin send from adopting and deleting it (med-ru2e).
+		if err := t.store.ForgetSentMessage(r.Context(), ref, stem, messageID); err != nil {
+			slog.Error("telegram callback: forget confirmed message", "error", err, "ref", ref)
+		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
 		answer(callbackAckConfirm)
 	}

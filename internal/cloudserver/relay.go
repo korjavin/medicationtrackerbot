@@ -390,9 +390,9 @@ func (rl *Relay) sendWebPush(
 // adoptLiveSlotMessage keeps one live reminder per med slot (med-ru2e): a
 // client-origin row (e.g. the snooze-end reminder) carries no
 // supersedes_message_id, so fill it from the slot's live message, as a relay
-// re-fire already has. Workout and other stems are left alone.
+// re-fire already has. Only client-origin s: rows adopt; relay re-fires carry their own id.
 func (rl *Relay) adoptLiveSlotMessage(ctx context.Context, p *cloudstore.ScheduledPush) {
-	if p.SupersedesMessageID != 0 || !strings.HasPrefix(p.TGCallback, tgclient.CallbackSlotPrefix) {
+	if p.Origin != cloudstore.PushOriginClient || p.SupersedesMessageID != 0 || !strings.HasPrefix(p.TGCallback, tgclient.CallbackSlotPrefix) {
 		return
 	}
 	id, err := rl.store.LastReminderMessageID(ctx, p.AccountID, p.TGCallback)

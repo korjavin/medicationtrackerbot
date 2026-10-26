@@ -150,6 +150,8 @@ type ScheduledPush struct {
 	// SupersedesMessageID is the prior Telegram message_id this send should delete
 	// (0 = nothing to delete). A TG artifact, never vault/ct data (med-eas.79).
 	SupersedesMessageID int64
+	// Origin is PushOriginClient or PushOriginRelayRefire.
+	Origin string
 }
 
 // ScheduledPushInput is one entry of a PUT /api/push/schedule replace-all
@@ -272,7 +274,7 @@ func (r *Repo) ReplaceScheduleFenced(ctx context.Context, accountID string, entr
 // fire_at has passed — the relay sender's per-tick query.
 func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]ScheduledPush, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, tg_med_ids, supersedes_message_id FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
+		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, tg_med_ids, supersedes_message_id, origin FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
 		storedb.TimeToUnix(now))
 	if err != nil {
 		return nil, err
@@ -285,7 +287,7 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 			p        ScheduledPush
 			fireUnix int64
 		)
-		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback, &p.TGMedIDs, &p.SupersedesMessageID); err != nil {
+		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback, &p.TGMedIDs, &p.SupersedesMessageID, &p.Origin); err != nil {
 			return nil, err
 		}
 		p.FireAt = storedb.UnixToTime(fireUnix)
@@ -341,6 +343,20 @@ func (r *Repo) LastReminderMessageID(ctx context.Context, accountID, tgCallback 
 		return 0, nil
 	}
 	return id, err
+}
+
+// ForgetSentMessage zeroes tg_message_id on the sent row(s) that delivered
+// messageID for (accountID, tgCallback). A Confirm tap rewrites that message
+// into the static receipt and drops its buttons, so it is no longer a live
+// reminder: LastReminderMessageID must not hand it out for deletion (med-ru2e).
+func (r *Repo) ForgetSentMessage(ctx context.Context, accountID, tgCallback string, messageID int64) error {
+	if messageID == 0 {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE scheduled_pushes SET tg_message_id = 0 WHERE account_id = ? AND tg_callback = ? AND tg_message_id = ? AND sent_at_unix IS NOT NULL`,
+		accountID, tgCallback, messageID)
+	return err
 }
 
 // ScrubSentPushIdentity drops the tap addressing (tg_callback/tg_med_ids) and the
