@@ -1,14 +1,16 @@
 // Headless repro for med-ku8r: "Send photo" during a trial-agent voice call.
 //
 //   invite claim -> PRF passkey -> trial voice consent -> call (fake mic)
-//   -> in_call -> test JPEG on the hidden photo input -> POST .../files
+//   -> in_call -> test JPEG on the hidden photo input -> marker user_message
+//   -> next relay turn to the trial vision model
 //
-// Stops after the upload: reports the /files status + JSON, the call-bar
-// status line, console warnings, and a screenshot. Logs go to stderr; stdout
-// carries exactly one JSON line:
-//   {files_status, files_body, callbar, console, verdict, detail}
-// verdict: PASS (/files 200 and no error on the call bar), REPRO (upload or
-// call bar failed), BLOCKED (never got as far as the upload).
+// Stops once the photo send settles: reports any ElevenLabs /files request
+// (there must be none), the SDK user_message frames, the vision turn's status,
+// the call-bar status line, console warnings, and a screenshot. Logs go to
+// stderr; stdout carries exactly one JSON line:
+//   {files_requests, user_messages, vision_status, callbar, console, verdict, detail}
+// verdict: PASS (no /files request, the marker was sent, no error on the call
+// bar), REPRO (any of those failed), BLOCKED (never got as far as the send).
 //
 //   BASE_URL=https://acct.example.com CLAIM_TOKEN=abc… node trial-photo-call.mjs
 //
@@ -23,7 +25,9 @@ const HEADLESS = process.env.HEADED !== '1';
 const SCREENSHOT = process.env.SCREENSHOT || 'trial-photo.png';
 
 const log = (msg) => console.error(msg);
-const result = { files_status: null, files_body: null, callbar: null, console: [], verdict: 'BLOCKED', detail: '' };
+const result = {
+  files_requests: 0, user_messages: [], vision_status: null, callbar: null, console: [], verdict: 'BLOCKED', detail: '',
+};
 
 class Blocked extends Error {}
 
@@ -40,6 +44,18 @@ async function main() {
     ],
   });
   const context = await browser.newContext({ ignoreHTTPSErrors: true, permissions: ['microphone'] });
+  // Record the SDK's user_message frames (the photo marker) as the page sends them.
+  await context.addInitScript(() => {
+    window.__e2eUserMessages = [];
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (data) {
+      try {
+        const f = typeof data === 'string' ? JSON.parse(data) : null;
+        if (f && f.type === 'user_message') window.__e2eUserMessages.push(f.text);
+      } catch { /* not JSON */ }
+      return send.call(this, data);
+    };
+  });
   const page = await context.newPage();
   page.on('console', (m) => {
     if (m.type() === 'warning' || m.type() === 'error') {
@@ -198,48 +214,54 @@ async function testJpeg(page) {
   return Buffer.from(b64, 'base64');
 }
 
+// Since the med-ku8r re-shape the photo never goes to ElevenLabs: the page
+// queues it, sends the marker as an SDK user_message, and the next relay turn
+// carries it to the trial vision model (POST /api/trial/openai/…?vision=1).
 async function sendPhoto(page) {
   log('→ sending the test photo');
   const jpeg = await testJpeg(page);
-  const filesResp = page.waitForResponse(
-    (r) => r.request().method() === 'POST' && /\/conversations\/[^/]+\/files$/.test(new URL(r.url()).pathname),
-    { timeout: 60_000 },
-  ).catch(() => null);
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/conversations\/[^/]+\/files$/.test(new URL(r.url()).pathname)) result.files_requests += 1;
+  });
+  page.on('response', (r) => {
+    const u = new URL(r.url());
+    if (u.pathname === '/api/trial/openai/chat/completions' && u.searchParams.get('vision') === '1') {
+      result.vision_status = r.status();
+      log(`  vision turn → ${r.status()}`);
+    }
+  });
   await page.locator('.wg-callbar__photo-input').first()
     .setInputFiles({ name: 'bp.jpg', mimeType: 'image/jpeg', buffer: jpeg });
 
-  const resp = await filesResp;
-  if (resp) {
-    result.files_status = resp.status();
-    const raw = await resp.text().catch(() => '');
-    try { result.files_body = JSON.parse(raw); } catch { result.files_body = raw.slice(0, 500); }
-    log(`  /files → ${result.files_status} ${JSON.stringify(result.files_body)}`);
-  } else {
-    log('  no /files request seen within 60 s');
+  // sendPhoto settles once the vision turn was answered (or failed).
+  const deadline = Date.now() + 60_000;
+  let st = null;
+  for (;;) {
+    await page.waitForTimeout(1_000);
+    st = await page.evaluate(() => window.WGCallAgent?.getState?.()).catch(() => null);
+    if (!st || !st.uploading || Date.now() > deadline) break;
   }
-
-  // sendMultimodalMessage runs right after a 200; give a rejection over the
-  // socket a moment to land on the call bar.
-  await page.waitForTimeout(5_000);
+  result.user_messages = await page.evaluate(() => window.__e2eUserMessages || []).catch(() => []);
   result.callbar = await readCallbar(page);
   const bar = result.callbar || {};
+  const photoError = (st && st.photoError) || '';
   const barText = `${bar.status || ''} ${bar.error || ''}`;
-  const barError = bar.state !== 'in_call' || /rejected|failed|error|not available|required|too large|unavailable/i.test(barText);
+  const barError = bar.state !== 'in_call' || Boolean(photoError) || /couldn't send|rejected|failed|error/i.test(barText);
+  const marked = result.user_messages.includes('[User sent a photo]');
 
-  if (result.files_status === 200 && !barError) {
+  if (!result.files_requests && !barError && marked) {
     result.verdict = 'PASS';
-    result.detail = `upload accepted, call bar: ${barText.trim() || bar.state}`;
+    result.detail = `marker sent, vision turn ${result.vision_status ?? 'not seen'}, call bar: ${barText.trim() || bar.state}`;
   } else {
     result.verdict = 'REPRO';
-    result.detail = resp
-      ? `/files ${result.files_status}; call bar [${bar.state}] ${barText.trim()}`
-      : `no /files request; call bar [${bar.state}] ${barText.trim()}`;
+    result.detail = `files requests ${result.files_requests}; marker ${marked ? 'sent' : 'NOT sent'}; `
+      + `vision turn ${result.vision_status ?? 'not seen'}; call bar [${bar.state}] ${photoError || barText.trim()}`;
   }
 }
 
 main()
   .catch((err) => {
-    result.verdict = err instanceof Blocked ? 'BLOCKED' : (result.files_status ? 'REPRO' : 'BLOCKED');
+    result.verdict = err instanceof Blocked ? 'BLOCKED' : 'REPRO';
     result.detail = err.message;
   })
   .finally(() => {

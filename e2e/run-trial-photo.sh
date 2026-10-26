@@ -8,7 +8,7 @@
 #   KEEP_ACCOUNT=1 ./e2e/run-trial-photo.sh     # don't delete the test account
 #
 # Mints a throwaway invite, drives the browser in the Playwright image, prints
-# one JSON line ({files_status, files_body, callbar, console, verdict, detail}),
+# one JSON line ({files_requests, user_messages, vision_status, callbar, console, verdict, detail}),
 # saves e2e/trial-photo.png, and always deletes the test account on exit.
 set -euo pipefail
 
@@ -56,4 +56,4 @@ docker run --rm --init \
 echo "screenshot: $HERE/trial-photo.png" >&2
 # The trial proxy logs ElevenLabs' upstream status; show what it said.
 echo "--- server log (trial/elevenlabs since $SINCE) ---" >&2
-docker logs --since "$SINCE" "$CONTAINER" 2>&1 | grep -iE 'trial|elevenlabs|upload' | tail -20 >&2 || true
+docker logs --since "$SINCE" "$CONTAINER" 2>&1 | grep -iE 'trial|elevenlabs|voice llm relay' | tail -20 >&2 || true
