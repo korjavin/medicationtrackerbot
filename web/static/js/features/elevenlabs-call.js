@@ -912,8 +912,16 @@
             }
             const dataURL = await readDataURL(await shrinkPhoto(file));
             if (conv !== activeConversation) return; // hung up meanwhile
+            // Queue before announcing, so the turn the marker triggers finds it.
             const answered = relay.setPendingImage(dataURL);
-            conv.sendUserMessage(PHOTO_MARKER);
+            try {
+                conv.sendUserMessage(PHOTO_MARKER);
+            } catch (err) {
+                // Not announced: take it back out so a retry doesn't send it twice.
+                if (typeof answered.cancel === 'function') answered.cancel(err);
+                answered.catch(() => { /* observed: err is rethrown below */ });
+                throw err;
+            }
             await answered;
         } catch (err) {
             console.warn('[call] photo send failed:', err);

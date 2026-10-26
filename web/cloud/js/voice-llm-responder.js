@@ -107,7 +107,18 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
     if (pendingImages.length >= MAX_PENDING_IMAGES) {
       throw new Error('too many photos waiting, let the agent answer first');
     }
-    return new Promise((resolve, reject) => { pendingImages.push({ url, resolve, reject }); });
+    let entry;
+    const answered = new Promise((resolve, reject) => { entry = { url, resolve, reject }; });
+    pendingImages.push(entry);
+    // cancel(err): take the photo back out of the queue (the caller could not
+    // announce it) and reject with err; a no-op once a turn took it.
+    answered.cancel = (err) => {
+      const i = pendingImages.indexOf(entry);
+      if (i < 0) return;
+      pendingImages.splice(i, 1);
+      entry.reject(err || new Error('photo cancelled'));
+    };
+    return answered;
   }
 
   function wsURL() {

@@ -313,6 +313,17 @@ describe('voice-llm-responder — pending photo (bd med-ku8r)', () => {
     responder.stop();
   });
 
+  it('cancel() takes a queued photo back out before any turn', async () => {
+    const { aiClient, responder, sock } = await started();
+    const answered = responder.setPendingImage(IMG);
+    answered.cancel(new Error('not announced'));
+    await expect(answered).rejects.toThrow('not announced');
+    sock.recv({ id: 1, type: 'request', body: turn() });
+    await drain();
+    expect(JSON.stringify(aiClient.chatStream.mock.calls[0][0].body)).not.toContain('image_url');
+    responder.stop();
+  });
+
   it('stop() (hang-up) drops a queued photo, and a stopped leg refuses one', async () => {
     const { responder } = await started();
     const answered = responder.setPendingImage(IMG);

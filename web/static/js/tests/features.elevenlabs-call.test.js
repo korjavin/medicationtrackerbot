@@ -597,7 +597,9 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('end to end with the real responder: the next AI turn carries the photo on the marker, a later turn does not', async () => {
+    // The real voice LLM responder over a fake relay socket; aiClient records
+    // what each AI turn was sent.
+    async function realRelayCall() {
         class FakeSocket {
             constructor() { this.readyState = 1; this.sent = []; FakeSocket.last = this; }
 
@@ -611,22 +613,45 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         vi.stubGlobal('WebSocket', FakeSocket);
         vi.spyOn(console, 'debug').mockImplementation(() => {});
         const env = createConversationEnv();
-        const { window, conversation, cleanup } = env;
+        const { window } = env;
         const bodies = [];
         const aiClient = {
             usesTrial: async () => false,
             chatStream: vi.fn(async ({ body, onChunk }) => { bodies.push(body); onChunk('data: [DONE]\n\n'); }),
         };
         window.CloudVoiceLLM = createVoiceLLMResponder({ aiClient, url: 'wss://acct.test/api/voice-llm/device' });
+        const card = window.document.createElement('section');
+        window.document.body.appendChild(card);
+        const starting = window.WGCallAgent.startCall(card);
+        await vi.waitFor(() => expect(FakeSocket.last).toBeDefined());
+        const sock = FakeSocket.last;
+        sock.recv({ type: 'hello', call: 'tok' });
+        await starting;
+        window.__TEST_CONVERSATION_OPTS__.onConnect();
+        return { ...env, sock, bodies };
+    }
+
+    it('a failed announcement takes the photo back out: a retry sends one photo, hang-up leaves nothing unobserved', async () => {
+        const { window, conversation, sock, bodies, cleanup } = await realRelayCall();
         try {
-            const card = window.document.createElement('section');
-            window.document.body.appendChild(card);
-            const starting = window.WGCallAgent.startCall(card);
-            await vi.waitFor(() => expect(FakeSocket.last).toBeDefined());
-            const sock = FakeSocket.last;
-            sock.recv({ type: 'hello', call: 'tok' });
-            await starting;
-            window.__TEST_CONVERSATION_OPTS__.onConnect();
+            conversation.sendUserMessage.mockImplementationOnce(() => { throw new Error('socket closed'); });
+            await expect(window.WGCallAgent.sendPhoto(makeImageBlob(window))).rejects.toThrow('socket closed');
+            expect(window.WGCallAgent.getState().photoError).toBe("Couldn't send the photo: socket closed");
+
+            const retry = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(conversation.sendUserMessage).toHaveBeenCalledTimes(2));
+            sock.recv({ id: 1, type: 'request', body: { messages: [{ role: 'user', content: '[User sent a photo]' }] } });
+            await retry;
+            expect(bodies[0].messages[0].content.filter((p) => p.type === 'image_url')).toHaveLength(1);
+            await window.WGCallAgent.endCall();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('end to end with the real responder: the next AI turn carries the photo on the marker, a later turn does not', async () => {
+        const { window, conversation, sock, bodies, cleanup } = await realRelayCall();
+        try {
             expect(window.__TEST_CONVERSATION_OPTS__.customLlmExtraBody).toEqual({ call: 'tok' });
 
             const send = window.WGCallAgent.sendPhoto(makeImageBlob(window));
