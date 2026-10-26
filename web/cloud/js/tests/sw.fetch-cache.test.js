@@ -130,17 +130,31 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         expect(response).toBe(shell);
     });
 
-    it('offline: a ceremony page never gets the / app shell — it surfaces the network outcome (no reload loop)', async () => {
+    it('offline: a ceremony page never gets the / app shell — it gets the script-free retry document (no reload loop)', async () => {
         // '/' would boot cloud-boot.js, which redirects a locked device back to
         // /unlock → served '/' again → infinite reload loop (med-eas.16).
-        caches.seed(SHELL_CACHE, '/', { ok: true, body: 'app html' });
-        const err = new TypeError('network down');
-        fetchMock.mockRejectedValue(err);
+        const appShell = { ok: true, body: 'app html' };
+        caches.seed(SHELL_CACHE, '/', appShell);
+        fetchMock.mockRejectedValue(new TypeError('network down'));
 
         for (const path of ['/unlock', '/claim', '/recover', '/devices', '/connectors']) {
-            const { promise } = fireFetchRaw(listeners, navigate(path));
-            await expect(promise).rejects.toBe(err);
+            const { response } = await fireFetch(listeners, navigate(path));
+            expect(response).not.toBe(appShell);
+            expect(response.status).toBe(503);
+            expect(await response.text()).not.toContain('<script');
         }
+    });
+
+    it('offline: a navigation with nothing cached gets the 503 retry document, never written to cache (med-gacq)', async () => {
+        fetchMock.mockRejectedValue(new TypeError('network down'));
+
+        const { response } = await fireFetch(listeners, navigate('/'));
+        expect(response.status).toBe(503);
+        expect(response.headers.get('Cache-Control')).toBe('no-store');
+        const body = await response.text();
+        expect(body).toContain("Can't reach the server.");
+        expect(body).toContain('<a href="">Retry</a>');
+        expect(caches.store.get(SHELL_CACHE)).toBeUndefined();
     });
 
     it('offline: a ceremony page with its own cached copy still renders it', async () => {
@@ -627,13 +641,21 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         beforeEach(() => { vi.useFakeTimers(); });
         afterEach(() => { vi.useRealTimers(); });
 
-        it('a navigation miss whose fetch never settles still gets a response within the bound', async () => {
+        it('a navigation miss whose fetch never settles gets a retry document within the bound — ceremony paths too, never the / shell', async () => {
             fetchMock.mockReturnValue(new Promise(() => {}));
-            const { promise } = fireFetchRaw(listeners, navigate('/'));
-            const settled = expect(promise).rejects.toThrow('network timeout');
-            await vi.advanceTimersByTimeAsync(5000);
-            await settled;
+            for (const path of ['/', '/unlock']) {
+                const { promise } = fireFetchRaw(listeners, navigate(path));
+                await vi.advanceTimersByTimeAsync(5000);
+                const response = await promise;
+                expect(response.status).toBe(503);
+                expect(response.headers.get('Content-Type')).toContain('text/html');
+                const body = await response.text();
+                expect(body).toContain("Can't reach the server.");
+                expect(body).toContain('<a href="">Retry</a>');
+                expect(body).not.toContain('<script');
+            }
         });
+
 
         it('a navigation miss that times out falls back to a cached / shell when one appears', async () => {
             // A deep link with no exact copy: cachedNavigationDoc misses only if

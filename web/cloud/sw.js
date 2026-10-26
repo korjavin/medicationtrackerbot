@@ -280,6 +280,19 @@ function boundedFetch(request) {
   return Promise.race([fetch(request), timeout]).finally(() => clearTimeout(timer));
 }
 
+// A navigation that failed or timed out with nothing cached to serve: a
+// standalone document, not a rejection — an installed PWA's own network-error
+// page has no way back. Never cached (only ok responses are). No script and no
+// redirect, so it is safe at ceremony paths too (it is not the app shell, so no
+// ping-pong); the link reloads the same URL.
+function retryDocument() {
+  return new Response(
+    '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      "<title>Med Tracker</title><p>Can't reach the server.</p><p><a href=\"\">Retry</a></p>",
+    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }
+  );
+}
+
 function fetchAndCache(event, request) {
   return boundedFetch(request).then(
     (response) => {
@@ -293,6 +306,7 @@ function fetchAndCache(event, request) {
     },
     (err) =>
       offlineFallback(request, () => {
+        if (request.mode === 'navigate') return retryDocument();
         throw err;
       })
   );
