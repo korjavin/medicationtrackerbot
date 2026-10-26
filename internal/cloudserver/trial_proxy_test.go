@@ -7,8 +7,11 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -228,6 +231,121 @@ func TestTrialProxy_ElevenLabsSignedURL(t *testing.T) {
 	h2.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "trial_not_configured") {
 		t.Fatalf("unconfigured: status = %d, body %q, want 503 trial_not_configured", rec.Code, rec.Body.String())
+	}
+}
+
+func trialUploadRequest(t *testing.T, host, convID, ctype string, data []byte, session *http.Cookie) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Disposition", `form-data; name="file"; filename="x"`)
+	h.Set("Content-Type", ctype)
+	pw, _ := mw.CreatePart(h)
+	pw.Write(data)
+	mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/trial/elevenlabs/conversations/"+convID+"/files", &buf)
+	req.Host = host
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if session != nil {
+		req.AddCookie(session)
+	}
+	return req
+}
+
+func TestTrialProxy_ElevenLabsUploadFile(t *testing.T) {
+	const trialKey = "xi-trial-secret-key"
+	var gotKey, gotPath, gotType string
+	var gotData []byte
+	upstreamStatus := http.StatusOK
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey, gotPath = r.Header.Get("xi-api-key"), r.URL.Path
+		if f, hdr, err := r.FormFile("file"); err == nil {
+			gotType = hdr.Header.Get("Content-Type")
+			gotData, _ = io.ReadAll(f)
+		}
+		w.WriteHeader(upstreamStatus)
+		if upstreamStatus == http.StatusOK {
+			w.Write([]byte(`{"file_id":"file_123"}`))
+		} else {
+			w.Write([]byte(`{"detail":"echo ` + trialKey + `"}`))
+		}
+	}))
+	defer upstream.Close()
+
+	cfg := TrialConfig{ElevenLabsAPIKey: trialKey, ElevenLabsAgentID: "agent-1", RatePerMinute: 100}
+	h, trialAPI, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	trialAPI.elevenLabsConversationsBase = upstream.URL
+	session := registerAndGetSession(t, h, host, claimToken)
+	do := func(req *http.Request) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	jpeg := []byte("\xff\xd8\xff fake jpeg")
+
+	// Happy path: key + conversation path upstream, the image bytes intact.
+	rec := do(trialUploadRequest(t, host, "conv_abc", "image/jpeg", jpeg, session))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"file_id":"file_123"`) {
+		t.Fatalf("happy: status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if gotKey != trialKey || gotPath != "/conv_abc/files" || gotType != "image/jpeg" || !bytes.Equal(gotData, jpeg) {
+		t.Fatalf("upstream got key=%q path=%q type=%q data=%q", gotKey, gotPath, gotType, gotData)
+	}
+	if strings.Contains(rec.Body.String(), trialKey) {
+		t.Fatal("xi-api-key leaked in response")
+	}
+
+	// Unauthenticated → 401.
+	if rec := do(trialUploadRequest(t, host, "conv_abc", "image/jpeg", jpeg, nil)); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no session: status = %d, want 401", rec.Code)
+	}
+	// Non-image → 415, bad conversation id → 400, too large → 413 with the limit.
+	if rec := do(trialUploadRequest(t, host, "conv_abc", "application/pdf", jpeg, session)); rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("pdf: status = %d, want 415", rec.Code)
+	}
+	if rec := do(trialUploadRequest(t, host, "conv.abc", "image/jpeg", jpeg, session)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad id: status = %d, want 400", rec.Code)
+	}
+	big := bytes.Repeat([]byte{0xff}, maxTrialUploadBytes+1)
+	rec = do(trialUploadRequest(t, host, "conv_abc", "image/jpeg", big, session))
+	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), "file_too_large") || !strings.Contains(rec.Body.String(), "max_bytes") {
+		t.Fatalf("big: status = %d, body %q, want 413 file_too_large", rec.Code, rec.Body.String())
+	}
+
+	// Upstream 4xx/5xx → 502 upstream_error carrying the status, body never relayed.
+	for _, st := range []int{http.StatusUnprocessableEntity, http.StatusInternalServerError} {
+		upstreamStatus = st
+		rec = do(trialUploadRequest(t, host, "conv_abc", "image/jpeg", jpeg, session))
+		if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "upstream_error") ||
+			!strings.Contains(rec.Body.String(), `"upstream_status":`+strconv.Itoa(st)) || strings.Contains(rec.Body.String(), trialKey) {
+			t.Fatalf("upstream %d: status = %d, body %q", st, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Not configured → 503.
+	h2, _, host2, claim2 := newTrialTestHandlerAPI(t, TrialConfig{RatePerMinute: 100})
+	session2 := registerAndGetSession(t, h2, host2, claim2)
+	rec = httptest.NewRecorder()
+	h2.ServeHTTP(rec, trialUploadRequest(t, host2, "conv_abc", "image/jpeg", jpeg, session2))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "trial_not_configured") {
+		t.Fatalf("unconfigured: status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	// Rate limit: the shared trial limiter applies.
+	h3, api3, host3, claim3 := newTrialTestHandlerAPI(t, TrialConfig{ElevenLabsAPIKey: trialKey, ElevenLabsAgentID: "agent-1", RatePerMinute: 1})
+	api3.elevenLabsConversationsBase = upstream.URL
+	upstreamStatus = http.StatusOK
+	session3 := registerAndGetSession(t, h3, host3, claim3)
+	for i, want := range []int{http.StatusOK, http.StatusTooManyRequests} {
+		rec = httptest.NewRecorder()
+		h3.ServeHTTP(rec, trialUploadRequest(t, host3, "conv_abc", "image/jpeg", jpeg, session3))
+		if rec.Code != want {
+			t.Fatalf("rate limit request %d: status = %d, want %d", i, rec.Code, want)
+		}
+	}
+	if !strings.Contains(rec.Body.String(), "trial_rate_limit") {
+		t.Fatalf("429 body = %q", rec.Body.String())
 	}
 }
 

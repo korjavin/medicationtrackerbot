@@ -343,6 +343,11 @@ async function fileToDataURL(file) {
   });
 }
 
+function hasImagePart(messages) {
+  return Array.isArray(messages) && messages.some((m) => Array.isArray(m && m.content)
+    && m.content.some((p) => p && p.type === 'image_url'));
+}
+
 // trialErrorInfo extracts the trial proxy's machine-readable error code
 // ({"error":"trial_not_configured"} etc.) and the real upstream status it
 // relays ({"upstream_status":401}) from a failed response body. Both fall back
@@ -822,7 +827,13 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
   // mapped like chat()) or when signal aborts the fetch. Trial calls gate on
   // the `voice` consent scope.
   async function chatStream({ body, signal, onChunk }) {
-    const { text } = await credentials();
+    // A turn carrying an image (an in-call photo, bd med-ku8r — ElevenLabs is
+    // expected to hand it over as an OpenAI image_url part, data: or https:)
+    // goes to the vision triple, like parseMealFromImage: the text model may
+    // not read images at all. Text-only turns are unchanged.
+    const image = hasImagePart(body && body.messages);
+    const creds = await credentials();
+    const text = image ? creds.vision : creds.text;
     const useTrial = !text.apiKey;
     // The attest route answers no stream (stream_unsupported): no voice trial in local mode.
     if (useTrial && (trialTransport || !trialAIAvailable())) throw noKeyError();
@@ -834,7 +845,8 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
     } = body || {};
     req.stream = true;
     const headers = { 'Content-Type': 'application/json' };
-    let endpoint = '/api/trial/openai/chat/completions'; // trial: server forces the model
+    // trial: server forces the model
+    let endpoint = `/api/trial/openai/chat/completions${image ? '?vision=1' : ''}`;
     if (!useTrial) {
       req.model = text.model;
       if (Array.isArray(req.tools) && req.tools.length && isLunaModel(text.model)) req.reasoning_effort = 'none';

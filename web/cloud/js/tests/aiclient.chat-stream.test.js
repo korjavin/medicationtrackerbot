@@ -124,6 +124,47 @@ describe('aiClient.chatStream (bd med-h849.2)', () => {
     expect(sent).not.toHaveProperty('reasoning_effort');
   });
 
+  // bd med-ku8r: an in-call photo arrives as an image_url part (data: or
+  // https:) and must reach a vision-capable model untouched.
+  const IMAGE_BODY = {
+    ...ELEVEN_BODY,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'what is this' },
+        { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,/9j/AA==' } },
+      ],
+    }, { role: 'user', content: [{ type: 'image_url', image_url: { url: 'https://files.example/x.jpg' } }] }],
+  };
+
+  it('BYO: an image turn goes to the vision triple with the image parts intact', async () => {
+    const client = createAIClient({ settingsDomain: settingsWith({
+      api_key: 'k', url: 'https://p.example.com/v1', model: 'text-m',
+      vision_api_key: 'vk', vision_url: 'https://v.example.com/v1', vision_model: 'vision-m',
+    }) });
+    global.fetch.mockResolvedValueOnce(streamResponse(SSE));
+    await client.chatStream({ body: IMAGE_BODY, onChunk: () => {} });
+    const [url, init] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://v.example.com/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer vk');
+    const sent = JSON.parse(init.body);
+    expect(sent.model).toBe('vision-m');
+    expect(sent.messages).toEqual(IMAGE_BODY.messages);
+  });
+
+  it('trial: an image turn asks the proxy for the vision model', async () => {
+    const meta = document.createElement('meta');
+    meta.name = 'medtracker-trial-ai';
+    meta.content = '1';
+    document.head.appendChild(meta);
+    const client = createAIClient({ settingsDomain: settingsWith({}, { voice: true }) });
+    global.fetch.mockResolvedValueOnce(streamResponse(SSE));
+    await client.chatStream({ body: IMAGE_BODY, onChunk: () => {} });
+    const [url, init] = global.fetch.mock.calls[0];
+    expect(url).toBe('/api/trial/openai/chat/completions?vision=1');
+    expect(JSON.parse(init.body).messages).toEqual(IMAGE_BODY.messages);
+  });
+
   it('trial: refuses without voice consent, before any fetch', async () => {
     const meta = document.createElement('meta');
     meta.name = 'medtracker-trial-ai';

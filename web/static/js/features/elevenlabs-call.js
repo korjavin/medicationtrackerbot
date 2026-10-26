@@ -159,6 +159,11 @@
         throw new Error(`Failed to get signed URL (${resp.status})`);
     }
 
+    // Which account the current call's conversation lives in: the operator's
+    // trial agent (photo uploads go through the trial route) or the user's
+    // own (browser-direct with the vault key). Set by fetchSignedURL.
+    let callOnTrial = false;
+
     async function fetchSignedURL() {
         // There is no server signed-URL route — mint it browser-direct
         // from the vault's ElevenLabs key (BYO; key never crosses /api). First
@@ -166,7 +171,8 @@
         // reprovisions only on a toolset-version bump) so the user configures
         // only the API key. Provisioning errors surface as the call status.
         const hasKey = await window.CloudElevenLabs.hasKey();
-        if (!hasKey && trialVoiceAvailable()) {
+        callOnTrial = !hasKey && trialVoiceAvailable();
+        if (callOnTrial) {
             await ensureTrialVoiceConsent();
             return fetchTrialSignedURL();
         }
@@ -806,7 +812,83 @@
             : (conv.conversationId || conv.id || null);
     }
 
-    // File upload for the in-call "Send photo" control. POSTs multipart
+    // In-call photos are downscaled + re-encoded before upload (bd med-ku8r):
+    // ElevenLabs may inline the image into the custom-LLM turn as base64, and
+    // that turn crosses the voice LLM relay under its 2 MiB body cap
+    // (voice_llm_relay.go voiceMaxBodyBytes). 768 KiB → ~1 MiB of base64,
+    // leaving room for the transcript and tool specs. Re-encoding also drops
+    // EXIF (location) from camera photos.
+    const PHOTO_MAX_BYTES = 768 * 1024;
+    const PHOTO_STEPS = [[1600, 0.85], [1280, 0.75], [1024, 0.65], [768, 0.6]];
+
+    function photoTooLarge() {
+        const err = new Error(`Photo is too large to send — the limit is ${PHOTO_MAX_BYTES / 1024} KB.`);
+        err.code = 'photo_too_large';
+        return err;
+    }
+
+    async function shrinkPhoto(file) {
+        let bmp = null;
+        if (typeof window.createImageBitmap === 'function') {
+            // Undecodable here (e.g. HEIC on a desktop browser): send as is.
+            try { bmp = await window.createImageBitmap(file); } catch (_) { bmp = null; }
+        }
+        if (bmp) {
+            try {
+                for (const [edge, quality] of PHOTO_STEPS) {
+                    const scale = Math.min(1, edge / Math.max(bmp.width, bmp.height, 1));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(bmp.width * scale));
+                    canvas.height = Math.max(1, Math.round(bmp.height * scale));
+                    const ctx = canvas.getContext && canvas.getContext('2d');
+                    if (!ctx || typeof canvas.toBlob !== 'function') break;
+                    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+                    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+                    if (blob && blob.size <= PHOTO_MAX_BYTES) return blob;
+                }
+            } finally {
+                if (typeof bmp.close === 'function') bmp.close();
+            }
+        }
+        if (file.size <= PHOTO_MAX_BYTES) return file;
+        throw photoTooLarge();
+    }
+
+    // Trial twin of CloudElevenLabs.uploadFile: the operator's server holds
+    // the trial agent's key and forwards the photo (POST
+    // /api/trial/elevenlabs/conversations/{id}/files). Errors map by the
+    // proxy's machine-readable body, like fetchTrialSignedURL.
+    async function uploadTrialFile(conversationId, file) {
+        if (typeof conversationId !== 'string' || /[/?#]/.test(conversationId)) {
+            throw new Error('Invalid conversation id');
+        }
+        const form = new FormData();
+        form.append('file', file, file.name || 'photo.jpg');
+        const resp = await fetch(`/api/trial/elevenlabs/conversations/${encodeURIComponent(conversationId)}/files`, {
+            method: 'POST',
+            body: form,
+        });
+        let data = null;
+        try { data = await resp.json(); } catch (_) { /* non-JSON — reverse-proxy error page */ }
+        if (resp.ok) {
+            if (!data || !data.file_id) throw new Error('Response missing file_id');
+            return data.file_id;
+        }
+        const code = (data && data.error) || '';
+        if (code === 'trial_rate_limit') {
+            throw new Error('Trial limit reached — try again in a minute or add your own ElevenLabs key in Settings → Integrations.');
+        }
+        if (code === 'trial_not_configured') {
+            throw new Error('Set your ElevenLabs API key in Settings → Integrations');
+        }
+        if (code === 'file_too_large') throw photoTooLarge();
+        const err = new Error(`Photo upload failed (HTTP ${resp.status})`);
+        if (code === 'upstream_error' && data.upstream_status) err.status = data.upstream_status;
+        throw err;
+    }
+
+    // File upload for the in-call "Send photo" control: through the trial
+    // route when the call is on the operator's trial agent, else POSTed
     // straight to api.elevenlabs.io with the user's vault key
     // (window.CloudElevenLabs.uploadFile — the BYO seam, key never crosses /api).
     async function uploadFile(conv, file) {
@@ -814,8 +896,25 @@
         if (!conversationId) {
             throw new Error('Conversation id unavailable');
         }
+        if (localTrialVoice()) {
+            throw new Error('Sending photos is not available on the free trial call yet.');
+        }
+        if (callOnTrial) {
+            await ensureTrialVoiceConsent();
+            return uploadTrialFile(conversationId, file);
+        }
         return window.CloudElevenLabs.uploadFile(conversationId, file);
     }
+
+    // The call-bar line for a failed photo: the cause, never a bare
+    // "failed". err.status is ElevenLabs' own HTTP status (BYO direct, or
+    // relayed by the trial route as upstream_status).
+    function photoErrorMessage(err) {
+        if (err && err.status) return `ElevenLabs rejected the photo (HTTP ${err.status})`;
+        if (err && err.name === 'TypeError') return 'Photo upload failed — check your connection.';
+        return (err && err.message) || 'Photo upload failed';
+    }
+    let lastPhotoError = '';
 
     async function sendPhoto(file) {
         if (!activeConversation) {
@@ -841,12 +940,12 @@
         // preserve live mode-change messages like "Listening…" / "Agent
         // speaking…" — wiping those would leave the call card looking dead
         // for the duration of the upload.
-        const startMessage = (activeMessage === 'Photo upload failed' || activeMessage === 'Image required')
+        const startMessage = ((lastPhotoError && activeMessage === lastPhotoError) || activeMessage === 'Image required')
             ? ''
             : activeMessage;
         setState(activeState, startMessage);
         try {
-            const fileId = await uploadFile(conv, file);
+            const fileId = await uploadFile(conv, await shrinkPhoto(file));
             if (conv !== activeConversation) {
                 // Call ended mid-upload — bail without touching UI state.
                 return;
@@ -856,9 +955,11 @@
             }
             conv.sendMultimodalMessage({ fileId });
         } catch (err) {
+            console.warn('[call] photo upload failed:', err);
             if (conv === activeConversation && activeState === 'in_call') {
                 activeUploading = false;
-                setState('in_call', 'Photo upload failed');
+                lastPhotoError = photoErrorMessage(err);
+                setState('in_call', lastPhotoError);
             }
             throw err;
         }
@@ -1043,8 +1144,7 @@
         muteBtn.setAttribute('aria-pressed', 'false');
         add(muteBtn);
 
-        // Photo upload POSTs browser-direct to api.elevenlabs.io with the
-        // vault key (window.CloudElevenLabs.uploadFile).
+        // Photo upload: see uploadFile() (trial route or browser-direct BYO).
         const photoInput = document.createElement('input');
         photoInput.type = 'file';
         photoInput.accept = 'image/*';

@@ -109,10 +109,12 @@ describe('scripts/provision-trial-agent.mjs', () => {
 
   it('caps the shared trial agent per call; BYO configs stay uncapped (bd med-o7zq.22)', () => {
     const byo = buildAgentConfig([], { llmURL: LLM_URL }).conversation_config;
-    expect(byo).not.toHaveProperty('conversation');
+    // file_input (bd med-ku8r) is on for both; only the cap differs.
+    const FILE_INPUT = { enabled: true, max_files_in_memory: 1 };
+    expect(byo.conversation).toEqual({ file_input: FILE_INPUT });
     expect(byo.turn).not.toHaveProperty('silence_end_call_timeout');
     const capped = buildAgentConfig([], { llmURL: LLM_URL, maxDurationSeconds: 300, silenceEndCallSeconds: 30 }).conversation_config;
-    expect(capped.conversation).toEqual({ max_duration_seconds: 300 });
+    expect(capped.conversation).toEqual({ file_input: FILE_INPUT, max_duration_seconds: 300 });
     expect(capped.turn.silence_end_call_timeout).toBe(30);
     const dflt = run([], { TRIAL_VOICE_LLM_URL: LLM_URL });
     expect(dflt.status, dflt.stderr).toBe(0);
