@@ -637,6 +637,20 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     expect(notes.map((n) => n.recordId)).toContain('note-1');
   });
 
+  // bd med-wi09.14: the relay fence reads the pulled cursor and the pending
+  // count together; an unflushed write must show, so the horizon PUT defers.
+  it('recordsPort.horizonBasis reports the cursor and the unflushed writes', async () => {
+    await seedMeta({ localLastSeq: 4, lastSnapshotSeq: 0 });
+    const port = recordsPort(ctx);
+    expect(await port.horizonBasis()).toEqual({ seq: 4, pending: 0 });
+
+    opsStatus = 413;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx);
+
+    expect(await port.horizonBasis()).toEqual({ seq: 4, pending: 1 });
+  });
+
   it('clears the error once the server accepts a batch again', async () => {
     await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
     opsStatus = 413;

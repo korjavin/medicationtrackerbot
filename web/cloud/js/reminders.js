@@ -16,7 +16,7 @@ import {
 } from '../../domain/reminders.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
-import { recordsPort } from './sync.js';
+import { recordsPort, requestFreshDrain, LEDGER_GENERATION } from './sync.js';
 import { pushSchedule, sendTestPush } from './push.js';
 import { KIND_SECTION, reminderDeeplink } from './reminder-deeplink.js';
 
@@ -198,9 +198,21 @@ export function remindersDomain(ctx, { records: recordsOverride } = {}) {
 // Account mode: the lock-screen pref governs web push and the shell rows too
 // (med-5vy0). An account with medications and no stored pref is floored to
 // Detailed first, so an upgrade changes nothing silently.
+//
+// Relay fencing (bd med-wi09.14): the relay PUT is built only from
+// acknowledged state. The pulled cursor is captured BEFORE the async build (a
+// pull during it must not inflate based_on_seq); with writes still pending or
+// no cursor yet the PUT is deferred, and a 409 (a horizon from a newer seq is
+// stored) means the same: pull, rebuild, PUT once (fenced, pending or not). The device's own scheduler
+// (app shells) is per device and unfenced. A records port without
+// horizonBasis (local mode, test fakes) sends the legacy unfenced body.
 export async function recomputeAndPush(ctx, opts = {}) {
   const domain = remindersDomain(ctx, opts);
   if (opts.relay !== false) await floorExistingAccountPref(ctx, opts, domain);
+  const records = opts.records || recordsPort(ctx);
+  const basis = opts.relay !== false && typeof records.horizonBasis === 'function'
+    ? await records.horizonBasis()
+    : null;
   const [entries, pref] = await Promise.all([
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
@@ -213,8 +225,36 @@ export async function recomputeAndPush(ctx, opts = {}) {
   // The relay upload is started first and never waits on the device: a slow
   // or hung bridge call must not delay Telegram or the other devices.
   const local = scheduleLocalNotifications(entries, pref, { generic: pref.lockscreen === 'generic' });
-  await pushSchedule(ctx, entries, pref);
+  // After the one drain, writes that still cannot flush (quota, wedged, 426,
+  // stranded import) no longer block the PUT (Archie 5808): it goes fenced
+  // with the cursor captured above, which never claims more than was pulled,
+  // so a stale stuck device still gets 409 while a single device keeps its
+  // reminders. Its horizon then carries its own unflushed writes.
+  if (basis && (basis.seq === null || (basis.pending > 0 && !opts.afterPull))) {
+    // Awaited: a caller that reports the outcome (Settings' "Reminder delivery
+    // updated.") must see the deferred PUT's success or failure, not resolve
+    // before it ran.
+    await local;
+    await rebuildAfterPull(ctx, opts);
+    return;
+  }
+  const fence = basis ? { based_on_seq: basis.seq, generation: LEDGER_GENERATION } : null;
+  const res = await pushSchedule(ctx, entries, pref, fence);
+  if (res && res.stale) {
+    rebuildAfterPull(ctx, opts)?.catch((e) => console.error('[reminders] rebuild after pull failed', e));
+  }
   await local; // never rejects, bounded by LOCAL_SCHEDULE_TIMEOUT_MS
+}
+
+// One pull (which also flushes the pending queue) and one rebuild. The rebuild
+// PUTs even with writes still pending; a 409 on it, or a cursor still null,
+// stops there: the next write, unlock or drain-triggered recompute builds
+// again, so this never loops.
+function rebuildAfterPull(ctx, opts) {
+  if (opts.afterPull) return undefined;
+  const { askPermission, ...rest } = opts;
+  return requestFreshDrain(ctx)
+    .then(() => recomputeAndPush(ctx, { ...rest, afterPull: true }));
 }
 
 // Never sinks the schedule: a failed floor leaves the read default in place.
