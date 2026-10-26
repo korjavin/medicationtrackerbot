@@ -660,10 +660,59 @@ describe('travel prompt dismissals across devices (bd med-wi09.26)', () => {
         expect(await onB.asks('America/New_York')).toBe(true);
     });
 
-    it('re-saving the same zone keeps the dismissals', async () => {
-        const a = createInMemoryRecordsPort(berlin({ dismissed_tz_suggestion: 'UTC', dismissed_tz_suggestions: ['UTC'] }));
+    // Re-saving the same zone (rejectPlan → setTimezone(old_tz); POST
+    // /api/settings with the same zone short-circuits before setTimezone).
+    it('re-saving the same pinned zone keeps the dismissals', async () => {
+        const a = createInMemoryRecordsPort({
+            ...berlin({ dismissed_tz_suggestion: 'America/New_York', dismissed_tz_suggestions: ['UTC', 'America/New_York'] }),
+            tzplan: [seedPendingPlan({ old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', clientTs: 1 })],
+        });
         const onA = device(a, 'UTC');
-        tick(); await onA.call('/api/settings', 'POST', { timezone: 'Europe/Berlin' });
+        tick(); await onA.call('/api/tz-plan/tzplan-current/reject', 'POST');
+        expect(await onA.asks('UTC')).toBe(false);
+        expect(await onA.asks('America/New_York')).toBe(false);
+    });
+
+    // Argus r1 F4: an unpinned account runs on its floor; rejecting a plan
+    // pins old_tz (= the floor zone), which is no zone change.
+    it('a plan rejected on a floored account keeps the dismissals', async () => {
+        const a = createInMemoryRecordsPort({
+            tzfloor: [{
+                recordId: 'tzfloor', clientTs: 0, deleted: false, timezone: 'Europe/Berlin', at: 1,
+            }],
+            settings: [{
+                recordId: 'settings', clientTs: 1, deleted: false,
+                dismissed_tz_suggestion: 'America/New_York', dismissed_tz_suggestions: ['UTC', 'America/New_York'],
+            }],
+            tzplan: [seedPendingPlan({ old_tz: 'Europe/Berlin', new_tz: 'Asia/Tokyo', clientTs: 1 })],
+        });
+        const onA = device(a, 'UTC');
+        tick(); await onA.call('/api/tz-plan/tzplan-current/reject', 'POST');
+        expect(await stored(a)).toMatchObject({
+            timezone: 'Europe/Berlin',
+            dismissed_tz_suggestion: 'Asia/Tokyo',
+            dismissed_tz_suggestions: ['UTC', 'America/New_York', 'Asia/Tokyo'],
+        });
+        expect(await onA.asks('UTC')).toBe(false);
+        expect(await onA.asks('America/New_York')).toBe(false);
+    });
+
+    // Argus r1 F2: an old bundle's dismissal (string outside the list) kills
+    // the list; the devices re-ask once each and the list converges.
+    it('an old-bundle dismissal over a live list: the list goes dead, then converges', async () => {
+        const a = createInMemoryRecordsPort(berlin({
+            dismissed_tz_suggestion: 'America/New_York', dismissed_tz_suggestions: ['UTC', 'America/New_York'],
+        }));
+        const onA = device(a, 'UTC');
+        const oldDismiss = async (tz) => {
+            tick();
+            await a.put('settings', { ...(await stored(a)), clientTs: clock, dismissed_tz_suggestion: tz });
+        };
+        await oldDismiss('Asia/Tokyo');
+        expect(await onA.asks('UTC')).toBe(true);
+        tick(); await onA.dismiss('UTC');
+        expect((await stored(a)).dismissed_tz_suggestions).toEqual(['Asia/Tokyo', 'UTC']);
+        await oldDismiss('Asia/Tokyo');
         expect(await onA.asks('UTC')).toBe(false);
     });
 
@@ -691,6 +740,10 @@ describe('travel prompt dismissals across devices (bd med-wi09.26)', () => {
         expect(await onA.asks('UTC')).toBe(true);
         expect(await onA.asks('America/New_York')).toBe(true);
         expect((await onA.call('/api/settings')).timezone).toBe('Asia/Tokyo');
+        // The next new dismissal folds only the live list (Argus r1 F1).
+        tick(); await onA.dismiss('UTC');
+        expect(await onA.asks('America/New_York')).toBe(true);
+        expect((await stored(a)).dismissed_tz_suggestions).toEqual(['UTC']);
     });
 
     it('the list is deduped and keeps the newest ten', async () => {

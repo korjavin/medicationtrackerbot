@@ -329,16 +329,19 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // setTimezone merges onto the existing singleton record (rather than
   // replacing it) so it never clobbers the dismissals — mirrors repo.go's
   // Record(), which only clears them on an actual TZ change, never on every
-  // write. Both the string and the list clear (bd med-wi09.26).
+  // write. Both the string and the list clear (bd med-wi09.26). "Change" is
+  // against the effective zone (pin, else floor): pinning the zone an unpinned
+  // account already runs on (rejectPlan → setTimezone(old_tz)) changes nothing.
   async function setTimezone(tz) {
     if (tz) {
+      const { timezone: effective } = await getGeneral();
       await mergeGeneral((existing) => {
-        const same = existing && existing.timezone === tz;
+        const same = ((existing && existing.timezone) || effective) === tz;
         return {
           ...existing,
           timezone: tz,
-          dismissed_tz_suggestion: same ? existing.dismissed_tz_suggestion || '' : '',
-          dismissed_tz_suggestions: same ? normalizeDismissedTzList(existing.dismissed_tz_suggestions) : [],
+          dismissed_tz_suggestion: same ? (existing && existing.dismissed_tz_suggestion) || '' : '',
+          dismissed_tz_suggestions: same ? normalizeDismissedTzList(existing && existing.dismissed_tz_suggestions) : [],
         };
       });
     }
