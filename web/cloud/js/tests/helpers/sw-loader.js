@@ -12,8 +12,11 @@ const SW_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.
 // Matches self.location.origin inside the evaluated SW.
 export const SW_ORIGIN = 'https://acct.medtracker.example';
 
-export function loadCloudSw({ fetch: fetchImpl, caches, indexedDB, pushManager } = {}) {
-    const swSrc = fs.readFileSync(SW_PATH, 'utf-8');
+// `swVersion` emulates deploy.yml's stamp (e.g. 'v20261026-0543'); omitted, the
+// SW runs unstamped like a dev tree.
+export function loadCloudSw({ fetch: fetchImpl, caches, indexedDB, pushManager, swVersion } = {}) {
+    let swSrc = fs.readFileSync(SW_PATH, 'utf-8');
+    if (swVersion) swSrc = swSrc.replaceAll('CACHE_VERSION_PLACEHOLDER', swVersion);
     const listeners = new Map();
     const self = {
         addEventListener: vi.fn((type, fn) => {

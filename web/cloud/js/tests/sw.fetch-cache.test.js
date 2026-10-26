@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SW_ORIGIN as ORIGIN, loadCloudSw } from './helpers/sw-loader.js';
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
@@ -583,6 +583,89 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
 
         handler({ data: { type: 'SKIP_WAITING' } });
         expect(self.skipWaiting).toHaveBeenCalled();
+    });
+
+    // med-gacq — the white screen after a deploy. The old worker stored the NEW
+    // build's '/' in its own cache; the next open served it and every ?v=<new>
+    // render-blocking asset missed and hung on the network.
+    describe('stamped build (med-gacq)', () => {
+        const BUILD = '20261026-0543';
+        const STAMPED_CACHE = 'medtracker-cloud-shell-v' + BUILD;
+        const htmlResponse = (v) => ({
+            ok: true,
+            status: 200,
+            clone() { return this; },
+            text: async () => `<link rel="stylesheet" href="/static/css/styles.css?v=${v}">`,
+        });
+
+        beforeEach(() => {
+            ({ self, listeners } = loadCloudSw({ fetch: fetchMock, caches, swVersion: 'v' + BUILD }));
+        });
+
+        it('revalidateShell leaves the cached / untouched when the served document is another build', async () => {
+            const cachedShell = { ok: true, body: 'this build' };
+            caches.seed(STAMPED_CACHE, '/', cachedShell);
+            fetchMock.mockResolvedValue(htmlResponse('20261026-0600'));
+
+            const { response } = await fireFetch(listeners, navigate('/'));
+            expect(response).toBe(cachedShell);
+            expect(fetchMock).toHaveBeenCalledWith('/');
+            expect(caches.store.get(STAMPED_CACHE).get('/')).toBe(cachedShell);
+        });
+
+        it('revalidateShell replaces the cached / with a same-build document (per-account CSP refresh)', async () => {
+            caches.seed(STAMPED_CACHE, '/', { ok: true, body: 'old csp' });
+            const fresh = htmlResponse(BUILD);
+            fetchMock.mockResolvedValue(fresh);
+
+            await fireFetch(listeners, navigate('/'));
+            expect(caches.store.get(STAMPED_CACHE).get('/')).toBe(fresh);
+        });
+    });
+
+    describe('bounded network wait on a cache miss (med-gacq)', () => {
+        beforeEach(() => { vi.useFakeTimers(); });
+        afterEach(() => { vi.useRealTimers(); });
+
+        it('a navigation miss whose fetch never settles still gets a response within the bound', async () => {
+            fetchMock.mockReturnValue(new Promise(() => {}));
+            const { promise } = fireFetchRaw(listeners, navigate('/'));
+            const settled = expect(promise).rejects.toThrow('network timeout');
+            await vi.advanceTimersByTimeAsync(5000);
+            await settled;
+        });
+
+        it('a navigation miss that times out falls back to a cached / shell when one appears', async () => {
+            // A deep link with no exact copy: cachedNavigationDoc misses only if
+            // '/' is absent at lookup; offlineFallback re-checks after the timeout.
+            const shell = { ok: true, body: 'shell html' };
+            fetchMock.mockReturnValue(new Promise(() => {}));
+            const { promise } = fireFetchRaw(listeners, navigate('/some/route'));
+            await vi.advanceTimersByTimeAsync(0);
+            caches.seed(SHELL_CACHE, '/', shell);
+            await vi.advanceTimersByTimeAsync(5000);
+            await expect(promise).resolves.toBe(shell);
+        });
+
+        it('a render-blocking CSS miss whose fetch never settles errors within the bound', async () => {
+            fetchMock.mockReturnValue(new Promise(() => {}));
+            const css = { ...req('/static/css/styles.css?v=2'), destination: 'style' };
+            const { promise } = fireFetchRaw(listeners, css);
+            const settled = expect(promise).rejects.toThrow('network timeout');
+            await vi.advanceTimersByTimeAsync(5000);
+            await settled;
+        });
+
+        it('a slow but live response within the bound is served and cached', async () => {
+            const fresh = networkResponse();
+            fetchMock.mockReturnValue(new Promise((r) => setTimeout(() => r(fresh), 4000)));
+            const css = { ...req('/static/css/styles.css?v=3'), destination: 'style' };
+            const { evt, promise } = fireFetchRaw(listeners, css);
+            await vi.advanceTimersByTimeAsync(4000);
+            await expect(promise).resolves.toBe(fresh);
+            await Promise.all(evt.waitUntil.mock.calls.map((c) => c[0]));
+            expect(caches.store.get(SHELL_CACHE).get('/static/css/styles.css?v=3')).toBe(fresh.__clone);
+        });
     });
 
     it('activate prunes old prefixed caches, keeps the current shell cache and unrelated caches', async () => {
