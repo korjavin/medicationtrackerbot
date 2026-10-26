@@ -445,6 +445,15 @@ func TestPutSchedule_Fencing(t *testing.T) {
 		return strings.Join(cts, ",")
 	}
 
+	// The account's oplog is at seq 12: the stored fence is capped there.
+	ops := make([]cloudstore.OpInput, 12)
+	for i := range ops {
+		ops[i] = cloudstore.OpInput{RecordTypeTag: "note:n", Nonce: []byte("n"), CT: []byte("c")}
+	}
+	if _, err := store.AppendOps(t.Context(), account.ID, ops, 0, true, time.Now().UTC()); err != nil {
+		t.Fatalf("AppendOps: %v", err)
+	}
+
 	steps := []struct {
 		name     string
 		ct       string
@@ -465,6 +474,12 @@ func TestPutSchedule_Fencing(t *testing.T) {
 		{"seq without generation", "half", n(20), nil, http.StatusBadRequest, "g2"},
 		{"generation without seq", "half", nil, n(2), http.StatusBadRequest, "g2"},
 		{"generation 0", "zero", n(20), n(0), http.StatusBadRequest, "g2"},
+		// Breakage F3: a cursor ahead of the server (DB restored from a backup)
+		// is accepted but stored capped at last_seq 12, so a device freshly
+		// pulled to 12 ties instead of being fenced out.
+		{"ahead cursor accepted", "ahead", n(50), n(2), http.StatusNoContent, "ahead"},
+		{"fresh device at last_seq ties the capped fence", "fresh", n(12), n(2), http.StatusNoContent, "fresh"},
+		{"below last_seq is still stale", "older", n(11), n(2), http.StatusConflict, "fresh"},
 	}
 	for _, s := range steps {
 		if code := put(s.ct, s.seq, s.gen); code != s.code {

@@ -224,22 +224,35 @@ describe('relay fencing: the schedule PUT is built from acknowledged state', () 
     requestFreshDrain.mockImplementation(async () => { basis = { seq: 8, pending: 0 }; });
 
     await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
-    expect(puts).toEqual([]);
 
-    await vi.waitFor(() => expect(puts).toHaveLength(1));
+    // One PUT, after the pull: the cursor it carries is the post-drain one.
     expect(puts.map(fence)).toEqual([{ based_on_seq: 8, generation: 2 }]);
     expect(requestFreshDrain).toHaveBeenCalledTimes(1);
   });
 
-  it('a pull that cannot flush (offline) leaves the PUT deferred, without looping', async () => {
+  // Archie 5808 (breakage F1): a queue that cannot drain (quota, wedged, 426)
+  // must not stop the relay horizon — the post-drain pass PUTs fenced with the
+  // cursor it captured, never more than it pulled.
+  it('a drain that leaves writes pending still PUTs once, fenced at the captured cursor', async () => {
     basis = { seq: 7, pending: 2 };
     globalThis.fetch = okFetch();
 
     await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
-    await vi.waitFor(() => expect(requestFreshDrain).toHaveBeenCalledTimes(1));
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(puts).toEqual([]);
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 7, generation: 2 }]);
+    expect(requestFreshDrain).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stuck device whose cursor is stale gets 409 on that pass, and no second PUT', async () => {
+    basis = { seq: 7, pending: 2 };
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return { ok: false, status: 409 }; });
+
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+    await vi.waitFor(() => expect(puts).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 7, generation: 2 }]);
     expect(requestFreshDrain).toHaveBeenCalledTimes(1);
   });
 
@@ -267,6 +280,40 @@ describe('relay fencing: the schedule PUT is built from acknowledged state', () 
 
     expect(puts).toHaveLength(2);
     expect(requestFreshDrain).toHaveBeenCalledTimes(1);
+  });
+
+  // Argus 5809 #3: a pull landing during the async build must not inflate
+  // based_on_seq — the basis is read before the build.
+  it('based_on_seq is the cursor read before the build, not one a mid-build pull moved', async () => {
+    basis = { seq: 7, pending: 0 };
+    globalThis.fetch = okFetch();
+    const port = records();
+    // listRaw is read only by the build itself (the pref floor before the
+    // basis read uses list).
+    const listRaw = port.listRaw;
+    port.listRaw = async (type) => { basis = { seq: 30, pending: 0 }; return listRaw(type); };
+
+    await recomputeAndPush(ctx, { records: port, timeZone: 'UTC' });
+
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 7, generation: 2 }]);
+  });
+
+  // Argus 5809 #2: Settings awaits recomputeAndPush to say "Reminder delivery
+  // updated." — a deferred PUT that then fails must reject that promise, not
+  // resolve before the PUT ran.
+  it('a deferred PUT that fails rejects recomputeAndPush; one that lands resolves after it', async () => {
+    basis = { seq: 7, pending: 1 };
+    requestFreshDrain.mockImplementation(async () => { basis = { seq: 8, pending: 0 }; });
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return { ok: false, status: 500 }; });
+
+    await expect(recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' })).rejects.toThrow('Could not schedule the reminder.');
+    expect(puts).toHaveLength(1);
+
+    basis = { seq: 8, pending: 1 };
+    puts = [];
+    globalThis.fetch = okFetch();
+    await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
+    expect(puts.map(fence)).toEqual([{ based_on_seq: 8, generation: 2 }]);
   });
 
   it('a records port without horizonBasis sends the legacy unfenced body', async () => {

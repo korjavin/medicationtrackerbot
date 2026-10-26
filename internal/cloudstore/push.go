@@ -217,14 +217,20 @@ func (r *Repo) ReplaceScheduleFenced(ctx context.Context, accountID string, entr
 				return err
 			}
 		} else {
+			// The stored seq is capped at the account's last_seq (a new row has
+			// last_seq 0, so it stores 0): after a DB restore a device whose
+			// cursor is ahead of the server cannot pin the fence above what any
+			// freshly pulled device can reach. The body's raw seq is compared
+			// against that capped value, so the ahead device is accepted and a
+			// fresh one ties (breakage F3, Archie 5808).
 			res, err := tx.ExecContext(ctx,
-				`INSERT INTO sync_state (account_id, last_seq, last_schedule_unix, last_schedule_empty, schedule_seq, schedule_generation) VALUES (?, 0, ?, ?, ?, ?)
+				`INSERT INTO sync_state (account_id, last_seq, last_schedule_unix, last_schedule_empty, schedule_seq, schedule_generation) VALUES (?, 0, ?, ?, 0, ?)
 				 ON CONFLICT(account_id) DO UPDATE SET last_schedule_unix = excluded.last_schedule_unix,
 				 last_schedule_empty = excluded.last_schedule_empty,
-				 schedule_seq = excluded.schedule_seq, schedule_generation = excluded.schedule_generation
+				 schedule_seq = MIN(?, sync_state.last_seq), schedule_generation = excluded.schedule_generation
 				 WHERE excluded.schedule_generation != sync_state.schedule_generation
-				    OR excluded.schedule_seq >= sync_state.schedule_seq`,
-				accountID, storedb.TimeToUnix(now), empty, fence.BasedOnSeq, fence.Generation)
+				    OR ? >= sync_state.schedule_seq`,
+				accountID, storedb.TimeToUnix(now), empty, fence.Generation, fence.BasedOnSeq, fence.BasedOnSeq)
 			if err != nil {
 				return err
 			}
