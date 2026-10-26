@@ -11,8 +11,9 @@
 // loadTimeline, renderInventory, loadInventory,
 // switchTab, window.DataStore, window.PushModalState, window.ModalManager,
 // window.MedTrackerDB, and meds.js's timeline flip (_applyOptimisticTimeline /
-// _tlPatchRows; its pending-set flip is what Today's Next up reads too). The
-// optimistic helpers (_commitOptimistic / _rollbackOptimistic) are also reached by
+// _tlPatchRows / _tlDoseName; its pending-set flip is what Today's Next up reads
+// too). The optimistic helpers (_commitOptimistic / _rollbackOptimistic,
+// _optimisticNextIntake / _settleDoseWrite / _actOnDoses) are also reached by
 // features/meds.js via bare name, so they stay function-scoped globals here
 // rather than being privatised.
 //
@@ -488,6 +489,41 @@ async function _rollbackOptimistic(handles) {
     for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
 }
 
+// next_intake's optimistic clear for a dose write over `doses`
+// ({occId, medId, plannedAt}), one handle per planned instant. Resolves its
+// settle(failed): nothing refused → commit; else the clear is redone for the
+// doses that landed only, so a refused dose stays on Today's card.
+async function _optimisticNextIntake(doses) {
+    const bySlot = new Map();
+    doses.forEach((d) => {
+        if (!bySlot.has(d.plannedAt)) bySlot.set(d.plannedAt, []);
+        bySlot.get(d.plannedAt).push(d);
+    });
+    const entries = [];
+    for (const [at, slotDoses] of bySlot) {
+        entries.push({ at, slotDoses, handle: await _applyOptimisticNextIntakeClear(at, slotDoses.map((d) => d.medId)) });
+    }
+    return async (failed) => {
+        for (const { at, slotDoses, handle } of entries) {
+            if (!failed.size) { await _commitOptimistic([handle]); continue; }
+            await _rollbackOptimistic([handle]);
+            // An empty id list would clear the whole card.
+            const landed = slotDoses.filter((d) => !failed.has(String(d.occId))).map((d) => d.medId);
+            if (landed.length) await _commitOptimistic([await _applyOptimisticNextIntakeClear(at, landed)]);
+        }
+    };
+}
+
+// Settles a dose write on the act's refused occIds (bd med-2l38): none →
+// commit; some → only those rows go back (a restore flip over the timeline
+// keys, then commit), so the doses that landed never flash back to due.
+// `mutate` is the write's _tlPatchRows; `next` an _optimisticNextIntake settle.
+async function _settleDoseWrite(handles, mutate, failed, next) {
+    if (failed.size) handles.push(await _applyOptimisticTimeline(mutate.restore(failed)));
+    await _commitOptimistic(handles);
+    if (next) await next(failed);
+}
+
 // The sheet's explicit occIds (bd med-wi09.2), index-aligned with its meds:
 // the row's own id when the opener had one, else the slot's deterministic id
 // `intake-<medId>-<slotUnix>` (the record-id convention the projection's
@@ -504,19 +540,22 @@ function _medConfirmOccIds(indices) {
     return indices.map(_medConfirmOccId).filter((id) => id != null);
 }
 
-// POST /api/doses/act — {updated, unchanged, failed, failures}. Returns true
-// when every id applied; false otherwise (a falsy res means apiCall already
-// surfaced the error; per-id failures are toasted here).
+// POST /api/doses/act — {updated, unchanged, failed, failures}. Resolves the
+// Set of refused occIds (String), empty when every id applied; a falsy res
+// (apiCall already surfaced the error) refuses them all. Per-id failures are
+// toasted here, by medication name.
 async function _actOnDoses(action, occIds, takenAt, extra = {}) {
     const body = { ...extra, action, occ_ids: occIds };
     if (takenAt) body.taken_at = takenAt;
     const res = await apiCall('/api/doses/act', 'POST', body);
-    if (!res || typeof res !== 'object') return false;
+    const all = new Set(occIds.map(String));
+    if (!res || typeof res !== 'object') return all;
     if (Number(res.failed) > 0) {
         safeToast(_describeIntakeUpdateFailures(res.failures), 'error');
-        return false;
+        const refused = (Array.isArray(res.failures) ? res.failures : []).map((f) => String(f && f.id)).filter((id) => all.has(id));
+        return refused.length ? new Set(refused) : all;
     }
-    return true;
+    return new Set();
 }
 
 async function confirmSelectedMedications() {
@@ -543,29 +582,36 @@ async function confirmSelectedMedications() {
         // and the pending set, clear `next_intake`, so the timeline, the Meds
         // badge + Today repaint before the POST resolves.
         const takenAt = pickedIso || new Date().toISOString();
-        const handles = [await _applyOptimisticTimeline(_tlPatchRows(
-            new Map(occIds.map((id) => [String(id), { state: 'taken', takenAt }]))))];
-        handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedIds));
+        const mutate = _tlPatchRows(new Map(occIds.map((id) => [String(id), { state: 'taken', takenAt }])));
+        const handles = [await _applyOptimisticTimeline(mutate)];
+        const next = await _optimisticNextIntake(_medConfirmDoses(selectedIndices, scheduled));
 
-        let ok;
+        let failed;
         try {
-            ok = await _actOnDoses('take', occIds, pickedIso);
+            failed = await _actOnDoses('take', occIds, pickedIso);
         } catch (e) {
             await _rollbackOptimistic(handles);
+            await next(new Set(occIds.map(String)));
             throw e;
         }
 
-        if (ok) {
-            await _commitOptimistic(handles);
-            safeToast("Confirmed!", 'info');
+        // Only the refused doses go back (bd med-2l38); the rest stay taken.
+        await _settleDoseWrite(handles, mutate, failed, next);
+        if (failed.size < occIds.length) {
+            if (!failed.size) safeToast("Confirmed!", 'info');
             if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
-            refreshMedsAfterMutation();
-        } else {
-            await _rollbackOptimistic(handles);
         }
-
+        refreshMedsAfterMutation();
         closeMedicationConfirmModal();
     });
+}
+
+// The sheet's selected doses as {occId, medId, plannedAt} for
+// _optimisticNextIntake (the sheet's own scheduled instant).
+function _medConfirmDoses(indices, scheduled) {
+    const ids = window.PushModalState.getMedConfirmIds();
+    return indices.map((idx) => ({ occId: String(_medConfirmOccId(idx)), medId: ids[idx], plannedAt: scheduled }))
+        .filter((d) => d.occId !== 'null' && d.medId != null);
 }
 
 async function skipSelectedMedications() {
@@ -579,34 +625,34 @@ async function skipSelectedMedications() {
 
     const btn = document.getElementById('med-confirm-skip-btn');
     await withSubmit(btn, async () => {
-        const ids = window.PushModalState.getMedConfirmIds();
         const scheduled = window.PushModalState.getMedConfirmScheduled();
-        const selectedMedIds = selectedIndices
-            .map(idx => Number(ids[idx]))
-            .filter(id => Number.isFinite(id));
         // Explicit occIds (bd med-wi09.2) — no nearest-PENDING lookup.
         const occIds = _medConfirmOccIds(selectedIndices);
+        if (occIds.length === 0) {
+            refreshMedsAfterMutation();
+            closeMedicationConfirmModal();
+            return;
+        }
 
-        const handles = [await _applyOptimisticTimeline(_tlPatchRows(
-            new Map(occIds.map((id) => [String(id), { state: 'skipped', takenAt: null }]))))];
-        handles.push(await _applyOptimisticNextIntakeClear(scheduled, selectedMedIds));
+        const mutate = _tlPatchRows(new Map(occIds.map((id) => [String(id), { state: 'skipped', takenAt: null }])));
+        const handles = [await _applyOptimisticTimeline(mutate)];
+        const next = await _optimisticNextIntake(_medConfirmDoses(selectedIndices, scheduled));
 
-        let ok;
+        let failed;
         try {
-            ok = occIds.length > 0 && await _actOnDoses('skip', occIds);
+            failed = await _actOnDoses('skip', occIds);
         } catch (e) {
             await _rollbackOptimistic(handles);
+            await next(new Set(occIds.map(String)));
             throw e;
         }
 
-        if (ok) {
-            await _commitOptimistic(handles);
+        await _settleDoseWrite(handles, mutate, failed, next);
+        if (failed.size < occIds.length) {
             // SKIPPED is a scored adherence outcome (floor + denominator change),
             // so evict the gamification rings/journey like the confirm/log-past paths.
             if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
-            safeToast("Skipped!", 'info');
-        } else {
-            await _rollbackOptimistic(handles);
+            if (!failed.size) safeToast("Skipped!", 'info');
         }
 
         refreshMedsAfterMutation();
@@ -630,6 +676,8 @@ function _describeIntakeUpdateFailures(failures) {
         if (id != null) {
             const idx = names.findIndex((_, i) => String(_medConfirmOccId(i)) === id);
             if (idx !== -1 && names[idx]) label = names[idx];
+            // A timeline row's own Take has no sheet: its name is on the row.
+            if (!label && typeof _tlDoseName === 'function') label = _tlDoseName(id);
         }
         labels.push(label || ('intake ' + (id != null ? id : '?')));
     }
@@ -689,7 +737,7 @@ async function updateIntakeHistory() {
         try {
             for (const action of ['undo', 'take', 'skip', 'edit_time']) {
                 const at = action === 'take' || action === 'edit_time' ? takenAt : undefined;
-                if (ok && plan[action].length) ok = await _actOnDoses(action, plan[action], at);
+                if (ok && plan[action].length) ok = (await _actOnDoses(action, plan[action], at)).size === 0;
             }
         } catch (e) {
             await _rollbackOptimistic(handles);
@@ -793,23 +841,19 @@ async function snoozeMedicationConfirm() {
     const btn = document.getElementById('med-confirm-snooze-btn');
     await withSubmit(btn, async () => {
         const snoozedUntil = new Date(Date.now() + MED_SNOOZE_MINUTES * 60 * 1000).toISOString();
-        const handles = [await _applyOptimisticTimeline(_tlPatchRows(
-            new Map(occIds.map((id) => [String(id), { state: 'snoozed', snoozedUntil }]))))];
+        const mutate = _tlPatchRows(new Map(occIds.map((id) => [String(id), { state: 'snoozed', snoozedUntil }])));
+        const handles = [await _applyOptimisticTimeline(mutate)];
 
-        let ok;
+        let failed;
         try {
-            ok = await _actOnDoses('snooze', occIds, undefined, { minutes: MED_SNOOZE_MINUTES });
+            failed = await _actOnDoses('snooze', occIds, undefined, { minutes: MED_SNOOZE_MINUTES });
         } catch (e) {
             await _rollbackOptimistic(handles);
             throw e;
         }
 
-        if (ok) {
-            await _commitOptimistic(handles);
-            safeToast(`Snoozed for ${MED_SNOOZE_MINUTES} minutes`, 'info');
-        } else {
-            await _rollbackOptimistic(handles);
-        }
+        await _settleDoseWrite(handles, mutate, failed);
+        if (!failed.size) safeToast(`Snoozed for ${MED_SNOOZE_MINUTES} minutes`, 'info');
 
         refreshMedsAfterMutation();
         closeMedicationConfirmModal();

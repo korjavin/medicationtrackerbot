@@ -316,7 +316,7 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
       // the app navigates straight to itself from some states (after
       // meds-timeline-pending, earlier after journey); the hop never crashes.
       await page.goto('about:blank');
-      await page.goto(`${appBase}/?qa=${encodeURIComponent(scene.name)}`);
+      await page.goto(`${appBase}/?qa=${encodeURIComponent(scene.name)}${scene.clock ? `&clock=${encodeURIComponent(scene.clock)}` : ''}`);
       const ready = page.locator('#wg-qa-ready');
       await ready.waitFor({ state: 'attached', timeout: 90000 }); // survives the seed's reload
       if (scene.native && scene.native.length) await nativeSteps(page, scene.native);

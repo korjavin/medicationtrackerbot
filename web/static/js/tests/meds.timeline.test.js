@@ -12,6 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { installApiCache } from './helpers/cloud-shim-harness.js';
 
 // Fri 23.10.2026 12:49 UTC = 14:49 in Berlin (CEST), 08:49 in New York (EDT).
 const NOW = Date.UTC(2026, 9, 23, 12, 49);
@@ -122,8 +123,9 @@ function serveRange(window, rows) {
 
 // A stateful GET /api/doses + POST /api/doses/act over `rows`, as
 // web/domain/medintake.js answers: a dose already in the target state is
-// `unchanged`. `hold` keeps the next POST in flight until released.
-function serveDoses(window, rows, { fail = false } = {}) {
+// `unchanged`. `hold` keeps the next POST in flight until released; `refuse`
+// lists occIds the domain answers not_found for.
+function serveDoses(window, rows, { fail = false, refuse = [] } = {}) {
     const posts = [];
     let hold = null;
     window.apiCall = vi.fn(async (path, method, body) => {
@@ -144,6 +146,7 @@ function serveDoses(window, rows, { fail = false } = {}) {
             const target = { take: 'taken', skip: 'skipped', undo: 'due' }[body.action];
             body.occ_ids.forEach((id) => {
                 const r = rows.find((x) => x.occId === id);
+                if (refuse.includes(id)) { res.failed++; res.failures.push({ id, reason: 'not_found' }); return; }
                 if (r.state === target) { res.unchanged++; return; }
                 r.state = target;
                 if (target === 'taken') r.takenAt = body.taken_at || new Date(NOW).toISOString();
@@ -257,7 +260,19 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(Array.from(now.querySelectorAll('.wg-row__trail button')).map((b) => `${text(b)}${b.classList.contains('wg-btn--primary') ? '*' : ''}`)).toEqual(['Skip', 'Take*']);
         expect(text(next.querySelector('.wg-row__title'))).toBe('21:30');
         expect(text(next.querySelector('.wg-row__meta').firstChild)).toBe('Lercanidipin 10 mg · Metformin 1000 mg');
-        expect(text(next.querySelector('.wg-chip--pending'))).toBe('in 6h 41m');
+        // 6h41m ahead is outside the one-tap window (bd med-wt2q): no button,
+        // whole hours, and the row itself is the way to the sheet.
+        expect(text(next.querySelector('.wg-chip--pending'))).toBe('in 6 h');
+        expect(next.querySelector('.wg-row__trail')).toBeNull();
+        expect(next.getAttribute('role')).toBe('button');
+    });
+
+    it('TL4 · "Next today" keeps its raised one-tap Take from 60 min before the slot', async () => {
+        const { document } = env;
+        env.window.Date.now = () => Date.parse('2026-10-23T18:30:00.000Z'); // 20:30 Berlin, 60 min ahead
+        await load(normalDay());
+        const next = card(document).querySelectorAll('.wg-timeline__row')[1];
+        expect(text(next.querySelector('.wg-chip--pending'))).toBe('in 1h');
         const take = next.querySelector('.wg-row__trail button');
         expect(text(take)).toBe('Take 2');
         expect(take.classList.contains('wg-btn--primary') || take.classList.contains('wg-btn--ghost')).toBe(false);
@@ -734,7 +749,12 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             expect(card(env.document).querySelector('.wg-timeline__row').dataset.state).toBe('snoozed');
         });
 
-        it('Take on "Next today" takes that dose early through the same act route', async () => {
+        it('Take on "Next today" inside the window takes that dose through the same act route, and clears it from Today\'s next-intake card', async () => {
+            env.window.Date.now = () => Date.parse('2026-10-23T18:45:00.000Z'); // 45 min before 21:30 Berlin
+            installApiCache(env.window);
+            await env.window.DataStore.setCachedWithTags('next_intake', {
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [2, 3], medication_names: ['Lercanidipin', 'Metformin'],
+            }, ['medications', 'history']);
             const fixture = normalDay();
             const server = await serve(fixture);
             const next = card(env.document).querySelectorAll('.wg-timeline__row')[1];
@@ -742,6 +762,30 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             button(next, 'Take 2').click();
             await vi.waitFor(() => expect(server.posts).toHaveLength(1));
             expect(server.posts[0]).toEqual({ action: 'take', occ_ids: occIds });
+            await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake'))
+                .toEqual({ scheduled_at: null, medication_ids: [], medication_names: [] }));
+        });
+
+        // bd med-wt2q: at 01:40 a one-tap Take on "Next today" took the 08:20
+        // doses 6h40m early. Outside the window the row opens the take sheet.
+        it('"Next today" outside the window: a row tap opens the take sheet with "Due at 21:30. Mark taken now?", nothing posted until Take', async () => {
+            const fixture = normalDay();
+            const server = await serve(fixture);
+            const next = card(env.document).querySelectorAll('.wg-timeline__row')[1];
+            const occIds = next.dataset.occIds.split(' ');
+            expect(next.querySelector('button')).toBeNull();
+            next.click();
+            expect(modalOpen()).toBe(true);
+            expect(server.posts).toEqual([]);
+            expect(text(env.document.querySelector('#med-confirm-hint [data-early-take]'))).toBe('Due at 21:30. Mark taken now?');
+            expect(env.document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(true);
+            expect(env.document.getElementById('med-confirm-skip-btn').classList.contains('hidden')).toBe(true);
+            expect(text(env.document.getElementById('med-confirm-action-btn'))).toBe('Take 2');
+            await env.window.confirmSelectedMedications();
+            expect(server.posts).toEqual([{ action: 'take', occ_ids: occIds }]);
+            // The note belongs to that sheet only.
+            yesterday().querySelector('.wg-timeline__row[data-state="due"]').click();
+            expect(env.document.querySelector('#med-confirm-hint [data-early-take]')).toBeNull();
         });
 
         it('row Skip on a History day\'s pending dose skips that dose, and a failed write rolls the row back', async () => {
@@ -755,7 +799,29 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             await settle();
             await settle();
             expect(env.document.querySelector(`.wg-timeline__row[data-occ-ids~="${occId}"]`).dataset.state).toBe('due');
-            expect(env.window.safeAlert).toHaveBeenCalledWith("Couldn't update some doses. Please try again.");
+            expect(env.window.safeAlert).toHaveBeenCalledWith("Couldn't update: Allopurinol. Please try again.");
+        });
+
+        // bd med-2l38: one refused id used to roll the whole batch back, so the
+        // doses that landed showed due again until the next read.
+        it('a partly refused batch keeps the doses that landed and returns only the refused one, named', async () => {
+            const fixture = pileUp();
+            const refused = fixture[1].occId; // Lercanidipin 08:20
+            installApiCache(env.window);
+            const server = await serve(fixture, { refuse: [refused] });
+            env.window.safeAlert = vi.fn();
+            // The re-read after the write does not answer: what shows is the
+            // write's own settle, not a refetch.
+            const answer = env.window.apiCall;
+            env.window.apiCall = vi.fn(async (p, m, b) => (m === 'POST' ? answer(p, m, b) : null));
+            button(yesterday(), 'Mark all taken').click();
+            await vi.waitFor(() => expect(server.posts).toHaveLength(2));
+            await vi.waitFor(() => expect(env.window.safeAlert).toHaveBeenCalledWith("Couldn't update: Lercanidipin. Please try again."));
+            await settle();
+            const state = (id) => env.document.querySelector(`.wg-timeline__row[data-occ-ids~="${id}"]`).dataset.state;
+            expect(state(refused)).toBe('due');
+            fixture.slice(0, 6).filter((r) => r.occId !== refused).forEach((r) => expect(state(r.occId)).toBe('taken'));
+            expect((await env.window.readCachedPendingDoses()).filter((r) => r.state === 'due').map((r) => r.occId)).toEqual([refused]);
         });
 
         it('tapping a pending row opens the take sheet (M2) on its own occIds; Take at a picked time posts that time', async () => {

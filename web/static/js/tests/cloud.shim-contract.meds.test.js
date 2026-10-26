@@ -1763,3 +1763,101 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
         expect(await call.floorTimeZone()).toBe(false); // once
     });
 });
+
+// bd med-2l38 — five doses of one 08:20 Tbilisi slot stored UNTAKEN rev 2 (taken
+// and undone the night before, the raw rows of the report). Focus Take, then
+// Today's take sheet for the rest: every write lands, and the Timeline and
+// Today's pending set agree after each, with no reload.
+describe('acting on undone doses from Focus and Today (bd med-2l38)', () => {
+    const TZ = 'Asia/Tbilisi';
+    const SLOT = 1792988400; // 2026-10-26 08:20 Tbilisi
+    const NOW = Date.parse('2026-10-26T09:45:00.000Z');
+    const MED_IDS = [2, 4, 7, 9, 16];
+    const occ = (id) => `intake-${id}-${SLOT}`;
+    const seed = () => ({
+        medication: MED_IDS.map((id) => ({
+            recordId: id, clientTs: 1, deleted: false, name: `Med ${id}`, dosage: '10mg',
+            schedule: JSON.stringify({ type: 'daily', times: ['08:20'] }), archived: false,
+            start_date: null, end_date: null, inventory_count: null, tz_shift_policy: 'flexible',
+            created_at: '2026-09-01T00:00:00.000Z',
+        })),
+        ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-10-26T01:00:00.000Z' }],
+        intake: MED_IDS.map((id) => ({
+            recordId: occ(id), clientTs: 1792964412818, deleted: false, medication_id: id,
+            scheduled_at: new Date(SLOT * 1000).toISOString(), taken_at: null, status: 'UNTAKEN',
+            snoozed_until: null, source: 'schedule', rev: 2, acted_at: '2026-10-25T21:40:12.818Z',
+            via: 'app', tz: TZ, note: 'Undone; was taken at 2026-10-25T21:40:00.802Z',
+        })),
+    });
+
+    let env;
+    afterEach(async () => {
+        await materializationSettled();
+        env.cleanup();
+        env = null;
+        delete globalThis.fetch;
+    });
+
+    it('Focus Take, then Today\'s sheet for the rest: every write lands, Timeline and Today agree after each, no reload', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: seed(), now: () => NOW, timeZone: TZ });
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }); // the take's relay cancel-refire
+        const { window, document } = env;
+        installApiCache(window);
+        window.Date.now = () => NOW;
+        window.loadMeds = async () => {};
+        window.medications = MED_IDS.map((id) => ({ id, name: `Med ${id}`, dosage: '10mg' }));
+        window.eval(fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features/today.js'), 'utf8'));
+        const acts = [];
+        const realApiCall = window.apiCall;
+        window.apiCall = async (p, method, body) => {
+            const res = await realApiCall(p, method, body);
+            if (p === '/api/doses/act') acts.push(res);
+            return res;
+        };
+        const features = { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false };
+        const medications = await realApiCall('/api/medications');
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        // Today's Next up, painted from the pending cache it reads.
+        const todayDue = async () => {
+            const state = window.TodayDashboard.aggregateToday(
+                { features, medications, intake_history: await window.readCachedPendingDoses() }, {}, NOW);
+            window.TodayDashboard.renderToday(state, root, { now: NOW });
+            return state.missedDoses.value.flatMap((g) => g.intakeIds).sort();
+        };
+        const focusRow = () => document.querySelector('#med-timeline-list .wg-tl-focus .wg-timeline__row');
+        const timelineDue = () => Array.from(document.querySelectorAll('#med-timeline-list .wg-timeline__row[data-state="due"]'))
+            .flatMap((r) => r.dataset.occIds.split(' ')).sort();
+        const stored = async () => (await env.records.list('intake')).filter((i) => i.status === 'TAKEN').map((i) => i.recordId).sort();
+
+        await window.loadTimeline();
+        expect(timelineDue()).toEqual(MED_IDS.map(occ).sort());
+        expect(await todayDue()).toEqual(MED_IDS.map(occ).sort());
+
+        // Focus holds one dose: its Take writes that one (UNTAKEN acts like
+        // PENDING — no refusal), and Today's Next up drops the same one.
+        const first = focusRow().dataset.occIds;
+        focusRow().querySelector('.wg-btn--primary').click();
+        await vi.waitFor(() => expect(acts).toHaveLength(1));
+        expect(acts[0]).toMatchObject({ updated: 1, failed: 0 });
+        await vi.waitFor(async () => expect(await stored()).toEqual([first]));
+        const rest = MED_IDS.map(occ).filter((id) => id !== first).sort();
+        await vi.waitFor(() => expect(timelineDue()).toEqual(rest));
+        expect(await todayDue()).toEqual(rest);
+
+        // Today's sheet on the rest of the slot: all four land, both surfaces
+        // empty, the Focus card is done.
+        root.querySelector('[data-section="next-up"] [data-action="log-missed"]').click();
+        await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(4));
+        document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+        await vi.waitFor(() => expect(acts).toHaveLength(2));
+        expect(acts[1]).toMatchObject({ updated: 4, failed: 0 });
+        await vi.waitFor(async () => expect(await stored()).toEqual(MED_IDS.map(occ).sort()));
+        await vi.waitFor(() => expect(timelineDue()).toEqual([]));
+        expect(await todayDue()).toEqual([]);
+        await materializationSettled();
+        await window.loadTimeline();
+        expect(timelineDue()).toEqual([]);
+        expect(focusRow()).toBeNull();
+    });
+});
