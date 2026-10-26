@@ -246,6 +246,82 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(runs).toBe(1);
   });
 
+  // bd med-wi09.19: the account-zone floor runs from the boot, never from a
+  // request; tried after the boot pull and each drain until a pull in this
+  // page load has let it run, then never again.
+  it('tries the account-zone floor after the boot pull and each drain until a pull this session, once', async () => {
+    let pulled = false;
+    let drainOpts;
+    let tries = 0;
+    const shimCall = async () => null;
+    shimCall.unifyLegacy = async () => {};
+    shimCall.floorTimeZone = async () => { tries++; return pulled; };
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          pulledThisSession: () => pulled,
+          hasCaughtUp: async () => true,
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(tries).toBe(1); // offline boot: tried, nothing written
+    pulled = true;
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(tries).toBe(2);
+  });
+
+  // Argus r4 item 7: a drain that settles while the move pickup is pending
+  // (canFloor says no) must not end the tries for the session.
+  it('still floors once after the move pickup settles when a drain settled while it was pending', async () => {
+    let settlePickup;
+    const probe = new Promise((r) => { settlePickup = r; });
+    let pickupDone = false;
+    let drainOpts;
+    let wrote = 0;
+    const shimCall = async () => null;
+    shimCall.unifyLegacy = async () => {};
+    shimCall.floorTimeZone = async () => { if (!pickupDone) return false; wrote++; return true; };
+    await runBoot({
+      setupWindow: (w) => {
+        w.LocalNotifications = { __native: { platform: 'ios', call: async () => null } };
+        w.nativeHas = () => probe; // the pickup's move.take probe, held open
+      },
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          pulledThisSession: () => true,
+          hasCaughtUp: async () => true,
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    drainOpts.onSettled(); // pulled this session, pickup still pending
+    await new Promise((r) => setTimeout(r, 0));
+    expect(wrote).toBe(0);
+    pickupDone = true;
+    settlePickup(false); // no stash: the pickup settles without a reload
+    await new Promise((r) => setTimeout(r, 0));
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(wrote).toBe(1);
+  });
+
   it('a failed first-run re-ask is retried on the next drain', async () => {
     let drainOpts;
     let calls = 0;

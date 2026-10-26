@@ -697,6 +697,24 @@ async function resumeAddDevice() {
 // test seam.
 function loadPrivacyModule() { return import('/js/privacy.js'); }
 
+// The account's zone row (bd med-wi09.19, copy: Miles, Zulip 5887/5890).
+// Read-only: the one way to change the zone today is the launch prompt
+// (bootstrap.js maybeUpdateTimezone). 'floor' = derived automatically;
+// 'device' = nothing stored yet (local mode, or before the first pull).
+const TZ_SOURCE_COPY = {
+    pinned: 'Doses and reminders follow this zone on every device.',
+    floor: 'Set automatically. Doses and reminders follow it on every device.',
+    device: 'Set from this device. Doses and reminders follow it.',
+};
+function paintAccountTimeZone(timezone, source) {
+    const row = document.getElementById('settings-account-tz-row');
+    // A bundle without a zone (a failed /api/settings read) keeps what shows.
+    if (!row || !timezone) return;
+    row.classList.remove('wg-settings-hidden');
+    document.getElementById('settings-account-tz').textContent = timezone;
+    document.getElementById('settings-account-tz-desc').textContent = TZ_SOURCE_COPY[source] || TZ_SOURCE_COPY.pinned;
+}
+
 let _operatorVisibilityRendered = false; // module-state: render the static content once across repeated loadSettings() calls
 
 async function bindOperatorVisibility() {
@@ -1261,6 +1279,7 @@ async function loadSettings() {
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
+        paintAccountTimeZone(bundle.timezone, bundle.timezoneSource);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
         window.WeightUnitState.applyAuthoritative(bundle.weightUnitPreference);
         applyBundleBody(bundle.body);
@@ -1340,6 +1359,7 @@ async function loadSettings() {
             featureSettings: features || {},
             tabOrder,
             timezone: settingsRes?.timezone || '',
+            timezoneSource: settingsRes?.timezone_source || '',
             serverTime: settingsRes?.server_time || '',
             serverTimezone: settingsRes?.server_timezone || '',
             dismissedTzSuggestion: settingsRes?.dismissed_tz_suggestion || '',

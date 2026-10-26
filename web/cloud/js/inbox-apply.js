@@ -816,6 +816,15 @@ async function confirmDueIntakes({ intake, atMs }) {
 const queueMedsOutOfDate = (info) => {
   if (typeof globalThis.queueMedsReminderOutOfDate === 'function') globalThis.queueMedsReminderOutOfDate(info);
 };
+// The free-text agent's router. canFloor false: the inbox drain may run before
+// this page's first pull, so it never floors the account zone (bd
+// med-wi09.19); the page's own router does once it has pulled.
+export function createInboxRouter(ctx, { records, now, timeZone }) {
+  return createApiRouter(ctx, {
+    records, now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram', canFloor: async () => false,
+  });
+}
+
 export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, cancelRefire = cancelMedRefire, onOutOfDate = queueMedsOutOfDate, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
@@ -871,7 +880,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // path with the app (med-vcv.2). Tests inject agentOverride to stub the loop.
   const agent = agentOverride || (() => {
     const settings = createSettingsDomain({ records, now, timeZone });
-    const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram' });
+    const router = createInboxRouter(ctx, { records, now, timeZone });
     const dispatcher = createDispatcher({ router, now });
     const aiClient = createAIClient({ settingsDomain: settings });
     return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher, prefs, history });

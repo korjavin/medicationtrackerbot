@@ -10,6 +10,7 @@ import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
 import { mergeIntake, LEDGERCUT_RECORD_ID, LEDGERCUT_RECORD_TYPE } from '../../domain/medintake.js';
 import { mergeSleep, sameBody, isLiveSleepDayRow } from '../../domain/healthsource.js';
+import { mergeTzFloor } from '../../domain/settings.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -656,6 +657,9 @@ const RECORD_TAGS = {
   location: ['workout'],
   activelocation: ['workout'],
   settings: ['settings'],
+  // A floor that lands from a peer can move the account zone, so the dose
+  // projections (Today's next_intake, the timeline) repaint with Settings.
+  tzfloor: ['settings', 'medications', 'history'],
   features: ['settings', 'feature_settings'],
   taborder: ['settings'],
   integrations: ['settings'],
@@ -797,7 +801,9 @@ const APPLY_MERGE = { gamificationjournal: mergeGamificationJournal };
 // (replaceAllRecords). policy(local, incoming) returns `local` itself when
 // nothing changes, else the row to store. clientTs is still stamped and pushed:
 // an older client keeps merging these rows by LWW.
-const MERGE_POLICY = { intake: mergeIntake, sleep: mergeSleep };
+// tzfloor (bd med-wi09.19): two devices' floored zones meet at the same
+// clientTs 0, so the reducer (earliest `at`) picks one deterministically.
+const MERGE_POLICY = { intake: mergeIntake, sleep: mergeSleep, tzfloor: mergeTzFloor };
 
 // Repair types (bd med-0xad.9 G): a MERGE_POLICY type whose reducer winner
 // must also become the clientTs winner. Older bundles and the compaction
@@ -809,7 +815,9 @@ const MERGE_POLICY = { intake: mergeIntake, sleep: mergeSleep };
 // Intake (bd med-wi09.23): live rows only. A local tombstone against a live
 // snapshot copy has no legitimate source (v2 compacters keep tombstones), but
 // an old tab's restore looks like one, so the snapshot stands there.
-const REPAIR_TYPES = { sleep: isLiveSleepDayRow, intake: (r) => !r.deleted };
+// tzfloor: an older bundle merges it by clientTs (a tie keeps whichever copy
+// landed first), so the reducer's winner is re-stamped above it.
+const REPAIR_TYPES = { sleep: isLiveSleepDayRow, intake: (r) => !r.deleted, tzfloor: (r) => !r.deleted };
 
 function lwwWinner(existing, record) {
   return !existing || record.clientTs > existing.clientTs ? record : existing;

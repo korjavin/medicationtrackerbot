@@ -29,6 +29,7 @@ import { USER_CONTENT_TYPES, userContentCount } from '../../domain/vault.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import {
   recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, deviceValues, hasCaughtUp, notifyRecordsChanged,
+  pulledThisSession,
 } from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
@@ -210,10 +211,18 @@ function debugOnce(key, ...args) {
 //                 local → cloud move pickup settled (bd med-ydt2).
 //   opts.onDoseBoundary(atMs)  the intake domain's onBoundary port; only the
 //                 page's shim passes one (installApiShim's dose clock).
+//   opts.canFloor async () => bool: may this router floor the account zone
+//                 now (bd med-wi09.19)? Default on the real sync store:
+//                 opts.caughtUp (so the local → cloud move pickup window
+//                 blocks it too) AND a pull in THIS page load reached the tail
+//                 (sync.js pulledThisSession), so an offline boot never floors
+//                 against a stale mirror. An injected store defaults to opts.caughtUp;
+//                 the inbox applier passes () => false. Local mode never floors.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
   rxnorm = createRxnormPort(), operatorFoodDb, protection,
   caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
+  canFloor = recordsOverride ? caughtUp : async () => (await caughtUp()) && pulledThisSession(),
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -335,6 +344,11 @@ export function createApiRouter(ctx, {
   // recordsChangeCount above), so the memo is once-only there; shimCall's
   // re-arm after a settings/tz-plan write covers an in-tab change on that path.
   // ponytail: no cross-tab invalidation. Reload covers it.
+  //
+  // An account with no pin gets one zone (bd med-wi09.19), but never from a
+  // request: a read must touch only what it serves (GET /api/brief reads its
+  // selected domains only). The boot calls floorTimeZone() once a pull in this
+  // page load has reached the tail (opts.canFloor); see its comment below.
   let tzReady = null;
   let tzStamp = -1;
   function ensureTimeZone() {
@@ -450,6 +464,7 @@ export function createApiRouter(ctx, {
       bp_reminder_status: bpStatus,
       weight_reminder_status: weightStatus,
       timezone: general.timezone,
+      timezone_source: general.timezone_source,
       weight_unit_preference: weightUnit,
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
       // Body settings (med-a6fb): the Settings height field's read source —
@@ -1756,6 +1771,25 @@ export function createApiRouter(ctx, {
     }),
   });
   shimCall.ensureTimeZone = ensureTimeZone;
+  // floorTimeZone (bd med-wi09.19): with neither a pin nor a floor stored,
+  // floor the zone this device's dose evidence is in (intake.evidenceZone: the
+  // zone every device already projects past days in; its own zone when nothing
+  // was logged) as the account's (settings.ensureTimeZoneFloor, clientTs 0,
+  // putIfAbsent). Only when opts.canFloor says so: not before a pull in this
+  // page load reached the tail or while a move pickup is pending, so an
+  // offline-booted or freshly unlocked device never floors over an account
+  // another device already floored; a race that slips through is settled by
+  // sync's tzfloor reducer. Local-only mode (portFactory) never floors: one
+  // device, nothing to keep in step, and it keeps following the device zone.
+  // Resolves true when it wrote a floor.
+  shimCall.floorTimeZone = async () => {
+    if (portFactory || !(await canFloor())) return false;
+    if ((await settings.getGeneral()).timezone_source !== 'device') return false;
+    await settings.ensureTimeZoneFloor(await intake.evidenceZone());
+    tzReady = null;
+    await ensureTimeZone();
+    return true;
+  };
   return shimCall;
 }
 
@@ -1903,6 +1937,9 @@ export function installApiShim(ctx, {
   // timezone-resolve instances for every consumer of the installed seam.
   Object.defineProperty(offlineAwareApiCall, 'domains', { enumerable: true, get: () => shimCall.domains });
   offlineAwareApiCall.ensureTimeZone = shimCall.ensureTimeZone;
+  // The boot's account-zone floor (bd med-wi09.19), on the background router so
+  // a floor that moves the zone repaints the open screens.
+  offlineAwareApiCall.floorTimeZone = bgCall.floorTimeZone;
   // One sleep model, no stress (bd med-0xad.4, vitals.js unifyLegacy): the
   // boot calls it (local-boot.js after the leave pickup; cloud-boot.js only
   // once a pull in this page load reached the tail, sync.js

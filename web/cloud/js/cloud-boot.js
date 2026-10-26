@@ -615,6 +615,20 @@ window.MedTrackerCloudReady = (async function boot() {
             if (!reloading) moveSettled = true;
             return reloading;
         });
+        // The account-zone floor (bd med-wi09.19): an unpinned account takes
+        // one zone. The shim's canFloor holds it until a pull in this page load
+        // reached the tail and the move pickup settled, so it is tried here
+        // and after every drain until it has run once. Not awaited.
+        let floored = false;
+        const floorTimeZone = () => {
+            if (floored) return;
+            Promise.resolve().then(() => shimCall.floorTimeZone()).then((wrote) => {
+                // A drain that settles while the move pickup is pending must
+                // not end the tries: canFloor said no only because of the pickup.
+                if (wrote || (moveSettled && pulledThisSession())) floored = true;
+            }).catch((e) => console.error('[cloud-boot] time zone floor failed', e));
+        };
+        movePickup.then(floorTimeZone);
         let firstRunAsked = false;
         const askFirstRun = () => (async () => {
             if (firstRunAsked || (await movePickup) || !(await hasCaughtUp())) return;
@@ -721,7 +735,7 @@ window.MedTrackerCloudReady = (async function boot() {
             const host = document.getElementById('app-banners');
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { unifyLegacy(); return askFirstRun(); } });
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { unifyLegacy(); floorTimeZone(); return askFirstRun(); } });
         // Pull to refresh (bd med-y7b4.6): one more drain through the same
         // single-slot guard. Registered after the boot pull so the two never
         // overlap. What lands repaints through notifyRecordsChanged.

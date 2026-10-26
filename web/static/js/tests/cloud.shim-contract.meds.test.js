@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
-import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { loadCloudShimFrontendEnv, createInMemoryRecordsPort, applyIncomingReplica } from './helpers/cloud-shim-harness.js';
+import { mergeTzFloor } from '../../../domain/settings.js';
 import { createApiRouter, materializationSettled } from '../../../cloud/js/apishim.js';
 import { createIntakeDomain, foldAdherence } from '../../../domain/medintake.js';
 import { createMedicationsDomain } from '../../../domain/medications.js';
@@ -1579,5 +1580,186 @@ describe('stock ledger (bd med-wi09.13)', () => {
         const [m] = await env.window.apiCall('/api/medications');
         expect(m.pack_size).toBeUndefined();
         expect(m.inventory_count).toBe(10);
+    });
+});
+
+// bd med-wi09.19 — an account with no pinned zone gets one: the first device
+// to resolve it floors its own zone (tzfloor, clientTs 0, putIfAbsent), so a
+// second device in another zone projects the same instants and occIds.
+describe('account zone floor — one projection zone per account (bd med-wi09.19)', () => {
+    const NOW = Date.UTC(2026, 2, 10, 5, 0); // 06:00 Berlin (CET), 01:00 New York (EDT)
+    const iso = (ms) => new Date(ms).toISOString();
+    const effects = { scheduleReminderRecompute() {}, cancelMedRefire() {}, rearmMedRefire() {} };
+    const med = {
+        recordId: 1, clientTs: 1, deleted: false, name: 'Metformin', dosage: '500mg',
+        schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }), archived: false,
+        start_date: null, end_date: null, inventory_count: null, tz_shift_policy: 'flexible',
+        created_at: '2026-01-01T00:00:00.000Z',
+    };
+    const device = (records, timeZone, now = NOW) => createApiRouter({}, {
+        records, win: {}, effects, now: () => now, timeZone,
+    });
+    // One pull: sync.js applyIncoming for every type this suite writes —
+    // tzfloor through its reducer, the rest strict-> LWW.
+    const sync = async (from, to) => {
+        for (const type of ['medication', 'settings', 'tzfloor', 'intake']) {
+            for (const r of await from.listRaw(type)) {
+                const cur = (await to.listRaw(type)).find((x) => x.recordId === r.recordId);
+                const won = type === 'tzfloor' ? mergeTzFloor(cur, r) : applyIncomingReplica(cur, r);
+                if (won !== cur) await to.put(type, won);
+            }
+        }
+    };
+    // The boot floors once it has pulled (cloud-boot.js → floorTimeZone), never
+    // a request; each read here stands in for a device's first open.
+    const doses = async (call) => {
+        await call.floorTimeZone();
+        return call(`/api/doses?from=${iso(NOW)}&to=${iso(NOW + 24 * 3600_000)}`);
+    };
+    const floorOf = async (records) => (await records.list('tzfloor'))[0];
+
+    it('device A floors its zone at clientTs 0; device B then projects A\'s instants and resolves A\'s occIds', async () => {
+        const a = createInMemoryRecordsPort({ medication: [med] });
+        const onA = await doses(device(a, 'Europe/Berlin'));
+        expect(await floorOf(a)).toMatchObject({ timezone: 'Europe/Berlin', clientTs: 0, at: NOW });
+        expect(await a.list('settings')).toEqual([]); // the pin stays unset
+        expect(onA.map((d) => d.plannedAt)).toEqual([iso(Date.UTC(2026, 2, 10, 7, 0))]); // 08:00 Berlin
+
+        const b = createInMemoryRecordsPort();
+        await sync(a, b);
+        const callB = device(b, 'America/New_York');
+        expect((await doses(callB)).map((d) => d.occId)).toEqual(onA.map((d) => d.occId));
+        expect((await floorOf(b)).timezone).toBe('Europe/Berlin'); // B wrote no floor of its own
+        expect((await callB('/api/doses/act', 'POST', { occ_ids: [onA[0].occId], action: 'take' })).updated).toBe(1);
+        expect((await callB('/api/settings')).timezone_source).toBe('floor');
+    });
+
+    it('an explicit pick on B replaces the floor on A after sync', async () => {
+        const a = createInMemoryRecordsPort({ medication: [med] });
+        await doses(device(a, 'Europe/Berlin'));
+        const b = createInMemoryRecordsPort();
+        await sync(a, b);
+        const callB = device(b, 'America/New_York', NOW + 60_000);
+        expect(await callB('/api/settings', 'POST', { timezone: 'America/New_York' })).toEqual({ changed: true, planCreated: false });
+        await sync(b, a);
+        const callA = device(a, 'Europe/Berlin', NOW + 120_000);
+        expect(await callA('/api/settings')).toMatchObject({ timezone: 'America/New_York', timezone_source: 'pinned' });
+        expect((await doses(callA)).map((d) => d.plannedAt)).toEqual([iso(Date.UTC(2026, 2, 10, 12, 0))]); // 08:00 New York (EDT since Mar 8)
+    });
+
+    it('two devices that floor before seeing each other converge on the earlier floor', async () => {
+        const a = createInMemoryRecordsPort({ medication: [med] });
+        const b = createInMemoryRecordsPort({ medication: [med] });
+        await doses(device(b, 'America/New_York', NOW + 5_000));
+        await doses(device(a, 'Europe/Berlin', NOW));
+        await sync(a, b);
+        await sync(b, a);
+        expect((await floorOf(a)).timezone).toBe('Europe/Berlin');
+        expect((await floorOf(b)).timezone).toBe('Europe/Berlin');
+        expect((await doses(device(b, 'America/New_York'))).map((d) => d.occId))
+            .toEqual((await doses(device(a, 'Europe/Berlin'))).map((d) => d.occId));
+    });
+
+    it('never floors over a pinned zone, and local-only mode never floors', async () => {
+        const pinned = createInMemoryRecordsPort({
+            medication: [med], settings: [{ recordId: 'settings', clientTs: NOW, deleted: false, timezone: 'Asia/Tokyo' }],
+        });
+        const callPinned = device(pinned, 'Europe/Berlin');
+        expect(await callPinned.floorTimeZone()).toBe(false);
+        expect(await callPinned('/api/settings')).toMatchObject({ timezone: 'Asia/Tokyo', timezone_source: 'pinned' });
+        expect(await pinned.list('tzfloor')).toEqual([]);
+
+        const local = createInMemoryRecordsPort({ medication: [med] });
+        const callLocal = createApiRouter({}, {
+            recordsPort: () => local, win: {}, effects, now: () => NOW, timeZone: 'Europe/Berlin',
+        });
+        expect(await callLocal.floorTimeZone()).toBe(false);
+        expect(await callLocal('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'device' });
+        expect(await local.list('tzfloor')).toEqual([]);
+    });
+
+    // Breakage F1 (Archie 5889): the floor takes the zone the dose evidence is
+    // in, so a device whose last logged dose is New York-stamped does not
+    // switch today's slots to Berlin (a reminder at 02:00 NY that vanishes as
+    // "out of date", and the 08:00 NY dose due with no reminder).
+    it('floors the zone of the last logged dose, not the flooring device\'s own', async () => {
+        const yesterdayNY = Date.UTC(2026, 2, 9, 12, 0); // 08:00 New York (EDT)
+        const taken = {
+            recordId: `intake-1-${yesterdayNY / 1000}`, clientTs: yesterdayNY, deleted: false, medication_id: 1,
+            scheduled_at: iso(yesterdayNY), taken_at: iso(yesterdayNY), status: 'TAKEN', snoozed_until: null,
+            source: 'schedule', tz: 'America/New_York', rev: 1,
+        };
+        const a = createInMemoryRecordsPort({ medication: [med], intake: [taken] });
+        const onA = await doses(device(a, 'Europe/Berlin'));
+        expect(await floorOf(a)).toMatchObject({ timezone: 'America/New_York', clientTs: 0 });
+        expect(onA.map((d) => d.plannedAt)).toEqual([iso(Date.UTC(2026, 2, 10, 12, 0))]); // 08:00 NY, not 07:00Z
+
+        const b = createInMemoryRecordsPort();
+        await sync(a, b);
+        const callB = device(b, 'America/New_York', NOW + 2 * 3600_000); // 07:00Z: past 08:00 Berlin
+        expect((await doses(callB)).map((d) => [d.occId, d.state])).toEqual(onA.map((d) => [d.occId, 'upcoming']));
+    });
+
+    it('a zone this engine cannot read is skipped, keeps its source, and is never floored over', async () => {
+        const pinned = createInMemoryRecordsPort({
+            medication: [med], settings: [{ recordId: 'settings', clientTs: NOW, deleted: false, timezone: 'Mars/Olympus_Mons' }],
+        });
+        const callUnreadable = device(pinned, 'Europe/Berlin');
+        expect(await callUnreadable.floorTimeZone()).toBe(false);
+        expect(await callUnreadable('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'pinned' });
+        expect(await pinned.list('tzfloor')).toEqual([]);
+
+        const floored = createInMemoryRecordsPort({
+            medication: [med], tzfloor: [{ recordId: 'tzfloor', clientTs: 0, deleted: false, timezone: 'Mars/Olympus_Mons', at: 1 }],
+        });
+        expect(await device(floored, 'Asia/Tokyo')('/api/settings')).toMatchObject({ timezone: 'Asia/Tokyo', timezone_source: 'floor' });
+    });
+
+    // Argus r1 (2), kept per Miles 5887: a device in another zone now gets the
+    // launch travel prompt; a dismissal sticks for that detected zone.
+    it('the launch prompt fires on a device off the floored zone, and a dismissal sticks', async () => {
+        const a = createInMemoryRecordsPort({ medication: [med] });
+        await doses(device(a, 'Europe/Berlin'));
+        const b = createInMemoryRecordsPort();
+        await sync(a, b);
+        const callB = device(b, 'America/New_York');
+        const ask = () => callB(`/api/tz-suggestion/should-prompt?detected_tz=${encodeURIComponent('America/New_York')}`);
+        expect(await ask()).toMatchObject({ prompt: true, current_tz: 'Europe/Berlin' });
+        await callB('/api/tz-suggestion/dismiss', 'POST', { detected_tz: 'America/New_York' });
+        expect((await ask()).prompt).toBe(false);
+        expect(await callB('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'floor' });
+    });
+
+    it('a router told not to floor (the inbox applier) never writes one', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med] });
+        const call = createApiRouter({}, {
+            records, win: {}, effects, now: () => NOW, timeZone: 'Europe/Berlin', canFloor: async () => false,
+        });
+        expect((await call('/api/settings')).timezone_source).toBe('device');
+        await doses(call);
+        expect(await records.list('tzfloor')).toEqual([]);
+    });
+
+    it('a request never floors: only the boot\'s floorTimeZone does (GET /api/brief reads its sections only)', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med] });
+        const call = device(records, 'Europe/Berlin');
+        await call(`/api/doses?from=${iso(NOW)}&to=${iso(NOW + 24 * 3600_000)}`);
+        expect(await call('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'device' });
+        expect(await records.list('tzfloor')).toEqual([]);
+    });
+
+    it('floorTimeZone waits for canFloor, then floors once', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med] });
+        let up = false;
+        const call = createApiRouter({}, {
+            records, win: {}, effects, now: () => NOW, timeZone: 'Europe/Berlin', caughtUp: async () => up,
+        });
+        expect(await call.floorTimeZone()).toBe(false);
+        expect((await call('/api/settings')).timezone_source).toBe('device');
+        expect(await records.list('tzfloor')).toEqual([]);
+        up = true;
+        expect(await call.floorTimeZone()).toBe(true);
+        expect((await call('/api/settings')).timezone_source).toBe('floor');
+        expect(await call.floorTimeZone()).toBe(false); // once
     });
 });

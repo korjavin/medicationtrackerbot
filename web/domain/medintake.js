@@ -936,6 +936,26 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return value;
   }
 
+  // The zone the projection reads today's dose evidence in (bd med-wi09.19):
+  // the last evidence transition's zone, else the initial one — the same
+  // evidenceFor call and cut project() uses. With no tz-stamped evidence it is
+  // this domain's own zone. The account-zone floor takes it, so a device that
+  // floors agrees with the past days every device already projects.
+  async function evidenceZone() {
+    const c = projectionCache(records, timeZone);
+    const changes = typeof records.changesSince === 'function' ? records.changesSince(INTAKE_RECORD_TYPE, c.token) : null;
+    const [intakes, storedCut] = await Promise.all([
+      records.listRaw ? records.listRaw(INTAKE_RECORD_TYPE) : records.list(INTAKE_RECORD_TYPE),
+      loadCutMs(),
+    ]);
+    const nowMs = now();
+    if (storedCut === null && !provisionalCuts.has(records)) provisionalCuts.set(records, nowMs);
+    const cut = storedCut ?? provisionalCuts.get(records);
+    syncIndex(c, changes, intakes);
+    const { transitions, initialZone } = evidenceFor(c, cut, nowMs);
+    return transitions.length ? transitions[transitions.length - 1].new_tz : initialZone;
+  }
+
   // GET /api/doses — the projection itself; `states` (e.g. ['due',
   // 'snoozed']) keeps only rows in those states.
   async function occurrences({ fromMs, toMs, states = null } = {}) {
@@ -1449,6 +1469,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     triggerNextIntake,
     nextIntake,
     occurrences,
+    evidenceZone,
     upcomingDoses,
     history,
     listWindow,

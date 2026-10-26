@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain, dosesAtInstant } from '../../../domain/medintake.js';
 import { boundary } from '../../../domain/lineage.js';
-import { applyIntakeSlotAction, OUT_OF_DATE_TEXT, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, makeTGHistoryPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
+import { applyIntakeSlotAction, OUT_OF_DATE_TEXT, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, createInboxRouter, makeTGPrefsPort, makeTGHistoryPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
 import { createRemindersDomain, DONT_BUG_MS } from '../../../domain/reminders.js';
 import { createTGAgent } from '../tg-agent.js';
 import { createBPDomain } from '../../../domain/bp.js';
@@ -948,6 +948,17 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
 });
 
 describe('inbox-apply.js — createInboxApplier routing', () => {
+    // bd med-wi09.19 (Argus r2): the drain can run before this page's first
+    // pull, so the agent's router never floors the account zone.
+    it('the agent router never floors the account zone on an unpinned account', async () => {
+        const records = fakeRecords(seed());
+        const call = createInboxRouter({ accountId: 'a' }, { records, now: () => DRAIN_MS, timeZone: 'Europe/Berlin' });
+        expect(await call.floorTimeZone()).toBe(false);
+        expect((await call('/api/settings')).timezone_source).toBe('device');
+        await call(`/api/doses?from=${new Date(DRAIN_MS).toISOString()}&to=${new Date(DRAIN_MS + 86400000).toISOString()}`);
+        expect(await records.list('tzfloor')).toEqual([]);
+    });
+
     it('ignores unknown kinds and unknown actions rather than stalling the drain', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const records = fakeRecords(seed());
