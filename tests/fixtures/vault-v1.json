@@ -658,7 +658,8 @@
     },
     "settings": {
       "timezone": "Europe/Berlin",
-      "dismissed_tz_suggestion": "",
+      "dismissed_tz_suggestion": "Asia/Tokyo",
+      "dismissed_tz_suggestions": ["America/New_York", "Asia/Tokyo"],
       "height_cm": 180,
       "features": {
         "food": true,

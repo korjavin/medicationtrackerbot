@@ -453,7 +453,7 @@ export function createTzPlanDomain({ records, now, timeZone }) {
     if (!detectedTz) return { prompt: false, reason: 'empty detected timezone' };
     const general = await settings.getGeneral();
     if (general.timezone === detectedTz) return { prompt: false, reason: 'detected timezone matches stored timezone' };
-    if (general.dismissed_tz_suggestion && general.dismissed_tz_suggestion === detectedTz) {
+    if (general.dismissed_tz_suggestion === detectedTz || (general.dismissed_tz_suggestions || []).includes(detectedTz)) {
       return { prompt: false, reason: 'user already dismissed this detected timezone' };
     }
     const plan = await getPlanRecord();

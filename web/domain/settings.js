@@ -93,6 +93,30 @@ export function mergeTzFloor(local, incoming) {
   return ia < la || (ia === la && tz(incoming) < tz(local)) ? incoming : local;
 }
 
+// dismissed_tz_suggestions (bd med-wi09.26): every detected zone the user
+// dismissed the travel prompt for since the account zone last changed, oldest
+// first, beside the legacy dismissed_tz_suggestion string (= the newest one,
+// which older bundles still compare to their detected zone). Deduped, newest
+// DISMISSED_TZ_MAX kept: one entry per off-zone device or trip, so ten is
+// plenty and keeps a long-travelled singleton small.
+const DISMISSED_TZ_MAX = 10;
+export function normalizeDismissedTzList(list) {
+  if (!Array.isArray(list)) return [];
+  const zones = list.filter((z) => typeof z === 'string' && z);
+  return zones.filter((z, i) => zones.lastIndexOf(z) === i).slice(-DISMISSED_TZ_MAX);
+}
+
+// The list counts only while it holds the string. Every writer here keeps the
+// string in the list; an older bundle's setTimezone clears the string but
+// carries the list along (`...existing`), so a list without its string is
+// stale and reads as empty. ponytail: an older bundle that then dismisses a
+// zone already in that stale list revives it; the zone-tagged list is the
+// upgrade if that ever matters.
+function liveDismissedTzList(rec) {
+  const list = normalizeDismissedTzList(rec && rec.dismissed_tz_suggestions);
+  return rec && rec.dismissed_tz_suggestion && list.includes(rec.dismissed_tz_suggestion) ? list : [];
+}
+
 // readableZone: may this engine format in `tz`? (bd med-wi09.19 F4)
 function readableZone(tz) {
   if (!tz) return false;
@@ -260,6 +284,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
       timezone: [pin, floored].find(readableZone) || timeZone,
       timezone_source: source,
       dismissed_tz_suggestion: (rec && rec.dismissed_tz_suggestion) || '',
+      dismissed_tz_suggestions: liveDismissedTzList(rec),
       ...readBodySettings(rec),
     };
   }
@@ -302,16 +327,23 @@ export function createSettingsDomain({ records, now, timeZone }) {
   }
 
   // setTimezone merges onto the existing singleton record (rather than
-  // replacing it) so it never clobbers dismissed_tz_suggestion — mirrors
-  // repo.go's Record(), which only clears the dismissal on an actual TZ
-  // change, never on every write.
+  // replacing it) so it never clobbers the dismissals — mirrors repo.go's
+  // Record(), which only clears them on an actual TZ change, never on every
+  // write. Both the string and the list clear (bd med-wi09.26). "Change" is
+  // against the effective zone (pin, else floor): pinning the zone an unpinned
+  // account already runs on (rejectPlan → setTimezone(old_tz)) changes nothing.
   async function setTimezone(tz) {
     if (tz) {
-      await mergeGeneral((existing) => ({
-        ...existing,
-        timezone: tz,
-        dismissed_tz_suggestion: existing && existing.timezone === tz ? existing.dismissed_tz_suggestion || '' : '',
-      }));
+      const { timezone: effective } = await getGeneral();
+      await mergeGeneral((existing) => {
+        const same = ((existing && existing.timezone) || effective) === tz;
+        return {
+          ...existing,
+          timezone: tz,
+          dismissed_tz_suggestion: same ? (existing && existing.dismissed_tz_suggestion) || '' : '',
+          dismissed_tz_suggestions: same ? normalizeDismissedTzList(existing && existing.dismissed_tz_suggestions) : [],
+        };
+      });
     }
     return getGeneral();
   }
@@ -319,8 +351,17 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // setDismissedTzSuggestion mirrors tzsuggestion.Service.RecordDismissal —
   // persists the detected TZ the user dismissed so other devices skip the
   // same prompt (LWW via clientTs, same as every other singleton record).
+  // It joins the live list (plus a string an older bundle wrote outside it)
+  // and stays the string, so two devices off-zone in different zones stop
+  // overwriting each other (bd med-wi09.26).
   async function setDismissedTzSuggestion(tz) {
-    await mergeGeneral((existing) => ({ ...existing, dismissed_tz_suggestion: tz || '' }));
+    await mergeGeneral((existing) => ({
+      ...existing,
+      dismissed_tz_suggestion: tz || '',
+      dismissed_tz_suggestions: tz
+        ? normalizeDismissedTzList([...liveDismissedTzList(existing), (existing && existing.dismissed_tz_suggestion) || '', tz])
+        : [],
+    }));
     return tz || '';
   }
 
