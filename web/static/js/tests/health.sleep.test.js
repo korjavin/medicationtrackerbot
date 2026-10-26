@@ -174,4 +174,55 @@ describe('Health sleep card (Phase 8, Task 4)', () => {
         const cardIdx = Array.from(content.children).indexOf(card);
         expect(cardIdx).toBeGreaterThan(selectorIdx);
     });
+
+    // bd med-z36q: an iPhone without a Watch (or a third-party app) writes only
+    // HKCategoryValueSleepAnalysis 1 (asleepUnspecified). healthimport.js stores
+    // such a night with null stage minutes and total_minutes only; the chart
+    // must still draw a bar for it, not just the label and the average.
+    it('draws a bar for an unstaged Apple Health night (asleep samples only)', async () => {
+        const { window } = env;
+        const rows = new Map();
+        const of = (t) => [...rows.values()].filter((r) => r.recordType === t);
+        const records = {
+            list: async (t) => of(t).filter((r) => !r.deleted),
+            listRaw: async (t) => of(t),
+            listRange: async (t, a, b) => of(t).filter((r) => !r.deleted && r.recordId >= a && r.recordId <= b),
+            put: async (t, r) => { rows.set(r.recordId, { ...r, recordType: t }); return r; },
+            putIfAbsent: async (t, r) => {
+                if (!rows.has(r.recordId)) rows.set(r.recordId, { ...r, recordType: t });
+                return rows.get(r.recordId);
+            },
+        };
+        const H = 3600000;
+        const now = Date.now();
+        const end = now - 6 * H;
+        const start = end - 7 * H;
+        // Exactly the shape ios/App/Health.swift hands health-import.js.
+        const samples = [
+            { uuid: '00000000-0000-4000-8000-000000000001', start, end: start + 3 * H, value: 1, source: 'com.apple.health.iphone', tz: 'UTC' },
+            { uuid: '00000000-0000-4000-8000-000000000002', start: start + 3 * H, end, value: 1, source: 'com.apple.health.iphone', tz: 'UTC' },
+        ];
+        const { createHealthImportDomain } = await import('../../../domain/healthimport.js');
+        const { createVitalsDomain } = await import('../../../domain/vitals.js');
+        const imp = createHealthImportDomain({ records, now: () => now, timeZone: 'UTC' });
+        expect(await imp.importSamples('sleep', samples, { from: start - 48 * H, to: now })).toMatchObject({ added: 1 });
+        const stored = of('sleep')[0];
+        expect(stored).toMatchObject({ total_minutes: 420, light_minutes: null, deep_minutes: null, rem_minutes: null });
+
+        const overview = await createVitalsDomain({ records, now: () => now, timeZone: 'UTC' }).overview();
+        const card = window.renderSleepCard(overview, '7d');
+        expect(card.querySelector('.wg-sleep-card__stat').textContent).toContain('7.0 hrs (7d avg)');
+        const bars = card.querySelectorAll('rect.wg-sleep-chart__stage--asleep');
+        expect(bars.length).toBe(1);
+        expect(Number(bars[0].getAttribute('height'))).toBeGreaterThan(0);
+        expect(card.querySelector('.wg-health-legend__badge--asleep')).not.toBeNull();
+    });
+
+    it('a staged night renders exactly the stage bars and legend it always did', () => {
+        const { window } = env;
+        const card = window.renderSleepCard(makeData(), '7d');
+        expect(card.querySelectorAll('rect.wg-sleep-chart__stage--asleep').length).toBe(0);
+        expect(card.querySelectorAll('rect.wg-sleep-chart__stage').length).toBe(5 * 4);
+        expect(card.querySelector('.wg-health-legend__badge--asleep')).toBeNull();
+    });
 });

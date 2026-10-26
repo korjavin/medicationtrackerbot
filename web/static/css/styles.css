@@ -598,6 +598,8 @@ html, body {
     --wg-health-sleep-light: #2481cc;
     --wg-health-sleep-rem: #c161d9;
     --wg-health-sleep-awake: #e5b220;
+    /* asleep: a night with no stage breakdown (bd med-z36q). */
+    --wg-health-sleep-asleep: #5b8db8;
     --wg-health-sleep-hr: #ff3b30;
 
     /* Steps chart color tokens (Phase 8, Task 1) — bar fill + rotated count
@@ -5888,6 +5890,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
     fill: var(--wg-health-sleep-awake);
 }
 
+.wg-sleep-chart__stage--asleep {
+    fill: var(--wg-health-sleep-asleep);
+}
+
 .wg-sleep-chart__guide {
     stroke: var(--wg-fg-5);
     stroke-width: var(--wg-bp-chart-guide-stroke-width);
@@ -6009,6 +6015,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 .wg-health-legend__badge--awake {
     background: var(--wg-health-sleep-awake);
+}
+
+.wg-health-legend__badge--asleep {
+    background: var(--wg-health-sleep-asleep);
 }
 
 .wg-health-legend__badge--hr {

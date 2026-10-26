@@ -196,10 +196,14 @@ const HEALTH_SLEEP_LEGEND = [
     { variant: 'hr', label: 'HR', line: true }
 ];
 
-function buildSleepLegend() {
+// Unstaged nights (bd med-z36q) draw one plain bar; the legend names it only when one is shown.
+const HEALTH_SLEEP_ASLEEP_LEGEND = { variant: 'asleep', label: 'Asleep' };
+
+function buildSleepLegend(hasAsleep) {
     const legend = document.createElement('div');
     legend.className = 'wg-health-legend wg-sleep-card__legend';
-    HEALTH_SLEEP_LEGEND.forEach((entry) => {
+    const entries = hasAsleep ? [HEALTH_SLEEP_ASLEEP_LEGEND, ...HEALTH_SLEEP_LEGEND] : HEALTH_SLEEP_LEGEND;
+    entries.forEach((entry) => {
         const item = document.createElement('div');
         item.className = 'wg-health-legend__item';
         const badge = document.createElement('span');
@@ -232,7 +236,7 @@ function renderSleepCard(data, activeRange) {
 
     if (chartEl && !chartEl.classList.contains('wg-sleep-chart--empty')) {
         card.appendChild(chartEl);
-        card.appendChild(buildSleepLegend());
+        card.appendChild(buildSleepLegend(!!chartEl.querySelector('.wg-sleep-chart__stage--asleep')));
 
         const avg7Raw = data?.average_sleep_hours_7d;
         const avg30Raw = data?.average_sleep_hours_30d;

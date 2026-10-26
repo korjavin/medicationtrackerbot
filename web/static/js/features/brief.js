@@ -129,6 +129,7 @@
   .wg-sleep-chart__stage--light { fill: #2a6fb0; }
   .wg-sleep-chart__stage--rem { fill: #9a4fb0; }
   .wg-sleep-chart__stage--awake { fill: #c9971a; }
+  .wg-sleep-chart__stage--asleep { fill: #4d7ea8; }
   .wg-sleep-chart__guide { stroke: #bbb; stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
   .wg-sleep-chart__tick { stroke: #444; fill: none; }
   .wg-sleep-chart__hr-line { fill: none; stroke: #c0392b; stroke-width: 2;
