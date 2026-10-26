@@ -6655,6 +6655,28 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: none;
 }
 
+/* Stepper value + its unit under it (kit ST1/ST2 small). */
+.wg-meds-stocksheet__val {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    min-width: 0;
+}
+
+.wg-meds-stocksheet__val input.wg-stepper__val {
+    height: auto;
+}
+
+.wg-meds-stocksheet__unit {
+    margin-top: var(--wg-s1);
+    text-align: center;
+    font: 600 10px var(--wg-font-ui);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+}
+
 /* Meds timeline (kit v2 TL1–TL4, bd med-ry7b). Kit markup throughout — day
    sections are .wg-section, rows .wg-row; the .wg-tl-* additions come from
    screens-meds-timeline-v2.html: the focus card, the folded planned days and
