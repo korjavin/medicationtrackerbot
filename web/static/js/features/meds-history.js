@@ -329,6 +329,15 @@ function formatStock(count, med) {
     return { label: `${count} left`, state: 'ok' };
 }
 
+// Tracked meds that are out or low, out first: the Stock tab's "Needs attention"
+// rows and its app-bar "N need a refill" count.
+function stockAttentionMeds(meds) {
+    const rank = (m) => (formatStock(m.inventory_count, m).state === 'danger' ? 0 : 1);
+    return (Array.isArray(meds) ? meds : [])
+        .filter((m) => m && m.inventory_count !== null && m.inventory_count !== undefined && formatStock(m.inventory_count, m).state !== 'ok')
+        .sort((a, b) => rank(a) - rank(b));
+}
+
 // Calculate how many doses per day based on schedule
 function calculateDailyUsage(med) {
     try {

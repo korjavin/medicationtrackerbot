@@ -1628,9 +1628,8 @@ function renderInventory() {
     }
 
     // Problems first: out (danger) before low (warn), then the rest by name.
-    const rank = (m) => ({ danger: 0, warn: 1 })[formatStock(m.inventory_count, m).state] ?? 2;
-    const attention = tracked.filter((m) => rank(m) < 2).sort((a, b) => rank(a) - rank(b));
-    const fine = tracked.filter((m) => rank(m) === 2);
+    const attention = stockAttentionMeds(tracked);
+    const fine = tracked.filter((m) => !attention.includes(m));
     if (attention.length) list.appendChild(_buildMedsBucket('Needs attention', { rows: attention.map(_buildStockRow) }));
     if (fine.length) list.appendChild(_buildMedsBucket('Fine', { rows: fine.map(_buildStockRow) }));
     syncMedsAddButton();

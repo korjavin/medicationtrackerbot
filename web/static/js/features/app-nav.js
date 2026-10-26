@@ -150,8 +150,8 @@ window.AppNav = (function () {
         let text = active ? `${active} active` : '';
         if (active && pending !== null) text += pending ? ` · ${pending} pending` : ' · all taken';
         // Stock tab: "2 need a refill" (the Needs attention rows) replaces it.
-        if (typeof getActiveMedsSubTab === 'function' && getActiveMedsSubTab() === 'inventory' && typeof formatStock === 'function') {
-            const n = meds.filter((m) => m && m.inventory_count != null && formatStock(m.inventory_count, m).state !== 'ok').length;
+        if (typeof getActiveMedsSubTab === 'function' && getActiveMedsSubTab() === 'inventory' && typeof stockAttentionMeds === 'function') {
+            const n = stockAttentionMeds(meds).length;
             if (n) text = `${n} need${n === 1 ? 's' : ''} a refill`;
         }
         document.querySelectorAll('[data-meds-sub]').forEach((sub) => {
