@@ -6643,8 +6643,14 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-sm);
 }
 
-/* Update stock sheet (kit ST1-ST3): kit display rules beat the UA [hidden]
-   rule for the mode-dependent field and hint. */
+/* Update stock sheet (kit ST1-ST3): on the same --z-confirm layer as its
+   .mt-confirm-backdrop, or the backdrop swallows every tap as a dismiss (and
+   above the medication editor it opens from). Kit display rules beat the UA
+   [hidden] rule for the mode-dependent field and hint. */
+.wg-meds-stocksheet {
+    z-index: var(--z-confirm);
+}
+
 .wg-meds-stocksheet [hidden] {
     display: none;
 }
