@@ -152,6 +152,22 @@ describe('aiClient.chatStream (bd med-h849.2)', () => {
     expect(sent.messages).toEqual(IMAGE_BODY.messages);
   });
 
+  it('BYO: the next text turn, photo still in history, goes back to the text triple', async () => {
+    const client = createAIClient({ settingsDomain: settingsWith({
+      api_key: 'k', url: 'https://p.example.com/v1', model: 'text-m',
+      vision_api_key: 'vk', vision_url: 'https://v.example.com/v1', vision_model: 'vision-m',
+    }) });
+    global.fetch.mockResolvedValueOnce(streamResponse(SSE));
+    const body = {
+      ...IMAGE_BODY,
+      messages: [...IMAGE_BODY.messages, { role: 'assistant', content: 'A cat.' }, { role: 'user', content: 'thanks' }],
+    };
+    await client.chatStream({ body, onChunk: () => {} });
+    const [url, init] = global.fetch.mock.calls[0];
+    expect(url).toBe('https://p.example.com/v1/chat/completions');
+    expect(JSON.parse(init.body).model).toBe('text-m');
+  });
+
   it('trial: an image turn asks the proxy for the vision model', async () => {
     const meta = document.createElement('meta');
     meta.name = 'medtracker-trial-ai';

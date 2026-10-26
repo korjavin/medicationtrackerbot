@@ -343,9 +343,14 @@ async function fileToDataURL(file) {
   });
 }
 
+// Only the NEWEST user message counts: the photo stays in the ElevenLabs
+// history, and routing every later turn to vision creds would silence the
+// call when the vision triple falls back to a text-only model.
 function hasImagePart(messages) {
-  return Array.isArray(messages) && messages.some((m) => Array.isArray(m && m.content)
-    && m.content.some((p) => p && p.type === 'image_url'));
+  if (!Array.isArray(messages)) return false;
+  const last = [...messages].reverse().find((m) => m && m.role === 'user');
+  return Boolean(last && Array.isArray(last.content)
+    && last.content.some((p) => p && p.type === 'image_url'));
 }
 
 // trialErrorInfo extracts the trial proxy's machine-readable error code
@@ -827,7 +832,7 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
   // mapped like chat()) or when signal aborts the fetch. Trial calls gate on
   // the `voice` consent scope.
   async function chatStream({ body, signal, onChunk }) {
-    // A turn carrying an image (an in-call photo, bd med-ku8r — ElevenLabs is
+    // A turn whose newest user message carries an image (an in-call photo, bd med-ku8r — ElevenLabs is
     // expected to hand it over as an OpenAI image_url part, data: or https:)
     // goes to the vision triple, like parseMealFromImage: the text model may
     // not read images at all. Text-only turns are unchanged.

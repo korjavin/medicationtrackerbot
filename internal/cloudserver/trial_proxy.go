@@ -239,6 +239,8 @@ func (a *TrialProxyAPI) ElevenLabsUploadFile(w http.ResponseWriter, r *http.Requ
 	if !a.rateLimit(w, a.limiter, account.ID) {
 		return
 	}
+	// A 768 KiB photo on weak mobile data can outlast the server's 15s read deadline.
+	extendTrialDeadlines(w)
 	r.Body = http.MaxBytesReader(w, r.Body, maxTrialUploadBytes)
 	ctype, data, code, status := readTrialUploadImage(r)
 	if code != "" {
