@@ -623,7 +623,9 @@ window.MedTrackerCloudReady = (async function boot() {
         const floorTimeZone = () => {
             if (floored) return;
             Promise.resolve().then(() => shimCall.floorTimeZone()).then((wrote) => {
-                if (wrote || pulledThisSession()) floored = true;
+                // A drain that settles while the move pickup is pending must
+                // not end the tries: canFloor said no only because of the pickup.
+                if (wrote || (moveSettled && pulledThisSession())) floored = true;
             }).catch((e) => console.error('[cloud-boot] time zone floor failed', e));
         };
         movePickup.then(floorTimeZone);
