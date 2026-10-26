@@ -166,6 +166,9 @@ describe('aiClient.chatStream (bd med-h849.2)', () => {
     const [url, init] = global.fetch.mock.calls[0];
     expect(url).toBe('https://p.example.com/v1/chat/completions');
     expect(JSON.parse(init.body).model).toBe('text-m');
+    // A text-only model never sees the photo: it is a text placeholder now.
+    expect(init.body).not.toContain('image_url');
+    expect(init.body).toContain('[photo shared earlier]');
   });
 
   it('trial: an image turn asks the proxy for the vision model', async () => {

@@ -353,6 +353,18 @@ function hasImagePart(messages) {
     && last.content.some((p) => p && p.type === 'image_url'));
 }
 
+// Messages without image parts are returned as-is (text-only turns stay
+// byte-identical).
+function stripImageParts(messages) {
+  return messages.map((m) => {
+    if (!m || !Array.isArray(m.content) || !m.content.some((p) => p && p.type === 'image_url')) return m;
+    return {
+      ...m,
+      content: m.content.map((p) => (p && p.type === 'image_url' ? { type: 'text', text: '[photo shared earlier]' } : p)),
+    };
+  });
+}
+
 // trialErrorInfo extracts the trial proxy's machine-readable error code
 // ({"error":"trial_not_configured"} etc.) and the real upstream status it
 // relays ({"upstream_status":401}) from a failed response body. Both fall back
@@ -849,6 +861,9 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
       elevenlabs_extra_body: _extra, user: _user, user_id: _userId, model: _model, ...req
     } = body || {};
     req.stream = true;
+    // A text-credential turn never sends an image: a photo still in the
+    // history becomes a short text part, so a text-only model can't 400 on it.
+    if (!image && Array.isArray(req.messages)) req.messages = stripImageParts(req.messages);
     const headers = { 'Content-Type': 'application/json' };
     // trial: server forces the model
     let endpoint = `/api/trial/openai/chat/completions${image ? '?vision=1' : ''}`;
