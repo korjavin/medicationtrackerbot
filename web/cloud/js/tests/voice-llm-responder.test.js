@@ -313,6 +313,29 @@ describe('voice-llm-responder — pending photo (bd med-ku8r)', () => {
     responder.stop();
   });
 
+  it('a cancelled photo turn hands the photo to the re-sent turn, exactly once', async () => {
+    let hang = true;
+    const { aiClient, responder, sock } = await started(({ signal, onChunk }) => {
+      if (!hang) { onChunk('x'); return Promise.resolve(); }
+      hang = false; // the first (slow vision) turn waits for its cancel
+      return new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
+    });
+    const answered = responder.setPendingImage(IMG);
+    sock.recv({ id: 1, type: 'request', body: turn() });
+    await drain();
+    sock.recv({ id: 1, type: 'cancel' });
+    await drain();
+    sock.recv({ id: 2, type: 'request', body: turn() });
+    await expect(answered).resolves.toBeUndefined();
+    const images = (call) => call[0].body.messages[1].content.filter((p) => p.type === 'image_url');
+    expect(images(aiClient.chatStream.mock.calls[0])).toHaveLength(1);
+    expect(images(aiClient.chatStream.mock.calls[1])).toHaveLength(1);
+    sock.recv({ id: 3, type: 'request', body: turn() });
+    await drain();
+    expect(aiClient.chatStream.mock.calls[2][0].body).toEqual(turn());
+    responder.stop();
+  });
+
   it('cancel() takes a queued photo back out before any turn', async () => {
     const { aiClient, responder, sock } = await started();
     const answered = responder.setPendingImage(IMG);

@@ -98,6 +98,15 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
     }
   }
 
+  // A cancelled turn is usually re-sent (ElevenLabs' cascade timeout, a leg
+  // blip): its photos go back to the front for the re-sent turn, which drops
+  // them if its newest user message is no longer the marker. After stop()
+  // there is no next turn, so they fail.
+  function requeue(images) {
+    if (stopped) settleImages(images, new Error('the call ended'));
+    else pendingImages = images.concat(pendingImages);
+  }
+
   // Queues one photo (a data: URL) for the next turn and returns a promise
   // that resolves when that turn was answered, rejects when it failed or never
   // carried the photo. Throws at once (nothing queued) when there is no leg or
@@ -175,7 +184,7 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
       }
       if (ctrl.signal.aborted) {
         outcome = 'cancel';
-        settleImages(carried, new Error('the agent was interrupted, send it again'));
+        requeue(carried);
       } else {
         send(sock, { id, type: 'end' });
         settleImages(carried);
@@ -183,7 +192,7 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
     } catch (err) {
       if (ctrl.signal.aborted) {
         outcome = 'cancel';
-        settleImages(carried, new Error('the agent was interrupted, send it again'));
+        requeue(carried);
       } else {
         outcome = 'error';
         settleImages(carried, err);
