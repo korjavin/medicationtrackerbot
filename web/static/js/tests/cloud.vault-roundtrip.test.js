@@ -73,6 +73,22 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     }
   });
 
+  // med-wi09.26: the dismissed-zone list rides the general singleton beside
+  // the legacy string; a file without it imports and exports without it.
+  it('dismissed_tz_suggestions round-trips; an older file without it imports unchanged', () => {
+    const general = (recs) => recs.find((r) => r.recordType === 'settings' && r.recordId === 'settings');
+    expect(general(vaultToRecords(fixture, { now: NOW }))).toMatchObject({
+      dismissed_tz_suggestion: 'Asia/Tokyo', dismissed_tz_suggestions: ['America/New_York', 'Asia/Tokyo'],
+    });
+
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.settings.dismissed_tz_suggestions;
+    const records = vaultToRecords(legacy, { now: NOW });
+    expect(general(records).dismissed_tz_suggestion).toBe('Asia/Tokyo');
+    expect(general(records)).not.toHaveProperty('dismissed_tz_suggestions');
+    expect(recordsToVault(records, { now: NOW }).data.settings).toEqual(legacy.data.settings);
+  });
+
   it('trackers keep their id; check logs re-mint the deterministic day id (med-1vy5)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const of = (type) => records.filter((r) => r.recordType === type);
@@ -329,6 +345,10 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       }
       // And the reminder delivery pref (med-5vy0.4).
       delete d.settings.reminder_delivery;
+      // And the travel-prompt dismissals: the frozen export predates the
+      // fixture's (med-wi09.26).
+      delete d.settings.dismissed_tz_suggestions;
+      d.settings.dismissed_tz_suggestion = '';
       // And the schedule / zone history (med-wi09.9).
       delete d.medications.schedules;
       delete d.tz.transitions;

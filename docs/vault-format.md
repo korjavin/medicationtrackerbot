@@ -430,7 +430,8 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 ```json
 "settings": {
   "timezone": "Europe/Berlin",
-  "dismissed_tz_suggestion": "",
+  "dismissed_tz_suggestion": "",            // the newest dismissed detected zone (older readers compare it)
+  "dismissed_tz_suggestions": ["UTC", ...],  // every dismissed zone since the last zone change, oldest first, max 10; absent when empty (med-wi09.26)
   "height_cm": 180,                          // absent when unset
   "height_unit": "ftin",                     // absent when unset
   "show_bmi": false,                         // absent when unset

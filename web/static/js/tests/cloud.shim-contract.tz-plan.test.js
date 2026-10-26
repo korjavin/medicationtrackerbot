@@ -8,9 +8,10 @@ import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import {
-    applyIncomingReplica, createStampingRecordsPort, loadCloudShimFrontendEnv
+    applyIncomingReplica, createInMemoryRecordsPort, createStampingRecordsPort, loadCloudShimFrontendEnv
 } from './helpers/cloud-shim-harness.js';
 import { createTzPlanDomain, planDosesWithTzPlan } from '../../../domain/tzplan.js';
+import { createApiRouter } from '../../../cloud/js/apishim.js';
 
 // Apply/Cancel round-trip twice — the POST, then the re-read refresh() does so
 // the approved card can replace the pending one — so drain the queue instead of
@@ -585,5 +586,125 @@ describe('cloud shim contract — settings.timezone drives the router clock', ()
         await window.offlineAwareApiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
 
         expect((await window.offlineAwareApiCall('/api/bp/stats', 'GET')).stats_14.days).toBe(1);
+    });
+});
+
+// bd med-wi09.26 — a travel-prompt dismissal holds for every dismissed
+// detected zone (dismissed_tz_suggestions) beside the legacy string, so two
+// devices off-zone at once in different zones stop re-prompting each other.
+describe('travel prompt dismissals across devices (bd med-wi09.26)', () => {
+    let clock;
+    const device = (records, timeZone) => {
+        const call = createApiRouter({}, {
+            records, win: {}, effects: {}, now: () => clock, timeZone,
+        });
+        return {
+            asks: async (tz) => (await call(`/api/tz-suggestion/should-prompt?detected_tz=${encodeURIComponent(tz)}`)).prompt,
+            dismiss: (tz) => call('/api/tz-suggestion/dismiss', 'POST', { detected_tz: tz }),
+            call,
+        };
+    };
+    const sync = async (from, to) => {
+        for (const r of await from.listRaw('settings')) {
+            const cur = (await to.listRaw('settings')).find((x) => x.recordId === r.recordId);
+            const won = applyIncomingReplica(cur, r);
+            if (won !== cur) await to.put('settings', won);
+        }
+    };
+    const berlin = (extra = {}) => ({
+        settings: [{
+            recordId: 'settings', clientTs: 1, deleted: false, timezone: 'Europe/Berlin', ...extra,
+        }],
+    });
+    const stored = async (records) => (await records.list('settings'))[0];
+    // What a pre-med-wi09.26 bundle decides: the string alone.
+    const oldBundleSkips = (rec, tz) => rec.timezone === tz || rec.dismissed_tz_suggestion === tz;
+    const tick = () => { clock += 60_000; };
+
+    beforeEach(() => { clock = Date.UTC(2026, 9, 1); });
+
+    it('A (UTC) and B (New York) dismiss in turn: neither prompts on the next launch; a zone change clears both and re-asks once', async () => {
+        const a = createInMemoryRecordsPort(berlin());
+        const b = createInMemoryRecordsPort();
+        await sync(a, b);
+        const onA = device(a, 'UTC');
+        const onB = device(b, 'America/New_York');
+
+        expect(await onA.asks('UTC')).toBe(true);
+        tick(); await onA.dismiss('UTC');
+        await sync(a, b);
+        expect(await onB.asks('America/New_York')).toBe(true);
+        tick(); await onB.dismiss('America/New_York');
+        await sync(b, a);
+
+        expect(await onA.asks('UTC')).toBe(false);
+        expect(await onB.asks('America/New_York')).toBe(false);
+        const rec = await stored(a);
+        expect(rec).toMatchObject({
+            dismissed_tz_suggestion: 'America/New_York',
+            dismissed_tz_suggestions: ['UTC', 'America/New_York'],
+        });
+        // The legacy string keeps its meaning: an old bundle on B skips, an
+        // old bundle on A re-asks (once: its dismissal writes the string).
+        expect(oldBundleSkips(rec, 'America/New_York')).toBe(true);
+        expect(oldBundleSkips(rec, 'UTC')).toBe(false);
+
+        // An actual zone change (the prompt's accept on B) clears both.
+        tick();
+        expect(await onB.call('/api/settings', 'POST', { timezone: 'Asia/Tokyo' })).toEqual({ changed: true, planCreated: false });
+        await sync(b, a);
+        expect(await stored(a)).toMatchObject({ timezone: 'Asia/Tokyo', dismissed_tz_suggestion: '', dismissed_tz_suggestions: [] });
+        expect(await onA.asks('UTC')).toBe(true);
+        tick(); await onA.dismiss('UTC');
+        expect(await onA.asks('UTC')).toBe(false);
+        expect(await onB.asks('America/New_York')).toBe(true);
+    });
+
+    it('re-saving the same zone keeps the dismissals', async () => {
+        const a = createInMemoryRecordsPort(berlin({ dismissed_tz_suggestion: 'UTC', dismissed_tz_suggestions: ['UTC'] }));
+        const onA = device(a, 'UTC');
+        tick(); await onA.call('/api/settings', 'POST', { timezone: 'Europe/Berlin' });
+        expect(await onA.asks('UTC')).toBe(false);
+    });
+
+    it('an old-bundle record (string only) still suppresses, and its zone joins the list on the next dismissal', async () => {
+        const a = createInMemoryRecordsPort(berlin({ dismissed_tz_suggestion: 'UTC' }));
+        const onA = device(a, 'UTC');
+        expect(await onA.asks('UTC')).toBe(false);
+        expect(await onA.asks('America/New_York')).toBe(true);
+        tick(); await onA.dismiss('America/New_York');
+        expect(await onA.asks('UTC')).toBe(false);
+        expect(await onA.asks('America/New_York')).toBe(false);
+        expect((await stored(a)).dismissed_tz_suggestions).toEqual(['UTC', 'America/New_York']);
+    });
+
+    it('a zone change by an old bundle (clears the string, carries the list) leaves no stale dismissal', async () => {
+        const a = createInMemoryRecordsPort(berlin({
+            dismissed_tz_suggestion: 'America/New_York', dismissed_tz_suggestions: ['UTC', 'America/New_York'],
+        }));
+        const rec = await stored(a);
+        tick();
+        await a.put('settings', {
+            ...rec, clientTs: clock, timezone: 'Asia/Tokyo', dismissed_tz_suggestion: '',
+        });
+        const onA = device(a, 'UTC');
+        expect(await onA.asks('UTC')).toBe(true);
+        expect(await onA.asks('America/New_York')).toBe(true);
+        expect((await onA.call('/api/settings')).timezone).toBe('Asia/Tokyo');
+    });
+
+    it('the list is deduped and keeps the newest ten', async () => {
+        const a = createInMemoryRecordsPort(berlin());
+        const onA = device(a, 'UTC');
+        const zones = Array.from({ length: 12 }, (_, i) => `Etc/GMT+${i + 1}`);
+        for (const z of [...zones, 'Etc/GMT+5']) {
+            tick();
+            await onA.dismiss(z);
+        }
+        const rec = await stored(a);
+        expect(rec.dismissed_tz_suggestion).toBe('Etc/GMT+5');
+        expect(rec.dismissed_tz_suggestions).toEqual([...zones.slice(2).filter((z) => z !== 'Etc/GMT+5'), 'Etc/GMT+5']);
+        expect(await onA.asks('Etc/GMT+1')).toBe(true);
+        expect(await onA.asks('Etc/GMT+12')).toBe(false);
     });
 });

@@ -76,7 +76,9 @@
 import { calculateBPCategory } from './bp.js';
 import { compareChain, isHealthWeight, weightTrendChain } from './weight.js';
 import { healthImportRecordId, healthNumericId } from './healthsource.js';
-import { FIRSTRUN_RECORD_TYPE, FIRSTRUN_RECORD_ID, storedBodySettings } from './settings.js';
+import {
+  FIRSTRUN_RECORD_TYPE, FIRSTRUN_RECORD_ID, normalizeDismissedTzList, storedBodySettings,
+} from './settings.js';
 import { sortByEffective } from './medschedule.js';
 import { DELIVERYPREF_RECORD_TYPE, DELIVERY_CHANNELS, VERBOSITIES } from './reminders.js';
 
@@ -543,6 +545,9 @@ export function recordsToVault(records, { now, includeSecrets = true, backupAt }
   };
   const bpReminderRec = singleton('bpreminderpref', 'bpreminderpref');
   const weightReminderRec = singleton('weightreminderpref', 'weightreminderpref');
+  // bd med-wi09.26: absent when empty, so older files and exports stay byte-identical.
+  const dismissedTzs = normalizeDismissedTzList(general && general.dismissed_tz_suggestions);
+  if (dismissedTzs.length) settings.dismissed_tz_suggestions = dismissedTzs;
   // Body settings (epic med-a6fb: height_cm, height_unit, show_bmi): carried
   // when present, omitted when absent, never null.
   Object.assign(settings, storedBodySettings(general, { vault: true }));
@@ -956,6 +961,8 @@ export function vaultToRecords(vault, { now } = {}) {
   const generalBody = {};
   if (settings.timezone !== undefined || tz.current) generalBody.timezone = settings.timezone || tz.current || '';
   generalBody.dismissed_tz_suggestion = settings.dismissed_tz_suggestion || '';
+  const dismissedTzs = normalizeDismissedTzList(settings.dismissed_tz_suggestions);
+  if (dismissedTzs.length) generalBody.dismissed_tz_suggestions = dismissedTzs;
   // Body settings: legacy files omit them; an invalid (e.g. non-numeric) value is ignored.
   Object.assign(generalBody, storedBodySettings(settings, { vault: true }));
   push('settings', 'settings', generalBody);
