@@ -78,8 +78,9 @@ function slotId(medId, scheduledAtMs) {
 // (applyIncoming) and every pending-vs-snapshot overlay, in place of LWW on
 // clientTs, so a stale Telegram tap drained late can never undo a correction.
 //   1. a tombstone is terminal both ways;
-//   2. higher rev wins — explicit actions write seen+1, a reminder callback
-//      only moves rev 0 → 1;
+//   2. higher rev wins — explicit actions write seen+1, and so does a
+//      reminder callback, but only on an open dose and only when the tap is
+//      newer than the row's acted_at (bd med-944k);
 //   3. equal rev: via app = mcp > telegram = native > legacy;
 //   4. then the later acted_at, then clientTs, then the body — a total order,
 //      so every device picks the same winner whatever the apply order. Two
@@ -165,6 +166,14 @@ function genManualId(nowMs) {
 function notPending(message = 'intake is not pending') {
   const err = new Error(message);
   err.code = 'not_pending';
+  return err;
+}
+
+// A reminder callback tapped before the dose's last explicit action (bd
+// med-944k): the in-app action is the newer intent, so the tap is out of date.
+function staleCallback(message = 'reminder tap is older than the last action on this dose') {
+  const err = new Error(message);
+  err.code = 'stale_callback';
   return err;
 }
 
@@ -963,15 +972,20 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return states ? rows.filter((r) => states.includes(r.state)) : rows;
   }
 
-  // The REMINDER CALLBACK (a Telegram tap drained by inbox-apply.js): PENDING ->
-  // TAKEN, decrement inventory. A callback may only move rev 0 -> 1 (bd
-  // med-wi09.11): a dose any explicit action already touched is not its to
-  // change, so it throws not_pending like an already-confirmed one — which is
-  // also the redelivery idempotency guard (no double decrement).
+  // The REMINDER CALLBACK (a Telegram tap drained by inbox-apply.js): an OPEN
+  // dose (PENDING, or UNTAKEN after an undo) -> TAKEN, decrement inventory,
+  // through acted() (rev seen+1). The tap is the user's intent at takenAtMs, so
+  // it applies only when it is newer than the dose's last explicit action (bd
+  // med-944k; it replaced med-wi09.11's rev 0 -> 1 proxy, which refused a tap
+  // made after an undo): a row acted on at or after the tap throws
+  // stale_callback, a row with no acted_at has never been acted on. A dose
+  // already TAKEN/SKIPPED throws not_pending — the redelivery idempotency
+  // guard (no double decrement).
   async function confirm(intakeId, takenAtMs) {
     const intake = await getIntake(intakeId);
-    if (!intake || intake.status !== 'PENDING' || intakeRev(intake) !== 0) throw notPending();
+    if (!intake || !OPEN_STATUSES.has(intake.status)) throw notPending();
     const nowMs = now();
+    if (intake.acted_at && Date.parse(intake.acted_at) >= (takenAtMs ?? nowMs)) throw staleCallback();
     const updated = acted(intake, { status: 'TAKEN', taken_at: new Date(takenAtMs ?? nowMs).toISOString() }, nowMs);
     await putIntake(updated, intake);
     return toResponse(updated);

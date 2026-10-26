@@ -169,12 +169,23 @@ function defaultTimeZone() {
 
 // A re-drained event finds its intakes already TAKEN, and the domain's confirm()
 // throws rather than double-decrement inventory. That throw is the idempotency
-// guard doing its job, not a failure — swallow it so the event still gets acked.
-// Anything else propagates and leaves the event queued for the next drain.
+// guard doing its job, not a failure — swallow it so the event still gets acked,
+// but only when the dose really IS settled (TAKEN/SKIPPED) at that id (bd
+// med-944k): a not_pending on a dose still open is a bug, and swallowing it is
+// how a tap used to vanish. Anything else propagates and leaves the event
+// queued for the next drain.
 //
 // Keyed on the domain's structured `code`, not its message text.
-function isAlreadyApplied(err) {
-  return !!err && err.code === 'not_pending';
+async function isAlreadyApplied(err, intake, intakeId) {
+  if (!err || err.code !== 'not_pending') return false;
+  const row = await intake.getIntake(intakeId);
+  return !!row && (row.status === 'TAKEN' || row.status === 'SKIPPED');
+}
+
+// The domain refused a tap older than the dose's last explicit action (bd
+// med-944k): the reminder is out of date, never silently dropped.
+function isStaleCallback(err) {
+  return !!err && err.code === 'stale_callback';
 }
 
 // The receipt for a tap that names a dose the vault no longer has at that
@@ -185,15 +196,19 @@ export const OUT_OF_DATE_TEXT = 'This reminder is out of date — open the app t
 // The receipt lines for a Confirm tap's settled doses (bd med-944k). A tap that
 // records nothing must say so on the message — the relay's static "✅
 // Confirmed — waiting for your device" is otherwise left standing over a dose
-// still Due. Only a dose already TAKEN reads as done; a dose the user undid
-// (UNTAKEN) or skipped is "not recorded". Generic verbosity carries no counts.
-function intakeReceiptLines({ confirmed, already, notRecorded }, verbosity) {
+// still Due. Only a dose already TAKEN reads as done; one marked skipped in the
+// app says why it was not recorded; anything else still open after the tap
+// (no write landed) is plainly "not recorded", and so is a tap older than the
+// dose's last in-app action, saying why. Generic verbosity carries no counts.
+function intakeReceiptLines({ confirmed, already, skipped, stale, notRecorded }, verbosity) {
   const generic = verbosity === 'generic';
   const meds = (n) => `${n} medication${n === 1 ? '' : 's'}`;
   const lines = [];
   if (confirmed) lines.push(confirmationText({ kind: 'intake' }, { confirmed }, verbosity));
   if (already) lines.push(generic ? '✅ Already recorded.' : `✅ Already taken: ${meds(already)}.`);
-  if (notRecorded) lines.push(generic ? '⚠️ Not recorded — open the app to mark it taken.' : `⚠️ Not recorded: ${meds(notRecorded)} — open the app to mark ${notRecorded === 1 ? 'it' : 'them'} taken.`);
+  if (skipped) lines.push(generic ? '⚠️ Not recorded: marked skipped in the app.' : `⚠️ Not recorded: ${meds(skipped)} marked skipped in the app.`);
+  if (stale) lines.push(generic ? '⚠️ Not recorded: changed in the app after this tap.' : `⚠️ Not recorded: ${meds(stale)} changed in the app after this tap.`);
+  if (notRecorded) lines.push('⚠️ Not recorded — open the app to mark it taken.');
   return lines;
 }
 
@@ -269,6 +284,11 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     return out;
   };
   const isPending = (dose) => !!dose && dose !== 'gone' && dose.status === 'PENDING';
+  // A Confirm acts on any open dose — UNTAKEN after an undo too (bd
+  // med-944k); confirm() itself refuses a tap older than the undo. Snooze keeps
+  // to PENDING as before.
+  const isOpen = (dose) => isPending(dose) || (!!dose && dose !== 'gone' && dose.status === 'UNTAKEN');
+  const actionable = event.action === 'confirm' ? isOpen : isPending;
 
   // Read through the replace gate, so a tap during a store replace fails and
   // stays queued.
@@ -292,14 +312,16 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
 
   const unresolved = named.filter((medId) => before.get(medId) === null);
 
+  const stale = new Set();
   let applied = 0;
   for (const medId of named) {
     const dose = before.get(medId);
-    if (!isPending(dose)) continue;
+    if (!actionable(dose)) continue;
     try {
       if (event.action === 'confirm') {
         // The reminder callback: confirm-or-create at the exact occId, rev
-        // 0 → 1 only (a dose an explicit action touched throws not_pending).
+        // seen+1, only when the tap is newer than the dose's last explicit
+        // action (else stale_callback → out of date below).
         await intake.confirm(dose.recordId, atMs);
       } else {
         // Snooze from the TAP, not from the drain. If that window already
@@ -311,10 +333,11 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
       }
       applied += 1;
     } catch (e) {
-      // not_pending on a dose getIntake resolved: a concurrent drainer took it
-      // (the receipt counts it TAKEN) or the domain refused it (the receipt
-      // says "not recorded"). Not retryable either way, so no re-queue.
-      if (!isAlreadyApplied(e)) throw e;
+      // A tap older than the last in-app action on that dose: not the newest
+      // intent, so no write — the receipt says why.
+      if (isStaleCallback(e)) { stale.add(medId); continue; }
+      // A concurrent drainer settled it first; the receipt counts it.
+      if (!(await isAlreadyApplied(e, intake, dose.recordId))) throw e;
     }
   }
 
@@ -334,21 +357,26 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   const lines = [];
   if (event.action === 'confirm') {
     const after = await resolveNamed();
-    const stillDue = named.filter((medId) => isPending(after.get(medId)));
+    // A dose the user re-opened in the app after this tap is theirs to act on,
+    // not this reminder's chain to re-arm.
+    const stillDue = named.filter((medId) => !stale.has(medId) && isOpen(after.get(medId)));
     if (stillDue.length) rearmRefire(slotMs, stillDue);
     else cancelRefire(slotMs);
     // Settle every resolved named med from the vault as it now stands, not
     // from this attempt's writes: an at-least-once redelivery after a partial
     // success re-runs with the earlier meds already TAKEN, so `applied` alone
     // would undercount. taken_at === atIso is exactly this tap's set; any
-    // other TAKEN was taken before the tap; everything else (UNTAKEN after an
-    // undo, SKIPPED, a not_pending refusal) recorded nothing. A tombstoned
-    // slot is the user's deletion and stays silent.
-    const settled = { confirmed: 0, already: 0, notRecorded: 0 };
+    // other TAKEN was taken before the tap; SKIPPED was skipped in the app; a
+    // stale tap lost to a later in-app action; anything else still open
+    // recorded nothing. A tombstoned slot is the user's deletion and stays
+    // silent.
+    const settled = { confirmed: 0, already: 0, skipped: 0, stale: 0, notRecorded: 0 };
     for (const medId of named) {
       const dose = after.get(medId);
       if (unresolved.includes(medId) || dose === 'gone') continue;
       if (dose && dose.status === 'TAKEN') settled[dose.taken_at === atIso ? 'confirmed' : 'already'] += 1;
+      else if (stale.has(medId)) settled.stale += 1;
+      else if (dose && dose.status === 'SKIPPED') settled.skipped += 1;
       else settled.notRecorded += 1;
     }
     // Edit the original reminder message to a receipt and drop its buttons
@@ -358,7 +386,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     // applied now, every med confirmed at this tap's instant): that receipt
     // is already on the message. message_id is absent when Telegram omitted
     // cq.Message for an old message → editReply is a safe no-op.
-    const landedWhole = applied === 0 && !unresolved.length && settled.confirmed > 0 && !settled.already && !settled.notRecorded;
+    const landedWhole = applied === 0 && !unresolved.length && settled.confirmed > 0 && !settled.already && !settled.skipped && !settled.stale && !settled.notRecorded;
     if (!landedWhole) lines.push(...intakeReceiptLines(settled, verbosity));
     // Every named slot tombstoned: still answer the message.
     if (!landedWhole && !lines.length && !unresolved.length) lines.push(confirmationText({ kind: 'intake' }, { confirmed: 0 }, verbosity));
@@ -812,7 +840,9 @@ async function confirmDueIntakes({ intake, atMs }) {
       await intake.confirm(i.recordId, atMs);
       confirmed++;
     } catch (e) {
-      if (!isAlreadyApplied(e)) throw e;
+      // A dose acted on in the app after this message is not its to change.
+      if (isStaleCallback(e)) continue;
+      if (!(await isAlreadyApplied(e, intake, i.recordId))) throw e;
     }
   }
   return { confirmed };
@@ -847,7 +877,8 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // vitals_import stops emitting one /api/sync/ops POST per record (med-0ol.2).
   const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true });
   const timeZone = defaultTimeZone();
-  // via telegram: confirm() here is the reminder callback (rev 0 -> 1 only).
+  // via telegram: confirm() here is the reminder callback (an open dose, only
+  // when the tap is newer than its last explicit action).
   // Built on the account's zone — the pinned settings.timezone, which a tz-plan
   // approval also moves (the tracked zone) — never the device clock: acted()
   // stamps it on every confirm, and that stamp is the day's evidence zone (bd

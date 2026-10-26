@@ -124,9 +124,9 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(meds.find((m) => m.recordId === 'med-b').inventory_count).toBe(19);
     });
 
-    // bd med-wi09.11 — a reminder callback only moves rev 0 -> 1. The tap is
-    // stamped rev 1 / via telegram; after an in-app undo (rev 2, UNTAKEN) a
-    // re-drained copy of the same tap changes nothing.
+    // bd med-wi09.11 / med-944k — the tap is stamped rev 1 / via telegram; after
+    // an in-app undo (rev 2, UNTAKEN, acted after the tap) a re-drained copy of
+    // the same tap is older than that undo and changes nothing.
     it('a callback writes rev 1 via telegram, and a re-drained tap never undoes an in-app undo', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
@@ -406,14 +406,12 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
         const real = domainFor(records, now);
+        const notPending = () => Object.assign(new Error('intake is not pending'), { code: 'not_pending' });
         const raced = {
             occurrences: real.occurrences,
             getIntake: real.getIntake,
-            confirm: vi.fn(async () => {
-                const err = new Error('intake is not pending');
-                err.code = 'not_pending';
-                throw err;
-            }),
+            // The other drainer lands the dose first; this one loses the race.
+            confirm: vi.fn(async (id, at) => { await real.confirm(id, at); throw notPending(); }),
             snooze: real.snooze,
         };
 
@@ -421,6 +419,18 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             applyIntakeSlotAction(confirmEvent, { intake: raced, records, now }),
         ).resolves.toBeUndefined();
         expect(raced.confirm).toHaveBeenCalledTimes(2);
+    });
+
+    // bd med-944k: not_pending is "already applied" only for a dose that IS
+    // settled. On a dose still open it is a bug, and swallowing it is how a tap
+    // vanished — it propagates, so the event stays queued.
+    it('a not_pending on a dose still open propagates instead of acking the tap', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const real = domainFor(records, now);
+        const refused = { ...real, confirm: async () => { throw Object.assign(new Error('intake is not pending'), { code: 'not_pending' }); } };
+        await expect(applyIntakeSlotAction(confirmEvent, { intake: refused, records, now }))
+            .rejects.toMatchObject({ code: 'not_pending' });
     });
 
     // ...but a real failure must propagate, so drainInbox leaves the event queued.
@@ -679,8 +689,9 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     });
 
     // The case the re-arm exists for: a NAMED med's exact slot dose is still
-    // open after the tap — here a concurrent drainer's not_pending race left it
-    // PENDING. Without the re-arm the relay would stay silent about it.
+    // open after the tap — here a confirm that returned without its write
+    // landing left it PENDING. Without the re-arm the relay would stay silent
+    // about it.
     it('re-arms the chain, naming the meds still due, when a resolved dose is left over', async () => {
         const records = slotDoseFixture();
         const now = () => DRAIN_MS;
@@ -688,7 +699,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const raced = {
             ...real,
             confirm: async (id, at) => {
-                if (id.startsWith('intake-med-b-')) throw Object.assign(new Error('intake is not pending'), { code: 'not_pending' });
+                if (id.startsWith('intake-med-b-')) return undefined;
                 return real.confirm(id, at);
             },
         };
@@ -915,34 +926,62 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     });
 
     // bd med-944k — the production shape: a 08:20 Asia/Tbilisi reminder (04:20Z)
-    // for five meds whose slot rows an in-app take + undo had left UNTAKEN rev
-    // 2. The tap (relay refire message 1041, tapped 07:14:56Z) recorded nothing
-    // and used to ack with the relay's static "✅ Confirmed — waiting for your
-    // device" still on the message. The callback still may not touch a dose an
-    // explicit action owns (rev 0 → 1 only), but it must say so.
-    it('a tap on undone (UNTAKEN) doses records nothing and says so on the message', async () => {
-        const slot = 1792988400;
-        const meds = [2, 4, 7, 9, 16];
-        const untaken = (m) => ({
-            recordId: `intake-${m}-${slot}`, deleted: false, medication_id: m, scheduled_at: '2026-10-26T04:20:00.000Z', taken_at: null,
-            status: 'UNTAKEN', snoozed_until: null, source: 'schedule', clientTs: 1792964411771, rev: 2,
-            acted_at: '2026-10-25T21:40:12.818Z', via: 'app', tz: 'Asia/Tbilisi', note: 'Undone; was taken at 2026-10-25T21:40:00.802Z',
-        });
-        const records = fakeRecords({
-            medication: meds.map((m) => ({ recordId: m, deleted: false, name: `Med ${m}`, schedule: '{"type":"daily","times":["08:20"]}', inventory_count: 30 })),
-            intake: meds.map(untaken),
-            ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-10-20T00:00:00.000Z' }],
-        });
-        const now = () => Date.parse('2026-10-26T07:30:00Z');
-        const intake = createIntakeDomain({ records, now, timeZone: 'Asia/Tbilisi', via: 'telegram' });
-        const editReply = vi.fn(async () => {});
-        const event = { kind: INTAKE_SLOT_ACTION, action: 'confirm', slot_unix: slot, at_unix: 1792998896, message_id: 1041, medication_ids: meds };
-        await applyIntakeSlotAction(event, { intake, records, now, editReply });
+    // for five meds whose slot rows an in-app take + undo (21:40:12Z) had left
+    // UNTAKEN rev 2. The tap (relay refire message 1041, tapped 07:14:56Z)
+    // recorded nothing and acked with the relay's static "✅ Confirmed —
+    // waiting for your device" still on the message. The tap is newer than the
+    // undo, so it is the user's newest intent: it records (rev seen+1).
+    const OWNER_SLOT = 1792988400;
+    const OWNER_MEDS = [2, 4, 7, 9, 16];
+    const ownerUntaken = (m, actedAt = '2026-10-25T21:40:12.818Z') => ({
+        recordId: `intake-${m}-${OWNER_SLOT}`, deleted: false, medication_id: m, scheduled_at: '2026-10-26T04:20:00.000Z', taken_at: null,
+        status: 'UNTAKEN', snoozed_until: null, source: 'schedule', clientTs: 1792964411771, rev: 2,
+        acted_at: actedAt, via: 'app', tz: 'Asia/Tbilisi', note: 'Undone; was taken at 2026-10-25T21:40:00.802Z',
+    });
+    const ownerFixture = (actedAt) => fakeRecords({
+        medication: OWNER_MEDS.map((m) => ({ recordId: m, deleted: false, name: `Med ${m}`, schedule: '{"type":"daily","times":["08:20"]}', inventory_count: 30 })),
+        intake: OWNER_MEDS.map((m) => ownerUntaken(m, actedAt)),
+        ledgercut: [{ recordId: 'ledgercut', clientTs: 0, deleted: false, at: '2026-10-20T00:00:00.000Z' }],
+    });
+    const ownerNow = () => Date.parse('2026-10-26T07:30:00Z');
+    const ownerTap = { kind: INTAKE_SLOT_ACTION, action: 'confirm', slot_unix: OWNER_SLOT, at_unix: 1792998896, message_id: 1041, medication_ids: OWNER_MEDS };
+    const ownerIntake = (records) => createIntakeDomain({ records, now: ownerNow, timeZone: 'Asia/Tbilisi', via: 'telegram' });
 
-        expect(await records.list('intake')).toEqual(meds.map(untaken));
-        for (const m of await records.list('medication')) expect(m.inventory_count).toBe(30);
+    it('a tap newer than an undo confirms the UNTAKEN doses at the tap time', async () => {
+        const records = ownerFixture();
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(ownerTap, { intake: ownerIntake(records), records, now: ownerNow, editReply });
+
+        for (const row of await records.list('intake')) {
+            expect(row).toMatchObject({ status: 'TAKEN', taken_at: '2026-10-26T07:14:56.000Z', rev: 3, via: 'telegram' });
+        }
+        for (const m of await records.list('medication')) expect(m.inventory_count).toBe(29);
+        expect(editReply).toHaveBeenCalledWith(1041, '✅ Confirmed 5 medications.');
+    });
+
+    it('a redelivered tap finds the doses TAKEN: no second write, no receipt clobber', async () => {
+        const records = ownerFixture();
+        const editReply = vi.fn(async () => {});
+        const opts = { records, now: ownerNow, editReply };
+        await applyIntakeSlotAction(ownerTap, { intake: ownerIntake(records), ...opts });
+        const once = JSON.stringify(await records.list('intake'));
+        await applyIntakeSlotAction(ownerTap, { intake: ownerIntake(records), ...opts });
+
+        expect(JSON.stringify(await records.list('intake'))).toBe(once);
+        for (const m of await records.list('medication')) expect(m.inventory_count).toBe(29);
         expect(editReply).toHaveBeenCalledTimes(1);
-        expect(editReply).toHaveBeenCalledWith(1041, '⚠️ Not recorded: 5 medications — open the app to mark them taken.');
+    });
+
+    it('a tap older than the undo records nothing and says why', async () => {
+        const records = ownerFixture('2026-10-26T07:20:00.000Z'); // undone after the 07:14:56 tap
+        const editReply = vi.fn(async () => {});
+        const onOutOfDate = vi.fn();
+        await applyIntakeSlotAction(ownerTap, { intake: ownerIntake(records), records, now: ownerNow, editReply, onOutOfDate });
+
+        expect(await records.list('intake')).toEqual(OWNER_MEDS.map((m) => ownerUntaken(m, '2026-10-26T07:20:00.000Z')));
+        for (const m of await records.list('medication')) expect(m.inventory_count).toBe(30);
+        expect(editReply).toHaveBeenCalledWith(1041, '⚠️ Not recorded: 5 medications changed in the app after this tap.');
+        expect(onOutOfDate).not.toHaveBeenCalled();
     });
 
     it('a tap on a dose already taken in the app reports it done, with no second write', async () => {
@@ -961,7 +1000,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(editReply).toHaveBeenCalledWith(31, '✅ Already taken: 1 medication.');
     });
 
-    it('generic verbosity reports a no-op tap without counts', async () => {
+    it('a tap on a dose skipped in the app says it was skipped, with no write (generic: no counts)', async () => {
         const s = seed();
         s.intake[0] = { ...s.intake[0], status: 'SKIPPED', rev: 1, via: 'app' };
         const records = fakeRecords(s);
@@ -970,7 +1009,7 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         await applyIntakeSlotAction({ ...medsNamed(confirmEvent, ['med-a']), message_id: 32 }, { intake: domainFor(records, now), records, now, editReply, verbosity: 'generic' });
 
         expect((await records.list('intake')).find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('SKIPPED');
-        expect(editReply).toHaveBeenCalledWith(32, '⚠️ Not recorded — open the app to mark it taken.');
+        expect(editReply).toHaveBeenCalledWith(32, '⚠️ Not recorded: marked skipped in the app.');
     });
 
     // Archie (bd med-944k): a projection id the domain's resolver cannot act
