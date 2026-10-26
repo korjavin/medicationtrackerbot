@@ -1610,7 +1610,12 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
             }
         }
     };
-    const doses = (call) => call(`/api/doses?from=${iso(NOW)}&to=${iso(NOW + 24 * 3600_000)}`);
+    // The boot floors once it has pulled (cloud-boot.js → floorTimeZone), never
+    // a request; each read here stands in for a device's first open.
+    const doses = async (call) => {
+        await call.floorTimeZone();
+        return call(`/api/doses?from=${iso(NOW)}&to=${iso(NOW + 24 * 3600_000)}`);
+    };
     const floorOf = async (records) => (await records.list('tzfloor'))[0];
 
     it('device A floors its zone at clientTs 0; device B then projects A\'s instants and resolves A\'s occIds', async () => {
@@ -1659,13 +1664,16 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
         const pinned = createInMemoryRecordsPort({
             medication: [med], settings: [{ recordId: 'settings', clientTs: NOW, deleted: false, timezone: 'Asia/Tokyo' }],
         });
-        expect(await device(pinned, 'Europe/Berlin')('/api/settings')).toMatchObject({ timezone: 'Asia/Tokyo', timezone_source: 'pinned' });
+        const callPinned = device(pinned, 'Europe/Berlin');
+        expect(await callPinned.floorTimeZone()).toBe(false);
+        expect(await callPinned('/api/settings')).toMatchObject({ timezone: 'Asia/Tokyo', timezone_source: 'pinned' });
         expect(await pinned.list('tzfloor')).toEqual([]);
 
         const local = createInMemoryRecordsPort({ medication: [med] });
         const callLocal = createApiRouter({}, {
             recordsPort: () => local, win: {}, effects, now: () => NOW, timeZone: 'Europe/Berlin',
         });
+        expect(await callLocal.floorTimeZone()).toBe(false);
         expect(await callLocal('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'device' });
         expect(await local.list('tzfloor')).toEqual([]);
     });
@@ -1696,7 +1704,9 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
         const pinned = createInMemoryRecordsPort({
             medication: [med], settings: [{ recordId: 'settings', clientTs: NOW, deleted: false, timezone: 'Mars/Olympus_Mons' }],
         });
-        expect(await device(pinned, 'Europe/Berlin')('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'pinned' });
+        const callUnreadable = device(pinned, 'Europe/Berlin');
+        expect(await callUnreadable.floorTimeZone()).toBe(false);
+        expect(await callUnreadable('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'pinned' });
         expect(await pinned.list('tzfloor')).toEqual([]);
 
         const floored = createInMemoryRecordsPort({
@@ -1730,15 +1740,26 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
         expect(await records.list('tzfloor')).toEqual([]);
     });
 
-    it('waits for the first pull, then floors on the next call (an empty pull bumps no counter)', async () => {
+    it('a request never floors: only the boot\'s floorTimeZone does (GET /api/brief reads its sections only)', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med] });
+        const call = device(records, 'Europe/Berlin');
+        await call(`/api/doses?from=${iso(NOW)}&to=${iso(NOW + 24 * 3600_000)}`);
+        expect(await call('/api/settings')).toMatchObject({ timezone: 'Europe/Berlin', timezone_source: 'device' });
+        expect(await records.list('tzfloor')).toEqual([]);
+    });
+
+    it('floorTimeZone waits for canFloor, then floors once', async () => {
         const records = createInMemoryRecordsPort({ medication: [med] });
         let up = false;
         const call = createApiRouter({}, {
             records, win: {}, effects, now: () => NOW, timeZone: 'Europe/Berlin', caughtUp: async () => up,
         });
+        expect(await call.floorTimeZone()).toBe(false);
         expect((await call('/api/settings')).timezone_source).toBe('device');
         expect(await records.list('tzfloor')).toEqual([]);
         up = true;
+        expect(await call.floorTimeZone()).toBe(true);
         expect((await call('/api/settings')).timezone_source).toBe('floor');
+        expect(await call.floorTimeZone()).toBe(false); // once
     });
 });

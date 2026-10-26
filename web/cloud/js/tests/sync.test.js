@@ -4023,6 +4023,7 @@ describe('tzfloor rows converge on the earliest floor (med-wi09.19)', () => {
     }));
     await fresh.pullOnOpen(ctx);
     const call = createApiRouter(ctx, { win: {}, timeZone: 'Europe/Berlin', effects: { scheduleReminderRecompute() {} } });
+    expect(await call.floorTimeZone()).toBe(false);
     expect((await call('/api/settings')).timezone_source).toBe('device');
     expect(await row()).toBeUndefined();
 
@@ -4034,8 +4035,9 @@ describe('tzfloor rows converge on the earliest floor (med-wi09.19)', () => {
     const moving = createApiRouter(ctx, {
       win: {}, timeZone: 'Europe/Berlin', effects: { scheduleReminderRecompute() {} }, caughtUp: async () => false,
     });
-    expect((await moving('/api/settings')).timezone_source).toBe('device');
+    expect(await moving.floorTimeZone()).toBe(false);
     expect(await row()).toBeUndefined();
+    expect(await call.floorTimeZone()).toBe(true);
     expect((await call('/api/settings')).timezone_source).toBe('floor');
     expect(await row()).toMatchObject({ timezone: 'Europe/Berlin', clientTs: 0 });
   });

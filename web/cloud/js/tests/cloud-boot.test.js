@@ -246,6 +246,41 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(runs).toBe(1);
   });
 
+  // bd med-wi09.19: the account-zone floor runs from the boot, never from a
+  // request; tried after the boot pull and each drain until a pull in this
+  // page load has let it run, then never again.
+  it('tries the account-zone floor after the boot pull and each drain until a pull this session, once', async () => {
+    let pulled = false;
+    let drainOpts;
+    let tries = 0;
+    const shimCall = async () => null;
+    shimCall.unifyLegacy = async () => {};
+    shimCall.floorTimeZone = async () => { tries++; return pulled; };
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          pulledThisSession: () => pulled,
+          hasCaughtUp: async () => true,
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(tries).toBe(1); // offline boot: tried, nothing written
+    pulled = true;
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(tries).toBe(2);
+  });
+
   it('a failed first-run re-ask is retried on the next drain', async () => {
     let drainOpts;
     let calls = 0;

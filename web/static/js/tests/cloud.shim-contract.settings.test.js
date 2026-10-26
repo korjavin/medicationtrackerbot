@@ -360,6 +360,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         const { window, document } = env;
         const rowEl = document.getElementById('settings-account-tz-row');
         expect(rowEl.classList.contains('wg-settings-hidden')).toBe(true);
+        expect(await window.offlineAwareApiCall.floorTimeZone()).toBe(true); // the boot, after its pull
 
         await window.loadSettings();
         await vi.waitFor(() => expect(rowEl.classList.contains('wg-settings-hidden')).toBe(false));
@@ -390,6 +391,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         installApiCache(env.window);
         env.window.SettingsIntegrations._setTelegramLoader(() => Promise.resolve({ mountTelegram: () => {} }));
         const { window, document } = env;
+        await window.offlineAwareApiCall.floorTimeZone();
         const bundle = await window.fetchSettingsBundle();
         expect(bundle).toMatchObject({ timezone: 'Europe/Berlin', timezoneSource: 'floor' });
         await window.DataStore.setCached('settings_bundle', bundle);

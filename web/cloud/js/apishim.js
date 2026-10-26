@@ -345,44 +345,23 @@ export function createApiRouter(ctx, {
   // re-arm after a settings/tz-plan write covers an in-tab change on that path.
   // ponytail: no cross-tab invalidation. Reload covers it.
   //
-  // An account with no pin gets one zone (bd med-wi09.19): once a pull in this
-  // page load has reached the tail (opts.canFloor), the first device that
-  // finds neither a pin nor a floor floors the zone its dose evidence is in
-  // (intake.evidenceZone: the zone every device already projects past days
-  // in; its own zone when nothing was logged) as the account's
-  // (settings.ensureTimeZoneFloor, clientTs 0, putIfAbsent). The gate keeps a
-  // freshly-unlocked or offline-booted device from flooring its zone over an
-  // account another device already floored; a race that slips through is
-  // settled by sync's tzfloor reducer. Local-only mode
-  // (portFactory) never floors: one device, and its zone already is the
-  // account's, so a floor would only stop it following the device on travel
-  // with nothing to keep in step.
-  // A resolve that had to defer the floor (no pull this session yet) is not
-  // memoized: an empty pull bumps no counter, so the memo would never retry.
-  const floorsTimeZone = !portFactory;
-  async function resolveGeneralTz() {
-    if (!floorsTimeZone) return { general: await settings.getGeneral(), deferred: false };
-    if (await canFloor()) {
-      const general = await settings.getGeneral();
-      if (general.timezone_source !== 'device') return { general, deferred: false };
-      return { general: await settings.ensureTimeZoneFloor(await intake.evidenceZone()), deferred: false };
-    }
-    return { general: await settings.getGeneral(), deferred: true };
-  }
+  // An account with no pin gets one zone (bd med-wi09.19), but never from a
+  // request: a read must touch only what it serves (GET /api/brief reads its
+  // selected domains only). The boot calls floorTimeZone() once a pull in this
+  // page load has reached the tail (opts.canFloor); see its comment below.
   let tzReady = null;
   let tzStamp = -1;
   function ensureTimeZone() {
     const stamp = recordsChangeCount ? recordsChangeCount() : 0;
     if (!tzReady || tzStamp !== stamp) {
       tzStamp = stamp;
-      tzReady = resolveGeneralTz()
+      tzReady = settings.getGeneral()
         // `tzStamp !== stamp` means a newer resolve superseded this one while
         // its read was in flight. Two reads are separate IDB transactions and
         // can settle out of order, so without this the older one could rebuild
         // to the pre-write zone and stick until the next counter bump.
-        .then(({ general, deferred }) => {
+        .then((general) => {
           if (tzStamp !== stamp) return;
-          if (deferred) tzReady = null;
           if (general && general.timezone && general.timezone !== timeZone) {
             buildDomains(general.timezone);
           }
@@ -1792,6 +1771,25 @@ export function createApiRouter(ctx, {
     }),
   });
   shimCall.ensureTimeZone = ensureTimeZone;
+  // floorTimeZone (bd med-wi09.19): with neither a pin nor a floor stored,
+  // floor the zone this device's dose evidence is in (intake.evidenceZone: the
+  // zone every device already projects past days in; its own zone when nothing
+  // was logged) as the account's (settings.ensureTimeZoneFloor, clientTs 0,
+  // putIfAbsent). Only when opts.canFloor says so: not before a pull in this
+  // page load reached the tail or while a move pickup is pending, so an
+  // offline-booted or freshly unlocked device never floors over an account
+  // another device already floored; a race that slips through is settled by
+  // sync's tzfloor reducer. Local-only mode (portFactory) never floors: one
+  // device, nothing to keep in step, and it keeps following the device zone.
+  // Resolves true when it wrote a floor.
+  shimCall.floorTimeZone = async () => {
+    if (portFactory || !(await canFloor())) return false;
+    if ((await settings.getGeneral()).timezone_source !== 'device') return false;
+    await settings.ensureTimeZoneFloor(await intake.evidenceZone());
+    tzReady = null;
+    await ensureTimeZone();
+    return true;
+  };
   return shimCall;
 }
 
@@ -1939,6 +1937,9 @@ export function installApiShim(ctx, {
   // timezone-resolve instances for every consumer of the installed seam.
   Object.defineProperty(offlineAwareApiCall, 'domains', { enumerable: true, get: () => shimCall.domains });
   offlineAwareApiCall.ensureTimeZone = shimCall.ensureTimeZone;
+  // The boot's account-zone floor (bd med-wi09.19), on the background router so
+  // a floor that moves the zone repaints the open screens.
+  offlineAwareApiCall.floorTimeZone = bgCall.floorTimeZone;
   // One sleep model, no stress (bd med-0xad.4, vitals.js unifyLegacy): the
   // boot calls it (local-boot.js after the leave pickup; cloud-boot.js only
   // once a pull in this page load reached the tail, sync.js

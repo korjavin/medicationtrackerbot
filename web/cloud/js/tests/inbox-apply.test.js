@@ -953,6 +953,7 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
     it('the agent router never floors the account zone on an unpinned account', async () => {
         const records = fakeRecords(seed());
         const call = createInboxRouter({ accountId: 'a' }, { records, now: () => DRAIN_MS, timeZone: 'Europe/Berlin' });
+        expect(await call.floorTimeZone()).toBe(false);
         expect((await call('/api/settings')).timezone_source).toBe('device');
         await call(`/api/doses?from=${new Date(DRAIN_MS).toISOString()}&to=${new Date(DRAIN_MS + 86400000).toISOString()}`);
         expect(await records.list('tzfloor')).toEqual([]);
