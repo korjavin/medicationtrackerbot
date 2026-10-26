@@ -2713,7 +2713,8 @@ input.wg-stepper__val::-webkit-inner-spin-button {
 }
 
 .wg-callbar:not(.wg-callbar--live) > [data-call-live],
-.wg-callbar--live > :not([data-call-live]) {
+.wg-callbar--live > :not([data-call-live]),
+.wg-callbar > [hidden] {
     display: none;
 }
 

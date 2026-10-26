@@ -844,8 +844,8 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
   // mapped like chat()) or when signal aborts the fetch. Trial calls gate on
   // the `voice` consent scope.
   async function chatStream({ body, signal, onChunk }) {
-    // A turn whose newest user message carries an image (an in-call photo, bd med-ku8r — ElevenLabs is
-    // expected to hand it over as an OpenAI image_url part, data: or https:)
+    // A turn whose newest user message carries an image (an in-call photo, bd med-ku8r — the voice
+    // responder attaches it as an OpenAI image_url part with a data: URL)
     // goes to the vision triple, like parseMealFromImage: the text model may
     // not read images at all. Text-only turns are unchanged.
     const image = hasImagePart(body && body.messages);

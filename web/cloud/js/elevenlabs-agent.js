@@ -407,11 +407,8 @@ export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds, silenceE
         ...(silenceEndCallSeconds ? { silence_end_call_timeout: silenceEndCallSeconds } : {}),
       },
       tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
-      // In-call "Send photo" (bd med-ku8r): file_input is ElevenLabs' documented
-      // gate for uploaded images (changelog 2026-04-01, docs → multimodal input).
-      // One image in memory: older uploads collapse to ElevenLabs' summary, so a
-      // turn carries at most one photo and stays under the voice LLM relay's
-      // 2 MiB body cap (voice_llm_relay.go voiceMaxBodyBytes).
+      // Unused: custom-LLM agents refuse uploads, so in-call photos ride the AI
+      // turn (med-ku8r); kept to avoid a TOOLSET_VERSION bump re-PATCHing every agent.
       conversation: {
         file_input: { enabled: true, max_files_in_memory: 1 },
         ...(maxDurationSeconds ? { max_duration_seconds: maxDurationSeconds } : {}),

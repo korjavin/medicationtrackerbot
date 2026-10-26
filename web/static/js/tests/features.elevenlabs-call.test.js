@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { createVoiceLLMResponder } from '../../../cloud/js/voice-llm-responder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,7 +40,6 @@ function createEnv() {
     window.CloudElevenLabs = {
         hasKey: vi.fn(async () => true),
         fetchSignedURL: vi.fn(async () => 'wss://stub.example/'),
-        uploadFile: vi.fn(async () => 'file_abc'),
     };
 
     window.eval(fs.readFileSync(ELEVENLABS_JS, 'utf8'));
@@ -55,16 +55,12 @@ function createEnv() {
 // startCall() awaits Conversation.startSession({...}) so we need to
 // call onConnect from inside that call to flip state to 'in_call'.
 //
-// uploadFile is never called by the controller — sendPhoto uploads through
-// window.CloudElevenLabs.uploadFile (browser-direct with the vault key) and
-// forwards the returned fileId to the SDK. The fake still keeps an
-// uploadFile spy for legacy assertions but it should never be invoked.
+// sendUserMessage carries the in-call photo marker (sendPhoto, bd med-ku8r).
 function makeFakeConversation(overrides = {}) {
     const conv = {
         setMicMuted: vi.fn(),
-        uploadFile: vi.fn(async () => ({ fileId: 'file_abc' })),
         getId: vi.fn(() => 'conv_test'),
-        sendMultimodalMessage: vi.fn(),
+        sendUserMessage: vi.fn(),
         endSession: vi.fn(async () => {}),
         ...overrides,
     };
@@ -145,17 +141,15 @@ function createConversationEnv({ conv, setup } = {}) {
     const conversation = conv || makeFakeConversation();
 
     window.__TEST_CONVERSATION__ = conversation;
-    // A fetch that throws on any URL: uploads go through the
-    // CloudElevenLabs seam below, so a fetch here is a leak. Trial tests
+    // A fetch that throws on any URL: a fetch here is a leak. Trial tests
     // reassign window.fetch per-case.
     window.fetch = makeThrowingFetchStub();
 
-    // Default BYO seam: vault key present, signed URL + upload resolve.
+    // Default BYO seam: vault key present, signed URL resolves.
     // Tests override per-case (trial, consent, failures).
     window.CloudElevenLabs = {
         hasKey: vi.fn(async () => true),
         fetchSignedURL: vi.fn(async () => 'wss://stub.example/'),
-        uploadFile: vi.fn(async () => 'file_abc'),
     };
 
     // Replace import(SDK_URL) with a resolved promise to a fake SDK whose
@@ -407,32 +401,62 @@ describe('features/elevenlabs-call.js — setMute / toggleMute', () => {
     });
 });
 
+// bd med-ku8r: ElevenLabs refuses uploads for custom-LLM agents, so a photo
+// never goes to ElevenLabs. It is queued in the tab's voice LLM responder
+// (window.CloudVoiceLLM.setPendingImage), the agent hears the marker via
+// sendUserMessage, and the next AI turn carries the image.
 describe('features/elevenlabs-call.js — sendPhoto', () => {
-    // Every failed upload console.warns its cause (bd med-ku8r).
     beforeEach(() => allowConsoleNoise());
-    function makeImageBlob(window) {
-        // Use the jsdom Blob with an image MIME type. Real bytes are
-        // irrelevant — sendPhoto only checks instanceof Blob + type.
-        return new window.Blob(['fake-bytes'], { type: 'image/jpeg' });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const makeImageBlob = (window) => new window.Blob(['fake-bytes'], { type: 'image/jpeg' });
+
+    // A stub responder: each queued photo waits until the test settles it.
+    function installRelay(window) {
+        const relay = {
+            start: vi.fn(async () => 'call_tok'),
+            stop: vi.fn(() => {
+                relay.pending.splice(0).forEach((p) => p.reject(new Error('the call ended')));
+            }),
+            usesTrialAI: vi.fn(async () => false),
+            pending: [],
+            setPendingImage: vi.fn((url) => new Promise((resolve, reject) => {
+                relay.pending.push({ url, resolve, reject });
+            })),
+        };
+        window.CloudVoiceLLM = relay;
+        return relay;
+    }
+
+    // A mounted call bar in a live call, so the status line can be read.
+    async function liveCall({ relay = true } = {}) {
+        const env = createConversationEnv();
+        const { window } = env;
+        const stub = relay ? installRelay(window) : null;
+        const card = window.document.createElement('div');
+        card.className = 'wg-callbar';
+        window.document.body.appendChild(card);
+        window.WGCallAgent.mountCard(card);
+        await window.WGCallAgent.startCall(card);
+        const opts = window.__TEST_CONVERSATION_OPTS__;
+        opts.onConnect();
+        const status = () => card.querySelector('.wg-callbar__status').textContent;
+        return { ...env, relay: stub, card, opts, status };
     }
 
     it('rejects when called outside in_call state', async () => {
         const { window, cleanup } = createEnv();
         try {
-            const blob = makeImageBlob(window);
-            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
+            await expect(window.WGCallAgent.sendPhoto(makeImageBlob(window))).rejects.toThrow();
         } finally {
             cleanup();
         }
     });
 
     it('rejects non-image blobs and surfaces a status message', async () => {
-        const { window, events, cleanup } = createConversationEnv();
+        const { window, events, cleanup } = await liveCall();
         try {
-            await startCall(window);
-            const txt = new window.Blob(['hello'], { type: 'text/plain' });
-            await expect(window.WGCallAgent.sendPhoto(txt)).rejects.toThrow();
-            // The UI must tell the user why the file was rejected.
+            await expect(window.WGCallAgent.sendPhoto(new window.Blob(['hello'], { type: 'text/plain' }))).rejects.toThrow();
             const last = events[events.length - 1];
             expect(last.state).toBe('in_call');
             expect(last.message).toBe('Image required');
@@ -441,197 +465,115 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('happy path: uploads via CloudElevenLabs.uploadFile then sends multimodal message and toggles uploading', async () => {
-        const { window, conversation, events, cleanup } = createConversationEnv();
+    it('queues the photo as a data: URL, tells the agent, never calls ElevenLabs, and waits for the turn', async () => {
+        const { window, conversation, relay, events, cleanup } = await liveCall();
         try {
-            await startCall(window);
-            const blob = makeImageBlob(window);
-            const before = events.length;
-            await window.WGCallAgent.sendPhoto(blob);
-            // The BYO seam — not the SDK's uploadFile — handled the upload.
-            expect(conversation.uploadFile).not.toHaveBeenCalled();
-            expect(window.CloudElevenLabs.uploadFile).toHaveBeenCalledTimes(1);
-            const [convId, sentFile] = window.CloudElevenLabs.uploadFile.mock.calls[0];
-            expect(convId).toBe('conv_test');
-            expect(sentFile).toBe(blob);
-            // No proxy fetch: the upload never touches our backend.
-            expect(window.fetch).not.toHaveBeenCalled();
-            expect(conversation.sendMultimodalMessage).toHaveBeenCalledWith({ fileId: 'file_abc' });
-            // Expect at least two new events: uploading: true, then false.
-            const after = events.slice(before);
-            const uploadingTrue = after.find((d) => d.uploading === true);
-            const uploadingFalseAtEnd = after[after.length - 1];
-            expect(uploadingTrue).toBeDefined();
-            expect(uploadingFalseAtEnd.uploading).toBe(false);
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('preserves a live mode-change status across the upload (does not blank "Listening…")', async () => {
-        const { window, events, cleanup } = createConversationEnv();
-        let resolveUpload;
-        window.CloudElevenLabs.uploadFile = vi.fn(() => new Promise((resolve) => {
-            resolveUpload = () => resolve('f');
-        }));
-        try {
-            const { opts } = await startCall(window);
-            // Drive a mode-change so activeMessage = 'Listening…' before upload starts.
-            opts.onModeChange({ mode: 'listening' });
-            expect(events[events.length - 1].message).toBe('Listening…');
-            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
-            const sendPromise = window.WGCallAgent.sendPhoto(blob);
-            // Upload-start broadcast must NOT have wiped the listening status.
-            expect(events[events.length - 1].message).toBe('Listening…');
+            const send = window.WGCallAgent.sendPhoto(makeImageBlob(window));
             expect(events[events.length - 1].uploading).toBe(true);
-            // The photo is shrunk first, so the upload starts a tick later.
-            await vi.waitFor(() => expect(resolveUpload).toBeTypeOf('function'));
-            resolveUpload();
-            await sendPromise;
-            // Final broadcast: still preserves the live message.
+            await vi.waitFor(() => expect(conversation.sendUserMessage).toHaveBeenCalledWith('[User sent a photo]'));
+            expect(relay.setPendingImage).toHaveBeenCalledTimes(1);
+            expect(relay.pending[0].url).toMatch(/^data:image\/jpeg;base64,/);
+            // The photo is queued before the agent is told.
+            expect(relay.setPendingImage.mock.invocationCallOrder[0])
+                .toBeLessThan(conversation.sendUserMessage.mock.invocationCallOrder[0]);
+            expect(window.fetch).not.toHaveBeenCalled();
+            expect(window.WGCallAgent.getState().uploading).toBe(true);
+            relay.pending[0].resolve();
+            await send;
             const last = events[events.length - 1];
             expect(last.uploading).toBe(false);
-            expect(last.message).toBe('Listening…');
+            expect(last.photoError).toBe('');
         } finally {
             cleanup();
         }
     });
 
-    it('hang-up during in-flight upload does not clobber idle state back to in_call', async () => {
-        const { window, conversation, events, cleanup } = createConversationEnv();
-        let resolveUpload;
-        window.CloudElevenLabs.uploadFile = vi.fn(() => new Promise((resolve) => {
-            resolveUpload = () => resolve('late_file');
-        }));
-        try {
-            await startCall(window);
-            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
-            const sendPromise = window.WGCallAgent.sendPhoto(blob);
-            // User hangs up while the upload fetch is still pending.
-            await window.WGCallAgent.endCall();
-            expect(window.WGCallAgent.getState().state).toBe('idle');
-            // Upload now resolves — must not flip UI back to in_call.
-            resolveUpload();
-            await sendPromise;
-            const finalState = window.WGCallAgent.getState();
-            expect(finalState.state).toBe('idle');
-            // sendMultimodalMessage must NOT fire after hang-up.
-            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
-            // Last broadcast must be the idle one — not 'in_call'.
-            const last = events[events.length - 1];
-            expect(last.state).toBe('idle');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('upload failure after hang-up leaves UI idle (no in_call clobber)', async () => {
-        const { window, events, cleanup } = createConversationEnv();
-        let rejectUpload;
-        window.CloudElevenLabs.uploadFile = vi.fn(() => new Promise((_, reject) => { rejectUpload = reject; }));
-        try {
-            await startCall(window);
-            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
-            const sendPromise = window.WGCallAgent.sendPhoto(blob);
-            await window.WGCallAgent.endCall();
-            rejectUpload(new Error('network'));
-            await expect(sendPromise).rejects.toThrow();
-            expect(window.WGCallAgent.getState().state).toBe('idle');
-            const last = events[events.length - 1];
-            expect(last.state).toBe('idle');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('successful retry after a prior failure clears the failure status', async () => {
-        const { window, events, cleanup } = createConversationEnv();
-        let firstAttempt = true;
-        window.CloudElevenLabs.uploadFile = vi.fn(async () => {
-            if (firstAttempt) {
-                firstAttempt = false;
-                throw new Error('boom');
-            }
-            return 'file_xyz';
-        });
-        try {
-            await startCall(window);
-            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
-            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
-            // First attempt set 'Photo upload failed'.
-            await window.WGCallAgent.sendPhoto(blob);
-            // After a successful retry, the failure message must be cleared.
-            const last = events[events.length - 1];
-            expect(last.state).toBe('in_call');
-            expect(last.message).toBe('');
-            expect(last.uploading).toBe(false);
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('upload failure: keeps call alive, sets status, clears uploading', async () => {
-        const { window, conversation, events, cleanup } = createConversationEnv();
-        window.CloudElevenLabs.uploadFile = vi.fn(async () => { throw new Error('network'); });
-        try {
-            await startCall(window);
-            const blob = makeImageBlob(window);
-            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
-            const last = events[events.length - 1];
-            expect(last.state).toBe('in_call');
-            expect(last.message).toBe('network');
-            expect(last.uploading).toBe(false);
-            // sendMultimodalMessage must NOT have been called.
-            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
-            // Active state should still be in_call (call is alive).
-            expect(window.WGCallAgent.getState().state).toBe('in_call');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('CloudElevenLabs.uploadFile rejection surfaces its cause, warns in the console, and rejects', async () => {
-        const { window, conversation, events, cleanup } = createConversationEnv();
+    it('a failed vision turn shows "Couldn\'t send the photo: <reason>" that survives mode changes until the next action', async () => {
+        const { window, relay, opts, status, cleanup } = await liveCall();
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        window.CloudElevenLabs = {
-            hasKey: async () => true,
-            fetchSignedURL: async () => 'wss://stub.example/',
-            uploadFile: vi.fn(async () => { throw new Error('Set your ElevenLabs API key in Settings → Integrations'); }),
-        };
         try {
-            await startCall(window);
-            const blob = makeImageBlob(window);
-            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
-            const last = events[events.length - 1];
-            expect(last.state).toBe('in_call');
-            expect(last.message).toBe('Set your ElevenLabs API key in Settings → Integrations');
-            expect(warn).toHaveBeenCalledWith('[call] photo upload failed:', expect.any(Error));
-            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
+            const send = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(relay.pending).toHaveLength(1));
+            relay.pending[0].reject(new Error('vision model refused'));
+            await expect(send).rejects.toThrow('vision model refused');
+            const want = "Couldn't send the photo: vision model refused";
+            expect(status()).toBe(want);
+            expect(window.WGCallAgent.getState()).toMatchObject({ state: 'in_call', uploading: false, photoError: want });
+            expect(warn).toHaveBeenCalledWith('[call] photo send failed:', expect.any(Error));
+            // The agent starts listening/speaking: the error stays.
+            opts.onModeChange({ mode: 'listening' });
+            opts.onModeChange({ mode: 'speaking' });
+            expect(status()).toBe(want);
+            // The user's next action (mute) clears it; the live status returns.
+            window.WGCallAgent.toggleMute();
+            expect(window.WGCallAgent.getState().photoError).toBe('');
+            expect(status()).toBe('Agent speaking…');
         } finally {
             warn.mockRestore();
             cleanup();
         }
     });
 
-    it('BYO upstream rejection names ElevenLabs and the HTTP status', async () => {
-        const { window, events, cleanup } = createConversationEnv();
-        window.CloudElevenLabs.uploadFile = vi.fn(async () => {
-            const err = new Error('Failed to upload file (422)');
-            err.status = 422;
-            throw err;
-        });
+    it('a new send clears the previous failure', async () => {
+        const { window, relay, status, cleanup } = await liveCall();
         try {
-            await startCall(window);
-            await expect(window.WGCallAgent.sendPhoto(makeImageBlob(window))).rejects.toThrow();
-            expect(events[events.length - 1].message).toBe('ElevenLabs rejected the photo (HTTP 422)');
+            const first = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(relay.pending).toHaveLength(1));
+            relay.pending[0].reject(new Error('boom'));
+            await expect(first).rejects.toThrow();
+            expect(status()).toBe("Couldn't send the photo: boom");
+            const second = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            expect(window.WGCallAgent.getState().photoError).toBe('');
+            await vi.waitFor(() => expect(relay.pending).toHaveLength(2));
+            relay.pending[1].resolve();
+            await second;
+            expect(status()).toBe('Connected');
         } finally {
             cleanup();
         }
     });
 
-    it('downscales before upload: the re-encoded JPEG is what gets sent', async () => {
-        const { window, events, cleanup } = createConversationEnv();
-        const small = new window.Blob(['small-jpeg'], { type: 'image/jpeg' });
+    it('hang-up while the photo waits drops it (relay stopped) and leaves the bar idle', async () => {
+        const { window, relay, events, cleanup } = await liveCall();
+        try {
+            const send = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(relay.pending).toHaveLength(1));
+            await window.WGCallAgent.endCall();
+            expect(relay.stop).toHaveBeenCalled();
+            await expect(send).rejects.toThrow(/call ended/);
+            expect(window.WGCallAgent.getState()).toMatchObject({ state: 'idle', photoError: '' });
+            expect(events[events.length - 1].state).toBe('idle');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a photo too large to shrink is refused with the limit; nothing queued, the agent not told', async () => {
+        const { window, conversation, relay, status, cleanup } = await liveCall();
+        try {
+            const big = new window.Blob([new Uint8Array(800 * 1024)], { type: 'image/jpeg' });
+            await expect(window.WGCallAgent.sendPhoto(big)).rejects.toMatchObject({ code: 'photo_too_large' });
+            expect(relay.setPendingImage).not.toHaveBeenCalled();
+            expect(conversation.sendUserMessage).not.toHaveBeenCalled();
+            expect(status()).toBe("Couldn't send the photo: Photo is too large to send — the limit is 768 KB.");
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a call without the AI relay says so and does not tell the agent', async () => {
+        const { window, conversation, status, cleanup } = await liveCall({ relay: false });
+        try {
+            await expect(window.WGCallAgent.sendPhoto(makeImageBlob(window))).rejects.toThrow();
+            expect(conversation.sendUserMessage).not.toHaveBeenCalled();
+            expect(status()).toBe("Couldn't send the photo: this call has no AI relay");
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('downscales first: the re-encoded JPEG is what gets queued', async () => {
+        const { window, relay, cleanup } = await liveCall();
         const close = vi.fn();
         window.createImageBitmap = vi.fn(async () => ({ width: 4000, height: 3000, close }));
         const drawn = [];
@@ -640,112 +582,87 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         };
         window.HTMLCanvasElement.prototype.toBlob = function (cb, type) {
             expect(type).toBe('image/jpeg');
-            cb(small);
+            cb(new window.Blob(['small-jpeg'], { type: 'image/jpeg' }));
         };
         try {
-            await startCall(window);
-            await window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            const send = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(relay.pending).toHaveLength(1));
             expect(drawn[0]).toEqual([1600, 1200]);
-            expect(window.CloudElevenLabs.uploadFile.mock.calls[0][1]).toBe(small);
             expect(close).toHaveBeenCalled();
-            expect(events[events.length - 1].uploading).toBe(false);
+            expect(atob(relay.pending[0].url.split(',')[1])).toBe('small-jpeg');
+            relay.pending[0].resolve();
+            await send;
         } finally {
             cleanup();
         }
     });
 
-    it('a photo that cannot be shrunk under the limit is refused with the limit, nothing uploaded', async () => {
-        const { window, events, cleanup } = createConversationEnv();
-        try {
-            await startCall(window);
-            // No createImageBitmap in jsdom → the original is the candidate.
-            const big = new window.Blob([new Uint8Array(800 * 1024)], { type: 'image/jpeg' });
-            await expect(window.WGCallAgent.sendPhoto(big)).rejects.toMatchObject({ code: 'photo_too_large' });
-            expect(window.CloudElevenLabs.uploadFile).not.toHaveBeenCalled();
-            expect(events[events.length - 1].message).toBe('Photo is too large to send — the limit is 768 KB.');
-        } finally {
-            cleanup();
-        }
-    });
-});
+    it('end to end with the real responder: the next AI turn carries the photo on the marker, a later turn does not', async () => {
+        class FakeSocket {
+            constructor() { this.readyState = 1; this.sent = []; FakeSocket.last = this; }
 
-describe('features/elevenlabs-call.js — sendPhoto on the trial agent (bd med-ku8r)', () => {
-    // A call minted from the trial route (no vault key + trial flag); the
-    // upload then goes through /api/trial/elevenlabs/conversations/{id}/files.
-    beforeEach(() => allowConsoleNoise());
-    async function trialCall({ uploadStatus = 200, uploadBody = { file_id: 'file_trial' }, consent = { voice: true } } = {}) {
+            send(d) { this.sent.push(JSON.parse(d)); }
+
+            close() { this.readyState = 3; }
+
+            recv(f) { this.onmessage({ data: JSON.stringify(f) }); }
+        }
+        FakeSocket.OPEN = 1;
+        vi.stubGlobal('WebSocket', FakeSocket);
+        vi.spyOn(console, 'debug').mockImplementation(() => {});
         const env = createConversationEnv();
-        const { window } = env;
-        const meta = window.document.createElement('meta');
-        meta.setAttribute('name', 'medtracker-trial-voice');
-        meta.setAttribute('content', '1');
-        window.document.head.appendChild(meta);
-        window.apiCall = vi.fn(async () => consent);
-        window.CloudElevenLabs = { hasKey: vi.fn(async () => false), fetchSignedURL: vi.fn(), uploadFile: vi.fn() };
-        const fetch = vi.fn(async (url) => {
-            if (url === '/api/trial/elevenlabs/signed-url') {
-                return { ok: true, status: 200, json: async () => ({ signed_url: 'wss://trial.example/s' }) };
-            }
-            if (url === '/api/trial/elevenlabs/conversations/conv_test/files') {
-                return {
-                    ok: uploadStatus === 200,
-                    status: uploadStatus,
-                    json: async () => {
-                        if (typeof uploadBody === 'string') throw new SyntaxError('not JSON');
-                        return uploadBody;
-                    },
-                };
-            }
-            throw new Error(`Unexpected fetch: ${url}`);
-        });
-        window.fetch = fetch;
-        await startCall(window);
-        expect(window.WGCallAgent.getState().state).toBe('in_call');
-        return { ...env, fetch };
-    }
-
-    it('uploads through the trial route (never the vault-key seam) and sends the file id', async () => {
-        const { window, conversation, fetch, cleanup } = await trialCall();
+        const { window, conversation, cleanup } = env;
+        const bodies = [];
+        const aiClient = {
+            usesTrial: async () => false,
+            chatStream: vi.fn(async ({ body, onChunk }) => { bodies.push(body); onChunk('data: [DONE]\n\n'); }),
+        };
+        window.CloudVoiceLLM = createVoiceLLMResponder({ aiClient, url: 'wss://acct.test/api/voice-llm/device' });
         try {
-            await window.WGCallAgent.sendPhoto(new window.Blob(['x'], { type: 'image/jpeg' }));
-            const [url, init] = fetch.mock.calls[1];
-            expect(url).toBe('/api/trial/elevenlabs/conversations/conv_test/files');
-            expect(init.method).toBe('POST');
-            expect(init.body.get('file')).toBeTruthy();
-            expect(window.CloudElevenLabs.uploadFile).not.toHaveBeenCalled();
-            expect(conversation.sendMultimodalMessage).toHaveBeenCalledWith({ fileId: 'file_trial' });
+            const card = window.document.createElement('section');
+            window.document.body.appendChild(card);
+            const starting = window.WGCallAgent.startCall(card);
+            await vi.waitFor(() => expect(FakeSocket.last).toBeDefined());
+            const sock = FakeSocket.last;
+            sock.recv({ type: 'hello', call: 'tok' });
+            await starting;
+            window.__TEST_CONVERSATION_OPTS__.onConnect();
+            expect(window.__TEST_CONVERSATION_OPTS__.customLlmExtraBody).toEqual({ call: 'tok' });
+
+            const send = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(conversation.sendUserMessage).toHaveBeenCalled());
+            // ElevenLabs answers the marker with a relay turn.
+            const marker = { role: 'user', content: '[User sent a photo]' };
+            sock.recv({ id: 1, type: 'request', body: { messages: [marker] } });
+            await send;
+            const parts = bodies[0].messages[0].content;
+            expect(parts[0]).toEqual({ type: 'text', text: '[User sent a photo]' });
+            expect(parts[1].type).toBe('image_url');
+            expect(parts[1].image_url.url).toMatch(/^data:image\/jpeg;base64,/);
+            // Nothing photo-shaped went back over the relay socket.
+            expect(JSON.stringify(sock.sent)).not.toContain('image_url');
+
+            sock.recv({
+                id: 2,
+                type: 'request',
+                body: { messages: [marker, { role: 'assistant', content: 'A salad.' }, { role: 'user', content: 'ok' }] },
+            });
+            await vi.waitFor(() => expect(bodies).toHaveLength(2));
+            expect(JSON.stringify(bodies[1])).not.toContain('image_url');
+            await window.WGCallAgent.endCall();
         } finally {
             cleanup();
         }
     });
 
-    it.each([
-        [429, { error: 'trial_rate_limit', retry_after_seconds: 60 }, /^Trial limit reached/],
-        [503, { error: 'trial_not_configured' }, /^Set your ElevenLabs API key/],
-        [413, { error: 'file_too_large', max_bytes: 2097152 }, /^Photo is too large to send — the limit is 768 KB\.$/],
-        [502, { error: 'upstream_error', upstream_status: 400 }, /^ElevenLabs rejected the photo \(HTTP 400\)$/],
-        [502, { error: 'upstream_error', upstream_status: 400, upstream_message: 'Image too small' }, /^ElevenLabs rejected the photo \(HTTP 400\): Image too small$/],
-        [502, '502 Bad Gateway', /^Photo upload failed \(HTTP 502\)$/],
-    ])('HTTP %i maps to its own call-bar message', async (uploadStatus, uploadBody, want) => {
-        const { window, events, cleanup } = await trialCall({ uploadStatus, uploadBody });
+    it('anonymous local-trial calls hide Send photo (their turns never reach this tab)', () => {
+        const { window, cleanup } = createConversationEnv();
         try {
-            await expect(window.WGCallAgent.sendPhoto(new window.Blob(['x'], { type: 'image/jpeg' }))).rejects.toThrow();
-            const last = events[events.length - 1];
-            expect(last.state).toBe('in_call');
-            expect(last.message).toMatch(want);
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('revoked voice consent mid-call: consent copy, no upload', async () => {
-        const { window, events, fetch, cleanup } = await trialCall();
-        try {
-            window.apiCall = vi.fn(async () => ({ voice: false }));
-            await expect(window.WGCallAgent.sendPhoto(new window.Blob(['x'], { type: 'image/jpeg' })))
-                .rejects.toMatchObject({ code: 'trial_consent_required' });
-            expect(events[events.length - 1].message).toMatch(/needs your consent/);
-            expect(fetch).toHaveBeenCalledTimes(1); // the signed URL only
+            window.CloudVoiceLLM = { localTrial: true, start: vi.fn(), stop: vi.fn() };
+            const card = window.document.createElement('div');
+            window.document.body.appendChild(card);
+            window.WGCallAgent.mountCard(card);
+            expect(card.querySelector('.wg-callbar__photo').hidden).toBe(true);
         } finally {
             cleanup();
         }

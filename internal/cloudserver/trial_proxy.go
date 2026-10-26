@@ -7,11 +7,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -46,9 +43,8 @@ type TrialProxyAPI struct {
 	// only exercise the proxy's upstream behavior.
 	budget trialBudgetStore
 	client *http.Client
-	// elevenLabsSignedURLBase and elevenLabsConversationsBase are overridable in tests.
-	elevenLabsSignedURLBase     string
-	elevenLabsConversationsBase string
+	// elevenLabsSignedURLBase is overridable in tests.
+	elevenLabsSignedURLBase string
 }
 
 // trialBudgetStore is the one method the daily budgets need.
@@ -60,14 +56,13 @@ type trialBudgetStore interface {
 // positive — TrialConfigFromEnv guarantees it.
 func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig) *TrialProxyAPI {
 	api := &TrialProxyAPI{
-		cfg:                         cfg,
-		store:                       store,
-		sessionSecret:               sessionSecret,
-		limiter:                     newRateLimiter(cfg.RatePerMinute, time.Minute),
-		streamLimiter:               newRateLimiter(trialStreamRatePerMin, time.Minute),
-		client:                      &http.Client{Timeout: trialUpstreamTimout},
-		elevenLabsSignedURLBase:     "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
-		elevenLabsConversationsBase: "https://api.elevenlabs.io/v1/convai/conversations",
+		cfg:                     cfg,
+		store:                   store,
+		sessionSecret:           sessionSecret,
+		limiter:                 newRateLimiter(cfg.RatePerMinute, time.Minute),
+		streamLimiter:           newRateLimiter(trialStreamRatePerMin, time.Minute),
+		client:                  &http.Client{Timeout: trialUpstreamTimout},
+		elevenLabsSignedURLBase: "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
 	}
 	// The session store is the cloudstore repo in production, which also owns
 	// the persisted counters. Tests pass narrower fakes and simply run unmetered.
@@ -114,7 +109,6 @@ func (a *TrialProxyAPI) consumeBudget(w http.ResponseWriter, r *http.Request, ac
 func (a *TrialProxyAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/trial/openai/chat/completions", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ChatCompletions)))
 	mux.Handle("GET /api/trial/elevenlabs/signed-url", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ElevenLabsSignedURL)))
-	mux.Handle("POST /api/trial/elevenlabs/conversations/{id}/files", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ElevenLabsUploadFile)))
 }
 
 // rateLimit enforces the shared per-account trial limit (one limiter across
@@ -203,196 +197,6 @@ func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject 
 		return "", errTrialMint
 	}
 	return payload.SignedURL, nil
-}
-
-// maxTrialUploadBytes caps the whole multipart body of a trial in-call photo.
-// The browser downscales to ≤768 KiB before upload (elevenlabs-call.js
-// PHOTO_MAX_BYTES, sized for the 2 MiB voice relay body); this is the server's
-// backstop, not the working limit.
-const maxTrialUploadBytes = 2 << 20
-
-// trialConversationID is what ElevenLabs conversation ids look like
-// ("conv_…"); anything else never reaches the upstream path.
-var trialConversationID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
-
-// ElevenLabsUploadFile forwards an in-call photo to the operator's trial
-// ElevenLabs account (POST /v1/convai/conversations/{id}/files) with the
-// server-side xi-api-key and answers {file_id}. Same gates as the signed-URL
-// route. The file is held in memory only for the one upstream request (no temp
-// file: no ParseMultipartForm) and is never logged; upstream failures log the
-// status plus ElevenLabs' bounded error code/message and answer 502 upstream_error with the numeric upstream_status.
-func (a *TrialProxyAPI) ElevenLabsUploadFile(w http.ResponseWriter, r *http.Request) {
-	account, ok := AccountFromContext(r.Context())
-	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	if !a.cfg.TrialVoiceConfigured() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
-		return
-	}
-	convID := r.PathValue("id")
-	if !trialConversationID.MatchString(convID) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_conversation_id"})
-		return
-	}
-	if !a.rateLimit(w, a.limiter, account.ID) {
-		return
-	}
-	// A 768 KiB photo on weak mobile data can outlast the server's 15s read deadline.
-	extendTrialDeadlines(w)
-	r.Body = http.MaxBytesReader(w, r.Body, maxTrialUploadBytes)
-	ctype, data, code, status := readTrialUploadImage(r)
-	if code != "" {
-		resp := map[string]any{"error": code}
-		if status == http.StatusRequestEntityTooLarge {
-			resp["max_bytes"] = maxTrialUploadBytes
-		}
-		writeJSON(w, status, resp)
-		return
-	}
-
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	h := textproto.MIMEHeader{}
-	h.Set("Content-Disposition", `form-data; name="file"; filename="`+trialImageFile[ctype]+`"`)
-	h.Set("Content-Type", ctype)
-	pw, _ := mw.CreatePart(h)
-	_, _ = pw.Write(data)
-	_ = mw.Close()
-
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.elevenLabsConversationsBase+"/"+convID+"/files", &body)
-	if err != nil {
-		slog.Warn("trial elevenlabs upload bad upstream url", "account", account.ID)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
-		return
-	}
-	req.Header.Set("xi-api-key", a.cfg.ElevenLabsAPIKey)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	resp, err := a.client.Do(req)
-	if err != nil {
-		slog.Warn("trial elevenlabs upload upstream failed", "account", account.ID)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
-		return
-	}
-	defer resp.Body.Close()
-	slog.Info("trial elevenlabs upload", "account", account.ID, "status", resp.StatusCode, "bytes", len(data))
-	if resp.StatusCode != http.StatusOK {
-		// The body is never relayed. It is never logged raw either (it can echo
-		// request context); only ElevenLabs' bounded error code + message are
-		// logged, to diagnose refusals.
-		out := map[string]any{"error": "upstream_error", "upstream_status": resp.StatusCode}
-		if msg := logElevenLabsRefusal(account.ID, resp); msg != "" {
-			// Parsed message only (≤120 runes), never the raw body.
-			if r := []rune(msg); len(r) > 120 {
-				msg = string(r[:120])
-			}
-			out["upstream_message"] = msg
-		}
-		writeJSON(w, http.StatusBadGateway, out)
-		return
-	}
-	var payload struct {
-		FileID string `json:"file_id"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&payload); err != nil || payload.FileID == "" {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "upstream_error", "upstream_status": resp.StatusCode})
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]string{"file_id": payload.FileID})
-}
-
-// logElevenLabsRefusal reads ≤2 KiB of a non-200 upstream body and logs only
-// its parsed error code and message (≤200 runes). Handles
-// {"detail":{"status","message"}} and the 422 {"detail":[{"msg",...}]}; any
-// other shape logs el_unparsed=true and nothing from the body.
-// It returns the (≤200-rune) parsed message, "" when unparsed.
-func logElevenLabsRefusal(accountID string, resp *http.Response) string {
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
-	var env struct {
-		Detail json.RawMessage `json:"detail"`
-	}
-	var obj struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-	}
-	var list []struct {
-		Msg  string `json:"msg"`
-		Type string `json:"type"`
-	}
-	var code, msg string
-	switch {
-	case json.Unmarshal(raw, &env) != nil:
-		slog.Warn("trial elevenlabs upload refused", "account", accountID, "upstream_status", resp.StatusCode, "el_unparsed", true)
-		return ""
-	case json.Unmarshal(env.Detail, &obj) == nil && (obj.Status != "" || obj.Message != ""):
-		code, msg = obj.Status, obj.Message
-	case json.Unmarshal(env.Detail, &list) == nil && len(list) > 0:
-		code, msg = list[0].Type, list[0].Msg
-	default:
-		slog.Warn("trial elevenlabs upload refused", "account", accountID, "upstream_status", resp.StatusCode, "el_unparsed", true)
-		return ""
-	}
-	if r := []rune(msg); len(r) > 200 {
-		msg = string(r[:200])
-	}
-	slog.Warn("trial elevenlabs upload refused", "account", accountID, "upstream_status", resp.StatusCode, "el_status", code, "el_message", msg)
-	return msg
-}
-
-// trialImageFile maps the only types ElevenLabs accepts to the filename (with
-// the extension it also requires) sent upstream.
-var trialImageFile = map[string]string{
-	"image/jpeg": "photo.jpg", "image/png": "photo.png", "image/gif": "photo.gif", "image/webp": "photo.webp",
-}
-
-// trialImageAlias folds non-canonical jpeg types ElevenLabs rejects.
-var trialImageAlias = map[string]string{"image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg"}
-
-// readTrialUploadImage streams the multipart body to its "file" part and
-// reads that part into memory. Non-empty code is the error to answer with.
-func readTrialUploadImage(r *http.Request) (ctype string, data []byte, code string, status int) {
-	tooLarge := func(err error) bool {
-		var mbe *http.MaxBytesError
-		return errors.As(err, &mbe)
-	}
-	mr, err := r.MultipartReader()
-	if err != nil {
-		return "", nil, "missing_file", http.StatusBadRequest
-	}
-	for {
-		part, err := mr.NextPart()
-		if err != nil {
-			if tooLarge(err) {
-				return "", nil, "file_too_large", http.StatusRequestEntityTooLarge
-			}
-			return "", nil, "missing_file", http.StatusBadRequest
-		}
-		if part.FormName() != "file" {
-			continue
-		}
-		ctype = strings.ToLower(part.Header.Get("Content-Type"))
-		if alias, ok := trialImageAlias[ctype]; ok {
-			ctype = alias
-		}
-		if _, ok := trialImageFile[ctype]; !ok {
-			return "", nil, "unsupported_media_type", http.StatusUnsupportedMediaType
-		}
-		data, err = io.ReadAll(part)
-		if err != nil {
-			if tooLarge(err) {
-				return "", nil, "file_too_large", http.StatusRequestEntityTooLarge
-			}
-			return "", nil, "missing_file", http.StatusBadRequest
-		}
-		if len(data) == 0 {
-			return "", nil, "missing_file", http.StatusBadRequest
-		}
-		return ctype, data, "", 0
-	}
 }
 
 // upstreamRejectsSchema reports whether the upstream error body complains
