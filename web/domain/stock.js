@@ -142,14 +142,18 @@ export function createStockDomain({ records, now }) {
 
   // Seed a tracked med that has no audit yet (see SEED above). Runs before the
   // stock-moving write lands, while inventory_count and the evidence agree.
+  // A med with any audit (the common case after its first write) is decided
+  // from the small stock list alone; only the one-time seed reads intakes.
   async function ensureSeed(medId) {
     const med = await findMed(medId);
     if (!isTracked(med)) return;
+    const stock = await records.list(STOCK_RECORD_TYPE);
+    if (stock.some((r) => !r.deleted && r.kind === 'audit' && sameId(r.medication_id, med.recordId))) return;
     const src = await sources();
     const { rows, refills, taken } = movements(med.recordId, src);
     if (rows.some((r) => r.kind === 'audit')) return;
     const atMs = now();
-    const count = med.inventory_count + taken.length - sumN(refills);
+    const count = Number(med.inventory_count) + taken.length - sumN(refills);
     await records.putIfAbsent(STOCK_RECORD_TYPE, {
       recordId: stockRecordId(med.recordId, atMs, `seed${count}`),
       clientTs: 0,
@@ -168,11 +172,27 @@ export function createStockDomain({ records, now }) {
   async function mirror(medId, { track = false } = {}) {
     const med = await findMed(medId);
     if (!med || (!isTracked(med) && !track)) return null;
-    const s = deriveStock(isTracked(med) ? med : { ...med, inventory_count: 0 }, await sources());
+    return mirrorOne(med, await sources(), track);
+  }
+
+  async function mirrorOne(med, src, track) {
+    const s = deriveStock(isTracked(med) ? med : { ...med, inventory_count: 0 }, src);
     if (med.inventory_count !== s.count) {
       await records.put(MEDICATION_RECORD_TYPE, { ...med, clientTs: now(), inventory_count: s.count });
     }
     return s.count;
+  }
+
+  // One mirror pass for every med a batch of dose writes touched: a single
+  // read of the evidence however many doses (a cluster confirm, a bulk act).
+  async function mirrorMany(medIds) {
+    const ids = new Set([...medIds].map(String));
+    if (ids.size === 0) return;
+    const meds = (await records.list(MEDICATION_RECORD_TYPE))
+      .filter((m) => !m.deleted && ids.has(String(m.recordId)) && isTracked(m));
+    if (meds.length === 0) return;
+    const src = await sources();
+    for (const med of meds) await mirrorOne(med, src, false);
   }
 
   async function write(medId, kind, fields) {
@@ -220,6 +240,6 @@ export function createStockDomain({ records, now }) {
   }
 
   return {
-    sources, ensureSeed, mirror, refill, audit,
+    sources, ensureSeed, mirror, mirrorMany, refill, audit,
   };
 }

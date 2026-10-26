@@ -1511,6 +1511,33 @@ describe('stock ledger (bd med-wi09.13)', () => {
         expect(await derived()).toBe(29);
     });
 
+    it('a batch of N dose writes reads the intake evidence a bounded number of times, not N (breakage F3)', async () => {
+        clock = T(12);
+        const rows = [7, 8, 9, 10, 11].map((h) => takenRow(T(h)));
+        open({ medication: [med()], stock: [audit(10, T(6))], intake: rows });
+        expect(await derived()).toBe(5);
+        const list = vi.spyOn(env.records, 'list');
+        const raw = env.records.listRaw ? vi.spyOn(env.records, 'listRaw') : null;
+        const intakeReads = () => [...list.mock.calls, ...(raw ? raw.mock.calls : [])]
+            .filter(([type]) => type === 'intake').length;
+        const undo = async (ids) => {
+            list.mockClear();
+            if (raw) raw.mockClear();
+            await env.window.apiCall('/api/doses/act', 'POST', { action: 'undo', occ_ids: ids });
+            return intakeReads();
+        };
+        const one = await undo([rows[0].recordId]);
+        const four = await undo(rows.slice(1).map((r) => r.recordId));
+        expect(four).toBe(one);
+        expect(await derived()).toBe(10);
+        expect(await mirror()).toBe(10);
+        // A write that moves no stock (a skip of a never-taken dose) reads no
+        // evidence for the ledger at all.
+        list.mockClear();
+        await createIntakeDomain({ records: env.records, now: () => clock, timeZone: 'UTC' }).skip(rows[0].recordId);
+        expect(list.mock.calls.filter(([type]) => type === 'stock')).toHaveLength(0);
+    });
+
     it('pack_size is optional: kept when an update omits it, cleared by null', async () => {
         clock = T(12);
         open({ medication: [med()] });
