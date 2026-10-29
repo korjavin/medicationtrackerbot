@@ -758,29 +758,25 @@ async function bindExercisePicker({ input, mount, withLibrary = true, onPick } =
 //   input    — the search field; mount — the container the section renders into
 //   exclude  — names already in the session (case-insensitive): never offered,
 //              so a tap cannot hit the (session, exercise, source) dedup
+//   excludeIds — library ids the session already logged (a renamed library
+//              row keeps its old name on the log), never offered either
 //   lastLine — async name → "last 3 × 15 · 20 kg" | null
 //   onAdd    — called with the tapped item: a library row (id + defaults),
 //              { name, body_part } for a catalog name, or { name } typed
 //   upNext   — optional promise of ranked rows (med-okwf.4, kit WA3/WA5) shown
 //              as "Up next" while the field is empty; none → nothing at rest
-async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd, upNext: upNextP } = {}) {
+// The input is live before the reads land (the Next step shows it at once):
+// typing early paints with what is loaded so far, and the load repaints for
+// whatever the field holds by then.
+async function bindExerciseAddList({ input, mount, exclude = [], excludeIds = [], lastLine, onAdd, upNext: upNextP } = {}) {
     if (!input || !mount) return;
     _catalogRefreshSeq++;
     const skip = new Set(exclude.map(n => String(n || '').trim().toLowerCase()));
-    const keep = item => !skip.has((item.name || '').trim().toLowerCase());
+    const skipIds = new Set(excludeIds.filter(id => id > 0));
+    const keep = item => !skip.has((item.name || '').trim().toLowerCase()) && !(item.id > 0 && skipIds.has(item.id));
 
     let library = [];
     let upNext = [];
-    try {
-        const [items, ranked] = await Promise.all([
-            apiCall('/api/workout/exercise-library'),
-            Promise.resolve(upNextP).catch(() => null)
-        ]);
-        if (Array.isArray(items)) library = items.filter(keep);
-        if (Array.isArray(ranked)) upNext = ranked.filter(item => item && item.name && keep(item)).slice(0, 3);
-    } catch (error) {
-        console.error('Error loading exercise library for picker:', error);
-    }
 
     let rendered = [];
     const row = (item, title, meta, icon) => {
@@ -861,6 +857,18 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
         if (item && onAdd) onAdd(item);
     };
     paint([], '', '');
+
+    try {
+        const [items, ranked] = await Promise.all([
+            apiCall('/api/workout/exercise-library'),
+            Promise.resolve(upNextP).catch(() => null)
+        ]);
+        if (Array.isArray(items)) library = items.filter(keep);
+        if (Array.isArray(ranked)) upNext = ranked.filter(item => item && item.name && keep(item)).slice(0, 3);
+    } catch (error) {
+        console.error('Error loading exercise library for picker:', error);
+    }
+    await refresh();
 }
 
 function _wgExerciseIco(name) {

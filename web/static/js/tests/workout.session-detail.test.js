@@ -130,6 +130,30 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(document.getElementById('workout-session-actions').hidden).toBe(true);
     });
 
+    // Argus on #1463: the step's search shows at once; typing before the reads
+    // land must not be lost or overwritten by the at-rest list.
+    it('typing in the step before its reads land still lists matches once they do', async () => {
+        const { window, document } = env;
+        let release;
+        const gate = new Promise((r) => { release = r; });
+        await openSession(window, [], null, async (endpoint) => {
+            if (endpoint.startsWith('/api/workout/sessions/suggest-next?')) {
+                await gate;
+                return [{ id: 12, name: 'Plank', body_part: 'core' }];
+            }
+            if (endpoint === '/api/workout/exercise-library') return [{ id: 12, name: 'Plank', body_part: 'core' }, { id: 13, name: 'Face pull' }];
+            return undefined;
+        });
+        const input = document.getElementById('workout-session-addstep-search');
+        input.value = 'face';
+        input.dispatchEvent(new window.Event('input'));
+        release();
+        const mount = document.getElementById('workout-session-addstep-list');
+        await vi.waitFor(() => expect(Array.from(mount.querySelectorAll('.wg-row__title')).map((t) => t.textContent))
+            .toEqual(['Face pull', 'Add “face”']));
+        expect(mount.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Matches');
+    });
+
     it('with no history and an empty library the step is search only', async () => {
         const { window, document } = env;
         await openSession(window, []);

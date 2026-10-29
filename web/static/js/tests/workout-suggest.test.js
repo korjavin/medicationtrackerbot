@@ -54,6 +54,17 @@ describe('rankNextExercises', () => {
     expect(names(out)).toEqual(['Row']);
   });
 
+  it('excludes a library row the session logged under its old name (rename), not a plan row with the same id', () => {
+    const sessions = [S(1, '2026-01-01'), S(9, '2026-01-07')];
+    const library = [{ id: 12, name: 'Cable row', body_part: 'back' }, { id: 13, name: 'Plank', body_part: 'core' }];
+    const logs = [
+      { ...L(9, 'Row'), source: 'library', exercise_id: 12 },
+      // A plan log's exercise_id lives in the schedule id space: 13 is not the library's Plank.
+      { ...L(9, 'Squat'), source: 'schedule', exercise_id: 13 },
+    ];
+    expect(names(rankNextExercises({ sessions, logs, library, sessionId: 9 }))).toEqual(['Plank']);
+  });
+
   it('ignores skipped/placeholder history and caps at the limit', () => {
     const sessions = [S(1, '2026-01-01'), S(9, '2026-01-07')];
     const logs = [L(1, 'A'), L(1, 'B', 'skipped'), L(1, 'C'), L(1, 'D'), L(1, 'E')];

@@ -432,6 +432,12 @@ function _showSessionAddStep() {
     _rerenderSessionLogs();
 }
 
+// Library ids of the session's library-source logs: a renamed library row
+// keeps its old name on the log, and re-adding it would hit the dedup.
+function _sessionLibraryIds(logs) {
+    return (logs || []).filter((l) => l.source === 'library' && l.exercise_id > 0).map((l) => Number(l.exercise_id));
+}
+
 // The ranked "Up next" rows (domain rankNextExercises) after exercise `after`.
 function _sessionUpNext(after) {
     const st = window.WorkoutSessionsState;
@@ -495,6 +501,7 @@ function _buildSessionAddStep() {
         input,
         mount,
         exclude: logs.map((l) => l.exercise_name),
+        excludeIds: _sessionLibraryIds(logs),
         lastLine: _lastSessionLine,
         upNext: _sessionUpNext(last),
         onAdd: saveNewSessionExercise
@@ -3077,6 +3084,7 @@ async function showAddExerciseToSessionModal() {
         input,
         mount: document.getElementById('session-add-exercise-suggest'),
         exclude: st.logs.map((l) => l.exercise_name),
+        excludeIds: _sessionLibraryIds(st.logs),
         lastLine: _lastSessionLine,
         upNext: _sessionUpNext((st.logs[_sessionUi().current] || {}).exercise_name),
         onAdd: saveNewSessionExercise

@@ -15,14 +15,22 @@ const key = (name) => String(name || '').trim().toLowerCase();
 // Anything already in the session (any status) is never offered, so a tap
 // can never hit the (session, exercise, source) dedup.
 //   sessions — [{ id, scheduled_date, scheduled_time }]
-//   logs     — [{ id, session_id, exercise_name, status }] (all sessions)
+//   logs     — [{ id, session_id, exercise_id, exercise_name, status, source }] (all sessions)
 //   library  — the library rows as listLibrary returns them
 // Returns library rows where the name has one, else { name }.
 export function rankNextExercises({ sessions = [], logs = [], library = [], sessionId = 0, after = '', limit = 3 } = {}) {
   const libByKey = new Map();
   for (const item of library) if (item && key(item.name)) libByKey.set(key(item.name), item);
 
-  const taken = new Set(logs.filter((l) => l.session_id === sessionId).map((l) => key(l.exercise_name)));
+  const inSession = logs.filter((l) => l.session_id === sessionId);
+  const taken = new Set(inSession.map((l) => key(l.exercise_name)));
+  // A library-source log keeps its snapshot name after a library rename, so
+  // the library id is excluded too (plan logs' exercise_id is another id space).
+  for (const l of inSession) {
+    if (l.source !== 'library' || !(l.exercise_id > 0)) continue;
+    const item = library.find((i) => i && i.id === l.exercise_id);
+    if (item) taken.add(key(item.name));
+  }
   const takenParts = new Set();
   for (const k of taken) {
     const bp = libByKey.get(k) && String(libByKey.get(k).body_part || '').trim().toLowerCase();

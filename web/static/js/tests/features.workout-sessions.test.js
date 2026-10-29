@@ -434,6 +434,21 @@ describe('features/workout/sessions.js — split-file integration', () => {
       expect(mount.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Up next');
     });
 
+    // Argus on #1463: a library log keeps its old name after a rename; the
+    // renamed library row must not be offered (same (session, id, library)).
+    it('never offers a library row the session already logged under an older name', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      window.WorkoutSessionsState.logs = [
+        { id: 5, exercise_id: 11, exercise_name: 'Old press', source: 'library', status: '', sets_completed: 0 }
+      ];
+      await window.showAddExerciseToSessionModal();
+      const mount = document.getElementById('session-add-exercise-suggest');
+      await type(window, 'o');
+      // Overhead Press is library id 11: gone; only the typed add row is left.
+      expect(rowsOf(mount)).toEqual([['Add “o”', 'New exercise']]);
+    });
+
     it('typing lists own rows (last numbers), then library rows, then an add row (kit WA3b)', async () => {
       const { window, document } = env;
       stubSessionPicker(window);
