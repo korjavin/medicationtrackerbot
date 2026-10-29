@@ -455,6 +455,30 @@ describe('features/workout/sessions.js — split-file integration', () => {
       expect(createCall(window)).toBeUndefined();
     });
 
+    it('offers no row at all while the library read is pending, even when the catalog is fast', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      window.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ exercises: [{ name: 'Overhead Press' }] }) }));
+      const base = window.apiCall;
+      const lib = deferred();
+      window.apiCall = vi.fn((endpoint, ...rest) => (
+        endpoint === '/api/workout/exercise-library' ? lib.promise.then(() => base(endpoint, ...rest)) : base(endpoint, ...rest)
+      ));
+      window.WorkoutSessionsState.logs = [
+        { id: 5, exercise_id: 11, exercise_name: 'Old press', source: 'library', status: '', sets_completed: 0 }
+      ];
+      const opening = window.showAddExerciseToSessionModal();
+      const mount = document.getElementById('session-add-exercise-suggest');
+      await type(window, 'Overhead Press');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(rowsOf(mount)).toEqual([]);
+      lib.resolve();
+      await opening;
+      await new Promise((r) => setTimeout(r, 10));
+      expect(rowsOf(mount)).toEqual([]);
+      expect(createCall(window)).toBeUndefined();
+    });
+
     it('typing lists own rows (last numbers), then library rows, then an add row (kit WA3b)', async () => {
       const { window, document } = env;
       stubSessionPicker(window);

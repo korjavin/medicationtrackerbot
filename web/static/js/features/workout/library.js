@@ -846,7 +846,8 @@ async function bindExerciseAddList({ input, mount, exclude = [], excludeIds = []
         const typed = (input.value || '').trim();
         const q = typed.toLowerCase();
         const libraryHits = paint(library, q, typed);
-        if (q.length >= EXERCISE_CATALOG_MIN_QUERY && libraryHits < EXERCISE_SUGGESTION_LIMIT) {
+        // Catalog rows wait for the library read too (same reason as the add row).
+        if (loaded && q.length >= EXERCISE_CATALOG_MIN_QUERY && libraryHits < EXERCISE_SUGGESTION_LIMIT) {
             const catalog = await _loadExerciseCatalog();
             if (seq !== _catalogRefreshSeq) return;
             paint(library.concat(catalog.map(e => ({ name: e.name, body_part: e.body_part }))), q, typed);
