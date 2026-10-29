@@ -807,9 +807,13 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
     // No reply: the run died before answering (iOS suspended the page, a reload,
     // a throw) — or it is still going in another tab. A marker from an older
     // bundle has no wrote/attempts and reads as "not wrote, never retried".
-    // 1. Lease: the marker's clientTs is its (re)start time. Throwing leaves
-    //    the event queued and un-acked for a later drain (drain rule 1).
-    if (now() - (marker.clientTs || 0) < TG_AGENT_LEASE_MS) {
+    // 1. Lease: startedAt is the (re)start time on THIS clock — not clientTs,
+    //    which the sync port skew-corrects to server time and bumps past the
+    //    previous version, so it would mis-age the lease on a skewed device.
+    //    A marker without startedAt (an older bundle's) counts as stale.
+    //    Throwing leaves the event queued and un-acked for a later drain
+    //    (drain rule 1).
+    if (typeof marker.startedAt === 'number' && now() - marker.startedAt < TG_AGENT_LEASE_MS) {
       throw new Error('free-text run may still be in progress in another tab');
     }
     // 2. Wrote: its tool writes are already pending and flush with this drain;
@@ -827,8 +831,8 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
     // 3. Retry once, exactly as a first run.
     attempts = 1;
   }
-  const run = { markerId, attempts, wroteFlag: null };
-  await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: now(), deleted: false, ...(attempts ? { attempts } : {}) });
+  const run = { markerId, attempts, startedAt: now(), wroteFlag: null };
+  await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: run.startedAt, deleted: false, startedAt: run.startedAt, ...(attempts ? { attempts } : {}) });
 
   let answer;
   currentTGRun = run;
@@ -916,7 +920,7 @@ export function createInboxRouter(ctx, { records, now, timeZone }) {
     const run = currentTGRun;
     if (!run) return undefined;
     run.wroteFlag = run.wroteFlag || records.put(TG_AGENT_MARKER_TYPE, {
-      recordId: run.markerId, clientTs: now(), deleted: false, wrote: true, ...(run.attempts ? { attempts: run.attempts } : {}),
+      recordId: run.markerId, clientTs: now(), deleted: false, startedAt: run.startedAt, wrote: true, ...(run.attempts ? { attempts: run.attempts } : {}),
     });
     return run.wroteFlag;
   };

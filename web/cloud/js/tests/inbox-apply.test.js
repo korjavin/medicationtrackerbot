@@ -1981,12 +1981,31 @@ describe('inbox-apply.js — a Telegram data command', () => {
     const staleMarker = (extra = {}) => fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 3 * 60 * 1000, ...extra }] });
 
     it('a fresh reply-less marker is leased to another tab: throws, no edit, no run', async () => {
-        const records = fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 30 * 1000 }] });
+        const records = fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 30 * 1000, startedAt: NOW - 30 * 1000 }] });
         const editReply = vi.fn();
         const agent = { run: vi.fn() };
         await expect(applyTGText(textEvent('what was my bp'), 48, { agent, records, editReply, now: () => NOW })).rejects.toThrow();
         expect(agent.run).not.toHaveBeenCalled();
         expect(editReply).not.toHaveBeenCalled();
+    });
+
+    // Argus P1: the sync port skew-corrects clientTs into server time, so the
+    // lease must age on startedAt (this device's clock), not clientTs.
+    it('the lease holds on a clock-skewed port that rewrites clientTs', async () => {
+        const records = fakeRecords();
+        const put = records.put;
+        records.put = (type, record) => put(type, { ...record, clientTs: record.clientTs - 10 * 60 * 1000 }); // device 10 min fast
+        const secondTab = { run: vi.fn() };
+        const editReply = vi.fn();
+        let leased;
+        const agent = { run: async () => {
+            leased = await applyTGText(textEvent('hi'), 48, { agent: secondTab, records, editReply, now: () => NOW }).then(() => false, () => true);
+            return 'Hello.';
+        } };
+        await applyTGText(textEvent('hi'), 48, { agent, records, editReply, now: () => NOW });
+        expect(leased).toBe(true);
+        expect(secondTab.run).not.toHaveBeenCalled();
+        expect(editReply.mock.calls).toEqual([[REPLY_ID, 'Hello.']]);
     });
 
     it('a stale interrupted run with no write is retried once and answered', async () => {
