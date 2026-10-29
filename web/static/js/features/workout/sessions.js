@@ -571,15 +571,24 @@ async function _ensureExerciseHistory(name) {
     ui.last[name] = null;
     const rows = await _exerciseHistory(name);
     const st = window.WorkoutSessionsState;
-    if (st.ui !== ui || !rows || !st.data) return;
+    if (st.ui !== ui) return;
+    const sets = _priorSessionSets(rows);
+    if (!sets) return;
+    ui.last[name] = sets;
+    const cur = st.logs[ui.current];
+    if (!ui.overview && cur && cur.exercise_name === name) _rerenderSessionLogs();
+}
+
+// The per-set rows of the newest OTHER session on or before this one, from a
+// history read; null when there is none.
+function _priorSessionSets(rows) {
+    const st = window.WorkoutSessionsState;
+    if (!Array.isArray(rows) || !st.data) return null;
     const sid = st.data.id;
     const day = String(st.data.scheduled_date || '').slice(0, 10);
     const prior = rows.find((r) => r && r.session_id !== sid && Array.isArray(r.sets) && r.sets.length > 0
         && (!day || !r.date || String(r.date).slice(0, 10) <= day));
-    if (!prior) return;
-    ui.last[name] = prior.sets;
-    const cur = st.logs[ui.current];
-    if (!ui.overview && cur && cur.exercise_name === name) _rerenderSessionLogs();
+    return prior ? prior.sets : null;
 }
 
 // The values a set row shows. A done row shows its stored set; a pending row
@@ -604,6 +613,9 @@ function _setRowValues(log, row) {
             reps: Number(t.reps != null ? t.reps : log.reps_completed) || 0,
             set_type: 'normal',
             fromLast: false,
+            // An added exercise (source 'library') pre-fills from the library
+            // default, labelled "default"; no default reads "—" (kit WA4).
+            fromDefault: log.source === 'library',
         };
     }
     const draft = (Array.isArray(log._drafts) && log._drafts[row - done.length]) || {};
@@ -616,6 +628,7 @@ function _setRowValues(log, row) {
         ghostW: !has('weight_kg'),
         ghostR: !has('reps'),
         fromLast: ghost.fromLast,
+        fromDefault: !!ghost.fromDefault,
         done: false,
     };
 }
@@ -672,12 +685,13 @@ function _buildSetRow(log, index, row, activeRow) {
         c.dataset.field = field;
         if (ghost) c.classList.add('wg-set__cell--ghost');
         c.setAttribute('aria-label', `${label} ${_fmtSetNumber(value)}`);
-        c.appendChild(document.createTextNode(_fmtSetNumber(value)));
+        const blank = ghost && v.fromDefault && !Number(value);
+        c.appendChild(document.createTextNode(blank ? '—' : _fmtSetNumber(value)));
         // A rated row shows its RPE in the reps cell; the active pending row
         // keeps "last N" there (its chip row already shows the rating).
         const small = field === 'reps' && v.rpe != null && (v.done || row !== activeRow)
             ? `RPE ${_fmtSetNumber(v.rpe)}`
-            : ghost ? (v.fromLast ? 'last' : '')
+            : ghost ? (v.fromLast ? 'last' : (v.fromDefault && !blank ? 'default' : ''))
                 : (lastSet && !v.done && row === activeRow ? `last ${_fmtSetNumber(lastSet[field])}` : '');
         if (small) {
             const s = document.createElement('small');
@@ -807,7 +821,17 @@ function _buildSessionExerciseCard(log, index) {
 
     const monoRow = document.createElement('div');
     monoRow.className = 'wg-workouts-session-exercise__mono';
-    monoRow.textContent = _formatLogMono(log);
+    // The line under the tags: what is logged, else the plan row's target
+    // (an untouched planned exercise, kit W1). An added exercise with nothing
+    // logged has no target, so no "0 × 0 · bodyweight" line — its ghost set
+    // carries the numbers (kit WA4, Iris on med-okwf.3).
+    const has = (l) => Number(l.sets_completed) > 0 && Number(l.reps_completed) > 0;
+    const t = log._target;
+    const line = has(log) || !t ? log
+        : { sets_completed: log._targetSets, reps_completed: t.reps, weight_kg: t.weight_kg };
+    const shown = has(line);
+    monoRow.textContent = shown ? _formatLogMono(line) : '';
+    monoRow.hidden = !shown;
     entry.appendChild(monoRow);
 
     // In-session weight suggestion (med-h5u3): a collapsed "Try <kg>" chip in
@@ -2175,8 +2199,25 @@ async function showWorkoutSessionModal(sessionId) {
                     });
                 }
 
-                if (plannedMissingLogs && plannedMissingLogs.length > 0) {
-                    window.WorkoutSessionsState.logs = [...window.WorkoutSessionsState.logs, ...plannedMissingLogs];
+                // Plan order, logged or not, then exercises added mid-workout
+                // (source 'library') in the order they were added: an added
+                // exercise goes to the end (kit WA4, med-okwf.3) and keeps its
+                // place on every reload. Logs are read back sorted by id, so
+                // without this a log made before the plan's sets would lead.
+                const merged = [...window.WorkoutSessionsState.logs, ...(plannedMissingLogs || [])];
+                if (plannedRows) {
+                    const pos = (l) => {
+                        if (l.source === 'library') return Number.MAX_SAFE_INTEGER;
+                        const i = plannedRows.findIndex((p) => (l.exercise_id && p._eid
+                            ? p._eid === l.exercise_id : p.exercise_name === l.exercise_name));
+                        return i < 0 ? plannedRows.length : i;
+                    };
+                    window.WorkoutSessionsState.logs = merged
+                        .map((l, k) => ({ l, k, p: pos(l) }))
+                        .sort((a, b) => a.p - b.p || a.k - b.k)
+                        .map((x) => x.l);
+                } else {
+                    window.WorkoutSessionsState.logs = merged;
                 }
             } catch (prefillError) {
                 console.error('Error pre-filling planned exercises:', prefillError);
@@ -2940,28 +2981,27 @@ async function cancelPreSkipWorkoutSession(sessionId) {
 // ADD EXERCISE TO SESSION
 // ====================================
 
+// Kit WA3/WA3b (med-okwf.3): the sheet is a search field over the shared row
+// list; tapping a row adds that exercise (saveNewSessionExercise). No Save, no
+// sets/reps/weight fields — the added exercise gets one pending set.
 async function showAddExerciseToSessionModal() {
-    if (!window.WorkoutSessionsState.data) return;
+    const st = window.WorkoutSessionsState;
+    if (!st.data) return;
 
-    // Reset fields
-    const hiddenId = document.getElementById('session-add-exercise-id');
-    document.getElementById('session-add-exercise-name').value = '';
-    hiddenId.value = '';
-    delete hiddenId.dataset.pickedName;
-    document.getElementById('session-add-exercise-sets').value = '';
-    document.getElementById('session-add-exercise-reps').value = '';
-    document.getElementById('session-add-exercise-weight').value = '';
-    document.getElementById('session-add-exercise-notes').value = '';
+    const input = document.getElementById('session-add-exercise-name');
+    input.value = '';
+    const eyebrow = document.getElementById('workout-add-exercise-to-session-eyebrow');
+    if (eyebrow) {
+        const adhoc = st.data.group_id === -1 && st.data.notes ? String(st.data.notes).trim() : '';
+        eyebrow.textContent = adhoc || st.planLabel || 'Workout';
+    }
 
-    const titleEl = document.getElementById('workout-add-exercise-to-session-title');
-    if (titleEl) titleEl.textContent = 'Add exercise';
-
-    // Shared inline suggestion list (med-prk.3, med-max): library + catalog
-    // names, rendered under the field instead of in a native <datalist> popup.
-    await window.WorkoutLibrary.bindExercisePicker({
-        input: document.getElementById('session-add-exercise-name'),
+    await window.WorkoutLibrary.bindExerciseAddList({
+        input,
         mount: document.getElementById('session-add-exercise-suggest'),
-        onPick: onSessionExercisePicked
+        exclude: st.logs.map((l) => l.exercise_name),
+        lastLine: _lastSessionLine,
+        onAdd: saveNewSessionExercise
     });
     // The session may have closed while the picker loaded (med-xso6.31).
     if (!window.WorkoutSessionsState.data) return;
@@ -2989,49 +3029,39 @@ function closeAddExerciseToSessionModal() {
     };
 }
 
-// A row was tapped in the inline suggestion list. Library items carry an id and
-// the defaults that pre-fill the quick-add fields; catalog-only items carry
-// neither, so the hidden id stays empty and saveNewSessionExercise routes the
-// name through resolveOrCreateLibraryId instead of posting exercise_id
-// "undefined"/NaN (med-prk.3).
-function onSessionExercisePicked(item) {
-    const hiddenId = document.getElementById('session-add-exercise-id');
-    hiddenId.value = item.id || '';
-    // Remember which name this id belongs to: picking does not fire `change`,
-    // but the later blur does, and onSessionExerciseSelect must be able to tell
-    // "still the picked name" from "hand-edited since".
-    hiddenId.dataset.pickedName = item.name || '';
-
-    _setSessionExerciseTitle(item.name || '');
-    if (item.id == null) return;
-
-    // Autofill if empty.
-    const setsEl = document.getElementById('session-add-exercise-sets');
-    const repsEl = document.getElementById('session-add-exercise-reps');
-    const weightEl = document.getElementById('session-add-exercise-weight');
-    if (!setsEl.value && item.default_sets) setsEl.value = item.default_sets;
-    if (!repsEl.value && item.default_reps_min) repsEl.value = item.default_reps_min;
-    if (!weightEl.value && item.default_weight_kg) weightEl.value = item.default_weight_kg;
+// "last 3 × 15 · 20 kg" for a row of the add list: the prior session's sets
+// (the source of the ghost "last" cells), top set by weight. null = never
+// logged before.
+async function _lastSessionLine(name) {
+    const sets = _priorSessionSets(await _exerciseHistory(name));
+    if (!sets) return null;
+    const top = sets.reduce((a, s) => ((Number(s.weight_kg) || 0) > (Number(a.weight_kg) || 0) ? s : a), sets[0]);
+    const w = Number(top.weight_kg) || 0;
+    return `last ${sets.length} × ${_fmtSetNumber(top.reps)}${w > 0 ? ` · ${_fmtSetNumber(w)} kg` : ''}`;
 }
 
-function _setSessionExerciseTitle(name) {
-    const titleEl = document.getElementById('workout-add-exercise-to-session-title');
-    if (titleEl) titleEl.textContent = name ? `Log set · ${name}` : 'Add exercise';
+// A row was tapped in the add list: add that exercise as the next one, not
+// done, with one pending set (med-okwf.1/.3). `item` is a library row (id +
+// default_reps_min / default_weight_kg), a catalog name { name } or a typed
+// name { name }; the last two have no id and go through
+// resolveOrCreateLibraryId (med-prk.3). The pending set's ghost is last
+// session's set when there is one (_setRowValues), else the library default
+// posted here as the target, else empty.
+let _addingExercise = false; // module-state: one add at a time — a double tap must not POST two creates
+async function saveNewSessionExercise(item) {
+    if (_addingExercise) return;
+    _addingExercise = true;
+    try {
+        await _addSessionExercise(item);
+    } finally {
+        _addingExercise = false;
+    }
 }
 
-// Bound to the name field's `change`. Keeps the modal title in step with the
-// typed name, and drops a hidden id that no longer belongs to it — the id is
-// only valid for the exact name that was picked from the suggestion list.
-function onSessionExerciseSelect() {
-    const val = document.getElementById('session-add-exercise-name').value;
-    const hiddenId = document.getElementById('session-add-exercise-id');
-    _setSessionExerciseTitle(val);
-    if ((hiddenId.dataset.pickedName || '') !== val) hiddenId.value = '';
-}
-
-async function saveNewSessionExercise() {
+async function _addSessionExercise(item) {
     const sessionData = window.WorkoutSessionsState.data;
-    if (!sessionData) return;
+    const name = String((item && item.name) || '').trim();
+    if (!sessionData || !name) return;
 
     // Drain any pending/in-flight autosave first. Otherwise a debounce timer
     // armed by a prior edit can fire during the create awaits below and iterate
@@ -3041,43 +3071,25 @@ async function saveNewSessionExercise() {
     // otherwise drop it). If the flush FAILS (offline/5xx), bail like
     // closeWorkoutSessionModal does: settleFailure already restored the dirty
     // flags + inline error, so proceeding to create + reload would drop that
-    // preserved edit. The add-exercise modal stays open with the typed values.
+    // preserved edit. The add-exercise sheet stays open.
     if (!(await flushPendingAutosave())) {
         safeAlert('Could not save your previous change — fix that first, then add the exercise.');
         return;
     }
     if (!window.WorkoutSessionsState.data) return;
 
-    const name = document.getElementById('session-add-exercise-name').value.trim();
-    let exerciseId = document.getElementById('session-add-exercise-id').value;
-    const sets = parseInt(document.getElementById('session-add-exercise-sets').value);
-    const reps = parseInt(document.getElementById('session-add-exercise-reps').value);
-    const weightRaw = document.getElementById('session-add-exercise-weight').value;
-    const weight = weightRaw.trim() !== '' ? parseDecimal(weightRaw) : null;
-    const notes = document.getElementById('session-add-exercise-notes').value.trim();
+    // The library default pre-fills the pending set, clamped to the same
+    // ceilings as addLocalSet / saveWorkoutSessionDetails (reps 100, 500 kg).
+    const reps = Math.min(100, Math.max(0, Math.round(Number(item.default_reps_min) || 0)));
+    const rawWeight = Number(item.default_weight_kg);
+    const weight = rawWeight > 0 ? Math.min(500, rawWeight) : null;
 
-    if (!name || !sets || !reps) {
-        safeAlert('Name, sets, and reps are required');
-        return;
-    }
-
-    // Enforce the same ceilings as saveWorkoutSessionDetails / addLocalSet.
-    // The modal's max="20" is only a soft hint — Save is a button handler, so a
-    // typed/pasted value reaches here unclamped (it still seeds the library
-    // defaults when the name is new).
-    if (sets > 20 || reps > 100 || (weight != null && weight > 500)) {
-        safeAlert('Values exceed maximum allowed');
-        return;
-    }
-
+    let exerciseId = item.id;
     if (!exerciseId) {
-        // Nothing was picked from the suggestion list (free-typed, or the name
-        // was edited after picking). resolveOrCreateLibraryId matches the
+        // A catalog name or a typed one. resolveOrCreateLibraryId matches the
         // library case-insensitively by name first and only INSERTs when the
-        // name is genuinely new (med-prk.3) — create-new is allowed here.
-        exerciseId = await window.WorkoutLibrary.resolveOrCreateLibraryId(name, {
-            sets: sets, repsMin: reps, weight: weight
-        });
+        // name is genuinely new (med-prk.3) — with no defaults.
+        exerciseId = await window.WorkoutLibrary.resolveOrCreateLibraryId(name);
         if (!exerciseId) {
             safeToast('Failed to add exercise', 'error');
             return;
@@ -3105,8 +3117,9 @@ async function saveNewSessionExercise() {
         weight_kg: weight == null ? 0 : weight,
         sets: [],
         _setsInit: true,
-        notes: notes,
+        notes: '',
         status: '',
+        source: 'library',
         _optimistic: true
     };
     const prevLogs = window.WorkoutSessionsState.logs;
@@ -3156,7 +3169,7 @@ async function saveNewSessionExercise() {
             target_reps_min: reps,
             target_weight_kg: weight,
             status: '',
-            notes: notes,
+            notes: '',
             source: 'library'
         });
         if (result === null) {

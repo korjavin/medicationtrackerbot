@@ -411,43 +411,29 @@ describe('workout.js session and stats flows', () => {
       const nameInput = document.getElementById('session-add-exercise-name');
       nameInput.value = 'Overhead';
       await nameInput.oninput();
-      expect(mount.querySelectorAll('.wg-exercise-suggest__row')).toHaveLength(1);
-      mount.querySelector('.wg-exercise-suggest__row').click();
-      expect(document.getElementById('session-add-exercise-id').value).toBe('111');
-      expect(document.getElementById('session-add-exercise-sets').value).toBe('3');
-      expect(document.getElementById('session-add-exercise-reps').value).toBe('8');
+      // The library row, then the typed name as an add row (kit WA3b).
+      const titles = () => Array.from(mount.querySelectorAll('.wg-row__title')).map((t) => t.textContent);
+      expect(titles()).toEqual(['Overhead Press', 'Add “Overhead”']);
 
-      document.getElementById('session-add-exercise-name').value = '';
-      await window.saveNewSessionExercise();
-      expect(window.safeAlert).toHaveBeenCalledWith('Name, sets, and reps are required');
-
-      // Brand-new name (med-prk.3): the shared picker upserts it into the
-      // library and logs it against the returned id instead of refusing.
-      document.getElementById('session-add-exercise-name').value = 'Unknown Move';
-      document.getElementById('session-add-exercise-id').value = '';
-      document.getElementById('session-add-exercise-sets').value = '4';
-      document.getElementById('session-add-exercise-reps').value = '10';
-      await window.saveNewSessionExercise();
+      // Brand-new name (med-prk.3): the add row upserts it into the library
+      // (no defaults) and logs it against the returned id.
+      mount.querySelectorAll('.wg-row')[1].click();
+      await vi.waitFor(() => expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST',
+        expect.objectContaining({ exercise_id: 222, exercise_name: 'Overhead', target_reps_min: 0, target_weight_kg: null })));
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/exercise-library/create', 'POST',
-        expect.objectContaining({ name: 'Unknown Move' }));
-      expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST',
-        expect.objectContaining({ exercise_id: 222, exercise_name: 'Unknown Move' }));
+        expect.objectContaining({ name: 'Overhead', default_reps_min: 0 }));
+      await vi.waitFor(() => expect(window.showWorkoutSessionModal).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 0));
 
-      document.getElementById('session-add-exercise-name').value = 'Overhead Press';
-      document.getElementById('session-add-exercise-id').value = '111';
-      document.getElementById('session-add-exercise-sets').value = '5';
-      document.getElementById('session-add-exercise-reps').value = '6';
-      document.getElementById('session-add-exercise-weight').value = '40';
-      document.getElementById('session-add-exercise-notes').value = 'Felt strong';
-
-      await window.saveNewSessionExercise();
+      await window.saveNewSessionExercise({ id: 111, name: 'Overhead Press', default_reps_min: 8, default_weight_kg: 35 });
 
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST', expect.objectContaining({
         session_id: 77,
         exercise_id: 111,
         exercise_name: 'Overhead Press',
         target_sets: 0,
-        target_reps_min: 6,
+        target_reps_min: 8,
+        target_weight_kg: 35,
         status: ''
       }));
       expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(77);
@@ -456,7 +442,7 @@ describe('workout.js session and stats flows', () => {
     }
   });
 
-  it('saveNewSessionExercise resolves id from datalist and shows error when create fails', async () => {
+  it('saveNewSessionExercise logs a library pick by id and shows an error when create fails', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
@@ -477,13 +463,7 @@ describe('workout.js session and stats flows', () => {
       await window.showWorkoutSessionModal(77);
       await window.showAddExerciseToSessionModal();
 
-      document.getElementById('session-add-exercise-name').value = 'Lat Pulldown';
-      document.getElementById('session-add-exercise-id').value = '';
-      document.getElementById('session-add-exercise-sets').value = '4';
-      document.getElementById('session-add-exercise-reps').value = '10';
-      document.getElementById('session-add-exercise-weight').value = '50';
-
-      await window.saveNewSessionExercise();
+      await window.saveNewSessionExercise({ id: 222, name: 'Lat Pulldown', default_reps_min: 10, default_weight_kg: 50 });
 
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST', expect.objectContaining({
         exercise_id: 222,
@@ -495,7 +475,7 @@ describe('workout.js session and stats flows', () => {
     }
   });
 
-  it('closeAddExerciseToSessionModal restores overlay handler and selection fallback clears hidden id', async () => {
+  it('closeAddExerciseToSessionModal restores the overlay handler', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
@@ -511,11 +491,6 @@ describe('workout.js session and stats flows', () => {
       await window.showWorkoutSessionModal(77);
       const closeSessionSpy = vi.spyOn(window, 'closeWorkoutSessionModal');
       await window.showAddExerciseToSessionModal();
-
-      document.getElementById('session-add-exercise-name').value = 'Nonexistent Exercise';
-      document.getElementById('session-add-exercise-id').value = '999';
-      window.onSessionExerciseSelect();
-      expect(document.getElementById('session-add-exercise-id').value).toBe('');
 
       window.closeAddExerciseToSessionModal();
       const overlay = document.getElementById('modal-overlay');

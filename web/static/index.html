@@ -2005,68 +2005,29 @@
         </footer>
     </mt-modal>
 
-    <!-- Log-set modal (Phase 7, Task 8). Adds an exercise log to an in-progress
-         workout session — mono eyebrow + title header, `.wg-gloss--inset` input
-         wraps for name / sets / reps / weight / notes, and Save + the close X
-         in the header. -->
+    <!-- Add-exercise sheet (kit WA3/WA3b, med-okwf.3): search + a row list, no
+         Save — tapping a row adds the exercise with one pending set
+         (WorkoutLibrary.bindExerciseAddList renders the rows). -->
     <mt-modal id="workout-add-exercise-to-session-modal" class="hidden wg-modal wg-sheet wg-workouts-log-set-modal">
         <div class="wg-sheet__grab"></div>
         <header class="wg-sheethead">
             <div class="wg-sheethead__titles">
-                <div class="wg-eyebrow">Log set</div>
+                <div class="wg-eyebrow" id="workout-add-exercise-to-session-eyebrow">Workout</div>
                 <div class="wg-sheethead__title" id="workout-add-exercise-to-session-title">Add exercise</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="session-add-exercise-save-btn"
-                    class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
                 <button type="button" id="session-add-exercise-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
         <div class="wg-sheet__body wg-workouts-log-set-modal__body">
-            <div class="wg-workouts-log-set-modal__field">
-                <label for="session-add-exercise-name" class="wg-workouts-log-set-modal__label">Exercise</label>
-                <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
-                    <input type="text" id="session-add-exercise-name" class="wg-workouts-log-set-modal__input"
-                        placeholder="Start typing..." autocomplete="off">
-                </div>
-                <div id="session-add-exercise-suggest" class="wg-exercise-suggest" hidden></div>
-                <input type="hidden" id="session-add-exercise-id">
+            <div class="wg-affix">
+                <i class="wg-ico wg-affix__lead" data-icon="search"></i>
+                <input type="text" id="session-add-exercise-name" class="wg-input wg-input--text"
+                    placeholder="Search your exercises and the library" autocomplete="off"
+                    aria-label="Search exercises">
             </div>
-
-            <div class="wg-workouts-log-set-modal__row">
-                <div class="wg-workouts-log-set-modal__field">
-                    <label for="session-add-exercise-sets" class="wg-workouts-log-set-modal__label">Sets</label>
-                    <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
-                        <input type="number" inputmode="numeric" id="session-add-exercise-sets" class="wg-workouts-log-set-modal__input"
-                            min="1" max="20" placeholder="3">
-                    </div>
-                </div>
-
-                <div class="wg-workouts-log-set-modal__field">
-                    <label for="session-add-exercise-reps" class="wg-workouts-log-set-modal__label">Reps</label>
-                    <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
-                        <input type="number" inputmode="numeric" id="session-add-exercise-reps" class="wg-workouts-log-set-modal__input"
-                            min="1" max="100" placeholder="10">
-                    </div>
-                </div>
-
-                <div class="wg-workouts-log-set-modal__field">
-                    <label for="session-add-exercise-weight" class="wg-workouts-log-set-modal__label">Weight (kg)</label>
-                    <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
-                        <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="session-add-exercise-weight" class="wg-workouts-log-set-modal__input"
-                            step="0.5" min="0" placeholder="0">
-                    </div>
-                </div>
-            </div>
-
-            <div class="wg-workouts-log-set-modal__field">
-                <label for="session-add-exercise-notes" class="wg-workouts-log-set-modal__label">Notes</label>
-                <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
-                    <input type="text" id="session-add-exercise-notes" class="wg-workouts-log-set-modal__input"
-                        placeholder="Optional notes">
-                </div>
-            </div>
+            <section id="session-add-exercise-suggest" class="wg-section" hidden></section>
         </div>
     </mt-modal>
 

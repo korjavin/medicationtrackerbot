@@ -749,6 +749,128 @@ async function bindExercisePicker({ input, mount, withLibrary = true, onPick } =
     hide();
 }
 
+// The add-exercise row list (kit WA3b, med-okwf.3; med-okwf.4's Next step
+// reuses it): the same query rules as bindExercisePicker, but every row is a
+// kit .wg-row that ADDS on tap — no Save. Own library rows first, then catalog
+// names, then an 'Add "<typed>"' row unless the typed name is already listed.
+// Meta: "last …" from lastLine(name) when that exercise was logged before,
+// else "Library · <body part>" (or "Library"); the add row says "New exercise".
+//   input    — the search field; mount — the container the section renders into
+//   exclude  — names already in the session (case-insensitive): never offered,
+//              so a tap cannot hit the (session, exercise, source) dedup
+//   lastLine — async name → "last 3 × 15 · 20 kg" | null
+//   onAdd    — called with the tapped item: a library row (id + defaults),
+//              { name, body_part } for a catalog name, or { name } typed
+async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd } = {}) {
+    if (!input || !mount) return;
+    _catalogRefreshSeq++;
+    const skip = new Set(exclude.map(n => String(n || '').trim().toLowerCase()));
+    const keep = item => !skip.has((item.name || '').trim().toLowerCase());
+
+    let library = [];
+    try {
+        const items = await apiCall('/api/workout/exercise-library');
+        if (Array.isArray(items)) library = items.filter(keep);
+    } catch (error) {
+        console.error('Error loading exercise library for picker:', error);
+    }
+
+    let rendered = [];
+    const row = (item, title, meta, icon) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-row';
+        btn.dataset.index = String(rendered.length);
+        const lead = document.createElement('span');
+        lead.className = 'wg-row__lead';
+        lead.appendChild(_wgExerciseIco(icon));
+        const body = document.createElement('span');
+        body.className = 'wg-row__body';
+        const t = document.createElement('span');
+        t.className = 'wg-row__title';
+        t.textContent = title;
+        const m = document.createElement('span');
+        m.className = 'wg-row__meta';
+        m.textContent = meta;
+        body.append(t, m);
+        const trail = document.createElement('span');
+        trail.className = 'wg-row__trail';
+        trail.appendChild(_wgExerciseIco('plus'));
+        btn.append(lead, body, trail);
+        rendered.push(item);
+        return { btn, m };
+    };
+
+    const paint = (candidates, q, typed) => {
+        rendered = [];
+        if (!q) {
+            mount.replaceChildren();
+            mount.hidden = true;
+            return 0;
+        }
+        const matches = _rankExerciseMatches(candidates.filter(keep), q);
+        const list = document.createElement('div');
+        list.className = 'wg-list';
+        matches.forEach((item) => {
+            const bp = _libraryBodyPartLabel((item.body_part || '').trim());
+            const { btn, m } = row(item, item.name, bp ? `Library · ${bp}` : 'Library', 'dumbbell');
+            list.appendChild(btn);
+            if (lastLine) {
+                Promise.resolve(lastLine(item.name)).then((line) => {
+                    if (line && m.isConnected) m.textContent = line;
+                }, () => {});
+            }
+        });
+        if (!matches.some(i => (i.name || '').trim().toLowerCase() === q) && keep({ name: typed })) {
+            list.appendChild(row({ name: typed }, `Add “${typed}”`, 'New exercise', 'plus').btn);
+        }
+        if (!rendered.length) {
+            mount.replaceChildren();
+            mount.hidden = true;
+            return 0;
+        }
+        const head = document.createElement('div');
+        head.className = 'wg-section__head';
+        const eyebrow = document.createElement('span');
+        eyebrow.className = 'wg-eyebrow';
+        eyebrow.textContent = 'Matches';
+        head.appendChild(eyebrow);
+        mount.replaceChildren(head, list);
+        mount.hidden = false;
+        return matches.length;
+    };
+
+    const refresh = async () => {
+        const seq = ++_catalogRefreshSeq;
+        const typed = (input.value || '').trim();
+        const q = typed.toLowerCase();
+        const libraryHits = paint(library, q, typed);
+        if (q.length >= EXERCISE_CATALOG_MIN_QUERY && libraryHits < EXERCISE_SUGGESTION_LIMIT) {
+            const catalog = await _loadExerciseCatalog();
+            if (seq !== _catalogRefreshSeq) return;
+            paint(library.concat(catalog.map(e => ({ name: e.name, body_part: e.body_part }))), q, typed);
+        }
+    };
+
+    input.oninput = refresh;
+    mount.onclick = (e) => {
+        const btn = e.target.closest('.wg-row');
+        const item = btn ? rendered[Number(btn.dataset.index)] : null;
+        if (item && onAdd) onAdd(item);
+    };
+    paint([], '', '');
+}
+
+function _wgExerciseIco(name) {
+    const i = document.createElement('i');
+    i.className = 'wg-ico';
+    i.setAttribute('data-icon', name);
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        try { i.appendChild(window.WGIcons.iconSvg(name)); } catch (_) { /* unknown icon: leave the placeholder */ }
+    }
+    return i;
+}
+
 // Create-new half of the shared picker: resolve a typed name to a library
 // exercise id, upserting a new library row when the name is unknown (the
 // server INSERTs without dedup, so match by trimmed, case-insensitive name
@@ -787,5 +909,6 @@ window.WorkoutLibrary = {
     setQuery: setExerciseLibraryQuery,
     setSource: setExerciseLibrarySource,
     bindExercisePicker: bindExercisePicker,
+    bindExerciseAddList: bindExerciseAddList,
     resolveOrCreateLibraryId: resolveOrCreateLibraryId
 };

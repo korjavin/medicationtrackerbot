@@ -147,13 +147,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     // target — the same hook the production modal flow uses.
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
 
-    document.getElementById('session-add-exercise-name').value = 'Squat';
-    document.getElementById('session-add-exercise-id').value = '99';
-    document.getElementById('session-add-exercise-sets').value = '5';
-    document.getElementById('session-add-exercise-reps').value = '5';
-    document.getElementById('session-add-exercise-weight').value = '100';
-    document.getElementById('session-add-exercise-notes').value = 'felt strong';
-
     // Block the POST behind a deferred — the optimistic state must be
     // observable while this promise is unresolved.
     const pending = deferred();
@@ -165,7 +158,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
       return [];
     });
 
-    const handlerDone = window.saveNewSessionExercise();
+    const handlerDone = window.saveNewSessionExercise({ id: 99, name: 'Squat', default_reps_min: 5, default_weight_kg: 100 });
     // Allow applyOptimistic's await chain (getCached → setCachedWithTags) to
     // settle without resolving the POST.
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -185,27 +178,22 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await handlerDone;
   });
 
-  it('saveNewSessionExercise rejects sets over the 20-set cap before building the per-set array', async () => {
+  it('saveNewSessionExercise clamps an oversized library default to the reps/weight ceilings', async () => {
     const { window, document } = env;
     installApiCache(window);
-    window.safeAlert = vi.fn();
+    window.showWorkoutSessionModal = vi.fn();
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
     window.WorkoutSessionsState.logs = [];
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
-    window.apiCall = vi.fn();
+    let createdPayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/sessions/logs/create') { createdPayload = payload; return { id: 999 }; }
+      return [];
+    });
 
-    // The modal's max="20" is only a hint — a pasted 21 (or a huge value that
-    // would OOM the tab via Array.from) must be rejected in the handler.
-    document.getElementById('session-add-exercise-name').value = 'Squat';
-    document.getElementById('session-add-exercise-id').value = '99';
-    document.getElementById('session-add-exercise-sets').value = '21';
-    document.getElementById('session-add-exercise-reps').value = '5';
+    await window.saveNewSessionExercise({ id: 99, name: 'Squat', default_reps_min: 250, default_weight_kg: 900 });
 
-    await window.saveNewSessionExercise();
-
-    expect(window.safeAlert).toHaveBeenCalledWith('Values exceed maximum allowed');
-    expect(window.apiCall).not.toHaveBeenCalled();
-    expect(window.WorkoutSessionsState.logs.length).toBe(0);
+    expect(createdPayload).toEqual(expect.objectContaining({ target_sets: 0, target_reps_min: 100, target_weight_kg: 500 }));
   });
 
   // med-prk.3 Task 5 — shared add-exercise picker. Creating a brand-new
@@ -219,12 +207,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
     window.WorkoutSessionsState.logs = [];
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
-
-    document.getElementById('session-add-exercise-name').value = 'Zercher Squat';
-    document.getElementById('session-add-exercise-id').value = ''; // brand-new: no library id
-    document.getElementById('session-add-exercise-sets').value = '4';
-    document.getElementById('session-add-exercise-reps').value = '6';
-    document.getElementById('session-add-exercise-weight').value = '70';
 
     // Mutable library the create handler appends to, so the "appears in the
     // library afterward" assertion reads a real post-create state.
@@ -247,7 +229,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
       return [];
     });
 
-    await window.saveNewSessionExercise();
+    await window.saveNewSessionExercise({ name: 'Zercher Squat' }); // brand-new: no library id
 
     // Saved to the session, referencing the newly-created library id.
     expect(createdLogPayload).not.toBeNull();
@@ -264,12 +246,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
     window.WorkoutSessionsState.logs = [];
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
-
-    document.getElementById('session-add-exercise-name').value = 'Zercher Squat';
-    document.getElementById('session-add-exercise-id').value = '';
-    document.getElementById('session-add-exercise-sets').value = '4';
-    document.getElementById('session-add-exercise-reps').value = '6';
-    document.getElementById('session-add-exercise-weight').value = '70';
 
     // A concurrent tab created the exact name between our list read and POST:
     // the first list is empty, the create 500s (returns null on the UNIQUE
@@ -292,7 +268,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
       return [];
     });
 
-    await window.saveNewSessionExercise();
+    await window.saveNewSessionExercise({ name: 'Zercher Squat' });
 
     // Logged against the raced-in row instead of refusing with "Failed to add".
     expect(createdLogPayload).not.toBeNull();
@@ -303,27 +279,57 @@ describe('features/workout/sessions.js — split-file integration', () => {
   // library plus all 1324 catalog names into a native <datalist>, so the popup
   // covered half the phone screen and buried the keyboard. It is now our own
   // inline list under the field.
-  describe('session add-exercise picker (med-3q8.1, med-max)', () => {
+  // med-okwf.3 (kit WA3/WA3b): the sheet is search + kit rows; a tap adds.
+  describe('session add-exercise picker (med-3q8.1, med-max, med-okwf.3)', () => {
     function stubSessionPicker(window) {
       window.fetch = vi.fn(async (url) => (
         String(url).includes('exercises-catalog.json')
           ? {
               ok: true,
               status: 200,
-              json: async () => ({ exercises: [{ name: 'Barbell bench press' }, { name: '3/4 sit-up' }] })
+              json: async () => ({ exercises: [
+                { name: 'Barbell bench press', body_part: 'chest' }, { name: '3/4 sit-up' }, { name: 'Face pull, band', body_part: 'shoulders' }
+              ] })
             }
           : { ok: true, status: 200, json: async () => ({}) }
       ));
-      window.apiCall = vi.fn(async (endpoint) => (
-        endpoint === '/api/workout/exercise-library'
-          ? [{ id: 11, name: 'Overhead Press', default_sets: 3, default_reps_min: 8, default_weight_kg: 35 }]
-          : []
-      ));
+      window.apiCall = vi.fn(async (endpoint, method, payload) => {
+        if (endpoint === '/api/workout/exercise-library') {
+          return [
+            { id: 11, name: 'Overhead Press', default_sets: 3, default_reps_min: 8, default_weight_kg: 35 },
+            { id: 12, name: 'Face pull', default_reps_min: 12 }
+          ];
+        }
+        // Face pull was logged in an earlier session; Overhead Press never.
+        if (endpoint.startsWith('/api/workout/exercises/history?name=Face%20pull&')) {
+          return [{ session_id: 5, date: '2026-01-01', sets: [
+            { reps: 15, weight_kg: 18 }, { reps: 15, weight_kg: 20 }, { reps: 12, weight_kg: 20 }
+          ] }];
+        }
+        if (endpoint === '/api/workout/exercise-library/create') return { id: 555, name: payload.name };
+        if (endpoint === '/api/workout/sessions/logs/create') return { id: 999 };
+        return [];
+      });
+      window.showWorkoutSessionModal = vi.fn();
       window.WorkoutSessionsState.data = { id: 77, status: 'in_progress', logs: [] };
     }
 
     function rowsOf(mount) {
-      return Array.from(mount.querySelectorAll('.wg-exercise-suggest__row')).map((b) => b.textContent);
+      return Array.from(mount.querySelectorAll('.wg-row')).map((b) => [
+        b.querySelector('.wg-row__title').textContent, b.querySelector('.wg-row__meta').textContent
+      ]);
+    }
+
+    async function type(window, value) {
+      const input = window.document.getElementById('session-add-exercise-name');
+      input.value = value;
+      await input.oninput();
+      // Let the async "last …" meta lines land.
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    function createCall(window) {
+      return window.apiCall.mock.calls.find((c) => c[0] === '/api/workout/sessions/logs/create');
     }
 
     // med-xso6.31: closing the session with Add-exercise open left the
@@ -374,7 +380,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
       const { window, document } = env;
       stubSessionPicker(window);
       const picker = deferred();
-      window.WorkoutLibrary.bindExercisePicker = vi.fn(() => picker.promise);
+      window.WorkoutLibrary.bindExerciseAddList = vi.fn(() => picker.promise);
       window.ModalManager.workoutSession.open();
 
       const opening = window.showAddExerciseToSessionModal();
@@ -398,62 +404,173 @@ describe('features/workout/sessions.js — split-file integration', () => {
       expect(document.getElementById('session-add-exercise-suggest').hidden).toBe(true);
     });
 
-    it('filters library-then-catalog once the user types', async () => {
+    it('typing lists own rows (last numbers), then library rows, then an add row (kit WA3b)', async () => {
       const { window, document } = env;
       stubSessionPicker(window);
       await window.showAddExerciseToSessionModal();
-
       const mount = document.getElementById('session-add-exercise-suggest');
-      const nameInput = document.getElementById('session-add-exercise-name');
+
       // One character: the library half only — the catalog stays gated at 2.
-      nameInput.value = 'o';
-      await nameInput.oninput();
-      expect(rowsOf(mount)).toEqual(['Overhead Press']);
+      await type(window, 'o');
+      expect(rowsOf(mount)).toEqual([['Overhead Press', 'Library'], ['Add “o”', 'New exercise']]);
 
-      nameInput.value = 'bench';
-      await nameInput.oninput();
-      expect(rowsOf(mount)).toEqual(['Barbell bench press']);
+      await type(window, 'face pu');
+      expect(mount.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Matches');
+      expect(rowsOf(mount)).toEqual([
+        ['Face pull', 'last 3 × 15 · 20 kg'],
+        ['Face pull, band', 'Library · Shoulders'],
+        ['Add “face pu”', 'New exercise'],
+      ]);
+
+      // A typed name already in the list gets no add row.
+      await type(window, 'overhead press');
+      expect(rowsOf(mount)).toEqual([['Overhead Press', 'Library']]);
     });
 
-    it('tapping a library row autofills sets/reps/weight and sets the exercise id', async () => {
+    it('tapping a library row adds it at once: one pending set labelled "default", sheet closed', async () => {
       const { window, document } = env;
+      installApiCache(window);
       stubSessionPicker(window);
+      window.WorkoutSessionsState.logs = [
+        { id: 5, exercise_id: 1, exercise_name: 'Bench', status: 'completed', sets_completed: 3, reps_completed: 8, weight_kg: 60 }
+      ];
+      window.ModalManager.workoutSession.open();
       await window.showAddExerciseToSessionModal();
+      await type(window, 'over');
+      document.querySelector('#session-add-exercise-suggest .wg-row').click();
 
-      const mount = document.getElementById('session-add-exercise-suggest');
-      const nameInput = document.getElementById('session-add-exercise-name');
-      nameInput.value = 'over';
-      await nameInput.oninput();
-      mount.querySelector('.wg-exercise-suggest__row').click();
-
-      expect(nameInput.value).toBe('Overhead Press');
-      expect(document.getElementById('session-add-exercise-id').value).toBe('11');
-      expect(document.getElementById('session-add-exercise-sets').value).toBe('3');
-      expect(document.getElementById('session-add-exercise-reps').value).toBe('8');
-      expect(document.getElementById('session-add-exercise-weight').value).toBe('35');
-      expect(document.getElementById('workout-add-exercise-to-session-title').textContent)
-        .toBe('Log set · Overhead Press');
-
-      // The picked id survives the blur-fired `change`, so save needs no
-      // resolveOrCreateLibraryId round-trip for a name the user picked.
-      window.onSessionExerciseSelect();
-      expect(document.getElementById('session-add-exercise-id').value).toBe('11');
+      await vi.waitFor(() => expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(77));
+      expect(createCall(window)[2]).toEqual(expect.objectContaining({
+        exercise_id: 11, exercise_name: 'Overhead Press', target_sets: 0, target_reps_min: 8, target_weight_kg: 35, status: ''
+      }));
       expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
+      expect(isHidden(document, 'workout-add-exercise-to-session-modal')).toBe(true);
+
+      // The takeover jumped to it: last, current, one pending set, not done.
+      expect(window.WorkoutSessionsState.ui.current).toBe(1);
+      const card = document.getElementById('workout-session-logs');
+      expect(card.querySelector('.wg-ex__name').textContent).toBe('Overhead Press');
+      const rows = card.querySelectorAll('.wg-set');
+      expect(rows.length).toBe(1);
+      expect(rows[0].classList.contains('wg-set--done')).toBe(false);
+      const w = rows[0].querySelector('[data-field="weight_kg"]');
+      expect(w.classList.contains('wg-set__cell--ghost')).toBe(true);
+      expect(w.textContent).toBe('35default');
+      expect(rows[0].querySelector('[data-field="reps"]').textContent).toBe('8default');
     });
 
-    it('tapping a catalog-only row leaves the id empty so save resolves it by name', async () => {
+    // Argus on #1460: the post-add reload put persisted logs ahead of the
+    // plan's untouched rows, so the added exercise jumped to the front.
+    it('in a planned session the added exercise stays last and current through the real reload', async () => {
       const { window, document } = env;
+      installApiCache(window);
+      window.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ exercises: [] }) }));
+      const persisted = [];
+      window.apiCall = vi.fn(async (endpoint, method, payload) => {
+        if (endpoint.startsWith('/api/workout/sessions/details')) {
+          return {
+            session: { id: 77, variant_id: 3, status: 'in_progress', exercise_snapshot: [
+              { exercise_id: 1, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60 },
+              { exercise_id: 2, exercise_name: 'Squat', target_sets: 3, target_reps_min: 5, target_weight_kg: 100 },
+            ] },
+            group_name: 'Plan 3',
+            variant_name: 'Day A',
+            logs: persisted.map((l) => ({ ...l })),
+          };
+        }
+        if (endpoint === '/api/workout/exercise-library') return [{ id: 12, name: 'Face pull', default_reps_min: 12 }];
+        if (endpoint === '/api/workout/sessions/logs/create') {
+          const log = { ...payload, id: 999, sets: [], sets_completed: 0, reps_completed: payload.target_reps_min, weight_kg: 0 };
+          persisted.push(log);
+          return log;
+        }
+        return [];
+      });
+
+      await window.showWorkoutSessionModal(77);
+      expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat']);
+      // An untouched planned exercise keeps its plan target line (kit W1).
+      const mono = () => document.querySelector('#workout-session-logs .wg-workouts-session-exercise__mono');
+      expect(mono().hidden).toBe(false);
+      expect(mono().textContent).toBe('3 × 8 · 60 kg');
+      await window.showAddExerciseToSessionModal();
+      expect(document.getElementById('workout-add-exercise-to-session-eyebrow').textContent).toBe('Plan 3 · Day A');
+      await type(window, 'face');
+      document.querySelector('#session-add-exercise-suggest .wg-row').click();
+
+      await vi.waitFor(() => expect(window.WorkoutSessionsState.logs.find((l) => l.id === 999)).toBeTruthy());
+      expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat', 'Face pull']);
+      expect(window.WorkoutSessionsState.ui.current).toBe(2);
+      expect(document.querySelector('#workout-session-logs .wg-ex__name').textContent).toBe('Face pull');
+      // Nothing logged yet: no "0 × 0 · bodyweight" target line (Iris).
+      expect(document.querySelector('#workout-session-logs .wg-workouts-session-exercise__mono').hidden).toBe(true);
+
+      // Then the plan's rows get logged (higher log ids than the add, and the
+      // details read sorts by id) and the session reopens: still plan, then add.
+      persisted.push(
+        { id: 1000, exercise_id: 1, exercise_name: 'Bench', source: 'schedule', status: 'completed', sets_completed: 1, reps_completed: 8, weight_kg: 60, sets: [{ set_index: 0, reps: 8, weight_kg: 60 }] },
+        { id: 1001, exercise_id: 2, exercise_name: 'Squat', source: 'schedule', status: 'completed', sets_completed: 1, reps_completed: 5, weight_kg: 100, sets: [{ set_index: 0, reps: 5, weight_kg: 100 }] },
+      );
+      await window.showWorkoutSessionModal(77);
+      expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat', 'Face pull']);
+    });
+
+    it('a row logged before lands with last time\'s set as the ghost, labelled "last"', async () => {
+      const { window, document } = env;
+      installApiCache(window);
       stubSessionPicker(window);
       await window.showAddExerciseToSessionModal();
+      await type(window, 'face pull');
+      document.querySelector('#session-add-exercise-suggest .wg-row').click();
 
+      await vi.waitFor(() => expect(createCall(window)).toBeTruthy());
+      expect(createCall(window)[2]).toEqual(expect.objectContaining({ exercise_id: 12, target_reps_min: 12, target_weight_kg: null }));
+      const cells = () => document.querySelectorAll('#workout-session-logs .wg-set [data-field]');
+      await vi.waitFor(() => expect(Array.from(cells()).map((c) => c.textContent)).toEqual(['18last', '15last']));
+    });
+
+    it('a catalog-only row resolves by name and lands with empty cells', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      stubSessionPicker(window);
+      await window.showAddExerciseToSessionModal();
+      await type(window, 'bench');
+      expect(rowsOf(document.getElementById('session-add-exercise-suggest'))[0])
+        .toEqual(['Barbell bench press', 'Library · Chest']);
+      document.querySelector('#session-add-exercise-suggest .wg-row').click();
+
+      await vi.waitFor(() => expect(createCall(window)).toBeTruthy());
+      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/exercise-library/create', 'POST',
+        expect.objectContaining({ name: 'Barbell bench press', default_reps_min: 0, default_weight_kg: null }));
+      expect(createCall(window)[2]).toEqual(expect.objectContaining({ exercise_id: 555, target_reps_min: 0, target_weight_kg: null }));
+      const cells = document.querySelectorAll('#workout-session-logs .wg-set [data-field]');
+      expect(Array.from(cells).map((c) => c.textContent)).toEqual(['—', '—']);
+    });
+
+    it('the add row logs the typed name as a new exercise', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      stubSessionPicker(window);
+      await window.showAddExerciseToSessionModal();
+      await type(window, 'Zercher squat');
+      const rows = document.querySelectorAll('#session-add-exercise-suggest .wg-row');
+      rows[rows.length - 1].click();
+
+      await vi.waitFor(() => expect(createCall(window)).toBeTruthy());
+      expect(createCall(window)[2]).toEqual(expect.objectContaining({ exercise_id: 555, exercise_name: 'Zercher squat' }));
+    });
+
+    it('never offers an exercise already in the session', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      window.WorkoutSessionsState.logs = [
+        { id: 5, exercise_id: 11, exercise_name: 'Overhead Press', status: '', sets_completed: 0 }
+      ];
+      await window.showAddExerciseToSessionModal();
       const mount = document.getElementById('session-add-exercise-suggest');
-      const nameInput = document.getElementById('session-add-exercise-name');
-      nameInput.value = 'bench';
-      await nameInput.oninput();
-      mount.querySelector('.wg-exercise-suggest__row').click();
 
-      expect(nameInput.value).toBe('Barbell bench press');
-      expect(document.getElementById('session-add-exercise-id').value).toBe('');
+      await type(window, 'overhead press');
+      expect(rowsOf(mount)).toEqual([]);
       expect(mount.hidden).toBe(true);
     });
 
@@ -476,35 +593,10 @@ describe('features/workout/sessions.js — split-file integration', () => {
       await window.showAddExerciseToSessionModal();
 
       const mount = document.getElementById('session-add-exercise-suggest');
-      const nameInput = document.getElementById('session-add-exercise-name');
-      nameInput.value = 'barbell ro';
-      await nameInput.oninput();
+      await type(window, 'barbell ro');
 
-      // One row, in the user's own casing.
-      expect(rowsOf(mount)).toEqual(['Barbell rows']);
-
-      mount.querySelector('.wg-exercise-suggest__row').click();
-      expect(document.getElementById('session-add-exercise-id').value).toBe('12');
-      expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
-    });
-
-    it('hand-editing the name after a pick drops the stale exercise id', async () => {
-      const { window, document } = env;
-      stubSessionPicker(window);
-      await window.showAddExerciseToSessionModal();
-
-      const mount = document.getElementById('session-add-exercise-suggest');
-      const nameInput = document.getElementById('session-add-exercise-name');
-      nameInput.value = 'over';
-      await nameInput.oninput();
-      mount.querySelector('.wg-exercise-suggest__row').click();
-      expect(document.getElementById('session-add-exercise-id').value).toBe('11');
-
-      // The name no longer refers to the picked row.
-      nameInput.value = 'Overhead Press (paused)';
-      window.onSessionExerciseSelect();
-
-      expect(document.getElementById('session-add-exercise-id').value).toBe('');
+      // One row, in the user's own casing (plus the add row for the typed text).
+      expect(rowsOf(mount).map((r) => r[0])).toEqual(['Barbell rows', 'Add “barbell ro”']);
     });
   });
 
@@ -517,18 +609,12 @@ describe('features/workout/sessions.js — split-file integration', () => {
     ];
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
 
-    document.getElementById('session-add-exercise-name').value = 'Squat';
-    document.getElementById('session-add-exercise-id').value = '99';
-    document.getElementById('session-add-exercise-sets').value = '5';
-    document.getElementById('session-add-exercise-reps').value = '5';
-    document.getElementById('session-add-exercise-weight').value = '100';
-
     window.apiCall = vi.fn(async (endpoint) => {
       if (endpoint === '/api/workout/sessions/logs/create') return null;
       return [];
     });
 
-    await window.saveNewSessionExercise();
+    await window.saveNewSessionExercise({ id: 99, name: 'Squat', default_reps_min: 5, default_weight_kg: 100 });
 
     expect(window.WorkoutSessionsState.logs.length).toBe(1);
     expect(window.WorkoutSessionsState.logs[0].exercise_name).toBe('Bench');
@@ -1908,12 +1994,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
 
     // Arm a debounced edit, then try to add an exercise before it flushes.
     window.updateLocalSet(0, 0, 'weight_kg', '65');
-    document.getElementById('session-add-exercise-name').value = 'Squat';
-    document.getElementById('session-add-exercise-id').value = '99';
-    document.getElementById('session-add-exercise-sets').value = '5';
-    document.getElementById('session-add-exercise-reps').value = '5';
 
-    await window.saveNewSessionExercise();
+    await window.saveNewSessionExercise({ id: 99, name: 'Squat', default_reps_min: 5 });
 
     // Bailed: no create fired, no session reload, the edit survives + stays dirty.
     expect(createSpy).not.toHaveBeenCalled();
@@ -2171,12 +2253,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     ];
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
 
-    document.getElementById('session-add-exercise-name').value = 'Squat';
-    document.getElementById('session-add-exercise-id').value = '99';
-    document.getElementById('session-add-exercise-sets').value = '3';
-    document.getElementById('session-add-exercise-reps').value = '5';
-    document.getElementById('session-add-exercise-weight').value = '100';
-
     let createdPayload = null;
     let historyAtPost = null;
     window.apiCall = vi.fn(async (endpoint, method, payload) => {
@@ -2191,7 +2267,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
       return [];
     });
 
-    await window.saveNewSessionExercise();
+    await window.saveNewSessionExercise({ id: 99, name: 'Squat', default_sets: 3, default_reps_min: 5, default_weight_kg: 100 });
 
     // Persisted as a placeholder: no done sets (target_sets 0 — createLog
     // stores target_* as the done scalars when `sets` is absent), status ''.

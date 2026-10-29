@@ -1,10 +1,9 @@
 // Wandergeek Workouts log-set modal (Phase 7, Task 8).
 //
-// Exercises the rewritten log-set modal (#workout-add-exercise-to-session-modal):
-// the generic `.wg-modal` shell, mono eyebrow + title header,
-// `.wg-gloss--inset` input wraps, and a Cancel/Save action bar (Save as
-// sun-glossed 2x flex per modal-button-order convention). The plan editor's
-// Exercise page (med-xso6.22) is covered in features.workout-exercises.test.js.
+// Exercises the add-exercise sheet (#workout-add-exercise-to-session-modal):
+// the generic `.wg-modal` shell and, since med-okwf.3 (kit WA3), a search
+// field over a row list with no Save. The plan editor's Exercise page
+// (med-xso6.22) is covered in features.workout-exercises.test.js.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -30,75 +29,35 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         expect(modal.classList.contains('wg-workouts-log-set-modal')).toBe(true);
     });
 
-    it('renders the kit sheet header: eyebrow + title', () => {
+    // Kit WA3 (med-okwf.3): title "Add exercise", the close X only (no Save \u2014
+    // a row tap adds), and a search affix instead of sets/reps/weight/notes.
+    it('is the kit add sheet: close X only, a search field, no quick-add fields', () => {
         const { document } = env;
         const modal = document.getElementById('workout-add-exercise-to-session-modal');
-        const eyebrow = modal.querySelector('.wg-sheethead .wg-eyebrow');
-        const title = modal.querySelector('.wg-sheethead .wg-sheethead__title');
-        expect(eyebrow).not.toBeNull();
-        expect(eyebrow.textContent).toBe('Log set');
-        expect(title).not.toBeNull();
-        expect(title.id).toBe('workout-add-exercise-to-session-title');
-    });
-
-    it('wraps every input field in .wg-gloss--inset', () => {
-        const { document } = env;
-        const modal = document.getElementById('workout-add-exercise-to-session-modal');
-        const wraps = modal.querySelectorAll('.wg-workouts-log-set-modal__input-wrap');
-        expect(wraps.length).toBeGreaterThanOrEqual(5);
-        wraps.forEach((wrap) => {
-            expect(wrap.classList.contains('wg-gloss--inset')).toBe(true);
-        });
-    });
-
-    it('has Save (primary) + the close X kit buttons in the sheet header', () => {
-        const { document } = env;
-        const actions = document.querySelector('#workout-add-exercise-to-session-modal .wg-sheethead__acts');
-        expect(actions).not.toBeNull();
-
-        const cancel = actions.querySelector('#session-add-exercise-cancel-btn');
-        const save = actions.querySelector('#session-add-exercise-save-btn');
-        expect(cancel).not.toBeNull();
-        expect(save).not.toBeNull();
-
+        expect(modal.querySelector('.wg-sheethead__title').textContent).toBe('Add exercise');
+        const actions = modal.querySelector('.wg-sheethead__acts');
+        expect(Array.from(actions.children).map((b) => b.id)).toEqual(['session-add-exercise-cancel-btn']);
+        const cancel = document.getElementById('session-add-exercise-cancel-btn');
         expect(cancel.className).toBe('wg-btn wg-btn--ghost wg-btn--icon');
         expect(cancel.getAttribute('aria-label')).toBe('Close');
-        expect(save.className).toBe('wg-btn wg-btn--primary wg-btn--sm');
+
+        const input = modal.querySelector('.wg-affix > #session-add-exercise-name');
+        expect(input).not.toBeNull();
+        expect(input.getAttribute('placeholder')).toBe('Search your exercises and the library');
+        ['session-add-exercise-save-btn', 'session-add-exercise-id', 'session-add-exercise-sets',
+         'session-add-exercise-reps', 'session-add-exercise-weight', 'session-add-exercise-notes']
+            .forEach((id) => expect(document.getElementById(id), `#${id} is gone`).toBeNull());
     });
 
-    it('preserves the preexisting ID hooks used by saveNewSessionExercise + onSessionExerciseSelect', () => {
-        const { document } = env;
-        ['session-add-exercise-name', 'session-add-exercise-id',
-         'session-add-exercise-sets', 'session-add-exercise-reps',
-         'session-add-exercise-weight', 'session-add-exercise-notes',
-         'session-add-exercise-cancel-btn', 'session-add-exercise-save-btn',
-         'workout-add-exercise-to-session-title',
-         'session-add-exercise-suggest']
-            .forEach((id) => {
-                expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
-            });
-    });
-
-    it('onSessionExerciseSelect updates the mono title to "Log set \u00b7 <name>"', () => {
-        const { window, document } = env;
-        const input = document.getElementById('session-add-exercise-name');
-        const title = document.getElementById('workout-add-exercise-to-session-title');
-
-        input.value = 'Bench';
-        window.onSessionExerciseSelect();
-        expect(title.textContent).toBe('Log set \u00b7 Bench');
-
-        input.value = '';
-        window.onSessionExerciseSelect();
-        expect(title.textContent).toBe('Add exercise');
-    });
-
-    it('showAddExerciseToSessionModal opens the modal and seeds a default title', async () => {
+    it('showAddExerciseToSessionModal opens with the plan name as eyebrow and no list', async () => {
         const { window, document } = env;
         window.apiCall = vi.fn(async (endpoint) => {
             if (endpoint.startsWith('/api/workout/sessions/details')) {
                 return {
+                    // Production shape: the plan names ride on the envelope.
                     session: { id: 42, variant_id: 1, status: 'in_progress' },
+                    group_name: 'Plan 3',
+                    variant_name: 'Day A',
                     logs: []
                 };
             }
@@ -111,7 +70,8 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         await window.showAddExerciseToSessionModal();
 
         expect(document.getElementById('workout-add-exercise-to-session-modal').classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('workout-add-exercise-to-session-title').textContent).toBe('Add exercise');
+        expect(document.getElementById('workout-add-exercise-to-session-eyebrow').textContent).toBe('Plan 3 \u00b7 Day A');
+        expect(document.getElementById('session-add-exercise-suggest').hidden).toBe(true);
     });
 
     it('closeAddExerciseToSessionModal calls the shared ModalManager close', () => {
@@ -126,7 +86,7 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         expect(closeSpy).toHaveBeenCalled();
     });
 
-    it('saveNewSessionExercise posts session_id + sets + reps to /logs/create and closes on success', async () => {
+    it('tapping a library row posts a placeholder log with the library default and closes', async () => {
         const { window, document } = env;
         const apiSpy = vi.fn(async (endpoint, method, payload) => {
             if (endpoint.startsWith('/api/workout/sessions/details')) {
@@ -152,15 +112,12 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
 
         await window.showAddExerciseToSessionModal();
 
-        document.getElementById('session-add-exercise-name').value = 'Bench';
-        document.getElementById('session-add-exercise-id').value = '7';
-        document.getElementById('session-add-exercise-sets').value = '3';
-        document.getElementById('session-add-exercise-reps').value = '10';
-        document.getElementById('session-add-exercise-weight').value = '80';
-        document.getElementById('session-add-exercise-notes').value = 'Pause reps';
+        const input = document.getElementById('session-add-exercise-name');
+        input.value = 'Ben';
+        await input.oninput();
+        document.querySelector('#session-add-exercise-suggest .wg-row').click();
 
-        await window.saveNewSessionExercise();
-
+        await vi.waitFor(() => expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(42));
         expect(apiSpy).toHaveBeenCalledWith(
             '/api/workout/sessions/logs/create',
             'POST',
@@ -168,15 +125,16 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
                 session_id: 42,
                 exercise_id: 7,
                 exercise_name: 'Bench',
-                // Added as a placeholder, not done (med-okwf.1).
+                // Added as a placeholder, not done (med-okwf.1); the library
+                // default pre-fills the one pending set (med-okwf.3).
                 target_sets: 0,
                 target_reps_min: 10,
                 target_weight_kg: 80,
                 status: '',
-                notes: 'Pause reps'
+                source: 'library'
             })
         );
-        expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(42);
+        expect(document.getElementById('workout-add-exercise-to-session-modal').classList.contains('hidden')).toBe(true);
     });
 });
 

@@ -55,6 +55,21 @@
         { "click": "#workout-session-prog" }
       ],
       "ready": ["#workout-session-add-row"] },
+    { "name": "workout-add-sheet",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "click": "#workout-session-add-btn" },
+        { "fill": "#session-add-exercise-name", "value": "press" }
+      ],
+      "ready": ["#session-add-exercise-suggest .wg-row"] },
+    { "name": "workout-add-landed",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "click": "#workout-session-add-btn" },
+        { "fill": "#session-add-exercise-name", "value": "press" },
+        { "click": "#session-add-exercise-suggest .wg-row" }
+      ],
+      "ready": ["#workout-session-logs .wg-set"] },
     { "name": "health-bp", "steps": [{ "tab": "bp" }],
       "ready": ["#bp-view.active", "#bpChart svg"] },
     { "name": "health-vitals", "steps": [{ "tab": "health" }],

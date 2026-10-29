@@ -109,17 +109,8 @@ const cases = [
             'miband-workout-spo2',
         ],
     },
-    {
-        name: 'WorkoutLogSetModal',
-        modalId: 'workout-add-exercise-to-session-modal',
-        headerActionsClass: 'wg-sheethead__acts',
-        sheet: true,
-        legacyActionsSelector: '#workout-add-exercise-to-session-modal .wg-workouts-log-set-modal__actions',
-        cancelBtnId: 'session-add-exercise-cancel-btn',
-        primaryBtnId: 'session-add-exercise-save-btn',
-        primaryLabel: 'Save',
-        closeBtnId: 'session-add-exercise-close-btn',
-    },
+    // The add-exercise sheet has no primary since med-okwf.3 (tap a row to
+    // add); its header is pinned in workout.modal.test.js.
 ];
 
 describe.each(cases)('$name header-actions', (row) => {

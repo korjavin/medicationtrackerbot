@@ -155,7 +155,6 @@ function loadWorkouts() {
         bindClick('workout-session-prog', () => toggleWorkoutSessionOverview());
 
         bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
-        bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
 
         bindClick('miband-workout-cancel-btn', () => closeMiBandWorkoutModal());
         bindClick('miband-workout-save-btn', () => saveMiBandWorkout());
@@ -164,13 +163,6 @@ function loadWorkouts() {
         if (rotatingCheckbox) {
             rotatingCheckbox.addEventListener('change', () => {
                 toggleRotatingFields();
-            });
-        }
-
-        const sessionExerciseName = document.getElementById('session-add-exercise-name');
-        if (sessionExerciseName) {
-            sessionExerciseName.addEventListener('change', () => {
-                onSessionExerciseSelect();
             });
         }
     }

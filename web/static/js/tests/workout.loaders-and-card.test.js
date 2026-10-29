@@ -164,7 +164,7 @@ describe('workout.js loaders and next-card behavior', () => {
     }
   });
 
-  it('bindWorkoutControls wires workout buttons and day/session selectors', async () => {
+  it('bindWorkoutControls wires workout buttons and day selectors', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
@@ -186,11 +186,6 @@ describe('workout.js loaders and next-card behavior', () => {
       window.safeConfirm = vi.fn(async () => true);
       Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"] .wg-back')).pop().click();
       await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).toBeNull());
-
-      const onSelectSpy = vi.spyOn(window, 'onSessionExerciseSelect').mockImplementation(() => {});
-      const input = document.getElementById('session-add-exercise-name');
-      input.dispatchEvent(new window.Event('change', { bubbles: true }));
-      expect(onSelectSpy).toHaveBeenCalled();
     } finally {
       cleanup();
     }
