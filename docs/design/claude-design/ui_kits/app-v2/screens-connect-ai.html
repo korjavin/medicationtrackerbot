@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Connect an AI app</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<style>
+/* Already in the app (web/static/css/styles.css .wg-code--wrap), not yet in components.css. */
+.wg-code--wrap{height:auto;padding-block:10px}
+.wg-code--wrap>span{white-space:normal;overflow-wrap:anywhere;line-height:1.45;text-align:left;text-overflow:clip}
+.kit-mono{color:var(--wg-fg-1)}
+.kit-steps{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+</style>
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="screens-settings-cleanup.html">Settings cleanup</a><a href="screens-connect-ai.html" aria-current="page">Connect an AI app</a><a href="screens-trackers.html">Trackers</a><a href="screens-native.html">Native shells</a><a href="screens-onboarding.html">Onboarding</a><a href="screens-onboarding-v3.html">Onboarding v3</a><a href="screens-bmi.html">BMI</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Connect an AI app (Claude Code, Claude, ChatGPT)</h1>
+<p class="kit-lede">Bead med-73xx. “Connect Claude Code” asked people to build a shim from source. It now uses the existing remote connector: one consent, one URL, and per-app instructions. For Claude Code that's a prompt to paste, so nobody needs a terminal. Next to S5 (connector detail), which these frames replace.</p>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Answers to the open questions</h2><p class="kit-group__sub">Developer, 2026-10-29: all five as recommended.</p></div><div class="kit-prose"><ul>
+<li><strong>1 · One entry.</strong> One button, <em>Connect an AI app</em>, for every client: the connector URL is the same for all of them. The client is picked after connecting, with a plain segment (not accent; it's a view switch, not a mode). The “Local shim (Claude Code)” section, the build step and the config JSON leave the UI.</li>
+<li><strong>2 · Claude Code first.</strong> CC3 and CC4 open on the Claude Code segment; the choice isn't remembered.</li>
+<li><strong>3 · Server name <code>health</code>.</strong> A neutral local label in the user's Claude Code config, never the instance's product name. Command: <code>claude mcp add --transport http --scope user health &lt;URL&gt;</code>. <code>--scope user</code> so it isn't tied to one project folder.</li>
+<li><strong>4 · The link is a key.</strong> A warn note under the instructions on CC3: “This link opens your records to whoever has it, while your app is open and unlocked. Disconnect turns it off.”</li>
+<li><strong>5 · Keep it open.</strong> “Keep this app open and unlocked on one device while Claude works.” on CC3 and CC4.</li>
+<li><strong>The prompt.</strong> “Add my health records to Claude Code: run <code>…</code> then tell me to restart Claude Code.” It ends with the restart because Claude Code can't restart itself. The bare command stays below as the fallback.</li>
+<li><strong>One sun per view.</strong> CC1: Connect. CC2: the dialog's Connect. CC3: Copy prompt (Done drops to secondary; today's code makes Done primary). CC4 has no sun: nothing is waiting, Copy prompt is secondary.</li>
+</ul></div></section>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Connect</h2><p class="kit-group__sub">Settings → Devices &amp; connectors → Claude connector.</p></div>
+<div class="kit-board">
+<figure class="kit-frame" data-screen-label="CC1 Not connected"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Devices</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Claude connector</div></div><span></span></header>
+<div class="wg-content">
+<div class="wg-card wg-hstack"><span class="wg-row__lead"><i class="wg-ico" data-icon="plug"></i></span><span class="wg-vstack wg-spacer"><span class="wg-row__title">Not connected</span><span class="wg-meta">Use your records in Claude Code, the Claude app or ChatGPT.</span></span></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">A connected app can</span></div><div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Read</span><span class="wg-row__meta">meds, BP, weight, vitals, food, workouts, journey</span></span></div>
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Write</span><span class="wg-row__meta">add, edit and delete those entries</span></span></div>
+</div></section>
+<p class="wg-hint">Your AI app reaches this app through our server. The server sees the requests and answers on the way and stores none of them.</p>
+<button class="wg-btn wg-btn--primary wg-btn--block">Connect an AI app</button>
+<p class="wg-hint">One AI app per account. Connecting a new one replaces the old link.</p>
+</div></div></div><figcaption class="kit-cap"><b>CC1</b><span class="kit-plat">iOS</span><span>One way in</span><em>One primary. The privacy line is the same promise as today's consent, in plain words. The one-connector rule is stated before anyone taps.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="CC2 Consent"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Devices</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Claude connector</div></div><span></span></header>
+<div class="wg-content">
+<div class="wg-card wg-hstack"><span class="wg-row__lead"><i class="wg-ico" data-icon="plug"></i></span><span class="wg-vstack wg-spacer"><span class="wg-row__title">Not connected</span><span class="wg-meta">Use your records in Claude Code, the Claude app or ChatGPT.</span></span></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">A connected app can</span></div><div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Read</span><span class="wg-row__meta">meds, BP, weight, vitals, food, workouts, journey</span></span></div>
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Write</span><span class="wg-row__meta">add, edit and delete those entries</span></span></div>
+</div></section>
+<p class="wg-hint">Your AI app reaches this app through our server. The server sees the requests and answers on the way and stores none of them.</p>
+<button class="wg-btn wg-btn--primary wg-btn--block">Connect an AI app</button>
+<p class="wg-hint">One AI app per account. Connecting a new one replaces the old link.</p>
+</div><div class="wg-scrim"><div class="wg-dialog" role="alertdialog"><span class="wg-dialog__icon"><i class="wg-ico wg-ico--lg" data-icon="plug"></i></span><p class="wg-dialog__title">Connect an AI app?</p><p class="wg-dialog__body">Our server will pass messages between your AI app and this app while it is open and unlocked. It can read them on the way and stores nothing. The link keeps working until you Disconnect.</p><div class="wg-dialog__acts"><button class="wg-btn">Cancel</button><button class="wg-btn wg-btn--primary">Connect</button></div></div></div></div></div><figcaption class="kit-cap"><b>CC2</b><span class="kit-plat">iOS</span><span>Consent</span><em>The existing safeConfirm dialog, retitled. Same meaning as REMOTE_CONSENT_TEXT: server reads traffic in transit, stores nothing, link lasts until Disconnect.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="CC3 Claude Code"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Devices</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Claude connector</div></div><span></span></header>
+<div class="wg-content">
+<div class="wg-note wg-note--ok"><i class="wg-ico" data-icon="check"></i><div class="wg-note__body">Connector on. Pick the app you use.</div></div>
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Claude Code</button><button class="wg-seg__opt" aria-pressed="false">Claude app</button><button class="wg-seg__opt" aria-pressed="false">ChatGPT</button></div>
+<div class="wg-field"><span class="wg-label">Paste this into Claude Code</span><div class="wg-code wg-code--wrap"><span>Add my health records to Claude Code: run <span class="kit-mono">claude mcp add --transport http --scope user health https://vivid-vole.qa.test/mcp/7f3a…c91</span> then tell me to restart Claude Code.</span></div></div>
+<button class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico" data-icon="copy"></i>Copy prompt</button>
+<p class="wg-hint">Claude Code asks once before it runs the command. Restart it, then ask “show my blood pressure this week”.</p>
+<div class="wg-field"><span class="wg-label">Or run this in a terminal</span><div class="wg-code"><span>claude mcp add --transport http --scope user health https://vivid-vole.qa.test/mcp/7f3a…c91</span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Copy command"><i class="wg-ico" data-icon="copy"></i></button></div></div>
+<div class="wg-note wg-note--warn"><i class="wg-ico" data-icon="key"></i><div class="wg-note__body">This link opens your records to whoever has it, while your app is open and unlocked. Disconnect turns it off.</div></div>
+<p class="wg-hint">Keep this app open and unlocked on one device while Claude works.</p>
+<button class="wg-btn wg-btn--block">Done</button>
+</div></div></div><figcaption class="kit-cap"><b>CC3</b><span class="kit-plat">iOS</span><span>Paste one prompt</span><em>Copy prompt is the one sun. The prompt wraps so it can be read in full; the terminal command is the fallback, one line with Copy. Done is secondary.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="CC3 · Claude app"><div class="kit-phone kit-phone--android"><span class="kit-punch"></span><span class="kit-gesture"></span><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Devices</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Claude connector</div></div><span></span></header>
+<div class="wg-content">
+<div class="wg-note wg-note--ok"><i class="wg-ico" data-icon="check"></i><div class="wg-note__body">Connector on. Pick the app you use.</div></div>
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="false">Claude Code</button><button class="wg-seg__opt" aria-pressed="true">Claude app</button><button class="wg-seg__opt" aria-pressed="false">ChatGPT</button></div>
+<div class="wg-field"><span class="wg-label">Connector URL</span><div class="wg-code"><span>https://vivid-vole.qa.test/mcp/7f3a…c91</span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Copy URL"><i class="wg-ico" data-icon="copy"></i></button></div></div>
+<ol class="wg-hint kit-steps"><li>Open Claude (claude.ai or the desktop app).</li><li>Settings → Connectors → Add custom connector.</li><li>Paste the URL, then ask “show my blood pressure this week”.</li></ol>
+<div class="wg-note wg-note--warn"><i class="wg-ico" data-icon="key"></i><div class="wg-note__body">This link opens your records to whoever has it, while your app is open and unlocked. Disconnect turns it off.</div></div>
+<p class="wg-hint">Keep this app open and unlocked on one device while Claude works.</p>
+<button class="wg-btn wg-btn--block">Done</button>
+</div></div></div><figcaption class="kit-cap"><b>CC3 · Claude app</b><span class="kit-plat">Android</span><span>Claude app and ChatGPT</span><em>Claude app covers claude.ai and Claude Desktop (same custom-connector steps). ChatGPT: same layout, steps “Settings → Connectors → Add MCP → paste the URL”.</em></figcaption></figure>
+
+</div></section>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Already connected</h2></div>
+<div class="kit-board">
+<figure class="kit-frame" data-screen-label="CC4 Connected"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Devices</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Claude connector</div></div><span></span></header>
+<div class="wg-content">
+<div class="wg-card wg-hstack"><span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="plug"></i></span><span class="wg-vstack wg-spacer"><span class="wg-row__title">Connected since 12.09</span><span class="wg-meta">Last request 2h ago · 41 this week</span></span></div>
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Claude Code</button><button class="wg-seg__opt" aria-pressed="false">Claude app</button><button class="wg-seg__opt" aria-pressed="false">ChatGPT</button></div>
+<div class="wg-field"><span class="wg-label">Paste this into Claude Code</span><div class="wg-code wg-code--wrap"><span>Add my health records to Claude Code: run <span class="kit-mono">claude mcp add --transport http --scope user health https://vivid-vole.qa.test/mcp/7f3a…c91</span> then tell me to restart Claude Code.</span></div></div>
+<button class="wg-btn wg-btn--block"><i class="wg-ico" data-icon="copy"></i>Copy prompt</button>
+<p class="wg-hint">Claude Code asks once before it runs the command. Restart it, then ask “show my blood pressure this week”.</p>
+<div class="wg-field"><span class="wg-label">Or run this in a terminal</span><div class="wg-code"><span>claude mcp add --transport http --scope user health https://vivid-vole.qa.test/mcp/7f3a…c91</span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Copy command"><i class="wg-ico" data-icon="copy"></i></button></div></div>
+<p class="wg-hint">Keep this app open and unlocked on one device while Claude works.</p>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">A connected app can</span></div><div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Read</span><span class="wg-row__meta">meds, BP, weight, vitals, food, workouts, journey</span></span></div>
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Write</span><span class="wg-row__meta">add, edit and delete those entries</span></span></div>
+</div></section>
+<button class="wg-btn wg-btn--danger-ghost wg-btn--block">Disconnect</button>
+</div></div></div><figcaption class="kit-cap"><b>CC4</b><span class="kit-plat">iOS</span><span>Coming back later</span><em>The token lives on the server, so the instructions can be shown again. No sun: nothing waits. Disconnect keeps S5's dialog.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="CC4 · Local shim"><div class="kit-phone kit-phone--android"><span class="kit-punch"></span><span class="kit-gesture"></span><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Devices</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Claude connector</div></div><span></span></header>
+<div class="wg-content">
+<div class="wg-card wg-hstack"><span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="plug"></i></span><span class="wg-vstack wg-spacer"><span class="wg-row__title">Linked with the local shim</span><span class="wg-meta">No longer offered. It keeps working until you disconnect.</span></span></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">A connected app can</span></div><div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Read</span><span class="wg-row__meta">meds, BP, weight, vitals, food, workouts, journey</span></span></div>
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Write</span><span class="wg-row__meta">add, edit and delete those entries</span></span></div>
+</div></section>
+<button class="wg-btn wg-btn--block">Connect an AI app instead</button>
+<p class="wg-hint">This disconnects the local shim first.</p>
+<button class="wg-btn wg-btn--danger-ghost wg-btn--block">Disconnect</button>
+</div></div></div><figcaption class="kit-cap"><b>CC4 · Local shim</b><span class="kit-plat">Android</span><span>Existing shim users</span><em>An account still paired through the local shim keeps working and can disconnect. It isn't offered to anyone new; switching disconnects it first, as today.</em></figcaption></figure>
+
+</div></section>
+</main>
+</body>
+</html>
