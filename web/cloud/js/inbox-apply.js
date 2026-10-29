@@ -56,6 +56,16 @@ export const MEASURE_REMINDER_ACTION = 'measure_reminder_action';
 // accumulate one per message; add a sweep only if that ever matters.
 const TG_AGENT_MARKER_TYPE = 'tgagentrun';
 
+// A marker without a reply younger than this may belong to a run still going in
+// another tab of this device (drain rule 3 allows concurrent drainers), so the
+// event stays queued instead of being retried under it (bd med-ramv).
+const TG_AGENT_LEASE_MS = 2 * 60 * 1000;
+
+// The free-text run in flight on this page — drains are serial per page, so
+// one slot is enough. The agent router's records port reads it to flag the
+// marker `wrote` before the first tool write (see createInboxRouter).
+let currentTGRun = null;
+
 // A single user-scoped freeform note the free-text agent reads into its prompt
 // and appends durable phrasing mappings to (bd med-vcv.3). Singleton vault
 // record, same shape as reminderdeliverypref. Cap on char count (not bytes) to
@@ -738,9 +748,9 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
 // applyTGText hands a free-text message to the drain-time AI agent (bd
 // med-vcv.2): the agent runs an OpenAI tool-loop over the MCP catalog with the
 // user's own key and returns a plain-text answer, which becomes the edited
-// reply. Like every inbound kind the failure posture is answer-and-ack, never
-// retry — the agent may have already written through its tools, and a re-drain
-// would re-run a non-deterministic loop and re-bill the provider.
+// reply. A failed run is answered and acked, never re-run; only a run that was
+// INTERRUPTED (no reply on its marker) before any tool write gets one retry —
+// see the marker rule below (bd med-ramv).
 export async function applyTGText(event, eventId, { agent, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
   // ...rest, not (text, opts): a plain confirmation must call editReply with
   // exactly two arguments, the shape every other caller and stub expects.
@@ -769,19 +779,8 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
   // sent; re-issuing it is a no-op server-side (Telegram's "message is not
   // modified", telegram.go EditReply). No text means the run never finished.
   const marker = (await records.list(TG_AGENT_MARKER_TYPE)).find((r) => !r.deleted && r.recordId === markerId);
-  if (marker) {
-    // replyScope rides along so a replayed trial-consent refusal keeps its
-    // "Allow trial AI" button — the text says "tap below", so re-issuing it
-    // button-less would point at nothing. Absent for every other answer, which
-    // must stay a two-argument edit.
-    await reply(
-      marker.reply || '🤖 That message was interrupted before I could answer — send it again.',
-      ...(marker.replyScope ? [{ trialConsentScope: marker.replyScope }] : []),
-    );
-    return;
-  }
-  await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: now(), deleted: false });
 
+  let attempts = 0;
   // Every terminal answer goes through here so the marker remembers it. Same
   // ...rest passthrough as `reply` — the trial-consent path carries a scope.
   const finalReply = async (text, ...rest) => {
@@ -791,11 +790,48 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
       deleted: false,
       reply: text,
       replyScope: (rest[0] && rest[0].trialConsentScope) || '',
+      ...(attempts ? { attempts } : {}),
     });
     await reply(text, ...rest);
   };
 
+  if (marker) {
+    if (marker.reply) {
+      // replyScope rides along so a replayed trial-consent refusal keeps its
+      // "Allow trial AI" button — the text says "tap below", so re-issuing it
+      // button-less would point at nothing. Absent for every other answer,
+      // which must stay a two-argument edit.
+      await reply(marker.reply, ...(marker.replyScope ? [{ trialConsentScope: marker.replyScope }] : []));
+      return;
+    }
+    // No reply: the run died before answering (iOS suspended the page, a reload,
+    // a throw) — or it is still going in another tab. A marker from an older
+    // bundle has no wrote/attempts and reads as "not wrote, never retried".
+    // 1. Lease: the marker's clientTs is its (re)start time. Throwing leaves
+    //    the event queued and un-acked for a later drain (drain rule 1).
+    if (now() - (marker.clientTs || 0) < TG_AGENT_LEASE_MS) {
+      throw new Error('free-text run may still be in progress in another tab');
+    }
+    // 2. Wrote: its tool writes are already pending and flush with this drain;
+    //    a second run would double-write and re-bill. ponytail: a mixed "log X
+    //    and tell me Y" loses Y — a read-only re-run is the upgrade if asked.
+    if (marker.wrote === true) {
+      await finalReply('✅ Done.');
+      return;
+    }
+    // 4. Exhausted: honest terminal state, never "send it again".
+    if ((marker.attempts || 0) >= 1) {
+      await finalReply('🤖 I could not finish handling that message; nothing was saved.');
+      return;
+    }
+    // 3. Retry once, exactly as a first run.
+    attempts = 1;
+  }
+  const run = { markerId, attempts, wroteFlag: null };
+  await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: now(), deleted: false, ...(attempts ? { attempts } : {}) });
+
   let answer;
+  currentTGRun = run;
   try {
     answer = await agent.run(event.text, event.at_unix ? event.at_unix * 1000 : now());
   } catch (e) {
@@ -810,6 +846,8 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
     console.warn('[inbox] free-text agent failed', e && e.code);
     await finalReply('🤖 Something went wrong handling that — try again.');
     return;
+  } finally {
+    currentTGRun = null;
   }
 
   // Generic verbosity means no health value may cross Telegram (the same rule
@@ -865,9 +903,30 @@ const queueMedsOutOfDate = (info) => {
 // The free-text agent's router. canFloor false: the inbox drain may run before
 // this page's first pull, so it never floors the account zone (bd
 // med-wi09.19); the page's own router does once it has pulled.
+//
+// Its writes flag the running free-text marker `wrote` first (bd med-ramv):
+// the marker put goes through the same deferred port, so it precedes the tool
+// write in pending. Flag before write: a death between the two over-claims
+// "Done." on the next drain; flag after would double-write on the retry.
+// putIfAbsent does not flag: it is the read paths' derived materialization
+// (CLAUDE.md rule 12), idempotent by construction, so a retry cannot double it
+// — flagging it would turn an interrupted question into a bare "Done.".
 export function createInboxRouter(ctx, { records, now, timeZone }) {
+  const flagWrote = () => {
+    const run = currentTGRun;
+    if (!run) return undefined;
+    run.wroteFlag = run.wroteFlag || records.put(TG_AGENT_MARKER_TYPE, {
+      recordId: run.markerId, clientTs: now(), deleted: false, wrote: true, ...(run.attempts ? { attempts: run.attempts } : {}),
+    });
+    return run.wroteFlag;
+  };
+  const writing = (fn) => async (...args) => {
+    await flagWrote();
+    return fn(...args);
+  };
   return createApiRouter(ctx, {
-    records, now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram', canFloor: async () => false,
+    records: { ...records, put: writing(records.put), del: writing(records.del) },
+    now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram', canFloor: async () => false,
   });
 }
 

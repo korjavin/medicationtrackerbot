@@ -1975,15 +1975,62 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply.mock.calls[1]).toEqual([REPLY_ID, expect.stringMatching(/trial AI/), { trialConsentScope: 'tg' }]);
     });
 
-    it('a run cut short after the marker still answers instead of leaving "Queued" forever', async () => {
-        // The marker exists with no stored reply — exactly what a tab closed
-        // mid-run leaves behind.
-        const records = fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: 1 }] });
+    // bd med-ramv: a marker with no reply is an interrupted run (iOS suspended
+    // the page, a reload) — or one still going in another tab. Four steps.
+    const NOW = 1_800_000_000_000;
+    const staleMarker = (extra = {}) => fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 3 * 60 * 1000, ...extra }] });
+
+    it('a fresh reply-less marker is leased to another tab: throws, no edit, no run', async () => {
+        const records = fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 30 * 1000 }] });
         const editReply = vi.fn();
         const agent = { run: vi.fn() };
-        await applyTGText(textEvent('what was my bp'), 48, { agent, records, editReply });
-        expect(agent.run).not.toHaveBeenCalled(); // still at-most-once, still unbilled
-        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/interrupted/));
+        await expect(applyTGText(textEvent('what was my bp'), 48, { agent, records, editReply, now: () => NOW })).rejects.toThrow();
+        expect(agent.run).not.toHaveBeenCalled();
+        expect(editReply).not.toHaveBeenCalled();
+    });
+
+    it('a stale interrupted run with no write is retried once and answered', async () => {
+        const records = staleMarker();
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockResolvedValue('Your BP averaged 128/84.') };
+        await applyTGText(textEvent('what was my bp'), 48, { agent, records, editReply, now: () => NOW });
+        expect(agent.run).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, 'Your BP averaged 128/84.');
+        expect(await records.list('tgagentrun')).toEqual([expect.objectContaining({ attempts: 1, reply: 'Your BP averaged 128/84.' })]);
+    });
+
+    it('a stale interrupted run that already wrote answers Done without a second run', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn() };
+        await applyTGText(textEvent('log 80kg'), 48, { agent, records: staleMarker({ wrote: true }), editReply, now: () => NOW });
+        expect(agent.run).not.toHaveBeenCalled();
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, '✅ Done.');
+    });
+
+    it('a stale interrupted retry gives up honestly, never asking to send it again', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn() };
+        await applyTGText(textEvent('what was my bp'), 48, { agent, records: staleMarker({ attempts: 1 }), editReply, now: () => NOW });
+        expect(agent.run).not.toHaveBeenCalled();
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, '🤖 I could not finish handling that message; nothing was saved.');
+    });
+
+    it('a tool write through the agent router flags the marker wrote BEFORE the row lands', async () => {
+        const records = fakeRecords();
+        const order = [];
+        const put = records.put;
+        records.put = async (type, record) => {
+            order.push(type === 'tgagentrun' ? `marker${record.wrote ? ':wrote' : ''}` : type);
+            return put(type, record);
+        };
+        const router = createInboxRouter({ accountId: 'a' }, { records, now: () => NOW, timeZone: 'Europe/Berlin' });
+        const agent = { run: async () => { await router('/api/notes', 'POST', { content: 'felt dizzy' }); return 'Noted.'; } };
+        await applyTGText(textEvent('note: felt dizzy'), 48, { agent, records, editReply: vi.fn(), now: () => NOW });
+        expect(order.slice(0, 3)).toEqual(['marker', 'marker:wrote', 'note']);
+        // Outside a run the router writes without touching any marker.
+        await router('/api/notes', 'POST', { content: 'later' });
+        expect(order.at(-1)).toBe('note');
+        expect(order.filter((t) => t === 'marker:wrote')).toHaveLength(1);
     });
 
     it('generic verbosity suppresses the answer so no health value crosses Telegram', async () => {
