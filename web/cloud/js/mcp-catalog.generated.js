@@ -2620,7 +2620,7 @@ export const CATALOG = [
             "completed",
             "skipped"
           ],
-          "description": "Optional. Explicit status to set; if omitted, a placeholder log (status==\"\") with sets_completed\u003e=1 auto-promotes to \"completed\". Existing non-empty status is left untouched unless this field is set."
+          "description": "Optional. Explicit status to set; if omitted, a placeholder log (status==\"\") with sets_completed\u003e=1 auto-promotes to \"completed\", and a completed log that had sets and is updated to sets_completed=0 goes back to a placeholder (\"\"). Otherwise an existing non-empty status is left untouched unless this field is set."
         }
       }
     }

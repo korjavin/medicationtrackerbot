@@ -63,9 +63,16 @@ function scheduleAutosave() {
 // a debounce timer firing during the Finish network window queues after it
 // instead of running concurrently.
 function runSerializedSave(opts) {
+    return _serializeSave(() => saveWorkoutSessionDetails(opts));
+}
+
+// _serializeSave queues `fn` (a save, or a delete-set's projection + save)
+// behind the in-flight one and registers it as THE in-flight save, so
+// close / Finish drain it from the moment it is queued.
+function _serializeSave(fn) {
     const p = Promise.resolve(_autosaveInFlight)
         .catch(() => {})
-        .then(() => saveWorkoutSessionDetails(opts));
+        .then(fn);
     _autosaveInFlight = p;
     // Null out once THIS save settles so _autosaveInFlight means "a save is
     // genuinely in flight" — not "the last save's resolved value". Otherwise a
@@ -830,9 +837,16 @@ function _buildSetRow(log, index, row, activeRow) {
         el.appendChild(picks);
     }
 
+    // Kit WA7: the type line, then the RPE line ending in "Delete set" at the
+    // far right — away from the Done tick and the ± strip.
     if (moreOpen) {
-        const more = document.createElement('div');
-        more.className = 'wg-set__more wg-picks';
+        const line = () => {
+            const d = document.createElement('div');
+            d.className = 'wg-set__more wg-picks';
+            el.appendChild(d);
+            return d;
+        };
+        let more = line();
         const pick = (label, onClick, aria) => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -848,6 +862,7 @@ function _buildSetRow(log, index, row, activeRow) {
             b.dataset.setType = val;
             b.setAttribute('aria-pressed', (v.set_type || 'normal') === val ? 'true' : 'false');
         });
+        more = line();
         const rpe = v.rpe == null ? null : Number(v.rpe);
         // First tap from "no RPE" lands on 7 / 8 (7.5 ± 0.5).
         const step = (d) => () => _setSessionSetField(index, row, 'rpe',
@@ -859,7 +874,11 @@ function _buildSetRow(log, index, row, activeRow) {
         more.appendChild(rpeLabel);
         pick('+', step(0.5), 'Raise RPE');
         if (rpe != null) pick('Clear', () => _setSessionSetField(index, row, 'rpe', ''), 'Clear RPE');
-        el.appendChild(more);
+        const spacer = document.createElement('span');
+        spacer.className = 'wg-spacer';
+        const del = _wgBtn('', 'wg-btn--danger-ghost wg-btn--sm wg-set__delete', () => { _deleteSessionSet(index, row); });
+        del.append(_wgIco('trash', 'wg-ico--sm'), document.createTextNode('Delete set'));
+        more.append(spacer, del);
     }
     return el;
 }
@@ -2051,6 +2070,86 @@ function addLocalSet(logIndex) {
     _rerenderSessionLogs();
 }
 
+// _deleteSessionSet removes one set row after an in-page confirm (kit WA7b).
+// A pending row only drops its draft: one row fewer. A done row leaves
+// log.sets (later rows renumber) and saves at once, with the History row's
+// volume / completed count projected through applyOptimistic. The exercise
+// always keeps one row; removing the exercise is the header trash.
+async function _deleteSessionSet(logIndex, row) {
+    const st = window.WorkoutSessionsState;
+    const log = st.logs[logIndex];
+    if (!log) return;
+    const v = _setRowValues(log, row);
+    // An empty pending row (cells "—") has no numbers to name.
+    const nums = v.done || Number(v.weight_kg) || Number(v.reps)
+        ? ` · ${_fmtSetNumber(v.weight_kg)} kg × ${_fmtSetNumber(v.reps)}${v.done ? ', done' : ''}` : '';
+    const body = `${log.exercise_name}${nums}. Sets after it move up.`;
+    await safeConfirm(body, async (ok) => {
+        if (!ok || st.logs[logIndex] !== log) return;
+        const sets = _ensureLogSets(log);
+        const ui = _sessionUi();
+        ui.more = null;
+        ui.active = null;
+        log._targetSets = Math.max(1, _targetSets(log) - 1);
+        if (row >= sets.length) {
+            if (Array.isArray(log._drafts)) log._drafts.splice(row - sets.length, 1);
+            _rerenderSessionLogs();
+            return;
+        }
+        const volume = (l) => (Number(l.sets_completed) || 0) * (Number(l.reps_completed) || 0) * (Number(l.weight_kg) || 0);
+        // A saved log with a done set counts as completed (the domain promotes
+        // a placeholder on its first set; the local copy keeps status '').
+        const counted = log.id > 0 && log.status !== 'skipped';
+        const volBefore = volume(log);
+        sets.splice(row, 1);
+        sets.forEach((x, i) => { x.set_index = i; });
+        _syncLogScalarsFromSets(log);
+        // Mirrors the domain: a saved log with no sets left is a placeholder again.
+        const demoted = counted && sets.length === 0;
+        if (demoted) log.status = '';
+        log._dirty = true;
+        log._setsDirty = true;
+        _rerenderSessionLogs();
+
+        // Save now, not on the debounce: this pending timer's edits ride along.
+        // ONE serialized operation, registered before any await so a close /
+        // Finish drains it: the History projection first, then the write,
+        // which settles the projection's handle before it invalidates.
+        if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+        const sessionId = st.data && st.data.id;
+        const volAfter = demoted ? 0 : volume(log);
+        let base = null; // the row as first projected; a refetch replay over
+        // a payload that already has the delete (it differs) is left alone.
+        const project = (prev) => {
+            if (!prev || !Array.isArray(prev.sessions)) return prev;
+            return {
+                ...prev,
+                sessions: prev.sessions.map((s) => {
+                    if (s?.session?.id !== sessionId) return s;
+                    const cur = [s.total_volume || 0, s.exercises_completed || 0];
+                    if (!base) base = cur;
+                    else if (cur[0] !== base[0] || cur[1] !== base[1]) return s;
+                    return {
+                        ...s,
+                        total_volume: Math.max(0, cur[0] - volBefore + volAfter),
+                        exercises_completed: Math.max(0, cur[1] - (demoted ? 1 : 0)),
+                    };
+                }),
+            };
+        };
+        await _serializeSave(async () => {
+            const handle = counted && sessionId && window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+                ? await window.DataStore.applyOptimistic('workout_history', project, ['workout']).catch(() => null)
+                : null;
+            const saved = await saveWorkoutSessionDetails({ fromAutosave: true, handles: handle ? [handle] : [] });
+            // Never left pending (a save that returned early settles nothing);
+            // a no-op once the save committed or rolled it back.
+            if (handle) await handle.rollback();
+            return saved;
+        });
+    },{ title: `Delete set ${row + 1}?`, confirmLabel: 'Delete', icon: 'trash', destructive: true });
+}
+
 // -- Rest timer (kit .wg-rest) --
 // Ticking a set done on a running session docks a 90s countdown above the
 // footer: +30s extends it, Skip clears it. At zero it clears itself and, when
@@ -2609,7 +2708,9 @@ async function saveWorkoutSessionDetails(opts) {
     const feedbackBtn = fromAutosave ? null : finishBtn;
     const originalText = feedbackBtn ? feedbackBtn.textContent : '';
 
-    const optimisticHandles = [];
+    // A caller's own projection (delete set) settles with this save's: commit
+    // before the invalidation below, rollback on failure.
+    const optimisticHandles = [...((opts && opts.handles) || [])];
     async function rollbackOptimistic() {
         for (const h of optimisticHandles) {
             try { await h.rollback(); } catch (_) { /* best-effort */ }

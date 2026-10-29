@@ -502,6 +502,159 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(window.WorkoutSessionsState.logs[0].sets_completed).toBe(1);
     });
 
+    describe('delete a set (kit WA7/WA7b, med-okwf.6)', () => {
+        const threeSets = () => logFixture({ sets: [
+            { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' },
+            { set_index: 1, weight_kg: 62.5, reps: 7, set_type: 'normal' },
+            { set_index: 2, weight_kg: 65, reps: 5, set_type: 'normal' },
+        ] });
+        const openDelete = async (document, row) => {
+            setRows(document)[row].querySelector('.wg-set__idx').click();
+            logsEl(document).querySelector('.wg-set__delete').click();
+            await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal')).not.toBeNull());
+            return document.querySelector('.mt-confirm-modal');
+        };
+        const updates = (window) => window.apiCall.mock.calls.filter((c) => c[0] === '/api/workout/sessions/logs/update');
+
+        it('lives only behind the set number, on the RPE line', async () => {
+            const { window, document } = env;
+            await openSession(window, [threeSets()]);
+            expect(logsEl(document).querySelector('.wg-set__delete')).toBeNull();
+            setRows(document)[1].querySelector('.wg-set__idx').click();
+            const lines = logsEl(document).querySelectorAll('.wg-set__more');
+            expect(lines.length).toBe(2);
+            expect(lines[1].querySelector('[aria-label="Raise RPE"]')).not.toBeNull();
+            const del = lines[1].querySelector('.wg-set__delete');
+            expect(del.classList.contains('wg-btn--danger-ghost')).toBe(true);
+            expect(del.textContent).toBe('Delete set');
+        });
+
+        it('a done set: confirm names it, Delete removes it, later sets move up, saved at once', async () => {
+            const { window, document } = env;
+            await openSession(window, [threeSets()], undefined,
+                (endpoint) => (endpoint.includes('/logs/update') ? { ok: true } : undefined));
+            const dialog = await openDelete(document, 1);
+            expect(dialog.querySelector('.mt-confirm-modal__title').textContent).toBe('Delete set 2?');
+            expect(dialog.textContent).toContain('Bench · 62.5 kg × 7, done. Sets after it move up.');
+            dialog.querySelector('.mt-confirm-modal__confirm').click();
+
+            await vi.waitFor(() => expect(updates(window)).toHaveLength(1));
+            expect(updates(window)[0][2]).toMatchObject({ id: 1, sets_completed: 2, reps_completed: 8, weight_kg: 65 });
+            expect(updates(window)[0][2].sets.map((s) => [s.set_index, s.weight_kg])).toEqual([[0, 60], [1, 65]]);
+            const rows = setRows(document);
+            expect(rows).toHaveLength(2);
+            expect(rows.every((r) => r.classList.contains('wg-set--done'))).toBe(true);
+            expect(rows[1].querySelector('.wg-set__idx').textContent).toBe('2');
+            expect(logsEl(document).querySelector('.wg-set__more')).toBeNull();
+            await window.closeWorkoutSessionModal(); // drains the in-flight save
+        });
+
+        it('projects History before the write, and Minimise while it is pending still writes the deletion', async () => {
+            const { window, document } = env;
+            // 2 × 8 × 60 = 960 → deleting one set leaves 1 × 8 × 60 = 480.
+            const map = new Map([['workout_history', { sessions: [
+                { session: { id: 77, status: 'in_progress' }, exercises_count: 1, exercises_completed: 1, total_volume: 960 },
+            ] }]]);
+            window.MedTrackerDB = { ...(window.MedTrackerDB || {}), ApiCache: {
+                async get(k) { return map.has(k) ? map.get(k) : null; },
+                async set(k, v) { map.set(k, v); },
+                async clear(k) { map.delete(k); },
+                async keys() { return [...map.keys()]; },
+            } };
+            let volumeAtWrite;
+            await openSession(window, [logFixture({ sets_completed: 2, sets: [
+                { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' },
+            ] })], undefined, (endpoint) => {
+                if (!endpoint.includes('/logs/update')) return undefined;
+                volumeAtWrite = map.get('workout_history').sessions[0].total_volume;
+                return { ok: true };
+            });
+            let release;
+            const real = window.DataStore.applyOptimistic.bind(window.DataStore);
+            window.DataStore.applyOptimistic = (...args) => new Promise((r) => { release = () => r(real(...args)); });
+            const dialog = await openDelete(document, 1);
+            dialog.querySelector('.mt-confirm-modal__confirm').click();
+            await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+            expect(updates(window)).toHaveLength(0); // the write waits for the projection
+
+            const closing = window.closeWorkoutSessionModal();
+            release();
+            await closing;
+            expect(updates(window)).toHaveLength(1);
+            expect(updates(window)[0][2].sets).toHaveLength(1);
+            expect(volumeAtWrite).toBe(480);
+            const after = map.get('workout_history');
+            if (after) expect(after.sessions[0].total_volume).toBe(480);
+        });
+
+        it('Cancel changes nothing', async () => {
+            const { window, document } = env;
+            await openSession(window, [threeSets()]);
+            const dialog = await openDelete(document, 0);
+            dialog.querySelector('.mt-confirm-modal__cancel').click();
+            await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal')).toBeNull());
+            expect(window.WorkoutSessionsState.logs[0].sets).toHaveLength(3);
+            expect(setRows(document)).toHaveLength(3);
+            expect(updates(window)).toHaveLength(0);
+        });
+
+        it('a pending set: the row count drops by one and nothing is written', async () => {
+            const { window, document } = env;
+            await openSession(window, [logFixture({ sets_completed: 1, _targetSets: 3 })]);
+            window.WorkoutSessionsState.logs[0]._targetSets = 3;
+            window.renderWorkoutSessionLogs(logsEl(document));
+            expect(setRows(document)).toHaveLength(3);
+            const dialog = await openDelete(document, 2);
+            expect(dialog.querySelector('.mt-confirm-modal__title').textContent).toBe('Delete set 3?');
+            expect(dialog.textContent).toContain('Bench · 60 kg × 8. Sets after it move up.');
+            dialog.querySelector('.mt-confirm-modal__confirm').click();
+            await vi.waitFor(() => expect(setRows(document)).toHaveLength(2));
+            expect(window.WorkoutSessionsState.logs[0].sets).toHaveLength(1);
+            expect(updates(window)).toHaveLength(0);
+        });
+
+        it('an empty pending row (cells "—") is named without numbers', async () => {
+            const { window, document } = env;
+            await openSession(window, [logFixture({ status: '', source: 'library', sets_completed: 0,
+                reps_completed: 0, weight_kg: 0, exercise_name: 'Band press' })]);
+            const dialog = await openDelete(document, 0);
+            expect(dialog.textContent).toContain('Band press. Sets after it move up.');
+            dialog.querySelector('.mt-confirm-modal__cancel').click();
+        });
+
+        it('the only set: the exercise stays with one empty pending set; History drops it optimistically', async () => {
+            const { window, document } = env;
+            const map = new Map([['workout_history', { sessions: [
+                { session: { id: 77, status: 'in_progress' }, exercises_count: 1, exercises_completed: 1, total_volume: 480 },
+            ] }]]);
+            window.MedTrackerDB = { ...(window.MedTrackerDB || {}), ApiCache: {
+                async get(k) { return map.has(k) ? map.get(k) : null; },
+                async set(k, v) { map.set(k, v); },
+                async clear(k) { map.delete(k); },
+                async keys() { return [...map.keys()]; },
+            } };
+            const save = { resolve: null };
+            await openSession(window, [logFixture({ sets_completed: 1, sets: [{ set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' }] })],
+                undefined, (endpoint) => (endpoint.includes('/logs/update')
+                    ? new Promise((r) => { save.resolve = r; }) : undefined));
+            const dialog = await openDelete(document, 0);
+            dialog.querySelector('.mt-confirm-modal__confirm').click();
+
+            await vi.waitFor(() => expect(save.resolve).not.toBeNull());
+            // Projected before the write resolves.
+            expect(map.get('workout_history').sessions[0]).toMatchObject({ exercises_completed: 0, total_volume: 0 });
+            expect(updates(window)[0][2]).toMatchObject({ id: 1, sets_completed: 0, sets: [] });
+            save.resolve({ ok: true });
+
+            const rows = setRows(document);
+            expect(rows).toHaveLength(1);
+            expect(rows[0].classList.contains('wg-set--done')).toBe(false);
+            expect(window.WorkoutSessionsState.logs[0].status).toBe('');
+            await window.closeWorkoutSessionModal(); // drains the in-flight save
+        });
+    });
+
     it('the rest timer counts down, extends by 30s, can be skipped and clears itself at zero', async () => {
         const { window, document } = env;
         // Fake timers before the open: the session's 1s tick is created there.
