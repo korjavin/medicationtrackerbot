@@ -2226,7 +2226,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // The reverse (med-okwf.6): a completed log whose last set was deleted (or
     // un-ticked) goes back to a placeholder, so history, 1RM and the session's
     // completed count stop counting an exercise with nothing logged.
-    const demote = status === '' && log.status === 'completed' && hasValue(sets) && sets === 0;
+    // Only a move from >0 sets to 0: a completed 0-set log (a notes-only
+    // planned row, a legacy flat log) is resent on every save and must stay.
+    const demote = status === '' && log.status === 'completed' && Number(log.sets_completed) > 0
+      && hasValue(sets) && sets === 0;
 
     const effSets = hasValue(sets) ? sets : log.sets_completed;
     const effReps = hasValue(reps) ? reps : log.reps_completed;

@@ -385,6 +385,24 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect((await window.apiCall(`/api/workout/sessions/details?id=${s.id}`)).logs[0].status).toBe('completed');
     });
 
+    // The demotion is a move from >0 sets to 0 only: a notes-only planned row
+    // (created completed with 0 sets) is resent by every save and must stay.
+    it('a completed 0-set notes-only log survives an unrelated save and Finish', async () => {
+        const { window } = env;
+        const s = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        const note = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: s.id, exercise_id: 7, exercise_name: 'Bike', target_sets: 0, target_reps_min: 0,
+            status: 'completed', notes: '20 min easy'
+        });
+        // Every save resends every saved log with its scalars, then Finish.
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: note.id, sets_completed: 0, reps_completed: 0, notes: '20 min easy'
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${s.id}`, 'PUT', { status: 'completed' });
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${s.id}`);
+        expect(details.logs[0]).toMatchObject({ status: 'completed', notes: '20 min easy' });
+    });
+
     // Phase 1 (epic med-qj4): per-set logging. A `sets` array nests inside the
     // exerciselog record and round-trips through save → session-details; the
     // flat scalars (sets_completed/reps_completed/weight_kg) are derived from

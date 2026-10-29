@@ -864,7 +864,7 @@ output(result)`,
     "reps_completed": {"type": ["integer", "null"]},
     "weight_kg":      {"type": ["number", "null"]},
     "notes":          {"type": "string"},
-    "status":         {"type": "string", "enum": ["", "completed", "skipped"], "description": "Optional. Explicit status to set; if omitted, a placeholder log (status==\"\") with sets_completed>=1 auto-promotes to \"completed\". Existing non-empty status is left untouched unless this field is set."}
+    "status":         {"type": "string", "enum": ["", "completed", "skipped"], "description": "Optional. Explicit status to set; if omitted, a placeholder log (status==\"\") with sets_completed>=1 auto-promotes to \"completed\", and a completed log that had sets and is updated to sets_completed=0 goes back to a placeholder (\"\"). Otherwise an existing non-empty status is left untouched unless this field is set."}
   }
 }`),
 			Description:     "Update an exercise log row with completed sets/reps/weight. SIDE EFFECT: non-zero values propagate to the schedule's defaults so the NEXT session inherits them (e.g. consistently doing 12 reps bumps the planned target up). Zero/null values are treated as 'no data' and do NOT overwrite existing defaults. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed >= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead.",
