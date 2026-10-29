@@ -49,6 +49,12 @@
         { "tap": "#wg-qa-reps" },
         { "keyboard": true }
       ] },
+    { "name": "workout-session-overview",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "click": "#workout-session-prog" }
+      ],
+      "ready": ["#workout-session-add-row"] },
     { "name": "health-bp", "steps": [{ "tab": "bp" }],
       "ready": ["#bp-view.active", "#bpChart svg"] },
     { "name": "health-vitals", "steps": [{ "tab": "health" }],
