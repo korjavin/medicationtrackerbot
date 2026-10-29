@@ -447,6 +447,12 @@ describe('features/workout/sessions.js — split-file integration', () => {
       await type(window, 'o');
       // Overhead Press is library id 11: gone; only the typed add row is left.
       expect(rowsOf(mount)).toEqual([['Add “o”', 'New exercise']]);
+      // Its full current name offers nothing at all — no add row that would
+      // resolve back to id 11 — so no tap can post a duplicate create.
+      await type(window, 'Overhead Press');
+      expect(rowsOf(mount)).toEqual([]);
+      expect(mount.hidden).toBe(true);
+      expect(createCall(window)).toBeUndefined();
     });
 
     it('typing lists own rows (last numbers), then library rows, then an add row (kit WA3b)', async () => {

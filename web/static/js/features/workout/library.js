@@ -777,6 +777,7 @@ async function bindExerciseAddList({ input, mount, exclude = [], excludeIds = []
 
     let library = [];
     let upNext = [];
+    let loaded = false;
 
     let rendered = [];
     const row = (item, title, meta, icon) => {
@@ -819,7 +820,9 @@ async function bindExerciseAddList({ input, mount, exclude = [], excludeIds = []
                 }, () => {});
             }
         });
-        if (q && !matches.some(i => (i.name || '').trim().toLowerCase() === q) && keep({ name: typed })) {
+        // No add row before the library read: only it knows which typed names
+        // are already in the session under a library row (excludeIds).
+        if (q && loaded && !matches.some(i => (i.name || '').trim().toLowerCase() === q) && keep({ name: typed })) {
             list.appendChild(row({ name: typed }, `Add “${typed}”`, 'New exercise', 'plus').btn);
         }
         if (!rendered.length) {
@@ -863,11 +866,17 @@ async function bindExerciseAddList({ input, mount, exclude = [], excludeIds = []
             apiCall('/api/workout/exercise-library'),
             Promise.resolve(upNextP).catch(() => null)
         ]);
-        if (Array.isArray(items)) library = items.filter(keep);
+        if (Array.isArray(items)) {
+            // An excluded library row's CURRENT name is taken too, so neither a
+            // catalog row nor the typed add row can resolve back to it.
+            items.forEach((i) => { if (i && i.id > 0 && skipIds.has(i.id)) skip.add((i.name || '').trim().toLowerCase()); });
+            library = items.filter(keep);
+        }
         if (Array.isArray(ranked)) upNext = ranked.filter(item => item && item.name && keep(item)).slice(0, 3);
     } catch (error) {
         console.error('Error loading exercise library for picker:', error);
     }
+    loaded = true;
     await refresh();
 }
 
