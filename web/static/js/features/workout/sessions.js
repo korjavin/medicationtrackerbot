@@ -2000,8 +2000,10 @@ async function _deleteSessionSet(logIndex, row) {
     const log = st.logs[logIndex];
     if (!log) return;
     const v = _setRowValues(log, row);
-    const body = `${log.exercise_name} · ${_fmtSetNumber(v.weight_kg)} kg × ${_fmtSetNumber(v.reps)}`
-        + `${v.done ? ', done' : ''}. Sets after it move up.`;
+    // An empty pending row (cells "—") has no numbers to name.
+    const nums = v.done || Number(v.weight_kg) || Number(v.reps)
+        ? ` · ${_fmtSetNumber(v.weight_kg)} kg × ${_fmtSetNumber(v.reps)}${v.done ? ', done' : ''}` : '';
+    const body = `${log.exercise_name}${nums}. Sets after it move up.`;
     await safeConfirm(body, async (ok) => {
         if (!ok || st.logs[logIndex] !== log) return;
         const sets = _ensureLogSets(log);

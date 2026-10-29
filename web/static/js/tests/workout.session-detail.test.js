@@ -509,6 +509,15 @@ describe('Workout session takeover (med-xso6.21)', () => {
             expect(updates(window)).toHaveLength(0);
         });
 
+        it('an empty pending row (cells "—") is named without numbers', async () => {
+            const { window, document } = env;
+            await openSession(window, [logFixture({ status: '', source: 'library', sets_completed: 0,
+                reps_completed: 0, weight_kg: 0, exercise_name: 'Band press' })]);
+            const dialog = await openDelete(document, 0);
+            expect(dialog.textContent).toContain('Band press. Sets after it move up.');
+            dialog.querySelector('.mt-confirm-modal__cancel').click();
+        });
+
         it('the only set: the exercise stays with one empty pending set; History drops it optimistically', async () => {
             const { window, document } = env;
             const map = new Map([['workout_history', { sessions: [
