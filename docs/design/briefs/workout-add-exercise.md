@@ -34,3 +34,6 @@ could lead to "add exercise" with a few logical suggestions.
    trained today", "Last done Mon". Chips can't carry the reason.)
 6. Undo after adding? (Yes, a toast "Added Lateral raise · Undo"; Undo removes it, nothing logged.)
 7. Order: the new exercise goes to the end, like today (no reordering model needed).
+
+## Answers (Developer, 2026-10-29)
+1 yes, but Prev/Next become equal labelled buttons and the add button is a plus icon on the left. 2 no Save. 3 ok. 4 ok. 5 no reasons at all. 6 no Undo. 7 yes. Added: delete a set, with a confirm (WA7, WA7b; med-okwf.6). Frames: `ui_kits/app-v2/screens-workout-add.html`.
