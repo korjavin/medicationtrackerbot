@@ -149,7 +149,9 @@ function loadWorkouts() {
         bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
         bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
-        // "+ Exercise" lives in the overview (rendered with its own handler).
+        // Add exercise (med-okwf.2): the footer plus here; the overview's last
+        // row is rendered with its own handler.
+        bindClick('workout-session-add-btn', () => showAddExerciseToSessionModal());
         bindClick('workout-session-prog', () => toggleWorkoutSessionOverview());
 
         bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());

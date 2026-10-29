@@ -1,10 +1,10 @@
 // Workout session takeover (med-xso6.21, kit W1–W3).
 //
 // Covers the full-screen session view: the top bar (clock, plan · day · date,
-// Finish while running, else the status chip), the progress segments + overview (+ Exercise, gym, status of a
+// Finish while running, else the status chip), the progress segments + overview (Add exercise row, gym, status of a
 // finished session), ONE exercise at a time with .wg-set rows (done rows =
 // log.sets, pending rows = ghost values to accept), the rest timer docked
-// after a done set, the footer (prev / next) and the Finish dialog.
+// after a done set, the footer (Add exercise, Prev / Next) and the Finish dialog.
 
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -99,8 +99,8 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(close.classList.contains('wg-btn')).toBe(true);
         expect(close.getAttribute('aria-label')).toBe('Minimise');
         expect(document.getElementById('workout-session-delete-btn')).toBeNull();
-        // + Exercise lives in the overview, not in the top bar.
-        expect(document.getElementById('workout-session-header-add-btn')).toBeNull();
+        // Add exercise is in the footer (kit WA1), not in the top bar.
+        expect(modal.querySelector('.wg-session-top [aria-label="Add exercise"]')).toBeNull();
         expect(document.querySelector('.wg-workouts-session-modal__header')).toBeNull();
     });
 
@@ -111,7 +111,10 @@ describe('Workout session takeover (med-xso6.21)', () => {
         const empty = logsEl(document).querySelector('.wg-workouts-session-logs__empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toBe('No exercises logged');
-        expect(document.getElementById('workout-session-header-add-btn')).not.toBeNull();
+        expect(document.getElementById('workout-session-empty-add-btn').textContent).toBe('Add exercise');
+        // No exercise screen → no footer plus or Prev / Next.
+        expect(document.getElementById('workout-session-add-btn').hidden).toBe(true);
+        expect(document.getElementById('workout-session-actions').hidden).toBe(true);
     });
 
     it('shows one exercise at a time with a progress segment per exercise; Next / prev move between them', async () => {
@@ -453,7 +456,7 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(document.getElementById('workout-session-rest').hidden).toBe(true);
     });
 
-    it('tapping the progress bar opens the overview: every exercise, + Exercise and the gym slot', async () => {
+    it('tapping the progress bar opens the overview: every exercise, an Add exercise last row and the gym slot', async () => {
         const { window, document } = env;
         await openSession(window, [
             logFixture({ exercise_name: 'Bench' }),
@@ -466,13 +469,33 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(rows[0].querySelector('.wg-row__title').textContent).toBe('Bench');
         expect(rows[0].querySelector('.wg-row__meta').textContent).toContain('3 of 3 sets');
         expect(rows[1].querySelector('.wg-row__meta').textContent).toContain('2 of 2 sets');
-        expect(document.getElementById('workout-session-header-add-btn')).not.toBeNull();
+        // Kit WA2: Add exercise is the list's last row; the footer has no plus / nav.
+        const list = rows[0].parentElement;
+        expect(list.lastElementChild.id).toBe('workout-session-add-row');
+        expect(list.lastElementChild.textContent).toBe('Add exercise');
+        expect(document.getElementById('workout-session-add-btn').hidden).toBe(true);
+        expect(document.getElementById('workout-session-actions').hidden).toBe(true);
         expect(document.getElementById('workout-session-gym')).not.toBeNull();
         // A running session has no status row (Finish changes it).
         expect(document.getElementById('workout-session-status-row')).toBeNull();
 
         rows[1].click();
         expect(logsEl(document).querySelector('.wg-ex__name').textContent).toBe('Row');
+    });
+
+    it('the overview Add exercise row and the footer plus open the add-exercise dialog', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()]);
+        const dialog = document.getElementById('workout-add-exercise-to-session-modal');
+
+        document.getElementById('workout-session-add-btn').click();
+        await vi.waitFor(() => expect(dialog.classList.contains('hidden')).toBe(false));
+        window.closeAddExerciseToSessionModal();
+        await vi.waitFor(() => expect(dialog.classList.contains('hidden')).toBe(true));
+
+        document.getElementById('workout-session-prog').click();
+        document.getElementById('workout-session-add-row').click();
+        await vi.waitFor(() => expect(dialog.classList.contains('hidden')).toBe(false));
     });
 
     it('a finished session changes its status from the overview', async () => {
@@ -493,8 +516,9 @@ describe('Workout session takeover (med-xso6.21)', () => {
     });
 
     // med-t5s6 (kit W1): Finish sits in the top bar's right slot, far from
-    // Next; the footer carries prev / Next only.
-    it('puts Finish in the top bar and only prev / Next in the footer while running', async () => {
+    // Next. Kit WA1 (med-okwf.2): footer = Add exercise plus, save line, then
+    // Prev / Next as two equal labelled buttons.
+    it('puts Finish in the top bar and Add exercise, save, Prev / Next in the footer while running', async () => {
         const { window, document } = env;
         await openSession(window, [
             logFixture(),
@@ -508,18 +532,36 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(finishBtn.classList.contains('wg-btn--sm')).toBe(false);
         expect(finishBtn.textContent).toBe('Finish');
 
-        const acts = Array.from(document.getElementById('workout-session-actions').children);
-        expect(acts.map((b) => b.classList.contains('wg-workouts-session-actions__prev')
-            || b.classList.contains('wg-workouts-session-actions__next'))).toEqual([true, true]);
-        const next = document.querySelector('.wg-workouts-session-actions__next');
-        expect(next.classList.contains('wg-btn--sm')).toBe(false);
-        expect(next.classList.contains('wg-btn--ghost')).toBe(false);
+        const foot = document.querySelector('#workout-session-modal .wg-session-foot');
+        expect(Array.from(foot.children).map((el) => el.id)).toEqual([
+            'workout-session-add-btn', 'workout-session-autosave-status', 'workout-session-actions'
+        ]);
+        const add = document.getElementById('workout-session-add-btn');
+        expect(add.hidden).toBe(false);
+        expect(add.getAttribute('aria-label')).toBe('Add exercise');
+        const nav = document.getElementById('workout-session-actions');
+        expect(nav.hidden).toBe(false);
+        expect(nav.classList.contains('wg-session-foot__nav')).toBe(true);
+        const [prev, next] = Array.from(nav.children);
+        expect(prev.classList.contains('wg-workouts-session-actions__prev')).toBe(true);
+        expect(prev.textContent).toBe('Prev');
+        expect(prev.disabled).toBe(true);
+        expect(next.classList.contains('wg-workouts-session-actions__next')).toBe(true);
+        expect(next.textContent).toBe('Next');
+        // Equal weight: same plain button style, neither ghost nor small.
+        for (const b of [prev, next]) {
+            expect(b.classList.contains('wg-btn--sm')).toBe(false);
+            expect(b.classList.contains('wg-btn--ghost')).toBe(false);
+        }
     });
 
-    it('leaves the footer empty for a single-exercise session', async () => {
+    it('shows the footer from one exercise up: plus, disabled Prev and Next', async () => {
         const { window, document } = env;
         await openSession(window, [logFixture()]);
-        expect(document.getElementById('workout-session-actions').children.length).toBe(0);
+        expect(document.getElementById('workout-session-add-btn').hidden).toBe(false);
+        const nav = document.getElementById('workout-session-actions');
+        expect(nav.hidden).toBe(false);
+        expect(Array.from(nav.children).map((b) => b.disabled)).toEqual([true, true]);
         expect(document.getElementById('workout-session-finish-btn').closest('.wg-session-top')).not.toBeNull();
     });
 

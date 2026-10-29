@@ -1981,8 +1981,8 @@
     <!-- Workout session takeover (med-xso6.21, kit W1–W3): a full-screen page on
          the ModalManager stack. Minimise (#workout-session-cancel-btn) closes it
          and leaves the session running. The clock / plan line, the progress
-         segments, the current exercise (or the overview with + Exercise and the
-         gym) and the footer buttons are rendered by features/workout/sessions.js. -->
+         segments, the current exercise (or the overview with its Add exercise
+         row and the gym) and the footer buttons are rendered by features/workout/sessions.js. -->
     <mt-modal id="workout-session-modal" class="hidden wg-page wg-session" aria-label="Workout session">
         <header class="wg-session-top">
             <button type="button" id="workout-session-cancel-btn"
@@ -1995,9 +1995,13 @@
             <div id="workout-session-logs"></div>
         </div>
         <div id="workout-session-rest" class="wg-session-rest" hidden></div>
+        <!-- Footer (kit WA1, med-okwf.2): Add exercise, the save line, Prev / Next.
+             The add button and the nav show on an exercise screen only. -->
         <footer class="wg-session-foot">
+            <button type="button" id="workout-session-add-btn" class="wg-btn wg-btn--ghost wg-btn--icon"
+                aria-label="Add exercise" hidden><i class="wg-ico" data-icon="plus"></i></button>
             <span id="workout-session-autosave-status" class="wg-session-foot__save" role="status" aria-live="polite"></span>
-            <div id="workout-session-actions" class="wg-session-foot__acts"></div>
+            <div id="workout-session-actions" class="wg-session-foot__nav" hidden></div>
         </footer>
     </mt-modal>
 
