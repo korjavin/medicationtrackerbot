@@ -63,9 +63,16 @@ function scheduleAutosave() {
 // a debounce timer firing during the Finish network window queues after it
 // instead of running concurrently.
 function runSerializedSave(opts) {
+    return _serializeSave(() => saveWorkoutSessionDetails(opts));
+}
+
+// _serializeSave queues `fn` (a save, or a delete-set's projection + save)
+// behind the in-flight one and registers it as THE in-flight save, so
+// close / Finish drain it from the moment it is queued.
+function _serializeSave(fn) {
     const p = Promise.resolve(_autosaveInFlight)
         .catch(() => {})
-        .then(() => saveWorkoutSessionDetails(opts));
+        .then(fn);
     _autosaveInFlight = p;
     // Null out once THIS save settles so _autosaveInFlight means "a save is
     // genuinely in flight" — not "the last save's resolved value". Otherwise a
@@ -2023,26 +2030,42 @@ async function _deleteSessionSet(logIndex, row) {
         _rerenderSessionLogs();
 
         // Save now, not on the debounce: this pending timer's edits ride along.
-        // Started before any await so a close / Finish in between drains it.
+        // ONE serialized operation, registered before any await so a close /
+        // Finish drains it: the History projection first, then the write,
+        // which settles the projection's handle before it invalidates.
         if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
-        const saving = runAutosave();
         const sessionId = st.data && st.data.id;
-        const handle = counted && sessionId && window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
-            ? await window.DataStore.applyOptimistic('workout_history', (prev) => {
-                if (!prev || !Array.isArray(prev.sessions)) return prev;
-                return {
-                    ...prev,
-                    sessions: prev.sessions.map((s) => (s?.session?.id !== sessionId ? s : {
+        const volAfter = demoted ? 0 : volume(log);
+        let base = null; // the row as first projected; a refetch replay over
+        // a payload that already has the delete (it differs) is left alone.
+        const project = (prev) => {
+            if (!prev || !Array.isArray(prev.sessions)) return prev;
+            return {
+                ...prev,
+                sessions: prev.sessions.map((s) => {
+                    if (s?.session?.id !== sessionId) return s;
+                    const cur = [s.total_volume || 0, s.exercises_completed || 0];
+                    if (!base) base = cur;
+                    else if (cur[0] !== base[0] || cur[1] !== base[1]) return s;
+                    return {
                         ...s,
-                        total_volume: Math.max(0, (s.total_volume || 0) - volBefore + (demoted ? 0 : volume(log))),
-                        exercises_completed: Math.max(0, (s.exercises_completed || 0) - (demoted ? 1 : 0)),
-                    })),
-                };
-            }, ['workout']).catch(() => null)
-            : null;
-        const saved = await saving;
-        if (handle) await (saved ? handle.commit(null) : handle.rollback());
-    }, { title: `Delete set ${row + 1}?`, confirmLabel: 'Delete', icon: 'trash', destructive: true });
+                        total_volume: Math.max(0, cur[0] - volBefore + volAfter),
+                        exercises_completed: Math.max(0, cur[1] - (demoted ? 1 : 0)),
+                    };
+                }),
+            };
+        };
+        await _serializeSave(async () => {
+            const handle = counted && sessionId && window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+                ? await window.DataStore.applyOptimistic('workout_history', project, ['workout']).catch(() => null)
+                : null;
+            const saved = await saveWorkoutSessionDetails({ fromAutosave: true, handles: handle ? [handle] : [] });
+            // Never left pending (a save that returned early settles nothing);
+            // a no-op once the save committed or rolled it back.
+            if (handle) await handle.rollback();
+            return saved;
+        });
+    },{ title: `Delete set ${row + 1}?`, confirmLabel: 'Delete', icon: 'trash', destructive: true });
 }
 
 // -- Rest timer (kit .wg-rest) --
@@ -2599,7 +2622,9 @@ async function saveWorkoutSessionDetails(opts) {
     const feedbackBtn = fromAutosave ? null : finishBtn;
     const originalText = feedbackBtn ? feedbackBtn.textContent : '';
 
-    const optimisticHandles = [];
+    // A caller's own projection (delete set) settles with this save's: commit
+    // before the invalidation below, rollback on failure.
+    const optimisticHandles = [...((opts && opts.handles) || [])];
     async function rollbackOptimistic() {
         for (const h of optimisticHandles) {
             try { await h.rollback(); } catch (_) { /* best-effort */ }

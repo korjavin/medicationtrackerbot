@@ -444,21 +444,43 @@ describe('Workout session takeover (med-xso6.21)', () => {
             await window.closeWorkoutSessionModal(); // drains the in-flight save
         });
 
-        it('Minimise while the History projection is pending still writes the deletion', async () => {
+        it('projects History before the write, and Minimise while it is pending still writes the deletion', async () => {
             const { window, document } = env;
-            await openSession(window, [threeSets()], undefined,
-                (endpoint) => (endpoint.includes('/logs/update') ? { ok: true } : undefined));
+            // 2 × 8 × 60 = 960 → deleting one set leaves 1 × 8 × 60 = 480.
+            const map = new Map([['workout_history', { sessions: [
+                { session: { id: 77, status: 'in_progress' }, exercises_count: 1, exercises_completed: 1, total_volume: 960 },
+            ] }]]);
+            window.MedTrackerDB = { ...(window.MedTrackerDB || {}), ApiCache: {
+                async get(k) { return map.has(k) ? map.get(k) : null; },
+                async set(k, v) { map.set(k, v); },
+                async clear(k) { map.delete(k); },
+                async keys() { return [...map.keys()]; },
+            } };
+            let volumeAtWrite;
+            await openSession(window, [logFixture({ sets_completed: 2, sets: [
+                { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' },
+            ] })], undefined, (endpoint) => {
+                if (!endpoint.includes('/logs/update')) return undefined;
+                volumeAtWrite = map.get('workout_history').sessions[0].total_volume;
+                return { ok: true };
+            });
             let release;
             const real = window.DataStore.applyOptimistic.bind(window.DataStore);
             window.DataStore.applyOptimistic = (...args) => new Promise((r) => { release = () => r(real(...args)); });
-            const dialog = await openDelete(document, 0);
+            const dialog = await openDelete(document, 1);
             dialog.querySelector('.mt-confirm-modal__confirm').click();
             await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+            expect(updates(window)).toHaveLength(0); // the write waits for the projection
 
-            await window.closeWorkoutSessionModal();
-            expect(updates(window)).toHaveLength(1);
-            expect(updates(window)[0][2].sets).toHaveLength(2);
+            const closing = window.closeWorkoutSessionModal();
             release();
+            await closing;
+            expect(updates(window)).toHaveLength(1);
+            expect(updates(window)[0][2].sets).toHaveLength(1);
+            expect(volumeAtWrite).toBe(480);
+            const after = map.get('workout_history');
+            if (after) expect(after.sessions[0].total_volume).toBe(480);
         });
 
         it('Cancel changes nothing', async () => {
