@@ -2419,8 +2419,8 @@ async function deleteExerciseLog(index) {
                 const next = { ...prev };
                 next.sessions = prev.sessions.map((s) => {
                     if (s?.session?.id !== sessionId) return s;
-                    const done = hadLog
-                        ? Math.max(0, (s.exercises_completed || 0) - 1)
+                    const done = hadLog && log.status === 'completed'
+                        ?Math.max(0, (s.exercises_completed || 0) - 1)
                         : (s.exercises_completed || 0);
                     const total = Math.max(done, (s.exercises_count || 0) - 1);
                     return { ...s, exercises_completed: done, exercises_count: total };
