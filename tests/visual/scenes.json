@@ -70,6 +70,19 @@
         { "click": "#session-add-exercise-suggest .wg-row" }
       ],
       "ready": ["#workout-session-logs .wg-set"] },
+    { "name": "workout-set-delete",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "click": "#workout-session-logs .wg-set__idx" }
+      ],
+      "ready": ["#workout-session-logs .wg-set__delete"] },
+    { "name": "workout-set-delete-confirm",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "click": "#workout-session-logs .wg-set__idx" },
+        { "click": "#workout-session-logs .wg-set__delete" }
+      ],
+      "ready": [".mt-confirm-modal__confirm"] },
     { "name": "health-bp", "steps": [{ "tab": "bp" }],
       "ready": ["#bp-view.active", "#bpChart svg"] },
     { "name": "health-vitals", "steps": [{ "tab": "health" }],

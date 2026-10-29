@@ -750,9 +750,16 @@ function _buildSetRow(log, index, row, activeRow) {
         el.appendChild(picks);
     }
 
+    // Kit WA7: the type line, then the RPE line ending in "Delete set" at the
+    // far right — away from the Done tick and the ± strip.
     if (moreOpen) {
-        const more = document.createElement('div');
-        more.className = 'wg-set__more wg-picks';
+        const line = () => {
+            const d = document.createElement('div');
+            d.className = 'wg-set__more wg-picks';
+            el.appendChild(d);
+            return d;
+        };
+        let more = line();
         const pick = (label, onClick, aria) => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -768,6 +775,7 @@ function _buildSetRow(log, index, row, activeRow) {
             b.dataset.setType = val;
             b.setAttribute('aria-pressed', (v.set_type || 'normal') === val ? 'true' : 'false');
         });
+        more = line();
         const rpe = v.rpe == null ? null : Number(v.rpe);
         // First tap from "no RPE" lands on 7 / 8 (7.5 ± 0.5).
         const step = (d) => () => _setSessionSetField(index, row, 'rpe',
@@ -779,7 +787,11 @@ function _buildSetRow(log, index, row, activeRow) {
         more.appendChild(rpeLabel);
         pick('+', step(0.5), 'Raise RPE');
         if (rpe != null) pick('Clear', () => _setSessionSetField(index, row, 'rpe', ''), 'Clear RPE');
-        el.appendChild(more);
+        const spacer = document.createElement('span');
+        spacer.className = 'wg-spacer';
+        const del = _wgBtn('', 'wg-btn--danger-ghost wg-btn--sm wg-set__delete', () => { _deleteSessionSet(index, row); });
+        del.append(_wgIco('trash', 'wg-ico--sm'), document.createTextNode('Delete set'));
+        more.append(spacer, del);
     }
     return el;
 }
@@ -1969,6 +1981,66 @@ function addLocalSet(logIndex) {
     log._targetSets = total + 1;
     _sessionUi().active = { li: logIndex, row: total };
     _rerenderSessionLogs();
+}
+
+// _deleteSessionSet removes one set row after an in-page confirm (kit WA7b).
+// A pending row only drops its draft: one row fewer. A done row leaves
+// log.sets (later rows renumber) and saves at once, with the History row's
+// volume / completed count projected through applyOptimistic. The exercise
+// always keeps one row; removing the exercise is the header trash.
+async function _deleteSessionSet(logIndex, row) {
+    const st = window.WorkoutSessionsState;
+    const log = st.logs[logIndex];
+    if (!log) return;
+    const v = _setRowValues(log, row);
+    const body = `${log.exercise_name} · ${_fmtSetNumber(v.weight_kg)} kg × ${_fmtSetNumber(v.reps)}`
+        + `${v.done ? ', done' : ''}. Sets after it move up.`;
+    await safeConfirm(body, async (ok) => {
+        if (!ok || st.logs[logIndex] !== log) return;
+        const sets = _ensureLogSets(log);
+        const ui = _sessionUi();
+        ui.more = null;
+        ui.active = null;
+        log._targetSets = Math.max(1, _targetSets(log) - 1);
+        if (row >= sets.length) {
+            if (Array.isArray(log._drafts)) log._drafts.splice(row - sets.length, 1);
+            _rerenderSessionLogs();
+            return;
+        }
+        const volume = (l) => (Number(l.sets_completed) || 0) * (Number(l.reps_completed) || 0) * (Number(l.weight_kg) || 0);
+        // A saved log with a done set counts as completed (the domain promotes
+        // a placeholder on its first set; the local copy keeps status '').
+        const counted = log.id > 0 && log.status !== 'skipped';
+        const volBefore = volume(log);
+        sets.splice(row, 1);
+        sets.forEach((x, i) => { x.set_index = i; });
+        _syncLogScalarsFromSets(log);
+        // Mirrors the domain: a saved log with no sets left is a placeholder again.
+        const demoted = counted && sets.length === 0;
+        if (demoted) log.status = '';
+        log._dirty = true;
+        log._setsDirty = true;
+        _rerenderSessionLogs();
+
+        const sessionId = st.data && st.data.id;
+        const handle = counted && sessionId && window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_history', (prev) => {
+                if (!prev || !Array.isArray(prev.sessions)) return prev;
+                return {
+                    ...prev,
+                    sessions: prev.sessions.map((s) => (s?.session?.id !== sessionId ? s : {
+                        ...s,
+                        total_volume: Math.max(0, (s.total_volume || 0) - volBefore + (demoted ? 0 : volume(log))),
+                        exercises_completed: Math.max(0, (s.exercises_completed || 0) - (demoted ? 1 : 0)),
+                    })),
+                };
+            }, ['workout'])
+            : null;
+        // Save now, not on the debounce: this pending timer's edits ride along.
+        if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+        const saved = await runAutosave();
+        if (handle) await (saved ? handle.commit(null) : handle.rollback());
+    }, { title: `Delete set ${row + 1}?`, confirmLabel: 'Delete', icon: 'trash', destructive: true });
 }
 
 // -- Rest timer (kit .wg-rest) --

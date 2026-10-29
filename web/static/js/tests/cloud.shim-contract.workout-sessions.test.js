@@ -337,6 +337,54 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(hist[0].sets).toEqual([expect.objectContaining({ weight_kg: 110, reps: 4 })]);
     });
 
+    // med-okwf.6: deleting sets is the autosave's update with the remaining
+    // rows. History/volume read only those; the last one gone demotes the log
+    // back to a placeholder (the reverse of the promotion above).
+    it('deleted sets: history and volume read the rest; deleting the last one demotes the log', async () => {
+        const { window } = env;
+        const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Row' });
+        const s = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: s.id, exercise_id: item.id, exercise_name: 'Row', source: 'library', target_sets: 0, status: ''
+        });
+        const update = (sets) => window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id, sets, sets_completed: sets.length,
+            reps_completed: Math.max(0, ...sets.map((x) => x.reps)), notes: '',
+            ...(sets.length ? { weight_kg: Math.max(...sets.map((x) => x.weight_kg)) } : {})
+        });
+        await update([
+            { set_index: 0, weight_kg: 50, reps: 10, set_type: 'normal' },
+            { set_index: 1, weight_kg: 80, reps: 5, set_type: 'normal' },
+            { set_index: 2, weight_kg: 60, reps: 8, set_type: 'normal' },
+        ]);
+        // Delete set 2 (the 80 kg top set): set 3 moves up.
+        await update([
+            { set_index: 0, weight_kg: 50, reps: 10, set_type: 'normal' },
+            { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' },
+        ]);
+        let hist = await window.apiCall('/api/workout/exercises/history?name=Row&limit=500');
+        expect(hist).toHaveLength(1);
+        expect(hist[0].sets.map((x) => [x.set_index, x.weight_kg, x.reps])).toEqual([[0, 50, 10], [1, 60, 8]]);
+        let view = (await window.apiCall('/api/workout/sessions?limit=10')).find((v) => v.session.id === s.id);
+        expect(view.exercises_completed).toBe(1);
+        expect(view.total_volume).toBe(2 * 10 * 60);
+
+        // Delete the only set left → placeholder: counted nowhere as completed.
+        await update([]);
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${s.id}`);
+        expect(details.logs[0].status).toBe('');
+        expect(details.logs[0].sets_completed).toBe(0);
+        view = (await window.apiCall('/api/workout/sessions?limit=10')).find((v) => v.session.id === s.id);
+        expect(view.exercises_completed).toBe(0);
+        expect(view.total_volume).toBe(0);
+        hist = await window.apiCall('/api/workout/exercises/history?name=Row&limit=500');
+        expect(hist).toEqual([]);
+
+        // Ticking a set again promotes it back.
+        await update([{ set_index: 0, weight_kg: 55, reps: 9, set_type: 'normal' }]);
+        expect((await window.apiCall(`/api/workout/sessions/details?id=${s.id}`)).logs[0].status).toBe('completed');
+    });
+
     // Phase 1 (epic med-qj4): per-set logging. A `sets` array nests inside the
     // exerciselog record and round-trips through save → session-details; the
     // flat scalars (sets_completed/reps_completed/weight_kg) are derived from
