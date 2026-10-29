@@ -5319,59 +5319,16 @@ body:has(.wg-callbar--dock) .wg-toasts {
     margin-top: var(--space-xs);
 }
 
-/* Log-set sheet body (Phase 7, Task 8; header is the kit .wg-sheethead since
-   med-xso6.36): `.wg-gloss--inset` input wraps for name / sets / reps /
-   weight / notes. */
+/* Add-exercise sheet body (kit WA3, med-okwf.3): search affix, then the
+   row list (kit .wg-section + .wg-list). */
 .wg-workouts-log-set-modal__body {
     display: flex;
     flex-direction: column;
     gap: var(--wg-workouts-modal-section-gap);
 }
 
-.wg-workouts-log-set-modal__field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-    flex: 1 1 0;
-}
-
-.wg-workouts-log-set-modal__row {
-    display: flex;
-    gap: var(--wg-workouts-modal-row-gap);
-}
-
-.wg-workouts-log-set-modal__label {
-    font-size: var(--wg-workouts-modal-label-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: var(--font-weight-bold);
-}
-
-.wg-workouts-log-set-modal__input-wrap {
-    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.wg-workouts-log-set-modal__input {
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    border: none;
-    outline: none;
-    box-shadow: none;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    min-width: 0;
-}
-
-.wg-workouts-log-set-modal__input::placeholder {
-    color: var(--wg-fg-4);
+.wg-workouts-log-set-modal__body > .wg-section[hidden] {
+    display: none;
 }
 
 /* Exercise name suggestions (med-max) — shared by the session add-exercise,
