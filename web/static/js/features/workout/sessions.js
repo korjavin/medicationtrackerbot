@@ -421,15 +421,16 @@ function _showSessionExercise(index) {
     _rerenderSessionLogs();
 }
 
+// The empty session's only way in (no exercise screen, so no footer plus).
 function _sessionAddExerciseButton() {
     const add = _wgBtn('', 'wg-btn--sm', () => showAddExerciseToSessionModal());
-    add.id = 'workout-session-header-add-btn';
-    add.append(_wgIco('plus', 'wg-ico--sm'), document.createTextNode('Exercise'));
+    add.id = 'workout-session-empty-add-btn';
+    add.append(_wgIco('plus', 'wg-ico--sm'), document.createTextNode('Add exercise'));
     return add;
 }
 
-// Kit W2: every exercise as a row (tap → that exercise), then "+ Exercise",
-// the gym, and — on a finished session only — its status.
+// Kit W2/WA2: every exercise as a row (tap → that exercise), "Add exercise" as
+// the last row, the gym, and — on a finished session only — its status.
 function _buildSessionOverview() {
     const st = window.WorkoutSessionsState;
     const ui = _sessionUi();
@@ -468,12 +469,23 @@ function _buildSessionOverview() {
         row.addEventListener('click', () => _showSessionExercise(i));
         list.appendChild(row);
     });
+    const addRow = document.createElement('button');
+    addRow.type = 'button';
+    addRow.id = 'workout-session-add-row';
+    addRow.className = 'wg-row wg-session-overview__add';
+    const addLead = document.createElement('span');
+    addLead.className = 'wg-row__lead';
+    addLead.appendChild(_wgIco('plus'));
+    const addBody = document.createElement('span');
+    addBody.className = 'wg-row__body';
+    const addTitle = document.createElement('span');
+    addTitle.className = 'wg-row__title';
+    addTitle.textContent = 'Add exercise';
+    addBody.appendChild(addTitle);
+    addRow.append(addLead, addBody);
+    addRow.addEventListener('click', () => showAddExerciseToSessionModal());
+    list.appendChild(addRow);
     wrap.appendChild(list);
-
-    const acts = document.createElement('div');
-    acts.className = 'wg-hstack';
-    acts.appendChild(_sessionAddExerciseButton());
-    wrap.appendChild(acts);
 
     const gym = document.createElement('div');
     gym.id = 'workout-session-gym';
@@ -809,7 +821,12 @@ function _buildSessionExerciseCard(log, index) {
 
     const monoRow = document.createElement('div');
     monoRow.className = 'wg-workouts-session-exercise__mono';
-    monoRow.textContent = _formatLogMono(log);
+    // Nothing logged yet (an untouched planned row or an added exercise):
+    // no "0 × 0 · bodyweight" line — the ghost set rows carry the numbers
+    // (kit WA4, Iris on med-okwf.3).
+    const logged = Number(log.sets_completed) > 0 && Number(log.reps_completed) > 0;
+    monoRow.textContent = logged ? _formatLogMono(log) : '';
+    monoRow.hidden = !logged;
     entry.appendChild(monoRow);
 
     // In-session weight suggestion (med-h5u3): a collapsed "Try <kg>" chip in
@@ -2177,16 +2194,25 @@ async function showWorkoutSessionModal(sessionId) {
                     });
                 }
 
-                // Exercises added mid-workout (source 'library') stay after
-                // the plan's rows, logged or not: an added exercise goes to
-                // the end (kit WA4, med-okwf.3) and keeps its place on reload.
-                if (plannedMissingLogs && plannedMissingLogs.length > 0) {
-                    const logs = window.WorkoutSessionsState.logs;
-                    window.WorkoutSessionsState.logs = [
-                        ...logs.filter((l) => l.source !== 'library'),
-                        ...plannedMissingLogs,
-                        ...logs.filter((l) => l.source === 'library'),
-                    ];
+                // Plan order, logged or not, then exercises added mid-workout
+                // (source 'library') in the order they were added: an added
+                // exercise goes to the end (kit WA4, med-okwf.3) and keeps its
+                // place on every reload. Logs are read back sorted by id, so
+                // without this a log made before the plan's sets would lead.
+                const merged = [...window.WorkoutSessionsState.logs, ...(plannedMissingLogs || [])];
+                if (plannedRows) {
+                    const pos = (l) => {
+                        if (l.source === 'library') return Number.MAX_SAFE_INTEGER;
+                        const i = plannedRows.findIndex((p) => (l.exercise_id && p._eid
+                            ? p._eid === l.exercise_id : p.exercise_name === l.exercise_name));
+                        return i < 0 ? plannedRows.length : i;
+                    };
+                    window.WorkoutSessionsState.logs = merged
+                        .map((l, k) => ({ l, k, p: pos(l) }))
+                        .sort((a, b) => a.p - b.p || a.k - b.k)
+                        .map((x) => x.l);
+                } else {
+                    window.WorkoutSessionsState.logs = merged;
                 }
             } catch (prefillError) {
                 console.error('Error pre-filling planned exercises:', prefillError);
@@ -2413,25 +2439,29 @@ function _buildFinishSummary() {
     return wrap;
 }
 
-// Footer (kit .wg-session-foot): prev / next exercise only. Finish lives in
-// the top bar (_renderSessionStatusChip, med-t5s6) so it is never next to Next.
+// Footer (kit WA1, med-okwf.2): the static Add exercise plus, the save line,
+// then Prev / Next as two equal buttons — on an exercise screen only (one
+// exercise up), never in the overview. Finish lives in the top bar
+// (_renderSessionStatusChip, med-t5s6) so it is never next to Next.
 function renderSessionDetailActions(container) {
     container.replaceChildren();
 
     const st = window.WorkoutSessionsState;
     const ui = _sessionUi();
     const n = (st.logs || []).length;
+    const show = !ui.overview && n >= 1;
+    container.hidden = !show;
+    const add = document.getElementById('workout-session-add-btn');
+    if (add) add.hidden = !show;
+    if (!show) return;
 
-    if (!ui.overview && n > 1) {
-        const prev = _wgBtn('', 'wg-btn--ghost wg-btn--icon wg-workouts-session-actions__prev', () => _showSessionExercise(ui.current - 1));
-        prev.setAttribute('aria-label', 'Previous exercise');
-        prev.disabled = ui.current <= 0;
-        prev.appendChild(_wgIco('chev-l'));
-        const next = _wgBtn('', 'wg-workouts-session-actions__next', () => _showSessionExercise(ui.current + 1));
-        next.disabled = ui.current >= n - 1;
-        next.append(document.createTextNode('Next'), _wgIco('chev-r', 'wg-ico--sm'));
-        container.append(prev, next);
-    }
+    const prev = _wgBtn('', 'wg-workouts-session-actions__prev', () => _showSessionExercise(ui.current - 1));
+    prev.disabled = ui.current <= 0;
+    prev.append(_wgIco('chev-l', 'wg-ico--sm'), document.createTextNode('Prev'));
+    const next = _wgBtn('', 'wg-workouts-session-actions__next', () => _showSessionExercise(ui.current + 1));
+    next.disabled = ui.current >= n - 1;
+    next.append(document.createTextNode('Next'), _wgIco('chev-r', 'wg-ico--sm'));
+    container.append(prev, next);
 }
 
 async function closeWorkoutSessionModal() {

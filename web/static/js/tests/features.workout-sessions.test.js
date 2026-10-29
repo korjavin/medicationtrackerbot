@@ -498,6 +498,17 @@ describe('features/workout/sessions.js — split-file integration', () => {
       expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat', 'Face pull']);
       expect(window.WorkoutSessionsState.ui.current).toBe(2);
       expect(document.querySelector('#workout-session-logs .wg-ex__name').textContent).toBe('Face pull');
+      // Nothing logged yet: no "0 × 0 · bodyweight" target line (Iris).
+      expect(document.querySelector('#workout-session-logs .wg-workouts-session-exercise__mono').hidden).toBe(true);
+
+      // Then the plan's rows get logged (higher log ids than the add, and the
+      // details read sorts by id) and the session reopens: still plan, then add.
+      persisted.push(
+        { id: 1000, exercise_id: 1, exercise_name: 'Bench', source: 'schedule', status: 'completed', sets_completed: 1, reps_completed: 8, weight_kg: 60, sets: [{ set_index: 0, reps: 8, weight_kg: 60 }] },
+        { id: 1001, exercise_id: 2, exercise_name: 'Squat', source: 'schedule', status: 'completed', sets_completed: 1, reps_completed: 5, weight_kg: 100, sets: [{ set_index: 0, reps: 5, weight_kg: 100 }] },
+      );
+      await window.showWorkoutSessionModal(77);
+      expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat', 'Face pull']);
     });
 
     it('a row logged before lands with last time\'s set as the ghost, labelled "last"', async () => {
