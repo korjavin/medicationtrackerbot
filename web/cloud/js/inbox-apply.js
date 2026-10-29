@@ -830,7 +830,7 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
       await finalReply('✅ Done.');
       return;
     }
-    // 4. Exhausted: honest terminal state, never "send it again".
+    // 4. Exhausted: honest terminal state, never a request to resend.
     if ((marker.attempts || 0) >= 1) {
       await finalReply('🤖 I could not finish handling that message; nothing was saved.');
       return;

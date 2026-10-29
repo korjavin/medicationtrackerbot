@@ -2027,10 +2027,15 @@ describe('inbox-apply.js — a Telegram data command', () => {
 
     it('a stale interrupted run with no write is retried once and answered', async () => {
         const records = staleMarker();
+        const puts = [];
+        const put = records.put;
+        records.put = async (type, record) => { puts.push(record); return put(type, record); };
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('Your BP averaged 128/84.') };
         await applyTGText(textEvent('what was my bp'), 48, { agent, records, editReply, now: () => NOW });
         expect(agent.run).toHaveBeenCalledTimes(1);
+        // The retry re-put renews the lease (finalReply then drops startedAt).
+        expect(puts[0]).toMatchObject({ attempts: 1, startedAt: NOW });
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, 'Your BP averaged 128/84.');
         expect(await records.list('tgagentrun')).toEqual([expect.objectContaining({ attempts: 1, reply: 'Your BP averaged 128/84.' })]);
     });
@@ -2043,7 +2048,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, '✅ Done.');
     });
 
-    it('a stale interrupted retry gives up honestly, never asking to send it again', async () => {
+    it('a stale interrupted retry gives up honestly instead of asking the user to resend', async () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn() };
         await applyTGText(textEvent('what was my bp'), 48, { agent, records: staleMarker({ attempts: 1 }), editReply, now: () => NOW });
@@ -2067,6 +2072,24 @@ describe('inbox-apply.js — a Telegram data command', () => {
         await router('/api/notes', 'POST', { content: 'later' });
         expect(order.at(-1)).toBe('note');
         expect(order.filter((t) => t === 'marker:wrote')).toHaveLength(1);
+    });
+
+    // The wrote re-put must keep the run's lease and retry count: without
+    // startedAt a run that died after writing would read as legacy ("could not
+    // finish", no lease) instead of "Done.".
+    it('the wrote marker keeps the run\'s startedAt and attempts', async () => {
+        const records = staleMarker();
+        let clock = NOW;
+        const router = createInboxRouter({ accountId: 'a' }, { records, now: () => clock, timeZone: 'Europe/Berlin' });
+        let midRun;
+        const agent = { run: async () => {
+            clock = NOW + 5000;
+            await router('/api/notes', 'POST', { content: 'felt dizzy' });
+            midRun = (await records.list('tgagentrun'))[0];
+            return 'Noted.';
+        } };
+        await applyTGText(textEvent('note: felt dizzy'), 48, { agent, records, editReply: vi.fn(), now: () => clock });
+        expect(midRun).toMatchObject({ wrote: true, startedAt: NOW, attempts: 1 });
     });
 
     it('generic verbosity suppresses the answer so no health value crosses Telegram', async () => {
