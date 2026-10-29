@@ -805,15 +805,22 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
       return;
     }
     // No reply: the run died before answering (iOS suspended the page, a reload,
-    // a throw) — or it is still going in another tab. A marker from an older
-    // bundle has no wrote/attempts and reads as "not wrote, never retried".
+    // a throw) — or it is still going in another tab.
+    // 0. Legacy: an older bundle's marker has no startedAt and never tracked
+    //    wrote, so its run may already have logged something — a retry could
+    //    duplicate a row. Terminal, never retried, and no "nothing was saved".
+    if (typeof marker.startedAt !== 'number') {
+      await finalReply('🤖 I could not finish handling that message.');
+      return;
+    }
     // 1. Lease: startedAt is the (re)start time on THIS clock — not clientTs,
     //    which the sync port skew-corrects to server time and bumps past the
     //    previous version, so it would mis-age the lease on a skewed device.
-    //    A marker without startedAt (an older bundle's) counts as stale.
-    //    Throwing leaves the event queued and un-acked for a later drain
-    //    (drain rule 1).
-    if (typeof marker.startedAt === 'number' && now() - marker.startedAt < TG_AGENT_LEASE_MS) {
+    //    A startedAt further in the future than the lease (the clock jumped
+    //    back) is stale too, or the event would wait skew + 2 min. Throwing
+    //    leaves the event queued and un-acked for a later drain (drain rule 1).
+    const age = now() - marker.startedAt;
+    if (age < TG_AGENT_LEASE_MS && age >= -TG_AGENT_LEASE_MS) {
       throw new Error('free-text run may still be in progress in another tab');
     }
     // 2. Wrote: its tool writes are already pending and flush with this drain;
@@ -909,8 +916,8 @@ const queueMedsOutOfDate = (info) => {
 // med-wi09.19); the page's own router does once it has pulled.
 //
 // Its writes flag the running free-text marker `wrote` first (bd med-ramv):
-// the marker put goes through the same deferred port, so it precedes the tool
-// write in pending. Flag before write: a death between the two over-claims
+// the marker put is awaited before the tool write, so it is durable in the
+// local store first and any later local read sees `wrote`. Flag before write: a death between the two over-claims
 // "Done." on the next drain; flag after would double-write on the retry.
 // putIfAbsent does not flag: it is the read paths' derived materialization
 // (CLAUDE.md rule 12), idempotent by construction, so a retry cannot double it

@@ -1978,7 +1978,24 @@ describe('inbox-apply.js — a Telegram data command', () => {
     // bd med-ramv: a marker with no reply is an interrupted run (iOS suspended
     // the page, a reload) — or one still going in another tab. Four steps.
     const NOW = 1_800_000_000_000;
-    const staleMarker = (extra = {}) => fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 3 * 60 * 1000, ...extra }] });
+    const staleMarker = (extra = {}) => fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 3 * 60 * 1000, startedAt: NOW - 3 * 60 * 1000, ...extra }] });
+
+    it('an older bundle\'s reply-less marker is terminal, never retried — it may already have written', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn() };
+        const records = fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 30 * 1000 }] });
+        await applyTGText(textEvent('log 80kg'), 48, { agent, records, editReply, now: () => NOW });
+        expect(agent.run).not.toHaveBeenCalled();
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, '🤖 I could not finish handling that message.');
+    });
+
+    it('a startedAt beyond the lease in the future (clock jumped back) is stale, not leased', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockResolvedValue('Hello.') };
+        await applyTGText(textEvent('hi'), 48, { agent, records: staleMarker({ startedAt: NOW + 3 * 60 * 1000 }), editReply, now: () => NOW });
+        expect(agent.run).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, 'Hello.');
+    });
 
     it('a fresh reply-less marker is leased to another tab: throws, no edit, no run', async () => {
         const records = fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: NOW - 30 * 1000, startedAt: NOW - 30 * 1000 }] });
