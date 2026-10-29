@@ -299,6 +299,10 @@ final class QuickAction: NSObject, UIApplicationDelegate, UIWindowSceneDelegate 
     /// willPresent (Notifications.swift) owns the wake. In the background the
     /// system already showed the alert, the fallback: a live unlocked page gets
     /// the wake and a grace to drain; otherwise this completes at once.
+    /// The drain (an OpenAI tool loop) often outlives the grace, so a taken
+    /// wake also holds a background task that keeps the page running past the
+    /// completion (bd med-snua). The page does not report its drain's end, so
+    /// the task ends at iOS's expiration, completing the fetch if still owed.
     /// Completion-handler variant, not async: see Notifications.swift (bd med-w6gx.19).
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
@@ -307,7 +311,29 @@ final class QuickAction: NSObject, UIApplicationDelegate, UIWindowSceneDelegate 
         }
         shell.pushEvent(kind) { took in
             guard took else { return completionHandler(.noData) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + Push.grace) { completionHandler(.newData) }
+            let wake = Wake(completionHandler)
+            wake.task = application.beginBackgroundTask(withName: "wg-push-drain") { wake.expire(application) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Push.grace) { wake.complete() }
+        }
+    }
+
+    /// One taken wake: its fetch completion runs once, and its background
+    /// task ends once, at expiration. A class, so both handlers share it.
+    private final class Wake {
+        var task = UIBackgroundTaskIdentifier.invalid
+        private var completion: ((UIBackgroundFetchResult) -> Void)?
+        init(_ completion: @escaping (UIBackgroundFetchResult) -> Void) { self.completion = completion }
+
+        func complete() {
+            completion?(.newData)
+            completion = nil
+        }
+
+        func expire(_ application: UIApplication) {
+            complete()
+            guard task != .invalid else { return }
+            application.endBackgroundTask(task)
+            task = .invalid
         }
     }
 }
