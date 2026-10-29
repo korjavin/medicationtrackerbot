@@ -2154,12 +2154,21 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(updatePayload.sets_completed).toBe(3);
   });
 
-  it('saveNewSessionExercise posts a per-set array derived from the quick-add fields', async () => {
+  // med-okwf.1: an added exercise is NOT done — a placeholder log (status '',
+  // no done sets) whose quick-add reps/weight pre-fill one pending set row.
+  it('saveNewSessionExercise adds the exercise not done: one pre-filled pending set, completed count unchanged', async () => {
     const { window, document } = env;
-    installApiCache(window);
+    const cache = installApiCache(window, {
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, group_name: 'Ad-hoc', exercises_count: 1, exercises_completed: 1 }],
+        miband: []
+      }
+    });
     window.showWorkoutSessionModal = vi.fn();
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
-    window.WorkoutSessionsState.logs = [];
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', status: 'completed', sets_completed: 3, reps_completed: 8, weight_kg: 60 }
+    ];
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
 
     document.getElementById('session-add-exercise-name').value = 'Squat';
@@ -2169,8 +2178,13 @@ describe('features/workout/sessions.js — split-file integration', () => {
     document.getElementById('session-add-exercise-weight').value = '100';
 
     let createdPayload = null;
+    let historyAtPost = null;
     window.apiCall = vi.fn(async (endpoint, method, payload) => {
-      if (endpoint === '/api/workout/sessions/logs/create') { createdPayload = payload; return { id: 999 }; }
+      if (endpoint === '/api/workout/sessions/logs/create') {
+        createdPayload = payload;
+        historyAtPost = cache.get('workout_history');
+        return { id: 999 };
+      }
       if (endpoint.startsWith('/api/workout/sessions/details')) {
         return { session: { id: 42, status: 'in_progress' }, logs: [] };
       }
@@ -2179,12 +2193,43 @@ describe('features/workout/sessions.js — split-file integration', () => {
 
     await window.saveNewSessionExercise();
 
+    // Persisted as a placeholder: no done sets (target_sets 0 — createLog
+    // stores target_* as the done scalars when `sets` is absent), status ''.
     expect(createdPayload).not.toBeNull();
-    expect(Array.isArray(createdPayload.sets)).toBe(true);
-    expect(createdPayload.sets.length).toBe(3);
-    expect(createdPayload.sets.every((s) => s.reps === 5 && s.weight_kg === 100 && s.set_type === 'normal')).toBe(true);
-    // Flat scalars retained for bot compat.
-    expect(createdPayload.target_sets).toBe(3);
+    expect(createdPayload.status).toBe('');
+    expect(createdPayload.target_sets).toBe(0);
+    expect('sets' in createdPayload).toBe(false);
+    expect(createdPayload.target_reps_min).toBe(5);
+    expect(createdPayload.target_weight_kg).toBe(100);
+
+    // History: N+1 exercises, completed count unchanged.
+    expect(historyAtPost.sessions[0].exercises_count).toBe(2);
+    expect(historyAtPost.sessions[0].exercises_completed).toBe(1);
+
+    // On screen: one pending set pre-filled 100 × 5, not done; the progress
+    // segment for the new exercise is not done.
+    const log = window.WorkoutSessionsState.logs[1];
+    expect(log.status).toBe('');
+    expect(log.sets).toEqual([]);
+    expect(log._dirty).toBeFalsy();
+    const card = document.getElementById('workout-session-logs');
+    expect(card.querySelector('.wg-ex__name').textContent).toBe('Squat');
+    const rows = card.querySelectorAll('.wg-set');
+    expect(rows.length).toBe(1);
+    expect(rows[0].classList.contains('wg-set--done')).toBe(false);
+    expect(rows[0].querySelector('[data-field="weight_kg"]').getAttribute('aria-label')).toBe('Weight 100');
+    expect(rows[0].querySelector('[data-field="reps"]').getAttribute('aria-label')).toBe('Reps 5');
+    let segs = document.querySelectorAll('#workout-session-prog .wg-session-prog__seg');
+    expect(segs[1].classList.contains('wg-session-prog__seg--done')).toBe(false);
+
+    // Ticking it completes the exercise like a planned one: the pre-fill
+    // becomes the real done set the autosave persists.
+    rows[0].querySelector('.wg-set__done').click();
+    expect(log.sets).toEqual([expect.objectContaining({ set_index: 0, weight_kg: 100, reps: 5 })]);
+    expect(log._setsDirty).toBe(true);
+    segs = document.querySelectorAll('#workout-session-prog .wg-session-prog__seg');
+    expect(segs[1].classList.contains('wg-session-prog__seg--done')).toBe(true);
+    window.cancelAutosave?.();
   });
 });
 

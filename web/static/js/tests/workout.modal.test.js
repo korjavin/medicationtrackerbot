@@ -168,9 +168,11 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
                 session_id: 42,
                 exercise_id: 7,
                 exercise_name: 'Bench',
-                target_sets: 3,
+                // Added as a placeholder, not done (med-okwf.1).
+                target_sets: 0,
                 target_reps_min: 10,
                 target_weight_kg: 80,
+                status: '',
                 notes: 'Pause reps'
             })
         );

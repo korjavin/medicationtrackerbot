@@ -296,6 +296,47 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(view.total_volume).toBe(3 * 5 * 100);
     });
 
+    // med-okwf.1: an exercise added mid-workout is a placeholder (status '',
+    // zero done sets, reps/weight only as pre-fill) — the payload sessions.js
+    // saveNewSessionExercise sends. Finished untouched it counts nowhere as
+    // completed; one ticked set (the autosave's `sets`) promotes it.
+    it('added-exercise placeholder: untouched never counts as completed; a logged set promotes it', async () => {
+        const { window } = env;
+        const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Deadlift' });
+        const added = { exercise_id: item.id, exercise_name: item.name, source: 'library',
+            target_sets: 0, target_reps_min: 5, target_weight_kg: 100, status: '' };
+
+        // Untouched → Finish (the always-update of an existing log, then status).
+        const s1 = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        const log1 = await window.apiCall('/api/workout/sessions/logs/create', 'POST', { session_id: s1.id, ...added });
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log1.id, sets_completed: 0, reps_completed: 5, notes: ''
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${s1.id}`, 'PUT', { status: 'completed' });
+
+        let view = (await window.apiCall('/api/workout/sessions?limit=10')).find((s) => s.session.id === s1.id);
+        expect(view.exercises_count).toBe(1);
+        expect(view.exercises_completed).toBe(0);
+        expect(view.total_volume).toBe(0);
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${s1.id}`);
+        expect(details.logs[0].status).toBe('');
+        expect(details.logs[0].sets_completed).toBe(0);
+        expect(await window.apiCall('/api/workout/exercises/history?name=Deadlift&limit=500')).toEqual([]);
+
+        // Logged: one ticked set → completed, and history carries the real set.
+        const s2 = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        const log2 = await window.apiCall('/api/workout/sessions/logs/create', 'POST', { session_id: s2.id, ...added });
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log2.id, sets: [{ set_index: 0, weight_kg: 110, reps: 4, set_type: 'normal' }],
+            sets_completed: 1, reps_completed: 4, weight_kg: 110, notes: ''
+        });
+        view = (await window.apiCall('/api/workout/sessions?limit=10')).find((s) => s.session.id === s2.id);
+        expect(view.exercises_completed).toBe(1);
+        const hist = await window.apiCall('/api/workout/exercises/history?name=Deadlift&limit=500');
+        expect(hist).toHaveLength(1);
+        expect(hist[0].sets).toEqual([expect.objectContaining({ weight_kg: 110, reps: 4 })]);
+    });
+
     // Phase 1 (epic med-qj4): per-set logging. A `sets` array nests inside the
     // exerciselog record and round-trips through save → session-details; the
     // flat scalars (sets_completed/reps_completed/weight_kg) are derived from

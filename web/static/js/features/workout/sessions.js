@@ -374,9 +374,12 @@ function renderWorkoutSessionLogs(logsContainer) {
 }
 
 // _targetSets is how many set rows an exercise shows: its done sets plus the
-// pending rows still to do (the plan's target, raised by "Add set").
+// pending rows still to do (the plan's target, raised by "Add set"). A
+// placeholder log (status '', e.g. an exercise added mid-workout) has no plan
+// target to read back after a reload, so it always offers one pending row.
 function _targetSets(log) {
-    return Math.min(20, Math.max(_ensureLogSets(log).length, Number(log._targetSets) || 0));
+    const floor = log.status === '' ? 1 : 0;
+    return Math.min(20, Math.max(_ensureLogSets(log).length, Number(log._targetSets) || 0, floor));
 }
 
 function _logComplete(log) {
@@ -3044,8 +3047,8 @@ async function saveNewSessionExercise() {
 
     // Enforce the same ceilings as saveWorkoutSessionDetails / addLocalSet.
     // The modal's max="20" is only a soft hint — Save is a button handler, so a
-    // typed/pasted value (e.g. 21, or a huge number that would OOM the tab via
-    // Array.from below) reaches here unclamped.
+    // typed/pasted value reaches here unclamped (it still seeds the library
+    // defaults when the name is new).
     if (sets > 20 || reps > 100 || (weight != null && weight > 500)) {
         safeAlert('Values exceed maximum allowed');
         return;
@@ -3069,24 +3072,25 @@ async function saveNewSessionExercise() {
     // re-render BEFORE awaiting the network call, so the row appears
     // instantly. Carries `_optimistic: true` so we can splice it out on
     // POST failure without removing user-edited rows by accident.
-    // Seed the per-set array from the quick-add sets/reps/weight so the log
-    // round-trips per-set data (and can be refined set-by-set in the modal);
-    // the flat scalars are kept for bot mode + existing consumers.
-    const setRows = Array.from({ length: Math.max(1, sets) }, (_, i) => ({
-        set_index: i, weight_kg: weight == null ? 0 : weight, reps, set_type: 'normal'
-    }));
+    // The added exercise is NOT done (med-okwf.1): a placeholder log (status
+    // '', zero done sets) whose reps/weight only pre-fill the one pending set
+    // row (the ghost falls back to them). It completes through the normal
+    // per-set flow — ticking a set autosaves `sets`, and the domain promotes a
+    // placeholder to 'completed' once it has a set. Untouched, it never counts
+    // as completed (history, stats, 1RM/PR, gamification all read 'completed').
+    // Not _dirty: the create below is its whole persistence; a dirty id:0 row
+    // would make a racing autosave POST a second (conflicting) create.
     const optimisticLog = {
         id: 0,
         exercise_id: parseInt(exerciseId),
         exercise_name: name,
-        sets_completed: sets,
+        sets_completed: 0,
         reps_completed: reps,
         weight_kg: weight == null ? 0 : weight,
-        sets: setRows,
+        sets: [],
+        _setsInit: true,
         notes: notes,
-        status: 'completed',
-        _dirty: true,
-        _setsDirty: true,
+        status: '',
         _optimistic: true
     };
     const prevLogs = window.WorkoutSessionsState.logs;
@@ -3103,16 +3107,15 @@ async function saveNewSessionExercise() {
 
     // Optimistic cache: bump the affected session's exercise count in the
     // cached workout_history payload so the History sub-tab repaints with
-    // the new total before the POST resolves.
+    // the new total before the POST resolves. Not exercises_completed — the
+    // new exercise isn't done yet.
     const historyHandle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
         ? await window.DataStore.applyOptimistic('workout_history', (prev) => {
             if (!prev || !Array.isArray(prev.sessions)) return prev;
             const next = { ...prev };
             next.sessions = prev.sessions.map((s) => {
                 if (s?.session?.id !== sessionData.id) return s;
-                const done = (s.exercises_completed || 0) + 1;
-                const total = Math.max(done, (s.exercises_count || 0) + 1);
-                return { ...s, exercises_completed: done, exercises_count: total };
+                return { ...s, exercises_count: (s.exercises_count || 0) + 1 };
             });
             return next;
         }, ['workout'])
@@ -3130,13 +3133,15 @@ async function saveNewSessionExercise() {
             session_id: sessionData.id,
             exercise_id: parseInt(exerciseId),
             exercise_name: name,
-            target_sets: sets,
+            // createLog stores target_* as the flat done scalars when no
+            // `sets` are sent, so target_sets 0 = zero done sets; reps/weight
+            // ride along as the pending row's pre-fill.
+            target_sets: 0,
             target_reps_min: reps,
             target_weight_kg: weight,
-            status: 'completed',
+            status: '',
             notes: notes,
-            source: 'library',
-            sets: setRows
+            source: 'library'
         });
         if (result === null) {
             restoreOptimistic();
