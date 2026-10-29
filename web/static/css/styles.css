@@ -4738,17 +4738,20 @@ body:has(.wg-callbar--dock) .wg-toasts {
     flex-shrink: 0;
 }
 
-.wg-session-foot__acts {
-    display: flex;
-    align-items: center;
+/* Kit WA1 (med-okwf.2): Prev and Next share the footer equally. */
+.wg-session-foot__nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: var(--space-sm);
+    width: 184px;
 }
 
 .wg-session-foot__save.is-error {
     color: var(--wg-danger-fg);
 }
 
-.wg-session-overview__row {
+.wg-session-overview__row,
+.wg-session-overview__add {
     width: 100%;
     text-align: left;
 }
