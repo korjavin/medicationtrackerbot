@@ -2022,6 +2022,10 @@ async function _deleteSessionSet(logIndex, row) {
         log._setsDirty = true;
         _rerenderSessionLogs();
 
+        // Save now, not on the debounce: this pending timer's edits ride along.
+        // Started before any await so a close / Finish in between drains it.
+        if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+        const saving = runAutosave();
         const sessionId = st.data && st.data.id;
         const handle = counted && sessionId && window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
             ? await window.DataStore.applyOptimistic('workout_history', (prev) => {
@@ -2034,11 +2038,9 @@ async function _deleteSessionSet(logIndex, row) {
                         exercises_completed: Math.max(0, (s.exercises_completed || 0) - (demoted ? 1 : 0)),
                     })),
                 };
-            }, ['workout'])
+            }, ['workout']).catch(() => null)
             : null;
-        // Save now, not on the debounce: this pending timer's edits ride along.
-        if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
-        const saved = await runAutosave();
+        const saved = await saving;
         if (handle) await (saved ? handle.commit(null) : handle.rollback());
     }, { title: `Delete set ${row + 1}?`, confirmLabel: 'Delete', icon: 'trash', destructive: true });
 }

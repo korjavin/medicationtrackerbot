@@ -444,6 +444,23 @@ describe('Workout session takeover (med-xso6.21)', () => {
             await window.closeWorkoutSessionModal(); // drains the in-flight save
         });
 
+        it('Minimise while the History projection is pending still writes the deletion', async () => {
+            const { window, document } = env;
+            await openSession(window, [threeSets()], undefined,
+                (endpoint) => (endpoint.includes('/logs/update') ? { ok: true } : undefined));
+            let release;
+            const real = window.DataStore.applyOptimistic.bind(window.DataStore);
+            window.DataStore.applyOptimistic = (...args) => new Promise((r) => { release = () => r(real(...args)); });
+            const dialog = await openDelete(document, 0);
+            dialog.querySelector('.mt-confirm-modal__confirm').click();
+            await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+
+            await window.closeWorkoutSessionModal();
+            expect(updates(window)).toHaveLength(1);
+            expect(updates(window)[0][2].sets).toHaveLength(2);
+            release();
+        });
+
         it('Cancel changes nothing', async () => {
             const { window, document } = env;
             await openSession(window, [threeSets()]);
