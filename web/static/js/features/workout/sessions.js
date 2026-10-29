@@ -367,11 +367,10 @@ function renderWorkoutSessionLogs(logsContainer) {
     _renderSessionProgress();
     if (ui.overview) {
         logsContainer.replaceChildren(_buildSessionOverview());
-    } else if (logs.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'wg-workouts-session-logs__empty';
-        empty.textContent = 'No exercises logged';
-        logsContainer.replaceChildren(empty, _sessionAddExerciseButton());
+    } else if (ui.addStep || logs.length === 0) {
+        // Kit WA5/WA6: the Next › step after the last exercise, and the empty
+        // session's whole content.
+        logsContainer.replaceChildren(_buildSessionAddStep());
     } else {
         logsContainer.replaceChildren(_buildSessionExerciseCard(logs[ui.current], ui.current));
         _ensureExerciseHistory(logs[ui.current].exercise_name);
@@ -404,7 +403,7 @@ function _renderSessionProgress() {
         const seg = document.createElement('span');
         seg.className = 'wg-session-prog__seg';
         if (_logComplete(log)) seg.classList.add('wg-session-prog__seg--done');
-        else if (i === ui.current) seg.classList.add('wg-session-prog__seg--now');
+        else if (i === ui.current && !ui.addStep) seg.classList.add('wg-session-prog__seg--now');
         return seg;
     });
     bar.replaceChildren(...segs);
@@ -414,6 +413,7 @@ function _renderSessionProgress() {
 function toggleWorkoutSessionOverview(open) {
     const ui = _sessionUi();
     ui.overview = typeof open === 'boolean' ? open : !ui.overview;
+    ui.addStep = false;
     _rerenderSessionLogs();
 }
 
@@ -423,17 +423,97 @@ function _showSessionExercise(index) {
     if (index < 0 || index >= logs.length) return;
     ui.current = index;
     ui.overview = false;
+    ui.addStep = false;
     ui.active = null;
     ui.more = null;
     _rerenderSessionLogs();
 }
 
-// The empty session's only way in (no exercise screen, so no footer plus).
-function _sessionAddExerciseButton() {
-    const add = _wgBtn('', 'wg-btn--sm', () => showAddExerciseToSessionModal());
-    add.id = 'workout-session-empty-add-btn';
-    add.append(_wgIco('plus', 'wg-ico--sm'), document.createTextNode('Add exercise'));
-    return add;
+// Next › on the last exercise (kit WA5).
+function _showSessionAddStep() {
+    const ui = _sessionUi();
+    ui.addStep = true;
+    ui.overview = false;
+    ui.active = null;
+    ui.more = null;
+    _rerenderSessionLogs();
+}
+
+// Library ids of the session's library-source logs: a renamed library row
+// keeps its old name on the log, and re-adding it would hit the dedup.
+function _sessionLibraryIds(logs) {
+    return (logs || []).filter((l) => l.source === 'library' && l.exercise_id > 0).map((l) => Number(l.exercise_id));
+}
+
+// The ranked "Up next" rows (domain rankNextExercises) after exercise `after`.
+function _sessionUpNext(after) {
+    const st = window.WorkoutSessionsState;
+    if (!st.data) return Promise.resolve([]);
+    const q = `session_id=${encodeURIComponent(st.data.id)}&after=${encodeURIComponent(after || '')}`;
+    return Promise.resolve().then(() => apiCall(`/api/workout/sessions/suggest-next?${q}`)).catch(() => null);
+}
+
+// Kit WA5/WA6 "What's next?": up to three suggestion rows, then search — the
+// add sheet's row list (bindExerciseAddList), inline. A tap adds through
+// saveNewSessionExercise. Also the empty session's content.
+function _buildSessionAddStep() {
+    const st = window.WorkoutSessionsState;
+    const logs = st.logs || [];
+    const last = logs.length ? logs[logs.length - 1].exercise_name : '';
+
+    const wrap = document.createElement('div');
+    wrap.id = 'workout-session-addstep';
+    wrap.className = 'wg-ex';
+    const head = document.createElement('div');
+    head.className = 'wg-ex__head';
+    const titles = document.createElement('div');
+    titles.className = 'wg-vstack wg-spacer';
+    if (last) {
+        const eyebrow = document.createElement('span');
+        eyebrow.className = 'wg-eyebrow';
+        eyebrow.textContent = `After ${last}`;
+        titles.appendChild(eyebrow);
+    }
+    const title = document.createElement('span');
+    title.className = 'wg-ex__name';
+    title.textContent = 'What’s next?';
+    titles.appendChild(title);
+    head.appendChild(titles);
+
+    const mount = document.createElement('section');
+    mount.id = 'workout-session-addstep-list';
+    mount.className = 'wg-section';
+    mount.hidden = true;
+
+    const affix = document.createElement('div');
+    affix.className = 'wg-affix';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'workout-session-addstep-search';
+    input.className = 'wg-input wg-input--text';
+    input.placeholder = 'Search your exercises and the library';
+    input.setAttribute('aria-label', 'Search exercises');
+    input.autocomplete = 'off';
+    affix.append(_wgIco('search', 'wg-affix__lead'), input);
+    wrap.append(head, mount, affix);
+
+    if (st.data && st.data.status === 'in_progress') {
+        const hint = document.createElement('p');
+        hint.className = 'wg-hint';
+        hint.textContent = 'Done for today? Tap Finish.';
+        wrap.appendChild(hint);
+    }
+
+    window.WorkoutLibrary.bindExerciseAddList({
+        input,
+        mount,
+        exclude: logs.map((l) => l.exercise_name),
+        excludeIds: _sessionLibraryIds(logs),
+        lastLine: _lastSessionLine,
+        upNext: _sessionUpNext(last),
+        onAdd: saveNewSessionExercise
+    });
+    return wrap;
 }
 
 // Kit W2/WA2: every exercise as a row (tap → that exercise), "Add exercise" as
@@ -583,7 +663,7 @@ async function _ensureExerciseHistory(name) {
     if (!sets) return;
     ui.last[name] = sets;
     const cur = st.logs[ui.current];
-    if (!ui.overview && cur && cur.exercise_name === name) _rerenderSessionLogs();
+    if (!ui.overview && !ui.addStep && cur && cur.exercise_name === name) _rerenderSessionLogs();
 }
 
 // The per-set rows of the newest OTHER session on or before this one, from a
@@ -2547,6 +2627,8 @@ function _buildFinishSummary() {
 // then Prev / Next as two equal buttons — on an exercise screen only (one
 // exercise up), never in the overview. Finish lives in the top bar
 // (_renderSessionStatusChip, med-t5s6) so it is never next to Next.
+// On the last exercise Next opens the add step (kit WA5); on the step Prev
+// goes back to the last exercise, Next is disabled and there is no plus.
 function renderSessionDetailActions(container) {
     container.replaceChildren();
 
@@ -2556,14 +2638,16 @@ function renderSessionDetailActions(container) {
     const show = !ui.overview && n >= 1;
     container.hidden = !show;
     const add = document.getElementById('workout-session-add-btn');
-    if (add) add.hidden = !show;
+    if (add) add.hidden = !show || !!ui.addStep;
     if (!show) return;
 
-    const prev = _wgBtn('', 'wg-workouts-session-actions__prev', () => _showSessionExercise(ui.current - 1));
-    prev.disabled = ui.current <= 0;
+    const prev = _wgBtn('', 'wg-workouts-session-actions__prev',
+        () => _showSessionExercise(ui.addStep ? n - 1 : ui.current - 1));
+    prev.disabled = !ui.addStep && ui.current <= 0;
     prev.append(_wgIco('chev-l', 'wg-ico--sm'), document.createTextNode('Prev'));
-    const next = _wgBtn('', 'wg-workouts-session-actions__next', () => _showSessionExercise(ui.current + 1));
-    next.disabled = ui.current >= n - 1;
+    const next = _wgBtn('', 'wg-workouts-session-actions__next',
+        () => (ui.current >= n - 1 ? _showSessionAddStep() : _showSessionExercise(ui.current + 1)));
+    next.disabled = !!ui.addStep;
     next.append(document.createTextNode('Next'), _wgIco('chev-r', 'wg-ico--sm'));
     container.append(prev, next);
 }
@@ -3101,7 +3185,9 @@ async function showAddExerciseToSessionModal() {
         input,
         mount: document.getElementById('session-add-exercise-suggest'),
         exclude: st.logs.map((l) => l.exercise_name),
+        excludeIds: _sessionLibraryIds(st.logs),
         lastLine: _lastSessionLine,
+        upNext: _sessionUpNext((st.logs[_sessionUi().current] || {}).exercise_name),
         onAdd: saveNewSessionExercise
     });
     // The session may have closed while the picker loaded (med-xso6.31).
@@ -3228,8 +3314,10 @@ async function _addSessionExercise(item) {
     // The takeover jumps to the exercise just added.
     const ui = _sessionUi();
     const prevCurrent = ui.current;
+    const prevAddStep = ui.addStep;
     ui.current = prevLogs.length;
     ui.overview = false;
+    ui.addStep = false;
     ui.active = null;
     const logsContainer = document.getElementById('workout-session-logs');
     if (logsContainer) renderWorkoutSessionLogs(logsContainer);
@@ -3255,6 +3343,7 @@ async function _addSessionExercise(item) {
         const current = window.WorkoutSessionsState.logs;
         window.WorkoutSessionsState.logs = current.filter((l) => l !== optimisticLog);
         ui.current = prevCurrent;
+        ui.addStep = prevAddStep;
         if (logsContainer) renderWorkoutSessionLogs(logsContainer);
     }
 

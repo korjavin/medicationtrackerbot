@@ -70,6 +70,17 @@
         { "click": "#session-add-exercise-suggest .wg-row" }
       ],
       "ready": ["#workout-session-logs .wg-set"] },
+    { "name": "workout-next-step",
+      "steps": [
+        { "api": { "path": "/api/workout/exercise-library/create", "method": "POST", "body": { "name": "Barbell row", "body_part": "back", "default_sets": 3, "default_reps_min": 8 } } },
+        { "api": { "path": "/api/workout/exercise-library/create", "method": "POST", "body": { "name": "Goblet squat", "body_part": "upper legs", "default_sets": 3, "default_reps_min": 10 } } },
+        { "api": { "path": "/api/workout/exercise-library/create", "method": "POST", "body": { "name": "Plank", "body_part": "waist" } } },
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "click": "#workout-session-prog" },
+        { "click": "#workout-session-logs .wg-session-overview__row:nth-last-child(2)" },
+        { "click": ".wg-workouts-session-actions__next" }
+      ],
+      "ready": ["#workout-session-addstep .wg-row"] },
     { "name": "workout-set-delete",
       "steps": [
         { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
@@ -327,6 +338,11 @@
       "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }, { "click": "#med-list .wg-meds-row .wg-meds-row__name" },
         { "scroll": "#med-pack-size-btn" }],
       "ready": ["#med-modal #med-stock-row", "#med-stock-update", "#med-pack-size-btn"] },
+    { "name": "workout-next-step-empty",
+      "steps": [
+        { "tab": "workouts" }, { "click": "#next-workout-card .wg-workouts-next-card__actions .wg-btn" }
+      ],
+      "ready": ["#workout-session-addstep", "#workout-session-addstep-search"] },
     { "name": "today-start-here", "localOnly": true,
       "steps": [{ "startHere": { "drop": ["medications", "bp", "food", "workouts"], "picked": ["medication", "bp", "weight", "food"] } }, { "tab": "today" }],
       "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] }

@@ -1342,6 +1342,10 @@ export function createApiRouter(ctx, {
       return pageOf(await workout.listSessions(take), limit, offset);
     }
     if (path === '/api/workout/sessions/next' && method === 'GET') return workout.getNext();
+    // "Up next" rows of the live session (med-okwf.4). UI read only (no MCP op).
+    if (path === '/api/workout/sessions/suggest-next' && method === 'GET') {
+      return workout.suggestNextExercises({ session_id: params.get('session_id'), after: params.get('after') || '' });
+    }
     if (path === '/api/workout/sessions/details' && method === 'GET') {
       return workout.getSessionDetails(intParam(params, 'id', 0));
     }

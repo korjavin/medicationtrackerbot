@@ -104,17 +104,121 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(document.querySelector('.wg-workouts-session-modal__header')).toBeNull();
     });
 
-    it('renders an empty state when no exercise logs are present', async () => {
+    // Kit WA6: an empty session shows the "What's next?" step — library rows
+    // for untrained body parts, then search — not "No exercises logged".
+    it('an empty session shows the add step with library suggestions and search', async () => {
         const { window, document } = env;
-        await openSession(window, []);
+        await openSession(window, [], null, (endpoint) => {
+            if (endpoint.startsWith('/api/workout/sessions/suggest-next?')) {
+                return [{ id: 3, name: 'Barbell row', body_part: 'back' }, { id: 4, name: 'Plank', body_part: 'core' }];
+            }
+            return undefined;
+        });
+        const step = document.getElementById('workout-session-addstep');
+        await vi.waitFor(() => expect(step.querySelectorAll('.wg-row').length).toBe(2));
 
-        const empty = logsEl(document).querySelector('.wg-workouts-session-logs__empty');
-        expect(empty).not.toBeNull();
-        expect(empty.textContent).toBe('No exercises logged');
-        expect(document.getElementById('workout-session-empty-add-btn').textContent).toBe('Add exercise');
+        expect(step.querySelector('.wg-ex__name').textContent).toBe('What’s next?');
+        expect(step.querySelector('.wg-eyebrow:not(.wg-section__head .wg-eyebrow)')).toBeNull();
+        expect(step.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Up next');
+        expect(Array.from(step.querySelectorAll('.wg-row')).map((r) => r.querySelector('.wg-row__meta').textContent))
+            .toEqual(['Library · Back', 'Library · Core']);
+        expect(document.getElementById('workout-session-addstep-search')).not.toBeNull();
+        expect(step.querySelector('.wg-hint').textContent).toBe('Done for today? Tap Finish.');
+        expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/sessions/suggest-next?session_id=77&after=')).toBe(true);
         // No exercise screen → no footer plus or Prev / Next.
         expect(document.getElementById('workout-session-add-btn').hidden).toBe(true);
         expect(document.getElementById('workout-session-actions').hidden).toBe(true);
+    });
+
+    // Argus on #1463: the step's search shows at once; typing before the reads
+    // land must not be lost or overwritten by the at-rest list.
+    it('typing in the step before its reads land still lists matches once they do', async () => {
+        const { window, document } = env;
+        let release;
+        const gate = new Promise((r) => { release = r; });
+        await openSession(window, [], null, async (endpoint) => {
+            if (endpoint.startsWith('/api/workout/sessions/suggest-next?')) {
+                await gate;
+                return [{ id: 12, name: 'Plank', body_part: 'core' }];
+            }
+            if (endpoint === '/api/workout/exercise-library') return [{ id: 12, name: 'Plank', body_part: 'core' }, { id: 13, name: 'Face pull' }];
+            return undefined;
+        });
+        const input = document.getElementById('workout-session-addstep-search');
+        input.value = 'face';
+        input.dispatchEvent(new window.Event('input'));
+        release();
+        const mount = document.getElementById('workout-session-addstep-list');
+        await vi.waitFor(() => expect(Array.from(mount.querySelectorAll('.wg-row__title')).map((t) => t.textContent))
+            .toEqual(['Face pull', 'Add “face”']));
+        expect(mount.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Matches');
+    });
+
+    it('with no history and an empty library the step is search only', async () => {
+        const { window, document } = env;
+        await openSession(window, []);
+        const step = document.getElementById('workout-session-addstep');
+        await new Promise((r) => setTimeout(r, 0));
+        expect(document.getElementById('workout-session-addstep-list').hidden).toBe(true);
+        expect(step.querySelectorAll('.wg-row').length).toBe(0);
+        expect(document.getElementById('workout-session-addstep-search')).not.toBeNull();
+    });
+
+    // Kit WA5 (med-okwf.4): Next › on the last exercise opens the step.
+    it('Next on the last exercise opens the add step; Prev returns; a row adds the exercise', async () => {
+        const { window, document } = env;
+        const logs = [
+            logFixture({ exercise_name: 'Bench' }),
+            logFixture({ id: 2, exercise_name: 'Overhead' })
+        ];
+        await openSession(window, logs, null, (endpoint, method, body) => {
+            if (endpoint.startsWith('/api/workout/sessions/suggest-next?')) {
+                // "Bench" is in the session: the list never offers it even if the read did.
+                return [{ id: 12, name: 'Face pull', default_reps_min: 12 }, { name: 'Bench' }];
+            }
+            if (endpoint === '/api/workout/sessions/logs/create') {
+                logs.push(logFixture({ id: 999, exercise_id: body.exercise_id, exercise_name: body.exercise_name, status: '', sets_completed: 0 }));
+                return { id: 999 };
+            }
+            return undefined;
+        });
+        const nav = () => document.getElementById('workout-session-actions');
+        const [, next] = Array.from(nav().children);
+        next.click();
+        // Second exercise is the last one: Next stays enabled and opens the step.
+        expect(document.querySelector('.wg-workouts-session-actions__next').disabled).toBe(false);
+        document.querySelector('.wg-workouts-session-actions__next').click();
+
+        const step = document.getElementById('workout-session-addstep');
+        expect(step).not.toBeNull();
+        expect(step.querySelector('.wg-eyebrow').textContent).toBe('After Overhead');
+        await vi.waitFor(() => expect(step.querySelectorAll('.wg-row').length).toBe(1));
+        expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/sessions/suggest-next?session_id=77&after=Overhead')).toBe(true);
+        expect(step.querySelector('.wg-row__title').textContent).toBe('Face pull');
+        // Footer: no plus, Prev enabled, Next disabled; no segment is "now".
+        expect(document.getElementById('workout-session-add-btn').hidden).toBe(true);
+        expect(Array.from(nav().children).map((b) => b.disabled)).toEqual([false, true]);
+        expect(document.querySelector('#workout-session-prog .wg-session-prog__seg--now')).toBeNull();
+
+        document.querySelector('.wg-workouts-session-actions__prev').click();
+        expect(logsEl(document).querySelector('.wg-ex__name').textContent).toBe('Overhead');
+        expect(document.getElementById('workout-session-add-btn').hidden).toBe(false);
+
+        document.querySelector('.wg-workouts-session-actions__next').click();
+        const row = await vi.waitFor(() => {
+            const r = document.querySelector('#workout-session-addstep .wg-row');
+            expect(r).not.toBeNull();
+            return r;
+        });
+        row.click();
+        await vi.waitFor(() => expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/sessions/logs/create')).toBe(true));
+        const create = window.apiCall.mock.calls.find((c) => c[0] === '/api/workout/sessions/logs/create');
+        expect(create[2]).toEqual(expect.objectContaining({
+            session_id: 77, exercise_id: 12, exercise_name: 'Face pull', target_sets: 0, target_reps_min: 12, status: ''
+        }));
+        // The new exercise is current: the step is gone.
+        expect(document.getElementById('workout-session-addstep')).toBeNull();
+        expect(logsEl(document).querySelector('.wg-ex__name').textContent).toBe('Face pull');
     });
 
     it('shows one exercise at a time with a progress segment per exercise; Next / prev move between them', async () => {
@@ -139,7 +243,8 @@ describe('Workout session takeover (med-xso6.21)', () => {
         const card = logsEl(document).querySelector('.wg-workouts-session-exercise');
         expect(card.querySelector('.wg-ex__name').textContent).toBe('Overhead');
         expect(card.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 10 · 40 kg');
-        expect(document.querySelector('.wg-workouts-session-actions__next').disabled).toBe(true);
+        // The last exercise's Next leads on to the add step (kit WA5).
+        expect(document.querySelector('.wg-workouts-session-actions__next').disabled).toBe(false);
 
         document.querySelector('.wg-workouts-session-actions__prev').click();
         expect(logsEl(document).querySelector('.wg-ex__name').textContent).toBe('Bench');
@@ -708,13 +813,13 @@ describe('Workout session takeover (med-xso6.21)', () => {
         }
     });
 
-    it('shows the footer from one exercise up: plus, disabled Prev and Next', async () => {
+    it('shows the footer from one exercise up: plus, disabled Prev, Next to the add step', async () => {
         const { window, document } = env;
         await openSession(window, [logFixture()]);
         expect(document.getElementById('workout-session-add-btn').hidden).toBe(false);
         const nav = document.getElementById('workout-session-actions');
         expect(nav.hidden).toBe(false);
-        expect(Array.from(nav.children).map((b) => b.disabled)).toEqual([true, true]);
+        expect(Array.from(nav.children).map((b) => b.disabled)).toEqual([true, false]);
         expect(document.getElementById('workout-session-finish-btn').closest('.wg-session-top')).not.toBeNull();
     });
 

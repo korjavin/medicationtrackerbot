@@ -48,6 +48,7 @@ import {
   normalizeGoal, TRAINING_GOALS, defaultsForGoal, rirFromRpe, formatEffort,
   NEAR_FAILURE_RIR,
 } from './workout-goals.js';
+import { rankNextExercises } from './workout-suggest.js';
 
 const WORKOUT_RECORD_TYPES = {
   GROUP: 'workoutgroup',
@@ -2627,6 +2628,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return views;
   }
 
+  // suggestNextExercises (med-okwf.4) feeds the live session's "Up next" rows
+  // (add sheet + Next › step): rankNextExercises over the vault's sessions,
+  // logs and library. UI read only (no MCP op).
+  async function suggestNextExercises(input) {
+    return rankNextExercises({
+      sessions: await activeRecords(WORKOUT_RECORD_TYPES.SESSION),
+      logs: await activeRecords(WORKOUT_RECORD_TYPES.LOG),
+      library: await listLibrary(),
+      sessionId: Number(input && input.session_id) || 0,
+      after: String((input && input.after) || ''),
+      limit: 3,
+    });
+  }
+
   // getSessionDetails ports GetSessionDetails (sessions.go:113): returns
   // null when the session doesn't exist (caller/shim maps that to 404).
   async function getSessionDetails(id) {
@@ -3519,6 +3534,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     progressionPreview,
     listExerciseLogsByName,
     suggestExerciseTarget,
+    suggestNextExercises,
     createMiBand,
     listMiBand,
     updateMiBand,

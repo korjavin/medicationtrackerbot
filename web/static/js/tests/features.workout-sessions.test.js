@@ -404,6 +404,81 @@ describe('features/workout/sessions.js — split-file integration', () => {
       expect(document.getElementById('session-add-exercise-suggest').hidden).toBe(true);
     });
 
+    // Kit WA3 (med-okwf.4): at rest the sheet shows the ranked "Up next" rows
+    // after the current exercise; typing replaces them with matches.
+    it('at rest lists up to three "Up next" rows after the current exercise, never one in the session', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      const base = window.apiCall;
+      window.apiCall = vi.fn(async (endpoint, ...rest) => (
+        endpoint.startsWith('/api/workout/sessions/suggest-next?')
+          ? [{ id: 12, name: 'Face pull', default_reps_min: 12 }, { name: 'bench' }, { id: 11, name: 'Overhead Press', body_part: 'shoulders' }]
+          : base(endpoint, ...rest)
+      ));
+      window.WorkoutSessionsState.logs = [
+        { id: 5, exercise_id: 1, exercise_name: 'Bench', status: 'completed', sets_completed: 3, reps_completed: 8, weight_kg: 60 }
+      ];
+      await window.showAddExerciseToSessionModal();
+      const mount = document.getElementById('session-add-exercise-suggest');
+      await vi.waitFor(() => expect(rowsOf(mount)).toEqual([
+        ['Face pull', 'last 3 × 15 · 20 kg'],
+        ['Overhead Press', 'Library · Shoulders'],
+      ]));
+      expect(mount.hidden).toBe(false);
+      expect(mount.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Up next');
+      expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/sessions/suggest-next?session_id=77&after=Bench')).toBe(true);
+
+      await type(window, 'face pu');
+      expect(mount.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Matches');
+      await type(window, '');
+      expect(mount.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Up next');
+    });
+
+    // Argus on #1463: a library log keeps its old name after a rename; the
+    // renamed library row must not be offered (same (session, id, library)).
+    it('never offers a library row the session already logged under an older name', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      window.WorkoutSessionsState.logs = [
+        { id: 5, exercise_id: 11, exercise_name: 'Old press', source: 'library', status: '', sets_completed: 0 }
+      ];
+      await window.showAddExerciseToSessionModal();
+      const mount = document.getElementById('session-add-exercise-suggest');
+      await type(window, 'o');
+      // Overhead Press is library id 11: gone; only the typed add row is left.
+      expect(rowsOf(mount)).toEqual([['Add “o”', 'New exercise']]);
+      // Its full current name offers nothing at all — no add row that would
+      // resolve back to id 11 — so no tap can post a duplicate create.
+      await type(window, 'Overhead Press');
+      expect(rowsOf(mount)).toEqual([]);
+      expect(mount.hidden).toBe(true);
+      expect(createCall(window)).toBeUndefined();
+    });
+
+    it('offers no row at all while the library read is pending, even when the catalog is fast', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      window.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ exercises: [{ name: 'Overhead Press' }] }) }));
+      const base = window.apiCall;
+      const lib = deferred();
+      window.apiCall = vi.fn((endpoint, ...rest) => (
+        endpoint === '/api/workout/exercise-library' ? lib.promise.then(() => base(endpoint, ...rest)) : base(endpoint, ...rest)
+      ));
+      window.WorkoutSessionsState.logs = [
+        { id: 5, exercise_id: 11, exercise_name: 'Old press', source: 'library', status: '', sets_completed: 0 }
+      ];
+      const opening = window.showAddExerciseToSessionModal();
+      const mount = document.getElementById('session-add-exercise-suggest');
+      await type(window, 'Overhead Press');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(rowsOf(mount)).toEqual([]);
+      lib.resolve();
+      await opening;
+      await new Promise((r) => setTimeout(r, 10));
+      expect(rowsOf(mount)).toEqual([]);
+      expect(createCall(window)).toBeUndefined();
+    });
+
     it('typing lists own rows (last numbers), then library rows, then an add row (kit WA3b)', async () => {
       const { window, document } = env;
       stubSessionPicker(window);
@@ -760,7 +835,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
 
     await window.deleteExerciseLog(0);
 
-    expect(window.apiCall).not.toHaveBeenCalled();
+    // No write: the now-empty session only reads its add step's rows (kit WA6).
+    expect(window.apiCall.mock.calls.filter((c) => c[1])).toEqual([]);
     expect(window.WorkoutSessionsState.logs).toEqual([]);
   });
 

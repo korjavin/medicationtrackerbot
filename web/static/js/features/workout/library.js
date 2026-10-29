@@ -758,22 +758,26 @@ async function bindExercisePicker({ input, mount, withLibrary = true, onPick } =
 //   input    — the search field; mount — the container the section renders into
 //   exclude  — names already in the session (case-insensitive): never offered,
 //              so a tap cannot hit the (session, exercise, source) dedup
+//   excludeIds — library ids the session already logged (a renamed library
+//              row keeps its old name on the log), never offered either
 //   lastLine — async name → "last 3 × 15 · 20 kg" | null
 //   onAdd    — called with the tapped item: a library row (id + defaults),
 //              { name, body_part } for a catalog name, or { name } typed
-async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd } = {}) {
+//   upNext   — optional promise of ranked rows (med-okwf.4, kit WA3/WA5) shown
+//              as "Up next" while the field is empty; none → nothing at rest
+// The input is live before the reads land (the Next step shows it at once):
+// typing early paints with what is loaded so far, and the load repaints for
+// whatever the field holds by then.
+async function bindExerciseAddList({ input, mount, exclude = [], excludeIds = [], lastLine, onAdd, upNext: upNextP } = {}) {
     if (!input || !mount) return;
     _catalogRefreshSeq++;
     const skip = new Set(exclude.map(n => String(n || '').trim().toLowerCase()));
-    const keep = item => !skip.has((item.name || '').trim().toLowerCase());
+    const skipIds = new Set(excludeIds.filter(id => id > 0));
+    const keep = item => !skip.has((item.name || '').trim().toLowerCase()) && !(item.id > 0 && skipIds.has(item.id));
 
     let library = [];
-    try {
-        const items = await apiCall('/api/workout/exercise-library');
-        if (Array.isArray(items)) library = items.filter(keep);
-    } catch (error) {
-        console.error('Error loading exercise library for picker:', error);
-    }
+    let upNext = [];
+    let loaded = false;
 
     let rendered = [];
     const row = (item, title, meta, icon) => {
@@ -803,12 +807,7 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
 
     const paint = (candidates, q, typed) => {
         rendered = [];
-        if (!q) {
-            mount.replaceChildren();
-            mount.hidden = true;
-            return 0;
-        }
-        const matches = _rankExerciseMatches(candidates.filter(keep), q);
+        const matches = q ? _rankExerciseMatches(candidates.filter(keep), q) : upNext;
         const list = document.createElement('div');
         list.className = 'wg-list';
         matches.forEach((item) => {
@@ -821,7 +820,9 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
                 }, () => {});
             }
         });
-        if (!matches.some(i => (i.name || '').trim().toLowerCase() === q) && keep({ name: typed })) {
+        // No add row before the library read: only it knows which typed names
+        // are already in the session under a library row (excludeIds).
+        if (q && loaded && !matches.some(i => (i.name || '').trim().toLowerCase() === q) && keep({ name: typed })) {
             list.appendChild(row({ name: typed }, `Add “${typed}”`, 'New exercise', 'plus').btn);
         }
         if (!rendered.length) {
@@ -833,7 +834,7 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
         head.className = 'wg-section__head';
         const eyebrow = document.createElement('span');
         eyebrow.className = 'wg-eyebrow';
-        eyebrow.textContent = 'Matches';
+        eyebrow.textContent = q ? 'Matches' : 'Up next';
         head.appendChild(eyebrow);
         mount.replaceChildren(head, list);
         mount.hidden = false;
@@ -845,7 +846,8 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
         const typed = (input.value || '').trim();
         const q = typed.toLowerCase();
         const libraryHits = paint(library, q, typed);
-        if (q.length >= EXERCISE_CATALOG_MIN_QUERY && libraryHits < EXERCISE_SUGGESTION_LIMIT) {
+        // Catalog rows wait for the library read too (same reason as the add row).
+        if (loaded && q.length >= EXERCISE_CATALOG_MIN_QUERY && libraryHits < EXERCISE_SUGGESTION_LIMIT) {
             const catalog = await _loadExerciseCatalog();
             if (seq !== _catalogRefreshSeq) return;
             paint(library.concat(catalog.map(e => ({ name: e.name, body_part: e.body_part }))), q, typed);
@@ -859,6 +861,24 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
         if (item && onAdd) onAdd(item);
     };
     paint([], '', '');
+
+    try {
+        const [items, ranked] = await Promise.all([
+            apiCall('/api/workout/exercise-library'),
+            Promise.resolve(upNextP).catch(() => null)
+        ]);
+        if (Array.isArray(items)) {
+            // An excluded library row's CURRENT name is taken too, so neither a
+            // catalog row nor the typed add row can resolve back to it.
+            items.forEach((i) => { if (i && i.id > 0 && skipIds.has(i.id)) skip.add((i.name || '').trim().toLowerCase()); });
+            library = items.filter(keep);
+        }
+        if (Array.isArray(ranked)) upNext = ranked.filter(item => item && item.name && keep(item)).slice(0, 3);
+    } catch (error) {
+        console.error('Error loading exercise library for picker:', error);
+    }
+    loaded = true;
+    await refresh();
 }
 
 function _wgExerciseIco(name) {
