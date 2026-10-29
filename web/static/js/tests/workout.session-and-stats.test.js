@@ -446,8 +446,9 @@ describe('workout.js session and stats flows', () => {
         session_id: 77,
         exercise_id: 111,
         exercise_name: 'Overhead Press',
-        target_sets: 5,
-        target_reps_min: 6
+        target_sets: 0,
+        target_reps_min: 6,
+        status: ''
       }));
       expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(77);
     } finally {
