@@ -1621,6 +1621,26 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         await expectFreshAdHoc(window, scheduled);
     });
 
+    // med-okwf.4: the live session's "Up next" read ranks the vault's own
+    // history and library and never offers what the session already has.
+    it('sessions/suggest-next ranks the usual follower, an untrained body part, then recent', async () => {
+        const { window, records } = env;
+        await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Plank', body_part: 'core' });
+        await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Bench', body_part: 'chest' });
+        const sess = (id, date) => ({ recordId: `s${id}`, id, group_id: -1, variant_id: -1, status: 'completed', scheduled_date: date, scheduled_time: '09:00' });
+        await records.put('workoutsession', sess(101, '2026-01-01'));
+        await records.put('workoutsession', sess(102, '2026-01-02'));
+        const log = (id, session_id, exercise_name, status = 'completed') => ({ recordId: `l${id}`, id, session_id, exercise_name, status, source: 'library' });
+        await records.put('exerciselog', log(1, 101, 'Bench'));
+        await records.put('exerciselog', log(2, 101, 'Dip'));
+        await records.put('exerciselog', log(3, 101, 'Curl'));
+        await records.put('exerciselog', log(4, 102, 'Bench', ''));
+
+        const out = await window.apiCallDirect('/api/workout/sessions/suggest-next?session_id=102&after=Bench');
+        expect(out.map((r) => r.name)).toEqual(['Dip', 'Plank', 'Curl']);
+        expect(out[1]).toEqual(expect.objectContaining({ body_part: 'core' }));
+    });
+
     // bd med-plg: removing an exercise from TODAY's workout has to survive a
     // modal reopen. The modal re-materializes the plan on every open, so the
     // removal is recorded on the session's exercise_snapshot — never on the

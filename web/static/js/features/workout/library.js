@@ -761,16 +761,23 @@ async function bindExercisePicker({ input, mount, withLibrary = true, onPick } =
 //   lastLine — async name → "last 3 × 15 · 20 kg" | null
 //   onAdd    — called with the tapped item: a library row (id + defaults),
 //              { name, body_part } for a catalog name, or { name } typed
-async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd } = {}) {
+//   upNext   — optional promise of ranked rows (med-okwf.4, kit WA3/WA5) shown
+//              as "Up next" while the field is empty; none → nothing at rest
+async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd, upNext: upNextP } = {}) {
     if (!input || !mount) return;
     _catalogRefreshSeq++;
     const skip = new Set(exclude.map(n => String(n || '').trim().toLowerCase()));
     const keep = item => !skip.has((item.name || '').trim().toLowerCase());
 
     let library = [];
+    let upNext = [];
     try {
-        const items = await apiCall('/api/workout/exercise-library');
+        const [items, ranked] = await Promise.all([
+            apiCall('/api/workout/exercise-library'),
+            Promise.resolve(upNextP).catch(() => null)
+        ]);
         if (Array.isArray(items)) library = items.filter(keep);
+        if (Array.isArray(ranked)) upNext = ranked.filter(item => item && item.name && keep(item)).slice(0, 3);
     } catch (error) {
         console.error('Error loading exercise library for picker:', error);
     }
@@ -803,12 +810,7 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
 
     const paint = (candidates, q, typed) => {
         rendered = [];
-        if (!q) {
-            mount.replaceChildren();
-            mount.hidden = true;
-            return 0;
-        }
-        const matches = _rankExerciseMatches(candidates.filter(keep), q);
+        const matches = q ? _rankExerciseMatches(candidates.filter(keep), q) : upNext;
         const list = document.createElement('div');
         list.className = 'wg-list';
         matches.forEach((item) => {
@@ -821,7 +823,7 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
                 }, () => {});
             }
         });
-        if (!matches.some(i => (i.name || '').trim().toLowerCase() === q) && keep({ name: typed })) {
+        if (q && !matches.some(i => (i.name || '').trim().toLowerCase() === q) && keep({ name: typed })) {
             list.appendChild(row({ name: typed }, `Add “${typed}”`, 'New exercise', 'plus').btn);
         }
         if (!rendered.length) {
@@ -833,7 +835,7 @@ async function bindExerciseAddList({ input, mount, exclude = [], lastLine, onAdd
         head.className = 'wg-section__head';
         const eyebrow = document.createElement('span');
         eyebrow.className = 'wg-eyebrow';
-        eyebrow.textContent = 'Matches';
+        eyebrow.textContent = q ? 'Matches' : 'Up next';
         head.appendChild(eyebrow);
         mount.replaceChildren(head, list);
         mount.hidden = false;

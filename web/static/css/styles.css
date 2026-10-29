@@ -4408,14 +4408,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-sm);
 }
 
-.wg-workouts-session-logs__empty {
-    color: var(--wg-fg-4);
-    text-align: center;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    margin: var(--space-md) 0;
-}
-
 .wg-workouts-session-exercise {
     display: flex;
     flex-direction: column;
