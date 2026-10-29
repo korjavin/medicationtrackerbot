@@ -72,6 +72,9 @@
       "ready": ["#workout-session-logs .wg-set"] },
     { "name": "workout-next-step",
       "steps": [
+        { "api": { "path": "/api/workout/exercise-library/create", "method": "POST", "body": { "name": "Barbell row", "body_part": "back", "default_sets": 3, "default_reps_min": 8 } } },
+        { "api": { "path": "/api/workout/exercise-library/create", "method": "POST", "body": { "name": "Goblet squat", "body_part": "upper legs", "default_sets": 3, "default_reps_min": 10 } } },
+        { "api": { "path": "/api/workout/exercise-library/create", "method": "POST", "body": { "name": "Plank", "body_part": "waist" } } },
         { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
         { "click": "#workout-session-prog" },
         { "click": "#workout-session-logs .wg-session-overview__row:nth-last-child(2)" },
