@@ -54,7 +54,10 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         window.apiCall = vi.fn(async (endpoint) => {
             if (endpoint.startsWith('/api/workout/sessions/details')) {
                 return {
-                    session: { id: 42, variant_id: 1, status: 'in_progress', group_name: 'Plan 3', variant_name: 'Day A' },
+                    // Production shape: the plan names ride on the envelope.
+                    session: { id: 42, variant_id: 1, status: 'in_progress' },
+                    group_name: 'Plan 3',
+                    variant_name: 'Day A',
                     logs: []
                 };
             }

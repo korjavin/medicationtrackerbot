@@ -2177,8 +2177,16 @@ async function showWorkoutSessionModal(sessionId) {
                     });
                 }
 
+                // Exercises added mid-workout (source 'library') stay after
+                // the plan's rows, logged or not: an added exercise goes to
+                // the end (kit WA4, med-okwf.3) and keeps its place on reload.
                 if (plannedMissingLogs && plannedMissingLogs.length > 0) {
-                    window.WorkoutSessionsState.logs = [...window.WorkoutSessionsState.logs, ...plannedMissingLogs];
+                    const logs = window.WorkoutSessionsState.logs;
+                    window.WorkoutSessionsState.logs = [
+                        ...logs.filter((l) => l.source !== 'library'),
+                        ...plannedMissingLogs,
+                        ...logs.filter((l) => l.source === 'library'),
+                    ];
                 }
             } catch (prefillError) {
                 console.error('Error pre-filling planned exercises:', prefillError);
@@ -2950,7 +2958,7 @@ async function showAddExerciseToSessionModal() {
     const eyebrow = document.getElementById('workout-add-exercise-to-session-eyebrow');
     if (eyebrow) {
         const adhoc = st.data.group_id === -1 && st.data.notes ? String(st.data.notes).trim() : '';
-        eyebrow.textContent = [adhoc || st.data.group_name, st.data.variant_name].filter(Boolean).join(' · ') || 'Workout';
+        eyebrow.textContent = adhoc || st.planLabel || 'Workout';
     }
 
     await window.WorkoutLibrary.bindExerciseAddList({

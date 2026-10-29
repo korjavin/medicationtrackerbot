@@ -459,6 +459,47 @@ describe('features/workout/sessions.js — split-file integration', () => {
       expect(rows[0].querySelector('[data-field="reps"]').textContent).toBe('8default');
     });
 
+    // Argus on #1460: the post-add reload put persisted logs ahead of the
+    // plan's untouched rows, so the added exercise jumped to the front.
+    it('in a planned session the added exercise stays last and current through the real reload', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      window.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ exercises: [] }) }));
+      const persisted = [];
+      window.apiCall = vi.fn(async (endpoint, method, payload) => {
+        if (endpoint.startsWith('/api/workout/sessions/details')) {
+          return {
+            session: { id: 77, variant_id: 3, status: 'in_progress', exercise_snapshot: [
+              { exercise_id: 1, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60 },
+              { exercise_id: 2, exercise_name: 'Squat', target_sets: 3, target_reps_min: 5, target_weight_kg: 100 },
+            ] },
+            group_name: 'Plan 3',
+            variant_name: 'Day A',
+            logs: persisted.map((l) => ({ ...l })),
+          };
+        }
+        if (endpoint === '/api/workout/exercise-library') return [{ id: 12, name: 'Face pull', default_reps_min: 12 }];
+        if (endpoint === '/api/workout/sessions/logs/create') {
+          const log = { ...payload, id: 999, sets: [], sets_completed: 0, reps_completed: payload.target_reps_min, weight_kg: 0 };
+          persisted.push(log);
+          return log;
+        }
+        return [];
+      });
+
+      await window.showWorkoutSessionModal(77);
+      expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat']);
+      await window.showAddExerciseToSessionModal();
+      expect(document.getElementById('workout-add-exercise-to-session-eyebrow').textContent).toBe('Plan 3 · Day A');
+      await type(window, 'face');
+      document.querySelector('#session-add-exercise-suggest .wg-row').click();
+
+      await vi.waitFor(() => expect(window.WorkoutSessionsState.logs.find((l) => l.id === 999)).toBeTruthy());
+      expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat', 'Face pull']);
+      expect(window.WorkoutSessionsState.ui.current).toBe(2);
+      expect(document.querySelector('#workout-session-logs .wg-ex__name').textContent).toBe('Face pull');
+    });
+
     it('a row logged before lands with last time\'s set as the ghost, labelled "last"', async () => {
       const { window, document } = env;
       installApiCache(window);
