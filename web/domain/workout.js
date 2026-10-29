@@ -2223,6 +2223,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const wasPlaceholder = log.status === '';
     let newStatus = status;
     if (newStatus === '' && wasPlaceholder && hasValue(sets) && sets >= 1) newStatus = 'completed';
+    // The reverse (med-okwf.6): a completed log whose last set was deleted (or
+    // un-ticked) goes back to a placeholder, so history, 1RM and the session's
+    // completed count stop counting an exercise with nothing logged.
+    // Only a move from >0 sets to 0: a completed 0-set log (a notes-only
+    // planned row, a legacy flat log) is resent on every save and must stay.
+    const demote = status === '' && log.status === 'completed' && Number(log.sets_completed) > 0
+      && hasValue(sets) && sets === 0;
 
     const effSets = hasValue(sets) ? sets : log.sets_completed;
     const effReps = hasValue(reps) ? reps : log.reps_completed;
@@ -2257,7 +2264,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // Go's UpdateExerciseLog never writes status; UpdateExerciseLogStatus
       // fires only for a non-empty newStatus. So an omitted status preserves
       // the existing one — editing a completed log must not reset it to ''.
-      status: newStatus === '' ? log.status : newStatus,
+      status: demote ? '' : newStatus === '' ? log.status : newStatus,
       logged_at: wasPlaceholder ? new Date(nowMs).toISOString() : log.logged_at,
       clientTs: nowMs,
     });
