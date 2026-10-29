@@ -2834,6 +2834,13 @@ async function saveWorkoutSessionDetails(opts) {
                 // the batch, and later bricks Finish). Flags were already claimed
                 // above; re-clearing here would clobber a mid-flight edit.
                 if (logResult && logResult.id) log.id = logResult.id;
+                // Mirror the domain's promotion/demotion so the local status
+                // matches the stored row (delete's History decrement reads it).
+                if (log.status !== 'skipped') {
+                    const done = Number(log.sets_completed) > 0;
+                    if (done && !log.status) log.status = 'completed';
+                    else if (!done && log.status === 'completed' && sentSets) log.status = '';
+                }
             }
             // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
         }
