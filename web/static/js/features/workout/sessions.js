@@ -821,12 +821,17 @@ function _buildSessionExerciseCard(log, index) {
 
     const monoRow = document.createElement('div');
     monoRow.className = 'wg-workouts-session-exercise__mono';
-    // Nothing logged yet (an untouched planned row or an added exercise):
-    // no "0 × 0 · bodyweight" line — the ghost set rows carry the numbers
-    // (kit WA4, Iris on med-okwf.3).
-    const logged = Number(log.sets_completed) > 0 && Number(log.reps_completed) > 0;
-    monoRow.textContent = logged ? _formatLogMono(log) : '';
-    monoRow.hidden = !logged;
+    // The line under the tags: what is logged, else the plan row's target
+    // (an untouched planned exercise, kit W1). An added exercise with nothing
+    // logged has no target, so no "0 × 0 · bodyweight" line — its ghost set
+    // carries the numbers (kit WA4, Iris on med-okwf.3).
+    const has = (l) => Number(l.sets_completed) > 0 && Number(l.reps_completed) > 0;
+    const t = log._target;
+    const line = has(log) || !t ? log
+        : { sets_completed: log._targetSets, reps_completed: t.reps, weight_kg: t.weight_kg };
+    const shown = has(line);
+    monoRow.textContent = shown ? _formatLogMono(line) : '';
+    monoRow.hidden = !shown;
     entry.appendChild(monoRow);
 
     // In-session weight suggestion (med-h5u3): a collapsed "Try <kg>" chip in

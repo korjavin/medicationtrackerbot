@@ -489,6 +489,10 @@ describe('features/workout/sessions.js — split-file integration', () => {
 
       await window.showWorkoutSessionModal(77);
       expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Squat']);
+      // An untouched planned exercise keeps its plan target line (kit W1).
+      const mono = () => document.querySelector('#workout-session-logs .wg-workouts-session-exercise__mono');
+      expect(mono().hidden).toBe(false);
+      expect(mono().textContent).toBe('3 × 8 · 60 kg');
       await window.showAddExerciseToSessionModal();
       expect(document.getElementById('workout-add-exercise-to-session-eyebrow').textContent).toBe('Plan 3 · Day A');
       await type(window, 'face');
