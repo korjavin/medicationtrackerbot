@@ -1322,10 +1322,10 @@ export function createApiRouter(ctx, {
       return pageOf(await workout.listLibrary(), limit, offset);
     }
     if (path === '/api/workout/exercise-library/create' && method === 'POST') {
-      return workout.createLibraryItem(body);
+      return workout.createLibraryItem(body).catch(withDuplicateStatus);
     }
     if (path === '/api/workout/exercise-library/update' && method === 'PUT') {
-      await workout.updateLibraryItem(intParam(params, 'id', 0), body);
+      await workout.updateLibraryItem(intParam(params, 'id', 0), body).catch(withDuplicateStatus);
       return true;
     }
     if (path === '/api/workout/exercise-library/auto-tag' && method === 'POST') {

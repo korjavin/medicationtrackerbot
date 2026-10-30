@@ -597,6 +597,15 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(row.aliases).toEqual(['dumbbell hammer curl']);
         });
 
+        // The create guard refuses case twins since med-l5yr.2, so a pre-existing
+        // one is seeded as the old guard let it in: created under a free name,
+        // then renamed underneath the domain.
+        async function seedCaseTwin(env, name, body) {
+            const row = await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { ...body, name: `${name} (twin)` });
+            const rec = (await env.records.list('exerciselibrary')).find((r) => r.id === row.id);
+            await env.records.put('exerciselibrary', { ...rec, name });
+        }
+
         // Case-duplicate rows (let in by the old case-sensitive guard, or from
         // an older client) share one key: every spelling — either row's alias
         // included — lands on the lower-id row, whatever order history ran in.
@@ -604,7 +613,7 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             it(`a case-duplicate row's alias resolves to the lower-id winner (${label})`, async () => {
                 env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
                 await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { name: 'Bench Press', body_part: 'chest', aliases: ['Flat Bench'] });
-                await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { name: 'bench press', body_part: 'arms', aliases: ['BB Bench'] });
+                await seedCaseTwin(env, 'bench press', { body_part: 'arms', aliases: ['BB Bench'] });
                 await logAs(env, order[0], 60, 3);
                 await logAs(env, order[1], 70);
                 const stats = await env.window.apiCallDirect('/api/workout/stats');
@@ -618,7 +627,7 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         it('an untagged winning row borrows the tag of a tagged case-duplicate row, with no aliases anywhere', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             await lib(env, 'Goblet squat');
-            await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { name: 'Goblet Squat', body_part: 'upper legs' });
+            await seedCaseTwin(env, 'Goblet Squat', { body_part: 'upper legs' });
             await logAs(env, 'Goblet squat', 20, 3);
             await logAs(env, 'Goblet Squat', 24);
             const stats = await env.window.apiCallDirect('/api/workout/stats');

@@ -895,11 +895,20 @@ function _wgExerciseIco(name) {
 // exercise id, upserting a new library row when the name is unknown (the
 // server INSERTs without dedup, so match by trimmed, case-insensitive name
 // first). Returns null on empty name or failure.
+// Domain module for the name lookup. Same convention as groups.js
+// loadWorkoutEquipmentDomain: the indirection is the test seam.
+function loadWorkoutLibraryDomain() { return import('/domain/workout.js'); }
+
 async function resolveOrCreateLibraryId(name, defaults = {}) {
     const trimmed = (name || '').trim();
     if (!trimmed) return null;
+    // The domain's one ingestion lookup (med-l5yr.2): exact name, else any
+    // case/spacing of a row's name, else an alias. The domain 409s a create on
+    // any of these, so the picker must land on the same row first.
+    const { findLibraryRowByName } = await window.WorkoutLibrary.loadDomain();
+    const match = (list) => findLibraryRowByName(list, trimmed);
     const items = await apiCall('/api/workout/exercise-library') || [];
-    const existing = items.find(i => (i.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+    const existing = match(items);
     if (existing) return existing.id;
     const created = await apiCall('/api/workout/exercise-library/create', 'POST', {
         name: trimmed,
@@ -915,7 +924,7 @@ async function resolveOrCreateLibraryId(name, defaults = {}) {
     // list read — the INSERT then 500s. Refetch and match by name so we log
     // against the now-existing row instead of refusing an exercise that exists.
     const after = await apiCall('/api/workout/exercise-library') || [];
-    const raced = after.find(i => (i.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+    const raced = match(after);
     return raced ? raced.id : null;
 }
 
@@ -930,5 +939,6 @@ window.WorkoutLibrary = {
     setSource: setExerciseLibrarySource,
     bindExercisePicker: bindExercisePicker,
     bindExerciseAddList: bindExerciseAddList,
-    resolveOrCreateLibraryId: resolveOrCreateLibraryId
+    resolveOrCreateLibraryId: resolveOrCreateLibraryId,
+    loadDomain: loadWorkoutLibraryDomain
 };
