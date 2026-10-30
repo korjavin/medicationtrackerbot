@@ -19,6 +19,7 @@ CASES = {
     "pnpm test web/static/js/tests": False,
     f'pnpm test -t "{F}"': False,
     "cat <<'EOF'\ntext\nEOF\npnpm test": False,
+    "cat <<EOF\n$(pnpm test)\nEOF": False,
 }
 bad = 0
 for cmd, allowed in CASES.items():
