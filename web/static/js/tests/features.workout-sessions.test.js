@@ -807,6 +807,99 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench']);
   });
 
+  // med-okwf.5: only a completed log counts toward exercises_completed.
+  it('deleteExerciseLog decrements exercises_completed only for a completed log', async () => {
+    const { window, document } = env;
+    const cache = installApiCache(window, {
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, exercises_count: 2, exercises_completed: 1 }],
+        miband: []
+      }
+    });
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress', variant_id: -1 };
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', status: 'completed', sets_completed: 3, reps_completed: 8, weight_kg: 60 },
+      { id: 6, exercise_id: 2, exercise_name: 'Squat', status: '', sets_completed: 0 }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+    let atPost = null;
+    window.apiCall = vi.fn(async () => {
+      atPost = cache.get('workout_history').sessions[0];
+      return true;
+    });
+
+    await window.deleteExerciseLog(1);
+    expect(atPost.exercises_count).toBe(1);
+    expect(atPost.exercises_completed).toBe(1);
+
+  });
+
+  it('deleteExerciseLog decrements exercises_completed for a completed log', async () => {
+    const { window, document } = env;
+    const cache = installApiCache(window, {
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, exercises_count: 2, exercises_completed: 1 }],
+        miband: []
+      }
+    });
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress', variant_id: -1 };
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', status: 'completed', sets_completed: 3, reps_completed: 8, weight_kg: 60 },
+      { id: 6, exercise_id: 2, exercise_name: 'Squat', status: '', sets_completed: 0 }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+    let atPost = null;
+    window.apiCall = vi.fn(async () => {
+      atPost = cache.get('workout_history').sessions[0];
+      return true;
+    });
+
+    await window.deleteExerciseLog(0);
+    expect(atPost.exercises_count).toBe(1);
+    expect(atPost.exercises_completed).toBe(0);
+  });
+
+  it('deleteExerciseLog counts a placeholder promoted by a saved first set (tick, autosave, delete)', async () => {
+    const { window, document } = env;
+    const cache = installApiCache(window, {
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, exercises_count: 2, exercises_completed: 2 }],
+        miband: []
+      }
+    });
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress', variant_id: -1 };
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', status: 'completed', sets_completed: 3, reps_completed: 8, weight_kg: 60 },
+      { id: 6, exercise_id: 2, exercise_name: 'Squat', status: '', sets_completed: 1, reps_completed: 5, weight_kg: 100,
+        sets: [{ set_index: 0, weight_kg: 100, reps: 5 }], _dirty: true, _setsDirty: true }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+    let atDelete = null;
+    window.apiCall = vi.fn(async () => ({ ok: true }));
+
+    await window.saveWorkoutSessionDetails({ fromAutosave: true });
+    expect(window.WorkoutSessionsState.logs[1].status).toBe('completed');
+
+    cache.set('workout_history', {
+      sessions: [{ session: { id: 42, status: 'in_progress' }, exercises_count: 2, exercises_completed: 2 }],
+      miband: []
+    });
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/delete')) {
+        atDelete = cache.get('workout_history').sessions[0];
+      }
+      return { ok: true };
+    });
+
+    await window.deleteExerciseLog(1);
+    expect(atDelete.exercises_completed).toBe(1);
+    expect(atDelete.exercises_count).toBe(1);
+  });
+
   it('deleteExerciseLog restores the un-logged planned row when the plan removal returns null', async () => {
     const { window, document } = env;
     planBackedDeleteEnv(window, document);
