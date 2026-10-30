@@ -839,30 +839,29 @@ async function _addExerciseNameFromHistory(row, session, name) {
     loadExerciseLibrary();
 }
 
-// EI1 "×": no confirm — the logs just go back under that name. The stored
-// row is sent, not the form, so unsaved edits in the sheet stay unsaved.
+// EI1 "×": send only the removal intent. The domain reads the current row,
+// preserving edits/aliases that arrived since this sheet opened; unsaved
+// form inputs stay untouched.
 function removeExerciseAlias(alias) {
     return _queueSheetAliasWrite((row, session) => _removeExerciseAlias(row, session, alias));
 }
 
 async function _removeExerciseAlias(row, session, alias) {
-    const aliases = (row.aliases || []).filter((a) => a !== alias);
-    const body = {
-        name: row.name, default_sets: row.default_sets, default_reps_min: row.default_reps_min,
-        default_reps_max: row.default_reps_max ?? null, default_weight_kg: row.default_weight_kg ?? null,
-        notes: row.notes || '', body_part: row.body_part || '', aliases,
-    };
-    _editingRow = { ...row, aliases };
+    const key = _nameKey(alias);
+    const withoutAlias = (current) => ({
+        ...current, aliases: (current.aliases || []).filter((name) => _nameKey(name) !== key),
+    });
+    _editingRow = withoutAlias(row);
     _paintExerciseAliases();
     const handle = await _optimisticLibrary((list) => list
-        .map((r) => (r && r.id === row.id ? { ...r, aliases } : r)), ['exercise_library', 'workout']);
-    let ok = false;
+        .map((r) => (r && r.id === row.id ? withoutAlias(r) : r)), ['exercise_library', 'workout']);
+    let current = null;
     try {
-        ok = !!(await apiCall(`/api/workout/exercise-library/update?id=${row.id}`, 'PUT', body, { suppressWriteAlert: true }));
+        current = await apiCall(`/api/workout/exercise-library/remove-alias?id=${row.id}`, 'POST', { alias }, { suppressWriteAlert: true });
     } catch (_) {
-        ok = false;
+        current = null;
     }
-    if (!ok) {
+    if (!current) {
         if (handle) await handle.rollback().catch(() => {});
         if (session === _sheetSession) {
             _editingRow = row;
@@ -874,7 +873,11 @@ async function _removeExerciseAlias(row, session, alias) {
     if (handle) await handle.commit(null).catch(() => {});
     loadExerciseLibrary();
     if (session !== _sheetSession) return;
+    _editingRow = current;
+    _editLibrary = _editLibrary.map((r) => (r && r.id === current.id ? current : r));
+    _paintExerciseAliases();
     await _loadExerciseNames();
+    if (session !== _sheetSession) return;
     _paintExerciseAliases();
     _paintExerciseLibraryPicker();
 }

@@ -1438,6 +1438,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     await records.put(WORKOUT_RECORD_TYPES.LIBRARY, next);
   }
 
+  // An alias × is one intent against the current row, not a replacement of
+  // the editor's older name/defaults/aliases snapshot. Unseen remote writes
+  // still follow normal LWW; changes already present locally are preserved.
+  async function removeLibraryAlias(id, alias) {
+    const key = exerciseKey(alias);
+    if (!key) throw invalidRequest('Alias is required');
+    const item = await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, id);
+    if (!item) throw invalidRequest('Library exercise not found', 'not_found');
+    const current = Array.isArray(item.aliases) ? item.aliases : [];
+    const aliases = current.filter((name) => exerciseKey(name) !== key);
+    if (key === exerciseKey(item.name) || aliases.length === current.length) return toLibraryResponse(item);
+    const nowMs = now();
+    const next = { ...item, clientTs: nowMs, updated_at: new Date(nowMs).toISOString() };
+    if (aliases.length) next.aliases = aliases;
+    else delete next.aliases;
+    await records.put(WORKOUT_RECORD_TYPES.LIBRARY, next);
+    return toLibraryResponse(next);
+  }
+
   // setLibraryBodyPart tags the library row `name` resolves to (case-
   // insensitive, or an alias) and touches nothing else on it; a name with no
   // row yet — an exercise logged straight into a session — gets a bare row so
@@ -3988,6 +4007,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     createLibraryItem,
     listLibrary,
     updateLibraryItem,
+    removeLibraryAlias,
     setLibraryBodyPart,
     deleteLibraryItem,
     mergeLibraryItem,

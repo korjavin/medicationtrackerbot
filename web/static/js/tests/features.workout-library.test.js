@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
-import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 const __dirname_ = path.dirname(fileURLToPath(import.meta.url));
 const CSS_PATH = path.resolve(__dirname_, '../../../../web/static/css/styles.css');
@@ -1222,6 +1222,85 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     await vi.waitFor(() => expect(rows($('exercise-library-aliases')).map(([t]) => t)).toEqual(['KB Swings']));
     await vi.waitFor(async () => expect((await library())[0].aliases).toEqual(['KB Swings']));
     expect((await names()).map((e) => [e.name, e.library_id])).toEqual([['Swings', null]]);
+  });
+
+  it('× preserves a newer local rename, aliases and defaults that arrived after the sheet opened', async () => {
+    installApiCache(env.window);
+    const equipment = await env.window.apiCallDirect('/api/workout/equipment', 'POST', {
+      kind: 'fixed', name: 'New kettlebells', loads_kg: [20, 24],
+    });
+    const row = await lib('Kettlebell Swings', { aliases: ['Swings'], notes: 'Before sync' });
+    await env.window.WorkoutLibrary.openEdit(row.id);
+    // The edit form may still contain an older snapshot when sync or an MCP
+    // operation has already updated the stored row on this device.
+    await env.window.apiCallDirect(`/api/workout/exercise-library/update?id=${row.id}`, 'PUT', {
+      name: 'KB Hip Swings', aliases: ['Swings', 'KB Swings'], notes: 'After sync',
+      default_sets: 4, default_reps_min: 12, default_reps_max: 15,
+      default_weight_kg: 24, body_part: 'upper legs', equipment_id: equipment.id,
+    });
+    await env.window.DataStore.setCached('exercise_library', await library());
+    type('My unsaved name');
+    $('exercise-library-notes').value = 'My unsaved notes';
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const api = env.window.apiCall;
+    env.window.apiCall = vi.fn(async (url, ...args) => {
+      if (String(url).startsWith('/api/workout/exercise-library/remove-alias')) await gate;
+      return api(url, ...args);
+    });
+
+    $('exercise-library-aliases').querySelector('[aria-label="Remove Swings"]').click();
+    // Optimistic removal uses each current cached row too: a pending write
+    // must not project the sheet's older alias list over a newly merged one.
+    await vi.waitFor(async () => {
+      const cached = await env.window.DataStore.getCached('exercise_library');
+      expect(cached.find((r) => r.id === row.id)).toMatchObject({
+        name: 'KB Hip Swings', notes: 'After sync', aliases: ['KB Swings', 'Kettlebell Swings'],
+      });
+    });
+    release();
+    await vi.waitFor(async () => {
+      const saved = (await library()).find((r) => r.id === row.id);
+      expect(saved).toMatchObject({
+        name: 'KB Hip Swings', notes: 'After sync', aliases: ['KB Swings', 'Kettlebell Swings'],
+        default_sets: 4, default_reps_min: 12, default_reps_max: 15,
+        default_weight_kg: 24, body_part: 'upper legs', equipment_id: equipment.id,
+      });
+    });
+    expect(dialog()).toBeNull();
+    await vi.waitFor(() => expect(rows($('exercise-library-aliases')).map(([name]) => name))
+      .toEqual(['KB Swings', 'Kettlebell Swings']));
+    expect($('exercise-library-name').value).toBe('My unsaved name');
+    expect($('exercise-library-notes').value).toBe('My unsaved notes');
+  });
+
+  it('a refused alias removal rolls back its cache without repainting a newly opened sheet', async () => {
+    installApiCache(env.window);
+    const row = await lib('Kettlebell Swings', { aliases: ['Swings'] });
+    const other = await lib('Hammer Curls');
+    await env.window.WorkoutLibrary.openEdit(row.id);
+    const before = await library();
+    await env.window.DataStore.setCached('exercise_library', before);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const api = env.window.apiCall;
+    env.window.apiCall = vi.fn(async (url, ...args) => {
+      if (String(url).startsWith('/api/workout/exercise-library/remove-alias')) await gate;
+      return api(url, ...args);
+    });
+    $('exercise-library-aliases').querySelector('[aria-label="Remove Swings"]').click();
+    await vi.waitFor(async () => expect((await env.window.DataStore.getCached('exercise_library'))
+      .find((r) => r.id === row.id).aliases).toEqual([]));
+    await env.window.apiCallDirect(`/api/workout/exercise-library/delete?id=${row.id}`, 'DELETE');
+    env.window.closeExerciseLibraryModal();
+    await env.window.WorkoutLibrary.openEdit(other.id);
+    release();
+
+    await vi.waitFor(() => expect(dialog()?.textContent).toContain("Couldn't remove the name"));
+    expect(await env.window.DataStore.getCached('exercise_library')).toEqual(before);
+    expect($('exercise-library-name').value).toBe('Hammer Curls');
+    expect(rows($('exercise-library-aliases'))).toEqual([]);
+    expect((await library()).map((r) => r.name)).toEqual(['Hammer Curls']);
   });
 
   it('a taken name blocks Save and offers the merge into that row (EI3)', async () => {
