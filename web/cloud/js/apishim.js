@@ -1459,6 +1459,12 @@ export function createApiRouter(ctx, {
     // aliases, with log counts (med-l5yr.1) — feeds the library merge UI. UI
     // read only (no MCP op).
     if (path === '/api/workout/exercises/names' && method === 'GET') return workout.listExerciseNames();
+    // Weight sanity baseline (med-l5yr.5): what a set of `name` in log
+    // `log_id` (a new log: session `session_id`) is judged on; the session
+    // view runs weight-sanity.js over its sets with it. UI read only (no MCP op).
+    if (path === '/api/workout/exercises/weight-check' && method === 'GET') {
+      return workout.exerciseWeightBaseline(params.get('name') || '', params.get('session_id') || '', params.get('log_id') || '');
+    }
 
     // Editor weight suggestion (med-73o): the next target for an exercise NAME
     // under a training goal, derived by the progression engine from that name's

@@ -669,6 +669,238 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         });
     });
 
+    describe('weight sanity (med-l5yr.5)', () => {
+        // One completed ad-hoc session with one per-set log of `name`,
+        // backdated `daysAgo`. Returns the log.
+        async function logSets(env, name, sets, daysAgo) {
+            const { window } = env;
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: 999, exercise_name: name,
+                source: 'library', status: 'completed', sets,
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+            if (daysAgo) {
+                const backdated = new Date(Date.now() - daysAgo * 86400000).toISOString();
+                for (const rec of await env.records.list('workoutsession')) {
+                    if (rec.id === session.id) await env.records.put('workoutsession', { ...rec, scheduled_date: backdated });
+                }
+            }
+            return { ...log, session_id: session.id };
+        }
+        const sets = (...kgs) => kgs.map((weight_kg) => ({ weight_kg, reps: 8 }));
+        const history = (env, name) => env.window.apiCallDirect(`/api/workout/exercises/history?name=${encodeURIComponent(name)}`);
+        const flagsOf = (row) => row.sets.map((s) => s.flag || null);
+
+        // The real slip: 255 kg among 50 kg goblet-squat sessions.
+        async function seedSlip(env) {
+            for (let d = 10; d > 5; d--) await logSets(env, 'Goblet Squat', sets(50, 50, 50), d);
+            return logSets(env, 'Goblet Squat', sets(50, 255, 50));
+        }
+
+        it('flags the jump in history with the reference, and it counts for nothing but the session', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const slip = await seedSlip(env);
+            const rows = await history(env, 'goblet squat');
+            expect(flagsOf(rows[0])).toEqual([null, 'jump', null]);
+            expect(rows[0].sets[1].reference_kg).toBe(50);
+            expect(rows.slice(1).every((r) => flagsOf(r).every((f) => f === null))).toBe(true);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals).toEqual([expect.objectContaining({
+                exercise_name: 'Goblet Squat', session_count: 6, max_weight_kg: 50,
+                total_volume_kg: 6 * 3 * 50 * 8 - 50 * 8,
+            })]);
+            expect(stats.prs.map((p) => p.weight_kg)).toEqual([50]);
+            // The next target is judged without it.
+            const suggest = await env.window.apiCallDirect('/api/workout/exercises/suggest-target?name=Goblet%20Squat&goal=general');
+            expect(suggest.last.weight_kg).toBe(50);
+            // The "before you save" context for that session: the other logs,
+            // oldest first, and where this one sits among them.
+            const s50 = { weight_kg: 50, set_type: 'normal' };
+            const earlier = Array.from({ length: 5 }, () => ({ sets: [s50, s50, s50] }));
+            expect(await env.window.apiCallDirect(`/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=${slip.session_id}&log_id=${slip.id}`))
+                .toEqual({ logs: earlier, index: 5, unweighted: false });
+            // A new log in that session is judged after the session's own.
+            expect(await env.window.apiCallDirect(`/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=${slip.session_id}`))
+                .toEqual({ logs: [...earlier, { sets: [s50, { weight_kg: 255, set_type: 'normal' }, s50] }], index: 6, unweighted: false });
+        });
+
+        it('two logs of one exercise in a session: the earlier one is part of the later one\'s baseline, in stats and history alike', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            for (let d = 9; d > 6; d--) await logSets(env, 'Goblet Squat', sets(50), d);
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            const create = (id, name, kg) => window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: id, exercise_name: name, source: 'library', status: 'completed', sets: sets(kg),
+            });
+            const a = await create(998, 'Goblet Squat', 60);
+            const b = await create(999, 'goblet squat', 110);
+            expect(a.id).toBeLessThan(b.id);
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const rows = await history(env, 'Goblet Squat');
+            expect(rows.every((r) => flagsOf(r).every((f) => f === null))).toBe(true);
+            const stats = await window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals[0].max_weight_kg).toBe(110);
+            const one = (kg) => ({ sets: [{ weight_kg: kg, set_type: 'normal' }] });
+            expect(await window.apiCallDirect(`/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=${session.id}&log_id=${b.id}`))
+                .toEqual({ logs: [one(50), one(50), one(50), one(60)], index: 4, unweighted: false });
+        });
+
+        // Repeated means real (Archie's amended ruling): a later log at >= 80%
+        // of a jump accepts it, so real progress never cascades into flags.
+        it('a beginner progression 20×3 → 45 → 50 → 55 flags nothing; 55 is the PR', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            for (const [d, kg] of [[9, 20], [8, 20], [7, 20], [6, 45], [5, 50]]) await logSets(env, 'Back Squat', sets(kg), d);
+            await logSets(env, 'Back Squat', sets(55));
+            const rows = await history(env, 'Back Squat');
+            expect(rows.every((r) => flagsOf(r).every((f) => f === null))).toBe(true);
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals[0].max_weight_kg).toBe(55);
+            expect(stats.prs[0]).toEqual(expect.objectContaining({ weight_kg: 55 }));
+        });
+
+        it('20×3 → 255 → 45 → 50 flags only the 255', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            for (const [d, kg] of [[9, 20], [8, 20], [7, 20], [6, 255], [5, 45]]) await logSets(env, 'Back Squat', sets(kg), d);
+            await logSets(env, 'Back Squat', sets(50));
+            const rows = await history(env, 'Back Squat');
+            expect(rows.map((r) => flagsOf(r)[0])).toEqual([null, null, 'jump', null, null, null]);
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals[0].max_weight_kg).toBe(50);
+        });
+
+        it('before you save: 47.5 after an unhealed 45 is not flagged, and heals the 45', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            for (const [d, kg] of [[9, 20], [8, 20], [7, 20]]) await logSets(env, 'Back Squat', sets(kg), d);
+            const jump = await logSets(env, 'Back Squat', sets(45), 6);
+            expect(flagsOf((await history(env, 'Back Squat'))[0])).toEqual(['jump']);
+            const session = (await env.window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            const ctx = await env.window.apiCallDirect(`/api/workout/exercises/weight-check?name=Back%20Squat&session_id=${session.id}`);
+            expect(ctx.index).toBe(4);
+            const { flagSets, flagLogs } = await import('../../../domain/weight-sanity.js');
+            expect(flagSets([{ weight_kg: 47.5, set_type: 'normal' }], ctx).flags).toEqual([null]);
+            // The same pre-pass with 47.5 in place accepts the 45 as real.
+            expect(flagLogs([...ctx.logs, { sets: [{ weight_kg: 47.5 }] }], false)[3]).toEqual([null]);
+            expect(jump.id).toBeGreaterThan(0);
+        });
+
+        it("a confirmed set counts again; a re-save without the mark (an older client) brings the flag back", async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const slip = await seedSlip(env);
+            const update = (s) => env.window.apiCallDirect('/api/workout/sessions/logs/update', 'POST', { id: slip.id, sets: s });
+            await update([{ weight_kg: 50, reps: 8 }, { weight_kg: 255, reps: 8, confirmed: true }, { weight_kg: 50, reps: 8 }]);
+            let rows = await history(env, 'Goblet Squat');
+            expect(flagsOf(rows[0])).toEqual([null, null, null]);
+            expect(rows[0].sets[1].confirmed).toBe(true);
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals[0].max_weight_kg).toBe(255);
+            expect(stats.prs[0]).toEqual(expect.objectContaining({ weight_kg: 255, previous_kg: 50 }));
+
+            await update(sets(50, 255, 50));
+            rows = await history(env, 'Goblet Squat');
+            expect(flagsOf(rows[0])).toEqual([null, 'jump', null]);
+        });
+
+        it('no flag on a first log or on a normal progression', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await logSets(env, 'Front Squat', sets(255));
+            for (let d = 9; d > 6; d--) await logSets(env, 'Bench', sets(60), d);
+            await logSets(env, 'Bench', sets(70, 120));
+            for (const name of ['Front Squat', 'Bench']) {
+                const rows = await history(env, name);
+                expect(rows.every((r) => flagsOf(r).every((f) => f === null))).toBe(true);
+            }
+        });
+
+        it('flags kg on a band, not 0 kg and not a banded barbell lift', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await logSets(env, 'Band pull-apart', sets(75, 0));
+            await logSets(env, 'Banded Squat', sets(100));
+            expect(flagsOf((await history(env, 'Band pull-apart'))[0])).toEqual(['unweighted', null]);
+            expect(flagsOf((await history(env, 'Banded Squat'))[0])).toEqual([null]);
+        });
+
+        it('a band weighted in two logs is not flagged: the user means it', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await logSets(env, 'Band pull-apart', sets(15), 2);
+            await logSets(env, 'Band pull-apart', sets(15));
+            const rows = await history(env, 'Band pull-apart');
+            expect(rows.every((r) => flagsOf(r).every((f) => f === null))).toBe(true);
+        });
+
+        // A legacy flat log (no `sets`, or `sets: []`) is judged as its
+        // synthesized rows: details carry the flag, one confirm holds.
+        for (const [label, legacy] of [['sets absent', undefined], ['sets: []', []]]) {
+            async function flatLog(env, name, weight_kg, reps) {
+                const { window } = env;
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: 999, exercise_name: name, source: 'library',
+                    status: 'completed',
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                // An old bundle's flat write: scalars only.
+                for (const rec of await env.records.list('exerciselog')) {
+                    if (rec.id === log.id) {
+                        const { sets: _drop, ...r } = rec;
+                        const rest = { ...r, sets_completed: 1, reps_completed: reps, weight_kg };
+                        await env.records.put('exerciselog', legacy ? { ...rest, sets: legacy } : rest);
+                    }
+                }
+                return { ...log, session_id: session.id };
+            }
+
+            it(`a flat band log carries its flag in session details (${label})`, async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const band = await flatLog(env, 'Band pull-apart', 75, 15);
+                const d = await env.window.apiCallDirect(`/api/workout/sessions/details?id=${band.session_id}`);
+                expect(d.logs[0]).toEqual(expect.objectContaining({ flag: 'unweighted', reference_kg: null }));
+            });
+
+            it(`one "It's right" confirms a flat slip (${label})`, async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                for (let d = 10; d > 5; d--) await logSets(env, 'Goblet Squat', sets(50), d);
+                const slip = await flatLog(env, 'Goblet Squat', 255, 8);
+                const details = () => env.window.apiCallDirect(`/api/workout/sessions/details?id=${slip.session_id}`);
+                expect((await details()).logs[0]).toEqual(expect.objectContaining({ flag: 'jump', reference_kg: 50 }));
+                // What the editor sends: its synthesized row, unchanged, marked.
+                await env.window.apiCallDirect('/api/workout/sessions/logs/update', 'POST', {
+                    id: slip.id, sets: [{ weight_kg: 255, reps: 8, confirmed: true }],
+                });
+                const rows = await history(env, 'Goblet Squat');
+                expect(rows[0].sets[0].confirmed).toBe(true);
+                expect(flagsOf(rows[0])).toEqual([null]);
+                expect((await details()).logs[0].flag).toBeUndefined();
+            });
+        }
+
+        it('a scalar-only update keeps a confirmation that still matches; MCP session details carry the flag', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const slip = await seedSlip(env);
+            const details = () => env.window.apiCallDirect(`/api/workout/sessions/details?id=${slip.session_id}`);
+            expect((await details()).logs[0].sets.map((s) => s.flag || null)).toEqual([null, 'jump', null]);
+            const update = (body) => env.window.apiCallDirect('/api/workout/sessions/logs/update', 'POST', { id: slip.id, ...body });
+            // A fresh confirm in the same save as its new weight (set 1: 50 →
+            // 255 within the autosave debounce) is kept, like createLog.
+            await update({ sets: [{ weight_kg: 255, reps: 8, confirmed: true }, { weight_kg: 255, reps: 8, confirmed: true }] });
+            let rows = await history(env, 'Goblet Squat');
+            expect(rows[0].sets.map((s) => s.confirmed === true)).toEqual([true, true]);
+            // A stored confirm echoed back with a changed weight is stale: dropped.
+            await update({ sets: [{ weight_kg: 300, reps: 8, confirmed: true }, { weight_kg: 255, reps: 8, confirmed: true }] });
+            rows = await history(env, 'Goblet Squat');
+            expect(rows[0].sets.map((s) => s.confirmed === true)).toEqual([false, true]);
+            await update({ sets: [{ weight_kg: 255, reps: 8, confirmed: true }, { weight_kg: 255, reps: 8, confirmed: true }] });
+            // A flat update (other reps) keeps the confirmed sets of the same weight.
+            await update({ sets_completed: 2, reps_completed: 10, weight_kg: 255 });
+            rows = await history(env, 'Goblet Squat');
+            expect(rows[0].sets.map((s) => [s.weight_kg, s.reps, s.confirmed === true])).toEqual([[255, 10, true], [255, 10, true]]);
+            expect(flagsOf(rows[0])).toEqual([null, null]);
+            expect((await details()).logs[0].sets.every((s) => !s.flag)).toBe(true);
+        });
+    });
+
     describe('own-baseline hard-set band (med-904.3)', () => {
         // One completed session per entry, aged by rewriting its scheduled_date
         // — the same backdating the range tests use.

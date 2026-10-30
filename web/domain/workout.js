@@ -49,6 +49,7 @@ import {
   NEAR_FAILURE_RIR,
 } from './workout-goals.js';
 import { rankNextExercises } from './workout-suggest.js';
+import { isUnweightedExercise, flagLogs, withoutFlagged, flagSets, setsOf } from './weight-sanity.js';
 
 const WORKOUT_RECORD_TYPES = {
   GROUP: 'workoutgroup',
@@ -384,6 +385,9 @@ function normalizeSets(sets) {
       if (rpe < 1 || rpe > 10) throw invalidRequest('rpe must be between 1 and 10');
       out.rpe = rpe;
     }
+    // The user's "It's right" on a weight-sanity flag (med-l5yr.5); only a
+    // literal true is kept, absent otherwise.
+    if (s && s.confirmed === true) out.confirmed = true;
     return out;
   });
 }
@@ -506,15 +510,21 @@ function deriveSetScalars(sets) {
 // excluded, so the UI can say "42 hard · 3 easy" rather than quietly shrinking a
 // number users already saw. Volume and reps are unaffected — an easy set is
 // still work done, it just isn't a hard set.
-function logWorkTotals(log) {
+//
+// `flags` (weight-sanity.js flagSets, by set index, med-l5yr.5): an
+// unconfirmed flagged working set still counts as coverage (`sets`) but adds
+// nothing else — no volume, reps, hard/easy set or max weight.
+function logWorkTotals(log, flags) {
   if (Array.isArray(log.sets) && log.sets.length > 0) {
     const work = log.sets.filter((s) => s && s.set_type !== 'warmup');
+    const flagged = new Set(Array.isArray(flags) ? log.sets.filter((_, i) => flags[i]) : []);
     let volume = 0;
     let reps = 0;
     let maxWeight = 0;
     let hardSets = 0;
     let easySets = 0;
     for (const s of work) {
+      if (flagged.has(s)) continue;
       const w = s.weight_kg || 0;
       const r = s.reps || 0;
       volume += w * r;
@@ -536,6 +546,11 @@ function logWorkTotals(log) {
   const sets = hasValue(log.sets_completed) ? log.sets_completed : 0;
   const reps = hasValue(log.reps_completed) ? log.reps_completed : 0;
   const weight = hasValue(log.weight_kg) ? log.weight_kg : 0;
+  // A flat log's flags (one per synthesized set, all one weight) are all-or-
+  // nothing: flagged, it is coverage only.
+  if (Array.isArray(flags) && flags.some(Boolean)) {
+    return { volume_kg: 0, sets, hard_sets: 0, easy_sets: 0, reps: 0, max_weight_kg: 0 };
+  }
   return {
     volume_kg: sets * reps * weight,
     sets,
@@ -2256,11 +2271,40 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // exercise_name stale) wrongly no-op the propagation for that exercise's own
   // pending session. `exerciseName` is retained in the signature for callers but
   // is intentionally not part of the guard.
+  // acceptedPerformance (med-l5yr.5) is the performance a progression read
+  // may see: a logged {sets, reps, weight, perSet} of `name` (the stored log
+  // `stored` in `sessionId`) without its unconfirmed weight-sanity sets,
+  // judged on the history before that log. A partial update passes no set
+  // count; a flat log is then judged on the stored one. null = every set is
+  // flagged, nothing to progress from.
+  async function acceptedPerformance(name, sessionId, stored, perf) {
+    const log = {
+      sets: perf.perSet,
+      sets_completed: hasValue(perf.sets) ? perf.sets : stored && stored.sets_completed,
+      weight_kg: perf.weight,
+    };
+    const { flags } = flagSets(setsOf(log), await exerciseWeightBaseline(name, sessionId, stored && stored.id));
+    if (!flags.some(Boolean)) return perf;
+    const kept = withoutFlagged(log, flags);
+    if (kept.sets.length === 0) return null;
+    return { sets: kept.sets_completed, reps: kept.reps_completed, weight: kept.weight_kg, perSet: kept.sets };
+  }
+
   async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight, perSet) {
     const session = await findSession(sessionId);
     if (!session || !['pending', 'notified', 'in_progress'].includes(session.status)) return;
     const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId);
     if (!exercise || exercise.variant_id !== session.variant_id) return;
+    // An unconfirmed typo (a 255 kg slip among 50 kg sessions) never sets
+    // the next target, under any rule — mirror included. All flagged → the
+    // plan holds.
+    // The log being propagated: (session, plan row) is unique for schedule
+    // logs (createLog's guard).
+    const own = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
+      .find((l) => l.session_id === sessionId && l.exercise_id === exerciseId && l.source !== 'library');
+    const perf = await acceptedPerformance(exerciseName, sessionId, own || null, { sets, reps, weight, perSet });
+    if (!perf) return;
+    ({ sets, reps, weight, perSet } = perf);
 
     // `none`/absent rule → mirror; linear/double → apply the opt-in rule. An
     // unmet rule returns {} (plan held steady), so the spread leaves it as-is.
@@ -2427,12 +2471,30 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // inconsistent array so reads fall back to the flat aggregate. A notes-only
     // resend keeps identical scalars, so real per-set data is preserved.
     let setsWrite = {};
+    const stored = Array.isArray(log.sets) ? log.sets : [];
     if (perSet) {
+      // A weight-sanity confirmation (med-l5yr.5) answers one weight: a stored
+      // confirm echoed back with a changed weight is stale and dropped, from
+      // any writer (the session view does the same; MCP agents too). A fresh
+      // confirm arriving in the same save as its weight is kept, as in
+      // createLog. A flat log's stored rows are its synthesized ones.
+      const was = setsOf(log);
+      for (const [i, s] of perSet.entries()) {
+        if (s.confirmed && was[i] && was[i].confirmed === true && Number(was[i].weight_kg) !== s.weight_kg) delete s.confirmed;
+      }
       setsWrite = { sets: perSet };
-    } else if (Array.isArray(log.sets) && log.sets.length > 0) {
-      const d = deriveSetScalars(log.sets);
+    } else if (stored.length > 0) {
+      const d = deriveSetScalars(stored);
       if (effSets !== d.sets_completed || effReps !== d.reps_completed || effWeight !== d.weight_kg) {
-        setsWrite = { sets: [] };
+        // The flat values win. A confirmation on a stored set that still
+        // matches the new weight survives as the flat log's own sets (the same
+        // rows the session view would draw for it); otherwise drop the array.
+        const n = Math.min(20, Math.max(0, Math.round(Number(effSets) || 0)));
+        const flat = Array.from({ length: n }, (_, i) => ({
+          set_index: i, weight_kg: effWeight || 0, reps: effReps || 0, set_type: 'normal',
+          ...(stored[i] && stored[i].confirmed === true && stored[i].weight_kg === effWeight ? { confirmed: true } : {}),
+        }));
+        setsWrite = { sets: flat.some((s) => s.confirmed) ? flat : [] };
       }
     }
 
@@ -2842,9 +2904,32 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       groupName = group ? group.name : 'Unknown';
       variantName = variant ? variant.name : '';
     }
+    // An unconfirmed weight-sanity flag rides on its set (med-l5yr.5), as in
+    // the exercise history read, so an MCP agent reading the session sees it.
+    const flagsByLog = new Map();
+    if (logs.some((l) => l.status === 'completed')) {
+      const all = await completedLogsNewestFirst();
+      const resolve = buildExerciseResolver(all.libraryRows);
+      const keys = new Set(logs.map((l) => resolve(l.exercise_name).key).filter(Boolean));
+      for (const key of keys) {
+        const { flags } = weightFlagsFor(all.logs.filter((l) => resolve(l.exercise_name).key === key), key);
+        for (const [l, f] of flags) if (l.session_id === session.id && f.some(Boolean)) flagsByLog.set(l.id, f);
+      }
+    }
+    const withFlags = (r) => {
+      const f = flagsByLog.get(r.id);
+      if (!f) return r;
+      // A flat log has no rows to carry it: its synthesized sets share one
+      // weight, so the flag sits on the log itself.
+      if (!Array.isArray(r.sets) || r.sets.length === 0) {
+        const hit = f.find(Boolean);
+        return { ...r, flag: hit.flag, reference_kg: hit.reference_kg };
+      }
+      return { ...r, sets: r.sets.map((s, i) => (f[i] ? { ...s, flag: f[i].flag, reference_kg: f[i].reference_kg } : s)) };
+    };
     return {
       session: toSessionResponse(session),
-      logs: logs.map(toLogResponse),
+      logs: logs.map(toLogResponse).map(withFlags),
       group_name: groupName,
       variant_name: variantName,
     };
@@ -3051,7 +3136,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         schedMs,
         sortAt: Number.isFinite(schedMs) ? schedMs : 0,
         meta: sessionMeta.get(log.session_id) || { day: '', time: '' },
-        work: logWorkTotals(log),
       });
     }
     // scheduled_date is day-granular, so same-day sessions tie on sortAt: break
@@ -3107,11 +3191,26 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // web/domain/workout-analysis.js and the per-exercise detail view.
     const prRecords = [];
 
-    for (const { log, schedMs, meta, work } of completedLogs) {
+    // Unconfirmed weight-sanity flags (a 255 kg slip among 50 kg sessions)
+    // count for coverage only — never a PR, max, volume or hard set. One
+    // pre-pass per resolved exercise (med-l5yr.5), same order as history.
+    const byKey = new Map();
+    for (const { log } of completedLogs) {
+      const k = resolve(log.exercise_name).key;
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(log);
+    }
+    const sanityFlags = new Map();
+    for (const [k, logs] of byKey) {
+      flagLogs(logs, isUnweightedExercise(k)).forEach((f, i) => sanityFlags.set(logs[i], f));
+    }
+
+    for (const { log, schedMs, meta } of completedLogs) {
       // PR check runs before any window test: "beat every earlier set" spans
       // the full history, we only *count* the ones landing inside the range.
       // A zero-weight (bodyweight) log can never set a weight PR.
       const ex = resolve(log.exercise_name);
+      const work = logWorkTotals(log, sanityFlags.get(log));
       const previousKg = heaviestSoFar.get(ex.key) || 0;
       if (work.max_weight_kg > previousKg) {
         heaviestSoFar.set(ex.key, work.max_weight_kg);
@@ -3315,16 +3414,24 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         .sort((a, b) => (a.logged_at < b.logged_at ? 1 : a.logged_at > b.logged_at ? -1 : b.id - a.id))[0];
       if (!latest) continue;
 
-      // Same effective-scalar collapse propagate does at write time.
-      const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
-      const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
+      // Same effective-scalar collapse propagate does at write time, and the
+      // same accepted-set view (med-l5yr.5): an unconfirmed typo proposes
+      // nothing.
+      const perf = await acceptedPerformance(latest.exercise_name, latest.session_id, latest, {
+        sets: latest.sets_completed === 0 ? null : latest.sets_completed,
+        reps: latest.reps_completed === 0 ? null : latest.reps_completed,
+        weight: latest.weight_kg,
+        perSet: latest.sets,
+      });
+      if (!perf) continue;
+      const { sets, reps } = perf;
       const goal = await effectiveGoal(exercise);
       const bound = await resolveEquipmentLoads(exercise);
-      const { patch, snap } = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
+      const { patch, snap } = progressionPatch(exercise, sets, reps, perf.weight, perf.perSet, goal, bound.loads);
       // Effort of that log, in the goal's own terms: the TOP (hardest-rated)
       // work set, formatted — the evidence riding along with each entry.
       // null when the log carries no RPE.
-      const stats = workSetStats(sets, reps, latest.sets);
+      const stats = workSetStats(sets, reps, perf.perSet);
       const current = {
         target_sets: exercise.target_sets,
         target_reps_min: exercise.target_reps_min,
@@ -3363,9 +3470,63 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function sortedLogsByName(name) {
     const all = await completedLogsNewestFirst();
     const resolve = buildExerciseResolver(all.libraryRows);
-    const key = resolve(name).key;
-    const logs = key ? all.logs.filter((l) => resolve(l.exercise_name).key === key) : [];
-    return { logs, dateById: all.dateById, timeById: all.timeById };
+    const ex = resolve(name);
+    const logs = ex.key ? all.logs.filter((l) => resolve(l.exercise_name).key === ex.key) : [];
+    return { logs, dateById: all.dateById, timeById: all.timeById, exerciseName: ex.name, exerciseKey: ex.key };
+  }
+
+  // weightFlagsFor runs the weight-sanity pre-pass (weight-sanity.js
+  // flagLogs, med-l5yr.5) over one exercise's newest-first logs. → Map log ->
+  // per-set flags.
+  function weightFlagsFor(logsNewestFirst, exerciseKey) {
+    const oldest = [...logsNewestFirst].reverse();
+    const flags = new Map();
+    flagLogs(oldest, isUnweightedExercise(exerciseKey)).forEach((f, i) => flags.set(oldest[i], f));
+    return { flags };
+  }
+
+  // exerciseWeightBaseline (med-l5yr.5) is the "before you save" read of the
+  // weight-sanity rule: the context a set list of `name` is judged in —
+  // { logs (every OTHER completed log of the exercise, oldest first, sets
+  // only), index (where this log sits among them), unweighted } — so
+  // weight-sanity.js flagSets runs the same pre-pass history does, heals from
+  // later logs included. The log is `logId` when stored; else a new log in
+  // session `sessionId`, after that session's stored logs; no session → the
+  // end. The session view, propagation and progressionPreview read it. UI
+  // read only (no MCP op).
+  async function exerciseWeightBaseline(name, sessionId, logId) {
+    const { logs, dateById, timeById, exerciseKey: key } = await sortedLogsByName(String(name || '').trim());
+    const oldest = [...logs].reverse();
+    const lid = Number(logId) || 0;
+    const own = lid > 0 ? oldest.findIndex((l) => l.id === lid) : -1;
+    let index = oldest.length;
+    if (own >= 0) {
+      index = own;
+    } else {
+      const sid = Number(sessionId) || 0;
+      const session = sid > 0 ? await findSession(sid) : null;
+      if (session) {
+        // sortedLogsByName's order: date, then scheduled_time, then session id.
+        const day = new Date(session.scheduled_date).getTime();
+        const time = session.scheduled_time || '';
+        const after = (l) => {
+          if (l.session_id === session.id) return false;
+          const d = new Date(dateById.get(l.session_id)).getTime();
+          if (d !== day) return d > day;
+          const t = timeById.get(l.session_id);
+          if (t !== time) return t > time;
+          return l.session_id > session.id;
+        };
+        const first = oldest.findIndex(after);
+        if (first >= 0) index = first;
+      }
+    }
+    const others = oldest.filter((_, i) => i !== own).map((l) => ({
+      sets: setsOf(l).map((s) => ({
+        weight_kg: s.weight_kg, set_type: s.set_type || 'normal', ...(s.confirmed === true ? { confirmed: true } : {}),
+      })),
+    }));
+    return { logs: others, index, unweighted: isUnweightedExercise(key) };
   }
 
   // completedLogsNewestFirst: every completed log whose session still exists,
@@ -3389,7 +3550,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         const ta = timeById.get(a.session_id);
         const tb = timeById.get(b.session_id);
         if (ta !== tb) return ta < tb ? 1 : -1;
-        return b.session_id - a.session_id;
+        // Then log id, so two logs of one exercise in one session run in the
+        // same order here as in getStats' fold (med-l5yr.5).
+        return (b.session_id - a.session_id) || (b.id - a.id);
       });
     return { logs, dateById, timeById, libraryRows: await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY) };
   }
@@ -3419,7 +3582,15 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // over it on the read side. No storage, no MCP catalog entry (UI read only).
   async function listExerciseLogsByName(name, opts) {
     const lim = opts && opts.limit > 0 ? opts.limit : 500;
-    const { logs, dateById, timeById } = await sortedLogsByName(name);
+    const { logs, dateById, timeById, exerciseKey: key } = await sortedLogsByName(name);
+    // An unconfirmed weight-sanity flag rides on its set (med-l5yr.5), so
+    // workout-analysis.js leaves it out of PRs/series like a warm-up.
+    const { flags } = weightFlagsFor(logs, key);
+    const flaggedSets = (l) => {
+      const f = flags.get(l);
+      if (!f || !f.some(Boolean) || !Array.isArray(l.sets)) return l.sets;
+      return l.sets.map((s, i) => (f[i] ? { ...s, flag: f[i].flag, reference_kg: f[i].reference_kg } : s));
+    };
 
     // The exercise's effective training goal rides along (med-qj4.6.4/.5): the
     // detail view's headline emphasis and near-failure advisory are goal-driven,
@@ -3444,7 +3615,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         // graph series (exerciseSeries) needs this to order two same-day
         // sessions chronologically instead of by record-store luck (med-qj4.7).
         scheduled_time: timeById.get(l.session_id),
-        sets: l.sets,
+        sets: flaggedSets(l),
         session_id: l.session_id,
         training_goal: goal,
       }))
@@ -3495,9 +3666,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // stamped gym is where the loads resolve, exactly as propagate does.
     const sessionId = Number(input && input.session_id) || 0;
     const session = sessionId > 0 ? await findSession(sessionId) : null;
-    const { logs } = await sortedLogsByName(name);
-    const latest = sessionId > 0 ? logs.find((l) => l.session_id !== sessionId) : logs[0];
-    if (!latest) return null;
+    const { logs, exerciseKey: key } = await sortedLogsByName(name);
+    const newest = sessionId > 0 ? logs.find((l) => l.session_id !== sessionId) : logs[0];
+    if (!newest) return null;
+    // An unconfirmed weight-sanity flag never drives the next target
+    // (med-l5yr.5): judge the log without those sets.
+    const latest = withoutFlagged(newest, weightFlagsFor(logs, key).flags.get(newest));
 
     // Same effective-scalar collapse propagate and progressionPreview do: a
     // stored 0 means "not logged", not "zero sets".
@@ -3758,6 +3932,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     progressionPreview,
     listExerciseLogsByName,
     listExerciseNames,
+    exerciseWeightBaseline,
     suggestExerciseTarget,
     suggestNextExercises,
     createMiBand,

@@ -702,6 +702,66 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_reps_max).toBe(10);
     });
 
+    // med-l5yr.5: an unconfirmed weight-sanity slip never sets the next
+    // target — not by a rule, not by mirroring, not in the preview.
+    for (const rule of [{ type: 'linear', increment_kg: 2.5 }, null]) {
+        it(`a 255 kg slip after three 50 kg sessions holds the plan (${rule ? 'linear' : 'mirror'}) until confirmed`, async () => {
+            const { window } = env;
+            for (let i = 0; i < 3; i++) {
+                const s = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: s.id, exercise_id: 999, exercise_name: 'Bench', source: 'library', status: 'completed',
+                    sets: [{ weight_kg: 50, reps: 10 }],
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${s.id}`, 'PUT', { status: 'completed' });
+            }
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 50, order_index: 0,
+                ...(rule ? { progression_rule: rule } : {}),
+            });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+            await logAllSets(window, sessionId, ex.id, 'Bench', 10, 255, 3);
+
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(50);
+            const preview = (await window.apiCallDirect('/api/workout/progression-preview')).exercises;
+            expect(preview.find((e) => e.exercise_id === ex.id)).toBeUndefined();
+
+            // "It's right" on every set: the plan follows the lift again.
+            const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+            await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+                id: log.id, sets: [0, 1, 2].map((i) => ({ set_index: i, weight_kg: 255, reps: 10, confirmed: true })),
+            });
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(rule ? 257.5 : 255);
+        });
+    }
+
+    it('a flat 255 kg slip stays held through a notes-only re-save (mirror)', async () => {
+        const { window } = env;
+        for (let i = 0; i < 3; i++) {
+            const s = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: s.id, exercise_id: 999, exercise_name: 'Bench', source: 'library', status: 'completed',
+                sets: [{ weight_kg: 50, reps: 8 }],
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${s.id}`, 'PUT', { status: 'completed' });
+        }
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 1,
+            target_reps_min: 8, target_weight_kg: 50, order_index: 0,
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+        const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: ex.id, exercise_name: 'Bench', source: 'schedule', status: 'completed',
+            target_sets: 1, target_reps_min: 8, target_weight_kg: 255,
+        });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(50);
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, notes: 'note only' });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(50);
+    });
+
     it('progression linear: re-saving the same qualifying log is idempotent (does not compound the increment)', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);

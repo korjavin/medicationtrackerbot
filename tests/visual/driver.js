@@ -186,6 +186,22 @@
             // Writes through the app's own API, e.g. PATCH /api/settings/body.
             // The write stays in the store for later scenes.
             await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.weightCheck) {
+            // Kit WS1–WS3 (bd med-l5yr.5): completed sessions of one exercise
+            // at the `earlier` weights (three sets each), then one holding
+            // `sets`, opened the way a History row opens it. The writes stay.
+            const wc = step.weightCheck;
+            const logSession = async (kgs) => {
+                const s = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: s.id, exercise_id: 999, exercise_name: wc.name, source: 'library', status: 'completed',
+                    sets: kgs.map((weight_kg) => ({ weight_kg, reps: 8 })),
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${s.id}`, 'PUT', { status: 'completed' });
+                return s.id;
+            };
+            for (const kg of wc.earlier || []) await logSession([kg, kg, kg]);
+            await window.showWorkoutSessionModal(await logSession(wc.sets));
         } else if (step.takePending) {
             // Takes every pending dose (the timeline focus card's own read, bd
             // med-ry7b) so the card shows TL3 · all done. The write stays.
