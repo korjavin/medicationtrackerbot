@@ -1,6 +1,6 @@
 # iOS visual testing: runbook and agent QA
 
-Normative how-to. Design and rationale: [design/ios-visual-testing.md](design/ios-visual-testing.md). Everything here is **evidence, never a gate**: probe failures and diffs warn, they do not fail CI.
+Normative how-to. Design and rationale: [design/ios-visual-testing.md](design/ios-visual-testing.md). Visual scene probes and diffs are **evidence, never a gate**: failures warn. The explicit native HealthKit diagnostic below instead fails its job on a failed XCTest.
 
 Flow tests (first run, relaunch, and later lock, stash, backup), which are a gate, are a separate job: see [ios.md → Flow QA (Simulator)](ios.md#flow-qa-simulator-bd-med-w6gx23) (label `ios-qa`).
 
@@ -10,6 +10,21 @@ Flow tests (first run, relaunch, and later lock, stash, backup), which are a gat
 - **Dispatch on a branch:** `gh workflow run ios.yml --ref <branch> -f visual=true` (skips the build and TestFlight); `gh workflow run visual-web.yml --ref <branch>`.
 - **Dispatch on `master` only to refresh the compare reference.** Compare uses the newest master `workflow_dispatch` run that has the artifact. The visual job has its own concurrency group (`ios.yml-visual-<ref>`, cancel-in-progress) and does not touch the TestFlight build. Never dispatch or cancel a master run while another master visual run is in flight: the shared group cancels it.
 - macOS minutes are expensive: label only when the change can move layout.
+
+## Native HealthKit diagnostic
+
+When the browser reports Health unavailable, capture the native result before changing signing:
+
+```bash
+gh workflow run ios.yml --ref <branch> -f health_diagnostic=true
+gh workflow run ios.yml --ref <branch> -f health_diagnostic=true -f health_sign=true
+```
+
+Run one variant at a time. The first uses the visual job's unsigned build setting; the second lets Xcode sign for the Simulator. Both skip TestFlight. `health_sign` only affects the diagnostic job. The Debug/Simulator-only view requests read access to Steps and executes a real sample query, without the browser's error translation; it never writes samples. Ordinary flow QA excludes this experiment.
+
+Download `health-native-baseline`: `xctest.log`, the result bundle with a screenshot and native JSON report, requested entitlements, actual executable signature/entitlements and load commands, build log and Simulator Health system logs. Check native `available`, authorization errors and `queryCompleted`, plus XCTest's actual failure count. An empty successful query proves API access, not populated-card acceptance. Inspect the permission screenshot if authorization remains pending. Simulator entitlements may be in a Mach-O `__entitlements` section even when the code-signature entitlement dictionary is empty.
+
+The unsigned baseline on 2026-10-30 returned `available: true` and HealthKit error 4, `Missing com.apple.developer.healthkit entitlement.` Xcode Simulator signing subsequently launched the real Health Access sheet. These observations distinguish the original entitlement failure from a missing Health store; they do not establish seeded visual scenes.
 
 ## Duration
 
