@@ -18,11 +18,21 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "→ Minting a fresh invite via the admin CLI"
 INVITE="$(docker exec "$CONTAINER" ./cloud admin invite)"
-CLAIM_URL="$(grep -oE 'https://[^[:space:]]+#claim=[a-f0-9]+' <<<"$INVITE" | head -1)"
-[ -n "$CLAIM_URL" ] || { echo "✗ could not parse a claim URL from:"; echo "$INVITE"; exit 1; }
+# Prints https://<base>/i/<subdomain>#<hex> plus a "subdomain: <sub>" line.
+SUB="$(sed -n 's/^subdomain: *//p' <<<"$INVITE" | head -1)"
+URL="$(grep -oE 'https://[^[:space:]]+#[^[:space:]]+' <<<"$INVITE" | head -1)"
+[ -n "$SUB" ] && [ -n "$URL" ] || { echo "✗ could not parse the invite from:"; echo "$INVITE"; exit 1; }
 
-BASE_URL="${CLAIM_URL%%#*}"
-CLAIM_TOKEN="${CLAIM_URL##*#claim=}"
+# The throwaway account goes away however the run ends.
+cleanup() {
+  echo "→ Deleting throwaway account $SUB"
+  printf '%s\n' "$SUB" | docker exec -i "$CONTAINER" ./cloud admin delete "$SUB" || echo "  ✗ delete failed for $SUB"
+}
+trap cleanup EXIT
+
+HOST="${URL#https://}"; HOST="${HOST%%/*}"
+BASE_URL="https://$SUB.$HOST"
+CLAIM_TOKEN="${URL##*#}"
 echo "  ✓ ${BASE_URL}"
 
 mkdir -p "$HERE/out"

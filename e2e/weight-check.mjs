@@ -165,7 +165,10 @@ async function seedHistory(page) {
 
 async function addExercise(page, name) {
   const search = page.locator('#workout-session-addstep-search');
-  if (!(await search.isVisible().catch(() => false))) {
+  // The modal renders after the ad-hoc POST / reopen lands: an empty session
+  // shows the add step, one with exercises shows Next (not both).
+  await page.locator('#workout-session-addstep-search, .wg-workouts-session-actions__next').first().waitFor({ timeout: 15_000 });
+  if (!(await search.isVisible())) {
     await page.click('.wg-workouts-session-actions__next'); // Next › on the last exercise = add step
   }
   await search.waitFor({ state: 'visible', timeout: 15_000 });
