@@ -202,6 +202,37 @@
             };
             for (const kg of wc.earlier || []) await logSession([kg, kg, kg]);
             await window.showWorkoutSessionModal(await logSession(wc.sets));
+        } else if (step.exerciseIdentity) {
+            // Kit EI1–EI6 (bd med-l5yr.4): library rows with other names and
+            // history-only names, then the Edit sheet on `edit`. Seeded once
+            // per store (the first EI scene); later scenes reuse it.
+            const has = async () => (await window.apiCall('/api/workout/exercise-library') || [])
+                .some((r) => r.name === 'Kettlebell Swings');
+            if (!(await has())) {
+                const logAs = async (name) => {
+                    const s = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                    await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                        session_id: s.id, exercise_id: 999, exercise_name: name, source: 'library', status: 'completed',
+                        sets: [{ weight_kg: 16, reps: 10 }],
+                    });
+                    await window.apiCall(`/api/workout/sessions/status?id=${s.id}`, 'PUT', { status: 'completed' });
+                };
+                // Logged before the rows exist, so each stays under its own spelling.
+                const logs = { 'Kettlebell Swings': 3, Swings: 9, 'KB Swings': 4, 'Kettlebell Rows': 5, 'cable pulldown': 7,
+                    'Horizontal Row': 4, 'Hammer Curls': 6, 'Lateral Raises': 11, 'Dumbbell Lateral Raise': 8 };
+                for (const [name, n] of Object.entries(logs)) for (let i = 0; i < n; i++) await logAs(name);
+                const create = (name, body_part) => window.apiCall('/api/workout/exercise-library/create', 'POST', { name, body_part });
+                const ks = await create('Kettlebell Swings', 'upper legs');
+                await window.apiCall(`/api/workout/exercise-library/update?id=${ks.id}`, 'PUT',
+                    { name: 'Kettlebell Swings', body_part: 'upper legs', aliases: ['Swings', 'KB Swings'] });
+                await create('Hammer Curls', 'upper arms');
+                await create('Lateral Raises', 'shoulders');
+                await create('Dumbbell Lateral Raise', 'shoulders');
+            }
+            const rows = await window.apiCall('/api/workout/exercise-library') || [];
+            const row = rows.find((r) => r.name === step.exerciseIdentity.edit);
+            if (!row) throw new Error(`exerciseIdentity: no library row ${step.exerciseIdentity.edit}`);
+            await window.WorkoutLibrary.openEdit(row.id);
         } else if (step.takePending) {
             // Takes every pending dose (the timeline focus card's own read, bd
             // med-ry7b) so the card shows TL3 · all done. The write stays.

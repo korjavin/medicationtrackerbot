@@ -1720,12 +1720,17 @@
         </header>
 
         <div class="wg-sheet__body wg-workouts-library-modal__body">
-            <div class="wg-workouts-library-modal__field">
+            <div id="exercise-library-name-field" class="wg-workouts-library-modal__field">
                 <label for="exercise-library-name" class="wg-workouts-library-modal__label">Name</label>
                 <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
                     <input type="text" id="exercise-library-name" class="wg-workouts-library-modal__input" placeholder="Start typing..." autocomplete="off">
                 </div>
                 <div id="exercise-library-suggest" class="wg-exercise-suggest" hidden></div>
+                <!-- med-l5yr.4 (kit EI1–EI3): the rename hint, and the "name
+                     already taken" error with its merge offer. -->
+                <p id="exercise-library-rename-hint" class="wg-hint" hidden></p>
+                <p id="exercise-library-name-error" class="wg-error" hidden></p>
+                <button type="button" id="exercise-library-name-merge" class="wg-btn wg-btn--sm wg-workouts-library-modal__name-merge" hidden><i class="wg-ico wg-ico--sm" data-icon="link"></i><span></span></button>
             </div>
 
             <div class="wg-workouts-library-modal__field">
@@ -1787,7 +1792,35 @@
                     <input type="text" id="exercise-library-notes" class="wg-workouts-library-modal__input" placeholder="Form cues, variations, etc.">
                 </div>
             </div>
-            <p id="exercise-library-rename-hint" class="wg-workouts-library-modal__hint" hidden>Renaming updates this exercise everywhere it's used in your plans.</p>
+            <!-- med-l5yr.4 (kit EI1): the other names whose logs count as this
+                 exercise, then Merge at the bottom. Edit only. -->
+            <section id="exercise-library-names" class="wg-section" hidden>
+                <div class="wg-section__head"><span class="wg-eyebrow">Also logged as</span></div>
+                <div id="exercise-library-aliases" class="wg-list" hidden></div>
+                <p id="exercise-library-aliases-empty" class="wg-hint">No other names yet.</p>
+                <button type="button" id="exercise-library-add-name-btn" class="wg-btn wg-btn--ghost wg-btn--sm wg-workouts-library-modal__add-name"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add a name from history</button>
+            </section>
+            <button type="button" id="exercise-library-merge-btn" class="wg-btn wg-btn--ghost" hidden><i class="wg-ico wg-ico--sm" data-icon="link"></i>Merge into another exercise…</button>
+        </div>
+    </mt-modal>
+
+    <!-- med-l5yr.4: the library's name picker, over the Edit sheet. Kit EI4
+         (pick the merge target) and EI6 (add a name from history) share it. -->
+    <mt-modal id="exercise-library-picker" class="hidden wg-modal wg-sheet wg-workouts-library-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="exercise-library-picker-eyebrow"></div>
+                <div class="wg-sheethead__title" id="exercise-library-picker-title"></div>
+            </div>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="exercise-library-picker-close" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
+            </div>
+        </header>
+        <div class="wg-sheet__body wg-workouts-library-modal__body">
+            <input type="text" id="exercise-library-picker-search" class="wg-input wg-input--text" autocomplete="off">
+            <p id="exercise-library-picker-hint" class="wg-hint" hidden></p>
+            <div id="exercise-library-picker-list"></div>
         </div>
     </mt-modal>
 

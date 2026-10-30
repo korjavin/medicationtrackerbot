@@ -768,7 +768,8 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             for (let i = 0; i < 11; i++) await logAs(env, 'Swings', 24);
             await logAs(env, 'Kettlebell Swings', 28);
 
-            const names = () => env.window.apiCallDirect('/api/workout/exercises/names');
+            const all = () => env.window.apiCallDirect('/api/workout/exercises/names');
+            const names = async () => (await all()).map(({ name, key, log_count, library_id }) => ({ name, key, log_count, library_id }));
             expect(await names()).toEqual([
                 { name: 'Kettlebell Swings', key: 'kettlebell swings', log_count: 1, library_id: ks.id },
                 { name: 'Swings', key: 'swings', log_count: 12, library_id: null },
@@ -779,6 +780,14 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             });
             expect(await names()).toEqual([
                 { name: 'Kettlebell Swings', key: 'kettlebell swings', log_count: 13, library_id: ks.id },
+            ]);
+            // Per-spelling counts ride along for the editor's "Also logged as"
+            // (med-l5yr.4): newest spelling first, each with its newest date.
+            const [entry] = await all();
+            expect(entry.last_date).toEqual(expect.any(String));
+            expect(entry.spellings.map(({ name, log_count }) => ({ name, log_count }))).toEqual([
+                { name: 'Kettlebell Swings', log_count: 1 },
+                { name: 'Swings', log_count: 12 },
             ]);
         });
     });

@@ -1328,6 +1328,9 @@ export function createApiRouter(ctx, {
       await workout.updateLibraryItem(intParam(params, 'id', 0), body).catch(withDuplicateStatus);
       return true;
     }
+    if (path === '/api/workout/exercise-library/remove-alias' && method === 'POST') {
+      return workout.removeLibraryAlias(intParam(params, 'id', 0), body && body.alias);
+    }
     if (path === '/api/workout/exercise-library/auto-tag' && method === 'POST') {
       return exerciseTag.tagExercises(body && body.names);
     }
