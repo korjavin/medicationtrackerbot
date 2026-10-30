@@ -288,7 +288,12 @@ describe('features/workout/sessions.js — split-file integration', () => {
     const logged = [];
     window.apiCall = vi.fn(async (endpoint, method, payload) => {
       if (endpoint === '/api/workout/exercise-library') {
-        return [{ id: 31, name: 'Kettlebell Swings', aliases: ['Swings'] }, { id: 32, name: 'Goblet Squat' }];
+        return [
+          { id: 31, name: 'Kettlebell Swings', aliases: ['Swings'] }, { id: 32, name: 'Goblet Squat' },
+          // A legacy case twin with an alias: the alias answers to the
+          // lower-id row, an exact name to its own row (the domain's order).
+          { id: 20, name: 'bench press', aliases: ['BB Bench'] }, { id: 10, name: 'Bench Press' },
+        ];
       }
       if (endpoint === '/api/workout/sessions/logs/create') {
         logged.push(payload.exercise_id);
@@ -302,8 +307,10 @@ describe('features/workout/sessions.js — split-file integration', () => {
 
     await window.saveNewSessionExercise({ name: 'swings' });
     await window.saveNewSessionExercise({ name: 'goblet  squat' });
+    await window.saveNewSessionExercise({ name: 'BB Bench' });
+    await window.saveNewSessionExercise({ name: 'bench press' });
 
-    expect(logged).toEqual([31, 32]);
+    expect(logged).toEqual([31, 32, 10, 20]);
     expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
   });
 

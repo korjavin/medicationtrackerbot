@@ -898,12 +898,21 @@ function _wgExerciseIco(name) {
 async function resolveOrCreateLibraryId(name, defaults = {}) {
     const trimmed = (name || '').trim();
     if (!trimmed) return null;
-    // Same identity as the domain (exerciseKey): any case/spacing of a row's
-    // name, else one of its aliases — the domain 409s a create on either.
+    // The domain's ingestion lookup order (findLibraryRowByName in
+    // web/domain/workout.js): exact name, else any case/spacing of a row's
+    // name, else an alias — the key always answering to its lowest-id row.
+    // The domain 409s a create on any of these, and logs.create re-resolves
+    // the id from the name anyway, so the stored log never depends on this.
     const key = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
     const want = key(trimmed);
-    const match = (list) => list.find(i => key(i.name) === want)
-        || list.find(i => (i.aliases || []).some(a => key(a) === want));
+    const match = (list) => {
+        const rows = [...list].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+        const exact = rows.find(i => i.name === trimmed);
+        if (exact) return exact;
+        const hit = rows.find(i => key(i.name) === want)
+            || rows.find(i => (i.aliases || []).some(a => key(a) === want));
+        return hit && rows.find(i => key(i.name) === key(hit.name));
+    };
     const items = await apiCall('/api/workout/exercise-library') || [];
     const existing = match(items);
     if (existing) return existing.id;

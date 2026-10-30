@@ -2272,7 +2272,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // partial unique index (migration 052) for exercise_id > 0.
   async function createLog(input) {
     const sessionId = Number(input && input.session_id) || 0;
-    const exerciseId = Number(input && input.exercise_id) || 0;
+    let exerciseId = Number(input && input.exercise_id) || 0;
     if (!sessionId || !exerciseId) {
       throw invalidRequest('SessionID and ExerciseID are required');
     }
@@ -2290,6 +2290,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let session = await findSession(sessionId);
     if (!session) throw invalidRequest('Session not found', 'not_found');
 
+    let exerciseName = (input && input.exercise_name) || '';
+    // A library log lands on the row its name resolves to (any case, or an
+    // alias) — id and name together, before the uniqueness check, so new
+    // history stops drifting and two spellings of one row are one log. An
+    // unresolved name keeps the id it was sent; schedule logs keep the plan
+    // snapshot; existing logs are never rewritten.
+    if (source === 'library') {
+      const row = findLibraryRowByName(await records.list(WORKOUT_RECORD_TYPES.LIBRARY), exerciseName);
+      if (row) {
+        exerciseId = row.id;
+        exerciseName = row.name;
+      }
+    }
+
     if (exerciseId > 0) {
       const dup = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
         .some((l) => l.session_id === sessionId && l.exercise_id === exerciseId && l.source === source);
@@ -2306,14 +2320,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const effWeight = scalars ? scalars.weight_kg : targetWeightKg;
 
     const nowMs = now();
-    let exerciseName = (input && input.exercise_name) || '';
-    // A library log is stored under the name of the row it resolves to (any
-    // case, or an alias), so new history stops drifting. Schedule logs keep
-    // the plan snapshot; existing logs are never rewritten.
-    if (source === 'library') {
-      const row = findLibraryRowByName(await records.list(WORKOUT_RECORD_TYPES.LIBRARY), exerciseName);
-      if (row) exerciseName = row.name;
-    }
     const record = {
       recordId: genRecordId('log', nowMs),
       clientTs: nowMs,

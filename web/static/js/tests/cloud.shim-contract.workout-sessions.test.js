@@ -350,6 +350,29 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
             ]);
         });
 
+        // A legacy case twin (the old guard let "bench press" in beside "Bench
+        // Press") carrying an alias: the alias answers to the lower-id winner,
+        // so the log lands on row 10 whatever id the client sent, and that row
+        // is then already logged in the session.
+        it('logs.create (library): resolves id with name before the uniqueness check (legacy case twin)', async () => {
+            const { window } = env;
+            const row = (id, name, extra) => env.records.put('exerciselibrary', {
+                recordId: `library-${id}`, clientTs: 1, deleted: false, id, user_id: 0, name, notes: '', ...extra,
+            });
+            await row(10, 'Bench Press');
+            await row(20, 'bench press', { aliases: ['BB Bench'] });
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            const add = (exercise_id, exercise_name) => window.offlineAwareApiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id, exercise_name, source: 'library', target_sets: 0,
+            });
+            await add(20, 'BB Bench');
+            expect(await logsOf(session.id)).toEqual([['Bench Press', 10, 'library']]);
+            await expect(add(10, 'Bench Press')).rejects.toThrow(/already logged/);
+            // An exact name keeps its own row.
+            await add(10, 'bench press');
+            expect(await logsOf(session.id)).toEqual([['Bench Press', 10, 'library'], ['bench press', 20, 'library']]);
+        });
+
         it('setLibraryBodyPart tags the row an alias names instead of minting one', async () => {
             const records = createInMemoryRecordsPort();
             const domain = createWorkoutDomain({ records, now: () => Date.now(), timeZone: 'UTC' });
