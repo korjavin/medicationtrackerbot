@@ -14,10 +14,14 @@ import sys
 VALUE_FLAGS = {"-t", "--testNamePattern", "--reporter", "--project", "--config", "-c", "--root", "-r", "--dir", "--shard", "--pool"}
 
 cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "")
-# Quoted-delimiter heredoc bodies are data, not commands (unquoted ones expand `$(…)`, so they
-# stay); redirections (`2>&1`, `> out.log`) are not targets.
-cmd = re.sub(r"(<<-?\s*(['\"])(\w+)\2[^\n]*)\n.*?\n[ \t]*\3[ \t]*(?=\n|$)", r"\1", cmd, flags=re.S)
-cmd = re.sub(r"\d*>>?&?\s*[^\s;&|]+", " ", cmd)
+# Quoted-delimiter heredoc bodies are data, not commands, unless a shell reads them (unquoted
+# ones expand `$(…)`, so they stay); redirections to a plain path or fd (`2>&1`, `> out.log`)
+# are not targets.
+# ponytail: guards honest agent commands, not a sandbox; a determined bypass still gets through.
+def _heredoc(m):
+    return m.group(0) if re.search(r"\b(ba|z|da)?sh\b|\beval\b|\bsource\b|\bxargs\b", m.group(1)) else m.group(1)
+cmd = re.sub(r"([^\n]*<<-?\s*(['\"])(\w+)\2[^\n]*)\n.*?\n[ \t]*\3[ \t]*(?=\n|$)", _heredoc, cmd, flags=re.S)
+cmd = re.sub(r"\d*>>?(&\d+|\s*[\w./-]+)", " ", cmd)
 for seg in re.split(r"[;&|\n()]+|\$\(|`", cmd):
     try:
         words = shlex.split(seg)

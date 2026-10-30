@@ -20,6 +20,8 @@ CASES = {
     f'pnpm test -t "{F}"': False,
     "cat <<'EOF'\ntext\nEOF\npnpm test": False,
     "cat <<EOF\n$(pnpm test)\nEOF": False,
+    "bash <<'EOF'\npnpm test\nEOF": False,
+    'echo >"$(pnpm test)"': False,
 }
 bad = 0
 for cmd, allowed in CASES.items():
