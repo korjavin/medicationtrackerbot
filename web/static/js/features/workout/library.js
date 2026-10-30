@@ -398,6 +398,7 @@ async function _syncEquipmentSelect(currentId, selectId = 'exercise-library-equi
 async function showExerciseLibraryModal(presetName) {
     window.WorkoutEdit.editingLibraryItemId = null;
     document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
+    _sheetSession++;
     _editingRow = null;
     _editLibrary = _libraryItems;
     document.getElementById('exercise-library-names').hidden = true;
@@ -421,7 +422,9 @@ async function showExerciseLibraryModal(presetName) {
     bindExercisePicker({
         input: document.getElementById('exercise-library-name'),
         mount: document.getElementById('exercise-library-suggest'),
-        withLibrary: false
+        withLibrary: false,
+        // A pick sets the value without an input event: re-check the name.
+        onPick: () => checkExerciseLibraryName()
     });
 
     // Awaited last: awaiting callers see the filled select, while
@@ -436,6 +439,7 @@ async function showEditExerciseLibraryModal(id) {
 
     window.WorkoutEdit.editingLibraryItemId = id;
     document.getElementById('exercise-library-modal-title').textContent = 'Edit Exercise';
+    _sheetSession++;
     _editingRow = item;
     _editLibrary = items;
     document.getElementById('exercise-library-names').hidden = false;
@@ -462,7 +466,8 @@ async function showEditExerciseLibraryModal(id) {
     bindExercisePicker({
         input: document.getElementById('exercise-library-name'),
         mount: document.getElementById('exercise-library-suggest'),
-        withLibrary: false
+        withLibrary: false,
+        onPick: () => checkExerciseLibraryName()
     });
 }
 
@@ -471,9 +476,19 @@ function closeExerciseLibraryModal() {
     window.ModalManager.exerciseLibrary.close();
     window.WorkoutEdit.editingLibraryItemId = null;
     _editingRow = null;
+    _sheetSession++;
 }
 
-async function saveExerciseLibraryItem() {
+// Save reads the form NOW, then queues the write behind any pending +/×: the
+// queued write stays bound to this row and payload even if the sheet is
+// closed or reopened meanwhile, and only touches the sheet it came from.
+function saveExerciseLibraryItem() {
+    const write = _collectExerciseLibrarySave();
+    if (!write) return Promise.resolve();
+    return _serialIdentityWrite(() => _writeExerciseLibraryItem(write));
+}
+
+function _collectExerciseLibrarySave() {
     const name = document.getElementById('exercise-library-name').value.trim();
     const sets = parseInt(document.getElementById('exercise-library-sets').value) || 0;
     const repsMin = parseInt(document.getElementById('exercise-library-reps-min').value) || 0;
@@ -493,10 +508,10 @@ async function saveExerciseLibraryItem() {
 
     if (!name) {
         safeAlert('Exercise name is required!');
-        return;
+        return null;
     }
     // A taken name is shown on the field (kit EI3) and Save stays off.
-    if (checkExerciseLibraryName()) return;
+    if (checkExerciseLibraryName()) return null;
 
     const payload = {
         name: name,
@@ -508,9 +523,12 @@ async function saveExerciseLibraryItem() {
         body_part: bodyPart
     };
     if (equipmentRaw !== null) payload.equipment_id = equipmentRaw !== '' ? Number(equipmentRaw) : null;
+    return { payload, name, bodyPart, editingId: window.WorkoutEdit.editingLibraryItemId, session: _sheetSession };
+}
 
-    const editingId = window.WorkoutEdit.editingLibraryItemId;
+async function _writeExerciseLibraryItem({ payload, name, bodyPart, editingId, session }) {
     const isCreate = !editingId;
+    const sameSheet = () => session === _sheetSession;
     const handle = await _optimisticLibrary((list) => (isCreate
         ? [...list, { ...payload, id: `local_${Date.now()}` }]
         : list.map((r) => (r && r.id === editingId ? { ...r, ...payload } : r))));
@@ -527,7 +545,7 @@ async function saveExerciseLibraryItem() {
 
     if (result || result === true) {
         if (handle) await handle.commit(null).catch(() => {});
-        closeExerciseLibraryModal();
+        if (sameSheet()) closeExerciseLibraryModal();
         loadExerciseLibrary();
         if (isCreate && !bodyPart) _autoTagIfUnresolved(name);
         return;
@@ -535,7 +553,11 @@ async function saveExerciseLibraryItem() {
     if (handle) await handle.rollback().catch(() => {});
     // A duplicate 409 (another device took the name since this sheet opened):
     // re-read the library and show the taken-name state with its merge offer
-    // instead of a dead end.
+    // instead of a dead end — on the sheet it came from only.
+    if (!sameSheet()) {
+        safeAlert(`Couldn't save ${name} — try again.`);
+        return;
+    }
     const fresh = await apiCall('/api/workout/exercise-library');
     if (Array.isArray(fresh)) _editLibrary = fresh;
     if (!checkExerciseLibraryName()) safeAlert("Couldn't save the exercise — try again.");
@@ -584,6 +606,7 @@ let _editLibrary = []; // module-state: library rows the open sheet checks names
 let _exerciseNames = []; // module-state: last GET /api/workout/exercises/names (log counts, history-only names)
 let _identityDomain = null; // module-state: web/domain/workout.js once loaded (findLibraryRowByName, exerciseKey)
 let _pickerMode = null; // module-state: what the picker sheet shows — 'merge' (EI4) | 'names' (EI6)
+let _sheetSession = 0; // module-state: bumps on every open/close of the library sheet; queued writes check it
 
 async function _loadIdentityDomain() {
     if (!_identityDomain) {
@@ -762,23 +785,51 @@ async function confirmExerciseMerge(target) {
         title: `Merge ${src.name} into ${target.name}?`, confirmLabel: 'Merge', icon: 'link', tone: 'warn',
     });
     if (!ok) return;
-    const moved = [src.name, ...(Array.isArray(src.aliases) ? src.aliases : [])];
-    const res = await _postExerciseMerge({ id: src.id, into_id: target.id }, (list) => list
-        .filter((r) => !(r && r.id === src.id))
-        .map((r) => (r && r.id === target.id ? { ...r, aliases: [...(r.aliases || []), ...moved] } : r)));
+    const session = _sheetSession;
+    const res = await _serialIdentityWrite(() => {
+        const cur = _editingRow && _editingRow.id === src.id ? _editingRow : src;
+        const moved = [cur.name, ...(Array.isArray(cur.aliases) ? cur.aliases : [])];
+        return _postExerciseMerge({ id: src.id, into_id: target.id }, (list) => list
+            .filter((r) => !(r && r.id === src.id))
+            .map((r) => (r && r.id === target.id ? { ...r, aliases: [...(r.aliases || []), ...moved] } : r)));
+    });
     if (!res) return;
-    closeExerciseLibraryModal();
+    if (session === _sheetSession) closeExerciseLibraryModal();
     loadExerciseLibrary();
 }
 
+// The sheet's identity writes (+, ×, Save) each read-modify-write the row's
+// aliases, so they run one at a time: two quick taps must not lose an alias.
+let _identityWriteChain = Promise.resolve(); // module-state: serializes the Edit sheet's alias/merge/save writes
+function _serialIdentityWrite(fn) {
+    const run = _identityWriteChain.then(fn, fn);
+    _identityWriteChain = run.catch(() => {});
+    return run;
+}
+
+// A queued + / × is bound to the sheet it was tapped on: if that sheet was
+// closed (or another opened) before its turn, it is dropped. Within one
+// sheet, each write reads the row as the previous write's result left it.
+function _queueSheetAliasWrite(fn) {
+    const session = _sheetSession;
+    const rowId = _editingRow ? _editingRow.id : null;
+    return _serialIdentityWrite(() => {
+        if (session !== _sheetSession || !_editingRow || _editingRow.id !== rowId) return undefined;
+        return fn(_editingRow, session);
+    });
+}
+
 // EI6 "+": a name only history carries becomes this row's alias at once.
-async function addExerciseNameFromHistory(name) {
-    const row = _editingRow;
-    if (!row || !name) return;
+function addExerciseNameFromHistory(name) {
+    return _queueSheetAliasWrite((row, session) => _addExerciseNameFromHistory(row, session, name));
+}
+
+async function _addExerciseNameFromHistory(row, session, name) {
+    if (!name) return;
     const res = await _postExerciseMerge({ name, into_id: row.id }, (list) => list
         .map((r) => (r && r.id === row.id ? { ...r, aliases: [...(r.aliases || []), name] } : r)));
-    if (!res || _editingRow !== row) return;
-    _editingRow = { ...row, aliases: Array.isArray(res.aliases) ? res.aliases : [] };
+    if (!res || session !== _sheetSession) return;
+    _editingRow = { ..._editingRow, aliases: Array.isArray(res.aliases) ? res.aliases : [] };
     await _loadExerciseNames();
     _paintExerciseAliases();
     _paintExerciseLibraryPicker();
@@ -787,9 +838,11 @@ async function addExerciseNameFromHistory(name) {
 
 // EI1 "×": no confirm — the logs just go back under that name. The stored
 // row is sent, not the form, so unsaved edits in the sheet stay unsaved.
-async function removeExerciseAlias(alias) {
-    const row = _editingRow;
-    if (!row) return;
+function removeExerciseAlias(alias) {
+    return _queueSheetAliasWrite((row, session) => _removeExerciseAlias(row, session, alias));
+}
+
+async function _removeExerciseAlias(row, session, alias) {
     const aliases = (row.aliases || []).filter((a) => a !== alias);
     const body = {
         name: row.name, default_sets: row.default_sets, default_reps_min: row.default_reps_min,
@@ -808,7 +861,7 @@ async function removeExerciseAlias(alias) {
     }
     if (!ok) {
         if (handle) await handle.rollback().catch(() => {});
-        if (_editingRow && _editingRow.id === row.id) {
+        if (session === _sheetSession) {
             _editingRow = row;
             _paintExerciseAliases();
         }
@@ -816,8 +869,11 @@ async function removeExerciseAlias(alias) {
         return;
     }
     if (handle) await handle.commit(null).catch(() => {});
-    await _loadExerciseNames();
     loadExerciseLibrary();
+    if (session !== _sheetSession) return;
+    await _loadExerciseNames();
+    _paintExerciseAliases();
+    _paintExerciseLibraryPicker();
 }
 
 function openExerciseLibraryPicker(mode) {

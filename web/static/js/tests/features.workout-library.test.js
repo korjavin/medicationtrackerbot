@@ -971,6 +971,56 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     s.querySelector('.wg-eyebrow').textContent, [...s.querySelectorAll('.wg-row__title')].map((t) => t.textContent),
   ]);
 
+  it('Add hides the Edit-only controls for real: [hidden] wins over the kit display rules', async () => {
+    // The real stylesheets: .wg-btn / .wg-section / .wg-error set display,
+    // which beats the UA [hidden] rule unless the sheet guards it.
+    const style = env.document.createElement('style');
+    style.textContent = ['components.css', 'styles.css']
+      .map((f) => fs.readFileSync(path.resolve(path.dirname(CSS_PATH), f), 'utf8')).join('\n');
+    env.document.head.appendChild(style);
+    const display = (id) => env.window.getComputedStyle($(id)).display;
+
+    await env.window.showExerciseLibraryModal();
+    for (const id of ['exercise-library-names', 'exercise-library-merge-btn', 'exercise-library-name-merge',
+      'exercise-library-name-error', 'exercise-library-rename-hint']) {
+      expect(display(id), id).toBe('none');
+    }
+
+    // Edit with a free name: the identity section and Merge show, the
+    // taken-name offer does not.
+    const row = await lib('Kettlebell Swings');
+    await env.window.WorkoutLibrary.openEdit(row.id);
+    expect(display('exercise-library-names')).not.toBe('none');
+    expect(display('exercise-library-merge-btn')).not.toBe('none');
+    expect(display('exercise-library-name-merge')).toBe('none');
+    expect(display('exercise-library-name-error')).toBe('none');
+  });
+
+  it('picking a suggestion re-checks the name: a free pick clears the taken state', async () => {
+    env.window.fetch = vi.fn(async (url) => (String(url).includes('exercises-catalog.json')
+      ? { ok: true, status: 200, json: async () => ({ exercises: [{ name: 'Barbell squat' }] }) }
+      : { ok: true, status: 200, json: async () => ({}) }));
+    await lib('Squat');
+    const dup = await lib('Goblet Squats');
+    await env.window.WorkoutLibrary.openEdit(dup.id);
+
+    type('Squat');
+    expect($('exercise-library-save-btn').disabled).toBe(true);
+    expect($('exercise-library-name-error').textContent).toBe('You already have Squat.');
+
+    let pick = null;
+    await vi.waitFor(() => {
+      pick = [...$('exercise-library-suggest').querySelectorAll('.wg-exercise-suggest__row')]
+        .find((b) => b.textContent === 'Barbell squat');
+      expect(pick).toBeTruthy();
+    });
+    pick.click();
+    expect($('exercise-library-name').value).toBe('Barbell squat');
+    expect($('exercise-library-save-btn').disabled).toBe(false);
+    expect($('exercise-library-name-error').hidden).toBe(true);
+    expect($('exercise-library-name-merge').hidden).toBe(true);
+  });
+
   it('merges Swings into Kettlebell Swings from the Edit sheet; stats then show one row', async () => {
     const ks = await lib('Kettlebell Swings', { body_part: 'upper legs' });
     const swings = await lib('Swings');
@@ -1047,6 +1097,47 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     expect((await names()).map((e) => [e.name, e.log_count])).toEqual([['Kettlebell Swings', 3], ['Lateral Raises', 1]]);
   });
 
+  it('two quick + taps both land: the sheet\'s identity writes run one at a time', async () => {
+    const ks = await lib('Kettlebell Swings');
+    await logAs('Swings');
+    await logAs('KB Swings');
+    await env.window.WorkoutLibrary.openEdit(ks.id);
+    $('exercise-library-add-name-btn').click();
+
+    await Promise.all([
+      env.window.WorkoutLibrary.addNameFromHistory('Swings'),
+      env.window.WorkoutLibrary.addNameFromHistory('KB Swings'),
+      env.window.WorkoutLibrary.removeAlias('Swings'),
+    ]);
+    expect((await library())[0].aliases).toEqual(['KB Swings']);
+    expect(rows($('exercise-library-aliases'))).toEqual([['KB Swings', expect.stringMatching(/^1 log · last /)]]);
+    expect(rows($('exercise-library-picker-list')).map(([t]) => t)).toEqual(['Swings']);
+  });
+
+  it('a queued write stays with the sheet it came from when another sheet opens before its turn', async () => {
+    const ks = await lib('Kettlebell Swings');
+    const hc = await lib('Hammer Curls');
+    await logAs('Swings');
+    await env.window.WorkoutLibrary.openEdit(ks.id);
+
+    // Save reads the form at the tap; the + after it is queued behind it.
+    type('KB Hip Swings');
+    const saved = env.window.saveExerciseLibraryItem();
+    const added = env.window.WorkoutLibrary.addNameFromHistory('Swings');
+    env.window.closeExerciseLibraryModal();
+    const reopened = env.window.WorkoutLibrary.openEdit(hc.id);
+    await Promise.all([saved, added, reopened]);
+
+    // Save landed on its own row with its own values; the + was dropped with
+    // its sheet; the newly opened sheet is untouched and still open.
+    expect((await library()).map((r) => [r.name, r.aliases])).toEqual([
+      ['Hammer Curls', undefined], ['KB Hip Swings', ['Kettlebell Swings']],
+    ]);
+    expect($('exercise-library-modal').classList.contains('hidden')).toBe(false);
+    expect($('exercise-library-name').value).toBe('Hammer Curls');
+    expect(rows($('exercise-library-aliases'))).toEqual([]);
+  });
+
   it('a rename keeps the history and shows the old name as an alias (EI2)', async () => {
     const row = await lib('Hammer Curls');
     await logAs('Hammer Curls');
@@ -1078,7 +1169,7 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
 
     $('exercise-library-aliases').querySelector('[aria-label="Remove Swings"]').click();
     expect(dialog()).toBeNull();
-    expect(rows($('exercise-library-aliases')).map(([t]) => t)).toEqual(['KB Swings']);
+    await vi.waitFor(() => expect(rows($('exercise-library-aliases')).map(([t]) => t)).toEqual(['KB Swings']));
     await vi.waitFor(async () => expect((await library())[0].aliases).toEqual(['KB Swings']));
     expect((await names()).map((e) => [e.name, e.library_id])).toEqual([['Swings', null]]);
   });
