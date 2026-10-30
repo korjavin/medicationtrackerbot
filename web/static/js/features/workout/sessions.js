@@ -669,8 +669,8 @@ async function _ensureExerciseHistory(name) {
 
 // -- Weight check (med-l5yr.5, kit WS1–WS3) --
 // The rule lives in /domain/weight-sanity.js; this view loads it once, and
-// reads the baseline each log is judged on (its history before that log),
-// then evaluates the on-screen done sets synchronously — so a ticked or
+// reads the context each log is judged in (the exercise's other logs and
+// where this one sits, so a later log can heal it), then evaluates the on-screen done sets synchronously — so a ticked or
 // edited set gets its note at once. Never blocks a save.
 // Keyed per log: two logs of one exercise in a session have different
 // baselines (the earlier one counts for the later). A new log (id 0) is

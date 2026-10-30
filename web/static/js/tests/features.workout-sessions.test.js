@@ -3676,7 +3676,12 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
   };
   const notes = (c) => [...c.querySelectorAll('.wg-note--warn')];
   const updates = (window) => window.apiCall.mock.calls.filter(([e]) => e === '/api/workout/sessions/logs/update');
-  const HEAVIEST_50 = { prior_logs: 5, heaviest_kg: 50, unweighted: false };
+  // The weight-check route's context: the exercise's other logs (oldest
+  // first) and where this log sits among them.
+  const ctx = (...kgs) => ({
+    logs: kgs.map((kg) => ({ sets: [{ weight_kg: kg, set_type: 'normal' }] })), index: kgs.length, unweighted: false,
+  });
+  const HEAVIEST_50 = ctx(50, 50, 50, 50, 50);
 
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -3740,9 +3745,9 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
     window.apiCall = vi.fn(async (endpoint) => {
       const e = String(endpoint);
       if (e.startsWith('/api/workout/exercises/weight-check')) {
-        if (!e.endsWith('log_id=5')) return { prior_logs: 3, heaviest_kg: 50, unweighted: false };
+        if (!e.endsWith('log_id=5')) return ctx(50, 50, 50);
         if (first) { first = false; return stale.promise; }
-        return { prior_logs: 4, heaviest_kg: heaviest, unweighted: false };
+        return ctx(50, 50, 50, heaviest);
       }
       if (e === '/api/workout/sessions/logs/update') return { id: 4 };
       return [];
@@ -3771,7 +3776,7 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
     expect(notes(c)[0].textContent).toContain('your heaviest 50 kg');
 
     // The read from before the edit lands late: ignored.
-    stale.resolve({ prior_logs: 4, heaviest_kg: 60, unweighted: false });
+    stale.resolve(ctx(50, 50, 50, 60));
     await drain();
     show(1);
     expect(notes(c)).toHaveLength(1);
@@ -3779,14 +3784,14 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
 
   it('no note before three earlier logs', async () => {
     const { window, document } = env;
-    const c = mount(window, document, { sets: [50, 255], baseline: { ...HEAVIEST_50, prior_logs: 2 } });
+    const c = mount(window, document, { sets: [50, 255], baseline: ctx(50, 50) });
     await drain();
     expect(notes(c)).toHaveLength(0);
   });
 
   it('kg on a band: Clear kg sets 0, Keep 75 kg confirms', async () => {
     const { window, document } = env;
-    const band = { prior_logs: 0, heaviest_kg: 0, unweighted: true };
+    const band = { logs: [], index: 0, unweighted: true };
     let c = mount(window, document, { name: 'Band pull-apart', sets: [75], baseline: band });
     await drain();
     expect(notes(c)[0].textContent).toContain('A band has no weight in kg. Log reps only?');
