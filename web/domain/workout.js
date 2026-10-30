@@ -798,7 +798,11 @@ export function buildExerciseResolver(libraryRows, logsNewestFirst) {
   }
   return function resolve(name) {
     const k = exerciseKey(name);
-    const row = rowByKey.get(k);
+    const hit = rowByKey.get(k);
+    // An alias of a row whose name duplicates a lower-id row's (case variants
+    // the old case-sensitive guard let in) answers to that winner, so one key
+    // is always one row.
+    const row = hit && rowByKey.get(exerciseKey(hit.name));
     if (row) return { key: exerciseKey(row.name), name: row.name, libraryId: row.id ?? null };
     return { key: k, name: displayByKey.get(k) || String(name ?? '').trim(), libraryId: null };
   };

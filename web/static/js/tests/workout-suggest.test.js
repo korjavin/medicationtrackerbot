@@ -81,6 +81,16 @@ describe('rankNextExercises', () => {
       .toEqual(['Kettlebell Swings']);
   });
 
+  it('case-duplicate rows answer as the lower-id winner whichever alias was logged, in either library order', () => {
+    const sessions = [S(1, '2026-01-01'), S(9, '2026-01-07')];
+    const a = { id: 10, name: 'Bench Press', body_part: 'chest', aliases: ['Flat Bench'] };
+    const b = { id: 20, name: 'bench press', body_part: 'arms', aliases: ['BB Bench'] };
+    for (const library of [[a, b], [b, a]]) {
+      const out = rankNextExercises({ sessions, logs: [L(1, 'BB Bench')], library, sessionId: 9 });
+      expect(out).toEqual([a]);
+    }
+  });
+
   it('ignores skipped/placeholder history and caps at the limit', () => {
     const sessions = [S(1, '2026-01-01'), S(9, '2026-01-07')];
     const logs = [L(1, 'A'), L(1, 'B', 'skipped'), L(1, 'C'), L(1, 'D'), L(1, 'E')];

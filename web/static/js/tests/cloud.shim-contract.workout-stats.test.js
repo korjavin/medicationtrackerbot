@@ -597,6 +597,24 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(row.aliases).toEqual(['dumbbell hammer curl']);
         });
 
+        // Case-duplicate rows (let in by the old case-sensitive guard, or from
+        // an older client) share one key: every spelling — either row's alias
+        // included — lands on the lower-id row, whatever order history ran in.
+        for (const [label, order] of [['BB Bench first', ['BB Bench', 'Flat Bench']], ['Flat Bench first', ['Flat Bench', 'BB Bench']]]) {
+            it(`a case-duplicate row's alias resolves to the lower-id winner (${label})`, async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { name: 'Bench Press', body_part: 'chest', aliases: ['Flat Bench'] });
+                await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { name: 'bench press', body_part: 'arms', aliases: ['BB Bench'] });
+                await logAs(env, order[0], 60, 3);
+                await logAs(env, order[1], 70);
+                const stats = await env.window.apiCallDirect('/api/workout/stats');
+                expect(stats.exercise_totals).toEqual([
+                    expect.objectContaining({ exercise_name: 'Bench Press', body_part: 'chest', session_count: 2 }),
+                ]);
+                expect(stats.prs.map((p) => p.exercise_name)).toEqual(['Bench Press', 'Bench Press']);
+            });
+        }
+
         it('rejects an alias another row already answers to', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             await lib(env, 'Kettlebell Swings', ['Swings']);

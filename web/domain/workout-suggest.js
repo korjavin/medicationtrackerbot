@@ -25,7 +25,11 @@ export function rankNextExercises({ sessions = [], logs = [], library = [], sess
   const resolve = buildExerciseResolver(library);
   const key = (name) => resolve(name).key;
   const libByKey = new Map();
-  for (const item of library) if (item && key(item.name)) libByKey.set(key(item.name), item);
+  // One row per key: the resolver's winner when two rows' names share a key.
+  for (const item of library) {
+    const k = item && key(item.name);
+    if (k && (!libByKey.has(k) || resolve(item.name).libraryId === item.id)) libByKey.set(k, item);
+  }
 
   const inSession = logs.filter((l) => l.session_id === sessionId);
   const taken = new Set(inSession.map((l) => key(l.exercise_name)));
