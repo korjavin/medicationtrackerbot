@@ -30,6 +30,10 @@ on:
   # Any branch: spike branches ship to TestFlight from here.
   workflow_dispatch:
     inputs:
+      health_diagnostic:
+        description: Native HealthKit unsigned Simulator baseline only
+        type: boolean
+        default: false
       visual:
         description: Simulator screenshots only (skips the build and TestFlight)
         type: boolean
@@ -43,10 +47,62 @@ permissions:
   contents: read
 
 jobs:
+  health-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.health_diagnostic
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build unsigned native baseline
+        run: |
+          set -o pipefail
+          QA=1 ios/bundle-web.sh "${{ github.run_number }}"
+          command -v xcodegen >/dev/null || brew install xcodegen
+          cd ios
+          xcodegen generate
+          xcodebuild -version
+          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO WG_BASE_DOMAIN=qa.test > build.log 2>&1
+      - name: Inspect built entitlements
+        run: |
+          app=ios/build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app
+          mkdir -p evidence
+          codesign -dvvv --entitlements :- "$app" > evidence/signature.txt 2>&1 || true
+          otool -l "$app/MedTracker" > evidence/load-commands.txt
+          cp ios/App/MedTracker.entitlements evidence/requested-entitlements.plist
+      - name: Boot Simulator
+        run: ios/qa/boot-sim.sh 'iPhone 16e,iPhone 16,iPhone 15' '390pt'
+      - name: Direct native authorization and query
+        run: |
+          set -o pipefail
+          udid=$(cut -d= -f2 "$RUNNER_TEMP/devices")
+          xcodebuild test-without-building -project ios/MedTracker.xcodeproj -scheme MedTracker \
+            -only-testing:MedTrackerUITests/HealthDiagnosticTests -destination "platform=iOS Simulator,id=$udid" \
+            -derivedDataPath ios/build/sim -resultBundlePath evidence/health.xcresult \
+            > evidence/xctest.log 2>&1
+      - name: Collect native system logs
+        if: always()
+        run: |
+          mkdir -p evidence
+          if [ -f "$RUNNER_TEMP/devices" ]; then
+            udid=$(cut -d= -f2 "$RUNNER_TEMP/devices")
+            xcrun simctl spawn "$udid" log show --last 15m --style compact \
+              --predicate 'process == "healthd" OR process == "MedTracker" OR subsystem CONTAINS "health"' \
+              > evidence/health-system.log 2>&1 || true
+          fi
+          cp ios/build.log evidence/build.log 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: health-native-baseline
+          path: evidence/
+          retention-days: 3
+
   build:
     # Not on a visual- or qa-only run: a label event, or a visual / qa
     # dispatch (which must never reach the TestFlight steps).
-    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa
+    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa && !inputs.health_diagnostic
     # Job-level, so a visual run never cancels a build or a TestFlight dispatch.
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
