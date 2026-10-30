@@ -282,7 +282,44 @@ type AttestAPI struct {
 	// instance runs); a multi-instance deploy needs a DB-level lease instead.
 	grantMu    sync.Mutex
 	challenges map[string]time.Time
-	mux        *http.ServeMux
+	// Free never-attached voice starts per bucket on abandonDay (UTC), under mu
+	// (bd med-02b0). ponytail: in memory, a restart resets it — acceptable at
+	// deploy frequency; persist it if deploys get frequent.
+	abandonDay string
+	abandons   map[string]int
+	// abandonFree is the ElevenLabs time the day's free refunds may have let
+	// run, server-wide; capped at cfg.VoiceGlobal / 2 (Argus 8452, Miles 8461).
+	abandonFree int
+	mux         *http.ServeMux
+}
+
+// attestVoiceFreeAbandons is how many never-attached starts a bucket gets
+// refunded per UTC day; later ones are charged (docs/cloud-mode.md, Metering).
+const attestVoiceFreeAbandons = 3
+
+// takeFreeAbandon counts one never-attached start of bucket on now's UTC day
+// and reports whether it is still free: within the bucket's 3, and within
+// the server-wide daily cap. The refund gives the global budget (the SUM of
+// the daily rows) back too, so the free sessions are capped separately; each
+// costs max(grant, call max), what its ElevenLabs session can have run.
+func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) bool {
+	day := now.UTC().Format("2006-01-02")
+	cost := max(grant, a.cfg.VoiceCallMax)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.abandonDay != day {
+		a.abandonDay, a.abandons, a.abandonFree = day, map[string]int{}, 0
+	}
+	if a.abandons[bucket] >= attestVoiceFreeAbandons {
+		return false
+	}
+	// The free-session allowance is half the global daily cap (Miles 8461).
+	if a.cfg.VoiceGlobal > 0 && a.abandonFree+cost > a.cfg.VoiceGlobal/2 {
+		return false
+	}
+	a.abandons[bucket]++
+	a.abandonFree += cost
+	return true
 }
 
 // NewAttestAPI builds the routes; trial supplies the provider config, the
@@ -435,10 +472,11 @@ func (a *AttestAPI) voiceLimits(resp map[string]any) {
 // assertion binds the URI like the food routes). One transaction CHARGES the
 // whole grant; then the signed URL is minted with the operator key (never
 // logged) and the call is pre-registered in the relay. The charge is refunded
-// only when no signed URL reached the client (mint failure, lost relay race):
-// once it has, the ElevenLabs session can run to the agent's own
-// max_duration_seconds whatever the device leg does, so an early hang-up or a
-// dropped leg is never refunded.
+// when no signed URL reached the client (mint failure, lost relay race), and
+// for a call no device leg ever attached to (bounded per bucket per day, see
+// abandon). Once a leg attached, the ElevenLabs session can run to the
+// agent's own max_duration_seconds whatever the leg does, so an early
+// hang-up or a dropped leg is never refunded.
 func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	if !a.voiceConfigured(w) {
 		return
@@ -448,8 +486,10 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keyID, bucket := q.keyID, q.install.BucketID
-	// One call per bucket: two installs of one device share the minutes.
-	if a.voice.HasAnonCall(bucket) {
+	// One call per bucket: two installs of one device share the minutes. A
+	// call no leg ever attached to is ended (and refunded, bounded) first, so
+	// the retry after a failed attach mints anew (bd med-02b0).
+	if a.voice.EndPendingAnonCall(bucket) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
 		return
 	}
@@ -488,7 +528,18 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
-	call, ok := a.voice.MintAnonCall(bucket, time.Duration(grant)*time.Second)
+	// A call that never attaches costs nothing — up to attestVoiceFreeAbandons
+	// a bucket per UTC day and the server-wide daily cap, so devices cannot run
+	// unbounded free ElevenLabs sessions from signed URLs they never attach
+	// to (bd med-02b0).
+	abandon := func() {
+		refunded := a.takeFreeAbandon(bucket, time.Now(), grant)
+		if refunded {
+			refund(grant)
+		}
+		slog.Info("attest voice start abandoned", "install", keyID, "seconds", grant, "refunded", refunded)
+	}
+	call, ok := a.voice.MintAnonCall(bucket, time.Duration(grant)*time.Second, abandon)
 	if !ok {
 		// A concurrent start for this install won the relay slot; this signed
 		// URL never left the server, so no ElevenLabs session can use it.
