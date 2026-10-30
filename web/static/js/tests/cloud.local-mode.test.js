@@ -420,6 +420,7 @@ describe('local-boot apiCallDirect ordering (med-o7zq.2)', () => {
             location: { origin: 'wgapp://local' },
             document: {
                 documentElement: { classList: { add() {} } },
+                querySelector() { return null; },
                 readyState: 'loading',
                 addEventListener(type, cb) { if (type === 'DOMContentLoaded') onReady = cb; },
             },

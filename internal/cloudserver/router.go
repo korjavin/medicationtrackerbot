@@ -106,18 +106,19 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	handoff, _ := fs.ReadFile(shellFS, "handoff.html")
 	buildID := buildIDFrom(idx)
 	idx, buildID = stampDevVersion(idx, buildID, vcsRevision())
+	productName := privacyEnv("PRIVACY_NAME", "MyHealthBot")
 	return &Handler{
 		baseDomain:   baseDomain,
 		store:        store,
 		shell:        http.FileServerFS(shellFS),
 		app:          http.StripPrefix("/static/", http.FileServerFS(appFS)),
 		domain:       http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
-		appIndex:     injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
+		appIndex:     injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID, productName),
 		shellIndex:   signup,
 		buildID:      buildID,
 		api:          api,
 		landingRaw:   landing,
-		privacyPage:  renderPrivacyPage(docs.PrivacyPolicy, baseDomain, privacyContact(), privacyEnv("PRIVACY_NAME", "MyHealthBot"), privacyEnv("PRIVACY_OPERATOR", "its developer")),
+		privacyPage:  renderPrivacyPage(docs.PrivacyPolicy, baseDomain, privacyContact(), productName, privacyEnv("PRIVACY_OPERATOR", "its developer")),
 		inviteIndex:  invite,
 		handoffIndex: handoff,
 	}
@@ -247,7 +248,7 @@ func (h *Handler) BuildID() string {
 // data-store.js ever check it — so it goes first, ahead of
 // even native-bootstrap.js. web/static/index.html itself stays untouched;
 // this only rewrites the copy cmd/cloud serves.
-func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, buildID string) []byte {
+func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, buildID, productName string) []byte {
 	const marker = "<head>"
 	// Flag only: the operator's food-DB host is private and must never reach
 	// the browser (requests go through same-origin /api/food/*).
@@ -256,6 +257,8 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 		inject += "\n    <meta name=\"medtracker-food-db\" content=\"1\">"
 	}
 	inject += "\n    <meta name=\"medtracker-build-id\" content=\"" + html.EscapeString(buildID) + "\">"
+	// The voice provisioner uses the same instance identity as the privacy page.
+	inject += "\n    <meta name=\"medtracker-product-name\" content=\"" + html.EscapeString(productName) + "\">"
 	if trialAI {
 		inject += "\n    <meta name=\"medtracker-trial-ai\" content=\"1\">"
 	}

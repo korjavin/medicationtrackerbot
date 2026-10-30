@@ -1891,6 +1891,7 @@ export function installApiShim(ctx, {
   targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({
     settingsDomain: settings,
     llmURL: `${targetWindow.location.origin}/api/voice-llm`,
+    productName: targetWindow.document.querySelector('meta[name="medtracker-product-name"]')?.content || undefined,
   });
   // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
   // (cloud only) that dispatch straight into this in-tab catalog — through this

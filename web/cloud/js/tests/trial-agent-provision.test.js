@@ -52,7 +52,26 @@ describe('scripts/provision-trial-agent.mjs', () => {
     // the drift this bead exists to prevent.
     const src = fs.readFileSync(SCRIPT, 'utf8');
     expect(src).not.toContain(shared.first_message);
-    expect(src).not.toContain('You are Silas');
+    expect(src).not.toContain(shared.prompt.prompt.split('\n')[0]);
+  });
+
+  it('uses the instance identity in the shared prompt and every greeting, including the script preview', () => {
+    for (const productName of ['Example Health', undefined]) {
+      const name = productName || 'MyHealthBot';
+      const cc = buildAgentConfig([], { llmURL: LLM_URL, productName }).conversation_config;
+      expect(cc.agent.prompt.prompt.split('\n')[0]).toBe(
+        `You are the user's ${name} health bot, their personal health concierge in this app, where they`,
+      );
+      expect(cc.agent.first_message).toBe(`I'm your ${name} health bot. Would you like to log a reading, or take a look at your numbers?`);
+      const preview = run([], { PRIVACY_NAME: productName || '' });
+      expect(preview.status, preview.stderr).toBe(0);
+      expect(preview.stdout).toContain(cc.agent.first_message);
+      for (const preset of Object.values(cc.language_presets)) {
+        expect(preset.overrides.agent.first_message).toContain(name);
+        expect(preview.stdout).toContain(preset.overrides.agent.first_message);
+      }
+    }
+    expect(TOOLSET_VERSION).toBeGreaterThan(10);
   });
 
   it('ships a multilingual agent: v4_turbo TTS, language detection, ru preset, mirror-language prompt (bd med-qxdv)', () => {

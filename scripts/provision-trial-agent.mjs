@@ -5,12 +5,13 @@
 //   pnpm trial:agent            # dry run: prints the payload, calls nothing
 //   pnpm trial:agent --apply    # really rewrites the shared trial agent
 //
-// The BYO path provisions itself from code on the next voice connect
-// (web/cloud/js/elevenlabs-agent.js, keyed by TOOLSET_VERSION), but the trial
-// agent lives in the operator's own ElevenLabs account and nothing in the
-// server touches the management API. Re-run this after every TOOLSET_VERSION
-// bump or trial users keep the old tool list — exactly the drift that stranded
-// them in #817. It is NOT automatic.
+// The BYO path provisions itself from code on the next voice connect, updating
+// tools on TOOLSET_VERSION changes and verifying managed identity/relay once
+// per cold provisioner (web/cloud/js/elevenlabs-agent.js). The trial agent lives
+// in the operator's own ElevenLabs account and nothing in the server touches
+// the management API. Re-run this after every TOOLSET_VERSION bump or
+// PRIVACY_NAME change, using the same name as cmd/cloud, or trial users keep
+// the old shared config. It is NOT automatic.
 //
 // Credentials come from the same envs cmd/cloud reads
 // (internal/cloudserver/trial.go): TRIAL_ELEVENLABS_API_KEY and
@@ -44,6 +45,8 @@ const apply = argv.includes('--apply');
 const agentId = process.env.TRIAL_ELEVENLABS_AGENT_ID || '';
 const apiKey = process.env.TRIAL_ELEVENLABS_API_KEY || '';
 const llmURL = process.env.TRIAL_VOICE_LLM_URL || '';
+// Same instance name used by cmd/cloud for the privacy page and app metadata.
+const productName = process.env.PRIVACY_NAME || undefined;
 // TRIAL_VOICE_RELAY_SECRET (bd med-k80h): the same value cmd/cloud reads. The
 // agent sends it as X-Voice-Relay-Secret on every custom-LLM POST and the relay
 // requires it on anonymous calls once the server has it set. Never printed.
@@ -79,7 +82,7 @@ if (!apply) {
   console.log('\n--- agent PATCH body (tool ids resolved at apply time) ---');
   const previewURL = llmURL || '<TRIAL_VOICE_LLM_URL>';
   const previewHeaders = llmHeaders(relaySecret && '<TRIAL_VOICE_RELAY_SECRET>');
-  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { llmURL: previewURL, llmHeaders: previewHeaders, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }), null, 2));
+  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { productName, llmURL: previewURL, llmHeaders: previewHeaders, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }), null, 2));
   console.log('\nDry run — nothing was sent. Re-run with --apply to push this.');
   process.exit(0);
 }
@@ -126,7 +129,7 @@ try {
     console.error(`Resolved only ${toolIds.length}/${TOOL_SPECS.length} tool ids — refusing to wire a partial agent.`);
     process.exit(1);
   }
-  const config = buildAgentConfig(toolIds, { llmURL, llmHeaders: llmHeaders(relaySecret), maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS });
+  const config = buildAgentConfig(toolIds, { productName, llmURL, llmHeaders: llmHeaders(relaySecret), maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS });
   try {
     await patchAgent(apiKey, agentId, config);
   } catch (err) {
