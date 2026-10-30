@@ -2227,13 +2227,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // pending session. `exerciseName` is retained in the signature for callers but
   // is intentionally not part of the guard.
   // acceptedPerformance (med-l5yr.5) is the performance a progression read
-  // may see: a logged {sets, reps, weight, perSet} of `name` (log `logId` in
-  // `sessionId`) without its unconfirmed weight-sanity sets, judged on the
-  // history before that log. null = every set is flagged, nothing to
-  // progress from.
-  async function acceptedPerformance(name, sessionId, logId, perf) {
-    const log = { sets: perf.perSet, sets_completed: perf.sets, weight_kg: perf.weight };
-    const { flags } = flagSets(setsOf(log), await exerciseWeightBaseline(name, sessionId, logId));
+  // may see: a logged {sets, reps, weight, perSet} of `name` (the stored log
+  // `stored` in `sessionId`) without its unconfirmed weight-sanity sets,
+  // judged on the history before that log. A partial update passes no set
+  // count; a flat log is then judged on the stored one. null = every set is
+  // flagged, nothing to progress from.
+  async function acceptedPerformance(name, sessionId, stored, perf) {
+    const log = {
+      sets: perf.perSet,
+      sets_completed: hasValue(perf.sets) ? perf.sets : stored && stored.sets_completed,
+      weight_kg: perf.weight,
+    };
+    const { flags } = flagSets(setsOf(log), await exerciseWeightBaseline(name, sessionId, stored && stored.id));
     if (!flags.some(Boolean)) return perf;
     const kept = withoutFlagged(log, flags);
     if (kept.sets.length === 0) return null;
@@ -2252,7 +2257,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // logs (createLog's guard).
     const own = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
       .find((l) => l.session_id === sessionId && l.exercise_id === exerciseId && l.source !== 'library');
-    const perf = await acceptedPerformance(exerciseName, sessionId, own && own.id, { sets, reps, weight, perSet });
+    const perf = await acceptedPerformance(exerciseName, sessionId, own || null, { sets, reps, weight, perSet });
     if (!perf) return;
     ({ sets, reps, weight, perSet } = perf);
 
@@ -3295,7 +3300,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // Same effective-scalar collapse propagate does at write time, and the
       // same accepted-set view (med-l5yr.5): an unconfirmed typo proposes
       // nothing.
-      const perf = await acceptedPerformance(latest.exercise_name, latest.session_id, latest.id, {
+      const perf = await acceptedPerformance(latest.exercise_name, latest.session_id, latest, {
         sets: latest.sets_completed === 0 ? null : latest.sets_completed,
         reps: latest.reps_completed === 0 ? null : latest.reps_completed,
         weight: latest.weight_kg,

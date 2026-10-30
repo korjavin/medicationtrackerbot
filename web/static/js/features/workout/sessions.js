@@ -668,15 +668,29 @@ async function _ensureExerciseHistory(name) {
 }
 
 // -- Weight check (med-l5yr.5, kit WS1–WS3) --
-// The rule lives in /domain/weight-sanity.js; this view loads it once, and the
-// baseline each exercise is judged on (its history before this session) once
-// per name per open, then evaluates the on-screen done sets synchronously —
-// so a ticked or edited set gets its note at once. Never blocks a save.
+// The rule lives in /domain/weight-sanity.js; this view loads it once, and
+// reads the baseline each log is judged on (its history before that log),
+// then evaluates the on-screen done sets synchronously — so a ticked or
+// edited set gets its note at once. Never blocks a save.
 // Keyed per log: two logs of one exercise in a session have different
 // baselines (the earlier one counts for the later). A new log (id 0) is
 // judged after the session's stored logs, and re-reads once it has an id.
+// Every saved set write or log delete bumps ui.sanityGen: baselines read
+// before it are stale (an edit to an earlier log moves a later one's), so
+// they are re-read, keeping the old value on screen until the new one lands;
+// a read started under an older generation never writes back.
+// ponytail: re-reads every cached log, not just later ones of the edited
+// exercise — a session holds a handful of logs.
 function _weightCheckKey(log) {
     return `${log.exercise_name}#${Number(log.id) > 0 ? log.id : 0}`;
+}
+
+function _invalidateWeightChecks() {
+    const ui = _sessionUi();
+    ui.sanityGen = (ui.sanityGen || 0) + 1;
+    const st = window.WorkoutSessionsState;
+    const cur = st.logs[ui.current];
+    if (!ui.overview && !ui.addStep && cur) _ensureWeightCheck(cur);
 }
 
 function _ensureWeightCheck(log) {
@@ -686,8 +700,10 @@ function _ensureWeightCheck(log) {
     if (!name || !st.data) return;
     if (!ui.sanity) ui.sanity = {};
     const key = _weightCheckKey(log);
-    if (Object.prototype.hasOwnProperty.call(ui.sanity, key)) return;
-    ui.sanity[key] = null;
+    const gen = ui.sanityGen || 0;
+    const entry = ui.sanity[key];
+    if (entry && entry.gen === gen) return;
+    ui.sanity[key] = { gen, value: entry ? entry.value : null };
     const logId = Number(log.id) > 0 ? `&log_id=${log.id}` : '';
     // Tests inject the real module as window.WeightSanity (like
     // WorkoutAnalysis in exercise-detail.js); bot mode has no /domain/ → null.
@@ -701,8 +717,8 @@ function _ensureWeightCheck(log) {
         base = Promise.reject(e);
     }
     Promise.all([mod, base]).then(([m, b]) => {
-        if (st.ui !== ui || !m || !b || typeof b !== 'object') return;
-        ui.sanity[key] = { flagSets: m.flagSets, baseline: b };
+        if (st.ui !== ui || (ui.sanityGen || 0) !== gen || !m || !b || typeof b !== 'object') return;
+        ui.sanity[key] = { gen, value: { flagSets: m.flagSets, baseline: b } };
         const cur = st.logs[ui.current];
         if (!ui.overview && !ui.addStep && cur && _weightCheckKey(cur) === key) _rerenderSessionLogs();
     }, () => {});
@@ -711,7 +727,8 @@ function _ensureWeightCheck(log) {
 // Per done set: null or { flag: 'jump'|'unweighted', reference_kg }.
 function _weightFlags(log) {
     const ui = _sessionUi();
-    const s = ui.sanity && ui.sanity[_weightCheckKey(log)];
+    const entry = ui.sanity && ui.sanity[_weightCheckKey(log)];
+    const s = entry && entry.value;
     if (!s) return [];
     return s.flagSets(_ensureLogSets(log), s.baseline).flags;
 }
@@ -2642,6 +2659,7 @@ async function deleteExerciseLog(index) {
             }
             if (historyHandle) await historyHandle.commit(null);
             await invalidateWorkoutCache();
+            if (hadLog) _invalidateWeightChecks();
         } catch (error) {
             // Hard failure: restore the local row + cached count, then surface.
             await restore();
@@ -2877,6 +2895,7 @@ async function saveWorkoutSessionDetails(opts) {
         // until the next manual refresh.
         let anyMutationSucceeded = false;
         let statusPersisted = false;
+        let setsWritten = false; // a saved set edit moves later logs' weight-check baselines
 
         // Skipping flips the status BEFORE the log writes below, so those writes
         // hit an already-skipped session and their plan propagation no-ops — a
@@ -3016,6 +3035,7 @@ async function saveWorkoutSessionDetails(opts) {
             }
             if (attempted) {
                 anyMutationSucceeded = true;
+                if (sentSets) setsWritten = true;
                 // Adopt the server id so a *subsequent* autosave routes through the
                 // idempotent update path. Without this, a created placeholder keeps
                 // id===0 && _dirty, so the next autosave hits logs/create again →
@@ -3056,6 +3076,7 @@ async function saveWorkoutSessionDetails(opts) {
         if (anyMutationSucceeded || optimisticHandles.length > 0) {
             await invalidateWorkoutCache();
         }
+        if (setsWritten && window.WorkoutSessionsState.data) _invalidateWeightChecks();
         // Finishing via this modal (the primary "Finish workout" path, also reached
         // by finishWorkoutSession) sets status=completed, which grants Movement-ring
         // HP — evict the gamification caches like completeWorkoutSession does so the

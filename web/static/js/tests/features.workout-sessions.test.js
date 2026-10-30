@@ -3728,6 +3728,55 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
     expect(notes(c)).toHaveLength(0);
   });
 
+  it('a saved edit to an earlier log re-reads a later log\'s baseline; a read started before it never writes back', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WeightSanity = WeightSanity;
+    // Log B (id 5, 110 kg) is judged after log A (id 4) of the same exercise.
+    let heaviest = 60;
+    const stale = deferred();
+    let first = true;
+    window.apiCall = vi.fn(async (endpoint) => {
+      const e = String(endpoint);
+      if (e.startsWith('/api/workout/exercises/weight-check')) {
+        if (!e.endsWith('log_id=5')) return { prior_logs: 3, heaviest_kg: 50, unweighted: false };
+        if (first) { first = false; return stale.promise; }
+        return { prior_logs: 4, heaviest_kg: heaviest, unweighted: false };
+      }
+      if (e === '/api/workout/sessions/logs/update') return { id: 4 };
+      return [];
+    });
+    const set = (kg) => [{ set_index: 0, weight_kg: kg, reps: 8, set_type: 'normal' }];
+    window.WorkoutSessionsState.data = { id: 42, status: 'completed' };
+    window.WorkoutSessionsState.originalStatus = 'completed';
+    window.WorkoutSessionsState.logs = [
+      { id: 4, exercise_id: 1, exercise_name: 'Goblet Squat', status: 'completed', sets: set(60), sets_completed: 1, reps_completed: 8, weight_kg: 60, notes: '' },
+      { id: 5, exercise_id: 2, exercise_name: 'goblet squat', status: 'completed', sets: set(110), sets_completed: 1, reps_completed: 8, weight_kg: 110, notes: '' },
+    ];
+    const c = document.getElementById('workout-session-logs');
+    const show = (i) => { window.WorkoutSessionsState.ui.current = i; window.renderWorkoutSessionLogs(c); };
+    window.renderWorkoutSessionLogs(c);
+    show(1); // B's first read is in flight (it will answer the old 60)
+    await drain();
+
+    // Edit A to 50 and save: B is re-read against the new history.
+    show(0);
+    window.updateLocalSet(0, 0, 'weight_kg', 50);
+    heaviest = 50;
+    await window.saveWorkoutSessionDetails({ fromAutosave: true });
+    show(1);
+    await drain();
+    expect(notes(c)).toHaveLength(1);
+    expect(notes(c)[0].textContent).toContain('your heaviest 50 kg');
+
+    // The read from before the edit lands late: ignored.
+    stale.resolve({ prior_logs: 4, heaviest_kg: 60, unweighted: false });
+    await drain();
+    show(1);
+    expect(notes(c)).toHaveLength(1);
+  });
+
   it('no note before three earlier logs', async () => {
     const { window, document } = env;
     const c = mount(window, document, { sets: [50, 255], baseline: { ...HEAVIEST_50, prior_logs: 2 } });
