@@ -688,6 +688,43 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             window.document.body.appendChild(card);
             window.WGCallAgent.mountCard(card);
             expect(card.querySelector('.wg-callbar__photo').hidden).toBe(true);
+            expect(card.querySelector('.wg-callbar__gallery').hidden).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    // bd med-i8r9: camera and gallery both route through MediaCapture.pickPhoto
+    // (camera: default opts; gallery: { capture: false }) and feed sendPhoto.
+    it('camera and gallery buttons pick through MediaCapture.pickPhoto and send the picked photo', async () => {
+        const { window, conversation, relay, card, cleanup } = await liveCall();
+        try {
+            window.MediaCapture = { pickPhoto: vi.fn(async () => makeImageBlob(window)) };
+            const camera = card.querySelector('.wg-callbar__photo');
+            const gallery = card.querySelector('.wg-callbar__gallery');
+
+            camera.click();
+            await vi.waitFor(() => expect(relay.pending).toHaveLength(1));
+            expect(window.MediaCapture.pickPhoto).toHaveBeenLastCalledWith(undefined);
+            expect(camera.disabled).toBe(true);
+            expect(gallery.disabled).toBe(true);
+            expect(gallery.getAttribute('aria-label')).toBe('Sending…');
+            relay.pending[0].resolve();
+            await vi.waitFor(() => expect(gallery.disabled).toBe(false));
+            expect(gallery.getAttribute('aria-label')).toBe('Send photo from gallery');
+
+            gallery.click();
+            await vi.waitFor(() => expect(relay.pending).toHaveLength(2));
+            expect(window.MediaCapture.pickPhoto).toHaveBeenLastCalledWith({ capture: false });
+            relay.pending[1].resolve();
+            await vi.waitFor(() => expect(conversation.sendUserMessage).toHaveBeenCalledTimes(2));
+
+            // A cancelled pick sends nothing.
+            window.MediaCapture.pickPhoto.mockResolvedValueOnce(null);
+            await vi.waitFor(() => expect(gallery.disabled).toBe(false));
+            gallery.click();
+            await new Promise((r) => window.setTimeout(r, 0));
+            expect(relay.setPendingImage).toHaveBeenCalledTimes(2);
         } finally {
             cleanup();
         }
@@ -1276,18 +1313,17 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
 });
 
 describe('features/elevenlabs-call.js — Today card markup', () => {
-    it('mountCard() renders mute, photo, and hidden file input', () => {
+    it('mountCard() renders mute, camera and gallery photo buttons, and no file input of its own', () => {
         const { window, document, cleanup } = createEnv();
         try {
             const container = document.createElement('div');
             document.body.appendChild(container);
             window.WGCallAgent.mountCard(container);
             expect(container.querySelector('.wg-callbar__mute')).not.toBeNull();
-            expect(container.querySelector('.wg-callbar__photo')).not.toBeNull();
-            const input = container.querySelector('.wg-callbar__photo-input');
-            expect(input).not.toBeNull();
-            expect(input.getAttribute('type')).toBe('file');
-            expect(input.getAttribute('accept')).toBe('image/*');
+            expect(container.querySelector('.wg-callbar__photo').getAttribute('aria-label')).toBe('Send photo');
+            expect(container.querySelector('.wg-callbar__gallery').getAttribute('aria-label')).toBe('Send photo from gallery');
+            expect(container.querySelector('.wg-callbar__gallery .wg-ico').getAttribute('data-icon')).toBe('image');
+            expect(container.querySelector('input[type="file"]')).toBeNull();
         } finally {
             cleanup();
         }
@@ -1421,6 +1457,7 @@ describe('features/elevenlabs-call.js — Today call bar (kit T2/T4/T5)', () => 
                 'wg-callbar__status',
                 'wg-btn wg-btn--icon wg-btn--sm wg-callbar__mute',
                 'wg-btn wg-btn--icon wg-btn--sm wg-callbar__photo',
+                'wg-btn wg-btn--icon wg-btn--sm wg-callbar__gallery',
                 'wg-btn wg-btn--icon wg-btn--sm wg-callbar__end wg-btn--danger',
             ]);
             expect(bar.querySelector('[data-action="open-log"]').hasAttribute('data-call-live')).toBe(false);
