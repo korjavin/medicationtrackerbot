@@ -287,7 +287,10 @@ type AttestAPI struct {
 	// deploy frequency; persist it if deploys get frequent.
 	abandonDay string
 	abandons   map[string]int
-	mux        *http.ServeMux
+	// abandonFree is the ElevenLabs time the day's free refunds may have let
+	// run, server-wide; capped at cfg.VoiceGlobal (Argus 8452).
+	abandonFree int
+	mux         *http.ServeMux
 }
 
 // attestVoiceFreeAbandons is how many never-attached starts a bucket gets
@@ -295,18 +298,26 @@ type AttestAPI struct {
 const attestVoiceFreeAbandons = 3
 
 // takeFreeAbandon counts one never-attached start of bucket on now's UTC day
-// and reports whether it is still within the free ones.
-func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time) bool {
+// and reports whether it is still free: within the bucket's 3, and within
+// the server-wide daily cap. The refund gives the global budget (the SUM of
+// the daily rows) back too, so the free sessions are capped separately; each
+// costs max(grant, call max), what its ElevenLabs session can have run.
+func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) bool {
 	day := now.UTC().Format("2006-01-02")
+	cost := max(grant, a.cfg.VoiceCallMax)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.abandonDay != day {
-		a.abandonDay, a.abandons = day, map[string]int{}
+		a.abandonDay, a.abandons, a.abandonFree = day, map[string]int{}, 0
 	}
 	if a.abandons[bucket] >= attestVoiceFreeAbandons {
 		return false
 	}
+	if a.cfg.VoiceGlobal > 0 && a.abandonFree+cost > a.cfg.VoiceGlobal {
+		return false
+	}
 	a.abandons[bucket]++
+	a.abandonFree += cost
 	return true
 }
 
@@ -517,10 +528,11 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A call that never attaches costs nothing — up to attestVoiceFreeAbandons
-	// a bucket per UTC day, so a device cannot run free ElevenLabs sessions
-	// from signed URLs it never attaches to (bd med-02b0).
+	// a bucket per UTC day and the server-wide daily cap, so devices cannot run
+	// unbounded free ElevenLabs sessions from signed URLs they never attach
+	// to (bd med-02b0).
 	abandon := func() {
-		refunded := a.takeFreeAbandon(bucket, time.Now())
+		refunded := a.takeFreeAbandon(bucket, time.Now(), grant)
 		if refunded {
 			refund(grant)
 		}

@@ -135,6 +135,10 @@ type VoiceLLMRelayAPI struct {
 
 	mu    sync.Mutex
 	calls map[string]*voiceCall
+	// settling[subject] is closed once a dropped never-attached call's abandon
+	// hook (its refund) has finished, so the bucket's next start reserves
+	// against the settled balance (EndPendingAnonCall waits on it).
+	settling map[string]chan struct{}
 }
 
 // NewVoiceLLMRelayAPI builds the voice LLM relay handlers.
@@ -150,6 +154,7 @@ func NewVoiceLLMRelayAPI(store mcpRelayStore, sessionSecret string) *VoiceLLMRel
 		turnTimeout:   voiceTurnTimeout,
 		attachWindow:  voiceAnonAttachWindow,
 		calls:         make(map[string]*voiceCall),
+		settling:      make(map[string]chan struct{}),
 	}
 }
 
@@ -401,10 +406,23 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	c.mu.Lock()
 	attached := c.anon.attached
 	c.mu.Unlock()
-	if attached {
+	if attached || c.anon.abandon == nil {
 		return nil
 	}
-	return c.anon.abandon
+	// The bucket is free in the table from here on, but its refund is not done
+	// yet: a start for the same bucket waits on done before reserving.
+	done := make(chan struct{})
+	a.settling[c.accountID] = done
+	abandon := c.anon.abandon
+	return func() {
+		abandon()
+		a.mu.Lock()
+		if a.settling[c.accountID] == done {
+			delete(a.settling, c.accountID)
+		}
+		a.mu.Unlock()
+		close(done)
+	}
 }
 
 // EndPendingAnonCall drops bucket keyID's call if no leg ever attached to it
@@ -417,6 +435,8 @@ func (a *VoiceLLMRelayAPI) EndPendingAnonCall(keyID string) bool {
 	subject := cloudstore.AttestSubject(keyID)
 	a.mu.Lock()
 	var abandons []func()
+	// A drop by someone else (the reaper, a concurrent retry) still settling.
+	pending := a.settling[subject]
 	for _, c := range a.calls {
 		if c.accountID != subject || c.anon == nil {
 			continue
@@ -434,6 +454,9 @@ func (a *VoiceLLMRelayAPI) EndPendingAnonCall(keyID string) bool {
 	a.mu.Unlock()
 	for _, f := range abandons {
 		f()
+	}
+	if pending != nil {
+		<-pending
 	}
 	return busy
 }

@@ -547,6 +547,59 @@ func TestVoiceAnonAbandonHook(t *testing.T) {
 	}
 }
 
+// bd med-02b0 (Argus 8447): while the reaper's abandon (the refund) is still
+// running, the bucket's next start waits for it instead of reserving against
+// the old charge.
+func TestVoiceAnonAbandonSettlesBeforeNextStart(t *testing.T) {
+	relay := NewVoiceLLMRelayAPI(nil, "s")
+	relay.attachWindow = 5 * time.Millisecond
+	entered, release := make(chan struct{}), make(chan struct{})
+	relay.MintAnonCall("k-settle", time.Minute, func() { close(entered); <-release })
+	select {
+	case <-entered: // the reaper dropped the call and is inside the refund
+	case <-time.After(relayTestDeadline):
+		t.Fatal("never reaped")
+	}
+	if relay.HasAnonCall("k-settle") {
+		t.Fatal("call still in the table")
+	}
+	returned := make(chan bool)
+	go func() { returned <- relay.EndPendingAnonCall("k-settle") }()
+	select {
+	case <-returned:
+		t.Fatal("next start went on before the refund settled")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case busy := <-returned:
+		if busy {
+			t.Fatal("bucket reported busy")
+		}
+	case <-time.After(relayTestDeadline):
+		t.Fatal("next start never resumed")
+	}
+	if relay.EndPendingAnonCall("k-other") {
+		t.Fatal("unrelated bucket busy")
+	}
+}
+
+// Argus 8452: free refunds are capped server-wide too (they give the global
+// SUM back), each counted at max(grant, call max), and the cap resets daily.
+func TestAttestVoiceFreeAbandonGlobalCap(t *testing.T) {
+	a := &AttestAPI{cfg: AttestConfig{VoiceGlobal: 240, VoiceCallMax: 120}}
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	if !a.takeFreeAbandon("b1", now, 30) || !a.takeFreeAbandon("b2", now, 120) {
+		t.Fatal("within the cap: not free")
+	}
+	if a.takeFreeAbandon("b3", now, 30) {
+		t.Fatal("past the server-wide cap: still free")
+	}
+	if !a.takeFreeAbandon("b3", now.Add(24*time.Hour), 120) {
+		t.Fatal("cap did not reset on the next UTC day")
+	}
+}
+
 // bd med-02b0, end to end: a start no leg attaches to is refunded (daily and
 // lifetime), a retry during a pending call replaces it instead of 409, a
 // live or in-grace call still 409s, and only 3 abandonments a bucket per UTC
