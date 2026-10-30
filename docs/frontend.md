@@ -244,6 +244,12 @@ cancels then acts), `opts.dangerOutline` (the safe Cancel raised, the risky
 confirm a danger outline — "Switch account?", bd med-ta2n.7), and `safeChoose`
 with `opts.confirmLabel` + `opts.selected` (tap selects, Continue settles —
 Merge/Replace).
+Plain button-only `safeConfirm` dialogs initially focus Cancel when destructive
+or `tone: 'danger'`. Other plain confirms focus Confirm unless the caller opts
+into `focusCancel: true` (EI5 exercise merge keeps its warn icon and primary
+Merge button). Only the boolean `true` opts in; `false` cannot override the
+danger default. Field, choice, typed-confirm, content/form and alert focus
+behavior is unchanged. Enter activates the focused button normally.
 `mt-modal.mt-confirm-modal` stays the JS hook for Back/Esc. Placement rules live
 in `web/static/css/dialog.css`, linked after `components.css` by both
 `index.html` and the passkey shell `web/cloud/signup.html` (which also loads

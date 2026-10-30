@@ -1101,6 +1101,9 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     const confirm = dialog().querySelector('.mt-confirm-modal__confirm');
     expect(confirm.textContent).toBe('Merge');
     expect(confirm.classList.contains('wg-btn--primary')).toBe(true);
+    expect(confirm.classList.contains('wg-btn--danger')).toBe(false);
+    expect(dialog().querySelector('.wg-dialog__icon--warn svg[data-wg-icon="link"]')).not.toBeNull();
+    expect(env.document.activeElement).toBe(dialog().querySelector('.mt-confirm-modal__cancel'));
     confirm.click();
 
     await vi.waitFor(async () => expect((await library()).map((r) => [r.name, r.aliases])).toEqual([
@@ -1120,8 +1123,11 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     $('exercise-library-merge-btn').click();
     $('exercise-library-picker-list').querySelector('button.wg-row').click();
     await vi.waitFor(() => expect(dialog()).not.toBeNull());
-    dialog().querySelector('.mt-confirm-modal__cancel').click();
+    const merge = vi.spyOn(env.window, 'apiCall');
+    expect(env.document.activeElement).toBe(dialog().querySelector('.mt-confirm-modal__cancel'));
+    env.document.activeElement.click();
     await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(merge.mock.calls.some(([url]) => String(url).includes('/exercise-library/merge'))).toBe(false);
     expect((await library()).map((r) => r.name)).toEqual(['Kettlebell Swings', 'Swings']);
   });
 

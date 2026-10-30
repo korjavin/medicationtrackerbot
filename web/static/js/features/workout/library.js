@@ -786,6 +786,7 @@ async function confirmExerciseMerge(target) {
         + `and plans that use it switch to ${target.name}. To undo, remove the name under "Also logged as".`;
     const ok = await safeConfirm(msg, null, {
         title: `Merge ${src.name} into ${target.name}?`, confirmLabel: 'Merge', icon: 'link', tone: 'warn',
+        focusCancel: true,
     });
     if (!ok) return;
     const session = _sheetSession;

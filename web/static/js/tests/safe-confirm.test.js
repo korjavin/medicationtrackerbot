@@ -71,6 +71,69 @@ describe('safeConfirm — in-page modal', () => {
         expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
     });
 
+    it.each([
+        { destructive: true },
+        { tone: 'danger' },
+        { destructive: true, tone: 'warn', focusCancel: false },
+        { tone: 'danger', focusCancel: false },
+        { focusCancel: true },
+        { tone: 'warn', focusCancel: true },
+        { tone: 'info', focusCancel: true },
+    ])('focuses Cancel for a plain confirm with %j and preserves callback cancellation', async (opts) => {
+        const { window, document } = env;
+        const callback = vi.fn((ok) => ok ? 'confirmed' : 'cancelled');
+        const promise = window.safeConfirm('Continue?', callback, opts);
+        expect(document.activeElement).toBe(document.querySelector('.mt-confirm-modal__cancel'));
+        // jsdom does not synthesize native button activation from keyboard events.
+        // Click the focused action here; real Enter activation is browser QA.
+        document.activeElement.click();
+        await expect(promise).resolves.toBe('cancelled');
+        expect(callback).toHaveBeenCalledExactlyOnceWith(false);
+        expect(document.querySelector('.mt-confirm-modal')).toBeNull();
+    });
+
+    it.each([
+        {}, { tone: 'warn' }, { tone: 'info' },
+        { focusCancel: false }, { focusCancel: 'true' }, { focusCancel: 1 },
+    ])('keeps Confirm focused without an exact non-danger opt-in: %j', async (opts) => {
+        const { window, document } = env;
+        const promise = window.safeConfirm('Continue?', null, opts);
+        expect(document.activeElement).toBe(document.querySelector('.mt-confirm-modal__confirm'));
+        document.activeElement.click();
+        await expect(promise).resolves.toBe(true);
+    });
+
+    it('keeps warn appearance and allows deliberate confirmation after Cancel initial focus', async () => {
+        const { window, document } = env;
+        const promise = window.safeConfirm('Merge these?', null, { tone: 'warn', icon: 'link', focusCancel: true });
+        expect(document.querySelector('.wg-dialog__icon--warn svg[data-wg-icon="link"]')).not.toBeNull();
+        const confirm = document.querySelector('.mt-confirm-modal__confirm');
+        expect(confirm.classList.contains('wg-btn--primary')).toBe(true);
+        expect(confirm.classList.contains('wg-btn--danger')).toBe(false);
+        expect(document.activeElement).toBe(document.querySelector('.mt-confirm-modal__cancel'));
+        confirm.focus();
+        expect(document.activeElement).toBe(confirm);
+        confirm.click();
+        await expect(promise).resolves.toBe(true);
+    });
+
+    it('keeps prompt input and content/form focus and their settlement behavior', async () => {
+        const { window, document } = env;
+        const prompt = window.safePrompt('Name', { destructive: true, focusCancel: true, value: ' Test ' });
+        const input = document.querySelector('.mt-confirm-modal__input');
+        expect(document.activeElement).toBe(input);
+        input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        await expect(prompt).resolves.toBe('Test');
+
+        const content = document.createElement('input');
+        const collect = vi.fn(() => 'saved');
+        const form = window.safeForm('Edit', content, { destructive: true, focusCancel: true, collect });
+        expect(document.activeElement).toBe(document.querySelector('.mt-confirm-modal__confirm'));
+        document.activeElement.click();
+        await expect(form).resolves.toBe('saved');
+        expect(collect).toHaveBeenCalledOnce();
+    });
+
     it('resolves false on Escape keydown and removes the backdrop', async () => {
         const { window, document } = env;
         const promise = window.safeConfirm('Escape me');
@@ -155,11 +218,12 @@ describe('safeConfirm — in-page modal', () => {
     it('typedConfirm enables the confirm only once the phrase matches (case-insensitive)', async () => {
         const { window, document } = env;
         const promise = window.safeConfirm('This cannot be undone.', null, {
-            title: 'Replace everything?', destructive: true, typedConfirm: 'replace',
+            title: 'Replace everything?', destructive: true, typedConfirm: 'replace', focusCancel: true,
         });
         const modal = document.querySelector('mt-modal.mt-confirm-modal');
         const input = modal.querySelector('.mt-confirm-modal__input');
         const confirm = modal.querySelector('.mt-confirm-modal__confirm');
+        expect(document.activeElement).toBe(input);
         expect(modal.querySelector('.mt-confirm-modal__label').textContent).toContain('replace');
         expect(confirm.disabled).toBe(true);
 
@@ -266,17 +330,18 @@ describe('safeChoose — choose + Continue', () => {
 
     it('preselects the selected choice and Continue commits only it', async () => {
         const { window, document } = env;
-        const promise = open(window, { selected: 'merge' });
+        const promise = open(window, { selected: 'merge', destructive: true, focusCancel: true });
         const modal = document.querySelector('mt-modal.mt-confirm-modal');
         expect(modal.querySelector('.wg-dialog__icon--info')).not.toBeNull();
         const choices = [...modal.querySelectorAll('.mt-confirm-modal__choice')];
+        expect(document.activeElement).toBe(choices[0]);
         expect(choices.map((c) => c.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
         expect(choices[0].querySelector('.wg-choice__sub').textContent).toBe('Keep both.');
         // Actions sit below the body, like a plain confirm.
         expect(modal.lastElementChild.classList.contains('wg-dialog__acts')).toBe(true);
         const confirm = modal.querySelector('.mt-confirm-modal__confirm');
         expect(confirm.textContent).toBe('Continue');
-        expect(confirm.classList.contains('wg-btn--primary')).toBe(true);
+        expect(confirm.classList.contains('wg-btn--danger')).toBe(true);
         expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
         confirm.click();
         await expect(promise).resolves.toBe('merge');
@@ -295,17 +360,20 @@ describe('safeChoose — choose + Continue', () => {
 
     it('with nothing preselected Continue waits for a pick; Cancel resolves null', async () => {
         const { window, document } = env;
-        const promise = open(window, {});
+        const promise = open(window, { destructive: true, focusCancel: true });
         const confirm = document.querySelector('.mt-confirm-modal__confirm');
         expect(confirm.disabled).toBe(true);
+        // Focusing a disabled Continue leaves focus on the body, as before.
+        expect(document.activeElement).toBe(document.body);
         document.querySelector('.mt-confirm-modal__cancel').click();
         await expect(promise).resolves.toBeNull();
     });
 
     it('without confirmLabel a tap still settles at once (untouched callers)', async () => {
         const { window, document } = env;
-        const promise = window.safeChoose('', [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }], { title: 'Pick' });
+        const promise = window.safeChoose('', [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }], { title: 'Pick', destructive: true, focusCancel: true });
         expect(document.querySelector('.mt-confirm-modal__confirm')).toBeNull();
+        expect(document.activeElement).toBe(document.querySelector('.mt-confirm-modal__cancel'));
         document.querySelectorAll('.mt-confirm-modal__choice')[1].click();
         await expect(promise).resolves.toBe('b');
     });
@@ -330,7 +398,7 @@ describe('safeAlert — in-page alert mode', () => {
         const { window, document } = env;
         const nativeAlert = vi.fn();
         window.alert = nativeAlert;
-        const promise = window.safeAlert('Saved offline');
+        const promise = window.safeAlert('Saved offline', { destructive: true, focusCancel: true });
 
         const modal = document.querySelector('mt-modal.mt-confirm-modal');
         expect(modal).not.toBeNull();
