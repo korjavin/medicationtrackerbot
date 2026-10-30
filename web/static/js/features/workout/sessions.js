@@ -1139,7 +1139,17 @@ async function _maybeAttachPRBadge(headerRow, log) {
     // first-ever log (an all-zero baseline that anything positive "beats").
     if (prior.length === 0) return;
     const priorPRs = WA.exercisePRs(prior);
-    if (!detail.isPRLog(log, priorPRs, WA)) return;
+    // Judge on accepted sets only: an unconfirmed weight-flagged set (the same
+    // flags the session note reads) counts toward nothing (med-l5yr.6).
+    const flags = _weightFlags(log);
+    const sets = _ensureLogSets(log).filter((_, i) => !flags[i]);
+    if (sets.length === 0) return;
+    const accepted = flags.some(Boolean)
+        ? { ...log, sets, sets_completed: sets.length,
+            reps_completed: sets.reduce((m, s) => Math.max(m, s.reps || 0), 0),
+            weight_kg: sets.reduce((m, s) => Math.max(m, s.weight_kg || 0), 0) }
+        : log;
+    if (!detail.isPRLog(accepted, priorPRs, WA)) return;
 
     // The card may have been re-rendered (add/remove set) while we awaited — only
     // decorate the still-mounted header, and don't double-badge.

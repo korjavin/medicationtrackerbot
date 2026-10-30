@@ -7,6 +7,7 @@ import { allowConsoleNoise } from './helpers/setup.js';
 import {
   achievableLoads, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
 } from '../../../../web/domain/equipment.js';
+import * as WorkoutAnalysis from '../../../../web/domain/workout-analysis.js';
 import * as WeightSanity from '../../../../web/domain/weight-sanity.js';
 
 // Wires a Map-backed ApiCache into the env so DataStore.applyOptimistic
@@ -3685,13 +3686,14 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
   // A session (live or opened from History) whose Goblet Squat log holds
   // `sets`; the weight-check route answers `baseline`. The rule itself is the
   // real domain module.
-  function mount(window, document, { name = 'Goblet Squat', sets, baseline }) {
+  function mount(window, document, { name = 'Goblet Squat', sets, baseline, history = [] }) {
     installApiCache(window);
     window.loadWorkoutHistoryTab = vi.fn();
     window.WeightSanity = WeightSanity;
     window.apiCall = vi.fn(async (endpoint) => {
       if (String(endpoint).startsWith('/api/workout/exercises/weight-check')) return baseline;
       if (String(endpoint).startsWith('/api/workout/sessions/logs/update')) return { id: 5 };
+      if (String(endpoint).startsWith('/api/workout/exercises/history')) return history;
       return [];
     });
     window.WorkoutSessionsState.data = { id: 42, status: 'completed' };
@@ -3758,6 +3760,24 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
     const sent = updates(window).at(-1)[2].sets;
     expect(sent.map((s) => s.confirmed === true)).toEqual([false, true, false]);
     expect(sent[1].weight_kg).toBe(255);
+  });
+
+  it('an unconfirmed flagged set earns no PR badge; It\'s right shows it; a normal heavier set badges', async () => {
+    const { window, document } = env;
+    window.WorkoutAnalysis = WorkoutAnalysis;
+    const badge = (c) => c.querySelector('.wg-workouts-session-exercise__pr-badge');
+    const history = [{ date: '2026-01-01', session_id: 1, sets: [{ weight_kg: 50, reps: 8, set_type: 'normal' }] }];
+    const withHistory = (sets) => mount(window, document, { sets, baseline: HEAVIEST_50, history });
+    let c = withHistory([50, 50, 50, 255]);
+    await drain();
+    expect(notes(c)).toHaveLength(1);
+    expect(badge(c)).toBeNull();
+    [...notes(c)[0].querySelectorAll('button')].find((b) => b.textContent === "It's right").click();
+    await drain();
+    expect(badge(c)).toBeTruthy();
+    c = withHistory([50, 50, 50, 52.5]);
+    await drain();
+    expect(badge(c)).toBeTruthy();
   });
 
   it('a flagged set is saved as logged (never blocked); editing the weight re-judges it', async () => {
