@@ -1,0 +1,20 @@
+{
+  "attribution": "Source: European Medicines Agency (EMA), Article 57 product data, EMA/518502/2018 Rev.90, data 09/10/2026, accessed October 2026. Selected original A-D rows. https://www.ema.europa.eu/en/about-us/about-website/legal-notice",
+  "rows": [
+    ["Candecor", "Candesartan Cilexetil", "Oral Use", "Germany"],
+    ["Candecor", "Candesartan Cilexetil", "Oral Use", "Slovenia"],
+    ["Smecta", "Diosmectite", "Oral Use", "France"],
+    ["Smecta", "Diosmectite", "Oral Use", "Poland"],
+    ["Aacidexam", "Dexamethasone Base", "Intraarticular Use, Intramuscular Use, Intravenous Use, Rectal Use", "Luxembourg"],
+    ["Aacidexam", "Dexamethasone Sodium Phosphate", "Intraarticular Use, Intramuscular Use, Intravenous Use", "Belgium"],
+    ["Aacidexam", "Dexamethasone Sodium Phosphate", "Intraarticular Use, Intramuscular Use, Intravenous Use, Rectal Use", "Belgium"],
+    ["A 313", "Vitamin A Concentrate (Oily Form), Synthetic", "Cutaneous Use", "France"],
+    ["A 313", "Vitamin A Concentrate (Oily Form), Synthetic", "Oral Use", "France"],
+    ["Abnobaviscum Abietis", "Extract Of Fresh Fir Mistletoe Herb", "Subcutaneous Use", "Germany"],
+    ["Abnobaviscum Abietis", "Extract Of Phoradendron Leucarpum Herb (1:50), Extraction Solvent: Sodium Monohydrogen Phosphate Dihydrate, Ascorbic Acid And Water For Injection (2.03:0.34:97.63)", "Subcutaneous Use", "Germany"],
+    ["Abirasolon-Mcrpc Kombipackung", "Abiraterone Acetate | Prednisolone", "Oral Use", "Germany"],
+    ["atorvastatin Aurobindo", "Atorvastatin", "Oral Use", "Cyprus"],
+    ["Atorvastatin Aurobindo", "Atorvastatin", "Oral Use", "Cyprus"],
+    ["Atorvastatin Aurobindo", "Atorvastatin", "Oral Use", "Netherlands"]
+  ]
+}

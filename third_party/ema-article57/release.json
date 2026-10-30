@@ -1,0 +1,10 @@
+{
+  "asset_sha256": "0dbcf2445804ce8f1c7f3160992c71d96a225436bb0873940e2348f9edde7e95",
+  "json_bytes": 13274325,
+  "gzip_level9_bytes": 1637897,
+  "source_rows": 164705,
+  "unique_rows": 161194,
+  "jurisdictions": 32,
+  "lowercase_trimmed_names_with_distinct_raw_substances": 4977,
+  "multi_product_rows": 1081
+}
