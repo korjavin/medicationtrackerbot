@@ -415,13 +415,16 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	a.settling[c.accountID] = done
 	abandon := c.anon.abandon
 	return func() {
+		// Deferred: a panicking abandon must still release the bucket's starts.
+		defer func() {
+			a.mu.Lock()
+			if a.settling[c.accountID] == done {
+				delete(a.settling, c.accountID)
+			}
+			a.mu.Unlock()
+			close(done)
+		}()
 		abandon()
-		a.mu.Lock()
-		if a.settling[c.accountID] == done {
-			delete(a.settling, c.accountID)
-		}
-		a.mu.Unlock()
-		close(done)
 	}
 }
 
