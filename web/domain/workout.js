@@ -780,6 +780,16 @@ export function findLibraryRowByName(all, name) {
   return id == null ? null : live.find((r) => r.id === id) || null;
 }
 
+// libraryRowAnswersTo: does `row` already answer to `name` — its own name in
+// any case/spacing (a case twin included), or an alias the lookup gives it?
+// A caller that already holds a row keeps it when this is true, so an edit or
+// an explicit id never drifts to a lower-id twin.
+function libraryRowAnswersTo(all, row, name) {
+  if (exerciseKey(row.name) === exerciseKey(name)) return true;
+  const hit = findLibraryRowByName(all, name);
+  return Boolean(hit && hit.id === row.id);
+}
+
 // -- Exercise identity (med-l5yr.1) --
 //
 // exerciseKey is THE exercise-name identity: trim + lowercase + collapse inner
@@ -1185,10 +1195,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // (existing or newly minted). No-op returning null when the name is blank.
   // The upsert-by-name counterpart of the Go upsert; returning the existing id
   // makes "same name twice = one library row" hold on both create and update.
-  async function promoteExerciseToLibrary(exercise) {
+  async function promoteExerciseToLibrary(exercise, currentLibraryId) {
     const name = (exercise.exercise_name || '').trim();
     if (!name) return null;
     const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
+    // An edit keeps its link while that row still answers to the name, so a
+    // sets-only edit never re-points it to a lower-id case twin.
+    const current = currentLibraryId != null && all.find((r) => !r.deleted && r.id === currentLibraryId);
+    if (current && libraryRowAnswersTo(all, current, name)) return current.id;
     // Case/spacing variants and aliases link to the row they name (the plan
     // row keeps its typed exercise_name snapshot; reads go through the FK).
     const existing = findLibraryRowByName(all, name);
@@ -1282,7 +1296,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // Clear the FK on a blank name (promote returns null) so the read falls back
     // to the cached exercise_name and no whitespace-only library row is created —
     // matching Go, which nulls the FK on a blank name (repo.go UpdateExercise).
-    updated.exercise_library_id = (await promoteExerciseToLibrary(updated)) ?? null;
+    updated.exercise_library_id = (await promoteExerciseToLibrary(updated, exercise.exercise_library_id)) ?? null;
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, updated);
   }
 
@@ -2291,13 +2305,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!session) throw invalidRequest('Session not found', 'not_found');
 
     let exerciseName = (input && input.exercise_name) || '';
-    // A library log lands on the row its name resolves to (any case, or an
-    // alias) — id and name together, before the uniqueness check, so new
-    // history stops drifting and two spellings of one row are one log. An
-    // unresolved name keeps the id it was sent; schedule logs keep the plan
-    // snapshot; existing logs are never rewritten.
+    // A library log's id and name are settled together, before the uniqueness
+    // check, so new history stops drifting and two spellings of one row are
+    // one log:
+    //   - the sent id is a live row that answers to the name → that row;
+    //   - else the name resolves to a row, and the sent id is dead/0 or a case
+    //     twin of it (the lower-id winner of the key) → the resolved row;
+    //   - else (an id naming a different movement, an unresolved name) → as
+    //     sent: a must-stay-distinct id is never moved by its free-text name.
+    // Schedule logs keep the plan snapshot; existing logs are never rewritten.
     if (source === 'library') {
-      const row = findLibraryRowByName(await records.list(WORKOUT_RECORD_TYPES.LIBRARY), exerciseName);
+      const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
+      const given = all.find((r) => !r.deleted && r.id === exerciseId);
+      const hit = findLibraryRowByName(all, exerciseName);
+      let row = null;
+      if (given && libraryRowAnswersTo(all, given, exerciseName)) row = given;
+      else if (hit && (!given || exerciseKey(hit.name) === exerciseKey(given.name))) row = hit;
       if (row) {
         exerciseId = row.id;
         exerciseName = row.name;

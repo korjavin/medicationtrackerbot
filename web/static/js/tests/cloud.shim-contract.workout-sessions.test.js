@@ -368,9 +368,25 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
             await add(20, 'BB Bench');
             expect(await logsOf(session.id)).toEqual([['Bench Press', 10, 'library']]);
             await expect(add(10, 'Bench Press')).rejects.toThrow(/already logged/);
-            // An exact name keeps its own row.
-            await add(10, 'bench press');
+            // The higher-id twin sent with its own name (any case) stays put.
+            await add(20, 'BENCH PRESS');
             expect(await logsOf(session.id)).toEqual([['Bench Press', 10, 'library'], ['bench press', 20, 'library']]);
+        });
+
+        // An explicit id naming a different movement is never moved by its
+        // free-text name (MCP logs.create sends both): the must-stay-distinct
+        // pair does not fold.
+        it('logs.create (library): an explicit distinct id is kept against a name that resolves elsewhere', async () => {
+            const { window } = env;
+            const { bench } = await seed(window);
+            const paused = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Paused Barbell Bench Press' });
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: paused.id, exercise_name: 'Barbell Bench Press', source: 'library', target_sets: 0,
+            });
+            const [[, id]] = await logsOf(session.id);
+            expect(id).toBe(paused.id);
+            expect(id).not.toBe(bench.id);
         });
 
         it('setLibraryBodyPart tags the row an alias names instead of minting one', async () => {

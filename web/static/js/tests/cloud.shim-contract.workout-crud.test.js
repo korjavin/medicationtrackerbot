@@ -469,6 +469,22 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
             await env.records.put('exerciselibrary', { ...rec, name: 'Goblet squat' });
             await update(twin.id, { name: 'Goblet squat', default_sets: 4 });
             await expect(update(twin.id, { name: 'Goblet Squat' })).rejects.toThrow(/already exists/);
+
+            // A plan row linked to the higher-id twin under a snapshot that
+            // matches neither spelling exactly keeps its link on a sets-only edit.
+            const group = await env.window.apiCall('/api/workout/groups/create', 'POST', { name: 'Legs' });
+            const variant = await env.window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+            const ex = await env.window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name: 'Goblet squat', target_sets: 3, target_reps_min: 8, order_index: 0,
+            });
+            const exRec = (await env.records.list('workoutexercise')).find((r) => r.id === ex.id);
+            expect(exRec.exercise_library_id).toBe(twin.id);
+            await env.records.put('workoutexercise', { ...exRec, exercise_name: 'goblet squat' });
+            await env.window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+                exercise_name: 'goblet squat', target_sets: 5, target_reps_min: 8, order_index: 0,
+            });
+            const after = (await env.records.list('workoutexercise')).find((r) => r.id === ex.id);
+            expect([after.target_sets, after.exercise_library_id]).toEqual([5, twin.id]);
         });
 
         it('a plan exercise links to the row a case variant or alias names', async () => {
