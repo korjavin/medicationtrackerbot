@@ -1006,13 +1006,13 @@
                     <div class="wg-card wg-vstack">
                         <div id="integrations-openai-url-field" class="wg-field" hidden>
                             <label for="integrations-openai-url" class="wg-label">API URL</label>
-                            <input type="text" id="integrations-openai-url" class="wg-input" placeholder="https://api.example.com/v1">
-                            <p class="wg-hint">Any server that speaks the OpenAI chat API.</p>
+                            <input type="text" id="integrations-openai-url" class="wg-input" placeholder="https://api.example.com/v1" aria-describedby="integrations-provider-url-hint">
+                            <p id="integrations-provider-url-hint" class="wg-hint">Your provider’s OpenAI-compatible API URL.</p>
                         </div>
                         <div class="wg-field">
                             <label for="integrations-openai-api-key" id="integrations-provider-key-label" class="wg-label">API key</label>
                             <div class="wg-code wg-secret">
-                                <input type="password" id="integrations-openai-api-key" class="wg-secret__input" autocomplete="off" placeholder="Paste your OpenAI key">
+                                <input type="password" id="integrations-openai-api-key" class="wg-secret__input" autocomplete="off" placeholder="Paste your OpenAI key" aria-describedby="integrations-provider-key-hint">
                                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
                                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
                             </div>
@@ -1036,9 +1036,9 @@
                         <div id="integrations-provider-switch-note" class="wg-note wg-note--warn" role="status" hidden><i class="wg-ico" data-icon="key"></i><div class="wg-note__body"><span></span></div></div>
                     </div>
                         <details id="integrations-provider-advanced" class="wg-disc">
-                            <summary><span class="wg-row__lead"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Advanced</span><span class="wg-setting__desc">Food photos use the provider above</span></span><i class="wg-ico wg-disc__chev" data-icon="chev-d"></i></summary>
+                            <summary><span class="wg-row__lead"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Advanced</span><span id="integrations-photo-summary" class="wg-setting__desc">Food photos use the provider above</span></span><i class="wg-ico wg-disc__chev" data-icon="chev-d"></i></summary>
                             <div class="wg-disc__body">
-                                <p>For food photos only. Leave empty to use the provider above.</p>
+                                <p>For food photos only. Leave all fields empty to use the provider above.</p>
                                 <div class="wg-field">
                                     <label for="integrations-openai-vision-api-key" class="wg-label">Photo API key</label>
                                     <div class="wg-code wg-secret">
@@ -1046,10 +1046,12 @@
                                         <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
                                         <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
                                     </div>
+                                    <p id="integrations-photo-key-hint" class="wg-hint" hidden></p>
                                 </div>
                                 <div class="wg-field">
                                     <label for="integrations-openai-vision-url" class="wg-label">Photo API URL</label>
                                     <input type="text" id="integrations-openai-vision-url" class="wg-input" placeholder="Same as above">
+                                    <p id="integrations-photo-url-hint" class="wg-hint" hidden></p>
                                 </div>
                                 <div class="wg-field">
                                     <label for="integrations-openai-vision-model" class="wg-label">Photo model</label>
@@ -1063,6 +1065,7 @@
                                     </div>
                                     <datalist id="integrations-openai-vision-model-options"></datalist>
                                     <p id="integrations-openai-vision-model-note" class="wg-hint" hidden></p>
+                                    <p id="integrations-photo-model-hint" class="wg-hint" hidden></p>
                                 </div>
                             </div>
                         </details>

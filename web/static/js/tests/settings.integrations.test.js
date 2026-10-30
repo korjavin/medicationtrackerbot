@@ -11,6 +11,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { createSettingsDomain } from '../../../domain/settings.js';
+import { createAIClient } from '../../../cloud/js/aiclient.js';
 
 function installApiCacheMap(window, initialCache = {}) {
     const map = new Map();
@@ -199,14 +201,14 @@ describe('Settings → Integrations section', () => {
             expect(field('url').value).toBe(url);
         });
 
-        it('keeps Other keyless and clears a saved mask on custom URL edits', async () => {
+        it('requires a new Other key and clears a saved mask on custom URL edits', async () => {
             load({ url: 'https://old.example/v1', api_key: '***', model: 'local-model' });
             const page = env.window.SettingsView.openSettingsPage('integrations');
             const save = page.el.querySelector('.wg-pagebar .wg-btn--primary');
             field('url').value = 'https://new.example/v1';
             field('url').dispatchEvent(new env.window.Event('input', { bubbles: true }));
             expect(field('api-key').value).toBe('');
-            expect(save.disabled).toBe(false);
+            expect(save.disabled).toBe(true);
             expect(env.document.getElementById('integrations-provider-key-link').hidden).toBe(true);
             await pick('anthropic');
             await pick('other');
@@ -245,6 +247,7 @@ describe('Settings → Integrations section', () => {
                 field('api-key').value = 'fixture-other-key';
                 field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
                 expect(save.disabled).toBe(true);
+                expect(env.document.getElementById('integrations-provider-url-hint').textContent).toBe('Enter your provider’s API URL before saving.');
                 await env.window.SettingsIntegrations.save();
                 expect(env.window.apiCall).not.toHaveBeenCalled();
                 field('url').value = 'https://new.example/v1';
@@ -255,6 +258,10 @@ describe('Settings → Integrations section', () => {
                 await env.window.SettingsIntegrations.save();
                 expect(env.window.apiCall).not.toHaveBeenCalled();
                 field('api-key').value = '';
+                field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                expect(save.disabled).toBe(true);
+                expect(env.document.getElementById('integrations-provider-key-hint').textContent).toBe('Enter an API key for this provider before saving.');
+                field('api-key').value = 'fixture-new-other-key';
                 field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
                 expect(save.disabled).toBe(false);
                 page.close();
@@ -301,7 +308,7 @@ describe('Settings → Integrations section', () => {
             expect(field('model').value).toBe('custom-draft');
         });
 
-        it('summary omits presets with a cleared key but includes a configured keyless Other', () => {
+        it('summary omits providers with no saved key', () => {
             for (const url of ['https://api.openai.com/v1', 'https://api.anthropic.com/v1', 'https://generativelanguage.googleapis.com/v1beta/openai/', 'https://openrouter.ai/api/v1']) {
                 load({ url, api_key: '', model: 'saved-model' });
                 env.window.SettingsView.refreshIntegrationsSummary();
@@ -309,7 +316,59 @@ describe('Settings → Integrations section', () => {
             }
             load({ url: 'https://local.example/v1', api_key: '', model: 'local-model' });
             env.window.SettingsView.refreshIntegrationsSummary();
-            expect(env.document.querySelector('[data-settings-summary="integrations"]').textContent).toBe('Other');
+            expect(env.document.querySelector('[data-settings-summary="integrations"]').textContent).toBe('AI, voice, Telegram');
+        });
+
+        it('preserves legacy keyless Other on load and ordinary save, while requiring a key for a new URL', async () => {
+            const main = { url: ' https://legacy.example/v1/ ', model: 'legacy-model', api_key: '' };
+            load(main);
+            const page = env.window.SettingsView.openSettingsPage('integrations');
+            const save = page.el.querySelector('.wg-pagebar .wg-btn--primary');
+            expect(field('url').value).toBe(main.url);
+            expect(save.disabled).toBe(false);
+            let patch;
+            env.window.apiCall = vi.fn(async (url, method, body) => {
+                if (method === 'PATCH') { patch = body; return { ok: true }; }
+                return { openai: main, elevenlabs: {} };
+            });
+            await env.window.SettingsIntegrations.save();
+            expect(patch.openai.url).toBe(main.url);
+            expect(patch.openai.api_key).toBe('');
+            expect(patch.openai.model).toBe(main.model);
+            field('url').value = 'https://new.example/v1';
+            field('url').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            expect(save.disabled).toBe(true);
+            field('api-key').value = 'fixture-new-key';
+            field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            expect(save.disabled).toBe(false);
+            page.close();
+        });
+
+        it('draft switches retain the saved main-key active/trial/own-key status until Save', async () => {
+            const meta = env.document.createElement('meta');
+            meta.name = 'medtracker-trial-ai';
+            meta.content = '1';
+            env.document.head.appendChild(meta);
+            load({ api_key: '***', url: '', model: 'gpt-6-luna' });
+            const hint = env.document.getElementById('integrations-openai-trial-hint');
+            const own = env.document.querySelector('#integrations-trial [data-own-key="openai"] [data-own-key-state]');
+            expect(hint.hidden).toBe(true);
+            expect(own.textContent).toBe('Set');
+            await pick('gemini');
+            expect(field('api-key').value).toBe('');
+            expect(hint.hidden).toBe(true);
+            expect(own.textContent).toBe('Set');
+            field('api-key').value = 'fixture-new-key';
+            field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            expect(hint.hidden).toBe(true);
+            expect(own.textContent).toBe('Set');
+            // A successful save that clears the key changes the active state.
+            await pick('openai');
+            field('api-key').value = '';
+            env.window.apiCall = vi.fn(async (url, method) => method === 'PATCH' ? { ok: true } : { openai: { api_key: '', url: '', model: 'gpt-6-luna' }, elevenlabs: {} });
+            await env.window.SettingsIntegrations.save();
+            expect(hint.hidden).toBe(false);
+            expect(own.textContent).toBe('Not set');
         });
 
         it('shows the saved provider summary after save and retains it during draft changes', async () => {
@@ -339,6 +398,204 @@ describe('Settings → Integrations section', () => {
             expect(env.window.apiCall).toHaveBeenCalledWith('/api/settings/integrations/models?scope=text', 'GET');
             expect(field('model').disabled).toBe(false);
             expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            page.close();
+        });
+    });
+
+    describe('photo credentials through Settings → settings domain → AI client', () => {
+        const main = { api_key: 'fixture-main-key', url: 'https://api.openai.com/v1', model: 'gpt-6-luna' };
+
+        async function setup(overrides) {
+            const memory = new Map();
+            const settings = createSettingsDomain({ records: {
+                async list(type) { return memory.get(type) || []; },
+                async put(type, row) { memory.set(type, [structuredClone(row)]); }
+            }, now: () => 1, timeZone: () => 'UTC' });
+            await settings.patchIntegrations({ openai: { ...main, ...overrides } });
+            env.window.apiCall = vi.fn(async (path, method, body) => {
+                if (path !== '/api/settings/integrations') return null;
+                return method === 'PATCH' ? settings.patchIntegrations(body) : settings.getIntegrations();
+            });
+            await env.window.SettingsIntegrations.load();
+            return { settings, page: env.window.SettingsView.openSettingsPage('integrations') };
+        }
+
+        function field(name) { return env.document.getElementById('integrations-openai-' + name); }
+        function fill(name, value) {
+            field(name).value = value;
+            field(name).dispatchEvent(new env.window.Event('input', { bubbles: true }));
+        }
+        async function pick(id) {
+            env.window.safeChoose = vi.fn(async () => id);
+            env.document.getElementById('integrations-provider-choose').click();
+            await vi.waitFor(() => expect(env.document.getElementById('integrations-provider-value').textContent)
+                .toBe(id === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'));
+        }
+        async function request(settings, image = true) {
+            const send = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('data: [DONE]\n\n', { status: 200 }));
+            try {
+                await createAIClient({ settingsDomain: settings }).chatStream({
+                    body: { messages: [{ role: 'user', content: image
+                        ? [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]
+                        : 'fixture text' }] }, onChunk() {}
+                });
+                expect(send).toHaveBeenCalledTimes(1);
+                const [url, init] = send.mock.calls[0];
+                return { url, authorization: init.headers.Authorization, model: JSON.parse(init.body).model };
+            } finally { send.mockRestore(); }
+        }
+        function saveButton(page) { return page.el.querySelector('.wg-pagebar .wg-btn--primary'); }
+
+        it('keeps an explicit saved photo key at its old inherited URL/model after main switch and Save', async () => {
+            const { settings, page } = await setup({ vision_api_key: 'fixture-photo-key', vision_url: '', vision_model: '' });
+            await pick('anthropic');
+            fill('api-key', 'fixture-anthropic-key');
+            expect(field('vision-api-key').value).toBe('***');
+            expect(field('vision-url').value).toBe(main.url);
+            expect(field('vision-model').value).toBe(main.model);
+            expect((await settings.readIntegrationsUnmasked()).openai.vision_url).toBe('');
+            expect(saveButton(page).disabled).toBe(false);
+            const realCall = env.window.apiCall;
+            env.window.apiCall = vi.fn(async (path, method, body) => method === 'PATCH' ? null : realCall(path, method, body));
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).openai.url).toBe(main.url);
+            expect((await settings.readIntegrationsUnmasked()).openai.vision_url).toBe('');
+            expect(field('vision-url').value).toBe(main.url);
+            expect(env.window.SettingsIntegrations.savedProviderLabel()).toBe('OpenAI');
+            env.window.apiCall = realCall;
+            await env.window.SettingsIntegrations.save();
+            expect(await request(settings)).toEqual({ url: main.url + '/chat/completions', authorization: 'Bearer fixture-photo-key', model: main.model });
+            expect(await request(settings, false)).toEqual({ url: 'https://api.anthropic.com/v1/chat/completions', authorization: 'Bearer fixture-anthropic-key', model: 'claude-sonnet-5-5' });
+            const cache = await env.window.MedTrackerDB.ApiCache.get('settings_integrations');
+            expect(cache.openai.api_key).toBe('***');
+            expect(cache.openai.vision_api_key).toBe('***');
+            expect(JSON.stringify(cache)).not.toContain('fixture-');
+            page.close();
+        });
+
+        it('allows a newly entered photo key for the selected main endpoint without pinning it to the old provider', async () => {
+            const { settings, page } = await setup({ vision_api_key: '', vision_url: '', vision_model: '' });
+            await pick('anthropic');
+            fill('api-key', 'fixture-anthropic-key');
+            fill('vision-api-key', '***');
+            expect(saveButton(page).disabled).toBe(true); // no saved photo secret exists for this sentinel
+            fill('vision-api-key', 'fixture-new-photo-key');
+            expect(field('vision-url').value).toBe('');
+            expect(field('vision-model').value).toBe('');
+            expect(saveButton(page).disabled).toBe(false);
+            await env.window.SettingsIntegrations.save();
+            expect(await request(settings)).toEqual({ url: 'https://api.anthropic.com/v1/chat/completions', authorization: 'Bearer fixture-new-photo-key', model: 'claude-sonnet-5-5' });
+            page.close();
+        });
+
+        it('blocks a retained cross-origin photo URL from borrowing the new main key until explicit key or URL action', async () => {
+            for (const resolution of ['key', 'inherit']) {
+                const { settings, page } = await setup({ vision_api_key: '', vision_url: 'https://photos.example/v1', vision_model: 'photo-custom' });
+                await pick('anthropic');
+                fill('api-key', 'fixture-anthropic-key');
+                expect(saveButton(page).disabled).toBe(true);
+                expect(env.document.getElementById('integrations-provider-advanced').open).toBe(true);
+                expect(env.document.getElementById('integrations-photo-key-hint').textContent).toBe('Enter a photo API key for this URL, or clear Photo API URL to use the provider above.');
+                await env.window.SettingsIntegrations.save();
+                expect(env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(0);
+                if (resolution === 'key') fill('vision-api-key', 'fixture-explicit-photo-key');
+                else fill('vision-url', '');
+                expect(saveButton(page).disabled).toBe(false);
+                await env.window.SettingsIntegrations.save();
+                expect(await request(settings)).toEqual({
+                    url: resolution === 'key' ? 'https://photos.example/v1/chat/completions' : 'https://api.anthropic.com/v1/chat/completions',
+                    authorization: resolution === 'key' ? 'Bearer fixture-explicit-photo-key' : 'Bearer fixture-anthropic-key', model: 'photo-custom'
+                });
+                page.close();
+            }
+        });
+
+        it('preserves explicit edits after pinning and requires photo key re-entry at the edited base', async () => {
+            const { settings, page } = await setup({ vision_api_key: 'fixture-photo-key', vision_url: '', vision_model: '' });
+            await pick('anthropic');
+            fill('api-key', 'fixture-anthropic-key');
+            fill('vision-url', 'https://new-photos.example/v1');
+            fill('vision-model', 'photo-custom');
+            expect(field('vision-url').value).toBe('https://new-photos.example/v1');
+            expect(saveButton(page).disabled).toBe(true);
+            expect(env.document.getElementById('integrations-photo-key-hint').textContent).toContain('Enter the photo API key again for this URL.');
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).openai.url).toBe(main.url);
+            fill('vision-api-key', 'fixture-new-photo-key');
+            expect(saveButton(page).disabled).toBe(false);
+            await env.window.SettingsIntegrations.save();
+            expect(await request(settings)).toEqual({ url: 'https://new-photos.example/v1/chat/completions', authorization: 'Bearer fixture-new-photo-key', model: 'photo-custom' });
+            page.close();
+        });
+
+        it('explicitly clearing the photo key and URL after pinning follows main and keeps a model-only edit', async () => {
+            const { settings, page } = await setup({ vision_api_key: 'fixture-photo-key', vision_url: '', vision_model: '' });
+            await pick('anthropic');
+            fill('api-key', 'fixture-anthropic-key');
+            fill('vision-api-key', '');
+            expect(saveButton(page).disabled).toBe(true);
+            fill('vision-url', '');
+            fill('vision-model', 'photo-custom');
+            expect(saveButton(page).disabled).toBe(false);
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).openai.vision_api_key).toBe('');
+            expect(await request(settings)).toEqual({ url: 'https://api.anthropic.com/v1/chat/completions', authorization: 'Bearer fixture-anthropic-key', model: 'photo-custom' });
+            page.close();
+        });
+
+        it('also rejects manual photo URL retargeting with an untouched mask while main is unchanged', async () => {
+            const { settings, page } = await setup({ vision_api_key: 'fixture-photo-key', vision_url: 'https://photos.example/v1', vision_model: 'photo-custom' });
+            fill('vision-url', 'https://edited.example/v1');
+            expect(saveButton(page).disabled).toBe(true);
+            expect(env.document.getElementById('integrations-provider-advanced').open).toBe(true);
+            await env.window.SettingsIntegrations.save();
+            expect(env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(0);
+            fill('vision-api-key', 'fixture-reentered-photo-key');
+            expect(saveButton(page).disabled).toBe(false);
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('fixture-main-key');
+            expect(await request(settings)).toEqual({ url: 'https://edited.example/v1/chat/completions', authorization: 'Bearer fixture-reentered-photo-key', model: 'photo-custom' });
+            page.close();
+        });
+
+        it('reselect and Back undo only untouched automatic photo pins', async () => {
+            const { settings, page } = await setup({ vision_api_key: 'fixture-photo-key', vision_url: '', vision_model: '' });
+            await pick('anthropic');
+            expect(field('vision-url').value).toBe(main.url);
+            await pick('openai');
+            expect(field('vision-url').value).toBe('');
+            expect(field('vision-model').value).toBe('');
+            await pick('anthropic');
+            page.close();
+            expect(field('vision-url').value).toBe('');
+            expect(field('vision-model').value).toBe('');
+            const reopened = env.window.SettingsView.openSettingsPage('integrations');
+            await pick('anthropic');
+            fill('vision-url', 'https://edited.example/v1');
+            fill('vision-model', 'explicit-photo-model');
+            await pick('openai');
+            expect(field('vision-url').value).toBe('https://edited.example/v1');
+            expect(field('vision-model').value).toBe('explicit-photo-model');
+            reopened.close();
+            expect(field('vision-url').value).toBe('https://edited.example/v1');
+            expect(field('vision-model').value).toBe('explicit-photo-model');
+            expect((await settings.readIntegrationsUnmasked()).openai.vision_url).toBe('');
+        });
+
+        it('fully inherited photo credentials follow main and failed Save leaves the saved active setup unchanged', async () => {
+            const { settings, page } = await setup({ vision_api_key: '', vision_url: '', vision_model: 'photo-custom' });
+            await pick('anthropic');
+            fill('api-key', 'fixture-anthropic-key');
+            expect(field('vision-url').value).toBe('');
+            expect(field('vision-model').value).toBe('photo-custom');
+            const realCall = env.window.apiCall;
+            env.window.apiCall = vi.fn(async (path, method, body) => method === 'PATCH' ? null : realCall(path, method, body));
+            await env.window.SettingsIntegrations.save();
+            expect(env.window.SettingsIntegrations.savedProviderLabel()).toBe('OpenAI');
+            expect(await request(settings)).toEqual({ url: main.url + '/chat/completions', authorization: 'Bearer fixture-main-key', model: 'photo-custom' });
+            env.window.apiCall = realCall;
+            await env.window.SettingsIntegrations.save();
+            expect(await request(settings)).toEqual({ url: 'https://api.anthropic.com/v1/chat/completions', authorization: 'Bearer fixture-anthropic-key', model: 'photo-custom' });
             page.close();
         });
     });

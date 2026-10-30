@@ -7499,7 +7499,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 #integrations-openai-url-field[hidden],
 #integrations-provider-key-link[hidden],
-#integrations-provider-switch-note[hidden] {
+#integrations-provider-switch-note[hidden],
+#integrations-photo-key-hint[hidden],
+#integrations-photo-url-hint[hidden],
+#integrations-photo-model-hint[hidden] {
     display: none;
 }
 
