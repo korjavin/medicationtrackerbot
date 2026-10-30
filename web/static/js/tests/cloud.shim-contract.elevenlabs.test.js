@@ -118,8 +118,10 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
     // PATCH echoes the id. Records every call for assertions.
     // `existingTools` is the single-page case; `toolPages` (keyed by the cursor
     // the request carried, '' for the first) drives the multi-page case.
-    function makeElevenLabsFetch({ existingTools = [], toolPages = null, agentId = 'agent-new' } = {}) {
+    function makeElevenLabsFetch({ existingTools = [], toolPages = null, agentId = 'agent-new', failAgentGet = 0, failAgentPatch = 0 } = {}) {
         const calls = [];
+        const agents = new Map();
+        const unavailable = () => ({ ok: false, status: 503, async text() { return 'Temporarily unavailable'; } });
         toolPages = toolPages || { '': { tools: existingTools, has_more: false } };
         const spy = vi.fn(async (url, opts = {}) => {
             const method = (opts.method || 'GET').toUpperCase();
@@ -139,14 +141,21 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
                 return okJson({});
             }
             if (url === 'https://api.elevenlabs.io/v1/convai/agents/create' && method === 'POST') {
+                agents.set(agentId, JSON.parse(opts.body));
                 return okJson({ agent_id: agentId });
             }
             if (url.startsWith('https://api.elevenlabs.io/v1/convai/agents/') && method === 'PATCH') {
+                if (failAgentPatch-- > 0) return unavailable();
+                agents.set(decodeURIComponent(url.split('/').pop()), JSON.parse(opts.body));
                 return okJson({});
+            }
+            if (url.startsWith('https://api.elevenlabs.io/v1/convai/agents/') && method === 'GET') {
+                if (failAgentGet-- > 0) return unavailable();
+                return okJson(agents.get(decodeURIComponent(url.split('/').pop())));
             }
             throw new Error(`unexpected fetch ${method} ${url}`);
         });
-        return { spy, calls };
+        return { spy, calls, agents };
     }
 
     const existingAll = () => TOOL_SPECS.map((s) => ({ id: `tool-${s.name}`, tool_config: { name: s.name } }));
@@ -155,6 +164,18 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         await window.apiCall('/api/settings/integrations', 'PATCH', {
             elevenlabs: { api_key: 'xi-test-key', ...extra },
         });
+    }
+
+    function reloadProvisioner(productName) {
+        const { window, records } = env;
+        let meta = window.document.querySelector('meta[name="medtracker-product-name"]');
+        if (!meta) {
+            meta = window.document.createElement('meta');
+            meta.name = 'medtracker-product-name';
+            window.document.head.appendChild(meta);
+        }
+        meta.content = productName;
+        installApiShim({}, { records, win: window });
     }
 
     it('ensureTools: all tools present → no duplicate create POST, PATCHes each in place', async () => {
@@ -233,8 +254,12 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         const first = makeElevenLabsFetch({ existingTools: existingAll() });
         vi.stubGlobal('fetch', first.spy);
 
-        const agentId = await window.CloudElevenLabsAgent.provision();
+        const [agentId, concurrentId] = await Promise.all([
+            window.CloudElevenLabsAgent.provision(), window.CloudElevenLabsAgent.provision(),
+        ]);
         expect(agentId).toBe('agent-new');
+        expect(concurrentId).toBe(agentId);
+        expect(first.calls.filter((c) => c.url.endsWith('/agents/create'))).toHaveLength(1);
 
         const createCall = first.calls.find((c) => c.url.endsWith('/agents/create'));
         const agent = createCall.body.conversation_config.agent;
@@ -306,6 +331,124 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
 
         spy.mockClear();
         expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-existing');
+        expect(spy).not.toHaveBeenCalled();
+
+        // A server restart with a new instance name changes the app metadata
+        // without changing the tool specs. The existing managed agent must
+        // still adopt that name on its next call.
+        meta.content = 'Renamed Care';
+        installApiShim({}, { records, win: window });
+        calls.length = 0;
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-existing');
+        const renamed = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/agents/agent-existing'));
+        expect(renamed).toBeDefined();
+        expect(renamed.body.conversation_config.agent.first_message).toContain("I'm your Renamed Care health bot.");
+        expect(renamed.body.conversation_config.agent.prompt.tool_ids).toEqual(config.agent.prompt.tool_ids);
+        expect(calls.filter((c) => c.method === 'GET' && c.url.endsWith('/agents/agent-existing'))).toHaveLength(1);
+        expect(calls.some((c) => c.url.includes('/tools'))).toBe(false);
+        expect((await records.list('voiceprovisioning'))[0].toolsetVersion).toBe(TOOLSET_VERSION);
+        spy.mockClear();
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-existing');
+        expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('verifies a current agent once after reload, coalesces calls, and ignores provider-added fields', async () => {
+        const { window, records } = env;
+        await setKey(window);
+        const { spy, calls, agents } = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', spy);
+        await window.CloudElevenLabsAgent.provision();
+        agents.get('agent-new').conversation_config.agent.prompt.provider_default = 'extra';
+        agents.get('agent-new').access_info = { role: 'admin' };
+        const saved = await records.list('voiceprovisioning');
+        reloadProvisioner('MyHealthBot');
+        calls.length = 0;
+
+        expect(await Promise.all([
+            window.CloudElevenLabsAgent.provision(), window.CloudElevenLabsAgent.provision(),
+        ])).toEqual(['agent-new', 'agent-new']);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ method: 'GET', url: expect.stringContaining('/agents/agent-new') });
+        expect(await records.list('voiceprovisioning')).toEqual(saved);
+        spy.mockClear();
+        await window.CloudElevenLabsAgent.provision();
+        expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('invalidates the in-memory verification when the saved key or selected agent changes', async () => {
+        const { window } = env;
+        await setKey(window);
+        const { spy, calls, agents } = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', spy);
+        await window.CloudElevenLabsAgent.provision();
+        await setKey(window, { api_key: 'xi-rotated-key' });
+        calls.length = 0;
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-new');
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ method: 'GET', headers: { 'xi-api-key': 'xi-rotated-key' } });
+
+        agents.set('selected-agent', structuredClone(agents.get('agent-new')));
+        await setKey(window, { api_key: 'xi-rotated-key', agent_id: 'selected-agent' });
+        calls.length = 0;
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('selected-agent');
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ method: 'GET', url: expect.stringContaining('/agents/selected-agent') });
+        spy.mockClear();
+        await window.CloudElevenLabsAgent.provision();
+        expect(spy).not.toHaveBeenCalled();
+    });
+
+    it.each(['llm', 'url', 'model_id', 'api_type', 'override', 'translated greeting'])('repairs current-name agents with incompatible managed %s without rewriting tools', async (field) => {
+        const { window } = env;
+        await setKey(window);
+        const { spy, calls, agents } = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', spy);
+        await window.CloudElevenLabsAgent.provision();
+        const actual = agents.get('agent-new');
+        if (field === 'llm') actual.conversation_config.agent.prompt.llm = 'built-in';
+        else if (field === 'override') actual.platform_settings.overrides.custom_llm_extra_body = false;
+        else if (field === 'translated greeting') actual.conversation_config.language_presets.de.overrides.agent.first_message = 'Old identity';
+        else actual.conversation_config.agent.prompt.custom_llm[field] = 'incompatible';
+        reloadProvisioner('MyHealthBot');
+        calls.length = 0;
+
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-new');
+        expect(calls.map((c) => c.method)).toEqual(['GET', 'PATCH']);
+        expect(calls.every((c) => c.url.endsWith('/agents/agent-new'))).toBe(true);
+        const repaired = agents.get('agent-new');
+        expect(repaired.conversation_config.agent.prompt.llm).toBe('custom-llm');
+        expect(repaired.conversation_config.agent.prompt.custom_llm).toEqual({
+            url: `${window.location.origin}/api/voice-llm`, model_id: 'medtracker', api_type: 'chat_completions',
+        });
+        expect(repaired.platform_settings.overrides.custom_llm_extra_body).toBe(true);
+        expect(repaired.conversation_config.language_presets.de.overrides.agent.first_message).toContain('MyHealthBot');
+    });
+
+    it.each(['GET', 'PATCH'])('retries failed %s identity verification/repair without creating a replacement or memoizing failure', async (method) => {
+        const { window, records } = env;
+        await setKey(window);
+        const { spy, calls } = makeElevenLabsFetch({
+            existingTools: existingAll(), failAgentGet: method === 'GET' ? 1 : 0, failAgentPatch: method === 'PATCH' ? 1 : 0,
+        });
+        vi.stubGlobal('fetch', spy);
+        await window.CloudElevenLabsAgent.provision();
+        const saved = await records.list('voiceprovisioning');
+        reloadProvisioner('Renamed Care');
+        calls.length = 0;
+
+        const results = await Promise.allSettled([
+            window.CloudElevenLabsAgent.provision(), window.CloudElevenLabsAgent.provision(),
+        ]);
+        expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+        expect(results[0].reason.message).toContain('(503)');
+        expect(calls.filter((c) => c.method === 'GET')).toHaveLength(1);
+        expect(await records.list('voiceprovisioning')).toEqual(saved);
+        calls.length = 0;
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-new');
+        expect(calls.map((c) => c.method)).toEqual(['GET', 'PATCH']);
+        expect(calls.every((c) => c.url.endsWith('/agents/agent-new'))).toBe(true);
+        spy.mockClear();
+        await window.CloudElevenLabsAgent.provision();
         expect(spy).not.toHaveBeenCalled();
     });
 

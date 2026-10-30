@@ -6,11 +6,12 @@
 // aiclient.js). Nothing ever crosses /api, no ElevenLabs dashboard steps.
 //
 // Idempotent: the provisioned agent id + tool ids + a TOOLSET_VERSION are
-// stored in the vault; reprovisioning happens only when the stored version
-// differs (first run, or we bumped the toolset below).
+// stored in the vault. Version changes update tools; each cold provisioner
+// also verifies the managed identity/relay once, then reuses it in memory.
 
 const TOOLS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/tools';
 const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
+const DEFAULT_PRODUCT_NAME = 'MyHealthBot';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
@@ -290,8 +291,8 @@ export function toolBody(spec) {
 // ensureTools returns a { name → id } map for every TOOL_SPECS entry, resolved
 // by tool NAME against the account's own tool list — tool ids are per-ElevenLabs
 // account, so nothing may assume a stored id. On the BYO path it only runs
-// during a (re)provision (provision() short-circuits when the stored version
-// matches), so it PATCHes tools that already exist by name — otherwise a
+// during a toolset upgrade (identity-only repairs reuse the saved tool IDs),
+// so it PATCHes tools that already exist by name — otherwise a
 // TOOLSET_VERSION bump that edits a spec (params/description) would never reach
 // accounts that already created the tool. Missing tools are created.
 //
@@ -377,7 +378,7 @@ export async function ensureTools(key, onEvent) {
 // https://elevenlabs.io/docs/api-reference/agents/update. Only the trial
 // script passes it ({ 'X-Voice-Relay-Secret': TRIAL_VOICE_RELAY_SECRET }); the
 // relay checks it on anonymous calls only. BYO agents pass nothing.
-export function buildAgentConfig(toolIds, { productName = 'MyHealthBot', llmURL, llmHeaders, maxDurationSeconds, silenceEndCallSeconds } = {}) {
+export function buildAgentConfig(toolIds, { productName = DEFAULT_PRODUCT_NAME, llmURL, llmHeaders, maxDurationSeconds, silenceEndCallSeconds } = {}) {
   if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
@@ -462,29 +463,47 @@ export async function patchAgent(key, agentId, config) {
   return agentId;
 }
 
-// llmURL: the voice LLM relay base on this account's own origin (apishim.js).
-export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL, productName }) {
-  async function apiKey() {
-    const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
-    if (!elevenlabs || !elevenlabs.api_key) {
-      throw new Error('Set your ElevenLabs API key in Settings → Integrations');
-    }
-    return elevenlabs.api_key;
-  }
+// Compare only the app-managed identity and relay projection. ElevenLabs adds
+// defaults/metadata to GET responses that are not part of this contract.
+function matchesManagedIdentity(actual, expected) {
+  const agent = actual?.conversation_config?.agent;
+  const wanted = expected.conversation_config.agent;
+  if (agent?.prompt?.prompt !== wanted.prompt.prompt
+    || agent?.first_message !== wanted.first_message
+    || agent?.language !== wanted.language
+    || agent?.prompt?.llm !== wanted.prompt.llm
+    || agent?.prompt?.custom_llm?.url !== wanted.prompt.custom_llm.url
+    || agent?.prompt?.custom_llm?.model_id !== wanted.prompt.custom_llm.model_id
+    || agent?.prompt?.custom_llm?.api_type !== wanted.prompt.custom_llm.api_type
+    || actual?.platform_settings?.overrides?.custom_llm_extra_body !== true) return false;
+  return Object.entries(expected.conversation_config.language_presets).every(([lang, preset]) => (
+    actual?.conversation_config?.language_presets?.[lang]?.overrides?.agent?.first_message
+      === preset.overrides.agent.first_message
+  ));
+}
 
-  // ensureAgent reuses the stored agent when its toolset version matches; else
-  // it PATCHes a user-preset agent id, or creates a fresh one. Persists the
-  // provisioned state to the vault and returns the agent id.
-  async function ensureAgent(key, toolMap) {
+// llmURL: the voice LLM relay base on this account's own origin (apishim.js).
+export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL, productName = DEFAULT_PRODUCT_NAME }) {
+  // Credential identity stays only in this closure, never in the vault/logs.
+  let verified = null;
+  let pending = null;
+  const sameIdentity = (a, b) => a && a.agentId === b.agentId && a.key === b.key
+    && a.toolsetVersion === b.toolsetVersion && a.productName === b.productName && a.llmURL === b.llmURL;
+
+  // ensureAgent PATCHes the selected existing agent, or creates one when none
+  // is selected. Persists the provisioned state and returns the agent id.
+  async function ensureAgent(key, toolMap, selectedId) {
     const toolIds = TOOL_SPECS.map((s) => toolMap[s.name]).filter(Boolean);
-    const stored = await settingsDomain.getVoiceProvisioning();
-    const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
-    const presetId = (elevenlabs && elevenlabs.agent_id) || stored.agentId || '';
+    if (selectedId === undefined) {
+      const stored = await settingsDomain.getVoiceProvisioning();
+      const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
+      selectedId = (elevenlabs && elevenlabs.agent_id) || stored.agentId || '';
+    }
     const config = buildAgentConfig(toolIds, { llmURL, productName });
 
     let agentId;
-    if (presetId) {
-      agentId = await patchAgent(key, presetId, config);
+    if (selectedId) {
+      agentId = await patchAgent(key, selectedId, config);
     } else {
       const resp = await fetch(`${AGENTS_ENDPOINT}/create`, {
         method: 'POST', headers: headers(key), body: JSON.stringify(config),
@@ -499,18 +518,43 @@ export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL, produ
     return agentId;
   }
 
-  // provision orchestrates ensureTools → ensureAgent and returns the agent id
-  // the signed-URL client should use.
+  // A cold provisioner verifies an existing current-version agent once: the
+  // instance name/relay can change without a toolset bump. Successful work is
+  // memoized for this document; failures remain retryable. Version upgrades
+  // still run ensureTools, while identity-only repairs retain the tool IDs.
   async function provision() {
-    // Already provisioned at this toolset version → reuse without touching the
-    // ElevenLabs API (the key is validated later when minting the signed URL).
-    const stored = await settingsDomain.getVoiceProvisioning();
-    if (stored.agentId && stored.toolsetVersion === TOOLSET_VERSION) {
-      return stored.agentId;
-    }
-    const key = await apiKey();
-    const toolMap = await ensureTools(key);
-    return ensureAgent(key, toolMap);
+    const [stored, { elevenlabs }] = await Promise.all([
+      settingsDomain.getVoiceProvisioning(), settingsDomain.readIntegrationsUnmasked(),
+    ]);
+    const key = elevenlabs?.api_key;
+    if (!key) throw new Error('Set your ElevenLabs API key in Settings → Integrations');
+    const identity = {
+      agentId: elevenlabs.agent_id || stored.agentId || '', key,
+      toolsetVersion: stored.toolsetVersion, productName, llmURL,
+    };
+    if (sameIdentity(verified, identity)) return identity.agentId;
+    if (pending && sameIdentity(pending.identity, identity)) return pending.promise;
+
+    const task = { identity, promise: null };
+    pending = task;
+    task.promise = (async () => {
+      let agentId;
+      if (identity.agentId && stored.toolsetVersion === TOOLSET_VERSION) {
+        const actual = await fetchAgent(key, identity.agentId);
+        const expected = buildAgentConfig(TOOL_SPECS.map((s) => stored.toolIds[s.name]).filter(Boolean), { llmURL, productName });
+        agentId = matchesManagedIdentity(actual, expected)
+          ? identity.agentId
+          : await ensureAgent(key, stored.toolIds, identity.agentId);
+      } else {
+        const toolMap = await ensureTools(key);
+        agentId = await ensureAgent(key, toolMap, identity.agentId);
+      }
+      if (pending === task) verified = { ...identity, agentId, toolsetVersion: TOOLSET_VERSION };
+      return agentId;
+    })().finally(() => {
+      if (pending === task) pending = null;
+    });
+    return task.promise;
   }
 
   return { provision, ensureTools, ensureAgent };
