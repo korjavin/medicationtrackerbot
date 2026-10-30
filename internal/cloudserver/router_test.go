@@ -111,6 +111,26 @@ func testDomainFS() fstest.MapFS {
 	}
 }
 
+func TestRouter_InstanceProductName(t *testing.T) {
+	store := setupStore(t)
+	for _, tc := range []struct{ name, env, escaped string }{
+		{"default", "", "MyHealthBot"},
+		{"configured and escaped", `Example "Health" <Care> & Co`, `Example &#34;Health&#34; &lt;Care&gt; &amp; Co`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PRIVACY_NAME", tc.env)
+			h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+			want := `<meta name="medtracker-product-name" content="` + tc.escaped + `">`
+			if !strings.Contains(string(h.appIndex), want) {
+				t.Fatalf("missing escaped instance identity %q in app document: %s", want, h.appIndex)
+			}
+			if !strings.Contains(string(h.privacyPage), tc.escaped) {
+				t.Fatal("privacy page and voice metadata must use the same instance identity")
+			}
+		})
+	}
+}
+
 // med-eas.52: the base-domain landing page grows an optional "request an
 // invite" contact line, injected before </main> only when the operator sets
 // REQUEST_INVITE_EMAIL (via SetRequestInviteEmail). Unset = byte-identical to
@@ -212,7 +232,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		// subdomains — it is what CI polls to prove a Portainer redeploy landed
 		// (bd med-m391), and there is no account to scope it to.
 		{"base domain serves the build id", "app.example.com", "/api/version", http.StatusOK, "{\"build_id\":\"dev\"}\n"},
-		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <meta name=\"medtracker-food-db\" content=\"1\">\n    <meta name=\"medtracker-build-id\" content=\"dev\">\n    <meta name=\"medtracker-trial-ai\" content=\"1\">\n    <meta name=\"medtracker-trial-voice\" content=\"1\">\n    <script src=\"/js/cloud-boot.js\"></script>\n    <script type=\"module\" src=\"/js/update-check.js\"></script></head><body>real app</body></html>"},
+		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <meta name=\"medtracker-food-db\" content=\"1\">\n    <meta name=\"medtracker-build-id\" content=\"dev\">\n    <meta name=\"medtracker-product-name\" content=\"MyHealthBot\">\n    <meta name=\"medtracker-trial-ai\" content=\"1\">\n    <meta name=\"medtracker-trial-voice\" content=\"1\">\n    <script src=\"/js/cloud-boot.js\"></script>\n    <script type=\"module\" src=\"/js/update-check.js\"></script></head><body>real app</body></html>"},
 		{"known subdomain serves the unlock shell", "known-sub.app.example.com", "/unlock", http.StatusOK, "account shell"},
 		{"known subdomain claim serves the shell", "known-sub.app.example.com", "/claim", http.StatusOK, "account shell"},
 		{"known subdomain recover serves the shell", "known-sub.app.example.com", "/recover", http.StatusOK, "account shell"},
@@ -546,14 +566,14 @@ func TestRouter_ShellCarriesNoTrialAI(t *testing.T) {
 // flag (bd med-wa9c), never the CLOUD_FOOD_DB_URL value or its host.
 func TestInjectCloudBoot_FoodDBHostNeverServed(t *testing.T) {
 	const secret = "https://private-food.internal.example"
-	out := string(injectCloudBoot([]byte("<html><head></head></html>"), secret, false, false, "dev"))
+	out := string(injectCloudBoot([]byte("<html><head></head></html>"), secret, false, false, "dev", "MyHealthBot"))
 	if strings.Contains(out, secret) || strings.Contains(out, "private-food") {
 		t.Fatalf("document leaks the food-DB URL: %s", out)
 	}
 	if !strings.Contains(out, `<meta name="medtracker-food-db" content="1">`) {
 		t.Errorf("configured flag missing: %s", out)
 	}
-	if out := string(injectCloudBoot([]byte("<html><head></head></html>"), "", false, false, "dev")); strings.Contains(out, "medtracker-food-db") {
+	if out := string(injectCloudBoot([]byte("<html><head></head></html>"), "", false, false, "dev", "MyHealthBot")); strings.Contains(out, "medtracker-food-db") {
 		t.Errorf("flag emitted with no food DB configured: %s", out)
 	}
 }
