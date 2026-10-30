@@ -38,6 +38,8 @@
     let _aiProviderKeyURL = ''; // module-state: URL the current draft main key belongs to
     const _aiProviderPhotoPins = {}; // module-state: reversible automatic photo URL/model draft values, never secrets
     const _aiProviderPhotoEdited = new Set(); // module-state: explicit photo edits must survive automatic pin rollback
+    let _aiProviderPhotoDraftBase = null; // module-state: public target bound only at explicit photo-key entry, never a key/hash
+    let _aiProviderSavedPayload = null; // module-state: masked accepted form snapshot for full page cancellation
 
     function normalizeProviderURL(url) {
         return String(url || '').trim().replace(/\/+$/, '');
@@ -54,7 +56,7 @@
         // The sentinel can preserve a saved key only at its saved API base.
         // Legacy keyless settings may remain unchanged, but new custom
         // endpoints require a key: the runtime does not call keyless URLs.
-        if (key === '***' && (_aiProviderDraft !== _aiProviderLoaded?.provider
+        if (key === '***' && (!_aiProviderLoaded?.key || _aiProviderDraft !== _aiProviderLoaded?.provider
             || url !== normalizeProviderURL(_aiProviderLoaded?.url))) return false;
         if (_aiProviderDraft === 'other') {
             const sameSavedURL = _aiProviderLoaded?.provider === 'other'
@@ -65,31 +67,50 @@
         return !!key && key !== '***';
     }
 
+    function mainURL(saved = false) {
+        return (saved ? _aiProviderLoaded?.url : getInput(FIELD_IDS.openai.url)?.value) || AI_PROVIDERS[0].url;
+    }
+
     function mainBase(saved = false) {
-        return normalizeProviderURL(saved ? _aiProviderLoaded?.url : getInput(FIELD_IDS.openai.url)?.value) || AI_PROVIDERS[0].url;
+        return normalizeProviderURL(mainURL(saved));
+    }
+
+    function savedPhotoURL() {
+        return _aiProviderLoaded?.visionURL || mainURL(true);
     }
 
     function savedPhotoBase() {
-        return normalizeProviderURL(_aiProviderLoaded?.visionURL) || mainBase(true);
+        return normalizeProviderURL(savedPhotoURL());
+    }
+
+    function photoBase() {
+        return normalizeProviderURL(getInput(FIELD_IDS.openai.vision_url)?.value || mainURL());
+    }
+
+    function undoPhotoPin(field) {
+        const pin = _aiProviderPhotoPins[field];
+        const input = getInput(FIELD_IDS.openai[field]);
+        if (pin && input && !_aiProviderPhotoEdited.has(field) && input.value === pin.after) input.value = pin.before;
+        delete _aiProviderPhotoPins[field];
     }
 
     function undoPhotoPins() {
-        for (const [field, pin] of Object.entries(_aiProviderPhotoPins)) {
-            const input = getInput(FIELD_IDS.openai[field]);
-            if (input && !_aiProviderPhotoEdited.has(field) && input.value === pin.after) input.value = pin.before;
-            delete _aiProviderPhotoPins[field];
-        }
+        for (const field of Object.keys(_aiProviderPhotoPins)) undoPhotoPin(field);
     }
 
     function reconcilePhotoPins() {
         if (!_aiProviderLoaded) return;
-        if (mainBase() === mainBase(true)) { undoPhotoPins(); return; }
+        const retainedMask = _aiProviderLoaded.visionKey && getInput(FIELD_IDS.openai.vision_api_key)?.value.trim() === '***';
+        const untouchedInheritance = !getInput(FIELD_IDS.openai.vision_url)?.value && !_aiProviderPhotoEdited.has('vision_url');
+        if (mainBase() === mainBase(true) || !retainedMask || (photoBase() !== savedPhotoBase() && !untouchedInheritance)) {
+            undoPhotoPins();
+            return;
+        }
         // A masked photo secret stays with its saved effective endpoint/model.
         // Materialize inherited values only in this draft; Save owns the write.
-        if (!_aiProviderLoaded.visionKey || getInput(FIELD_IDS.openai.vision_api_key)?.value.trim() !== '***') return;
         const oldModel = _aiProviderLoaded.visionModel || _aiProviderLoaded.model || AI_PROVIDERS[0].model;
         const inheritedModel = getInput(FIELD_IDS.openai.model)?.value || AI_PROVIDERS[0].model;
-        for (const [field, value] of [['vision_url', savedPhotoBase()], ['vision_model', oldModel]]) {
+        for (const [field, value] of [['vision_url', savedPhotoURL()], ['vision_model', oldModel]]) {
             const input = getInput(FIELD_IDS.openai[field]);
             if (!input || input.value.trim() || _aiProviderPhotoEdited.has(field)) continue;
             if (field === 'vision_model' && value === inheritedModel) continue;
@@ -102,7 +123,8 @@
         if (!_aiProviderLoaded) return '';
         const key = getInput(FIELD_IDS.openai.vision_api_key)?.value.trim();
         const url = normalizeProviderURL(getInput(FIELD_IDS.openai.vision_url)?.value);
-        if (key === '***' && (!_aiProviderLoaded.visionKey || (url || mainBase()) !== savedPhotoBase())) return 'retarget';
+        if (key === '***' && (!_aiProviderLoaded.visionKey || photoBase() !== savedPhotoBase())) return 'retarget';
+        if (key && key !== '***' && (!_aiProviderPhotoDraftBase || photoBase() !== _aiProviderPhotoDraftBase)) return 'retarget';
         if (!key && url && mainBase() !== mainBase(true)) {
             const origin = (base) => { try { return new URL(base).origin; } catch (_) { return ''; } };
             if (origin(url) !== origin(mainBase())) return 'inherited';
@@ -128,28 +150,24 @@
             if (hint) { hint.textContent = text; hint.hidden = !text; }
         }
         const desc = getInput('integrations-photo-summary');
-        if (desc) desc.textContent = issue ? 'Review Photo API key' : Object.keys(_aiProviderPhotoPins).length
+        const retainedSavedProvider = _aiProviderLoaded?.visionKey
+            && getInput(FIELD_IDS.openai.vision_api_key)?.value.trim() === '***'
+            && photoBase() === savedPhotoBase() && photoBase() !== mainBase();
+        if (desc) desc.textContent = issue ? 'Review Photo API key' : (Object.keys(_aiProviderPhotoPins).length || retainedSavedProvider)
             ? 'Food photos keep their saved provider' : 'Food photos use the provider above';
         const advanced = getInput('integrations-provider-advanced');
         if (advanced && issue) advanced.open = true;
     }
 
     function restoreProviderDraft() {
-        if (!_aiProviderLoaded) return;
-        undoPhotoPins();
-        _aiProviderDraft = _aiProviderLoaded.provider;
-        getInput(FIELD_IDS.openai.url).value = _aiProviderLoaded.url;
-        getInput(FIELD_IDS.openai.model).value = _aiProviderLoaded.model;
-        getInput(FIELD_IDS.openai.api_key).value = _aiProviderLoaded.key;
-        const key = getInput(FIELD_IDS.openai.api_key);
-        key.type = 'password';
-        const reveal = key.closest('.wg-secret')?.querySelector('[data-secret-reveal]');
-        reveal?.setAttribute('aria-pressed', 'false');
-        reveal?.setAttribute('aria-label', 'Show key');
-        _aiProviderKeyURL = normalizeProviderURL(_aiProviderLoaded.url);
+        if (!_aiProviderSavedPayload) return;
+        applyPayloadToDOM(_aiProviderSavedPayload);
+        document.querySelectorAll('#settings-integrations .wg-secret').forEach((wrap) => {
+            wrap.querySelector('input').type = 'password';
+            wrap.querySelector('[data-secret-reveal]')?.setAttribute('aria-pressed', 'false');
+            wrap.querySelector('[data-secret-reveal]')?.setAttribute('aria-label', 'Show key');
+        });
         resetModelSuggestions();
-        renderProvider();
-        applyTrialHints();
     }
 
     function renderProvider() {
@@ -284,6 +302,7 @@
                 input.value = typeof value === 'string' ? value : '';
             }
         }
+        _aiProviderSavedPayload = maskPayload(readDOMIntoPayload());
         const main = payload.openai || {};
         _aiProviderDraft = providerForURL(main.url).id;
         _aiProviderLoaded = {
@@ -298,6 +317,7 @@
         };
         for (const field of Object.keys(_aiProviderPhotoPins)) delete _aiProviderPhotoPins[field];
         _aiProviderPhotoEdited.clear();
+        _aiProviderPhotoDraftBase = null;
         _aiProviderKeyURL = normalizeProviderURL(main.url);
         renderProvider();
         applyTrialHints();
@@ -1018,8 +1038,20 @@
             getInput(FIELD_IDS.openai.model)?.addEventListener('input', renderProvider);
             for (const field of ['vision_api_key', 'vision_url', 'vision_model']) {
                 getInput(FIELD_IDS.openai[field])?.addEventListener('input', () => {
+                    if (field === 'vision_api_key') {
+                        // A key event deliberately establishes a NEW binding only
+                        // after untouched values belonging to the old key unwind.
+                        undoPhotoPins();
+                        const key = getInput(FIELD_IDS.openai[field]).value.trim();
+                        _aiProviderPhotoDraftBase = key && key !== '***' ? photoBase() : null;
+                    }
                     _aiProviderPhotoEdited.add(field);
                     delete _aiProviderPhotoPins[field];
+                    if (field === 'vision_url') {
+                        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value.trim();
+                        const boundBase = key === '***' ? savedPhotoBase() : _aiProviderPhotoDraftBase;
+                        if (boundBase && photoBase() !== boundBase) undoPhotoPin('vision_model');
+                    }
                     renderProvider();
                 });
             }
