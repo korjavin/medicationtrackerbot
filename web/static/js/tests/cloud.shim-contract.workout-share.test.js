@@ -197,6 +197,39 @@ describe('cloud shim contract — workout plan export/import (share)', () => {
         expect(exs[0].exercise_name).toBe('bench press');
     });
 
+    // med-l5yr.2: an alias matches like a name; a "must stay distinct" name
+    // that merely contains a library name is a new row, never folded in.
+    it('matches a library alias; a distinct movement gets its own row', async () => {
+        const { window } = env;
+        const raise = await window.apiCall('/api/workout/exercise-library/create', 'POST', {
+            name: 'Dumbbell Lateral Raise', aliases: ['Lateral Raises'],
+        });
+        await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Barbell Bench Press' });
+        const res = await window.apiCall('/api/workout/plans/import', 'POST', {
+            v: 1,
+            plan: {
+                name: 'Alias Plan',
+                days: [{
+                    name: 'Day', exercises: [
+                        { name: 'lateral raises', sets: 3, reps_min: 12, order_index: 0 },
+                        { name: 'Paused Barbell Bench Press', sets: 3, reps_min: 5, order_index: 1 },
+                    ],
+                }],
+                library: [],
+            },
+        });
+        expect(res.exercises_matched).toBe(1);
+        expect(res.exercises_created).toBe(1);
+        const variants = await window.apiCall(`/api/workout/variants?group_id=${res.id}`);
+        const exs = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(exs.map((e) => [e.exercise_name, e.exercise_library_id === raise.id])).toEqual([
+            ['Dumbbell Lateral Raise', true],
+            ['Paused Barbell Bench Press', false],
+        ]);
+        const names = (await window.apiCall('/api/workout/exercise-library')).map((i) => i.name).sort();
+        expect(names).toEqual(['Barbell Bench Press', 'Dumbbell Lateral Raise', 'Paused Barbell Bench Press']);
+    });
+
     it('import never touches an existing group', async () => {
         const { window } = env;
         const existing = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Keep Me' });

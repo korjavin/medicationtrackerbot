@@ -433,6 +433,62 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(list.find((e) => e.id === bound.id).equipment_id).toBe(51);
     });
 
+    // med-l5yr.2: the library has one row per exercise key — any case/spacing of
+    // another row's name, or another row's alias, is refused (409); the alias
+    // refusal names the owning row. Plan exercises link to the row they name.
+    describe('library name identity (med-l5yr.2)', () => {
+        const create = (body) => env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', body);
+        const update = (id, body) => env.window.apiCallDirect(`/api/workout/exercise-library/update?id=${id}`, 'PUT', body);
+
+        it('create and rename refuse a case variant or another row\'s alias', async () => {
+            await create({ name: 'Goblet Squat' });
+            await create({ name: 'Kettlebell Swings', aliases: ['Swings'] });
+            const deadlift = await create({ name: 'Deadlift' });
+            for (const name of ['goblet squat', '  GOBLET   squat ']) {
+                await expect(create({ name })).rejects.toThrow('Exercise with this name already exists in your library');
+            }
+            const statusOf = (body) => env.window.offlineAwareApiCall('/api/workout/exercise-library/create', 'POST', body)
+                .then(() => 0, (e) => e.status);
+            expect(await statusOf({ name: 'goblet squat' })).toBe(409);
+            expect(await statusOf({ name: 'swings' })).toBe(409);
+            await expect(create({ name: 'swings' })).rejects.toThrow('"swings" is already an alias of Kettlebell Swings');
+            await expect(update(deadlift.id, { name: 'Swings' })).rejects.toThrow(/already an alias of Kettlebell Swings/);
+            await expect(update(deadlift.id, { name: 'GOBLET SQUAT' })).rejects.toThrow(/already exists/);
+            // Must-stay-distinct names are not variants.
+            await create({ name: 'Barbell Bench Press' });
+            await create({ name: 'Paused Barbell Bench Press' });
+            await update(deadlift.id, { name: 'Sumo Kettlebell Deadlift' });
+            const names = (await env.window.apiCallDirect('/api/workout/exercise-library')).map((i) => i.name).sort();
+            expect(names).toEqual(['Barbell Bench Press', 'Goblet Squat', 'Kettlebell Swings', 'Paused Barbell Bench Press', 'Sumo Kettlebell Deadlift']);
+        });
+
+        it('a case twin the old guard let in stays editable but cannot be renamed onto its twin', async () => {
+            await create({ name: 'Goblet Squat' });
+            const twin = await create({ name: 'Goblet squat (old)' });
+            const rec = (await env.records.list('exerciselibrary')).find((r) => r.id === twin.id);
+            await env.records.put('exerciselibrary', { ...rec, name: 'Goblet squat' });
+            await update(twin.id, { name: 'Goblet squat', default_sets: 4 });
+            await expect(update(twin.id, { name: 'Goblet Squat' })).rejects.toThrow(/already exists/);
+        });
+
+        it('a plan exercise links to the row a case variant or alias names', async () => {
+            const goblet = await create({ name: 'Goblet Squat' });
+            const swings = await create({ name: 'Kettlebell Swings', aliases: ['Swings'] });
+            const group = await env.window.apiCall('/api/workout/groups/create', 'POST', { name: 'Legs' });
+            const variant = await env.window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+            for (const [i, name] of ['goblet squat', 'Swings', 'Paused Barbell Bench Press'].entries()) {
+                await env.window.apiCall('/api/workout/exercises/create', 'POST', {
+                    variant_id: variant.id, exercise_name: name, target_sets: 3, target_reps_min: 8, order_index: i,
+                });
+            }
+            const exs = await env.window.apiCall(`/api/workout/exercises?variant_id=${variant.id}`);
+            expect(exs.slice(0, 2).map((e) => [e.exercise_name, e.exercise_library_id])).toEqual([
+                ['Goblet Squat', goblet.id], ['Kettlebell Swings', swings.id],
+            ]);
+            expect((await env.window.apiCallDirect('/api/workout/exercise-library'))).toHaveLength(3);
+        });
+    });
+
     it('exercise library create/list/update/delete round-trips with name-uniqueness enforced', async () => {
         const { window } = env;
         const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', {

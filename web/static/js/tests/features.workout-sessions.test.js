@@ -275,6 +275,38 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(createdLogPayload.exercise_id).toBe(777);
   });
 
+  // med-l5yr.2: a typed alias (or a spacing variant) is that library row —
+  // the domain would 409 a create on it, so the picker must not try one.
+  it('saveNewSessionExercise logs a typed alias against the row that owns it, with no create', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.showWorkoutSessionModal = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const logged = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/exercise-library') {
+        return [{ id: 31, name: 'Kettlebell Swings', aliases: ['Swings'] }, { id: 32, name: 'Goblet Squat' }];
+      }
+      if (endpoint === '/api/workout/sessions/logs/create') {
+        logged.push(payload.exercise_id);
+        return { id: 900 + logged.length };
+      }
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return { session: { id: 42, status: 'in_progress' }, logs: window.WorkoutSessionsState.logs };
+      }
+      return [];
+    });
+
+    await window.saveNewSessionExercise({ name: 'swings' });
+    await window.saveNewSessionExercise({ name: 'goblet  squat' });
+
+    expect(logged).toEqual([31, 32]);
+    expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
+  });
+
   // med-3q8.1 / med-max — the session picker used to dump the user's whole
   // library plus all 1324 catalog names into a native <datalist>, so the popup
   // covered half the phone screen and buried the keyboard. It is now our own

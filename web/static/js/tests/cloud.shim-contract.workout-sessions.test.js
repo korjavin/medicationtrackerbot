@@ -296,6 +296,69 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(view.total_volume).toBe(3 * 5 * 100);
     });
 
+    // med-l5yr.2: every free-form name lands on the library row it names — any
+    // case/spacing, or an alias — never a new spelling; exact key only, so a
+    // "must stay distinct" name stays free-form.
+    describe('ingestion resolves names to the library row (med-l5yr.2)', () => {
+        async function seed(window) {
+            const goblet = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Goblet Squat' });
+            const swings = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Kettlebell Swings', aliases: ['Swings'] });
+            const bench = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Barbell Bench Press' });
+            return { goblet, swings, bench };
+        }
+        const logsOf = async (sessionId) => (await env.records.list('exerciselog'))
+            .filter((l) => l.session_id === sessionId)
+            .map((l) => [l.exercise_name, l.exercise_id, l.source]);
+
+        it('sessions.schedule: a case variant or alias becomes a library log under the row name', async () => {
+            const { window } = env;
+            const { goblet, swings } = await seed(window);
+            const res = await window.apiCall('/api/workout/sessions/schedule', 'POST', {
+                scheduled_date: '2099-01-05', scheduled_time: '18:00',
+                exercises: [
+                    { exercise_name: 'Goblet squat', target_sets: 3, target_reps_min: 10 },
+                    { exercise_name: 'swings', target_sets: 3, target_reps_min: 15 },
+                    { exercise_name: 'Paused Barbell Bench Press', target_sets: 3, target_reps_min: 5 },
+                ],
+            });
+            expect(await logsOf(res.session.id)).toEqual([
+                ['Goblet Squat', goblet.id, 'library'],
+                ['Kettlebell Swings', swings.id, 'library'],
+                ['Paused Barbell Bench Press', 0, 'schedule'],
+            ]);
+            // Two spellings of one row in one request are one exercise.
+            await expect(window.offlineAwareApiCall('/api/workout/sessions/schedule', 'POST', {
+                scheduled_date: '2099-01-06', scheduled_time: '18:00',
+                exercises: [
+                    { exercise_name: 'Swings', target_sets: 3, target_reps_min: 15 },
+                    { exercise_name: 'Kettlebell  Swings', target_sets: 3, target_reps_min: 15 },
+                ],
+            })).rejects.toThrow(/unique/);
+        });
+
+        it('logs.create (library): stored under the row name; a distinct movement keeps its own', async () => {
+            const { window } = env;
+            const { goblet, swings, bench } = await seed(window);
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            for (const [row, name] of [[goblet, 'goblet squat'], [swings, 'Swings'], [bench, 'Paused Barbell Bench Press']]) {
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: row.id, exercise_name: name, source: 'library', target_sets: 0,
+                });
+            }
+            expect((await logsOf(session.id)).map(([name]) => name)).toEqual([
+                'Goblet Squat', 'Kettlebell Swings', 'Paused Barbell Bench Press',
+            ]);
+        });
+
+        it('setLibraryBodyPart tags the row an alias names instead of minting one', async () => {
+            const records = createInMemoryRecordsPort();
+            const domain = createWorkoutDomain({ records, now: () => Date.now(), timeZone: 'UTC' });
+            await domain.createLibraryItem({ name: 'Kettlebell Swings', aliases: ['Swings'] });
+            await domain.setLibraryBodyPart('SWINGS', 'upper legs');
+            expect((await domain.listLibrary()).map((r) => [r.name, r.body_part])).toEqual([['Kettlebell Swings', 'upper legs']]);
+        });
+    });
+
     // med-okwf.1: an exercise added mid-workout is a placeholder (status '',
     // zero done sets, reps/weight only as pre-fill) — the payload sessions.js
     // saveNewSessionExercise sends. Finished untouched it counts nowhere as

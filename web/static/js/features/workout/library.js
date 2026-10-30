@@ -898,8 +898,14 @@ function _wgExerciseIco(name) {
 async function resolveOrCreateLibraryId(name, defaults = {}) {
     const trimmed = (name || '').trim();
     if (!trimmed) return null;
+    // Same identity as the domain (exerciseKey): any case/spacing of a row's
+    // name, else one of its aliases — the domain 409s a create on either.
+    const key = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const want = key(trimmed);
+    const match = (list) => list.find(i => key(i.name) === want)
+        || list.find(i => (i.aliases || []).some(a => key(a) === want));
     const items = await apiCall('/api/workout/exercise-library') || [];
-    const existing = items.find(i => (i.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+    const existing = match(items);
     if (existing) return existing.id;
     const created = await apiCall('/api/workout/exercise-library/create', 'POST', {
         name: trimmed,
@@ -915,7 +921,7 @@ async function resolveOrCreateLibraryId(name, defaults = {}) {
     // list read — the INSERT then 500s. Refetch and match by name so we log
     // against the now-existing row instead of refusing an exercise that exists.
     const after = await apiCall('/api/workout/exercise-library') || [];
-    const raced = after.find(i => (i.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+    const raced = match(after);
     return raced ? raced.id : null;
 }
 
