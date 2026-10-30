@@ -378,6 +378,6 @@
       "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] },
     { "name": "health-kit-import", "platform": "ios", "localOnly": true, "requiresNativeHealth": true,
       "steps": [{ "healthNative": true }, { "tab": "health" }],
-      "ready": ["#health-view.active", "#health-overview-content", ".wg-vitals-card--sleep", ".wg-vitals-card--steps", ".wg-vitals-card--hr", ".wg-vitals-card--spo2"] }
+      "ready": ["#health-view.active", "#health-overview-content", ".wg-sleep-card", ".wg-steps-card", ".wg-vitals-card--hr", ".wg-vitals-card--spo2"] }
   ]
 }

@@ -120,11 +120,15 @@ final class VisualQATests: XCTestCase {
                    (obj["failed"] as? [String])?.contains("ready") == true {
                     failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
                 }
-                if scene.name == "health-kit-import",
-                   let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-                   obj["ok"] as? Bool != true {
-                    failure = "native Health seed/import assertion failed: \(json)"
-                }
+            }
+        }
+        if scene.name == "health-kit-import" {
+            if let json = readyReport(app),
+               let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+               obj["ok"] as? Bool == true {
+                // Required native import/value assertions completed.
+            } else {
+                failure = "native Health scene requires a present valid report with ok=true: \(readyReport(app) ?? "missing")"
             }
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }

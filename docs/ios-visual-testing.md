@@ -20,7 +20,9 @@ gh workflow run ios.yml --ref <branch> -f health_diagnostic=true
 gh workflow run ios.yml --ref <branch> -f health_diagnostic=true -f health_sign=true
 ```
 
-Run one variant at a time. The first uses the visual job's unsigned build setting; the second lets Xcode sign for the Simulator. Both skip TestFlight. `health_sign` only affects the diagnostic job. The Debug/Simulator-only view requests read access to Steps and executes a real sample query, without the browser's error translation; it never writes samples. Ordinary flow QA excludes this experiment.
+Run one variant at a time. The first reproduces the former unsigned visual build; the second lets Xcode sign for the Simulator, as the visual job now does. Both skip TestFlight. `health_sign` only affects the diagnostic job. The default Debug/Simulator-only diagnostic requests read access to Steps and executes a real sample query, without the browser's error translation; it never writes samples. Ordinary flow QA excludes this experiment.
+
+For the populated native scene, dispatch `-f visual=true -f visual_scenes=health-kit-import`. Both widths run with a strict XCTest exit status. This scene separately opts into a Debug/Simulator-only seed that saves real Steps/HR/SpO2/sleep samples to Health, clears fixture vitals, imports through the actual native bridge and local importer, and asserts the resulting overview values. Release does not compile the seed or request write permissions. Playwright skips this native-only proof.
 
 Download `health-native-baseline`: `xctest.log`, the result bundle with a screenshot and native JSON report, requested entitlements, actual executable signature/entitlements and load commands, build log and Simulator Health system logs. Check native `available`, authorization errors and `queryCompleted`, plus XCTest's actual failure count. An empty successful query proves API access, not populated-card acceptance. Inspect the permission screenshot if authorization remains pending. Simulator entitlements may be in a Mach-O `__entitlements` section even when the code-signature entitlement dictionary is empty.
 
