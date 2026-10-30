@@ -1,11 +1,17 @@
-// Connector mode picker (remote connector primary, local shim alternative),
-// split out of the devices page by med-lyv. connectors.js drives the real DOM
-// directly (no framework), so these tests run it against a real jsdom document
-// with the pairing/remote modules mocked — the interesting behavior here is the
-// mode-picker wiring, not mcp-pairing.js's/mcp-remote.js's own fetch calls
-// (covered separately).
+// Claude connector page (kit screens-connect-ai.html CC1–CC4, med-73xx): one
+// way in onto the remote connector, per-app instructions from the same URL,
+// and a hidden local-shim offer. Split out of the devices page by med-lyv.
+// connectors.js drives the real DOM directly (no framework), so these tests run
+// it against a real jsdom document with the pairing/remote modules mocked — the
+// interesting behavior here is the page wiring, not mcp-pairing.js's /
+// mcp-remote.js's own fetch calls (covered separately).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 vi.mock('../mcp-pairing.js', () => ({
   getPairing: vi.fn(),
@@ -24,9 +30,9 @@ import { getRemoteStatus, connectRemote, disconnectRemote } from '../mcp-remote.
 
 let dom;
 let app;
-let onExit;
 const ctx = { dek: 'fake-dek' };
 const REMOTE_URL = 'https://acct.example.test/mcp/abc-def';
+const COMMAND = `claude mcp add --transport http --scope user health ${REMOTE_URL}`;
 
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
@@ -36,7 +42,7 @@ beforeEach(() => {
   installDialogs(dom.window);
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
   app = dom.window.document.getElementById('app');
-  onExit = vi.fn();
+  vi.clearAllMocks();
 });
 
 afterEach(() => {
@@ -47,94 +53,153 @@ afterEach(() => {
 });
 
 async function renderAndSettle() {
-  renderConnectors(app, ctx, onExit);
+  renderConnectors(app, ctx);
   await vi.waitFor(() => {
-    if (!app.querySelector('#claude-remote-connect-button')) throw new Error('not rendered yet');
+    if (!app.querySelector('#claude-status')) throw new Error('not rendered yet');
   });
 }
 
-describe('connectors.js Claude connector mode picker', () => {
-  it('gates remote enable on consent: declining the confirm dialog never calls connectRemote', async () => {
+function stubClipboard() {
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(dom.window.navigator, 'clipboard', { value: { writeText }, configurable: true });
+  return writeText;
+}
+
+async function connectThroughConsent() {
+  getPairing.mockResolvedValue(null);
+  getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
+  connectRemote.mockResolvedValue({ token: 'abc-def', url: REMOTE_URL });
+  await renderAndSettle();
+  app.querySelector('#claude-remote-connect-button').click();
+  const dialog = await answerDialog(dom.window.document, true);
+  await vi.waitFor(() => {
+    if (!app.querySelector('#claude-code-prompt')) throw new Error('not rendered yet');
+  });
+  return dialog;
+}
+
+describe('connectors.js Claude connector page', () => {
+  // CC1: one way in, the build-from-source shim is no longer offered.
+  it('offers one primary "Connect an AI app" and no local shim when nothing is connected', async () => {
     getPairing.mockResolvedValue(null);
     getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     await renderAndSettle();
 
-    app.querySelector('#claude-remote-connect-button').dispatchEvent(new dom.window.Event('click'));
+    const connect = app.querySelector('#claude-remote-connect-button');
+    expect(connect.textContent).toBe('Connect an AI app');
+    expect(connect.classList.contains('wg-btn--primary')).toBe(true);
+    expect(app.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
+    expect(app.querySelector('#claude-status').textContent).toBe('Not connected');
+    expect(app.textContent).toContain('One AI app per account.');
+    expect(app.querySelector('#claude-local-connect-button')).toBeNull();
+    // Inactive controls are not rendered at all: kit .wg-btn/.wg-vstack set
+    // display, which beats a [hidden] attribute in the body-level page.
+    expect(app.querySelector('#claude-disconnect-button')).toBeNull();
+    expect(app.querySelector('[hidden]')).toBeNull();
+    expect(app.textContent).not.toMatch(/go build|mcpshim/);
+  });
+
+  it('gates the connect on consent: declining the dialog never calls connectRemote', async () => {
+    getPairing.mockResolvedValue(null);
+    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
+    await renderAndSettle();
+
+    app.querySelector('#claude-remote-connect-button').click();
     const dialog = await answerDialog(dom.window.document, false);
-    expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Enable the remote connector?');
+    expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Connect an AI app?');
     await Promise.resolve();
 
     expect(connectRemote).not.toHaveBeenCalled();
   });
 
-  // Nothing connected: both connectors are on offer, neither is hidden (med-3mx).
-  it('offers both connectors when no pairing is active', async () => {
-    getPairing.mockResolvedValue(null);
-    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
-    await renderAndSettle();
+  // CC3: the Claude Code prompt is the one primary; terminal fallback, the
+  // key warning and the keep-open line sit below; Done is secondary.
+  it('after consent shows the Claude Code prompt with the exact command, the fallback and the warnings', async () => {
+    const dialog = await connectThroughConsent();
+    expect(dialog.querySelector('.wg-dialog__body').textContent).toMatch(/stores none of them/);
+    expect(dialog.querySelector('.wg-dialog__body').textContent).toMatch(/until you Disconnect/);
+    const writeText = stubClipboard();
 
-    expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(false);
-    expect(app.querySelector('#claude-local-connect-button').hidden).toBe(false);
-    expect(app.querySelector('#claude-disconnect-button').hidden).toBe(true);
+    expect(app.querySelector('#claude-code-prompt').textContent).toBe(
+      `Add my health records to Claude Code: run ${COMMAND} then tell me to restart Claude Code.`,
+    );
+    expect(app.querySelector('#claude-code-command').textContent).toBe(COMMAND);
+    expect(app.textContent).toContain('Or run this in a terminal');
+    expect(app.querySelector('#claude-key-warning').textContent).toContain('This link opens your records to whoever has it');
+    expect(app.textContent).toContain('Keep this app open and unlocked on one device while Claude works.');
+    expect(app.textContent).not.toMatch(/go build|mcpshim/);
+
+    const copyPrompt = app.querySelector('#claude-code-copy-prompt');
+    expect([...app.querySelectorAll('.wg-btn--primary')]).toEqual([copyPrompt]);
+    expect(app.querySelector('#claude-remote-done').classList.contains('wg-btn--primary')).toBe(false);
+    copyPrompt.click();
+    expect(writeText).toHaveBeenLastCalledWith(app.querySelector('#claude-code-prompt').textContent);
+    app.querySelector('#claude-code-copy-command').click();
+    expect(writeText).toHaveBeenLastCalledWith(COMMAND);
   });
 
-  it('renders the connector URL once consent is given and enable succeeds', async () => {
-    getPairing.mockResolvedValue(null);
-    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
-    connectRemote.mockResolvedValue({ token: 'abc-def', url: 'https://acct.example.test/mcp/abc-def' });
-    await renderAndSettle();
+  // Argus, med-73xx: styles.css loads before components.css (index.html), so a
+  // (0,1,0)/(0,1,1) wrap modifier ties with .wg-code / .wg-code>span and loses
+  // on source order, clipping the prompt to one ellipsized line. jsdom computes
+  // no cascade (see health.notes.test.js), so pin the load order and the
+  // doubled-class selectors that outweigh components.css on their own.
+  it('the prompt field wraps: its modifier outweighs components.css .wg-code', async () => {
+    const read = (f) => fs.readFileSync(path.join(REPO_ROOT, f), 'utf8');
+    const html = read('web/static/index.html');
+    expect(html.indexOf('/static/css/styles.css')).toBeLessThan(html.indexOf('/static/css/components.css'));
+    const styles = read('web/static/css/styles.css');
+    expect(styles).toMatch(/\.wg-code\.wg-code--wrap \{[^}]*height: auto;/);
+    expect(styles).toMatch(/\.wg-code\.wg-code--wrap > span \{[^}]*white-space: normal;[^}]*text-overflow: clip;/);
 
-    app.querySelector('#claude-remote-connect-button').dispatchEvent(new dom.window.Event('click'));
-    await answerDialog(dom.window.document, true);
-    await vi.waitFor(() => {
-      if (!app.querySelector('#claude-remote-url')) throw new Error('not rendered yet');
-    });
-
-    expect(app.querySelector('#claude-remote-url').textContent).toBe('https://acct.example.test/mcp/abc-def');
+    await connectThroughConsent();
+    expect(app.querySelector('#claude-code-prompt').parentElement.classList.contains('wg-code--wrap')).toBe(true);
   });
 
-  it('shows the remote-linked status and disconnects the old pairing before switching to local', async () => {
+  it('switches to the Claude app and ChatGPT instructions for the same URL', async () => {
+    await connectThroughConsent();
+    const seg = (label) => [...app.querySelectorAll('.wg-seg__opt')].find((b) => b.textContent === label);
+    expect(seg('Claude Code').getAttribute('aria-pressed')).toBe('true');
+
+    seg('Claude app').click();
+    expect(seg('Claude app').getAttribute('aria-pressed')).toBe('true');
+    expect(seg('Claude Code').getAttribute('aria-pressed')).toBe('false');
+    expect(app.querySelector('#claude-code-prompt')).toBeNull();
+    expect(app.querySelector('#claude-remote-url').textContent).toBe(REMOTE_URL);
+    expect(app.textContent).toContain('Settings → Connectors → Add custom connector');
+
+    seg('ChatGPT').click();
+    expect(app.querySelector('#claude-remote-url').textContent).toBe(REMOTE_URL);
+    expect(app.textContent).toContain('Settings → Connectors → Add MCP');
+  });
+
+  // CC4: coming back later — the instructions again, with no primary.
+  it('while remote is linked re-shows the per-app instructions with no primary', async () => {
     getPairing.mockResolvedValue({ recordId: 'mcppairing' });
     getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
-    disconnectRemote.mockResolvedValue();
-    connectClaude.mockResolvedValue({ code: 'mtmcp1.fake' });
     await renderAndSettle();
 
-    expect(app.querySelector('#claude-status').textContent).toContain('remote (claude.ai / ChatGPT) linked');
-    // Remote is already on: don't offer to enable it (med-3mx). The local
-    // button stays visible — it is the switch control.
-    expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(true);
-    expect(app.querySelector('#claude-local-connect-button').hidden).toBe(false);
-
-    app.querySelector('#claude-local-connect-button').dispatchEvent(new dom.window.Event('click'));
-    await vi.waitFor(() => {
-      if (!app.querySelector('#claude-code')) throw new Error('not rendered yet');
-    });
-
-    expect(disconnectRemote).toHaveBeenCalledWith(ctx);
-    expect(connectClaude).toHaveBeenCalledWith(ctx);
-    expect(app.querySelector('#claude-code').textContent).toBe('mtmcp1.fake');
+    expect(app.querySelector('#claude-status').textContent).toBe('Connected');
+    expect(app.querySelector('#claude-code-command').textContent).toBe(COMMAND);
+    expect(app.querySelectorAll('.wg-btn--primary')).toHaveLength(0);
+    // No connect offer at all (Argus, med-73xx): an empty Connect button left
+    // in the DOM would re-mint and revoke the working URL.
+    expect(app.querySelector('#claude-remote-connect-button')).toBeNull();
+    expect(app.querySelector('[hidden]')).toBeNull();
+    expect(app.querySelector('#claude-disconnect-button')).not.toBeNull();
+    expect(app.textContent).toContain('Keep this app open and unlocked on one device while Claude works.');
   });
 
-  // med-24d: the URL is the thing the user has to paste into claude.ai, so the
-  // page must show it whenever remote is linked — not only once, at mint time.
-  it('shows the connector URL with a copy control while remote is linked', async () => {
+  it('copies the connector URL from its code field', async () => {
     getPairing.mockResolvedValue({ recordId: 'mcppairing' });
     getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
+    const writeText = stubClipboard();
     await renderAndSettle();
 
-    expect(app.querySelector('#claude-remote-url-block').hidden).toBe(false);
-    expect(app.querySelector('#claude-remote-url-current').textContent).toBe(REMOTE_URL);
-    expect(app.querySelector('#claude-remote-copy-current')).not.toBeNull();
-  });
-
-  it('hides the connector URL block when remote is not linked', async () => {
-    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
-    await renderAndSettle();
-
-    expect(app.querySelector('#claude-remote-url-block').hidden).toBe(true);
-    expect(app.querySelector('#claude-remote-url-current').textContent).toBe('');
+    [...app.querySelectorAll('.wg-seg__opt')].find((b) => b.textContent === 'Claude app').click();
+    const copy = app.querySelector('#claude-remote-copy');
+    expect(copy.closest('.wg-code').querySelector('#claude-remote-url')).not.toBeNull();
+    copy.click();
+    expect(writeText).toHaveBeenCalledWith(REMOTE_URL);
   });
 
   it('disconnect calls disconnectRemote when the remote mode is active', async () => {
@@ -143,7 +208,7 @@ describe('connectors.js Claude connector mode picker', () => {
     disconnectRemote.mockResolvedValue();
     await renderAndSettle();
 
-    app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
+    app.querySelector('#claude-disconnect-button').click();
     // Kit S5: danger-ghost → destructive dialog → filled clay confirm.
     const dialog = await answerDialog(dom.window.document, true);
     expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Disconnect Claude?');
@@ -162,7 +227,7 @@ describe('connectors.js Claude connector mode picker', () => {
     await renderAndSettle();
 
     expect(app.querySelector('#claude-disconnect-button').classList.contains('wg-btn--danger-ghost')).toBe(true);
-    app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
+    app.querySelector('#claude-disconnect-button').click();
     await answerDialog(dom.window.document, false);
     await new Promise((r) => setTimeout(r, 0));
 
@@ -170,34 +235,23 @@ describe('connectors.js Claude connector mode picker', () => {
     expect(disconnectClaude).not.toHaveBeenCalled();
   });
 
-  // Kit S5: the connector URL is a .wg-code field whose Copy writes it to the
-  // clipboard.
-  it('copies the connector URL from its code field', async () => {
-    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
-    const writeText = vi.fn(async () => {});
-    Object.defineProperty(dom.window.navigator, 'clipboard', { value: { writeText }, configurable: true });
-    await renderAndSettle();
-
-    const copy = app.querySelector('#claude-remote-copy-current');
-    expect(copy.closest('.wg-code').querySelector('#claude-remote-url-current')).not.toBeNull();
-    copy.click();
-    expect(writeText).toHaveBeenCalledWith(REMOTE_URL);
-  });
-
-  it('disconnect calls disconnectClaude when the local mode is active', async () => {
+  // CC4 · Local shim: an existing pairing keeps status + Disconnect; it is not
+  // offered again, only the switch to the remote connector.
+  it('a local-shim pairing keeps its status and Disconnect, with no shim connect offer', async () => {
     getPairing.mockResolvedValue({ recordId: 'mcppairing' });
     getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     disconnectClaude.mockResolvedValue();
     await renderAndSettle();
 
-    expect(app.querySelector('#claude-status').textContent).toContain('local shim (Claude Code) linked');
-    // Mirror of the remote case: local is on, so hide its connect button and
-    // keep the remote one as the switch control (med-3mx).
-    expect(app.querySelector('#claude-local-connect-button').hidden).toBe(true);
-    expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(false);
+    expect(app.querySelector('#claude-status').textContent).toBe('Linked with the local shim');
+    expect(app.querySelector('#claude-local-connect-button')).toBeNull();
+    expect(app.textContent).not.toMatch(/go build|mcpshim/);
+    const connect = app.querySelector('#claude-remote-connect-button');
+    expect(connect.textContent).toBe('Connect an AI app instead');
+    expect(connect.classList.contains('wg-btn--primary')).toBe(false);
+    expect(app.textContent).toContain('This disconnects the local shim first.');
 
-    app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
+    app.querySelector('#claude-disconnect-button').click();
     await answerDialog(dom.window.document, true);
     await vi.waitFor(() => {
       if (disconnectClaude.mock.calls.length === 0) throw new Error('not called yet');
@@ -205,5 +259,6 @@ describe('connectors.js Claude connector mode picker', () => {
 
     expect(disconnectClaude).toHaveBeenCalledWith(ctx);
     expect(disconnectRemote).not.toHaveBeenCalled();
+    expect(connectClaude).not.toHaveBeenCalled();
   });
 });
