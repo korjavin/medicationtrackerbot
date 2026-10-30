@@ -206,9 +206,11 @@ async function replayPendingDeletes() {
 }
 
 // opts (optional): { title, confirmLabel, cancelLabel, icon, tone,
-// destructive, facts, typedConfirm, link } — custom wording for the in-page
+// destructive, facts, typedConfirm, link, focusCancel } — custom wording for the in-page
 // dialog (the D1 family, see _mountConfirmModal); destructive paints the
 // confirm filled clay, typedConfirm gates it on typing that word.
+// Plain button-only confirms focus Cancel for danger/destructive dialogs,
+// or with focusCancel === true; other modes keep their own focus behavior.
 function safeConfirm(msg, callback, opts) {
     const invokeCallback = (ok) => {
         if (typeof callback !== 'function') return ok;
@@ -585,9 +587,11 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     if (typeof modal.open === 'function') {
         try { modal.open(); } catch (_) { /* ignore */ }
     }
+    const focusCancel = !inputMode && !choiceMode && !contentMode && !alertMode && !typedPhrase
+        && (danger || opts.focusCancel === true);
     const focusEl = input
         || (choiceMode ? modal.querySelector('.mt-confirm-modal__choice[aria-pressed="true"]') : null)
-        || confirmBtn || cancelBtn;
+        || (focusCancel ? cancelBtn : confirmBtn) || cancelBtn;
     try { focusEl.focus(); } catch (_) { /* ignore */ }
     if (input) { try { input.select(); } catch (_) { /* ignore */ } }
 }
