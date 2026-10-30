@@ -615,6 +615,18 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             });
         }
 
+        it('an untagged winning row borrows the tag of a tagged case-duplicate row, with no aliases anywhere', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await lib(env, 'Goblet squat');
+            await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { name: 'Goblet Squat', body_part: 'upper legs' });
+            await logAs(env, 'Goblet squat', 20, 3);
+            await logAs(env, 'Goblet Squat', 24);
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals).toEqual([
+                expect.objectContaining({ exercise_name: 'Goblet squat', body_part: 'upper legs', session_count: 2 }),
+            ]);
+        });
+
         it('rejects an alias another row already answers to', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             await lib(env, 'Kettlebell Swings', ['Swings']);

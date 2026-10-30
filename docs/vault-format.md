@@ -281,6 +281,11 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
   omitted when empty — other spellings that resolve to this row on read, so
   history logged under them folds into it; med-l5yr.1), `created_at`,
   `updated_at`.
+  - An older bundle that renames a row keeps `aliases` (it spreads the row) but
+    records no alias for the old name, so history under the old name stays split
+    until the user merges it.
+  - Deleting a row drops its aliases with it: logs under those aliases fall back
+    to per-name groups. Logs are never rewritten, so nothing is lost.
 - **equipment** — `id`, `user_id`, `name`, `kind` (`fixed`|`plated`); fixed
   carries `loads_kg` (num array), plated carries `bar_kg` (num), `sides` (1|2),
   `pair` (bool), `plates` (`[{kg, count}]`), and optionally

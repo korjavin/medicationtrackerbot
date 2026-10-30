@@ -3098,7 +3098,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (!entry) {
         entry = {
           exercise_name: ex.name,
-          libraryId: ex.libraryId,
           sessionIds: new Set(),
           total_volume_kg: 0,
           sets: 0,
@@ -3119,20 +3118,24 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (work.max_weight_kg > entry.max_weight_kg) entry.max_weight_kg = work.max_weight_kg;
     }
 
-    // The user's manual body-part tags (library `body_part`) of the row each
-    // entry resolved to — the Balance view reads this BEFORE the static
+    // The user's manual body-part tags (library `body_part`), keyed by the
+    // resolved exercise — the Balance view reads this BEFORE the static
     // catalog's name classifier, otherwise a custom-named exercise the user
-    // already tagged still lands in "Uncategorized".
+    // already tagged still lands in "Uncategorized". Walked in id order, so the
+    // winning row's tag is used, and an untagged winner falls back to the
+    // first tagged case-duplicate row ("Goblet squat" untagged + "Goblet Squat"
+    // tagged keeps its tag).
     const libraryBodyPart = new Map();
-    for (const item of libraryRows) {
+    for (const item of [...libraryRows].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0))) {
       const bp = String(item.body_part || '').trim();
-      if (bp) libraryBodyPart.set(item.id, bp);
+      const k = resolve(item.name).key;
+      if (bp && k && !libraryBodyPart.has(k)) libraryBodyPart.set(k, bp);
     }
 
     // Every exercise trained in range, which is what lets the Balance view fold
     // a COMPLETE body-part split instead of guessing from eight rows.
-    const totalRows = Array.from(agg.values())
-      .map((entry) => {
+    const totalRows = Array.from(agg, ([key, entry]) => ({ key, entry }))
+      .map(({ key, entry }) => {
         const row = {
           exercise_name: entry.exercise_name,
           session_count: entry.sessionIds.size,
@@ -3142,7 +3145,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           total_volume_kg: entry.total_volume_kg,
           max_weight_kg: entry.max_weight_kg,
         };
-        const bp = entry.libraryId === null ? '' : libraryBodyPart.get(entry.libraryId);
+        const bp = libraryBodyPart.get(key);
         if (bp) row.body_part = bp;
         return row;
       })
