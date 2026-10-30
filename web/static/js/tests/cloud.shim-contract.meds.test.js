@@ -251,6 +251,147 @@ describe('cloud shim contract — meds CRUD flows (features/meds.js over web/dom
     });
 });
 
+describe('cloud medication identity through the real RxNorm port', () => {
+    let env;
+    let replyForName;
+    let fetchRxnav;
+
+    beforeEach(async () => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.loadMeds = vi.fn();
+        env.window.safeAlert = vi.fn();
+        // Captured 2026-10-30 from NLM /REST/rxcui.json?name=<name>&search=0:
+        // Candecor, Candecor comp, Smecta and Lipitorr -> { idGroup: {} };
+        // Lipitor/lipitor -> { idGroup: { rxnormId: ['153165'] } }.
+        // Contract: exact is case-insensitive; JSON IDs are strings, and an
+        // exact lookup may return multiple concepts (which must abstain).
+        // https://lhncbc.nlm.nih.gov/RxNav/APIs/api-RxNorm.findRxcuiByString.html
+        // Properties/approximate response shapes:
+        // https://lhncbc.nlm.nih.gov/RxNav/APIs/api-RxNorm.getRxConceptProperties.html
+        // https://lhncbc.nlm.nih.gov/RxNav/APIs/api-RxNorm.getApproximateMatch.html
+        replyForName = (name) => name.toLowerCase() === 'lipitor'
+            ? { idGroup: { rxnormId: ['153165'] } } : { idGroup: {} };
+        fetchRxnav = vi.fn(async (url) => {
+            const request = new URL(url, 'https://example.test');
+            let data;
+            if (request.pathname === '/api/rxnav/rxcui') data = replyForName(request.searchParams.get('name'));
+            else if (request.pathname === '/api/rxnav/properties') data = { properties: { name: 'Lipitor' } };
+            // A tempting approximate candidate must never be consulted, even
+            // if it reports rank=1 or a large score (scores are query-relative).
+            else if (request.pathname === '/api/rxnav/approximate') {
+                data = { approximateGroup: { candidate: [{ rxcui: '999', name: 'Caldecort / Umecta', score: '1000', rank: '1' }] } };
+            } else data = { fullInteractionTypeGroup: [] };
+            return { ok: true, json: async () => data };
+        });
+        vi.stubGlobal('fetch', fetchRxnav);
+        const { createRxnormPort } = await vi.importActual('../../../cloud/js/rxnorm.js');
+        env.window.offlineAwareApiCall = createApiRouter({}, {
+            records: env.records, win: env.window, rxnorm: createRxnormPort(),
+            now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
+            effects: { scheduleReminderRecompute: vi.fn() },
+        });
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    it.each(['Candecor', 'Candecor comp', 'Smecta', 'Lipitorr'])(
+        'keeps %s unverified across editor checking and Save without asking for a spelling guess', async (name) => {
+            const { window, document } = env;
+            fillMedForm(window, document, { name, dosage: 'user-entered dose' });
+            await window.checkMedRx();
+            expect(document.getElementById('med-rx-display').classList.contains('hidden')).toBe(true);
+            expect(await window.apiCall(`/api/medications/rx-check?name=${encodeURIComponent(name)}`)).toEqual({
+                rxcui: '', normalized_name: '', warning: '',
+            });
+            await window.saveMedication();
+            const [stored] = await env.records.list('medication');
+            expect(stored).toMatchObject({ name, dosage: 'user-entered dose', rxcui: '', normalized_name: '' });
+            expect(fetchRxnav.mock.calls.every(([url]) => new URL(url, 'https://example.test').pathname === '/api/rxnav/rxcui')).toBe(true);
+        },
+    );
+
+    it('accepts one exact US identity, including case variants, without replacing the typed name', async () => {
+        const { window, document } = env;
+        fillMedForm(window, document, { name: 'lipitor', dosage: '10mg' });
+        await window.checkMedRx();
+        expect(document.getElementById('med-name').value).toBe('lipitor');
+        expect(document.getElementById('med-rx-name').textContent).toBe('Rx · Lipitor');
+        await window.saveMedication();
+        expect((await env.records.list('medication'))[0]).toMatchObject({
+            name: 'lipitor', rxcui: '153165', normalized_name: 'Lipitor',
+        });
+        expect(fetchRxnav.mock.calls.some(([url]) => url.includes('/approximate'))).toBe(false);
+    });
+
+    it.each([
+        { idGroup: { rxnormId: [] } },
+        { idGroup: { rxnormId: '153165' } },
+        { idGroup: { rxnormId: [153165] } },
+        { idGroup: { rxnormId: [''] } },
+        { idGroup: { rxnormId: ['not-an-id'] } },
+        { idGroup: { rxnormId: ['153165', '1191'] } },
+    ])('abstains on a malformed or ambiguous exact reply: %j', async (reply) => {
+        replyForName = () => reply;
+        expect(await env.window.apiCall('/api/medications/rx-check?name=Lipitor')).toEqual({
+            rxcui: '', normalized_name: '', warning: '',
+        });
+        expect(fetchRxnav).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts duplicate copies of the same exact ID as one identity', async () => {
+        replyForName = () => ({ idGroup: { rxnormId: ['153165', '153165'] } });
+        expect(await env.window.apiCall('/api/medications/rx-check?name=Lipitor')).toEqual({
+            rxcui: '153165', normalized_name: 'Lipitor', warning: '',
+        });
+    });
+
+    it('rechecks a legacy wrong identity without writing on open; ordinary Save clears only its derived match', async () => {
+        const { window, document } = env;
+        const legacy = {
+            recordId: 1, clientTs: 1, name: 'Candecor', dosage: '8mg', schedule: '{"type":"as_needed"}',
+            rxcui: '999', normalized_name: 'Caldecort', archived: false, supplement: true,
+            inventory_count: null, tz_shift_policy: 'strict', pack_size: null,
+            start_date: null, end_date: null, created_at: '2026-10-01T12:00:00Z',
+        };
+        await env.records.put('medication', legacy);
+        window.medications = await window.apiCall('/api/medications');
+        const write = vi.spyOn(env.records, 'put');
+        window.showEditModal(1);
+        await vi.waitFor(() => expect(fetchRxnav).toHaveBeenCalled());
+        expect(document.getElementById('med-rx-name').textContent).toBe('');
+        expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(true);
+        expect(await window.apiCall('/api/medications/rx-check?name=Candecor&rxcui=999&exclude_id=1')).toEqual({
+            rxcui: '', normalized_name: '', warning: '',
+        });
+        expect(await window.apiCall('/api/medications/rx-check?rxcui=999')).toEqual({
+            rxcui: '', normalized_name: '', warning: '',
+        });
+        expect(write).not.toHaveBeenCalled();
+        expect((await env.records.list('medication'))[0]).toMatchObject(legacy);
+        await window.saveMedication();
+        expect((await env.records.list('medication'))[0]).toMatchObject({
+            name: 'Candecor', dosage: '8mg', schedule: '{"type":"as_needed"}', supplement: true,
+            tz_shift_policy: 'strict', pack_size: null, rxcui: '', normalized_name: '',
+        });
+    });
+
+    it('does not revive a saved chip or block Save when RxNav is unavailable', async () => {
+        const { window, document } = env;
+        fetchRxnav.mockRejectedValue(new Error('offline'));
+        fillMedForm(window, document, { name: 'Candecor', dosage: '8mg' });
+        window.setMedRxMatch('Caldecort', 'legacy warning');
+        await window.checkMedRx('999', 'Caldecort'); // old callers are not proof
+        expect(document.getElementById('med-rx-name').textContent).toBe('');
+        expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(true);
+        await window.saveMedication();
+        expect((await env.records.list('medication'))[0]).toMatchObject({ name: 'Candecor', rxcui: '', normalized_name: '' });
+    });
+});
+
 // bd med-gut.1 / med-gut.2 — GET /api/medications/upcoming. Drives the REAL
 // router (the single entry point the cloud UI and mcp-responder share) with an
 // explicit `timeZone` that is NOT the device zone, which is the whole point:

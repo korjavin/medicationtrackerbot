@@ -30,11 +30,15 @@ func newRxNavTestHandlerAPI(t *testing.T, upstreamURL string) (http.Handler, str
 }
 
 func TestRxNavProxyAPI(t *testing.T) {
-	var interactionRawQuery string
+	var interactionRawQuery, exactSearch string
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/REST/rxcui.json":
+			// NLM findRxcuiByString: search=0 is exact (case-insensitive),
+			// while 1/2 normalize salts/word order and 9 guesses spellings.
+			// https://lhncbc.nlm.nih.gov/RxNav/APIs/api-RxNorm.findRxcuiByString.html
+			exactSearch = r.URL.Query().Get("search")
 			if r.URL.Query().Get("name") == "aspirin" {
 				w.Write([]byte(`{"idGroup": {"rxnormId": ["1191"]}}`))
 				return
@@ -80,6 +84,16 @@ func TestRxNavProxyAPI(t *testing.T) {
 		}
 		if len(resp.IDGroup.RxnormID) != 1 || resp.IDGroup.RxnormID[0] != "1191" {
 			t.Errorf("Unexpected response: %s", w.Body.String())
+		}
+		if exactSearch != "0" {
+			t.Errorf("upstream search = %q, want explicit exact mode 0", exactSearch)
+		}
+	})
+
+	t.Run("Rxcui cannot be widened by caller search parameters", func(t *testing.T) {
+		w := get(t, "/api/rxnav/rxcui?name=aspirin&search=9")
+		if w.Code != http.StatusOK || exactSearch != "0" {
+			t.Errorf("status %d, upstream search = %q; want 200 and exact mode 0", w.Code, exactSearch)
 		}
 	})
 

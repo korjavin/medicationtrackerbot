@@ -208,11 +208,11 @@ export function createMedicationsDomain({
 
   // rxCheck backs the editor's Rx chip + inline interaction warning: the same
   // match and warning create/update compute after the write, answered before
-  // Save against the other active meds. A known rxcui skips the name lookup.
-  async function rxCheck({ name = '', rxcui = '', excludeId = 0 } = {}) {
+  // Save against the other active meds. Legacy supplied rxcui parameters
+  // are not identity proof: always recheck the current name through the port.
+  async function rxCheck({ name = '', excludeId = 0 } = {}) {
     const term = String(name || '').trim();
-    const match = rxcui ? { rxcui: String(rxcui), normalizedName: '' }
-      : term ? await searchRxNorm(term) : { rxcui: '', normalizedName: '' };
+    const match = term ? await searchRxNorm(term) : { rxcui: '', normalizedName: '' };
     if (!match.rxcui) return { rxcui: '', normalized_name: '', warning: '' };
     const others = (await list({ archived: false })).filter((m) => m.id !== excludeId && m.rxcui);
     const warning = await warningFor([...others.map((m) => m.rxcui), match.rxcui]);
