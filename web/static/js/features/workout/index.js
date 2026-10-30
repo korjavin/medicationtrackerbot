@@ -147,6 +147,14 @@ function loadWorkouts() {
 
         bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
         bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
+        // Exercise identity (med-l5yr.4, kit EI1–EI6).
+        const libraryName = document.getElementById('exercise-library-name');
+        if (libraryName) libraryName.addEventListener('input', () => window.WorkoutLibrary.checkName());
+        bindClick('exercise-library-merge-btn', () => window.WorkoutLibrary.openPicker('merge'));
+        bindClick('exercise-library-add-name-btn', () => window.WorkoutLibrary.openPicker('names'));
+        bindClick('exercise-library-picker-close', () => window.WorkoutLibrary.closePicker());
+        const pickerSearch = document.getElementById('exercise-library-picker-search');
+        if (pickerSearch) pickerSearch.addEventListener('input', () => window.WorkoutLibrary.repaintPicker());
 
         bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
         // Add exercise (med-okwf.2): the footer plus here; the overview's last

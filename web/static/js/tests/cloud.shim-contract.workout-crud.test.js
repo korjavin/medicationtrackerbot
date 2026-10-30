@@ -6,7 +6,7 @@
 // contract bugs in the JS domain layer, not test bugs; the original
 // (network-mocked) workout.*.test.js / features.workout-*.test.js files keep
 // running unshimmed.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 describe('cloud shim contract — workout groups/variants/exercises/library CRUD', () => {
@@ -439,6 +439,35 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
     describe('library name identity (med-l5yr.2)', () => {
         const create = (body) => env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', body);
         const update = (id, body) => env.window.apiCallDirect(`/api/workout/exercise-library/update?id=${id}`, 'PUT', body);
+
+        it('alias removal changes only that normalized alias; absent/canonical names do not write and deleted rows stay deleted', async () => {
+            const row = await create({ name: 'Kettlebell Swings', aliases: ['Swings', 'KB Swings'] });
+            const stored = (await env.records.list('exerciselibrary')).find((r) => r.id === row.id);
+            await env.records.put('exerciselibrary', { ...stored, future_metadata: { preserved: true } });
+            const remove = (id, alias) => env.window.apiCallDirect(`/api/workout/exercise-library/remove-alias?id=${id}`, 'POST', { alias });
+            const result = await remove(row.id, '  SWINGS  ');
+            expect(result).toMatchObject({ name: row.name, aliases: ['KB Swings'] });
+            const current = (await env.records.list('exerciselibrary')).find((r) => r.id === row.id);
+            expect(current.future_metadata).toEqual({ preserved: true });
+
+            const writes = vi.spyOn(env.records, 'put');
+            try {
+                expect(await remove(row.id, 'Swings')).toEqual(result);
+                expect(await remove(row.id, 'kettlebell swings')).toEqual(result);
+                expect(writes).not.toHaveBeenCalled();
+                expect((await env.records.list('exerciselibrary')).find((r) => r.id === row.id)).toEqual(current);
+
+                await env.window.apiCallDirect(`/api/workout/exercise-library/delete?id=${row.id}`, 'DELETE');
+                const tombstones = await env.records.listRaw('exerciselibrary');
+                writes.mockClear();
+                await expect(remove(row.id, 'KB Swings')).rejects.toThrow('Library exercise not found');
+                await expect(remove(-1, 'KB Swings')).rejects.toThrow('Library exercise not found');
+                expect(writes).not.toHaveBeenCalled();
+                expect(await env.records.listRaw('exerciselibrary')).toEqual(tombstones);
+            } finally {
+                writes.mockRestore();
+            }
+        });
 
         it('create and rename refuse a case variant or another row\'s alias', async () => {
             await create({ name: 'Goblet Squat' });

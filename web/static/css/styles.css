@@ -4978,11 +4978,20 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--wg-workouts-modal-row-gap);
 }
 
-.wg-workouts-library-modal__hint {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
-    margin: var(--space-xs) 0 0;
+/* med-l5yr.4: kit .wg-btn / .wg-section / .wg-error set display, which beats
+   the UA [hidden] rule — the Add-only / Edit-only controls must really hide. */
+.wg-workouts-library-modal [hidden] {
+    display: none;
+}
+
+/* med-l5yr.4 (kit EI3): a name the library already has. */
+.wg-workouts-library-modal__field--error .wg-workouts-library-modal__input-wrap {
+    border-color: var(--wg-danger-line);
+}
+
+.wg-workouts-library-modal__name-merge,
+.wg-workouts-library-modal__add-name {
+    align-self: flex-start;
 }
 
 .wg-workouts-library-modal__label,

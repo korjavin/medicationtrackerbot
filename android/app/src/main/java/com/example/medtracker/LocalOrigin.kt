@@ -114,6 +114,23 @@ object LocalOrigin {
             "frame-ancestors 'none'; form-action 'none'"
     }
 
+    /**
+     * Metadata for this document's CSP (med-ezux.5, iOS twin med-ezux.4). Only external
+     * HTTPS origins: the reader handles self, and a WebSocket grant is not an HTTPS grant.
+     * hosts is the very same validated snapshot passed to csp; no permissions are added.
+     * Old JS ignores this inert tag; new Check key readers fail closed on older shells.
+     */
+    fun appDocument(html: String, hosts: List<String>): String {
+        // Validated bare DNS names contain no JSON string escapes.
+        val json = hosts.filter { it != HOST }.distinct().joinToString(
+            separator = ",", prefix = "[", postfix = "]",
+        ) { "\"https://$it\"" }
+        val content = json.replace("&", "&amp;").replace("\"", "&quot;")
+            .replace("'", "&#39;").replace("<", "&lt;").replace(">", "&gt;")
+        val meta = "<meta name=\"medtracker-connect-origins\" content=\"$content\">"
+        return html.replaceFirst("<head>", "<head>$meta")
+    }
+
     /** The page's host list, accepted only whole: at most MAX_HOSTS bare, normalized DNS names. */
     fun validHosts(raw: Any?): List<String>? {
         if (raw !is List<*> || raw.size > MAX_HOSTS) return null
