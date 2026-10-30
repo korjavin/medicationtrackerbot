@@ -65,6 +65,22 @@ describe('rankNextExercises', () => {
     expect(names(rankNextExercises({ sessions, logs, library, sessionId: 9 }))).toEqual(['Plank']);
   });
 
+  it('treats an alias as its library row: offers the row, and an alias already in the session excludes it (med-l5yr.1)', () => {
+    const sessions = [S(1, '2026-01-01'), S(2, '2026-01-03'), S(9, '2026-01-07')];
+    const library = [
+      { id: 20, name: 'Kettlebell Swings', body_part: 'upper legs', aliases: ['Swings'] },
+      { id: 21, name: 'Goblet Squat', body_part: 'upper legs', aliases: ['Goblet squat', 'Goblet Squats'] },
+    ];
+    const logs = [L(1, 'Swings'), L(1, 'Goblet Squats'), L(2, 'Lunge'), L(9, 'Lunge')];
+    // History only knows the old spellings; the canonical rows come back.
+    expect(names(rankNextExercises({ sessions, logs, library, sessionId: 9, after: 'swings' })))
+      .toEqual(['Goblet Squat', 'Kettlebell Swings']);
+    // Logging "goblet squat" in this session takes the Goblet Squat row out.
+    const inSession = [...logs, L(9, 'goblet  squat')];
+    expect(names(rankNextExercises({ sessions, logs: inSession, library, sessionId: 9 })))
+      .toEqual(['Kettlebell Swings']);
+  });
+
   it('ignores skipped/placeholder history and caps at the limit', () => {
     const sessions = [S(1, '2026-01-01'), S(9, '2026-01-07')];
     const logs = [L(1, 'A'), L(1, 'B', 'skipped'), L(1, 'C'), L(1, 'D'), L(1, 'E')];

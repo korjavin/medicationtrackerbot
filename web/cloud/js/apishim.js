@@ -1455,6 +1455,10 @@ export function createApiRouter(ctx, {
     if (path === '/api/workout/exercises/history' && method === 'GET') {
       return workout.listExerciseLogsByName(params.get('name') || '', { limit: clampLimit(params.get('limit'), 500) });
     }
+    // Every distinct exercise in history, resolved through library names +
+    // aliases, with log counts (med-l5yr.1) — feeds the library merge UI. UI
+    // read only (no MCP op).
+    if (path === '/api/workout/exercises/names' && method === 'GET') return workout.listExerciseNames();
 
     // Editor weight suggestion (med-73o): the next target for an exercise NAME
     // under a training goal, derived by the progression engine from that name's

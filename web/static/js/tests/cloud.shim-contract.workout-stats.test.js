@@ -476,6 +476,160 @@ describe('cloud shim contract — workout stats + mi-band', () => {
     // med-904.3 — hard_set_band: the user's OWN trailing baseline, in rolling
     // 7-day windows rather than ISO weeks (a calendar week is partial until
     // Sunday and would read "below" every Monday).
+    // med-l5yr.1 — exercise identity, on the audited account's real
+    // duplicates. History stays under its old spellings (logs are never
+    // rewritten); a library row's `aliases` fold them into it on read, and
+    // spellings differing only by case/spacing are one exercise anyway. The
+    // "must stay distinct" movements carry no alias and stay separate rows.
+    describe('exercise aliases (med-l5yr.1)', () => {
+        // One completed ad-hoc session holding one log saved under `name` — a
+        // history snapshot whose name is its only identity — optionally
+        // backdated `daysAgo`.
+        async function logAs(env, name, kg, daysAgo) {
+            const { window } = env;
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: 999, exercise_name: name,
+                source: 'library', status: 'completed', sets: [{ weight_kg: kg, reps: 5 }],
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+            if (!daysAgo) return;
+            const backdated = new Date(Date.now() - daysAgo * 86400000).toISOString();
+            for (const rec of await env.records.list('workoutsession')) {
+                if (rec.id === session.id) await env.records.put('workoutsession', { ...rec, scheduled_date: backdated });
+            }
+        }
+        const lib = (env, name, aliases) => env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { name, aliases });
+        const library = (env) => env.window.apiCallDirect('/api/workout/exercise-library');
+
+        const DISTINCT = [
+            'Paused Barbell Bench Press',
+            'Cable Chest Press', 'Incline Cable Chest Press', 'Decline Cable Chest Press',
+            'Deadlift', 'Sumo Kettlebell Deadlift', 'Single-Leg Romanian Deadlift',
+        ];
+
+        async function seedAudit(env) {
+            await lib(env, 'Kettlebell Swings', ['Swings']);
+            // "Goblet squat" is a case variant of the row's own name: dropped
+            // from the stored aliases, it folds by key regardless.
+            await lib(env, 'Goblet Squat', ['Goblet squat', 'Goblet Squats']);
+            await lib(env, 'Lat pulldown', ['cable pulldown', 'cable bar lateral pulldown']);
+            await lib(env, 'Barbell Bench Press', ['Bench Press']);
+            for (const name of DISTINCT) await lib(env, name);
+            for (const name of ['Swings', 'Kettlebell Swings', 'Goblet squat', 'Goblet Squats', 'Goblet Squat',
+                'cable pulldown', 'cable bar lateral pulldown', 'Lat pulldown', 'Bench Press', 'Barbell Bench Press',
+                ...DISTINCT]) {
+                await logAs(env, name, 40);
+            }
+        }
+
+        it('stores cleaned aliases and lists them on the library row', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await seedAudit(env);
+            const byName = Object.fromEntries((await library(env)).map((i) => [i.name, i]));
+            expect(byName['Goblet Squat'].aliases).toEqual(['Goblet Squats']);
+            expect(byName['Lat pulldown'].aliases).toEqual(['cable pulldown', 'cable bar lateral pulldown']);
+            // No aliases → no key, exactly like before.
+            expect('aliases' in byName['Deadlift']).toBe(false);
+        });
+
+        it('folds every spelling into one exercise_totals row per movement, distinct movements untouched', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await seedAudit(env);
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            const counts = Object.fromEntries(stats.exercise_totals.map((e) => [e.exercise_name, e.session_count]));
+            expect(counts).toEqual({
+                'Kettlebell Swings': 2,
+                'Goblet Squat': 3,
+                'Lat pulldown': 3,
+                'Barbell Bench Press': 2,
+                ...Object.fromEntries(DISTINCT.map((n) => [n, 1])),
+            });
+        });
+
+        it('runs one PR chain across the alias boundary', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await lib(env, 'Kettlebell Swings', ['Swings']);
+            await logAs(env, 'Swings', 24, 40);
+            await logAs(env, 'Kettlebell Swings', 28);
+            const stats = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            expect(stats.totals.pr_count).toBe(1);
+            expect(stats.prs).toEqual([
+                { exercise_name: 'Kettlebell Swings', date: expect.any(String), weight_kg: 28, previous_kg: 24 },
+            ]);
+        });
+
+        it('returns the merged history by any spelling or alias, and only its own for a distinct movement', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await seedAudit(env);
+            const history = (name) => env.window.apiCallDirect(`/api/workout/exercises/history?name=${encodeURIComponent(name)}`);
+            for (const name of ['Kettlebell Swings', 'Swings', '  swings ']) expect(await history(name)).toHaveLength(2);
+            for (const name of ['Goblet Squat', 'goblet squat', 'Goblet Squats']) expect(await history(name)).toHaveLength(3);
+            expect(await history('Bench Press')).toHaveLength(2);
+            expect(await history('Paused Barbell Bench Press')).toHaveLength(1);
+            expect(await history('Sumo Kettlebell Deadlift')).toHaveLength(1);
+        });
+
+        it('a rename keeps its history: the old name becomes an alias; a case-only rename adds none', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const item = await lib(env, 'Hammer Curls');
+            await logAs(env, 'Hammer Curls', 14, 3);
+            const update = (body) => env.window.apiCallDirect(`/api/workout/exercise-library/update?id=${item.id}`, 'PUT', body);
+            // The library editor's payload: no `aliases` key.
+            await update({ name: 'Dumbbell Hammer Curl', default_sets: 3 });
+            await logAs(env, 'Dumbbell Hammer Curl', 16);
+
+            let row = (await library(env)).find((i) => i.id === item.id);
+            expect(row.aliases).toEqual(['Hammer Curls']);
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals).toEqual([
+                expect.objectContaining({ exercise_name: 'Dumbbell Hammer Curl', session_count: 2 }),
+            ]);
+            expect(await env.window.apiCallDirect('/api/workout/exercises/history?name=Hammer%20Curls')).toHaveLength(2);
+
+            // Case-only: the key is unchanged, the stored aliases are kept.
+            await update({ name: 'dumbbell hammer curl' });
+            row = (await library(env)).find((i) => i.id === item.id);
+            expect(row.aliases).toEqual(['Hammer Curls']);
+            // Renaming back to the alias drops it rather than aliasing itself.
+            await update({ name: 'Hammer Curls' });
+            row = (await library(env)).find((i) => i.id === item.id);
+            expect(row.aliases).toEqual(['dumbbell hammer curl']);
+        });
+
+        it('rejects an alias another row already answers to', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await lib(env, 'Kettlebell Swings', ['Swings']);
+            const goblet = await lib(env, 'Goblet Squat');
+            await expect(lib(env, 'Swing Variation', ['swings'])).rejects.toThrow(/already an exercise or alias/);
+            await expect(env.window.apiCallDirect(`/api/workout/exercise-library/update?id=${goblet.id}`, 'PUT', {
+                name: 'Goblet Squat', aliases: ['KETTLEBELL SWINGS'],
+            })).rejects.toThrow(/already an exercise or alias/);
+        });
+
+        it('exercises/names lists history-only names, and one entry once the alias lands', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const ks = await lib(env, 'Kettlebell Swings');
+            // The oldest spelling differs by case only; the newest one is shown.
+            await logAs(env, 'swings', 20, 5);
+            for (let i = 0; i < 11; i++) await logAs(env, 'Swings', 24);
+            await logAs(env, 'Kettlebell Swings', 28);
+
+            const names = () => env.window.apiCallDirect('/api/workout/exercises/names');
+            expect(await names()).toEqual([
+                { name: 'Kettlebell Swings', key: 'kettlebell swings', log_count: 1, library_id: ks.id },
+                { name: 'Swings', key: 'swings', log_count: 12, library_id: null },
+            ]);
+
+            await env.window.apiCallDirect(`/api/workout/exercise-library/update?id=${ks.id}`, 'PUT', {
+                name: 'Kettlebell Swings', aliases: ['Swings'],
+            });
+            expect(await names()).toEqual([
+                { name: 'Kettlebell Swings', key: 'kettlebell swings', log_count: 13, library_id: ks.id },
+            ]);
+        });
+    });
+
     describe('own-baseline hard-set band (med-904.3)', () => {
         // One completed session per entry, aged by rewriting its scheduled_date
         // — the same backdating the range tests use.
@@ -591,9 +745,11 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
 
         const stats = await window.apiCallDirect('/api/workout/stats');
+        // The upper-cased logs resolve to their library rows (med-l5yr.1), so
+        // the rows carry the library spelling.
         const byName = Object.fromEntries(stats.exercise_totals.map((e) => [e.exercise_name, e]));
-        expect(byName['ТЯГА БЛОКА'].body_part).toBe('back');
-        expect('body_part' in byName['MYSTERY']).toBe(false);
+        expect(byName['Тяга блока'].body_part).toBe('back');
+        expect('body_part' in byName['Mystery']).toBe(false);
     });
 
     // POST /api/workout/exercise-library/auto-tag (web/domain/exercisetag.js):

@@ -366,7 +366,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       // med-3gln plan-row override); the bot has no such columns, so a real
       // bot export drops them per row — mirrors normalizeVault in
       // vault_import_test.go.
-      for (const row of d.workouts?.library || []) delete row.equipment_id;
+      // Library aliases are cloud-only too (med-l5yr.1).
+      for (const row of d.workouts?.library || []) { delete row.equipment_id; delete row.aliases; }
       for (const row of d.workouts?.exercises || []) delete row.equipment_id;
       // scheduled_date / last_session_date are DATE columns: the bot re-emits them
       // as UTC midnight, the hand fixture writes the local-midnight form. Only the

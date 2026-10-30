@@ -269,6 +269,8 @@ function toLibraryResponse(record) {
   // Manual body-part override (med library tags). Omitted when unset, so rows
   // that never got one keep falling back to the static catalog's classifier.
   if (record.body_part) resp.body_part = record.body_part;
+  // Other spellings this row answers to (med-l5yr.1); omitted when none.
+  if (Array.isArray(record.aliases) && record.aliases.length) resp.aliases = [...record.aliases];
   return resp;
 }
 
@@ -754,6 +756,90 @@ function assertNoDuplicateLibraryName(all, name, excludeRecordId) {
   if (dup) throw invalidRequest('Exercise with this name already exists in your library', 'duplicate');
 }
 
+// -- Exercise identity (med-l5yr.1) --
+//
+// exerciseKey is THE exercise-name identity: trim + lowercase + collapse inner
+// whitespace. Every place that groups or matches exercises by name goes through
+// it (stats, PRs, history, suggest-target, Up next, sheet scan-back), so
+// spellings differing only by case or spacing are one exercise.
+export function exerciseKey(name) {
+  return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// buildExerciseResolver(libraryRows, logsNewestFirst) → resolve(name) =
+// { key, name, libraryId } — the one read-side mapping from a logged name to
+// the movement it belongs to. Logs are never rewritten; a library row's
+// optional `aliases: string[]` folds other spellings into it on read.
+//   1. key equals a live row's name key → that row (name = row.name);
+//   2. else key equals one of a live row's alias keys → that row;
+//   3. else unresolved: identity is the key itself, display name the spelling
+//      of the newest log in `logsNewestFirst` (or the asked name).
+// Exact key or alias only — never fuzzy. Ties a sync race can produce: a row's
+// own name beats any alias; two rows claiming one key → the lower numeric id.
+export function buildExerciseResolver(libraryRows, logsNewestFirst) {
+  const rowByKey = new Map();
+  const live = (libraryRows || [])
+    .filter((r) => r && !r.deleted && exerciseKey(r.name))
+    .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+  for (const row of live) {
+    const k = exerciseKey(row.name);
+    if (!rowByKey.has(k)) rowByKey.set(k, row);
+  }
+  for (const row of live) {
+    for (const alias of (Array.isArray(row.aliases) ? row.aliases : [])) {
+      const k = exerciseKey(alias);
+      if (k && !rowByKey.has(k)) rowByKey.set(k, row);
+    }
+  }
+  const displayByKey = new Map();
+  for (const log of logsNewestFirst || []) {
+    const k = exerciseKey(log && log.exercise_name);
+    if (k && !rowByKey.has(k) && !displayByKey.has(k)) displayByKey.set(k, String(log.exercise_name).trim());
+  }
+  return function resolve(name) {
+    const k = exerciseKey(name);
+    const row = rowByKey.get(k);
+    if (row) return { key: exerciseKey(row.name), name: row.name, libraryId: row.id ?? null };
+    return { key: k, name: displayByKey.get(k) || String(name ?? '').trim(), libraryId: null };
+  };
+}
+
+// normalizeAliases cleans an `aliases` list for a library row named `ownName`:
+// trimmed, non-empty, deduped by key, never the row's own name key. null /
+// undefined → []; anything else that is not an array is a 400.
+function normalizeAliases(list, ownName) {
+  if (list === null || list === undefined) return [];
+  if (!Array.isArray(list)) throw invalidRequest('aliases must be a list of names');
+  const seen = new Set([exerciseKey(ownName)]);
+  const out = [];
+  for (const raw of list) {
+    const alias = String(raw ?? '').trim();
+    const k = exerciseKey(alias);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(alias);
+  }
+  return out;
+}
+
+// takenExerciseKeys is every name + alias key of the live library rows other
+// than `excludeRecordId` — an alias may not claim a key another row answers to.
+function takenExerciseKeys(all, excludeRecordId) {
+  const taken = new Set();
+  for (const item of all) {
+    if (item.deleted || item.recordId === excludeRecordId) continue;
+    taken.add(exerciseKey(item.name));
+    for (const a of (Array.isArray(item.aliases) ? item.aliases : [])) taken.add(exerciseKey(a));
+  }
+  return taken;
+}
+
+function assertAliasesFree(all, aliases, excludeRecordId) {
+  const taken = takenExerciseKeys(all, excludeRecordId);
+  const clash = aliases.find((a) => taken.has(exerciseKey(a)));
+  if (clash) throw invalidRequest(`"${clash}" is already an exercise or alias in your library`, 'duplicate');
+}
+
 // createWorkoutDomain builds the groups/variants/exercises/library CRUD
 // surface over the injected records port. Mirrors
 // internal/store/workout/repo.go's group/variant/exercise/library methods +
@@ -1182,6 +1268,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!name) throw invalidRequest('Name is required');
     const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
     assertNoDuplicateLibraryName(all, name, null);
+    const aliases = normalizeAliases(input && input.aliases, name);
+    assertAliasesFree(all, aliases, null);
     const nowMs = now();
     const record = {
       recordId: genRecordId('library', nowMs),
@@ -1200,6 +1288,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       created_at: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     };
+    if (aliases.length) record.aliases = aliases;
     await records.put(WORKOUT_RECORD_TYPES.LIBRARY, record);
     return toLibraryResponse(record);
   }
@@ -1245,8 +1334,27 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!name) throw invalidRequest('Name is required');
     const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
     assertNoDuplicateLibraryName(all, name, item.recordId);
+    // aliases (med-l5yr.1): a payload that OMITS the key (the library editor,
+    // the MCP update op) keeps the stored list; a present key replaces it.
+    let aliases;
+    if (input && 'aliases' in input) {
+      aliases = normalizeAliases(input.aliases, name);
+      assertAliasesFree(all, aliases, item.recordId);
+    } else {
+      aliases = Array.isArray(item.aliases) ? item.aliases : [];
+    }
+    // A rename keeps its history: the old name becomes an alias, so logs saved
+    // under it still resolve to this row. A case/spacing-only rename keeps the
+    // key and needs none; an old name another row already answers to is left
+    // to that row.
+    if (exerciseKey(item.name) !== exerciseKey(name)
+      && !takenExerciseKeys(all, item.recordId).has(exerciseKey(item.name))) {
+      aliases = [...aliases, item.name];
+    }
+    // Re-normalize: drops an alias equal to the new name (a rename back).
+    aliases = normalizeAliases(aliases, name);
     const nowMs = now();
-    await records.put(WORKOUT_RECORD_TYPES.LIBRARY, {
+    const next = {
       ...item,
       name,
       default_sets: Number(input && input.default_sets) || 0,
@@ -1265,7 +1373,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         : item.equipment_id ?? null,
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),
-    });
+    };
+    if (aliases.length) next.aliases = aliases;
+    else delete next.aliases;
+    await records.put(WORKOUT_RECORD_TYPES.LIBRARY, next);
   }
 
   // setLibraryBodyPart tags the library row named `name` (case-insensitive)
@@ -2906,8 +3017,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const windowHardSets = [0, 0, 0, 0];
     let oldestLogMs = Infinity;
 
+    // Every per-exercise fold below keys by the resolved movement (med-l5yr.1):
+    // a library row's name and aliases, and case/spacing variants, are one row
+    // and one PR chain. Display name: the library row's, else the newest log's.
+    const libraryRows = await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY);
+    const resolve = buildExerciseResolver(libraryRows, completedLogs.map((c) => c.log).reverse());
+
     const agg = new Map();
-    const heaviestSoFar = new Map(); // exercise_name -> heaviest working set seen
+    const heaviestSoFar = new Map(); // resolved key -> heaviest working set seen
     let rangeVolume = 0;
     let rangeHardSets = 0;
     let rangeEasySets = 0;
@@ -2923,13 +3040,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // PR check runs before any window test: "beat every earlier set" spans
       // the full history, we only *count* the ones landing inside the range.
       // A zero-weight (bodyweight) log can never set a weight PR.
-      const previousKg = heaviestSoFar.get(log.exercise_name) || 0;
+      const ex = resolve(log.exercise_name);
+      const previousKg = heaviestSoFar.get(ex.key) || 0;
       if (work.max_weight_kg > previousKg) {
-        heaviestSoFar.set(log.exercise_name, work.max_weight_kg);
+        heaviestSoFar.set(ex.key, work.max_weight_kg);
         if (schedMs >= since30) {
           prCount++;
           prRecords.push({
-            exercise_name: log.exercise_name,
+            exercise_name: ex.name,
             date: meta.day,
             weight_kg: work.max_weight_kg,
             previous_kg: previousKg,
@@ -2972,10 +3090,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // into the Balance view's "Not Trained" chips.
       if (work.sets === 0) continue;
 
-      let entry = agg.get(log.exercise_name);
+      let entry = agg.get(ex.key);
       if (!entry) {
         entry = {
-          exercise_name: log.exercise_name,
+          exercise_name: ex.name,
+          libraryId: ex.libraryId,
           sessionIds: new Set(),
           total_volume_kg: 0,
           sets: 0,
@@ -2983,7 +3102,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           reps: 0,
           max_weight_kg: 0,
         };
-        agg.set(log.exercise_name, entry);
+        agg.set(ex.key, entry);
       }
       entry.sessionIds.add(log.session_id);
       entry.total_volume_kg += work.volume_kg;
@@ -2996,14 +3115,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (work.max_weight_kg > entry.max_weight_kg) entry.max_weight_kg = work.max_weight_kg;
     }
 
-    // The user's manual body-part tags (library `body_part`), keyed by
-    // normalized name — the Balance view reads this BEFORE the static
+    // The user's manual body-part tags (library `body_part`) of the row each
+    // entry resolved to — the Balance view reads this BEFORE the static
     // catalog's name classifier, otherwise a custom-named exercise the user
     // already tagged still lands in "Uncategorized".
     const libraryBodyPart = new Map();
-    for (const item of await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY)) {
+    for (const item of libraryRows) {
       const bp = String(item.body_part || '').trim();
-      if (bp) libraryBodyPart.set(String(item.name || '').trim().toLowerCase(), bp);
+      if (bp) libraryBodyPart.set(item.id, bp);
     }
 
     // Every exercise trained in range, which is what lets the Balance view fold
@@ -3019,7 +3138,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           total_volume_kg: entry.total_volume_kg,
           max_weight_kg: entry.max_weight_kg,
         };
-        const bp = libraryBodyPart.get(String(entry.exercise_name || '').trim().toLowerCase());
+        const bp = entry.libraryId === null ? '' : libraryBodyPart.get(entry.libraryId);
         if (bp) row.body_part = bp;
         return row;
       })
@@ -3164,12 +3283,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // definition of "the most recent log of this exercise" —
   // listExerciseLogsByName (the detail view's read) and suggestExerciseTarget
   // (the editor's weight suggestion).
+  //
+  // "One exercise" is the resolved movement (med-l5yr.1), so asking by any
+  // spelling or alias returns the merged history.
   async function sortedLogsByName(name) {
+    const all = await completedLogsNewestFirst();
+    const resolve = buildExerciseResolver(all.libraryRows);
+    const key = resolve(name).key;
+    const logs = key ? all.logs.filter((l) => resolve(l.exercise_name).key === key) : [];
+    return { logs, dateById: all.dateById, timeById: all.timeById };
+  }
+
+  // completedLogsNewestFirst: every completed log whose session still exists,
+  // in sortedLogsByName's order, plus the live library rows to resolve them.
+  async function completedLogsNewestFirst() {
     const sessions = await activeRecords(WORKOUT_RECORD_TYPES.SESSION);
     const dateById = new Map(sessions.map((s) => [s.id, s.scheduled_date]));
     const timeById = new Map(sessions.map((s) => [s.id, s.scheduled_time || '']));
     const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
-      .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id))
+      .filter((l) => l.status === 'completed' && dateById.has(l.session_id))
       .sort((a, b) => {
         const byDate = new Date(dateById.get(b.session_id)).getTime()
           - new Date(dateById.get(a.session_id)).getTime();
@@ -3185,7 +3317,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         if (ta !== tb) return ta < tb ? 1 : -1;
         return b.session_id - a.session_id;
       });
-    return { logs, dateById, timeById };
+    return { logs, dateById, timeById, libraryRows: await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY) };
+  }
+
+  // listExerciseNames (med-l5yr.1): every distinct resolved exercise across
+  // completed logs — including names that live only in history, which the
+  // library merge UI needs — with its log count and library row (null when
+  // unresolved), sorted by name. UI read only (no MCP op).
+  async function listExerciseNames() {
+    const { logs, libraryRows } = await completedLogsNewestFirst();
+    const resolve = buildExerciseResolver(libraryRows, logs);
+    const byKey = new Map();
+    for (const l of logs) {
+      const ex = resolve(l.exercise_name);
+      if (!ex.key) continue;
+      const entry = byKey.get(ex.key) || { name: ex.name, key: ex.key, log_count: 0, library_id: ex.libraryId };
+      entry.log_count++;
+      byKey.set(ex.key, entry);
+    }
+    return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // listExerciseLogsByName is the per-exercise history read (Phase 3, epic
@@ -3533,6 +3683,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     getStats,
     progressionPreview,
     listExerciseLogsByName,
+    listExerciseNames,
     suggestExerciseTarget,
     suggestNextExercises,
     createMiBand,
