@@ -12,9 +12,12 @@ final class HealthDiagnosticTests: XCTestCase {
         let deadline = Date().addingTimeInterval(45)
         while result.label == "pending", Date() < deadline {
             for host in [app, springboard] {
-                for title in ["Turn On All", "Allow"] {
+                for toggle in host.switches.allElementsBoundByIndex {
+                    if toggle.isHittable && toggle.value as? String == "0" { toggle.tap() }
+                }
+                for title in ["Allow"] {
                     let button = host.buttons[title].firstMatch
-                    if button.exists && button.isHittable { button.tap() }
+                    if button.exists && button.isEnabled && button.isHittable { button.tap() }
                 }
             }
             Thread.sleep(forTimeInterval: 0.5)
@@ -27,6 +30,10 @@ final class HealthDiagnosticTests: XCTestCase {
         report.name = "health-native-baseline.json"
         report.lifetime = .keepAlways
         add(report)
+        guard result.label != "pending" else {
+            XCTFail("Native HealthKit authorization did not complete; see permission screenshot")
+            return
+        }
         let data = try XCTUnwrap(result.label.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
