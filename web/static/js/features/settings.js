@@ -521,8 +521,8 @@ function loadCloudConnectorsModule() { return import('/js/connectors.js'); }
 const EMERGENCY_KIT_URL = '/devices?flow=emergency-kit';
 
 const CONNECTOR_STATUS_TEXT = {
-    remote: 'Remote · claude.ai / ChatGPT',
-    local: 'Local shim · Claude Code',
+    remote: 'Connected',
+    local: 'Local shim',
     none: 'Not connected',
 };
 

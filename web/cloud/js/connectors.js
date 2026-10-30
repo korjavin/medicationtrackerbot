@@ -10,9 +10,15 @@
 // /connectors, not /mcp, because the relay's capability endpoint owns the
 // "/mcp/<token>" prefix (router.go).
 //
+// med-73xx (kit screens-connect-ai.html CC1–CC4): one way in, "Connect an AI
+// app", onto the Tier 2 remote connector. The connector URL is the same
+// capability for every client; only the per-app instructions differ. The Tier 1
+// local-shim offer is hidden until a packaged shim exists (med-ztzg); an
+// account already paired that way keeps its status and Disconnect.
+//
 // Telegram is deliberately NOT mounted here. It is neither a device nor an
 // MCP connector, and Settings → Integrations already mounts it.
-import { getPairing, connectClaude, disconnectClaude } from './mcp-pairing.js';
+import { getPairing, disconnectClaude } from './mcp-pairing.js';
 import { getRemoteStatus, connectRemote, disconnectRemote } from './mcp-remote.js';
 
 export function renderConnectors(mount, ctx) {
@@ -47,15 +53,63 @@ function claudeMode(pairing, remoteEnabled) {
 }
 
 const CLAUDE_STATUS_TEXT = {
-  remote: 'Claude connector: remote (claude.ai / ChatGPT) linked',
-  local: 'Claude connector: local shim (Claude Code) linked',
-  none: 'Claude connector: not connected',
+  remote: 'Connected',
+  local: 'Linked with the local shim',
+  none: 'Not connected',
+};
+
+const CLAUDE_STATUS_META = {
+  remote: 'Use your records in Claude Code, the Claude app or ChatGPT.',
+  local: 'No longer offered. It keeps working until you disconnect.',
+  none: 'Use your records in Claude Code, the Claude app or ChatGPT.',
 };
 
 const REMOTE_CONSENT_TEXT =
-  'The server will relay MCP traffic between claude.ai/ChatGPT and your unlocked browser tab. It can read the requests ' +
-  'and the answers while relaying — nothing is stored. The connector key is kept on the server so the URL keeps ' +
-  'working across restarts, until you Disconnect.';
+  'Our server will pass messages between your AI app and this app while it is open and unlocked. It can read them ' +
+  'on the way and stores none of them. It keeps the connector key so the link keeps working until you Disconnect.';
+
+// The local label in the user's Claude Code config — neutral, never the
+// instance's product name (med-73xx). --scope user: available in every
+// project, not just the folder Claude Code was started in.
+function claudeCodeCommand(url) {
+  return `claude mcp add --transport http --scope user health ${url}`;
+}
+
+// Claude Code cannot restart itself and picks a new server up on restart, so
+// the prompt ends by asking it to say so.
+function claudeCodePrompt(url) {
+  return `Add my health records to Claude Code: run ${claudeCodeCommand(url)} then tell me to restart Claude Code.`;
+}
+
+const APPS = [
+  ['code', 'Claude Code'],
+  ['claude', 'Claude app'],
+  ['chatgpt', 'ChatGPT'],
+];
+
+const APP_STEPS = {
+  claude: [
+    'Open Claude (claude.ai or the desktop app).',
+    'Settings &rarr; Connectors &rarr; Add custom connector.',
+    'Paste the URL, then ask &ldquo;show my blood pressure this week&rdquo;.',
+  ],
+  chatgpt: [
+    'Open ChatGPT.',
+    'Settings &rarr; Connectors &rarr; Add MCP.',
+    'Paste the URL, then ask &ldquo;show my blood pressure this week&rdquo;.',
+  ],
+};
+
+const KEEP_OPEN_HINT = '<p class="wg-hint">Keep this app open and unlocked on one device while Claude works.</p>';
+
+const CAPABILITIES = `
+    <section class="wg-section">
+      <div class="wg-section__head"><span class="wg-eyebrow">A connected app can</span></div>
+      <div class="wg-list">
+        <div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Read</span><span class="wg-row__meta">meds, BP, weight, vitals, food, workouts, journey</span></span></div>
+        <div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Write</span><span class="wg-row__meta">add, edit and delete those entries</span></span></div>
+      </div>
+    </section>`;
 
 // A secret in the kit code field (S5): one line, ellipsized, with a Copy icon
 // button. Values go in via textContent by the caller — never innerHTML.
@@ -79,6 +133,51 @@ function hydrateIcons(root) {
   if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(root);
 }
 
+// The per-app instructions for one connector URL (CC3/CC4): a plain segment
+// (a view switch, not a mode), opening on Claude Code; the choice isn't
+// remembered. `primary` makes Copy prompt the view's one primary — on CC3,
+// right after connecting; CC4 (coming back later) has none.
+function renderAppSwitch(root, url, primary) {
+  root.innerHTML = `
+    <div class="wg-seg" role="group" aria-label="AI app">${APPS.map(([id, label]) =>
+      `<button type="button" class="wg-seg__opt" data-app="${id}" aria-pressed="false">${label}</button>`).join('')}</div>
+    <div id="claude-app-panel" class="wg-vstack"></div>`;
+  const panel = root.querySelector('#claude-app-panel');
+  const show = (app) => {
+    root.querySelectorAll('.wg-seg__opt').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.app === app)));
+    renderAppPanel(panel, url, app, primary);
+  };
+  root.querySelectorAll('.wg-seg__opt').forEach((b) => b.addEventListener('click', () => show(b.dataset.app)));
+  show('code');
+}
+
+function renderAppPanel(panel, url, app, primary) {
+  if (app === 'code') {
+    const prompt = claudeCodePrompt(url);
+    const command = claudeCodeCommand(url);
+    panel.innerHTML = `
+      <div class="wg-field">
+        <span class="wg-label">Paste this into Claude Code</span>
+        <div class="wg-code wg-code--wrap"><span id="claude-code-prompt"></span></div>
+      </div>
+      <button type="button" id="claude-code-copy-prompt" class="wg-btn${primary ? ' wg-btn--primary' : ''} wg-btn--block"><i class="wg-ico" data-icon="copy"></i>Copy prompt</button>
+      <p class="wg-hint">Claude Code asks once before it runs the command. Restart it, then ask &ldquo;show my blood pressure this week&rdquo;.</p>
+      ${codeField('Or run this in a terminal', 'claude-code-command', 'claude-code-copy-command', 'Copy command')}`;
+    // Built from the server-generated capability URL — textContent only.
+    panel.querySelector('#claude-code-prompt').textContent = prompt;
+    panel.querySelector('#claude-code-command').textContent = command;
+    bindCopy(panel.querySelector('#claude-code-copy-prompt'), prompt);
+    bindCopy(panel.querySelector('#claude-code-copy-command'), command);
+  } else {
+    panel.innerHTML = `
+      ${codeField('Connector URL', 'claude-remote-url', 'claude-remote-copy', 'Copy URL')}
+      <ol class="wg-hint">${APP_STEPS[app].map((s) => `<li>${s}</li>`).join('')}</ol>`;
+    panel.querySelector('#claude-remote-url').textContent = url;
+    bindCopy(panel.querySelector('#claude-remote-copy'), url);
+  }
+  hydrateIcons(panel);
+}
+
 function renderPicker(mount, ctx, pairing, remote) {
   const mode = claudeMode(pairing, remote.enabled);
   mount.innerHTML = `
@@ -86,61 +185,55 @@ function renderPicker(mount, ctx, pairing, remote) {
       <span class="wg-row__lead${mode === 'none' ? '' : ' wg-row__lead--ok'}"><i class="wg-ico" data-icon="plug"></i></span>
       <span class="wg-vstack wg-spacer">
         <span class="wg-row__title" id="claude-status"></span>
-        <span class="wg-meta">Only one connector can be active at a time — switching disconnects the other.</span>
+        <span class="wg-meta" id="claude-status-meta"></span>
       </span>
     </div>
-    <div id="claude-remote-url-block" hidden>${codeField('Connector URL', 'claude-remote-url-current', 'claude-remote-copy-current', 'Copy URL')}</div>
-    <section class="wg-section">
-      <div class="wg-section__head"><span class="wg-eyebrow">A connected client can</span></div>
-      <div class="wg-list">
-        <div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Read</span><span class="wg-row__meta">meds, BP, weight, vitals, food, workouts, journey</span></span></div>
-        <div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Write</span><span class="wg-row__meta">add, edit and delete those entries</span></span></div>
-      </div>
-    </section>
-    <section class="wg-section">
-      <div class="wg-section__head"><span class="wg-eyebrow">Remote connector (claude.ai, ChatGPT)</span></div>
-      <p class="wg-hint">The server relays MCP traffic to your unlocked browser tab. This mode is <strong>not</strong> end-to-end
-         encrypted: by enabling it you consent to the server seeing MCP requests and responses in transit — nothing
-         is stored, and it never gains access to your vault. Prefer the local shim below if you want the traffic
-         sealed from the operator too.</p>
-      <button type="button" id="claude-remote-connect-button" class="wg-btn wg-btn--primary wg-btn--block">Enable remote connector</button>
-    </section>
-    <section class="wg-section">
-      <div class="wg-section__head"><span class="wg-eyebrow">Local shim (Claude Code)</span></div>
-      <p class="wg-hint">Fully end-to-end encrypted: runs a shim binary on your own machine, so the server never sees your data.</p>
-      <button type="button" id="claude-local-connect-button" class="wg-btn wg-btn--block">Connect Claude Code</button>
-    </section>
+    <div id="claude-apps" class="wg-vstack" hidden></div>
+    ${CAPABILITIES}
+    <div id="claude-connect-block" class="wg-vstack" hidden>
+      <p class="wg-hint" id="claude-connect-before"></p>
+      <button type="button" id="claude-remote-connect-button" class="wg-btn wg-btn--block"></button>
+      <p class="wg-hint" id="claude-connect-after"></p>
+    </div>
     <button type="button" id="claude-disconnect-button" class="wg-btn wg-btn--danger-ghost wg-btn--block">Disconnect</button>`;
 
   mount.querySelector('#claude-status').textContent = CLAUDE_STATUS_TEXT[mode];
+  mount.querySelector('#claude-status-meta').textContent = CLAUDE_STATUS_META[mode];
   mount.querySelector('#claude-disconnect-button').hidden = mode === 'none';
-  // Hide the connector that is already active — offering "Enable remote
-  // connector" while remote is on is a no-op affordance. The *other* button
-  // stays visible: it is the documented switch control (see the mode note
-  // above, and the disconnect-then-connect logic below).
-  mount.querySelector('#claude-remote-connect-button').hidden = mode === 'remote';
-  mount.querySelector('#claude-local-connect-button').hidden = mode === 'local';
 
-  // Capability URL — textContent only, never innerHTML.
+  // CC4: remote is on — show the per-app instructions again (the token lives
+  // server-side, med-24d), with no primary: nothing is waiting.
   if (mode === 'remote' && remote.url) {
-    mount.querySelector('#claude-remote-url-block').hidden = false;
-    mount.querySelector('#claude-remote-url-current').textContent = remote.url;
-    bindCopy(mount.querySelector('#claude-remote-copy-current'), remote.url);
+    const apps = mount.querySelector('#claude-apps');
+    apps.hidden = false;
+    renderAppSwitch(apps, remote.url, false);
+    apps.insertAdjacentHTML('beforeend', KEEP_OPEN_HINT);
   }
 
-  mount.querySelector('#claude-remote-connect-button').addEventListener('click', async () => {
-    if (!(await window.safeConfirm(REMOTE_CONSENT_TEXT, null, { title: 'Enable the remote connector?', confirmLabel: 'Enable', icon: 'plug' }))) return;
-    connectRemote(ctx)
-      .then(({ token, url }) => renderRemoteURL(mount, ctx, token, url))
-      .catch((err) => renderConnectorsError(mount, ctx, err.message || String(err)));
-  });
+  // CC1 offers the connector as the one primary; CC4 · Local shim offers it as
+  // the switch (minting a pairing replaces the account's old one server-side,
+  // mcp_relay.go). Remote on: no offer — it would be a no-op affordance.
+  const connect = mount.querySelector('#claude-remote-connect-button');
+  if (mode !== 'remote') {
+    mount.querySelector('#claude-connect-block').hidden = false;
+    const before = mount.querySelector('#claude-connect-before');
+    const after = mount.querySelector('#claude-connect-after');
+    if (mode === 'none') {
+      before.textContent = 'Your AI app reaches this app through our server. The server sees the requests and answers on the way and stores none of them.';
+      connect.textContent = 'Connect an AI app';
+      connect.classList.add('wg-btn--primary');
+      after.textContent = 'One AI app per account. Connecting a new one replaces the old link.';
+    } else {
+      before.hidden = true;
+      connect.textContent = 'Connect an AI app instead';
+      after.textContent = 'This disconnects the local shim first.';
+    }
+  }
 
-  mount.querySelector('#claude-local-connect-button').addEventListener('click', () => {
-    // Switching from remote disconnects it first — the relay only tracks
-    // one pairing per account, so the old one would otherwise be orphaned.
-    (mode === 'remote' ? disconnectRemote(ctx) : Promise.resolve())
-      .then(() => connectClaude(ctx))
-      .then(({ code }) => renderClaudeCode(mount, ctx, code))
+  connect.addEventListener('click', async () => {
+    if (!(await window.safeConfirm(REMOTE_CONSENT_TEXT, null, { title: 'Connect an AI app?', confirmLabel: 'Connect', icon: 'plug' }))) return;
+    connectRemote(ctx)
+      .then(({ url }) => renderConnected(mount, ctx, url))
       .catch((err) => renderConnectorsError(mount, ctx, err.message || String(err)));
   });
 
@@ -160,58 +253,19 @@ function renderPicker(mount, ctx, pairing, remote) {
   hydrateIcons(mount);
 }
 
-// The connector URL carries the human token in the clear (it's a capability
-// URL, that's the point). Unlike the local shim's pairing code — whose E2E key
-// the server never sees and so cannot re-show — the token lives server-side, so
-// the connector page can render it again (med-24d).
-function renderRemoteURL(mount, ctx, token, url) {
+// CC3, right after connecting. The connector URL carries the human token in
+// the clear (it's a capability URL, that's the point), so the screen says the
+// link is a key. Copy prompt is the one primary; Done is secondary.
+function renderConnected(mount, ctx, url) {
   mount.innerHTML = `
-    <section class="wg-section">
-      <p class="wg-row__title">Remote connector enabled</p>
-      <p>Paste this URL into claude.ai or ChatGPT. You can look it up again on this page.</p>
-      ${codeField('Connector URL', 'claude-remote-url', 'claude-remote-copy', 'Copy URL')}
-      <ol class="wg-hint">
-        <li>claude.ai: Settings &rarr; Connectors &rarr; Add custom connector &rarr; paste the URL.</li>
-        <li>ChatGPT: Settings &rarr; Connectors &rarr; Add MCP &rarr; paste the URL.</li>
-      </ol>
-      <p class="wg-hint">Keep an unlocked tab open. The URL stays valid until you Disconnect — it survives
-         server updates.</p>
-      <button type="button" id="claude-remote-done" class="wg-btn wg-btn--primary wg-btn--block">Done</button>
-    </section>`;
+    <div class="wg-note wg-note--ok"><i class="wg-ico" data-icon="check"></i><div class="wg-note__body">Connector on. Pick the app you use.</div></div>
+    <div id="claude-apps" class="wg-vstack"></div>
+    <div class="wg-note wg-note--warn"><i class="wg-ico" data-icon="key"></i><div class="wg-note__body" id="claude-key-warning">This link opens your records to whoever has it, while your app is open and unlocked. Disconnect turns it off.</div></div>
+    ${KEEP_OPEN_HINT}
+    <button type="button" id="claude-remote-done" class="wg-btn wg-btn--block">Done</button>`;
 
-  // Server-generated capability URL — textContent only, never innerHTML.
-  mount.querySelector('#claude-remote-url').textContent = url;
-  bindCopy(mount.querySelector('#claude-remote-copy'), url);
+  renderAppSwitch(mount.querySelector('#claude-apps'), url, true);
   mount.querySelector('#claude-remote-done').addEventListener('click', () => renderConnectors(mount, ctx));
-  hydrateIcons(mount);
-}
-
-// The pairing code carries the E2E key in the clear (that's the point — the
-// server never sees it) and is shown exactly once, right after minting.
-function renderClaudeCode(mount, ctx, code) {
-  const snippet = JSON.stringify(
-    { mcpServers: { medtracker: { command: '<path>/mcpshim', env: { MEDTRACKER_MCP_CODE: code } } } },
-    null,
-    2
-  );
-  mount.innerHTML = `
-    <section class="wg-section">
-      <p class="wg-row__title">Connect Claude Code</p>
-      <p>Save this pairing code now — it will not be shown again. Build the
-         shim (<code>go build ./cmd/mcpshim</code>) and paste this config
-         into Claude Code / Desktop's MCP settings.</p>
-      ${codeField('Pairing code', 'claude-code', 'claude-copy-code', 'Copy code')}
-      <pre id="claude-config-snippet" class="wg-card wg-code-block"></pre>
-      <button type="button" id="claude-copy-snippet" class="wg-btn wg-btn--block">Copy config</button>
-      <button type="button" id="claude-done" class="wg-btn wg-btn--primary wg-btn--block">Done</button>
-    </section>`;
-
-  // Server/client-generated secrets — textContent only, never innerHTML.
-  mount.querySelector('#claude-code').textContent = code;
-  mount.querySelector('#claude-config-snippet').textContent = snippet;
-  bindCopy(mount.querySelector('#claude-copy-code'), code);
-  bindCopy(mount.querySelector('#claude-copy-snippet'), snippet);
-  mount.querySelector('#claude-done').addEventListener('click', () => renderConnectors(mount, ctx));
   hydrateIcons(mount);
 }
 

@@ -687,7 +687,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(ctx.accountId).toBe('acct-1');
 
                 await vi.waitFor(() => expect(document.querySelector('[data-settings-summary="devices"]').textContent).toBe('2 devices'));
-                await vi.waitFor(() => expect(document.getElementById('settings-claude-connector-status').textContent).toBe('Remote · claude.ai / ChatGPT'));
+                await vi.waitFor(() => expect(document.getElementById('settings-claude-connector-status').textContent).toBe('Connected'));
 
                 // Kit S4: "Add a device" is the page's one sun primary; the
                 // Emergency Kit row is sensitive (danger) but not a primary.

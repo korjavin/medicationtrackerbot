@@ -348,7 +348,7 @@ describe('Settings home slots + mode card (kit S6)', () => {
             row(document, 'devices').click();
             // Let the page's async connector refresh land before cleanup.
             await vi.waitFor(() => expect(document.getElementById('settings-claude-connector-status').textContent)
-                .toBe('Remote · claude.ai / ChatGPT'));
+                .toBe('Connected'));
             await vi.waitFor(() => expect(pushedTitle()).toBe('Devices & connectors'));
         } finally {
             delete window.__MEDTRACKER_CLOUD__;
