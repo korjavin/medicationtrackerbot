@@ -267,6 +267,13 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	if !a.consumeBudget(w, r, account.ID) {
 		return
 	}
+	// stream:true is only ever a voice turn (aiclient.chatStream), whose body
+	// ElevenLabs wrote: cap its output like the anonymous route does. OpenAI
+	// path only: the anthropic adapter already forces its own max_tokens
+	// (trialAnthropicMaxTokens), so it stays as it was (bd med-93u1).
+	if stream && a.cfg.Provider != TrialProviderAnthropic {
+		clampMaxTokens(payload, a.cfg.Provider)
+	}
 	a.proxyChat(w, r, "account", account.ID, payload, r.URL.Query().Get("vision") == "1", stream, 0)
 }
 

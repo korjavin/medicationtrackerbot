@@ -218,6 +218,13 @@ func TestAttestVoiceStartAndHangUp(t *testing.T) {
 	if turn := e.voiceTurn(out.Call); turn.Code != http.StatusOK || !strings.Contains(turn.Body.String(), voiceRetry("en")) || e.upHits.Load() != hits {
 		t.Fatalf("stream-limited turn: %d %q", turn.Code, turn.Body.String())
 	}
+	// Global anonymous turn ceiling (bd med-93u1) exhausted: same, no upstream call.
+	e.trial.streamLimiter = newRateLimiter(100, time.Minute)
+	e.relay.anonTurns = newRateLimiter(0, time.Minute)
+	if turn := e.voiceTurn(out.Call); turn.Code != http.StatusOK || !strings.Contains(turn.Body.String(), voiceRetry("en")) || e.upHits.Load() != hits {
+		t.Fatalf("globally limited turn: %d %q", turn.Code, turn.Body.String())
+	}
+	e.relay.anonTurns = newRateLimiter(100, time.Minute)
 	if in, _ := e.store.AttestInstall(context.Background(), attestKeyID(t, k)); in.Used != 0 {
 		t.Fatalf("voice turns spent AI requests: %d", in.Used)
 	}
