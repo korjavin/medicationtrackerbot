@@ -20,7 +20,7 @@ cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "")
 # ponytail: guards honest agent commands, not a sandbox; a determined bypass still gets through.
 def _heredoc(m):
     return m.group(0) if re.search(r"\b(ba|z|da)?sh\b|\beval\b|\bsource\b|\bxargs\b", m.group(1)) else m.group(1)
-cmd = re.sub(r"([^\n]*<<-?\s*(['\"])(\w+)\2[^\n]*)\n.*?\n[ \t]*\3[ \t]*(?=\n|$)", _heredoc, cmd, flags=re.S)
+cmd = re.sub(r"([^\n]*<<-?\s*(['\"])(\w+)\2[^\n]*)\n(?:.*?\n)??[ \t]*\3[ \t]*(?=\n|$)", _heredoc, cmd, flags=re.S)
 cmd = re.sub(r"\d*>>?(&\d+|\s*[\w./-]+)", " ", cmd)
 for seg in re.split(r"[;&|\n()]+|\$\(|`", cmd):
     try:

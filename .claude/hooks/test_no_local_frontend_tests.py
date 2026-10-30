@@ -22,6 +22,7 @@ CASES = {
     "cat <<EOF\n$(pnpm test)\nEOF": False,
     "bash <<'EOF'\npnpm test\nEOF": False,
     'echo >"$(pnpm test)"': False,
+    "cat <<'EOF'\nEOF\npnpm test\ncat <<'EOF'\nhello\nEOF": False,
 }
 bad = 0
 for cmd, allowed in CASES.items():
