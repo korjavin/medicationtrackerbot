@@ -20,6 +20,7 @@
 // notification_advance_minutes, exercise_library_id.
 
 import { validateEquipmentInput, MAX_LOCATION_NAME } from './equipment.js';
+import { exerciseKey, findLibraryRowByName } from './workout.js';
 
 export const SHARE_FORMAT_VERSION = 1;
 
@@ -390,10 +391,11 @@ export function createWorkoutShareDomain({ workoutDomain, equipmentDomain }) {
     const group = await workoutDomain.createGroup(groupInput);
     // Snapshot BEFORE the import: only rows predating it count as matches,
     // and only those skip the body_part/notes patch.
-    const knownNames = new Map(
-      (await workoutDomain.listLibrary())
-        .map((row) => [String(row.name || '').trim().toLowerCase(), row.name]),
-    );
+    // A plan name resolves like every other ingestion path (med-l5yr.2): any
+    // case/spacing of a row's name, or one of its aliases. Names this import
+    // creates match their later repeats by key.
+    const libraryBefore = await workoutDomain.listLibrary();
+    const createdNames = new Map();
     let exercises = 0;
     let exercisesCreated = 0;
     let exercisesMatched = 0;
@@ -404,7 +406,8 @@ export function createWorkoutShareDomain({ workoutDomain, equipmentDomain }) {
       const variant = await workoutDomain.createVariant(variantInput);
       for (const ex of day.exercises) {
         const key = ex.name.toLowerCase();
-        const hit = knownNames.get(key);
+        const row = findLibraryRowByName(libraryBefore, ex.name);
+        const hit = row ? row.name : createdNames.get(exerciseKey(ex.name));
         const exerciseName = hit || ex.name;
         const input = {
           variant_id: variant.id,
@@ -424,7 +427,7 @@ export function createWorkoutShareDomain({ workoutDomain, equipmentDomain }) {
         } else {
           exercisesCreated += 1;
           // createExercise promoted the name — later repeats in this plan match.
-          knownNames.set(key, exerciseName);
+          createdNames.set(exerciseKey(exerciseName), exerciseName);
           const libEntry = plan.libraryByName.get(key);
           if (libEntry && (libEntry.body_part || libEntry.notes)) {
             if (libEntry.body_part) {

@@ -748,12 +748,46 @@ const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);
 // assertNoDuplicateLibraryName ports the DB's
 // `UNIQUE INDEX idx_exercise_library_user_name (user_id, name)` (migration
 // 028) into an app-layer check, since the cloud records port has no SQL
-// constraint to enforce it. Case-sensitive (no COLLATE NOCASE on the real
-// index) — matches medications.js's assertNoDuplicate convention (err.code
-// 'duplicate', mapped to 409 by the shim's withDuplicateStatus in Task 6).
-function assertNoDuplicateLibraryName(all, name, excludeRecordId) {
-  const dup = all.some((item) => !item.deleted && item.recordId !== excludeRecordId && item.name === name);
-  if (dup) throw invalidRequest('Exercise with this name already exists in your library', 'duplicate');
+// constraint to enforce it (err.code 'duplicate', mapped to 409 by the shim's
+// withDuplicateStatus). Keyed by exerciseKey (med-l5yr.2): a name another live
+// row answers to — its name in any case/spacing, or one of its aliases — is
+// refused, the alias case naming the owning row so the user knows what to
+// merge or rename. An edit that keeps the row's own key (`currentName`: a
+// defaults edit, a case-only rename) is held only to the old exact-name rule,
+// so a case-pair the old case-sensitive guard let in stays editable.
+function assertNoDuplicateLibraryName(all, name, excludeRecordId, currentName) {
+  const others = all.filter((item) => !item.deleted && item.recordId !== excludeRecordId);
+  const k = exerciseKey(name);
+  const keepsKey = currentName !== undefined && exerciseKey(currentName) === k;
+  const nameTaken = keepsKey
+    ? others.some((item) => item.name === name)
+    : others.some((item) => exerciseKey(item.name) === k);
+  if (nameTaken) throw invalidRequest('Exercise with this name already exists in your library', 'duplicate');
+  if (keepsKey) return;
+  const owner = others.find((item) => Array.isArray(item.aliases) && item.aliases.some((a) => exerciseKey(a) === k));
+  if (owner) throw invalidRequest(`"${name}" is already an alias of ${owner.name}`, 'duplicate');
+}
+
+// findLibraryRowByName is THE ingestion lookup (med-l5yr.2): the live library
+// row a free-form name lands on before anything new is created — an exact
+// name first (keeps a pre-existing case-pair's links where they are), else the
+// read-side resolver (key-equal name, else alias). Never fuzzy. null on a miss.
+export function findLibraryRowByName(all, name) {
+  const live = (all || []).filter((r) => r && !r.deleted);
+  const exact = live.find((r) => r.name === String(name ?? '').trim());
+  if (exact) return exact;
+  const id = buildExerciseResolver(live)(name).libraryId;
+  return id == null ? null : live.find((r) => r.id === id) || null;
+}
+
+// libraryRowAnswersTo: does `row` already answer to `name` — its own name in
+// any case/spacing (a case twin included), or an alias the lookup gives it?
+// A caller that already holds a row keeps it when this is true, so an edit or
+// an explicit id never drifts to a lower-id twin.
+function libraryRowAnswersTo(all, row, name) {
+  if (exerciseKey(row.name) === exerciseKey(name)) return true;
+  const hit = findLibraryRowByName(all, name);
+  return Boolean(hit && hit.id === row.id);
 }
 
 // -- Exercise identity (med-l5yr.1) --
@@ -1161,11 +1195,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // (existing or newly minted). No-op returning null when the name is blank.
   // The upsert-by-name counterpart of the Go upsert; returning the existing id
   // makes "same name twice = one library row" hold on both create and update.
-  async function promoteExerciseToLibrary(exercise) {
+  async function promoteExerciseToLibrary(exercise, currentLibraryId) {
     const name = (exercise.exercise_name || '').trim();
     if (!name) return null;
     const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
-    const existing = all.find((item) => !item.deleted && item.name === name);
+    // An edit keeps its link while that row still answers to the name, so a
+    // sets-only edit never re-points it to a lower-id case twin.
+    const current = currentLibraryId != null && all.find((r) => !r.deleted && r.id === currentLibraryId);
+    if (current && libraryRowAnswersTo(all, current, name)) return current.id;
+    // Case/spacing variants and aliases link to the row they name (the plan
+    // row keeps its typed exercise_name snapshot; reads go through the FK).
+    const existing = findLibraryRowByName(all, name);
     if (existing) return existing.id;
     const nowMs = now();
     const id = mintNumericId(all, nowMs);
@@ -1256,7 +1296,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // Clear the FK on a blank name (promote returns null) so the read falls back
     // to the cached exercise_name and no whitespace-only library row is created —
     // matching Go, which nulls the FK on a blank name (repo.go UpdateExercise).
-    updated.exercise_library_id = (await promoteExerciseToLibrary(updated)) ?? null;
+    updated.exercise_library_id = (await promoteExerciseToLibrary(updated, exercise.exercise_library_id)) ?? null;
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, updated);
   }
 
@@ -1337,7 +1377,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const name = ((input && input.name) || '').trim();
     if (!name) throw invalidRequest('Name is required');
     const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
-    assertNoDuplicateLibraryName(all, name, item.recordId);
+    assertNoDuplicateLibraryName(all, name, item.recordId, item.name);
     // aliases (med-l5yr.1): a payload that OMITS the key (the library editor,
     // the MCP update op) keeps the stored list; a present key replaces it.
     let aliases;
@@ -1383,18 +1423,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     await records.put(WORKOUT_RECORD_TYPES.LIBRARY, next);
   }
 
-  // setLibraryBodyPart tags the library row named `name` (case-insensitive)
-  // and touches nothing else on it; a name with no row yet — an exercise
-  // logged straight into a session — gets a bare row so the tag has a home
-  // (listUniqueExercises already treats the library as the user's exercise
-  // vocabulary, so a bare row is consistent, not noise).
+  // setLibraryBodyPart tags the library row `name` resolves to (case-
+  // insensitive, or an alias) and touches nothing else on it; a name with no
+  // row yet — an exercise logged straight into a session — gets a bare row so
+  // the tag has a home (listUniqueExercises already treats the library as the
+  // user's exercise vocabulary, so a bare row is consistent, not noise).
   async function setLibraryBodyPart(name, bodyPart) {
     const cleanName = String(name || '').trim();
     const bp = String(bodyPart || '').trim();
     if (!cleanName) throw invalidRequest('Name is required');
-    const key = cleanName.toLowerCase();
-    const existing = (await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY))
-      .find((item) => String(item.name || '').trim().toLowerCase() === key);
+    const existing = findLibraryRowByName(await records.list(WORKOUT_RECORD_TYPES.LIBRARY), cleanName);
     if (existing) {
       const nowMs = now();
       await records.put(WORKOUT_RECORD_TYPES.LIBRARY, {
@@ -1696,10 +1734,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const seenNames = new Set();
     const planned = [];
     for (const ex of requested) {
-      const exerciseId = Number(ex && ex.exercise_id) || 0;
+      let exerciseId = Number(ex && ex.exercise_id) || 0;
       if (exerciseId < 0) throw invalidRequest('exercises[].exercise_id must be >= 0');
       let name = String((ex && ex.exercise_name) || '').trim();
       if (!name && !exerciseId) throw invalidRequest('exercises[] requires exercise_id or exercise_name');
+      // A free-form name the library already answers to (any case, or an
+      // alias) is that row: a library log under its canonical name.
+      const hit = exerciseId ? null : findLibraryRowByName(library, name);
+      if (hit) {
+        exerciseId = hit.id;
+        name = hit.name;
+      }
       const sets = Number(ex && ex.target_sets) || 0;
       const repsMin = Number(ex && ex.target_reps_min) || 0;
       if (sets < 1 || repsMin < 1) throw invalidRequest('exercises[].target_sets and target_reps_min must be >= 1');
@@ -1716,7 +1761,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         if (!item) throw invalidRequest("exercises[].exercise_id not found in this user's library");
         if (!name) name = item.name;
       }
-      const nameKey = name.toLowerCase();
+      const nameKey = exerciseKey(name);
       if (nameKey) {
         if (seenNames.has(nameKey)) throw invalidRequest('exercises[] names must be unique within a request');
         seenNames.add(nameKey);
@@ -2241,7 +2286,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // partial unique index (migration 052) for exercise_id > 0.
   async function createLog(input) {
     const sessionId = Number(input && input.session_id) || 0;
-    const exerciseId = Number(input && input.exercise_id) || 0;
+    let exerciseId = Number(input && input.exercise_id) || 0;
     if (!sessionId || !exerciseId) {
       throw invalidRequest('SessionID and ExerciseID are required');
     }
@@ -2259,6 +2304,29 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let session = await findSession(sessionId);
     if (!session) throw invalidRequest('Session not found', 'not_found');
 
+    let exerciseName = (input && input.exercise_name) || '';
+    // A library log's id and name are settled together, before the uniqueness
+    // check, so new history stops drifting and two spellings of one row are
+    // one log:
+    //   - the sent id is a live row that answers to the name → that row;
+    //   - else the name resolves to a row, and the sent id is dead/0 or a case
+    //     twin of it (the lower-id winner of the key) → the resolved row;
+    //   - else (an id naming a different movement, an unresolved name) → as
+    //     sent: a must-stay-distinct id is never moved by its free-text name.
+    // Schedule logs keep the plan snapshot; existing logs are never rewritten.
+    if (source === 'library') {
+      const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
+      const given = all.find((r) => !r.deleted && r.id === exerciseId);
+      const hit = findLibraryRowByName(all, exerciseName);
+      let row = null;
+      if (given && libraryRowAnswersTo(all, given, exerciseName)) row = given;
+      else if (hit && (!given || exerciseKey(hit.name) === exerciseKey(given.name))) row = hit;
+      if (row) {
+        exerciseId = row.id;
+        exerciseName = row.name;
+      }
+    }
+
     if (exerciseId > 0) {
       const dup = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
         .some((l) => l.session_id === sessionId && l.exercise_id === exerciseId && l.source === source);
@@ -2275,7 +2343,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const effWeight = scalars ? scalars.weight_kg : targetWeightKg;
 
     const nowMs = now();
-    const exerciseName = (input && input.exercise_name) || '';
     const record = {
       recordId: genRecordId('log', nowMs),
       clientTs: nowMs,

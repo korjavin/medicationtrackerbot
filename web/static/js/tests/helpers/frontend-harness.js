@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import * as WorkoutDomain from '../../../../domain/workout.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -454,6 +455,9 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
     evalFileCached(window, WORKOUT_EXERCISE_DETAIL_JS);
     evalFileCached(window, WORKOUT_STATS_JS);
     evalFileCached(window, WORKOUT_INDEX_JS);
+    // jsdom-eval'd scripts can't dynamic-import: hand the picker the real
+    // domain module its loader would fetch (the name lookup, med-l5yr.2).
+    window.WorkoutLibrary.loadDomain = async () => WorkoutDomain;
   }
 
   return {
