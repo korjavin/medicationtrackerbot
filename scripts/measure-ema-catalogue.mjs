@@ -58,5 +58,11 @@ const release = {
     multi_product_rows: multiProductRows,
 };
 if (process.argv.includes('--record')) writeFileSync(releaseURL, JSON.stringify(release, null, 2) + '\n');
-else assert.deepEqual(release, JSON.parse(readFileSync(releaseURL)), 'release measurements drifted; review the update before --record');
+else {
+    // Compression output can vary with the runtime's zlib version. Pin the
+    // original JSON bytes/counts; enforce the gzip budget on this runtime.
+    const expected = JSON.parse(readFileSync(releaseURL));
+    const stable = ({ gzip_level9_bytes, ...rest }) => rest;
+    assert.deepEqual(stable(release), stable(expected), 'release drifted; review the update before --record');
+}
 console.log(JSON.stringify({ ...release, read_ms: +(loaded - beforeLoad).toFixed(2), parse_ms: +(parsed - started).toFixed(2), index_ms: +(indexed - parsed).toFixed(2) }, null, 2));

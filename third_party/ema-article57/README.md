@@ -122,7 +122,10 @@ A single sorted asset keeps the complete provenance/candidate set together.
 Reviewed guards are 16 MiB JSON and 3 MiB gzip level 9: current content plus
 bounded update headroom. Growth beyond either needs explicit packaging review.
 The gzip size is a reproducible compression measurement, not a promise about
-the server/proxy's negotiated transfer encoding. `web/static/embed.go` embeds
+the server/proxy's negotiated transfer encoding. The release records a reference
+gzip measurement; zlib versions may change it, so checks pin the exact JSON hash
+and enforce the compressed budget rather than requiring identical gzip sizes.
+`web/static/embed.go` embeds
 the JSON, increasing the cloud binary/container's raw assets by about 12.7 MiB.
 The domain module is separately listed in its embed manifest.
 

@@ -85,7 +85,9 @@ describe('EMA standalone exact catalogue', () => {
         expect(createHash('sha256').update(bytes).digest('hex')).toBe(release.asset_sha256);
         expect(bytes.length).toBe(release.json_bytes);
         expect(bytes.length).toBeLessThanOrEqual(16 * 1024 * 1024);
-        expect(gzipSync(bytes, { level: 9 }).length).toBe(release.gzip_level9_bytes);
+        // zlib versions can produce different compressed bytes for identical
+        // JSON. The JSON hash is exact; compressed size is a packaging budget.
+        expect(gzipSync(bytes, { level: 9 }).length).toBeLessThanOrEqual(3 * 1024 * 1024);
         expect(release.gzip_level9_bytes).toBeLessThanOrEqual(3 * 1024 * 1024);
         const data = JSON.parse(bytes);
         expect(Object.keys(data).sort()).toEqual(['columns', 'rows', 'schema_version', 'source', 'source_rows']);
