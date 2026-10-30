@@ -7267,6 +7267,7 @@ body:has(.wg-callbar--dock) .wg-toasts {
 :root.wg-local-vault .wg-cloud-only,
 :root.wg-local-vault:not(.wg-local-trial) .wg-callbar__call,
 :root.wg-local-vault .wg-callbar__photo,
+:root.wg-local-vault .wg-callbar__gallery,
 :root.wg-local-vault .wg-equipment-row__share-location,
 :root:not(.wg-local-vault) .wg-local-only {
     display: none !important;

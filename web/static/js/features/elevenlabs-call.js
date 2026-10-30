@@ -12,7 +12,7 @@
 //   connecting — the bar goes --live: status "Connecting…", End call cancels;
 //                bounded by CONNECT_TIMEOUT_MS
 //   in_call    — --live: status reflects agent mode (Listening… / Speaking…),
-//                Mute / Send photo / End call icon buttons
+//                Mute / Send photo (camera, gallery) / End call icon buttons
 //   error      — trigger reads "Try again", the message sits under the bar
 //
 // There is one control surface: the Today call bar. While a call is in flight
@@ -652,6 +652,7 @@
         const error = card.querySelector('.wg-callbar__error');
         const muteBtn = card.querySelector('.wg-callbar__mute');
         const photoBtn = card.querySelector('.wg-callbar__photo');
+        const galleryBtn = card.querySelector('.wg-callbar__gallery');
         const offline = !live && isOffline();
         // The local trial's responder can land after the bar mounted.
         const setup = state === 'idle' && !offline && voiceReady === false && !localTrialVoice();
@@ -682,12 +683,13 @@
             setIcon(muteBtn.querySelector('.wg-ico'), activeMuted ? 'mic-off' : 'mic');
             muteBtn.disabled = state === 'connecting';
         }
-        if (photoBtn) {
-            // Anonymous local-trial turns are answered server-side and never
-            // reach this tab, so a photo could not ride them (med-adje).
-            photoBtn.hidden = localTrialVoice();
-            photoBtn.disabled = state === 'connecting' || activeUploading;
-            photoBtn.setAttribute('aria-label', activeUploading ? 'Sending…' : 'Send photo');
+        // Anonymous local-trial turns are answered server-side and never
+        // reach this tab, so a photo could not ride them (med-adje).
+        for (const [b, idle] of [[photoBtn, 'Send photo'], [galleryBtn, 'Send photo from gallery']]) {
+            if (!b) continue;
+            b.hidden = localTrialVoice();
+            b.disabled = state === 'connecting' || activeUploading;
+            b.setAttribute('aria-label', activeUploading ? 'Sending…' : idle);
         }
     }
 
@@ -1111,21 +1113,22 @@
         add(muteBtn);
 
         // Send photo: see sendPhoto() (held in this tab, rides the next AI turn).
-        const photoInput = document.createElement('input');
-        photoInput.type = 'file';
-        photoInput.accept = 'image/*';
-        photoInput.capture = 'environment';
-        photoInput.className = 'wg-callbar__photo-input';
-        photoInput.hidden = true;
-        photoInput.addEventListener('change', (event) => {
-            const file = event.target && event.target.files && event.target.files[0];
-            if (file) {
-                sendPhoto(file).catch(() => { /* status surfaced via setState */ });
+        // Camera (default) and gallery both go through MediaCapture.pickPhoto
+        // (CLAUDE.md rule 10), like the food Add sheet (bd med-i8r9).
+        const pick = async (opts) => {
+            const capture = window.MediaCapture;
+            if (!capture || typeof capture.pickPhoto !== 'function') return;
+            let file;
+            try {
+                file = await capture.pickPhoto(opts);
+            } catch (err) {
+                console.warn('[call] photo picker failed:', err);
+                return;
             }
-            try { photoInput.value = ''; } catch (_) { /* ignore */ }
-        });
-        add(iconButton('wg-callbar__photo', 'camera', 'Send photo', () => photoInput.click()));
-        add(photoInput);
+            if (file) sendPhoto(file).catch(() => { /* status surfaced via setState */ });
+        };
+        add(iconButton('wg-callbar__photo', 'camera', 'Send photo', () => pick()));
+        add(iconButton('wg-callbar__gallery', 'image', 'Send photo from gallery', () => pick({ capture: false })));
 
         const end = iconButton('wg-callbar__end', 'phone-off', 'End call', () => endCall());
         end.classList.add('wg-btn--danger');
