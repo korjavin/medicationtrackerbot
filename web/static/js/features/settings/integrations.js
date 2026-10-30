@@ -24,6 +24,94 @@
     const CACHE_KEY = 'settings_integrations';
     const CACHE_TAGS = ['settings', 'integrations'];
 
+    // UI presets only: provider identity is always derived from the existing URL.
+    const AI_PROVIDERS = [
+        { id: 'openai', label: 'OpenAI', summary: 'OpenAI', url: 'https://api.openai.com/v1', model: 'gpt-6-luna', placeholder: 'Paste your OpenAI key', hint: 'Starts with sk-.', keys: 'https://platform.openai.com/api-keys' },
+        { id: 'anthropic', label: 'Anthropic (Claude)', summary: 'Anthropic', url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5', placeholder: 'Paste your Anthropic key', hint: 'Starts with sk-ant-.', keys: 'https://platform.claude.com/settings/keys' },
+        { id: 'gemini', label: 'Google Gemini', summary: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: 'gemini-3.8-flash', placeholder: 'Paste your Gemini key', hint: 'Starts with AIza.', keys: 'https://aistudio.google.com/apikey' },
+        { id: 'openrouter', label: 'OpenRouter', summary: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-6-luna', placeholder: 'Paste your OpenRouter key', hint: 'Starts with sk-or-.', keys: 'https://openrouter.ai/settings/keys' },
+        { id: 'other', label: 'Other', summary: 'Other', url: '', model: '', placeholder: 'Optional API key', hint: 'Optional for providers that do not require a key.', keys: '' }
+    ];
+    let _aiProviderDraft = 'openai'; // module-state: selected UI preset, never persisted
+    let _aiProviderLoaded = null; // module-state: saved URL/model and masked main key for safe reselect
+    let _aiProviderPage = null; // module-state: current integrations WGPage primary state
+    let _aiProviderKeyURL = ''; // module-state: URL the current draft main key belongs to
+
+    function normalizeProviderURL(url) {
+        return String(url || '').trim().replace(/\/+$/, '');
+    }
+
+    function providerForURL(url) {
+        const normalized = normalizeProviderURL(url);
+        return AI_PROVIDERS.find((p) => p.id !== 'other' && (!normalized ? p.id === 'openai' : normalizeProviderURL(p.url) === normalized)) || AI_PROVIDERS[4];
+    }
+
+    function providerSaveAllowed() {
+        if (_aiProviderDraft === 'other') return true;
+        if (_aiProviderDraft === (_aiProviderLoaded?.provider || 'openai')) return true;
+        const key = getInput(FIELD_IDS.openai.api_key)?.value.trim();
+        return !!key && key !== '***';
+    }
+
+    function renderProvider() {
+        const provider = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
+        const label = getInput('integrations-provider-value');
+        if (label) label.textContent = provider.label;
+        const urlField = getInput('integrations-openai-url-field');
+        if (urlField) urlField.hidden = provider.id !== 'other';
+        const key = getInput(FIELD_IDS.openai.api_key);
+        if (key) key.placeholder = provider.placeholder;
+        const keyLabel = getInput('integrations-provider-key-label');
+        if (keyLabel) keyLabel.textContent = provider.id === 'other' ? 'API key · optional' : 'API key';
+        const hint = getInput('integrations-provider-key-hint');
+        if (hint) hint.textContent = provider.hint;
+        const link = getInput('integrations-provider-key-link');
+        if (link) {
+            link.hidden = !provider.keys;
+            if (provider.keys) link.href = provider.keys;
+            else link.removeAttribute('href');
+        }
+        const note = getInput('integrations-provider-switch-note');
+        if (note) {
+            note.hidden = providerSaveAllowed();
+            const saved = AI_PROVIDERS.find((p) => p.id === _aiProviderLoaded?.provider);
+            note.querySelector('span').textContent = (_aiProviderLoaded?.key
+                ? 'Your ' + saved.summary + ' key is still saved and in use. '
+                : 'Your saved setup is unchanged. ') + 'Paste a ' + provider.summary + ' key to switch.';
+        }
+        _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
+    }
+
+    async function chooseProvider() {
+        if (typeof safeChoose !== 'function') return;
+        const sub = { openai: 'GPT models', openrouter: 'Many providers with one key', other: 'Your own API URL, e.g. a local server' };
+        const picked = await safeChoose('', AI_PROVIDERS.map((p) => ({ value: p.id, label: p.label, sub: sub[p.id], selected: p.id === _aiProviderDraft })), { title: 'AI provider' });
+        const provider = AI_PROVIDERS.find((p) => p.id === picked);
+        if (!provider || picked === _aiProviderDraft) return;
+        const previous = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
+        const url = getInput(FIELD_IDS.openai.url);
+        const model = getInput(FIELD_IDS.openai.model);
+        const key = getInput(FIELD_IDS.openai.api_key);
+        _aiProviderDraft = picked;
+        if (_aiProviderLoaded && picked === _aiProviderLoaded.provider) {
+            url.value = _aiProviderLoaded.url;
+            model.value = _aiProviderLoaded.model;
+            key.value = _aiProviderLoaded.key;
+        } else {
+            url.value = provider.url;
+            if (!model.value.trim() || model.value === previous.model) model.value = provider.model;
+            key.value = '';
+        }
+        _aiProviderKeyURL = normalizeProviderURL(url.value);
+        key.type = 'password';
+        const reveal = key.closest('.wg-secret')?.querySelector('[data-secret-reveal]');
+        reveal?.setAttribute('aria-pressed', 'false');
+        reveal?.setAttribute('aria-label', 'Show key');
+        resetModelSuggestions();
+        renderProvider();
+        applyTrialHints();
+    }
+
     const FIELD_IDS = {
         openai: {
             api_key: 'integrations-openai-api-key',
@@ -88,6 +176,17 @@
                 input.value = typeof value === 'string' ? value : '';
             }
         }
+        const main = payload.openai || {};
+        _aiProviderDraft = providerForURL(main.url).id;
+        _aiProviderLoaded = {
+            provider: _aiProviderDraft,
+            url: typeof main.url === 'string' ? main.url : '',
+            model: typeof main.model === 'string' ? main.model : '',
+            // Retain only the preservation sentinel, never a raw key.
+            key: main.api_key ? '***' : ''
+        };
+        _aiProviderKeyURL = normalizeProviderURL(main.url);
+        renderProvider();
         applyTrialHints();
     }
 
@@ -743,6 +842,7 @@
     }
 
     async function saveIntegrations() {
+        if (!providerSaveAllowed()) return;
         const payload = readDOMIntoPayload();
         const apiOk = typeof apiCall === 'function';
         const dsOk = window.DataStore && typeof window.DataStore.applyOptimistic === 'function';
@@ -776,7 +876,8 @@
         try {
             fresh = apiOk ? await apiCall('/api/settings/integrations', 'GET') : null;
         } catch (_) { /* fall through with optimistic payload */ }
-        if (fresh) applyPayloadToDOM(fresh);
+        applyPayloadToDOM(fresh || maskPayload(payload));
+        window.SettingsView?.refreshIntegrationsSummary?.();
         // The saved provider may now be a different one, which makes any list
         // already on screen wrong. Drop it; the next click re-fetches.
         resetModelSuggestions();
@@ -791,6 +892,18 @@
 
     // Save is the page-bar primary (features/settings.js openSettingsPage).
     function bindControls() {
+        const providerButton = getInput('integrations-provider-choose');
+        if (providerButton && !providerButton.dataset.integrationsBound) {
+            providerButton.dataset.integrationsBound = '1';
+            providerButton.addEventListener('click', chooseProvider);
+            getInput(FIELD_IDS.openai.api_key)?.addEventListener('input', renderProvider);
+            getInput(FIELD_IDS.openai.url)?.addEventListener('input', () => {
+                const url = normalizeProviderURL(getInput(FIELD_IDS.openai.url).value);
+                if (url !== _aiProviderKeyURL) getInput(FIELD_IDS.openai.api_key).value = '';
+                _aiProviderKeyURL = url;
+                renderProvider();
+            });
+        }
         for (const cfg of MODEL_LOADERS) {
             const loadBtn = document.getElementById(cfg.button);
             if (!loadBtn || loadBtn.dataset.integrationsBound) continue;
@@ -828,6 +941,11 @@
         trialOffer,
         startTrial,
         turnOnSync,
+        bindPage(page) { _aiProviderPage = page; renderProvider(); },
+        savedProviderLabel() {
+            return (_aiProviderLoaded?.key || _aiProviderLoaded?.url.trim())
+                ? AI_PROVIDERS.find((p) => p.id === _aiProviderLoaded.provider).summary : '';
+        },
         // Internals exposed for the integration test suite. Not used by app code.
         _applyPayloadToDOM: applyPayloadToDOM,
         _readDOMIntoPayload: readDOMIntoPayload,

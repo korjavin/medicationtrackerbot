@@ -7497,18 +7497,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
     margin-top: var(--space-md);
 }
 
-.wg-settings-integrations__details {
-    margin-top: var(--space-xs);
-}
-
-.wg-settings-integrations__summary {
-    cursor: pointer;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    padding: var(--space-xs) 0;
+#integrations-openai-url-field[hidden],
+#integrations-provider-key-link[hidden],
+#integrations-provider-switch-note[hidden] {
+    display: none;
 }
 
 /* Version footer (Phase 9, Task 7) — mono eyebrow + short-hash value

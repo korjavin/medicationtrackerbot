@@ -1459,6 +1459,7 @@ function openSettingsPage(name) {
         primary: settingsPagePrimary(name, () => page),
         onClose: () => {
             _openSettingsPages.delete(name);
+            if (name === 'integrations') window.SettingsIntegrations?.bindPage(null);
             store.appendChild(body);
             if (name === 'units' && _heightDirty) {
                 // An unsaved (invalid) height is dropped with the page.
@@ -1470,6 +1471,7 @@ function openSettingsPage(name) {
         },
     });
     _openSettingsPages.set(name, page);
+    if (name === 'integrations') window.SettingsIntegrations?.bindPage(page);
     if (name === 'devices') mountCloudDevices();
     if (name === 'units') refreshBmiHint().catch(() => {});
     return page;
@@ -1584,7 +1586,7 @@ function refreshSettingsSummaries() {
 function refreshIntegrationsSummary() {
     const filled = (id) => !!document.getElementById(id)?.value.trim();
     const set = [
-        filled('integrations-openai-api-key') && 'OpenAI',
+        window.SettingsIntegrations?.savedProviderLabel(),
         filled('integrations-elevenlabs-api-key') && 'Voice',
         document.getElementById('telegram-settings-mount')?.dataset.tgState === 'linked' && 'Telegram',
     ].filter(Boolean);
@@ -2153,6 +2155,7 @@ function openHeightField() {
 // Public surface mirror — bare names above are the live call path; this object
 // documents the module's API and satisfies the globals allowlist.
 window.SettingsView = {
+    refreshIntegrationsSummary,
     loadSettings,
     openSettingsPage,
     openDevicesDeeplink,

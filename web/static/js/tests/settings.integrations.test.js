@@ -109,6 +109,161 @@ describe('Settings → Integrations section', () => {
         page.close();
     });
 
+    describe('AI provider picker', () => {
+        async function pick(id) {
+            env.window.safeChoose = vi.fn(async () => id);
+            env.document.getElementById('integrations-provider-choose').click();
+            await vi.waitFor(() => expect(env.window.safeChoose).toHaveBeenCalled());
+            await vi.waitFor(() => expect(env.document.getElementById('integrations-provider-value').textContent)
+                .toBe(env.window.safeChoose.mock.calls[0][1].find((p) => p.value === id).label));
+        }
+
+        function load(main = {}) {
+            env.window.SettingsIntegrations._applyPayloadToDOM({ openai: main, elevenlabs: {} });
+        }
+
+        function field(name) { return env.document.getElementById('integrations-openai-' + name); }
+
+        it('derives presets from saved URLs without rewriting URL or model', () => {
+            for (const [url, label] of [
+                ['', 'OpenAI'],
+                [' https://api.anthropic.com/v1/// ', 'Anthropic (Claude)'],
+                ['https://generativelanguage.googleapis.com/v1beta/openai/', 'Google Gemini'],
+                ['https://openrouter.ai/api/v1', 'OpenRouter']
+            ]) {
+                load({ url, model: 'my-existing-model', api_key: '***' });
+                expect(env.document.getElementById('integrations-provider-value').textContent).toBe(label);
+                expect(env.document.getElementById('integrations-openai-url-field').hidden).toBe(true);
+                expect(field('url').value).toBe(url);
+                expect(field('model').value).toBe('my-existing-model');
+            }
+            load({ url: 'https://custom.example/v1', model: 'local-model' });
+            expect(env.document.getElementById('integrations-provider-value').textContent).toBe('Other');
+            expect(env.document.getElementById('integrations-openai-url-field').hidden).toBe(false);
+            expect(field('url').value).toBe('https://custom.example/v1');
+        });
+
+        it('offers five choices and fills only eligible model recommendations', async () => {
+            load();
+            await pick('anthropic');
+            expect(env.window.safeChoose.mock.calls[0][1].map((p) => p.value)).toEqual(['openai', 'anthropic', 'gemini', 'openrouter', 'other']);
+            expect(field('url').value).toBe('https://api.anthropic.com/v1');
+            expect(field('model').value).toBe('claude-sonnet-5-5');
+            expect(field('api-key').placeholder).toBe('Paste your Anthropic key');
+            const link = env.document.getElementById('integrations-provider-key-link');
+            expect(link.href).toBe('https://platform.claude.com/settings/keys');
+            expect(link.target).toBe('_blank');
+            expect(link.rel).toContain('noopener');
+            await pick('gemini');
+            expect(field('model').value).toBe('gemini-3.8-flash');
+            expect(env.document.getElementById('integrations-provider-key-hint').textContent).toContain('AIza');
+            await pick('openrouter');
+            expect(field('model').value).toBe('openai/gpt-6-luna');
+            field('model').value = 'custom-model';
+            await pick('anthropic');
+            expect(field('model').value).toBe('custom-model');
+        });
+
+        it('clears only the draft main key and guards both page Save and direct save until a new key', async () => {
+            load({ api_key: '***', model: 'gpt-6-luna', vision_api_key: '***', vision_url: 'https://photos.example/v1', vision_model: 'photo-custom' });
+            const page = env.window.SettingsView.openSettingsPage('integrations');
+            const save = page.el.querySelector('.wg-pagebar .wg-btn--primary');
+            env.window.apiCall = vi.fn();
+            await pick('gemini');
+            expect(field('api-key').value).toBe('');
+            expect(field('vision-api-key').value).toBe('***');
+            expect(field('vision-url').value).toBe('https://photos.example/v1');
+            expect(save.disabled).toBe(true);
+            expect(env.document.getElementById('integrations-provider-switch-note').hidden).toBe(false);
+            await env.window.SettingsIntegrations.save();
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            for (const key of ['***', '   ', 'AIza-fixture-new']) {
+                field('api-key').value = key;
+                field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                expect(save.disabled).toBe(key !== 'AIza-fixture-new');
+            }
+            page.close();
+        });
+
+        it('reselecting the loaded provider restores its mask, raw URL and existing Gemini 2.5 model', async () => {
+            const url = ' https://generativelanguage.googleapis.com/v1beta/openai/// ';
+            load({ url, model: 'gemini-2.5-flash', api_key: '***' });
+            await pick('anthropic');
+            expect(field('model').value).toBe('gemini-2.5-flash');
+            field('model').value = 'unsaved-change';
+            await pick('gemini');
+            expect(field('api-key').value).toBe('***');
+            expect(field('url').value).toBe(url);
+            expect(field('model').value).toBe('gemini-2.5-flash');
+            await pick('gemini');
+            expect(field('url').value).toBe(url);
+        });
+
+        it('keeps Other keyless and clears a saved mask on custom URL edits', async () => {
+            load({ url: 'https://old.example/v1', api_key: '***', model: 'local-model' });
+            const page = env.window.SettingsView.openSettingsPage('integrations');
+            const save = page.el.querySelector('.wg-pagebar .wg-btn--primary');
+            field('url').value = 'https://new.example/v1';
+            field('url').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            expect(field('api-key').value).toBe('');
+            expect(save.disabled).toBe(false);
+            expect(env.document.getElementById('integrations-provider-key-link').hidden).toBe(true);
+            await pick('anthropic');
+            await pick('other');
+            expect(field('url').value).toBe('https://old.example/v1');
+            expect(field('api-key').value).toBe('***');
+            expect(field('model').value).toBe('local-model');
+            page.close();
+        });
+
+        it('keeps Advanced overrides mounted and unchanged through a normal save', async () => {
+            const main = { url: 'https://generativelanguage.googleapis.com/v1beta/openai///', model: 'gemini-2.5-flash', api_key: '***', vision_api_key: '***', vision_url: 'https://photos.example/v1', vision_model: 'photo-custom' };
+            load(main);
+            const advanced = env.document.getElementById('integrations-provider-advanced');
+            expect(advanced.open).toBe(false);
+            expect(advanced.querySelector('#integrations-openai-vision-model')).not.toBeNull();
+            let patch;
+            env.window.apiCall = vi.fn(async (url, method, body) => {
+                if (method === 'PATCH') { patch = body; return { ok: true }; }
+                return { openai: main, elevenlabs: {} };
+            });
+            await env.window.SettingsIntegrations.save();
+            expect(patch.openai).toEqual(main);
+            expect(Object.keys(patch)).toEqual(['openai', 'elevenlabs']);
+            expect(advanced.open).toBe(false);
+        });
+
+        it('shows the saved provider summary after save and retains it during draft changes', async () => {
+            const main = { url: 'https://api.anthropic.com/v1', api_key: '***', model: 'custom' };
+            load(main);
+            env.window.SettingsView.refreshIntegrationsSummary();
+            const summary = env.document.querySelector('[data-settings-summary="integrations"]');
+            expect(summary.textContent).toBe('Anthropic');
+            await pick('gemini');
+            env.window.SettingsView.refreshIntegrationsSummary();
+            expect(summary.textContent).toBe('Anthropic');
+            field('api-key').value = 'AIza-fixture-new';
+            field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            env.window.apiCall = vi.fn(async (url, method) => method === 'PATCH' ? { ok: true } : { openai: { url: field('url').value, api_key: '***', model: field('model').value }, elevenlabs: {} });
+            await env.window.SettingsIntegrations.save();
+            expect(summary.textContent).toBe('Google Gemini');
+        });
+
+        it('Choose uses the saved-credentials route after switching, with manual entry usable on failure', async () => {
+            load({ url: 'https://api.openai.com/v1', api_key: '***' });
+            await pick('anthropic');
+            const page = env.window.SettingsView.openSettingsPage('integrations');
+            field('api-key').value = 'sk-ant-fixture-new';
+            field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            env.window.apiCall = vi.fn(async () => ({ error: 'Model listing unavailable' }));
+            await env.window.SettingsIntegrations._chooseModel('text');
+            expect(env.window.apiCall).toHaveBeenCalledWith('/api/settings/integrations/models?scope=text', 'GET');
+            expect(field('model').disabled).toBe(false);
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            page.close();
+        });
+    });
+
     describe('key fields (reveal / copy)', () => {
         function secret(document) {
             return document.getElementById('integrations-openai-api-key').closest('.wg-secret');
