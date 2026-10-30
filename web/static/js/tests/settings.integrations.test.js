@@ -233,6 +233,85 @@ describe('Settings → Integrations section', () => {
             expect(advanced.open).toBe(false);
         });
 
+        it('Other requires an explicit URL and never preserves a saved key at a changed API base', async () => {
+            for (const savedURL of ['', 'https://old.example/v1']) {
+                load({ url: savedURL, api_key: '***', model: 'custom' });
+                const page = env.window.SettingsView.openSettingsPage('integrations');
+                const save = page.el.querySelector('.wg-pagebar .wg-btn--primary');
+                env.window.apiCall = vi.fn();
+                if (!savedURL) await pick('other');
+                field('url').value = '';
+                field('url').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                field('api-key').value = 'fixture-other-key';
+                field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                expect(save.disabled).toBe(true);
+                await env.window.SettingsIntegrations.save();
+                expect(env.window.apiCall).not.toHaveBeenCalled();
+                field('url').value = 'https://new.example/v1';
+                field('url').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                field('api-key').value = '***';
+                field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                expect(save.disabled).toBe(true);
+                await env.window.SettingsIntegrations.save();
+                expect(env.window.apiCall).not.toHaveBeenCalled();
+                field('api-key').value = '';
+                field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                expect(save.disabled).toBe(false);
+                page.close();
+            }
+        });
+
+        it('Back discards a provider draft before reopening and saving voice settings', async () => {
+            const main = { url: 'https://api.anthropic.com/v1/', api_key: '***', model: 'custom-saved' };
+            load(main);
+            let page = env.window.SettingsView.openSettingsPage('integrations');
+            await pick('gemini');
+            field('api-key').value = 'fixture-draft-key';
+            field('api-key').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            page.close();
+            page = env.window.SettingsView.openSettingsPage('integrations');
+            expect(env.document.getElementById('integrations-provider-value').textContent).toBe('Anthropic (Claude)');
+            expect(field('url').value).toBe(main.url);
+            expect(field('model').value).toBe(main.model);
+            expect(field('api-key').value).toBe('***');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            env.document.getElementById('integrations-elevenlabs-api-key').value = 'fixture-voice-key';
+            let patch;
+            env.window.apiCall = vi.fn(async (url, method, body) => {
+                if (method === 'PATCH') { patch = body; return { ok: true }; }
+                return { openai: main, elevenlabs: { api_key: '***' } };
+            });
+            await env.window.SettingsIntegrations.save();
+            expect(patch.openai.url).toBe(main.url);
+            expect(patch.openai.api_key).toBe('***');
+            expect(patch.openai.model).toBe(main.model);
+            expect(patch.elevenlabs.api_key).toBe('fixture-voice-key');
+            page.close();
+        });
+
+        it('unset OpenAI reselect fills eligible defaults but preserves a newly typed custom model', async () => {
+            load();
+            await pick('anthropic');
+            await pick('openai');
+            expect(field('url').value).toBe('https://api.openai.com/v1');
+            expect(field('model').value).toBe('gpt-6-luna');
+            await pick('anthropic');
+            field('model').value = 'custom-draft';
+            await pick('openai');
+            expect(field('model').value).toBe('custom-draft');
+        });
+
+        it('summary omits presets with a cleared key but includes a configured keyless Other', () => {
+            for (const url of ['https://api.openai.com/v1', 'https://api.anthropic.com/v1', 'https://generativelanguage.googleapis.com/v1beta/openai/', 'https://openrouter.ai/api/v1']) {
+                load({ url, api_key: '', model: 'saved-model' });
+                env.window.SettingsView.refreshIntegrationsSummary();
+                expect(env.document.querySelector('[data-settings-summary="integrations"]').textContent).toBe('AI, voice, Telegram');
+            }
+            load({ url: 'https://local.example/v1', api_key: '', model: 'local-model' });
+            env.window.SettingsView.refreshIntegrationsSummary();
+            expect(env.document.querySelector('[data-settings-summary="integrations"]').textContent).toBe('Other');
+        });
+
         it('shows the saved provider summary after save and retains it during draft changes', async () => {
             const main = { url: 'https://api.anthropic.com/v1', api_key: '***', model: 'custom' };
             load(main);
@@ -437,6 +516,9 @@ describe('Settings → Integrations section', () => {
             }
             return null;
         });
+
+        // A preservation sentinel belongs to the API base loaded with it.
+        await window.SettingsIntegrations.load();
 
         // Spy on applyOptimistic to confirm the save handler actually
         // routes through it (CLAUDE.md rule 9).

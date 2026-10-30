@@ -1459,8 +1459,8 @@ function openSettingsPage(name) {
         primary: settingsPagePrimary(name, () => page),
         onClose: () => {
             _openSettingsPages.delete(name);
-            if (name === 'integrations') window.SettingsIntegrations?.bindPage(null);
             store.appendChild(body);
+            if (name === 'integrations') window.SettingsIntegrations?.bindPage(null);
             if (name === 'units' && _heightDirty) {
                 // An unsaved (invalid) height is dropped with the page.
                 _heightDirty = false;

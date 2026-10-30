@@ -47,10 +47,32 @@
     }
 
     function providerSaveAllowed() {
-        if (_aiProviderDraft === 'other') return true;
-        if (_aiProviderDraft === (_aiProviderLoaded?.provider || 'openai')) return true;
         const key = getInput(FIELD_IDS.openai.api_key)?.value.trim();
+        const url = normalizeProviderURL(getInput(FIELD_IDS.openai.url)?.value);
+        // The sentinel can preserve a saved key only at its saved API base.
+        // Other may be keyless, but must never carry that key to a new URL.
+        if (key === '***' && (_aiProviderDraft !== _aiProviderLoaded?.provider
+            || url !== normalizeProviderURL(_aiProviderLoaded?.url))) return false;
+        if (_aiProviderDraft === 'other') return !!url;
+        if (_aiProviderDraft === (_aiProviderLoaded?.provider || 'openai')) return true;
         return !!key && key !== '***';
+    }
+
+    function restoreProviderDraft() {
+        if (!_aiProviderLoaded) return;
+        _aiProviderDraft = _aiProviderLoaded.provider;
+        getInput(FIELD_IDS.openai.url).value = _aiProviderLoaded.url;
+        getInput(FIELD_IDS.openai.model).value = _aiProviderLoaded.model;
+        getInput(FIELD_IDS.openai.api_key).value = _aiProviderLoaded.key;
+        const key = getInput(FIELD_IDS.openai.api_key);
+        key.type = 'password';
+        const reveal = key.closest('.wg-secret')?.querySelector('[data-secret-reveal]');
+        reveal?.setAttribute('aria-pressed', 'false');
+        reveal?.setAttribute('aria-label', 'Show key');
+        _aiProviderKeyURL = normalizeProviderURL(_aiProviderLoaded.url);
+        resetModelSuggestions();
+        renderProvider();
+        applyTrialHints();
     }
 
     function renderProvider() {
@@ -75,9 +97,13 @@
         if (note) {
             note.hidden = providerSaveAllowed();
             const saved = AI_PROVIDERS.find((p) => p.id === _aiProviderLoaded?.provider);
-            note.querySelector('span').textContent = (_aiProviderLoaded?.key
-                ? 'Your ' + saved.summary + ' key is still saved and in use. '
-                : 'Your saved setup is unchanged. ') + 'Paste a ' + provider.summary + ' key to switch.';
+            note.querySelector('span').textContent = provider.id === 'other'
+                ? (!normalizeProviderURL(getInput(FIELD_IDS.openai.url)?.value)
+                    ? 'Enter your provider’s API URL before saving.'
+                    : 'Re-enter your API key for this URL, or leave it empty if this provider needs none.')
+                : (_aiProviderLoaded?.key
+                    ? 'Your ' + saved.summary + ' key is still saved and in use. '
+                    : 'Your saved setup is unchanged. ') + 'Paste a ' + provider.summary + ' key to switch.';
         }
         _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
     }
@@ -93,7 +119,8 @@
         const model = getInput(FIELD_IDS.openai.model);
         const key = getInput(FIELD_IDS.openai.api_key);
         _aiProviderDraft = picked;
-        if (_aiProviderLoaded && picked === _aiProviderLoaded.provider) {
+        const savedSetup = _aiProviderLoaded && (_aiProviderLoaded.key || _aiProviderLoaded.url.trim() || _aiProviderLoaded.model.trim());
+        if (savedSetup && picked === _aiProviderLoaded.provider) {
             url.value = _aiProviderLoaded.url;
             model.value = _aiProviderLoaded.model;
             key.value = _aiProviderLoaded.key;
@@ -941,9 +968,13 @@
         trialOffer,
         startTrial,
         turnOnSync,
-        bindPage(page) { _aiProviderPage = page; renderProvider(); },
+        bindPage(page) {
+            _aiProviderPage = page;
+            if (!page) restoreProviderDraft();
+            else renderProvider();
+        },
         savedProviderLabel() {
-            return (_aiProviderLoaded?.key || _aiProviderLoaded?.url.trim())
+            return (_aiProviderLoaded?.key || (_aiProviderLoaded?.provider === 'other' && _aiProviderLoaded.url.trim()))
                 ? AI_PROVIDERS.find((p) => p.id === _aiProviderLoaded.provider).summary : '';
         },
         // Internals exposed for the integration test suite. Not used by app code.
