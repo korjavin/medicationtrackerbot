@@ -873,9 +873,14 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             const details = () => env.window.apiCallDirect(`/api/workout/sessions/details?id=${slip.session_id}`);
             expect((await details()).logs[0].sets.map((s) => s.flag || null)).toEqual([null, 'jump', null]);
             const update = (body) => env.window.apiCallDirect('/api/workout/sessions/logs/update', 'POST', { id: slip.id, ...body });
+            // A fresh confirm in the same save as its new weight (set 1: 50 →
+            // 255 within the autosave debounce) is kept, like createLog.
             await update({ sets: [{ weight_kg: 255, reps: 8, confirmed: true }, { weight_kg: 255, reps: 8, confirmed: true }] });
-            // A confirmation answers the stored weight: a changed weight loses it.
             let rows = await history(env, 'Goblet Squat');
+            expect(rows[0].sets.map((s) => s.confirmed === true)).toEqual([true, true]);
+            // A stored confirm echoed back with a changed weight is stale: dropped.
+            await update({ sets: [{ weight_kg: 300, reps: 8, confirmed: true }, { weight_kg: 255, reps: 8, confirmed: true }] });
+            rows = await history(env, 'Goblet Squat');
             expect(rows[0].sets.map((s) => s.confirmed === true)).toEqual([false, true]);
             await update({ sets: [{ weight_kg: 255, reps: 8, confirmed: true }, { weight_kg: 255, reps: 8, confirmed: true }] });
             // A flat update (other reps) keeps the confirmed sets of the same weight.

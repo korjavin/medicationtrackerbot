@@ -2406,13 +2406,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let setsWrite = {};
     const stored = Array.isArray(log.sets) ? log.sets : [];
     if (perSet) {
-      // A weight-sanity confirmation (med-l5yr.5) answers the stored weight:
-      // a set whose weight changed (or that is new) loses it, from any writer
-      // (the session view does the same; MCP agents too). A flat log's stored
-      // weight is its synthesized rows, so its first confirm holds.
+      // A weight-sanity confirmation (med-l5yr.5) answers one weight: a stored
+      // confirm echoed back with a changed weight is stale and dropped, from
+      // any writer (the session view does the same; MCP agents too). A fresh
+      // confirm arriving in the same save as its weight is kept, as in
+      // createLog. A flat log's stored rows are its synthesized ones.
       const was = setsOf(log);
       for (const [i, s] of perSet.entries()) {
-        if (s.confirmed && !(was[i] && Number(was[i].weight_kg) === s.weight_kg)) delete s.confirmed;
+        if (s.confirmed && was[i] && was[i].confirmed === true && Number(was[i].weight_kg) !== s.weight_kg) delete s.confirmed;
       }
       setsWrite = { sets: perSet };
     } else if (stored.length > 0) {
