@@ -112,6 +112,32 @@ func TestTrialStream_OpenAIPassThrough(t *testing.T) {
 	}
 }
 
+// bd med-93u1: a voice turn (stream:true) on the account route gets the
+// anonymous output cap whatever max_tokens ElevenLabs' body asks for; a
+// non-stream request keeps the client's value.
+func TestTrialStream_ClampsVoiceMaxTokens(t *testing.T) {
+	up, bodies := sseUpstream(t, http.StatusOK, openAISSE)
+	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: up.URL, OpenAIModel: "m", RatePerMinute: 100}
+	h, _, host, claim := newTrialTestHandlerAPI(t, cfg)
+	session := registerAndGetSession(t, h, host, claim)
+
+	postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"stream":true,"max_tokens":50000,"messages":[]}`, session)
+	postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"stream":true,"messages":[]}`, session)
+	postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"max_tokens":50000,"messages":[]}`, session)
+	if len(*bodies) != 3 {
+		t.Fatalf("upstream got %d requests", len(*bodies))
+	}
+	if got := (*bodies)[0]["max_tokens"]; got != float64(attestMaxTokens) {
+		t.Fatalf("stream max_tokens = %v, want %d", got, attestMaxTokens)
+	}
+	if got := (*bodies)[1]["max_completion_tokens"]; got != float64(attestMaxTokens) {
+		t.Fatalf("stream with no cap: max_completion_tokens = %v, want %d", got, attestMaxTokens)
+	}
+	if got := (*bodies)[2]["max_tokens"]; got != float64(50000) {
+		t.Fatalf("non-stream max_tokens = %v, want the client's 50000", got)
+	}
+}
+
 func TestTrialStream_OpenAIErrors(t *testing.T) {
 	t.Run("upstream 4xx keeps the sanitized 502 JSON contract", func(t *testing.T) {
 		up, _ := sseUpstream(t, http.StatusUnauthorized, "")

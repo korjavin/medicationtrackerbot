@@ -348,8 +348,56 @@ func TestVoiceLLMRelay_UnknownCallRateLimited(t *testing.T) {
 			t.Fatalf("attempt %d = %d %q, want the spoken fallback", i, rec.Code, rec.Body.String())
 		}
 	}
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
 	if rec := do(); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("4th attempt = %d, want 429", rec.Code)
+	}
+	if l := logs.String(); !strings.Contains(l, "level=WARN") || !strings.Contains(l, "voice llm relay: unknown call rate limited") {
+		t.Fatalf("429 not logged at Warn: %q", l)
+	}
+}
+
+// bd med-93u1: a known token past its per-call turn rate gets the retry
+// sentence (never a status ElevenLabs would turn into silence), the device
+// never sees the turn, and the refusal is logged at Warn.
+func TestVoiceLLMRelay_CallTurnRateLimited(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
+	f := newVoiceRelayFixture(t)
+	f.api.callTurns = newRateLimiter(1, time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	device, token := f.dialDevice(t, ctx, "")
+	defer device.CloseNow()
+	body := `{"messages":[{"role":"user","content":"hi"}],"elevenlabs_extra_body":{"call":"` + token + `"}}`
+
+	respCh := make(chan *http.Response, 1)
+	go func() { respCh <- f.post(t, ctx, body) }()
+	req := readVoiceFrame(t, ctx, device)
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: req.ID, Type: "end"})
+	resp := <-respCh
+	out, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(out) != "data: [DONE]\n\n" {
+		t.Fatalf("first turn = %q", out)
+	}
+
+	resp = f.post(t, ctx, body)
+	out, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !isVoiceRetry(resp.StatusCode, string(out)) {
+		t.Fatalf("limited turn = %d %q, want the retry sentence", resp.StatusCode, out)
+	}
+	c := f.api.lookup(token)
+	c.mu.Lock()
+	sent := c.nextID
+	c.mu.Unlock()
+	if sent != 1 {
+		t.Fatalf("device got %d requests, want only the first", sent)
+	}
+	if l := logs.String(); !strings.Contains(l, "level=WARN") || !strings.Contains(l, "voice llm relay: call turn rate limited") {
+		t.Fatalf("limit not logged at Warn: %q", l)
 	}
 }
 

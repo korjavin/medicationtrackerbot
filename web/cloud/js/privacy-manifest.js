@@ -440,8 +440,8 @@ export const PRIVACY_MANIFEST = [
     byo: 'Your AI key never leaves your browser; the relay cannot be end-to-end encrypted because ElevenLabs is the sender and speaks plaintext',
     evidence: [
       'internal/cloudserver/voice_llm_relay.go:44',
-      'internal/cloudserver/voice_llm_relay.go:134',
-      'internal/cloudserver/voice_llm_relay.go:556',
+      'internal/cloudserver/voice_llm_relay.go:153',
+      'internal/cloudserver/voice_llm_relay.go:575',
       'web/cloud/js/voice-llm-responder.js:72',
     ],
     code: { go: ['internal/cloudserver/voice_llm_relay.go'], hosts: [] },
@@ -954,7 +954,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same single free-trial switch and consent as the trial AI and food database; off means no request to our server or to ElevenLabs at all',
     byo: 'None in this mode: voice with your own ElevenLabs key needs a cloud account',
-    evidence: ['web/cloud/js/local-trial.js:267', 'web/cloud/js/local-policy.js:295', 'web/cloud/js/local-policy.js:230', 'web/cloud/js/voice-llm-responder.js:265', 'web/static/js/features/elevenlabs-call.js:982', 'internal/cloudserver/attest.go:312', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
+    evidence: ['web/cloud/js/local-trial.js:267', 'web/cloud/js/local-policy.js:295', 'web/cloud/js/local-policy.js:230', 'web/cloud/js/voice-llm-responder.js:265', 'web/static/js/features/elevenlabs-call.js:982', 'internal/cloudserver/attest.go:312', 'internal/cloudserver/voice_llm_relay.go:803', 'internal/cloudserver/trial_proxy.go:167'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/voice_llm_relay.go', 'internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
     docSignal: null,
     userCopy: {

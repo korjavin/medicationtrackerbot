@@ -52,8 +52,23 @@ const (
 	voiceMaxFrameBytes    = 1 << 20
 	voiceFrameQueue       = 64
 
-	voiceBadCallMax    = 20
+	// Unknown-token misses per client IP. Real turns arrive from ElevenLabs'
+	// egress IPs, so this bucket is shared by every user behind one of them
+	// (an orphaned-call burst after a restart): generous, since the 192-bit
+	// token, not this limit, is what stops guessing (bd med-93u1).
+	voiceBadCallMax    = 60
 	voiceBadCallWindow = time.Minute
+
+	// voiceCallTurnsPerMin bounds the turns one known call token drives (own
+	// key and anonymous alike), so a leaked token cannot run the user's AI or
+	// the trial key faster than a conversation does. Matches the trial stream
+	// limiter: one turn per user utterance plus one per tool round.
+	voiceCallTurnsPerMin = trialStreamRatePerMin
+	// voiceAnonTurnsPerMin is the ceiling on anonymous turns across ALL calls,
+	// a belt over the persisted TRIAL_ANON_VOICE_GLOBAL_DAILY_SECONDS budget:
+	// that one bounds minutes, this one bounds the trial key's turn rate
+	// however many calls run at once (bd med-93u1).
+	voiceAnonTurnsPerMin = 600
 
 	// voiceHangUpText is for a call nothing can recover (unknown or expired
 	// token); voiceRetryText for every transient failure on a live call — the
@@ -100,6 +115,8 @@ type VoiceLLMRelayAPI struct {
 	store         mcpRelayStore
 	sessionSecret string
 	badCalls      *rateLimiter
+	callTurns     *rateLimiter // keyed by call token
+	anonTurns     *rateLimiter // one global key
 	// trial answers anonymous calls' turns (SetVoiceRelay wires it); nil = no
 	// anonymous calls are ever minted.
 	trial *TrialProxyAPI
@@ -120,6 +137,8 @@ func NewVoiceLLMRelayAPI(store mcpRelayStore, sessionSecret string) *VoiceLLMRel
 		store:         store,
 		sessionSecret: sessionSecret,
 		badCalls:      newRateLimiter(voiceBadCallMax, voiceBadCallWindow),
+		callTurns:     newRateLimiter(voiceCallTurnsPerMin, time.Minute),
+		anonTurns:     newRateLimiter(voiceAnonTurnsPerMin, time.Minute),
 		grace:         voiceCallGrace,
 		noDeviceWait:  voiceNoDeviceWait,
 		turnTimeout:   voiceTurnTimeout,
@@ -580,6 +599,9 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	call := a.lookup(extra.Call)
 	if call == nil {
 		if !a.badCalls.Allow(clientIP(r)) {
+			// No IP in the log (none of the server's logs carry one); the
+			// fixed message is what an operator greps for a spike.
+			slog.Warn("voice llm relay: unknown call rate limited")
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return
 		}
@@ -594,6 +616,16 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceHangUp(lang))
+		return
+	}
+	if !a.callTurns.Allow(call.token) {
+		// The call is alive: the retry sentence, never an error status
+		// (ElevenLabs would turn that into silence).
+		slog.Warn("voice llm relay: call turn rate limited", "account_id", call.accountID, "call", endpointFingerprint(call.token))
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceRetry(lang))
 		return
 	}
 	if call.anon != nil {
@@ -773,7 +805,12 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 	rec := &anonTurnWriter{ResponseWriter: w}
 	outcome := "error"
 	defer func() {
-		slog.Info("voice llm relay: turn", "account_id", call.accountID, "call", endpointFingerprint(call.token),
+		// A limiter refusal is what the operator watches for: Warn, same line.
+		level := slog.LevelInfo
+		if strings.HasSuffix(outcome, "rate_limited") {
+			level = slog.LevelWarn
+		}
+		slog.Log(r.Context(), level, "voice llm relay: turn", "account_id", call.accountID, "call", endpointFingerprint(call.token),
 			"request_bytes", reqBytes, "response_bytes", rec.n,
 			"duration_ms", time.Since(start).Milliseconds(), "outcome", outcome)
 	}()
@@ -803,6 +840,10 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		return
 	case !a.trial.streamLimiter.Allow(call.accountID):
 		outcome = "rate_limited"
+		speak(voiceRetry(lang))
+		return
+	case !a.anonTurns.Allow("all"):
+		outcome = "global_rate_limited"
 		speak(voiceRetry(lang))
 		return
 	}
