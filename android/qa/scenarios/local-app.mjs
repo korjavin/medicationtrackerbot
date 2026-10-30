@@ -45,12 +45,18 @@ export default async function localApp(ctx) {
   await ctx.step('CSP header, 404 on a miss, connect-src enforced', async () => {
     r.headers = await page.evaluate(async () => {
       const doc = await fetch('/', { cache: 'no-store' });
+      // Parse the body of this very response, rather than reading a newer mirror/bridge reply.
+      const html = new DOMParser().parseFromString(await doc.text(), 'text/html');
+      const origins = html.querySelectorAll('meta[name="medtracker-connect-origins"]');
       const js = await fetch('/js/apishim.js', { cache: 'no-store' });
       const miss = await fetch('/no/such/file.js', { cache: 'no-store' });
       let foreign;
       try { await fetch('https://example.com/'); foreign = 'reached'; } catch (e) { foreign = `blocked: ${e.name}`; }
       return {
         csp: doc.headers.get('content-security-policy'),
+        originsCount: origins.length,
+        origins: JSON.parse(origins[0]?.content || 'null'),
+        loadedOrigins: JSON.parse(document.querySelector('meta[name="medtracker-connect-origins"]')?.content || 'null'),
         cache: doc.headers.get('cache-control'),
         docType: doc.headers.get('content-type'),
         jsType: js.headers.get('content-type'),
@@ -60,6 +66,7 @@ export default async function localApp(ctx) {
     });
     const h = r.headers;
     if (!/connect-src 'self'[;]/.test(h.csp || '') || /(https|wss):[; ]/.test(h.csp)) throw new Error(`CSP: ${h.csp}`);
+    if (h.originsCount !== 1 || JSON.stringify(h.origins) !== '[]' || JSON.stringify(h.loadedOrigins) !== '[]') throw new Error(`document origins: ${JSON.stringify(h)}`);
     if (h.cache !== 'no-store') throw new Error(`Cache-Control: ${h.cache}`);
     if (!/^text\/javascript/.test(h.jsType || '')) throw new Error(`JS MIME: ${h.jsType}`);
     if (h.miss !== 404) throw new Error(`miss answered ${h.miss}`);
