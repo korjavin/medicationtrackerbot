@@ -144,12 +144,13 @@ describe('scripts/provision-trial-agent.mjs', () => {
   it('never prints the hop secret when the agent PATCH fails and ElevenLabs echoes the body (bd med-k80h)', () => {
     const SECRET = 'hop-secret-do-not-print';
     // Fake ElevenLabs: empty tool list, tools created, agent readable, and the
-    // agent PATCH answers 422 echoing the request body (secret included).
+    // agent PATCH answers 422 echoing the rejected custom_llm, so the secret
+    // lands inside toError's 300-byte detail.
     const mock = `globalThis.fetch = async (url, opts = {}) => {
       const m = opts.method || 'GET';
       const json = (status, b) => new Response(typeof b === 'string' ? b : JSON.stringify(b), { status });
       if (String(url).includes('/tools')) return m === 'GET' ? json(200, { tools: [] }) : json(200, { id: 'tool_x' });
-      if (m === 'PATCH') return json(422, opts.body);
+      if (m === 'PATCH') return json(422, { detail: [{ msg: 'invalid', input: JSON.parse(opts.body).conversation_config.agent.prompt.custom_llm }] });
       return json(200, { access_info: { role: 'admin' } });
     };`;
     const r = run(['--apply'], {
