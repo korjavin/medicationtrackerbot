@@ -34,6 +34,10 @@ on:
         description: Native HealthKit unsigned Simulator baseline only
         type: boolean
         default: false
+      health_sign:
+        description: Use Xcode Simulator signing for the HealthKit diagnostic
+        type: boolean
+        default: false
       visual:
         description: Simulator screenshots only (skips the build and TestFlight)
         type: boolean
@@ -53,7 +57,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Build unsigned native baseline
+      - name: Build native baseline
+        env:
+          HEALTH_SIGN: ${{ inputs.health_sign }}
         run: |
           set -o pipefail
           QA=1 ios/bundle-web.sh "${{ github.run_number }}"
@@ -61,9 +67,12 @@ jobs:
           cd ios
           xcodegen generate
           xcodebuild -version
+          signing=NO
+          [ "$HEALTH_SIGN" != true ] || signing=YES
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO WG_BASE_DOMAIN=qa.test > build.log 2>&1
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED="$signing" CODE_SIGN_IDENTITY=- \
+            WG_BASE_DOMAIN=qa.test > build.log 2>&1
       - name: Inspect built entitlements
         run: |
           app=ios/build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app
