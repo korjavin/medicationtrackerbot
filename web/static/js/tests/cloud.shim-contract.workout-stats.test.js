@@ -646,6 +646,74 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             })).rejects.toThrow(/already an exercise or alias/);
         });
 
+        // med-l5yr.3 — merge folds a duplicate row (or a history-only name) into
+        // a surviving row: aliases, empty tags, plan links; logs untouched.
+        describe('merge (med-l5yr.3)', () => {
+            const merge = (env, body) => env.window.apiCallDirect('/api/workout/exercise-library/merge', 'POST', body);
+
+            it('folds the audited duplicates into one row each with the combined history', async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                // History-only: logged before any library row answered to it.
+                await logAs(env, 'Goblet Squats', 20, 9);
+                const ks = await lib(env, 'Kettlebell Swings');
+                const swings = await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', {
+                    name: 'Swings', aliases: ['KB Swing'], body_part: 'upper legs', notes: 'hip hinge',
+                });
+                const lat = await lib(env, 'Lat pulldown');
+                const pulldowns = [await lib(env, 'cable pulldown'), await lib(env, 'cable bar lateral pulldown')];
+                const goblet = await lib(env, 'Goblet Squat');
+                for (const name of DISTINCT) await lib(env, name);
+                for (const name of ['Swings', 'KB Swing', 'Kettlebell Swings', 'cable pulldown', 'cable bar lateral pulldown',
+                    'Lat pulldown', 'Goblet Squat', ...DISTINCT]) {
+                    await logAs(env, name, 40, 2);
+                }
+                // A plan row linked to the duplicate follows it to the survivor.
+                const group = await env.window.apiCall('/api/workout/groups/create', 'POST', { name: 'Legs' });
+                const variant = await env.window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+                await env.window.apiCall('/api/workout/exercises/create', 'POST', {
+                    variant_id: variant.id, exercise_name: 'Swings', target_sets: 3, target_reps_min: 15, order_index: 0,
+                });
+                const logsBefore = (await env.records.list('exerciselog')).map((l) => l.exercise_name).sort();
+
+                const merged = await merge(env, { id: swings.id, into_id: ks.id });
+                expect(merged).toMatchObject({ id: ks.id, aliases: ['Swings', 'KB Swing'], body_part: 'upper legs', notes: 'hip hinge' });
+                for (const p of pulldowns) await merge(env, { id: p.id, into_id: lat.id });
+                await merge(env, { name: 'Goblet Squats', into_id: goblet.id });
+
+                const byName = Object.fromEntries((await library(env)).map((i) => [i.name, i]));
+                expect(Object.keys(byName).sort()).toEqual(['Goblet Squat', 'Kettlebell Swings', 'Lat pulldown', ...DISTINCT].sort());
+                expect(byName['Lat pulldown'].aliases).toEqual(['cable pulldown', 'cable bar lateral pulldown']);
+                expect(byName['Goblet Squat'].aliases).toEqual(['Goblet Squats']);
+                const stats = await env.window.apiCallDirect('/api/workout/stats');
+                expect(Object.fromEntries(stats.exercise_totals.map((e) => [e.exercise_name, e.session_count]))).toEqual({
+                    'Kettlebell Swings': 3, 'Lat pulldown': 3, 'Goblet Squat': 2,
+                    ...Object.fromEntries(DISTINCT.map((n) => [n, 1])),
+                });
+                expect(await env.window.apiCallDirect('/api/workout/exercises/history?name=Swings')).toHaveLength(3);
+                const [planRow] = await env.window.apiCall(`/api/workout/exercises?variant_id=${variant.id}`);
+                expect([planRow.exercise_name, planRow.exercise_library_id]).toEqual(['Kettlebell Swings', ks.id]);
+                // Logs are never rewritten.
+                expect((await env.records.list('exerciselog')).map((l) => l.exercise_name).sort()).toEqual(logsBefore);
+            });
+
+            it('refuses self, a deleted target, a bad source and an unknown name', async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const ks = await lib(env, 'Kettlebell Swings', ['Swings']);
+                const dup = await lib(env, 'KB Swings');
+                const statusOf = (body) => env.window.offlineAwareApiCall('/api/workout/exercise-library/merge', 'POST', body)
+                    .then(() => 0, (e) => e.status);
+                await expect(merge(env, { id: ks.id, into_id: ks.id })).rejects.toThrow(/into itself/);
+                await expect(merge(env, { name: 'swings', into_id: ks.id })).rejects.toThrow(/into itself/);
+                await expect(merge(env, { id: dup.id, name: 'Swings', into_id: ks.id })).rejects.toThrow(/exactly one/);
+                await expect(merge(env, { name: 'Never Logged', into_id: ks.id })).rejects.toThrow(/No exercise named/);
+                expect(await statusOf({ name: 'Never Logged', into_id: ks.id })).toBe(404);
+                await env.window.apiCallDirect(`/api/workout/exercise-library/delete?id=${dup.id}`, 'DELETE');
+                await expect(merge(env, { id: ks.id, into_id: dup.id })).rejects.toThrow(/into_id/);
+                await expect(merge(env, { id: dup.id, into_id: ks.id })).rejects.toThrow(/id must be/);
+                expect((await library(env)).map((i) => i.name)).toEqual(['Kettlebell Swings']);
+            });
+        });
+
         it('exercises/names lists history-only names, and one entry once the alias lands', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             const ks = await lib(env, 'Kettlebell Swings');

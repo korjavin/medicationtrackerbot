@@ -1692,7 +1692,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/workout/exercise-library/create",
     "risk": "write",
-    "description": "Add a new entry to the user's exercise library.",
+    "description": "Add a new entry to the user's exercise library. A name or alias another entry already answers to (any case) is refused with 409 — use workouts.exercise_library.merge to fold duplicates.",
     "response_summary": "Created exercise library item.",
     "required": [
       "name",
@@ -1732,6 +1732,13 @@ export const CATALOG = [
         },
         "notes": {
           "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Other spellings whose logged history counts as this exercise"
         }
       }
     }
@@ -1767,8 +1774,41 @@ export const CATALOG = [
     "path": "/api/workout/exercise-library",
     "risk": "read",
     "description": "List the user's exercise library — saved exercises with default sets/reps/weight that the UI offers as autocomplete suggestions when building a workout.",
-    "response_summary": "JSON array of items with id, name, default_sets, default_reps_min; default_reps_max, default_weight_kg and notes are omitted when unset.",
-    "response_example": "[\n  {\"id\": 7, \"name\": \"Pull-ups\", \"default_sets\": 3, \"default_reps_min\": 8, \"default_reps_max\": 12, \"default_weight_kg\": 5.0, \"notes\": \"weighted\"}\n]"
+    "response_summary": "JSON array of items with id, name, default_sets, default_reps_min; default_reps_max, default_weight_kg, notes and aliases are omitted when unset. aliases are other spellings (e.g. old names) whose logged history counts as this exercise in stats, PRs and history.",
+    "response_example": "[\n  {\"id\": 7, \"name\": \"Pull-ups\", \"default_sets\": 3, \"default_reps_min\": 8, \"default_reps_max\": 12, \"default_weight_kg\": 5.0, \"notes\": \"weighted\"},\n  {\"id\": 9, \"name\": \"Kettlebell Swings\", \"default_sets\": 3, \"default_reps_min\": 15, \"aliases\": [\"Swings\"]}\n]"
+  },
+  {
+    "id": "workouts.exercise_library.merge",
+    "topic": "workouts",
+    "method": "POST",
+    "path": "/api/workout/exercise-library/merge",
+    "risk": "write",
+    "description": "Merge a duplicate exercise into another library entry so stats, PRs and history show one exercise with the combined history. The duplicate's name and aliases become aliases of into_id, into_id's empty body_part/equipment/notes are filled from it, plan exercises pointing at it move to into_id, and the duplicate entry is deleted. Logs are never rewritten. A history-only name just becomes an alias. Merging into itself or a missing entry is refused; undo by removing the alias with workouts.exercise_library.update.",
+    "response_summary": "The surviving library item (same shape as a workouts.exercise_library.list element), with its updated aliases.",
+    "required": [
+      "into_id"
+    ],
+    "body_schema": {
+      "type": "object",
+      "required": [
+        "into_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Library entry to fold in (the duplicate). Pass exactly one of id or name."
+        },
+        "name": {
+          "type": "string",
+          "description": "Exercise name to fold in: a library entry's name/alias, or a name that only appears in logged history"
+        },
+        "into_id": {
+          "type": "integer",
+          "description": "Library entry that survives"
+        }
+      }
+    },
+    "response_example": "{\"id\": 9, \"name\": \"Kettlebell Swings\", \"default_sets\": 3, \"default_reps_min\": 15, \"aliases\": [\"Swings\"]}"
   },
   {
     "id": "workouts.exercise_library.update",
@@ -1776,7 +1816,7 @@ export const CATALOG = [
     "method": "PUT",
     "path": "/api/workout/exercise-library/update",
     "risk": "write",
-    "description": "Update an exercise library entry. Full-replacement: read with workouts.exercise_library.list first and send the merged object back.",
+    "description": "Update an exercise library entry. Full-replacement: read with workouts.exercise_library.list first and send the merged object back. A rename records the old name as an alias automatically (history stays attached) — don't add it by hand.",
     "response_summary": "Empty body on success (HTTP 200).",
     "required": [
       "id",
@@ -1829,6 +1869,13 @@ export const CATALOG = [
         },
         "notes": {
           "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Replaces the stored aliases; omit to keep them, [] clears them"
         }
       }
     }
