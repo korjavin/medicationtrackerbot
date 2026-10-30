@@ -375,6 +375,9 @@
       "ready": ["#workout-session-addstep", "#workout-session-addstep-search"] },
     { "name": "today-start-here", "localOnly": true,
       "steps": [{ "startHere": { "drop": ["medications", "bp", "food", "workouts"], "picked": ["medication", "bp", "weight", "food"] } }, { "tab": "today" }],
-      "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] }
+      "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] },
+    { "name": "health-kit-import", "platform": "ios", "localOnly": true, "requiresNativeHealth": true,
+      "steps": [{ "healthNative": true }, { "tab": "health" }],
+      "ready": ["#health-view.active", "#health-overview-content", ".wg-vitals-card--sleep", ".wg-vitals-card--steps", ".wg-vitals-card--hr", ".wg-vitals-card--spo2"] }
   ]
 }

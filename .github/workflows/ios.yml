@@ -42,6 +42,10 @@ on:
         description: Simulator screenshots only (skips the build and TestFlight)
         type: boolean
         default: false
+      visual_scenes:
+        description: Optional comma-separated Simulator scenes (strict XCTest result)
+        type: string
+        default: ''
       qa:
         description: Simulator flow QA only (skips the build and TestFlight)
         type: boolean
@@ -366,7 +370,7 @@ jobs:
           xcodebuild -version
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             WG_BASE_DOMAIN=qa.test | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
 
@@ -375,6 +379,8 @@ jobs:
 
       - name: Run the scenes per device
         working-directory: ios
+        env:
+          TEST_RUNNER_WG_QA_SCENES: ${{ inputs.visual_scenes }}
         run: |
           while IFS='=' read -r dev udid; do
             echo "::group::$dev"
@@ -382,7 +388,8 @@ jobs:
               -only-testing:MedTrackerUITests/VisualQATests -destination "platform=iOS Simulator,id=$udid" \
               -derivedDataPath build/sim -resultBundlePath "build/$dev.xcresult" < /dev/null \
               | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
-            [ "${PIPESTATUS[0]}" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the errors above)"
+            test_status=${PIPESTATUS[0]}
+            [ "$test_status" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the errors above)"
             out="$GITHUB_WORKSPACE/shots/$dev"
             raw="$RUNNER_TEMP/raw-$dev"
             mkdir -p "$out"
@@ -399,6 +406,7 @@ jobs:
             fi
             ls -l "$out"
             echo "::endgroup::"
+            if [ -n "$TEST_RUNNER_WG_QA_SCENES" ] && [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
           done < "$RUNNER_TEMP/devices"
 
       - name: Summary

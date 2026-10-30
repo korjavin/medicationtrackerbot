@@ -3,15 +3,22 @@ import XCTest
 @MainActor
 final class HealthDiagnosticTests: XCTestCase {
     func testNativeAuthorizationAndQuery() throws {
+        try Self.run(seed: false, in: self)
+    }
+
+    static func run(seed: Bool, in test: XCTestCase) throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-wgQAHealthDiagnostic", "YES"]
+        app.launchArguments = [seed ? "-wgQAHealthSeed" : "-wgQAHealthDiagnostic", "YES"]
         app.launch()
+        defer { app.terminate() }
         let result = app.staticTexts["health-diagnostic-result"]
         XCTAssertTrue(result.waitForExistence(timeout: 30))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let deadline = Date().addingTimeInterval(45)
         while result.label == "pending", Date() < deadline {
             for host in [app, springboard] {
+                let all = host.staticTexts["Turn On All"].firstMatch
+                if all.exists && all.isHittable { all.tap() }
                 for toggle in host.switches.allElementsBoundByIndex {
                     if toggle.isHittable && toggle.value as? String == "0" { toggle.tap() }
                 }
@@ -25,11 +32,11 @@ final class HealthDiagnosticTests: XCTestCase {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = "health-native-baseline.png"
         shot.lifetime = .keepAlways
-        add(shot)
+        test.add(shot)
         let report = XCTAttachment(string: result.label)
         report.name = "health-native-baseline.json"
         report.lifetime = .keepAlways
-        add(report)
+        test.add(report)
         guard result.label != "pending" else {
             XCTFail("Native HealthKit authorization did not complete; see permission screenshot")
             return
@@ -37,5 +44,6 @@ final class HealthDiagnosticTests: XCTestCase {
         let data = try XCTUnwrap(result.label.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
+        if seed { XCTAssertGreaterThan(json["sampleCount"] as? Int ?? 0, 0, "Health store has no seeded Steps sample") }
     }
 }

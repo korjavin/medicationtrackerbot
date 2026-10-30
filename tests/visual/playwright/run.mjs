@@ -292,7 +292,7 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
     }
   }
   for (const scene of scenes) {
-    if (nativeOnly(scene)) {
+    if (nativeOnly(scene) || scene.requiresNativeHealth) {
       rows.push({ device, scene: scene.name, status: 'skipped', note: 'native-only (SwiftUI screen, Simulator tier only)' });
       continue;
     }
