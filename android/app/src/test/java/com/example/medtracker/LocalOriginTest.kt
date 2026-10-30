@@ -75,6 +75,21 @@ class LocalOriginTest {
     }
 
     @Test
+    fun mediaOrigin() {
+        // getUserMedia (bd med-zdzc): local mode's vault is HOST, so the trial's voice call gets the mic there.
+        val acct = "me.example.org"
+        assertTrue(LocalOrigin.ownOrigin("https", LocalOrigin.HOST, LocalOrigin.HOST))
+        assertTrue(LocalOrigin.ownOrigin("https", acct, acct))
+        assertFalse(LocalOrigin.ownOrigin("http", LocalOrigin.HOST, LocalOrigin.HOST))
+        assertFalse(LocalOrigin.ownOrigin("https", "other.example.org", LocalOrigin.HOST))
+        assertFalse(LocalOrigin.ownOrigin("https", "appassets.androidplatform.net.evil.com", LocalOrigin.HOST))
+        assertFalse(LocalOrigin.ownOrigin("https", "evilappassets.androidplatform.net", LocalOrigin.HOST))
+        assertFalse(LocalOrigin.ownOrigin("https", LocalOrigin.HOST, acct)) // the asset origin in account mode
+        assertFalse(LocalOrigin.ownOrigin("https", LocalOrigin.HOST, null)) // locked: Files gets no vault
+        assertFalse(LocalOrigin.ownOrigin("https", null, LocalOrigin.HOST))
+    }
+
+    @Test
     fun bridgeGate() {
         val acct = "me.example.org"
         assertTrue(LocalOrigin.bridgeCaller(true, "https", acct, acct))

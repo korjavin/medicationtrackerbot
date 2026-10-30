@@ -75,7 +75,14 @@ object LocalOrigin {
 
     /** The bridge's caller gate: only the open vault's own top-level https page (the account host, or HOST in local mode). */
     fun bridgeCaller(isMainFrame: Boolean, scheme: String?, host: String?, vault: String?): Boolean =
-        isMainFrame && scheme == "https" && vault != null && host?.lowercase() == vault
+        isMainFrame && ownOrigin(scheme, host, vault)
+
+    /**
+     * The open vault's own https origin: the account host, or HOST in local mode (MainActivity.vaultHost).
+     * Files' getUserMedia grant (bd med-zdzc: the local trial's voice call needs the mic) and wgFiles ask this.
+     */
+    fun ownOrigin(scheme: String?, host: String?, vault: String?): Boolean =
+        scheme == "https" && vault != null && host?.lowercase() == vault
 
     /** A local-only op answers only in local mode, an account-only op only in account mode; every other op in both. */
     fun opAllowed(op: String, local: Boolean) = op !in (if (local) ACCOUNT_OPS else LOCAL_OPS)

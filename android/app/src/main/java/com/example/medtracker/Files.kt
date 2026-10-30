@@ -39,7 +39,7 @@ import java.util.UUID
  * twin of Downloads in ios/App/App.swift. WebView ignores <a download> of
  * blob:/data:, window.print() and <input type=file> on its own; assets/files.js
  * sends the first two over window.wgFiles, the WebChromeClient does the rest.
- * Only the account's own top-level page (accountHost) is answered or granted.
+ * Only the vault's own page (accountHost: the account host, or the asset origin in local mode) is answered or granted.
  */
 class Files(private val activity: Activity, private val accountHost: () -> String?) {
     /** Temp files: a download until it is saved (or the next one), camera shots for the page to read. */
@@ -73,7 +73,7 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
         }
     }
 
-    private fun isAccount(origin: Uri) = origin.scheme == "https" && origin.host?.lowercase().let { it != null && it == accountHost() }
+    private fun isAccount(origin: Uri) = LocalOrigin.ownOrigin(origin.scheme, origin.host, accountHost())
 
     private fun onMessage(view: WebView, data: String?) {
         val msg = runCatching { JSONObject(data ?: "") }.getOrNull() ?: return
@@ -223,7 +223,7 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             return true
         }
 
-        /** getUserMedia: camera and mic for the account origin only, once Android allows them. */
+        /** getUserMedia: camera and mic for the vault's own origin only (account or local), once Android allows them. */
         override fun onPermissionRequest(request: PermissionRequest) {
             val wanted = request.resources.filter { it in MEDIA }
             if (!isAccount(request.origin) || wanted.isEmpty()) return request.deny()
