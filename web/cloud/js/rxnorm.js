@@ -33,23 +33,24 @@ async function fetchJson(url) {
   }
 }
 
-async function searchApproximate(term) {
-  const url = `/api/rxnav/approximate?term=${encodeURIComponent(term)}`;
-  const data = await fetchJson(url);
-  const candidates = data && data.approximateGroup && data.approximateGroup.candidate;
-  return (candidates && candidates.length > 0 && candidates[0].rxcui) || '';
-}
-
-// searchRxNorm mirrors Client.SearchRxNorm: exact match, fall back to
-// approximate match, then fetch the normalized name from properties.json.
+// Only a unique exact match establishes identity. NLM's approximate scores
+// have no absolute confidence meaning; spelling candidates need manual review:
+// https://lhncbc.nlm.nih.gov/RxNav/news/RxNormApproxMatch.html
+// The proxy pins findRxcuiByString to search=0 (case-insensitive exact).
 export async function searchRxNorm(name) {
   let rxcui = '';
   try {
     const searchUrl = `/api/rxnav/rxcui?name=${encodeURIComponent(name)}`;
     const data = await fetchJson(searchUrl);
     const ids = data && data.idGroup && data.idGroup.rxnormId;
-    rxcui = (ids && ids.length > 0 && ids[0]) || '';
-    if (!rxcui) rxcui = await searchApproximate(name);
+    // JSON IDs are strings in the upstream contract. Malformed or ambiguous
+    // responses must not become the first guessed medication identity.
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !/^\d+$/.test(id))) {
+      return { rxcui: '', normalizedName: '' };
+    }
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length !== 1) return { rxcui: '', normalizedName: '' };
+    rxcui = uniqueIds[0];
   } catch {
     return { rxcui: '', normalizedName: '' };
   }

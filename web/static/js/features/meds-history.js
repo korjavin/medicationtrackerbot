@@ -48,6 +48,8 @@ const MED_TZ_POLICIES = [
     { value: 'strict', label: 'Strict · 2h', detail: 'very gradual, max 2h per step' },
 ];
 
+let medRxCheckVersion = 0;
+
 function showAddModal() {
     fillMedEditor(null);
 }
@@ -56,6 +58,7 @@ function showAddModal() {
 // (med = null) or an existing one. showEditModal (meds.js) routes here too.
 function fillMedEditor(med) {
     const m = med || {};
+    medRxCheckVersion++;
     editingMedId = med ? med.id : null;
     window.ModalManager.med.open();
 
@@ -65,7 +68,7 @@ function fillMedEditor(med) {
     document.getElementById('med-dosage').value = m.dosage || '';
     document.getElementById('med-archived').checked = !!m.archived;
     document.getElementById('med-supplement').checked = !!m.supplement;
-    setMedRxMatch(m.normalized_name || '', '');
+    setMedRxMatch('', '');
 
     setMedDate('med-start-date', m.start_date ? m.start_date.split('T')[0] : '');
     setMedDate('med-end-date', m.end_date ? m.end_date.split('T')[0] : '');
@@ -103,7 +106,7 @@ function fillMedEditor(med) {
     // carries; a skipped-only history still gets the domain's refusal.
     document.getElementById('med-delete-block').classList.toggle('hidden', !(med && m.archived && !m.last_taken_at));
 
-    if (med && (m.rxcui || m.name)) checkMedRx(m.rxcui, m.normalized_name);
+    if (med && m.name) checkMedRx();
 }
 
 function setMedModalHeader(eyebrow, title) {
@@ -262,26 +265,28 @@ function setMedRxMatch(normalizedName, warning) {
     document.getElementById('med-rx-warning').classList.toggle('hidden', !warning);
 }
 
-async function checkMedRx(rxcui, knownName) {
+async function checkMedRx() {
+    const checkVersion = ++medRxCheckVersion;
+    const editorId = editingMedId;
     const nameInput = document.getElementById('med-name');
     const name = nameInput.value.trim();
-    // A committed name change drops the previous drug's match up front, so a
-    // failed lookup never leaves it under the new name.
-    if (!name || !knownName) setMedRxMatch('', '');
+    // Only a fresh lookup verifies this editor's current name. Saved legacy
+    // associations, no-match replies and outages never restore an old chip.
+    setMedRxMatch('', '');
     if (!name) return;
     const params = new URLSearchParams({ name });
-    if (rxcui) params.set('rxcui', rxcui);
     if (editingMedId) params.set('exclude_id', String(editingMedId));
     const call = window.offlineAwareApiCall || window.apiCallDirect;
     let res;
     try {
         res = await call(`/api/medications/rx-check?${params}`, 'GET');
     } catch (_) {
-        return; // offline or no lookup: no chip change, Save still works
+        return; // offline or no lookup: no verified chip; Save still works
     }
-    // A newer name supersedes this answer.
-    if (!res || nameInput.value.trim() !== name) return;
-    setMedRxMatch(res.normalized_name || knownName || '', res.warning || '');
+    // Closing/reopening, another check or a new name supersedes this answer.
+    if (!res || checkVersion !== medRxCheckVersion || editingMedId !== editorId ||
+        nameInput.value.trim() !== name || document.getElementById('med-modal').classList.contains('hidden')) return;
+    setMedRxMatch(res.normalized_name || '', res.warning || '');
 }
 
 // The editor's destructive footer action; deleteMed owns the dialog + write.

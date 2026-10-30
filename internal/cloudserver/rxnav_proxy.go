@@ -66,7 +66,7 @@ func (a *RxNavProxyAPI) Rxcui(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing name parameter", http.StatusBadRequest)
 		return
 	}
-	a.proxyRequest(a.baseURL+"/REST/rxcui.json?name="+url.QueryEscape(name), w, r)
+	a.proxyRequest(a.baseURL+"/REST/rxcui.json?name="+url.QueryEscape(name)+"&search=0", w, r)
 }
 
 // Approximate proxies an approximate drug-name lookup.

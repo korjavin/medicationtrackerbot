@@ -518,7 +518,7 @@ describe('Medication editor page (kit M5–M6)', () => {
             stock: { counted: 20, counted_at: '2026-09-12T10:00:00Z', seed: false, refills: [{ n: 28, at: '2026-09-21T10:00:00Z' }], taken: 18 },
             tz_shift_policy: 'medium',
         }]);
-        window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '', normalized_name: '', warning: '' });
+        window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '1', normalized_name: 'allopurinol', warning: '' });
 
         window.showEditModal(1);
         await flush();
@@ -612,6 +612,39 @@ describe('Medication editor page (kit M5–M6)', () => {
         window.apiCallDirect = vi.fn().mockResolvedValue({ id: 10, status: 'created', warning: 'Interaction between warfarin and ibuprofen: bleeding' });
         await window.saveMedication();
         expect(window.safeAlert).toHaveBeenCalledWith('Interaction between warfarin and ibuprofen: bleeding');
+    });
+
+    it('ignores an old lookup when another editor opens with the same name', async () => {
+        const { document, window } = env;
+        let resolveOld;
+        const oldLookup = new Promise((resolve) => { resolveOld = resolve; });
+        window.apiCallDirect = vi.fn()
+            .mockReturnValueOnce(oldLookup)
+            .mockResolvedValue({ rxcui: '', normalized_name: '', warning: '' });
+        window.showAddModal();
+        document.getElementById('med-name').value = 'Candecor';
+        const oldCheck = window.checkMedRx();
+        window.showAddModal();
+        document.getElementById('med-name').value = 'Candecor';
+        await window.checkMedRx();
+        resolveOld({ rxcui: '999', normalized_name: 'Caldecort', warning: 'old warning' });
+        await oldCheck;
+        expect(document.getElementById('med-rx-name').textContent).toBe('');
+        expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(true);
+    });
+
+    it('does not paint a lookup that resolves after the medication editor closes', async () => {
+        const { document, window } = env;
+        let resolveLookup;
+        window.apiCallDirect = vi.fn().mockReturnValue(new Promise((resolve) => { resolveLookup = resolve; }));
+        window.showAddModal();
+        document.getElementById('med-name').value = 'Candecor';
+        const check = window.checkMedRx();
+        window.closeModal();
+        resolveLookup({ rxcui: '999', normalized_name: 'Caldecort', warning: 'old warning' });
+        await check;
+        expect(document.getElementById('med-rx-name').textContent).toBe('');
+        expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(true);
     });
 
     it('Delete is offered only for an archived, never-taken med and goes through deleteMed', async () => {
