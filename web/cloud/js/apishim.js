@@ -1335,6 +1335,9 @@ export function createApiRouter(ctx, {
       await workout.deleteLibraryItem(intParam(params, 'id', 0));
       return true;
     }
+    if (path === '/api/workout/exercise-library/merge' && method === 'POST') {
+      return workout.mergeLibraryItem(body).catch(withDuplicateStatus);
+    }
 
     if (path === '/api/workout/sessions' && method === 'GET') {
       // max 500: the per-op ceiling workouts.sessions.list advertises.

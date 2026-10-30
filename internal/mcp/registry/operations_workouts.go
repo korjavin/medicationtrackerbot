@@ -543,9 +543,10 @@ output({"reset": True})`,
 			Path:            "/api/workout/exercise-library",
 			Risk:            RiskRead,
 			Description:     "List the user's exercise library — saved exercises with default sets/reps/weight that the UI offers as autocomplete suggestions when building a workout.",
-			ResponseSummary: "JSON array of items with id, name, default_sets, default_reps_min; default_reps_max, default_weight_kg and notes are omitted when unset.",
+			ResponseSummary: "JSON array of items with id, name, default_sets, default_reps_min; default_reps_max, default_weight_kg, notes and aliases are omitted when unset. aliases are other spellings (e.g. old names) whose logged history counts as this exercise in stats, PRs and history.",
 			ResponseExample: `[
-  {"id": 7, "name": "Pull-ups", "default_sets": 3, "default_reps_min": 8, "default_reps_max": 12, "default_weight_kg": 5.0, "notes": "weighted"}
+  {"id": 7, "name": "Pull-ups", "default_sets": 3, "default_reps_min": 8, "default_reps_max": 12, "default_weight_kg": 5.0, "notes": "weighted"},
+  {"id": 9, "name": "Kettlebell Swings", "default_sets": 3, "default_reps_min": 15, "aliases": ["Swings"]}
 ]`,
 			Example: `result = api.call("workouts.exercise_library.list")
 output(result)`,
@@ -565,10 +566,11 @@ output(result)`,
     "default_reps_min":  {"type": "integer", "minimum": 1},
     "default_reps_max":  {"type": ["integer", "null"]},
     "default_weight_kg": {"type": ["number", "null"]},
-    "notes":             {"type": "string"}
+    "notes":             {"type": "string"},
+    "aliases":           {"type": "array", "items": {"type": "string"}, "description": "Other spellings whose logged history counts as this exercise"}
   }
 }`),
-			Description:     "Add a new entry to the user's exercise library.",
+			Description:     "Add a new entry to the user's exercise library. A name or alias another entry already answers to (any case) is refused with 409 — use workouts.exercise_library.merge to fold duplicates.",
 			ResponseSummary: "Created exercise library item.",
 			Example: `result = api.call(
     "workouts.exercise_library.create",
@@ -598,10 +600,11 @@ output(result)`,
     "default_reps_min":  {"type": "integer", "minimum": 1},
     "default_reps_max":  {"type": ["integer", "null"]},
     "default_weight_kg": {"type": ["number", "null"]},
-    "notes":             {"type": "string"}
+    "notes":             {"type": "string"},
+    "aliases":           {"type": "array", "items": {"type": "string"}, "description": "Replaces the stored aliases; omit to keep them, [] clears them"}
   }
 }`),
-			Description:     "Update an exercise library entry. Full-replacement: read with workouts.exercise_library.list first and send the merged object back.",
+			Description:     "Update an exercise library entry. Full-replacement: read with workouts.exercise_library.list first and send the merged object back. A rename records the old name as an alias automatically (history stays attached) — don't add it by hand.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call(
     "workouts.exercise_library.update",
@@ -627,6 +630,29 @@ output({"updated": 5})`,
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("workouts.exercise_library.delete", params={"id": 5})
 output({"deleted": 5})`,
+		},
+		{
+			ID:     "workouts.exercise_library.merge",
+			Topic:  "workouts",
+			Method: "POST",
+			Path:   "/api/workout/exercise-library/merge",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["into_id"],
+  "properties": {
+    "id":      {"type": "integer", "description": "Library entry to fold in (the duplicate). Pass exactly one of id or name."},
+    "name":    {"type": "string", "description": "Exercise name to fold in: a library entry's name/alias, or a name that only appears in logged history"},
+    "into_id": {"type": "integer", "description": "Library entry that survives"}
+  }
+}`),
+			Description:     "Merge a duplicate exercise into another library entry so stats, PRs and history show one exercise with the combined history. The duplicate's name and aliases become aliases of into_id, into_id's empty body_part/equipment/notes are filled from it, plan exercises pointing at it move to into_id, and the duplicate entry is deleted. Logs are never rewritten. A history-only name just becomes an alias. A name that is only another entry's alias is refused (merge that entry by its id or name instead); merging into itself or a missing entry is refused. A spelling a third entry already answers to (e.g. a case twin) is not moved: it stays with that entry and is listed in skipped_aliases. Undo is manual and partial: removing the alias with workouts.exercise_library.update splits the history by name again, but the filled-in tags and the re-pointed plan exercises are not restored.",
+			ResponseSummary: "The surviving library item (same shape as a workouts.exercise_library.list element), with its updated aliases. skipped_aliases [{name, owner}] is present only when some of the duplicate's spellings stayed with another entry.",
+			ResponseExample: `{"id": 9, "name": "Kettlebell Swings", "default_sets": 3, "default_reps_min": 15, "aliases": ["Swings"]}`,
+			Example: `lib = api.call("workouts.exercise_library.list")
+ks = next(i for i in lib if i["name"] == "Kettlebell Swings")
+dup = next(i for i in lib if i["name"] == "Swings")
+output(api.call("workouts.exercise_library.merge", body={"id": dup["id"], "into_id": ks["id"]}))`,
 		},
 
 		// --- Workout session per-id actions ---

@@ -662,6 +662,7 @@ func TestWorkoutOperations(t *testing.T) {
 		"workouts.exercise_library.create": true,
 		"workouts.exercise_library.update": true,
 		"workouts.exercise_library.delete": true,
+		"workouts.exercise_library.merge":  true,
 		"workouts.miband.update":           true,
 		"workouts.miband.delete":           true,
 		"workouts.rotation.initialize":     true,

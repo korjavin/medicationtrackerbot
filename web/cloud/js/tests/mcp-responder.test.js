@@ -1933,6 +1933,9 @@ describe('cloud MCP response_example conformance', () => {
     await w('workouts.exercise_library.create', {
       name: 'Barbell Curl', default_sets: 3, default_reps_min: 8, default_reps_max: 12, default_weight_kg: 5, notes: 'weighted',
     });
+    // A duplicate pair for workouts.exercise_library.merge (med-l5yr.3).
+    const swings = await w('workouts.exercise_library.create', { name: 'Kettlebell Swings', default_sets: 3, default_reps_min: 15 });
+    const swingsDup = await w('workouts.exercise_library.create', { name: 'Swings', default_sets: 3, default_reps_min: 15 });
     await w('workouts.rotation.initialize', { group_id: group.id, starting_variant_id: variant.id });
     const session = await w('workouts.sessions.schedule', {
       scheduled_date: '2026-07-07',
@@ -1946,7 +1949,7 @@ describe('cloud MCP response_example conformance', () => {
 
     return {
       medID, groupID: group.id, variantID: variant.id, sessionID: session.session.id,
-      equipmentID: equipment.id,
+      equipmentID: equipment.id, swingsID: swings.id, swingsDupID: swingsDup.id,
     };
   }
 
@@ -1995,6 +1998,7 @@ describe('cloud MCP response_example conformance', () => {
         },
       };
       case 'workouts.rotation.state': return { params: { group_id: ids.groupID } };
+      case 'workouts.exercise_library.merge': return { params: { id: ids.swingsDupID, into_id: ids.swingsID } };
       case 'medications.restocks.list': return { path_params: { id: String(ids.medID) } };
       case 'trackers.history': return { params: { days: 2 }, path_params: { id: ids.trackerID } };
       case 'food.products.search': return { params: { q: 'oat' } };
