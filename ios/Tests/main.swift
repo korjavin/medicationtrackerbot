@@ -224,7 +224,7 @@ MainActor.assumeIsolated {
     try! asset.write(to: root.appendingPathComponent("static/js/app.js"))
     let loader = LocalApp(root: root, defaults: mirror)
 
-    func served(_ url: String = "wgapp://local/") -> (response: HTTPURLResponse, body: Data) {
+    @MainActor func served(_ url: String = "wgapp://local/") -> (response: HTTPURLResponse, body: Data) {
         loader.response(for: URL(string: url)!)!
     }
     func origins(_ response: (response: HTTPURLResponse, body: Data)) -> [String] {
