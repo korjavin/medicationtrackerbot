@@ -370,7 +370,14 @@ export async function ensureTools(key, onEvent) {
 // ElevenLabs default -1 = never), both per the agents API reference
 // https://elevenlabs.io/docs/api-reference/agents/update. Only the shared trial
 // agent's script passes them; BYO agents keep ElevenLabs' defaults.
-export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds, silenceEndCallSeconds } = {}) {
+//
+// llmHeaders (bd med-k80h) goes into custom_llm.request_headers — "Headers that
+// should be included in the request", a map whose values may be plain strings
+// (CustomLlmRequestHeaders: string | secret/env/dynamic-variable locators), per
+// https://elevenlabs.io/docs/api-reference/agents/update. Only the trial
+// script passes it ({ 'X-Voice-Relay-Secret': TRIAL_VOICE_RELAY_SECRET }); the
+// relay checks it on anonymous calls only. BYO agents pass nothing.
+export function buildAgentConfig(toolIds, { llmURL, llmHeaders, maxDurationSeconds, silenceEndCallSeconds } = {}) {
   if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
@@ -378,7 +385,10 @@ export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds, silenceE
         prompt: {
           prompt: SYSTEM_PROMPT,
           llm: 'custom-llm',
-          custom_llm: { url: llmURL, model_id: 'medtracker', api_type: 'chat_completions' },
+          custom_llm: {
+            url: llmURL, model_id: 'medtracker', api_type: 'chat_completions',
+            ...(llmHeaders ? { request_headers: llmHeaders } : {}),
+          },
           tool_ids: toolIds,
           // Max (2-15 s, default 4): ElevenLabs aborts + re-sends a custom-LLM turn
           // after this; the relay's user-tab round trip can take longer (med-h849.13).

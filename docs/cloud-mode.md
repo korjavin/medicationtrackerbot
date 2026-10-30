@@ -1139,6 +1139,7 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
   - An **own-key token** is minted by the session-authenticated device leg. It lives while that tab's leg stays attached, plus a 30 s grace after it drops.
   - An **anonymous token** is minted only by the attested `POST /api/attest/voice/start`. It must attach within 60 s and dies when its minute grant runs out.
   - Unknown tokens count against `voiceBadCallMax`, 60 misses/min per client IP. Real turns come from ElevenLabs' egress IPs, so that bucket is shared and is sized for a post-restart burst of orphaned calls.
+  - **Hop secret, anonymous calls only (bd med-k80h).** With `TRIAL_VOICE_RELAY_SECRET` set, a POST for an anonymous token must also carry `X-Voice-Relay-Secret` with that value (compared in constant time). The shared trial agent sends it from `custom_llm.request_headers`, written by `pnpm trial:agent --apply`. A missing or wrong header is treated exactly as an unknown token: it counts against `voiceBadCallMax`, gets the spoken hang-up sentence, and logs `voice llm relay: anon hop secret mismatch` with `has_header` (never the value). So the attested client, which holds its anonymous token, can no longer drive the trial model by curl. **Own-key calls never read the header.** Their turns go to the token owner's own tab and spend that user's own key or account-trial quota, and every party that can see the token (the tab, ElevenLabs, the relay) already sees the plaintext turn. BYO agents are provisioned in the browser and get no header. Unset means the anonymous hop is unauthenticated, as before, with one startup Warn `voice llm relay: anon hop unauthenticated, TRIAL_VOICE_RELAY_SECRET unset` when trial voice is configured.
 - **Per call.** Every known token is held to `voiceCallTurnsPerMin`, which is 60 turns/min, the same as the trial stream limiter. This applies on both paths. Over the limit, the turn gets the spoken retry sentence with HTTP 200 and never reaches the device or the trial key. The body is capped at 2 MiB, and device frames at 1 MiB.
 - **Anonymous turns (trial key)** run four checks:
   1. the call's minute grant, charged up front: `TRIAL_ANON_VOICE_*` lifetime, per install per day, **global per day** (default 7200 s), and per call;
@@ -1156,7 +1157,7 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
 
   Turns are logged at Info with sizes and outcome only, never content.
 - **Known limits (follow-ups, not closed here).**
-  - Nothing proves a POST came from ElevenLabs, so a token holder can send any prompt. For anonymous calls the token is handed to the attested client, so that client can drive the trial model directly for its granted minutes, within the bounds above.
+  - On an own-key call nothing proves a POST came from ElevenLabs, so a token holder can send any prompt. It costs the token's owner, not the operator. Without `TRIAL_VOICE_RELAY_SECRET` the same holds for anonymous calls: the attested client holds its token and can drive the trial model directly for its granted minutes, within the bounds above.
   - An own-key token has no hard lifetime while its tab stays attached.
   - Anonymous payload fields other than the ones above are forwarded as sent, and the anonymous body cap is the shared 2 MiB.
 

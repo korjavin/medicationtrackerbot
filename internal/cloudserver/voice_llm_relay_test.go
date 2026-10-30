@@ -182,6 +182,30 @@ func TestVoiceLLMRelay_StreamsDeviceChunks(t *testing.T) {
 	}
 }
 
+// bd med-k80h: the hop secret guards anonymous calls only — an own-key call's
+// POST without the header is still forwarded to the user's tab.
+func TestVoiceLLMRelay_OwnKeyNeedsNoHopSecret(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	f.api.trial = &TrialProxyAPI{cfg: TrialConfig{VoiceRelaySecret: "hop-secret-value"}}
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	device, token := f.dialDevice(t, ctx, "")
+	defer device.CloseNow()
+	respCh := make(chan *http.Response, 1)
+	go func() { respCh <- f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`) }()
+	req := readVoiceFrame(t, ctx, device)
+	if req.Type != "request" {
+		t.Fatalf("frame = %+v", req)
+	}
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: req.ID, Type: "chunk", Data: "data: {}\n\n"})
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: req.ID, Type: "end"})
+	resp := <-respCh
+	defer resp.Body.Close()
+	if out, _ := io.ReadAll(resp.Body); string(out) != "data: {}\n\ndata: [DONE]\n\n" {
+		t.Fatalf("own-key turn = %q", out)
+	}
+}
+
 type syncBuf struct {
 	mu sync.Mutex
 	b  bytes.Buffer

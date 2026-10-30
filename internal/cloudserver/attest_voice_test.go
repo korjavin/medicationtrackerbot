@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -246,6 +247,61 @@ func TestAttestVoiceStartAndHangUp(t *testing.T) {
 	rec, out = e.voiceStart(k, 4)
 	if rec.Code != http.StatusOK || out.Granted != 120 || out.Remaining != 360 {
 		t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// bd med-k80h: with TRIAL_VOICE_RELAY_SECRET set, an anonymous call's turn
+// without the trial agent's hop secret is an unknown call — spoken hang-up, a
+// Warn line, a badCalls miss, no upstream call — and the right secret answers.
+func TestAttestVoiceHopSecret(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	const secret = "hop-secret-value"
+	e.trial.cfg.VoiceRelaySecret = secret
+	e.relay.badCalls = newRateLimiter(2, time.Minute)
+	k := attestKey(t)
+	e.enrolled(k, "tok-hop")
+	rec, out := e.voiceStart(k, 1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
+	}
+	srv := httptest.NewServer(e.h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	device, err := dialAnonVoice(ctx, srv, out.Call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.CloseNow()
+	readVoiceFrame(t, ctx, device) // hello
+
+	turn := func(hdr map[string]string) *httptest.ResponseRecorder {
+		return e.do("localhost", voiceLLMCompletionsPath,
+			`{"stream":true,"messages":[{"role":"user","content":"hi"}],"elevenlabs_extra_body":{"call":"`+out.Call+`"}}`, hdr)
+	}
+	hits := e.upHits.Load()
+	for _, hdr := range []map[string]string{nil, {voiceRelaySecretHeader: "wrong"}} {
+		r := turn(hdr)
+		if r.Code != http.StatusOK || !strings.Contains(r.Body.String(), voiceHangUp("en")) || strings.Contains(r.Body.String(), secret) {
+			t.Fatalf("no/wrong secret turn: %d %q", r.Code, r.Body.String())
+		}
+	}
+	if e.upHits.Load() != hits {
+		t.Fatal("a turn without the hop secret reached the trial upstream")
+	}
+	if l := logs.String(); !strings.Contains(l, "anon hop secret mismatch") || !strings.Contains(l, "has_header=false") ||
+		!strings.Contains(l, "has_header=true") || strings.Contains(l, secret) {
+		t.Fatalf("logs = %q", l)
+	}
+	// Both misses counted against badCalls: the third is rate limited.
+	if r := turn(nil); r.Code != http.StatusTooManyRequests {
+		t.Fatalf("third miss = %d, want 429", r.Code)
+	}
+	if r := turn(map[string]string{voiceRelaySecretHeader: secret}); r.Code != http.StatusOK || !strings.Contains(r.Body.String(), "spoken answer") {
+		t.Fatalf("secret turn: %d %q", r.Code, r.Body.String())
 	}
 }
 

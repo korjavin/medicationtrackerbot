@@ -50,6 +50,12 @@ type TrialConfig struct {
 	// ElevenLabs signed-URL minting for the operator's shared agent.
 	ElevenLabsAPIKey  string
 	ElevenLabsAgentID string
+	// VoiceRelaySecret (TRIAL_VOICE_RELAY_SECRET, bd med-k80h) is the value the
+	// shared trial agent sends in X-Voice-Relay-Secret on every custom-LLM POST
+	// (`pnpm trial:agent` writes it into the agent). The voice relay requires it
+	// on ANONYMOUS calls only, the turns it answers on the operator's key; ""
+	// leaves that hop unauthenticated (the pre-med-k80h behavior).
+	VoiceRelaySecret string
 	// Per-account sliding-window limit shared across all trial routes.
 	RatePerMinute int
 	// Persisted daily budgets for the AI chat proxy (bd med-d5t.5). The
@@ -105,6 +111,7 @@ func TrialConfigFromEnv() (TrialConfig, error) {
 		AnthropicURL:         trialAnthropicDefaultURL,
 		ElevenLabsAPIKey:     os.Getenv("TRIAL_ELEVENLABS_API_KEY"),
 		ElevenLabsAgentID:    os.Getenv("TRIAL_ELEVENLABS_AGENT_ID"),
+		VoiceRelaySecret:     os.Getenv("TRIAL_VOICE_RELAY_SECRET"),
 		RatePerMinute:        trialDefaultRatePerMin,
 		DailyPerAccount:      trialDefaultDailyPerAccount,
 		DailyGlobal:          trialDefaultDailyGlobal,

@@ -17,7 +17,8 @@
 // TRIAL_ELEVENLABS_AGENT_ID. The key is never printed. TRIAL_VOICE_LLM_URL is
 // the agent's custom LLM base — the voice LLM relay on the base domain,
 // https://<base-domain>/api/voice-llm (bd med-h849); ElevenLabs POSTs
-// <url>/chat/completions with the per-call relay token.
+// <url>/chat/completions with the per-call relay token, plus the
+// X-Voice-Relay-Secret header when TRIAL_VOICE_RELAY_SECRET is set (bd med-k80h).
 import {
   TOOL_SPECS,
   TOOLSET_VERSION,
@@ -43,6 +44,11 @@ const apply = argv.includes('--apply');
 const agentId = process.env.TRIAL_ELEVENLABS_AGENT_ID || '';
 const apiKey = process.env.TRIAL_ELEVENLABS_API_KEY || '';
 const llmURL = process.env.TRIAL_VOICE_LLM_URL || '';
+// TRIAL_VOICE_RELAY_SECRET (bd med-k80h): the same value cmd/cloud reads. The
+// agent sends it as X-Voice-Relay-Secret on every custom-LLM POST and the relay
+// requires it on anonymous calls once the server has it set. Never printed.
+const relaySecret = process.env.TRIAL_VOICE_RELAY_SECRET || '';
+const llmHeaders = (secret) => (secret ? { 'X-Voice-Relay-Secret': secret } : undefined);
 // ElevenLabs-side per-call cap on the SHARED trial agent (bd med-o7zq.22): the
 // hard backstop under the server's anonymous voice budget, which charges each
 // call its whole grant — keep it at or below TRIAL_ANON_VOICE_CALL_MAX_SECONDS
@@ -67,11 +73,13 @@ if (!apply) {
   console.log(`target agent: ${agentId || '(TRIAL_ELEVENLABS_AGENT_ID unset — --apply would refuse)'}`);
   console.log(`TRIAL_VOICE_LLM_URL: ${llmURL || '(unset — --apply would refuse)'}`);
   console.log(`TRIAL_VOICE_MAX_CALL_SECONDS: ${maxDurationSeconds}`);
+  console.log(`TRIAL_VOICE_RELAY_SECRET: ${relaySecret ? '(set)' : '(unset — the agent would send no X-Voice-Relay-Secret)'}`);
   console.log('\n--- tools (one PATCH-or-POST per tool, matched by name) ---');
   for (const spec of TOOL_SPECS) console.log(JSON.stringify(toolBody(spec)));
   console.log('\n--- agent PATCH body (tool ids resolved at apply time) ---');
   const previewURL = llmURL || '<TRIAL_VOICE_LLM_URL>';
-  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { llmURL: previewURL, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }), null, 2));
+  const previewHeaders = llmHeaders(relaySecret && '<TRIAL_VOICE_RELAY_SECRET>');
+  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { llmURL: previewURL, llmHeaders: previewHeaders, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }), null, 2));
   console.log('\nDry run — nothing was sent. Re-run with --apply to push this.');
   process.exit(0);
 }
@@ -89,6 +97,12 @@ if (!llmURL) {
   console.error('TRIAL_VOICE_LLM_URL is not set (https://<base-domain>/api/voice-llm). Without it the '
     + "trial agent would keep ElevenLabs' built-in LLM. Refusing.");
   process.exit(1);
+}
+if (!relaySecret) {
+  // Not a refusal: unset is the pre-med-k80h setup. But a server that HAS the
+  // secret hangs up every anonymous call of an agent patched without it.
+  console.error('WARNING: TRIAL_VOICE_RELAY_SECRET is not set — the agent will send no X-Voice-Relay-Secret, '
+    + 'and anonymous trial calls will hang up on a server that has it set.');
 }
 
 try {
@@ -112,7 +126,7 @@ try {
     console.error(`Resolved only ${toolIds.length}/${TOOL_SPECS.length} tool ids — refusing to wire a partial agent.`);
     process.exit(1);
   }
-  await patchAgent(apiKey, agentId, buildAgentConfig(toolIds, { llmURL, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }));
+  await patchAgent(apiKey, agentId, buildAgentConfig(toolIds, { llmURL, llmHeaders: llmHeaders(relaySecret), maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }));
   console.log(`\nAgent ${agentId} updated: ${toolIds.length} tools, TOOLSET_VERSION ${TOOLSET_VERSION}.`);
 } catch (err) {
   // A 404 here means TRIAL_ELEVENLABS_AGENT_ID does not exist under this key —

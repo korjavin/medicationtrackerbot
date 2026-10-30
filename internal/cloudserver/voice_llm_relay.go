@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -597,6 +598,14 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 
 	lang := voiceLang(payload)
 	call := a.lookup(extra.Call)
+	if call != nil && call.anon != nil && !a.anonHopOK(r) {
+		// An anonymous token alone does not prove the POST came from the
+		// operator's trial agent (the attested client holds the token too):
+		// without the hop secret it is an unknown call. Own-key calls never
+		// read the header (bd med-k80h).
+		slog.Warn("voice llm relay: anon hop secret mismatch", "has_header", r.Header.Get(voiceRelaySecretHeader) != "")
+		call = nil
+	}
 	if call == nil {
 		if !a.badCalls.Allow(clientIP(r)) {
 			// No IP in the log (none of the server's logs carry one); the
@@ -793,6 +802,20 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+}
+
+// voiceRelaySecretHeader carries TRIAL_VOICE_RELAY_SECRET from the shared trial
+// agent (custom_llm.request_headers, set by scripts/provision-trial-agent.mjs).
+const voiceRelaySecretHeader = "X-Voice-Relay-Secret"
+
+// anonHopOK reports whether an anonymous call's POST carries the trial agent's
+// hop secret. No secret configured = today's unauthenticated hop (cmd/cloud
+// warns once at startup).
+func (a *VoiceLLMRelayAPI) anonHopOK(r *http.Request) bool {
+	if a.trial == nil || a.trial.cfg.VoiceRelaySecret == "" {
+		return true
+	}
+	return subtle.ConstantTimeCompare([]byte(r.Header.Get(voiceRelaySecretHeader)), []byte(a.trial.cfg.VoiceRelaySecret)) == 1
 }
 
 // anonTurn answers one turn of an anonymous trial call with the operator's

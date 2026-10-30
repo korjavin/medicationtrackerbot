@@ -127,6 +127,20 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(bad.stderr).toContain('TRIAL_VOICE_MAX_CALL_SECONDS');
   });
 
+  it('sends the relay hop secret header from the trial agent only, never printing it (bd med-k80h)', () => {
+    const SECRET = 'hop-secret-do-not-print';
+    expect(buildAgentConfig([], { llmURL: LLM_URL }).conversation_config.agent.prompt.custom_llm)
+      .not.toHaveProperty('request_headers');
+    expect(buildAgentConfig([], { llmURL: LLM_URL, llmHeaders: { 'X-Voice-Relay-Secret': SECRET } })
+      .conversation_config.agent.prompt.custom_llm.request_headers).toEqual({ 'X-Voice-Relay-Secret': SECRET });
+    const set = run([], { TRIAL_VOICE_LLM_URL: LLM_URL, TRIAL_VOICE_RELAY_SECRET: SECRET });
+    expect(set.status, set.stderr).toBe(0);
+    expect(set.stdout).toContain('"X-Voice-Relay-Secret": "<TRIAL_VOICE_RELAY_SECRET>"');
+    expect(set.stdout + set.stderr).not.toContain(SECRET);
+    const unset = run([], { TRIAL_VOICE_LLM_URL: LLM_URL });
+    expect(unset.stdout).not.toContain('request_headers');
+  });
+
   it('refuses --apply without TRIAL_VOICE_LLM_URL', () => {
     const r = run(['--apply'], { TRIAL_ELEVENLABS_API_KEY: FAKE_KEY, TRIAL_ELEVENLABS_AGENT_ID: 'agent_fake' });
     expect(r.status).toBe(1);

@@ -118,6 +118,7 @@ services:
       - TRIAL_ANTHROPIC_VISION_MODEL=${TRIAL_ANTHROPIC_VISION_MODEL:-}
       - TRIAL_ELEVENLABS_API_KEY=${TRIAL_ELEVENLABS_API_KEY:-}
       - TRIAL_ELEVENLABS_AGENT_ID=${TRIAL_ELEVENLABS_AGENT_ID:-}
+      - TRIAL_VOICE_RELAY_SECRET=${TRIAL_VOICE_RELAY_SECRET:-}
       - TRIAL_RATE_PER_MIN=${TRIAL_RATE_PER_MIN:-}
       # Daily SPEND caps on the operator's own provider key (bd med-d5t.5).
       # TRIAL_RATE_PER_MIN only smooths bursts; these bound the bill. 0 disables.

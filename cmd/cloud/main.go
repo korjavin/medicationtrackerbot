@@ -266,6 +266,9 @@ func main() {
 	mcpRemoteAPI.RegisterRoutes(apiMux)
 	voiceLLMRelayAPI := cloudserver.NewVoiceLLMRelayAPI(store, cfg.sessionSecret)
 	voiceLLMRelayAPI.RegisterRoutes(apiMux)
+	if cfg.trial.TrialVoiceConfigured() && cfg.trial.VoiceRelaySecret == "" {
+		slog.Warn("voice llm relay: anon hop unauthenticated, TRIAL_VOICE_RELAY_SECRET unset")
+	}
 	trialProxyAPI.RegisterRoutes(apiMux)
 	// Anonymous iOS-local trial (med-o7zq.15): always mounted so the client gets
 	// 503 trial_not_configured, the same code as the account trial being off.
