@@ -7,11 +7,21 @@ are permitted to avoid unnecessary CI churn on syntax/assertion typos.
 """
 import json
 import re
+import shlex
 import sys
 
+# Flags whose next word is a value, not a test target (`-t "name"`, `--reporter dot`).
+VALUE_FLAGS = {"-t", "--testNamePattern", "--reporter", "--project", "--config", "-c", "--root", "-r", "--dir", "--shard", "--pool"}
+
 cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "")
+# Heredoc bodies are data, not commands; redirections (`2>&1`, `> out.log`) are not targets.
+cmd = re.sub(r"(<<-?\s*['\"]?(\w+)['\"]?[^\n]*)\n.*?\n[ \t]*\2[ \t]*(?=\n|$)", r"\1", cmd, flags=re.S)
+cmd = re.sub(r"\d*>>?&?\s*[^\s;&|]+", " ", cmd)
 for seg in re.split(r"[;&|\n()]+|\$\(|`", cmd):
-    words = seg.split()
+    try:
+        words = shlex.split(seg)
+    except ValueError:
+        words = seg.split()
     while words and re.match(r"^\w+=", words[0]):  # FOO=bar cmd
         words = words[1:]
     if not words:
@@ -32,11 +42,16 @@ for seg in re.split(r"[;&|\n()]+|\$\(|`", cmd):
 
     if is_test:
         # Check if explicit test file targets were provided.
-        # Strip flags (e.g. -r, --reporter, -t, etc.), '--', and subcommand 'run'.
-        targets = [
-            a for a in args
-            if not a.startswith("-") and a not in ("run", "--")
-        ]
+        # Strip flags and their values, '--', and subcommand 'run'.
+        targets = []
+        skip = False
+        for a in args:
+            if skip:
+                skip = False
+            elif a in VALUE_FLAGS:
+                skip = True
+            elif not a.startswith("-") and a not in ("run", "--"):
+                targets.append(a)
         # Allow only if all targets explicitly point to a test file (.test.js, .spec.ts, etc.)
         if targets and all(re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", t) for t in targets):
             continue
