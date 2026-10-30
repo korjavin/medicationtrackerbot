@@ -133,7 +133,11 @@ No app import or load references this asset/module, so the existing PWA shell
 graph does not precache it and ordinary medication use adds zero requests or
 parse cost. A future consumer must explicitly load/cache the immutable release
 and measure slower devices, memory and offline availability before integration.
-There is no new shard egress or caching subsystem. Historical native shells are
-frozen; any future packaging that copies this static tree would also inherit the
-raw asset cost and needs its own measurement. Runtime integration and complete
-ingredient-to-RxNorm mapping remain separate work (med-1p87).
+There is no new shard egress or caching subsystem. Current iOS and Android
+workflows invoke `ios/bundle-web.sh`, which copies the complete static tree and
+domain modules into their bundles. Each native artifact therefore includes the
+additional 13,274,325 raw JSON bytes (about 12.7 MiB), plus the small lookup module,
+even though neither is loaded by the app. Actual compressed APK/IPA size changes
+have not been measured; the gzip-9 figure above does not measure native archive
+compression. Runtime integration and complete ingredient-to-RxNorm mapping remain
+separate work (med-1p87).
