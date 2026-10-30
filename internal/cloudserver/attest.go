@@ -288,7 +288,7 @@ type AttestAPI struct {
 	abandonDay string
 	abandons   map[string]int
 	// abandonFree is the ElevenLabs time the day's free refunds may have let
-	// run, server-wide; capped at cfg.VoiceGlobal (Argus 8452).
+	// run, server-wide; capped at cfg.VoiceGlobal / 2 (Argus 8452, Miles 8461).
 	abandonFree int
 	mux         *http.ServeMux
 }
@@ -313,7 +313,8 @@ func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) boo
 	if a.abandons[bucket] >= attestVoiceFreeAbandons {
 		return false
 	}
-	if a.cfg.VoiceGlobal > 0 && a.abandonFree+cost > a.cfg.VoiceGlobal {
+	// Half the global daily voice seconds (Miles 8461).
+	if a.cfg.VoiceGlobal > 0 && a.abandonFree+cost > a.cfg.VoiceGlobal/2 {
 		return false
 	}
 	a.abandons[bucket]++
