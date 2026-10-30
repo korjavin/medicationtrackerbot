@@ -1,5 +1,5 @@
-// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath, Move, Diag, BasePost and Push, run by .github/workflows/ios.yml:
-//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift App/Push.swift Tests/main.swift -o <bin> && <bin>
+// Self-check for AccountURL, LocalOrigin/LocalApp, LocalLock, ReminderPath, Move, Diag, BasePost and Push, run by .github/workflows/ios.yml:
+//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalApp.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift App/BasePost.swift App/Push.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -206,6 +206,80 @@ for bad: String? in [nil, "", "Today", "a b", "a&b=c", "a#b", "../x", "x/y", Str
     precondition(LocalOrigin.qaHome(scene: bad) == nil, "accepted \(String(describing: bad))")
 }
 print("LocalOrigin: ok")
+
+// LocalApp's real response builder: the metadata must describe the CSP of
+// this navigation, not the mutable native mirror a later bridge call sees.
+MainActor.assumeIsolated {
+    let suite = "wg-local-response-\(UUID().uuidString)"
+    let mirror = UserDefaults(suiteName: suite)!
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
+    try! FileManager.default.createDirectory(at: root.appendingPathComponent("static/js"), withIntermediateDirectories: true)
+    defer {
+        mirror.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: root)
+    }
+    let document = "<!DOCTYPE html><html><head><title>Local app</title></head><body>Existing app</body></html>"
+    try! Data(document.utf8).write(to: root.appendingPathComponent("index.html"))
+    let asset = Data("console.log('asset');".utf8)
+    try! asset.write(to: root.appendingPathComponent("static/js/app.js"))
+    let loader = LocalApp(root: root, defaults: mirror)
+
+    @MainActor func served(_ url: String = "wgapp://local/") -> (response: HTTPURLResponse, body: Data) {
+        loader.response(for: URL(string: url)!)!
+    }
+    func origins(_ response: (response: HTTPURLResponse, body: Data)) -> [String] {
+        let html = String(decoding: response.body, as: UTF8.self)
+        let prefix = "<meta name=\"medtracker-connect-origins\" content=\""
+        precondition(html.components(separatedBy: prefix).count == 2, "exactly one metadata element")
+        let attribute = html.components(separatedBy: prefix)[1].components(separatedBy: "\"")[0]
+        let json = attribute.replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&#39;", with: "'").replacingOccurrences(of: "&amp;", with: "&")
+        let emitted = try! JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String]
+        let policy = response.response.value(forHTTPHeaderField: "Content-Security-Policy")!
+        let connect = policy.components(separatedBy: ";").first { $0.trimmingCharacters(in: .whitespaces).hasPrefix("connect-src ") }!
+        let admitted = connect.split(separator: " ").map(String.init).filter { $0.hasPrefix("https://") }
+        precondition(emitted == admitted, "metadata \(emitted) differs from response CSP \(policy)")
+        precondition(!emitted.contains("'self'") && !emitted.contains { $0.hasPrefix("wss:") })
+        precondition(response.response.statusCode == 200)
+        precondition(response.response.value(forHTTPHeaderField: "Content-Type") == "text/html; charset=utf-8")
+        precondition(response.response.value(forHTTPHeaderField: "Cache-Control") == "no-store")
+        precondition(response.response.value(forHTTPHeaderField: "X-Content-Type-Options") == "nosniff")
+        precondition(html.contains("<title>Local app</title>") && html.contains("<body>Existing app</body>"))
+        return emitted
+    }
+
+    for hosts in [[], ["api.openai.com"], ["api.openai.com", "api.anthropic.com"]] {
+        mirror.set(hosts, forKey: LocalOrigin.hostsKey)
+        precondition(origins(served()) == hosts.map { "https://" + $0 })
+    }
+    let captured = served()
+    let capturedBody = captured.body
+    mirror.set(["api.example.com"], forKey: LocalOrigin.hostsKey)
+    precondition(origins(captured) == ["https://api.openai.com", "https://api.anthropic.com"])
+    precondition(captured.body == capturedBody)
+    precondition(origins(served()) == ["https://api.example.com"])
+    for invalid: Any in [["api.openai.com", "evil.example\"/><script>bad</script>"], [1], "api.openai.com"] {
+        mirror.set(invalid, forKey: LocalOrigin.hostsKey)
+        let rejected = served()
+        precondition(origins(rejected).isEmpty)
+        precondition(rejected.response.value(forHTTPHeaderField: "Content-Security-Policy")!.contains("connect-src 'self';"))
+        precondition(!String(decoding: rejected.body, as: UTF8.self).contains("<script>"))
+    }
+    mirror.removeObject(forKey: LocalOrigin.hostsKey)
+    precondition(origins(served()).isEmpty)
+    let script = served("wgapp://local/static/js/app.js")
+    precondition(script.body == asset && script.response.statusCode == 200)
+    precondition(script.response.value(forHTTPHeaderField: "Content-Type") == "text/javascript; charset=utf-8")
+    precondition(script.response.value(forHTTPHeaderField: "Cache-Control") == "no-store")
+    for missing in ["wgapp://other/", "wgapp://local/missing", "wgapp://local/static/../index.html"] {
+        let response = served(missing)
+        precondition(response.response.statusCode == 404 && response.body.isEmpty)
+        precondition(response.response.value(forHTTPHeaderField: "Content-Type") == "text/plain")
+        precondition(response.response.value(forHTTPHeaderField: "Cache-Control") == "no-store")
+    }
+    print("LocalApp responses: ok")
+}
 
 // LocalLock (bd med-o7zq.8): the lock's lifecycle without LocalAuthentication.
 var lock = LocalLock(on: true)
