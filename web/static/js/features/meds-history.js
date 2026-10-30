@@ -48,7 +48,7 @@ const MED_TZ_POLICIES = [
     { value: 'strict', label: 'Strict · 2h', detail: 'very gradual, max 2h per step' },
 ];
 
-let medRxCheckVersion = 0;
+let _medRxCheckVersion = 0; // module-state: request ticket so an old name/editor lookup cannot paint the current editor
 
 function showAddModal() {
     fillMedEditor(null);
@@ -58,7 +58,7 @@ function showAddModal() {
 // (med = null) or an existing one. showEditModal (meds.js) routes here too.
 function fillMedEditor(med) {
     const m = med || {};
-    medRxCheckVersion++;
+    _medRxCheckVersion++;
     editingMedId = med ? med.id : null;
     window.ModalManager.med.open();
 
@@ -266,7 +266,7 @@ function setMedRxMatch(normalizedName, warning) {
 }
 
 async function checkMedRx() {
-    const checkVersion = ++medRxCheckVersion;
+    const checkVersion = ++_medRxCheckVersion;
     const editorId = editingMedId;
     const nameInput = document.getElementById('med-name');
     const name = nameInput.value.trim();
@@ -284,7 +284,7 @@ async function checkMedRx() {
         return; // offline or no lookup: no verified chip; Save still works
     }
     // Closing/reopening, another check or a new name supersedes this answer.
-    if (!res || checkVersion !== medRxCheckVersion || editingMedId !== editorId ||
+    if (!res || checkVersion !== _medRxCheckVersion || editingMedId !== editorId ||
         nameInput.value.trim() !== name || document.getElementById('med-modal').classList.contains('hidden')) return;
     setMedRxMatch(res.normalized_name || '', res.warning || '');
 }
