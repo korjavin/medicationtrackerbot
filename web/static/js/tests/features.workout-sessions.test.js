@@ -3695,7 +3695,7 @@ describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–W
     const c = mount(window, document, { sets: [50, 255, 50], baseline: HEAVIEST_50 });
     await drain();
     expect(window.apiCall.mock.calls.map(([e]) => e))
-      .toContain('/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=42');
+      .toContain('/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=42&log_id=5');
     expect(notes(c)).toHaveLength(1);
     expect(notes(c)[0].textContent).toContain('255 kg is 5× your heaviest 50 kg. A typo?');
     // The note sits right under set 2.

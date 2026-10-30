@@ -374,7 +374,7 @@ function renderWorkoutSessionLogs(logsContainer) {
     } else {
         logsContainer.replaceChildren(_buildSessionExerciseCard(logs[ui.current], ui.current));
         _ensureExerciseHistory(logs[ui.current].exercise_name);
-        _ensureWeightCheck(logs[ui.current].exercise_name);
+        _ensureWeightCheck(logs[ui.current]);
     }
     const actions = document.getElementById('workout-session-actions');
     if (actions) renderSessionDetailActions(actions);
@@ -672,13 +672,23 @@ async function _ensureExerciseHistory(name) {
 // baseline each exercise is judged on (its history before this session) once
 // per name per open, then evaluates the on-screen done sets synchronously —
 // so a ticked or edited set gets its note at once. Never blocks a save.
-function _ensureWeightCheck(name) {
+// Keyed per log: two logs of one exercise in a session have different
+// baselines (the earlier one counts for the later). A new log (id 0) is
+// judged after the session's stored logs, and re-reads once it has an id.
+function _weightCheckKey(log) {
+    return `${log.exercise_name}#${Number(log.id) > 0 ? log.id : 0}`;
+}
+
+function _ensureWeightCheck(log) {
     const ui = _sessionUi();
     const st = window.WorkoutSessionsState;
+    const name = log && log.exercise_name;
     if (!name || !st.data) return;
     if (!ui.sanity) ui.sanity = {};
-    if (Object.prototype.hasOwnProperty.call(ui.sanity, name)) return;
-    ui.sanity[name] = null;
+    const key = _weightCheckKey(log);
+    if (Object.prototype.hasOwnProperty.call(ui.sanity, key)) return;
+    ui.sanity[key] = null;
+    const logId = Number(log.id) > 0 ? `&log_id=${log.id}` : '';
     // Tests inject the real module as window.WeightSanity (like
     // WorkoutAnalysis in exercise-detail.js); bot mode has no /domain/ → null.
     const injected = window.WeightSanity && typeof window.WeightSanity.flagSets === 'function' ? window.WeightSanity : null;
@@ -686,22 +696,22 @@ function _ensureWeightCheck(name) {
         || (ui.sanityMod = injected ? Promise.resolve(injected) : import('/domain/weight-sanity.js').catch(() => null));
     let base;
     try {
-        base = Promise.resolve(apiCall(`/api/workout/exercises/weight-check?name=${encodeURIComponent(name)}&session_id=${st.data.id}`));
+        base = Promise.resolve(apiCall(`/api/workout/exercises/weight-check?name=${encodeURIComponent(name)}&session_id=${st.data.id}${logId}`));
     } catch (e) {
         base = Promise.reject(e);
     }
     Promise.all([mod, base]).then(([m, b]) => {
         if (st.ui !== ui || !m || !b || typeof b !== 'object') return;
-        ui.sanity[name] = { flagSets: m.flagSets, baseline: b };
+        ui.sanity[key] = { flagSets: m.flagSets, baseline: b };
         const cur = st.logs[ui.current];
-        if (!ui.overview && !ui.addStep && cur && cur.exercise_name === name) _rerenderSessionLogs();
+        if (!ui.overview && !ui.addStep && cur && _weightCheckKey(cur) === key) _rerenderSessionLogs();
     }, () => {});
 }
 
 // Per done set: null or { flag: 'jump'|'unweighted', reference_kg }.
 function _weightFlags(log) {
     const ui = _sessionUi();
-    const s = ui.sanity && ui.sanity[log.exercise_name];
+    const s = ui.sanity && ui.sanity[_weightCheckKey(log)];
     if (!s) return [];
     return s.flagSets(_ensureLogSets(log), s.baseline).flags;
 }

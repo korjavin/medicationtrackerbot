@@ -49,7 +49,7 @@ import {
   NEAR_FAILURE_RIR,
 } from './workout-goals.js';
 import { rankNextExercises } from './workout-suggest.js';
-import { isUnweightedExercise, emptyBaseline, sanityStep, withoutFlagged } from './weight-sanity.js';
+import { isUnweightedExercise, emptyBaseline, sanityStep, withoutFlagged, flagSets, setsOf } from './weight-sanity.js';
 
 const WORKOUT_RECORD_TYPES = {
   GROUP: 'workoutgroup',
@@ -2226,11 +2226,35 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // exercise_name stale) wrongly no-op the propagation for that exercise's own
   // pending session. `exerciseName` is retained in the signature for callers but
   // is intentionally not part of the guard.
+  // acceptedPerformance (med-l5yr.5) is the performance a progression read
+  // may see: a logged {sets, reps, weight, perSet} of `name` (log `logId` in
+  // `sessionId`) without its unconfirmed weight-sanity sets, judged on the
+  // history before that log. null = every set is flagged, nothing to
+  // progress from.
+  async function acceptedPerformance(name, sessionId, logId, perf) {
+    const log = { sets: perf.perSet, sets_completed: perf.sets, weight_kg: perf.weight };
+    const { flags } = flagSets(setsOf(log), await exerciseWeightBaseline(name, sessionId, logId));
+    if (!flags.some(Boolean)) return perf;
+    const kept = withoutFlagged(log, flags);
+    if (kept.sets.length === 0) return null;
+    return { sets: kept.sets_completed, reps: kept.reps_completed, weight: kept.weight_kg, perSet: kept.sets };
+  }
+
   async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight, perSet) {
     const session = await findSession(sessionId);
     if (!session || !['pending', 'notified', 'in_progress'].includes(session.status)) return;
     const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId);
     if (!exercise || exercise.variant_id !== session.variant_id) return;
+    // An unconfirmed typo (a 255 kg slip among 50 kg sessions) never sets
+    // the next target, under any rule — mirror included. All flagged → the
+    // plan holds.
+    // The log being propagated: (session, plan row) is unique for schedule
+    // logs (createLog's guard).
+    const own = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
+      .find((l) => l.session_id === sessionId && l.exercise_id === exerciseId && l.source !== 'library');
+    const perf = await acceptedPerformance(exerciseName, sessionId, own && own.id, { sets, reps, weight, perSet });
+    if (!perf) return;
+    ({ sets, reps, weight, perSet } = perf);
 
     // `none`/absent rule → mirror; linear/double → apply the opt-in rule. An
     // unmet rule returns {} (plan held steady), so the spread leaves it as-is.
@@ -3268,16 +3292,24 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         .sort((a, b) => (a.logged_at < b.logged_at ? 1 : a.logged_at > b.logged_at ? -1 : b.id - a.id))[0];
       if (!latest) continue;
 
-      // Same effective-scalar collapse propagate does at write time.
-      const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
-      const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
+      // Same effective-scalar collapse propagate does at write time, and the
+      // same accepted-set view (med-l5yr.5): an unconfirmed typo proposes
+      // nothing.
+      const perf = await acceptedPerformance(latest.exercise_name, latest.session_id, latest.id, {
+        sets: latest.sets_completed === 0 ? null : latest.sets_completed,
+        reps: latest.reps_completed === 0 ? null : latest.reps_completed,
+        weight: latest.weight_kg,
+        perSet: latest.sets,
+      });
+      if (!perf) continue;
+      const { sets, reps } = perf;
       const goal = await effectiveGoal(exercise);
       const bound = await resolveEquipmentLoads(exercise);
-      const { patch, snap } = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
+      const { patch, snap } = progressionPatch(exercise, sets, reps, perf.weight, perf.perSet, goal, bound.loads);
       // Effort of that log, in the goal's own terms: the TOP (hardest-rated)
       // work set, formatted — the evidence riding along with each entry.
       // null when the log carries no RPE.
-      const stats = workSetStats(sets, reps, latest.sets);
+      const stats = workSetStats(sets, reps, perf.perSet);
       const current = {
         target_sets: exercise.target_sets,
         target_reps_min: exercise.target_reps_min,
@@ -3340,21 +3372,26 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   // exerciseWeightBaseline (med-l5yr.5) is the "before you save" read of the
   // weight-sanity rule: the baseline ({ prior_logs, heaviest_kg, unweighted })
-  // a set of `name` logged in session `sessionId` is judged on — every
-  // completed log of the exercise that sorts before that session (no session →
-  // the whole history). The session view feeds it to weight-sanity.js flagSets
-  // with its own on-screen sets. UI read only (no MCP op).
-  async function exerciseWeightBaseline(name, sessionId) {
+  // a set of `name` is judged on: every completed log of the exercise that
+  // sorts before log `logId` (session, then log id — earlier logs of the same
+  // session count). A log not stored yet in session `sessionId` sorts after
+  // that session's stored logs; no session → the whole history. The session
+  // view feeds it to weight-sanity.js flagSets with its own on-screen sets;
+  // propagation and progressionPreview do the same. UI read only (no MCP op).
+  async function exerciseWeightBaseline(name, sessionId, logId) {
     const { logs, dateById, timeById, exerciseName } = await sortedLogsByName(String(name || '').trim());
+    const { before, last } = weightFlagsFor(logs, exerciseName);
+    const lid = Number(logId) || 0;
+    const own = lid > 0 ? logs.find((l) => l.id === lid) : null;
+    if (own) return before.get(own);
     const sid = Number(sessionId) || 0;
     const session = sid > 0 ? await findSession(sid) : null;
-    const { before, last } = weightFlagsFor(logs, exerciseName);
     if (!session) return last;
     // sortedLogsByName's order: date, then scheduled_time, then session id.
     const day = new Date(session.scheduled_date).getTime();
     const time = session.scheduled_time || '';
     const older = logs.find((l) => {
-      if (l.session_id === session.id) return false;
+      if (l.session_id === session.id) return true;
       const d = new Date(dateById.get(l.session_id)).getTime();
       if (d !== day) return d < day;
       const t = timeById.get(l.session_id);
@@ -3386,7 +3423,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         const ta = timeById.get(a.session_id);
         const tb = timeById.get(b.session_id);
         if (ta !== tb) return ta < tb ? 1 : -1;
-        return b.session_id - a.session_id;
+        // Then log id, so two logs of one exercise in one session run in the
+        // same order here as in getStats' fold (med-l5yr.5).
+        return (b.session_id - a.session_id) || (b.id - a.id);
       });
     return { logs, dateById, timeById, libraryRows: await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY) };
   }

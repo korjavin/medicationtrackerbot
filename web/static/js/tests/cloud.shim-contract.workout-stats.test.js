@@ -707,8 +707,32 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             const suggest = await env.window.apiCallDirect('/api/workout/exercises/suggest-target?name=Goblet%20Squat&goal=general');
             expect(suggest.last.weight_kg).toBe(50);
             // The "before you save" baseline for that session.
-            expect(await env.window.apiCallDirect(`/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=${slip.session_id}`))
+            expect(await env.window.apiCallDirect(`/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=${slip.session_id}&log_id=${slip.id}`))
                 .toEqual({ prior_logs: 5, heaviest_kg: 50, unweighted: false });
+            // A new log in that session is judged after the session's own.
+            expect(await env.window.apiCallDirect(`/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=${slip.session_id}`))
+                .toEqual({ prior_logs: 6, heaviest_kg: 50, unweighted: false });
+        });
+
+        it('two logs of one exercise in a session: the earlier one is part of the later one\'s baseline, in stats and history alike', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            for (let d = 9; d > 6; d--) await logSets(env, 'Goblet Squat', sets(50), d);
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            const create = (id, name, kg) => window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: id, exercise_name: name, source: 'library', status: 'completed', sets: sets(kg),
+            });
+            const a = await create(998, 'Goblet Squat', 60);
+            const b = await create(999, 'goblet squat', 110);
+            expect(a.id).toBeLessThan(b.id);
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const rows = await history(env, 'Goblet Squat');
+            expect(rows.every((r) => flagsOf(r).every((f) => f === null))).toBe(true);
+            const stats = await window.apiCallDirect('/api/workout/stats');
+            expect(stats.exercise_totals[0].max_weight_kg).toBe(110);
+            expect(await window.apiCallDirect(`/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=${session.id}&log_id=${b.id}`))
+                .toEqual({ prior_logs: 4, heaviest_kg: 60, unweighted: false });
         });
 
         it("a confirmed set counts again; a re-save without the mark (an older client) brings the flag back", async () => {
