@@ -178,8 +178,27 @@ function renderAppPanel(panel, url, app, primary) {
   hydrateIcons(panel);
 }
 
+// Per-mode controls are left out of the markup, never `hidden`: kit
+// .wg-btn / .wg-vstack set display and would override the [hidden] UA rule in
+// the body-level page this mounts into.
+const CONNECT_BLOCK = {
+  // CC1: the connector is the one primary.
+  none: `
+    <p class="wg-hint">Your AI app reaches this app through our server. The server sees the requests and answers on the way and stores none of them.</p>
+    <button type="button" id="claude-remote-connect-button" class="wg-btn wg-btn--primary wg-btn--block">Connect an AI app</button>
+    <p class="wg-hint">One AI app per account. Connecting a new one replaces the old link.</p>`,
+  // CC4 · Local shim: the switch, secondary (minting a pairing replaces the
+  // account's old one server-side, mcp_relay.go).
+  local: `
+    <button type="button" id="claude-remote-connect-button" class="wg-btn wg-btn--block">Connect an AI app instead</button>
+    <p class="wg-hint">This disconnects the local shim first.</p>`,
+  // Remote on: no offer — it would be a no-op affordance.
+  remote: '',
+};
+
 function renderPicker(mount, ctx, pairing, remote) {
   const mode = claudeMode(pairing, remote.enabled);
+  const showApps = mode === 'remote' && remote.url;
   mount.innerHTML = `
     <div class="wg-card wg-hstack">
       <span class="wg-row__lead${mode === 'none' ? '' : ' wg-row__lead--ok'}"><i class="wg-ico" data-icon="plug"></i></span>
@@ -188,49 +207,23 @@ function renderPicker(mount, ctx, pairing, remote) {
         <span class="wg-meta" id="claude-status-meta"></span>
       </span>
     </div>
-    <div id="claude-apps" class="wg-vstack" hidden></div>
+    ${showApps ? '<div id="claude-apps" class="wg-vstack"></div>' : ''}
     ${CAPABILITIES}
-    <div id="claude-connect-block" class="wg-vstack" hidden>
-      <p class="wg-hint" id="claude-connect-before"></p>
-      <button type="button" id="claude-remote-connect-button" class="wg-btn wg-btn--block"></button>
-      <p class="wg-hint" id="claude-connect-after"></p>
-    </div>
-    <button type="button" id="claude-disconnect-button" class="wg-btn wg-btn--danger-ghost wg-btn--block">Disconnect</button>`;
+    ${CONNECT_BLOCK[mode]}
+    ${mode === 'none' ? '' : '<button type="button" id="claude-disconnect-button" class="wg-btn wg-btn--danger-ghost wg-btn--block">Disconnect</button>'}`;
 
   mount.querySelector('#claude-status').textContent = CLAUDE_STATUS_TEXT[mode];
   mount.querySelector('#claude-status-meta').textContent = CLAUDE_STATUS_META[mode];
-  mount.querySelector('#claude-disconnect-button').hidden = mode === 'none';
 
   // CC4: remote is on — show the per-app instructions again (the token lives
   // server-side, med-24d), with no primary: nothing is waiting.
-  if (mode === 'remote' && remote.url) {
+  if (showApps) {
     const apps = mount.querySelector('#claude-apps');
-    apps.hidden = false;
     renderAppSwitch(apps, remote.url, false);
     apps.insertAdjacentHTML('beforeend', KEEP_OPEN_HINT);
   }
 
-  // CC1 offers the connector as the one primary; CC4 · Local shim offers it as
-  // the switch (minting a pairing replaces the account's old one server-side,
-  // mcp_relay.go). Remote on: no offer — it would be a no-op affordance.
-  const connect = mount.querySelector('#claude-remote-connect-button');
-  if (mode !== 'remote') {
-    mount.querySelector('#claude-connect-block').hidden = false;
-    const before = mount.querySelector('#claude-connect-before');
-    const after = mount.querySelector('#claude-connect-after');
-    if (mode === 'none') {
-      before.textContent = 'Your AI app reaches this app through our server. The server sees the requests and answers on the way and stores none of them.';
-      connect.textContent = 'Connect an AI app';
-      connect.classList.add('wg-btn--primary');
-      after.textContent = 'One AI app per account. Connecting a new one replaces the old link.';
-    } else {
-      before.hidden = true;
-      connect.textContent = 'Connect an AI app instead';
-      after.textContent = 'This disconnects the local shim first.';
-    }
-  }
-
-  connect.addEventListener('click', async () => {
+  mount.querySelector('#claude-remote-connect-button')?.addEventListener('click', async () => {
     if (!(await window.safeConfirm(REMOTE_CONSENT_TEXT, null, { title: 'Connect an AI app?', confirmLabel: 'Connect', icon: 'plug' }))) return;
     connectRemote(ctx)
       .then(({ url }) => renderConnected(mount, ctx, url))
@@ -238,7 +231,7 @@ function renderPicker(mount, ctx, pairing, remote) {
   });
 
   // Kit S5: outlined destructive → dialog → filled clay confirm.
-  mount.querySelector('#claude-disconnect-button').addEventListener('click', async () => {
+  mount.querySelector('#claude-disconnect-button')?.addEventListener('click', async () => {
     const confirmed = await window.safeConfirm(
       'Claude loses access right away. Your data stays in the vault. You can reconnect later with a new ' +
         (mode === 'remote' ? 'URL.' : 'pairing code.'),

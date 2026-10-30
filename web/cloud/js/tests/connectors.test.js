@@ -7,6 +7,11 @@
 // mcp-remote.js's own fetch calls (covered separately).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 vi.mock('../mcp-pairing.js', () => ({
   getPairing: vi.fn(),
@@ -60,8 +65,6 @@ function stubClipboard() {
   return writeText;
 }
 
-const visible = (el) => !!el && !el.closest('[hidden]');
-
 async function connectThroughConsent() {
   getPairing.mockResolvedValue(null);
   getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
@@ -83,14 +86,16 @@ describe('connectors.js Claude connector page', () => {
     await renderAndSettle();
 
     const connect = app.querySelector('#claude-remote-connect-button');
-    expect(visible(connect)).toBe(true);
     expect(connect.textContent).toBe('Connect an AI app');
     expect(connect.classList.contains('wg-btn--primary')).toBe(true);
     expect(app.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
     expect(app.querySelector('#claude-status').textContent).toBe('Not connected');
     expect(app.textContent).toContain('One AI app per account.');
     expect(app.querySelector('#claude-local-connect-button')).toBeNull();
-    expect(app.querySelector('#claude-disconnect-button').hidden).toBe(true);
+    // Inactive controls are not rendered at all: kit .wg-btn/.wg-vstack set
+    // display, which beats a [hidden] attribute in the body-level page.
+    expect(app.querySelector('#claude-disconnect-button')).toBeNull();
+    expect(app.querySelector('[hidden]')).toBeNull();
     expect(app.textContent).not.toMatch(/go build|mcpshim/);
   });
 
@@ -133,6 +138,23 @@ describe('connectors.js Claude connector page', () => {
     expect(writeText).toHaveBeenLastCalledWith(COMMAND);
   });
 
+  // Argus, med-73xx: styles.css loads before components.css (index.html), so a
+  // (0,1,0)/(0,1,1) wrap modifier ties with .wg-code / .wg-code>span and loses
+  // on source order, clipping the prompt to one ellipsized line. jsdom computes
+  // no cascade (see health.notes.test.js), so pin the load order and the
+  // doubled-class selectors that outweigh components.css on their own.
+  it('the prompt field wraps: its modifier outweighs components.css .wg-code', async () => {
+    const read = (f) => fs.readFileSync(path.join(REPO_ROOT, f), 'utf8');
+    const html = read('web/static/index.html');
+    expect(html.indexOf('/static/css/styles.css')).toBeLessThan(html.indexOf('/static/css/components.css'));
+    const styles = read('web/static/css/styles.css');
+    expect(styles).toMatch(/\.wg-code\.wg-code--wrap \{[^}]*height: auto;/);
+    expect(styles).toMatch(/\.wg-code\.wg-code--wrap > span \{[^}]*white-space: normal;[^}]*text-overflow: clip;/);
+
+    await connectThroughConsent();
+    expect(app.querySelector('#claude-code-prompt').parentElement.classList.contains('wg-code--wrap')).toBe(true);
+  });
+
   it('switches to the Claude app and ChatGPT instructions for the same URL', async () => {
     await connectThroughConsent();
     const seg = (label) => [...app.querySelectorAll('.wg-seg__opt')].find((b) => b.textContent === label);
@@ -159,8 +181,11 @@ describe('connectors.js Claude connector page', () => {
     expect(app.querySelector('#claude-status').textContent).toBe('Connected');
     expect(app.querySelector('#claude-code-command').textContent).toBe(COMMAND);
     expect(app.querySelectorAll('.wg-btn--primary')).toHaveLength(0);
-    expect(visible(app.querySelector('#claude-remote-connect-button'))).toBe(false);
-    expect(visible(app.querySelector('#claude-disconnect-button'))).toBe(true);
+    // No connect offer at all (Argus, med-73xx): an empty Connect button left
+    // in the DOM would re-mint and revoke the working URL.
+    expect(app.querySelector('#claude-remote-connect-button')).toBeNull();
+    expect(app.querySelector('[hidden]')).toBeNull();
+    expect(app.querySelector('#claude-disconnect-button')).not.toBeNull();
     expect(app.textContent).toContain('Keep this app open and unlocked on one device while Claude works.');
   });
 
