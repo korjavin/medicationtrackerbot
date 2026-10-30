@@ -364,7 +364,8 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
                     default_reps_min: 5,
                     default_reps_max: null,
                     default_weight_kg: 100
-                })
+                }),
+                expect.anything()
             );
             expect(window.loadExerciseLibrary).toHaveBeenCalled();
         });

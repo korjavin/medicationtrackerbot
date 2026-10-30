@@ -3627,16 +3627,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // listExerciseNames (med-l5yr.1): every distinct resolved exercise across
   // completed logs — including names that live only in history, which the
   // library merge UI needs — with its log count and library row (null when
-  // unresolved), sorted by name. UI read only (no MCP op).
+  // unresolved), sorted by name. UI read only (no MCP op). Each entry also
+  // carries its newest log's date and `spellings` — the logged names folded
+  // into it (one per exerciseKey, newest spelling shown), so the library
+  // editor can show an alias's own log count (med-l5yr.4).
   async function listExerciseNames() {
-    const { logs, libraryRows } = await completedLogsNewestFirst();
+    const { logs, dateById, libraryRows } = await completedLogsNewestFirst();
     const resolve = buildExerciseResolver(libraryRows, logs);
     const byKey = new Map();
     for (const l of logs) {
       const ex = resolve(l.exercise_name);
       if (!ex.key) continue;
-      const entry = byKey.get(ex.key) || { name: ex.name, key: ex.key, log_count: 0, library_id: ex.libraryId };
+      const date = dateById.get(l.session_id) || null;
+      const entry = byKey.get(ex.key)
+        || { name: ex.name, key: ex.key, log_count: 0, library_id: ex.libraryId, last_date: date, spellings: [] };
       entry.log_count++;
+      const k = exerciseKey(l.exercise_name);
+      let sp = entry.spellings.find((s) => s.key === k);
+      if (!sp) {
+        sp = { name: String(l.exercise_name).trim(), key: k, log_count: 0, last_date: date };
+        entry.spellings.push(sp);
+      }
+      sp.log_count++;
       byKey.set(ex.key, entry);
     }
     return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));

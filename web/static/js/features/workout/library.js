@@ -398,10 +398,15 @@ async function _syncEquipmentSelect(currentId, selectId = 'exercise-library-equi
 async function showExerciseLibraryModal(presetName) {
     window.WorkoutEdit.editingLibraryItemId = null;
     document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
-    document.getElementById('exercise-library-rename-hint').hidden = true;
+    _editingRow = null;
+    _editLibrary = _libraryItems;
+    document.getElementById('exercise-library-names').hidden = true;
+    document.getElementById('exercise-library-merge-btn').hidden = true;
     window.ModalManager.exerciseLibrary.open();
 
     document.getElementById('exercise-library-name').value = typeof presetName === 'string' ? presetName : '';
+    checkExerciseLibraryName();
+    _loadIdentityDomain().then(checkExerciseLibraryName);
     document.getElementById('exercise-library-sets').value = '';
     document.getElementById('exercise-library-reps-min').value = '';
     document.getElementById('exercise-library-reps-max').value = '';
@@ -431,7 +436,10 @@ async function showEditExerciseLibraryModal(id) {
 
     window.WorkoutEdit.editingLibraryItemId = id;
     document.getElementById('exercise-library-modal-title').textContent = 'Edit Exercise';
-    document.getElementById('exercise-library-rename-hint').hidden = false;
+    _editingRow = item;
+    _editLibrary = items;
+    document.getElementById('exercise-library-names').hidden = false;
+    document.getElementById('exercise-library-merge-btn').hidden = false;
     window.ModalManager.exerciseLibrary.open();
 
     document.getElementById('exercise-library-name').value = item.name;
@@ -441,6 +449,12 @@ async function showEditExerciseLibraryModal(id) {
     document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
     document.getElementById('exercise-library-notes').value = item.notes || '';
     _syncBodyPartSelect(item.body_part || '');
+    _paintExerciseAliases();
+    checkExerciseLibraryName();
+    await Promise.all([_loadIdentityDomain(), _loadExerciseNames()]);
+    if (_editingRow !== item) return; // closed or reopened meanwhile
+    _paintExerciseAliases();
+    checkExerciseLibraryName();
     await _syncEquipmentSelect(item.equipment_id);
 
     // The picker starts closed, so the stored name is not immediately buried
@@ -453,8 +467,10 @@ async function showEditExerciseLibraryModal(id) {
 }
 
 function closeExerciseLibraryModal() {
+    closeExerciseLibraryPicker();
     window.ModalManager.exerciseLibrary.close();
     window.WorkoutEdit.editingLibraryItemId = null;
+    _editingRow = null;
 }
 
 async function saveExerciseLibraryItem() {
@@ -479,6 +495,8 @@ async function saveExerciseLibraryItem() {
         safeAlert('Exercise name is required!');
         return;
     }
+    // A taken name is shown on the field (kit EI3) and Save stays off.
+    if (checkExerciseLibraryName()) return;
 
     const payload = {
         name: name,
@@ -491,19 +509,36 @@ async function saveExerciseLibraryItem() {
     };
     if (equipmentRaw !== null) payload.equipment_id = equipmentRaw !== '' ? Number(equipmentRaw) : null;
 
-    let result;
-    const isCreate = !window.WorkoutEdit.editingLibraryItemId;
-    if (!isCreate) {
-        result = await apiCall(`/api/workout/exercise-library/update?id=${window.WorkoutEdit.editingLibraryItemId}`, 'PUT', payload);
-    } else {
-        result = await apiCall('/api/workout/exercise-library/create', 'POST', payload);
+    const editingId = window.WorkoutEdit.editingLibraryItemId;
+    const isCreate = !editingId;
+    const handle = await _optimisticLibrary((list) => (isCreate
+        ? [...list, { ...payload, id: `local_${Date.now()}` }]
+        : list.map((r) => (r && r.id === editingId ? { ...r, ...payload } : r))));
+    let result = null;
+    try {
+        result = isCreate
+            ? await apiCall('/api/workout/exercise-library/create', 'POST', payload, { suppressWriteAlert: true })
+            : await apiCall(`/api/workout/exercise-library/update?id=${editingId}`, 'PUT', payload, { suppressWriteAlert: true });
+    } catch (e) {
+        if (handle) await handle.rollback().catch(() => {});
+        safeAlert('Error: ' + (e && e.message ? e.message : e));
+        return;
     }
 
     if (result || result === true) {
+        if (handle) await handle.commit(null).catch(() => {});
         closeExerciseLibraryModal();
         loadExerciseLibrary();
         if (isCreate && !bodyPart) _autoTagIfUnresolved(name);
+        return;
     }
+    if (handle) await handle.rollback().catch(() => {});
+    // A duplicate 409 (another device took the name since this sheet opened):
+    // re-read the library and show the taken-name state with its merge offer
+    // instead of a dead end.
+    const fresh = await apiCall('/api/workout/exercise-library');
+    if (Array.isArray(fresh)) _editLibrary = fresh;
+    if (!checkExerciseLibraryName()) safeAlert("Couldn't save the exercise — try again.");
 }
 
 // A freshly created row with "Auto" muscle group that the static catalog
@@ -535,6 +570,357 @@ async function _deleteExerciseLibraryApi(id) {
     if (result || result === true) {
         loadExerciseLibrary();
     }
+}
+
+// ---- Exercise identity: other names, rename, merge (med-l5yr.4, kit EI1–EI6) ----
+// The Edit sheet lists the names whose logs count as this row ("Also logged
+// as", each removable), checks the typed name against the rest of the library
+// (a taken name offers the merge), and opens one picker sheet over itself for
+// the merge target (EI4) or a history-only name to add (EI6). The domain does
+// the work: findLibraryRowByName / exerciseKey, the merge route, aliases on
+// update.
+let _editingRow = null; // module-state: the library row the Edit sheet opened on (null in Add)
+let _editLibrary = []; // module-state: library rows the open sheet checks names against
+let _exerciseNames = []; // module-state: last GET /api/workout/exercises/names (log counts, history-only names)
+let _identityDomain = null; // module-state: web/domain/workout.js once loaded (findLibraryRowByName, exerciseKey)
+let _pickerMode = null; // module-state: what the picker sheet shows — 'merge' (EI4) | 'names' (EI6)
+
+async function _loadIdentityDomain() {
+    if (!_identityDomain) {
+        try { _identityDomain = await window.WorkoutLibrary.loadDomain(); } catch (_) { _identityDomain = null; }
+    }
+    return _identityDomain;
+}
+
+async function _loadExerciseNames() {
+    let names = null;
+    try { names = await apiCall('/api/workout/exercises/names'); } catch (_) { names = null; }
+    _exerciseNames = Array.isArray(names) ? names : [];
+    return _exerciseNames;
+}
+
+function _nameKey(name) {
+    if (_identityDomain && typeof _identityDomain.exerciseKey === 'function') return _identityDomain.exerciseKey(name);
+    return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function _logsMeta(count, date) {
+    const n = Number(count) || 0;
+    if (!n) return 'No logs yet';
+    const when = date ? new Date(date) : null;
+    const last = when && !Number.isNaN(when.getTime())
+        ? ` · last ${when.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : '';
+    return `${n} log${n === 1 ? '' : 's'}${last}`;
+}
+
+function _namesEntryFor(row) {
+    return row ? _exerciseNames.find((e) => e && e.library_id === row.id) || null : null;
+}
+
+// One kit list row: title + meta, and an optional trailing node.
+function _identityRow(doc, tag, title, meta, trail) {
+    const row = doc.createElement(tag);
+    row.className = 'wg-row';
+    if (tag === 'button') row.type = 'button';
+    const body = doc.createElement('span');
+    body.className = 'wg-row__body';
+    const t = doc.createElement('span');
+    t.className = 'wg-row__title';
+    t.textContent = title;
+    const m = doc.createElement('span');
+    m.className = 'wg-row__meta';
+    m.textContent = meta;
+    body.append(t, m);
+    row.appendChild(body);
+    if (trail) row.appendChild(trail);
+    return row;
+}
+
+function _identityIconBtn(doc, icon, label, onClick) {
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm';
+    btn.setAttribute('aria-label', label);
+    btn.appendChild(_wgExerciseIco(icon));
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+// EI1: "Also logged as" — each alias with its own log count and last date.
+function _paintExerciseAliases() {
+    const list = document.getElementById('exercise-library-aliases');
+    const empty = document.getElementById('exercise-library-aliases-empty');
+    if (!list || !empty) return;
+    const doc = list.ownerDocument;
+    const aliases = (_editingRow && Array.isArray(_editingRow.aliases)) ? _editingRow.aliases : [];
+    const entry = _namesEntryFor(_editingRow);
+    const spellings = (entry && Array.isArray(entry.spellings)) ? entry.spellings : [];
+    list.replaceChildren(...aliases.map((alias) => {
+        const sp = spellings.find((s) => s && s.key === _nameKey(alias));
+        return _identityRow(doc, 'div', alias, sp ? _logsMeta(sp.log_count, sp.last_date) : 'No logs yet',
+            _identityIconBtn(doc, 'x', `Remove ${alias}`, () => removeExerciseAlias(alias)));
+    }));
+    list.hidden = aliases.length === 0;
+    empty.hidden = aliases.length > 0;
+}
+
+// EI2/EI3: the hint under Name, or the taken-name error with its merge offer.
+// Returns the row the typed name already belongs to (null when free), and
+// keeps Save off while it is taken.
+function checkExerciseLibraryName() {
+    const input = document.getElementById('exercise-library-name');
+    if (!input) return null;
+    const name = input.value.trim();
+    const editing = _editingRow;
+    const others = (_editLibrary || []).filter((r) => r && !r.deleted && (!editing || r.id !== editing.id));
+    let taken = null;
+    if (name && _identityDomain) {
+        // A name that keeps this row's own key (a case-only rename) is held
+        // only to the exact-name rule, as in the domain's duplicate guard.
+        taken = editing && _nameKey(name) === _nameKey(editing.name)
+            ? others.find((r) => r.name === name) || null
+            : _identityDomain.findLibraryRowByName(others, name);
+    }
+
+    const field = document.getElementById('exercise-library-name-field');
+    const hint = document.getElementById('exercise-library-rename-hint');
+    const error = document.getElementById('exercise-library-name-error');
+    const merge = document.getElementById('exercise-library-name-merge');
+    const save = document.getElementById('exercise-library-save-btn');
+    if (field) field.classList.toggle('wg-workouts-library-modal__field--error', !!taken);
+    if (save) save.disabled = !!taken;
+    if (error) {
+        error.hidden = !taken;
+        error.textContent = !taken ? ''
+            : _nameKey(taken.name) === _nameKey(name)
+                ? `You already have ${taken.name}.`
+                : `"${name}" is already an alias of ${taken.name}.`;
+    }
+    if (merge) {
+        merge.hidden = !(taken && editing);
+        merge.lastElementChild.textContent = taken ? `Merge into ${taken.name}` : '';
+        merge.onclick = taken && editing ? () => confirmExerciseMerge(taken) : null;
+    }
+    if (hint) {
+        hint.hidden = !editing || !!taken;
+        hint.textContent = !editing ? ''
+            : _nameKey(name) !== _nameKey(editing.name)
+                ? `History stays. "${editing.name}" will be kept under "Also logged as".`
+                : 'Renaming keeps the history. The old name moves to "Also logged as".';
+    }
+    return taken;
+}
+
+// The library cache projection every write here goes through (rule 9).
+async function _optimisticLibrary(mutator, tags = ['exercise_library']) {
+    if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') return null;
+    try {
+        return await window.DataStore.applyOptimistic('exercise_library',
+            (prev) => (Array.isArray(prev) ? mutator(prev.slice()) : prev), tags);
+    } catch (_) {
+        return null; // a failed cache projection must not block the write
+    }
+}
+
+// POST the merge route; history, stats and records regroup, so 'workout'
+// rides with the library tag. Names that stayed with a third row
+// (skipped_aliases) are told, not dropped silently.
+async function _postExerciseMerge(body, mutator) {
+    const handle = await _optimisticLibrary(mutator, ['exercise_library', 'workout']);
+    let res = null;
+    let err = null;
+    try {
+        res = await apiCall('/api/workout/exercise-library/merge', 'POST', body, { suppressWriteAlert: true });
+    } catch (e) {
+        err = e;
+    }
+    if (!res) {
+        if (handle) await handle.rollback().catch(() => {});
+        safeAlert(err && err.message ? `Couldn't merge: ${err.message}` : "Couldn't merge — try again.");
+        return null;
+    }
+    if (handle) await handle.commit(null).catch(() => {});
+    if (Array.isArray(res.skipped_aliases) && res.skipped_aliases.length) {
+        const list = res.skipped_aliases.map((s) => `"${s.name}" stays with ${s.owner}`).join('; ');
+        await safeAlert(`${list}: that exercise already answers to it.`, { title: 'Some names stayed put' });
+    }
+    return res;
+}
+
+// EI5: merge the row being edited into `target`, after a confirm that says
+// what moves and what goes. Merge is primary, not danger: "Also logged as"
+// undoes it.
+async function confirmExerciseMerge(target) {
+    const src = _editingRow;
+    if (!src || !target) return;
+    const entry = _namesEntryFor(src);
+    const n = entry ? Number(entry.log_count) || 0 : 0;
+    const logs = n ? `Its ${n} log${n === 1 ? '' : 's'} count` : 'Its logs count';
+    const msg = `${logs} as ${target.name} in history, stats and records. ${src.name} leaves your library, `
+        + `and plans that use it switch to ${target.name}. To undo, remove the name under "Also logged as".`;
+    const ok = await safeConfirm(msg, null, {
+        title: `Merge ${src.name} into ${target.name}?`, confirmLabel: 'Merge', icon: 'link', tone: 'warn',
+    });
+    if (!ok) return;
+    const moved = [src.name, ...(Array.isArray(src.aliases) ? src.aliases : [])];
+    const res = await _postExerciseMerge({ id: src.id, into_id: target.id }, (list) => list
+        .filter((r) => !(r && r.id === src.id))
+        .map((r) => (r && r.id === target.id ? { ...r, aliases: [...(r.aliases || []), ...moved] } : r)));
+    if (!res) return;
+    closeExerciseLibraryModal();
+    loadExerciseLibrary();
+}
+
+// EI6 "+": a name only history carries becomes this row's alias at once.
+async function addExerciseNameFromHistory(name) {
+    const row = _editingRow;
+    if (!row || !name) return;
+    const res = await _postExerciseMerge({ name, into_id: row.id }, (list) => list
+        .map((r) => (r && r.id === row.id ? { ...r, aliases: [...(r.aliases || []), name] } : r)));
+    if (!res || _editingRow !== row) return;
+    _editingRow = { ...row, aliases: Array.isArray(res.aliases) ? res.aliases : [] };
+    await _loadExerciseNames();
+    _paintExerciseAliases();
+    _paintExerciseLibraryPicker();
+    loadExerciseLibrary();
+}
+
+// EI1 "×": no confirm — the logs just go back under that name. The stored
+// row is sent, not the form, so unsaved edits in the sheet stay unsaved.
+async function removeExerciseAlias(alias) {
+    const row = _editingRow;
+    if (!row) return;
+    const aliases = (row.aliases || []).filter((a) => a !== alias);
+    const body = {
+        name: row.name, default_sets: row.default_sets, default_reps_min: row.default_reps_min,
+        default_reps_max: row.default_reps_max ?? null, default_weight_kg: row.default_weight_kg ?? null,
+        notes: row.notes || '', body_part: row.body_part || '', aliases,
+    };
+    _editingRow = { ...row, aliases };
+    _paintExerciseAliases();
+    const handle = await _optimisticLibrary((list) => list
+        .map((r) => (r && r.id === row.id ? { ...r, aliases } : r)), ['exercise_library', 'workout']);
+    let ok = false;
+    try {
+        ok = !!(await apiCall(`/api/workout/exercise-library/update?id=${row.id}`, 'PUT', body, { suppressWriteAlert: true }));
+    } catch (_) {
+        ok = false;
+    }
+    if (!ok) {
+        if (handle) await handle.rollback().catch(() => {});
+        if (_editingRow && _editingRow.id === row.id) {
+            _editingRow = row;
+            _paintExerciseAliases();
+        }
+        safeAlert("Couldn't remove the name — try again.");
+        return;
+    }
+    if (handle) await handle.commit(null).catch(() => {});
+    await _loadExerciseNames();
+    loadExerciseLibrary();
+}
+
+function openExerciseLibraryPicker(mode) {
+    const src = _editingRow;
+    if (!src) return;
+    _pickerMode = mode === 'names' ? 'names' : 'merge';
+    const merge = _pickerMode === 'merge';
+    document.getElementById('exercise-library-picker-eyebrow').textContent = merge ? `Merge ${src.name} into` : src.name;
+    document.getElementById('exercise-library-picker-title').textContent = merge ? 'Pick the exercise' : 'Add a name from history';
+    const search = document.getElementById('exercise-library-picker-search');
+    search.value = '';
+    search.placeholder = merge ? 'Search your exercises' : 'Search names';
+    const hint = document.getElementById('exercise-library-picker-hint');
+    hint.hidden = merge;
+    hint.textContent = merge ? '' : "Names in your logs that aren't in your library.";
+    window.ModalManager.open('exercise-library-picker', { overlay: false });
+    _paintExerciseLibraryPicker();
+}
+
+function closeExerciseLibraryPicker() {
+    _pickerMode = null;
+    const picker = document.getElementById('exercise-library-picker');
+    if (picker && !picker.classList.contains('hidden')) window.ModalManager.close('exercise-library-picker');
+}
+
+function _pickerSection(doc, label, rows) {
+    const section = doc.createElement('section');
+    section.className = 'wg-section';
+    const head = doc.createElement('div');
+    head.className = 'wg-section__head';
+    const eyebrow = doc.createElement('span');
+    eyebrow.className = 'wg-eyebrow';
+    eyebrow.textContent = label;
+    head.appendChild(eyebrow);
+    const list = doc.createElement('div');
+    list.className = 'wg-list';
+    list.append(...rows);
+    section.append(head, list);
+    return section;
+}
+
+// EI4: "Closest names" (up to 3 rows sharing a word with this one), then every
+// other row A–Z with body part and log count; a query narrows to matches.
+// EI6: names only history carries, most logs first.
+function _paintExerciseLibraryPicker() {
+    const mount = document.getElementById('exercise-library-picker-list');
+    const search = document.getElementById('exercise-library-picker-search');
+    const src = _editingRow;
+    if (!mount || !search || !src || !_pickerMode) return;
+    const doc = mount.ownerDocument;
+    const q = search.value.trim().toLowerCase();
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const empty = (text) => {
+        const p = doc.createElement('p');
+        p.className = 'wg-hint';
+        p.textContent = text;
+        return p;
+    };
+
+    if (_pickerMode === 'names') {
+        const names = _exerciseNames
+            .filter((e) => e && e.name && e.library_id == null && (!q || _exerciseMatchTier(e.name, tokens, q) > 0))
+            .sort((a, b) => (b.log_count - a.log_count) || a.name.localeCompare(b.name));
+        if (!names.length) {
+            mount.replaceChildren(empty(q ? 'No names match that search.' : 'Every name in your logs is in your library.'));
+            return;
+        }
+        const list = doc.createElement('div');
+        list.className = 'wg-list';
+        list.append(...names.map((e) => _identityRow(doc, 'div', e.name, _logsMeta(e.log_count, e.last_date),
+            _identityIconBtn(doc, 'plus', `Add ${e.name}`, () => addExerciseNameFromHistory(e.name)))));
+        mount.replaceChildren(list);
+        return;
+    }
+
+    const rows = (_editLibrary || []).filter((r) => r && r.id != null && !r.deleted && r.id !== src.id);
+    const logsOf = (r) => Number((_namesEntryFor(r) || {}).log_count) || 0;
+    const target = (r) => {
+        const n = logsOf(r);
+        const meta = [_libraryBodyPartLabel((r.body_part || '').trim()), `${n} log${n === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+        const chev = _wgExerciseIco('chev-r');
+        chev.classList.add('wg-row__chev');
+        const btn = _identityRow(doc, 'button', r.name, meta, chev);
+        btn.addEventListener('click', () => confirmExerciseMerge(r));
+        return btn;
+    };
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    if (q) {
+        const hits = _filterExercises(rows, q).sort(byName);
+        mount.replaceChildren(hits.length ? _pickerSection(doc, 'Matches', hits.map(target)) : empty('No exercises match that search.'));
+        return;
+    }
+    const words = new Set(_nameKey(src.name).split(/[\s/-]+/).filter(Boolean));
+    const closest = rows
+        .map((r) => ({ r, shared: _nameKey(r.name).split(/[\s/-]+/).filter((w) => words.has(w)).length }))
+        .filter((x) => x.shared > 0)
+        .sort((a, b) => (b.shared - a.shared) || byName(a.r, b.r))
+        .slice(0, 3)
+        .map((x) => x.r);
+    const sections = [];
+    if (closest.length) sections.push(_pickerSection(doc, 'Closest names', closest.map(target)));
+    sections.push(_pickerSection(doc, 'All your exercises', rows.slice().sort(byName).map(target)));
+    mount.replaceChildren(...sections);
 }
 
 // Canonical exercise-name suggestions from the vendored static catalog
@@ -940,5 +1326,13 @@ window.WorkoutLibrary = {
     bindExercisePicker: bindExercisePicker,
     bindExerciseAddList: bindExerciseAddList,
     resolveOrCreateLibraryId: resolveOrCreateLibraryId,
-    loadDomain: loadWorkoutLibraryDomain
+    loadDomain: loadWorkoutLibraryDomain,
+    // Exercise identity (med-l5yr.4, kit EI1–EI6).
+    checkName: checkExerciseLibraryName,
+    openPicker: openExerciseLibraryPicker,
+    closePicker: closeExerciseLibraryPicker,
+    repaintPicker: () => _paintExerciseLibraryPicker(),
+    confirmMerge: confirmExerciseMerge,
+    addNameFromHistory: addExerciseNameFromHistory,
+    removeAlias: removeExerciseAlias
 };
