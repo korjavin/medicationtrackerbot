@@ -895,24 +895,18 @@ function _wgExerciseIco(name) {
 // exercise id, upserting a new library row when the name is unknown (the
 // server INSERTs without dedup, so match by trimmed, case-insensitive name
 // first). Returns null on empty name or failure.
+// Domain module for the name lookup. Same convention as groups.js
+// loadWorkoutEquipmentDomain: the indirection is the test seam.
+function loadWorkoutLibraryDomain() { return import('/domain/workout.js'); }
+
 async function resolveOrCreateLibraryId(name, defaults = {}) {
     const trimmed = (name || '').trim();
     if (!trimmed) return null;
-    // The domain's ingestion lookup order (findLibraryRowByName in
-    // web/domain/workout.js): exact name, else any case/spacing of a row's
-    // name, else an alias — the key always answering to its lowest-id row.
-    // The domain 409s a create on any of these, and logs.create re-resolves
-    // the id from the name anyway, so the stored log never depends on this.
-    const key = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const want = key(trimmed);
-    const match = (list) => {
-        const rows = [...list].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
-        const exact = rows.find(i => i.name === trimmed);
-        if (exact) return exact;
-        const hit = rows.find(i => key(i.name) === want)
-            || rows.find(i => (i.aliases || []).some(a => key(a) === want));
-        return hit && rows.find(i => key(i.name) === key(hit.name));
-    };
+    // The domain's one ingestion lookup (med-l5yr.2): exact name, else any
+    // case/spacing of a row's name, else an alias. The domain 409s a create on
+    // any of these, so the picker must land on the same row first.
+    const { findLibraryRowByName } = await window.WorkoutLibrary.loadDomain();
+    const match = (list) => findLibraryRowByName(list, trimmed);
     const items = await apiCall('/api/workout/exercise-library') || [];
     const existing = match(items);
     if (existing) return existing.id;
@@ -945,5 +939,6 @@ window.WorkoutLibrary = {
     setSource: setExerciseLibrarySource,
     bindExercisePicker: bindExercisePicker,
     bindExerciseAddList: bindExerciseAddList,
-    resolveOrCreateLibraryId: resolveOrCreateLibraryId
+    resolveOrCreateLibraryId: resolveOrCreateLibraryId,
+    loadDomain: loadWorkoutLibraryDomain
 };
