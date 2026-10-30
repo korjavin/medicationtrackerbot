@@ -118,6 +118,10 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
     // PATCH echoes the id. Records every call for assertions.
     // `existingTools` is the single-page case; `toolPages` (keyed by the cursor
     // the request carried, '' for the first) drives the multi-page case.
+    // Agent GET mirrors the managed projection of the official response:
+    // top-level conversation_config and optional platform_settings, with
+    // unrelated provider metadata ignored by the verification contract.
+    // https://elevenlabs.io/docs/api-reference/agents/get (verified 2026-10-30).
     function makeElevenLabsFetch({ existingTools = [], toolPages = null, agentId = 'agent-new', failAgentGet = 0, failAgentPatch = 0 } = {}) {
         const calls = [];
         const agents = new Map();
@@ -396,6 +400,51 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         spy.mockClear();
         await window.CloudElevenLabsAgent.provision();
         expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('keeps newer synced provisioning during an identity repair and verifies that newer agent on the next call', async () => {
+        const { window, records } = env;
+        await setKey(window);
+        const { spy, calls, agents } = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', spy);
+        await window.CloudElevenLabsAgent.provision();
+        reloadProvisioner('Renamed Care');
+
+        let releasePatch;
+        let patchStarted;
+        const held = new Promise((resolve) => { releasePatch = resolve; });
+        const started = new Promise((resolve) => { patchStarted = resolve; });
+        const respond = spy.getMockImplementation();
+        spy.mockImplementation(async (url, opts = {}) => {
+            if (opts.method === 'PATCH' && url.endsWith('/agents/agent-new')) {
+                patchStarted();
+                await held;
+            }
+            return respond(url, opts);
+        });
+        const repairing = window.CloudElevenLabsAgent.provision();
+        await started;
+        // Another device's provisioning row reaches the local mirror while
+        // the identity-only provider PATCH is still in flight.
+        await records.put('voiceprovisioning', {
+            recordId: 'voiceprovisioning', clientTs: Date.now() + 1000, deleted: false,
+            agentId: 'agent-synced', toolsetVersion: TOOLSET_VERSION,
+            toolIds: Object.fromEntries(TOOL_SPECS.map((s) => [s.name, `synced-${s.name}`])),
+        });
+        const newer = await records.list('voiceprovisioning');
+        releasePatch();
+        expect(await repairing).toBe('agent-new');
+        const afterRepair = await records.list('voiceprovisioning');
+        const syncedAgent = structuredClone(agents.get('agent-new'));
+        syncedAgent.conversation_config.agent.prompt.tool_ids = Object.values(newer[0].toolIds);
+        agents.set('agent-synced', syncedAgent);
+        calls.length = 0;
+        const nextId = await window.CloudElevenLabsAgent.provision();
+
+        expect(afterRepair).toEqual(newer);
+        expect(nextId).toBe('agent-synced');
+        expect(calls.map((c) => [c.method, c.url.split('/').pop()])).toEqual([['GET', 'agent-synced']]);
+        expect(await records.list('voiceprovisioning')).toEqual(newer);
     });
 
     it.each(['llm', 'url', 'model_id', 'api_type', 'override', 'translated greeting'])('repairs current-name agents with incompatible managed %s without rewriting tools', async (field) => {

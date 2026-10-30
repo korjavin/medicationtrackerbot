@@ -5,12 +5,13 @@
 //   pnpm trial:agent            # dry run: prints the payload, calls nothing
 //   pnpm trial:agent --apply    # really rewrites the shared trial agent
 //
-// The BYO path provisions itself from code on the next voice connect
-// (web/cloud/js/elevenlabs-agent.js, keyed by TOOLSET_VERSION), but the trial
-// agent lives in the operator's own ElevenLabs account and nothing in the
-// server touches the management API. Re-run this after every TOOLSET_VERSION
-// bump or trial users keep the old tool list — exactly the drift that stranded
-// them in #817. It is NOT automatic.
+// The BYO path provisions itself from code on the next voice connect, updating
+// tools on TOOLSET_VERSION changes and verifying managed identity/relay once
+// per cold provisioner (web/cloud/js/elevenlabs-agent.js). The trial agent lives
+// in the operator's own ElevenLabs account and nothing in the server touches
+// the management API. Re-run this after every TOOLSET_VERSION bump or
+// PRIVACY_NAME change, using the same name as cmd/cloud, or trial users keep
+// the old shared config. It is NOT automatic.
 //
 // Credentials come from the same envs cmd/cloud reads
 // (internal/cloudserver/trial.go): TRIAL_ELEVENLABS_API_KEY and

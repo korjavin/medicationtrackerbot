@@ -542,9 +542,11 @@ export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL, produ
       if (identity.agentId && stored.toolsetVersion === TOOLSET_VERSION) {
         const actual = await fetchAgent(key, identity.agentId);
         const expected = buildAgentConfig(TOOL_SPECS.map((s) => stored.toolIds[s.name]).filter(Boolean), { llmURL, productName });
+        // Repair only remote config: persisting this snapshot could overwrite
+        // newer provisioning metadata that synced during the GET/PATCH.
         agentId = matchesManagedIdentity(actual, expected)
           ? identity.agentId
-          : await ensureAgent(key, stored.toolIds, identity.agentId);
+          : await patchAgent(key, identity.agentId, expected);
       } else {
         const toolMap = await ensureTools(key);
         agentId = await ensureAgent(key, toolMap, identity.agentId);
