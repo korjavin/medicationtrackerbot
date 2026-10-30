@@ -7,6 +7,7 @@ import { allowConsoleNoise } from './helpers/setup.js';
 import {
   achievableLoads, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
 } from '../../../../web/domain/equipment.js';
+import * as WeightSanity from '../../../../web/domain/weight-sanity.js';
 
 // Wires a Map-backed ApiCache into the env so DataStore.applyOptimistic
 // reads/writes are observable to the test. Returns the underlying Map and a
@@ -3635,5 +3636,120 @@ describe('features/workout/sessions.js — in-session weight suggestion (med-h5u
     expect(weightOf(c, 1)).toBe('Weight 42.5');
     expect(weightOf(c, 2)).toBe('Weight 42.5');
     expect(window.apiCall.mock.calls.filter(([e]) => String(e).includes('suggest-target')).length).toBe(1);
+  });
+});
+
+describe('features/workout/sessions.js — weight check (med-l5yr.5, kit WS1–WS3)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  // A session (live or opened from History) whose Goblet Squat log holds
+  // `sets`; the weight-check route answers `baseline`. The rule itself is the
+  // real domain module.
+  function mount(window, document, { name = 'Goblet Squat', sets, baseline }) {
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WeightSanity = WeightSanity;
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (String(endpoint).startsWith('/api/workout/exercises/weight-check')) return baseline;
+      if (String(endpoint).startsWith('/api/workout/sessions/logs/update')) return { id: 5 };
+      return [];
+    });
+    window.WorkoutSessionsState.data = { id: 42, status: 'completed' };
+    window.WorkoutSessionsState.originalStatus = 'completed';
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: name, status: 'completed', sets: sets.map((weight_kg, i) => ({ set_index: i, weight_kg, reps: 8, set_type: 'normal' })), notes: '' },
+    ];
+    _syncScalars(window.WorkoutSessionsState.logs[0]);
+    const container = document.getElementById('workout-session-logs');
+    window.renderWorkoutSessionLogs(container);
+    return container;
+  }
+  function _syncScalars(log) {
+    log.sets_completed = log.sets.length;
+    log.reps_completed = 8;
+    log.weight_kg = Math.max(...log.sets.map((s) => s.weight_kg));
+  }
+  const drain = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+  const notes = (c) => [...c.querySelectorAll('.wg-note--warn')];
+  const updates = (window) => window.apiCall.mock.calls.filter(([e]) => e === '/api/workout/sessions/logs/update');
+  const HEAVIEST_50 = { prior_logs: 5, heaviest_kg: 50, unweighted: false };
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('notes the jump under the flagged set with the reference; the kg cell says check', async () => {
+    const { window, document } = env;
+    const c = mount(window, document, { sets: [50, 255, 50], baseline: HEAVIEST_50 });
+    await drain();
+    expect(window.apiCall.mock.calls.map(([e]) => e))
+      .toContain('/api/workout/exercises/weight-check?name=Goblet%20Squat&session_id=42');
+    expect(notes(c)).toHaveLength(1);
+    expect(notes(c)[0].textContent).toContain('255 kg is 5× your heaviest 50 kg. A typo?');
+    // The note sits right under set 2.
+    expect(notes(c)[0].previousElementSibling.dataset.row).toBe('1');
+    expect(c.querySelector('.wg-set[data-row="1"] [data-field="weight_kg"] small').textContent).toBe('check');
+    expect(c.querySelector('.wg-set[data-row="0"] [data-field="weight_kg"] small')).toBeNull();
+  });
+
+  it("It's right stores confirmed on the set and clears the note for good", async () => {
+    const { window, document } = env;
+    const c = mount(window, document, { sets: [50, 255, 50], baseline: HEAVIEST_50 });
+    await drain();
+    [...notes(c)[0].querySelectorAll('button')].find((b) => b.textContent === "It's right").click();
+    expect(notes(c)).toHaveLength(0);
+    await window.saveWorkoutSessionDetails({ fromAutosave: true });
+    const sent = updates(window).at(-1)[2].sets;
+    expect(sent.map((s) => s.confirmed === true)).toEqual([false, true, false]);
+    expect(sent[1].weight_kg).toBe(255);
+  });
+
+  it('a flagged set is saved as logged (never blocked); editing the weight re-judges it', async () => {
+    const { window, document } = env;
+    const c = mount(window, document, { sets: [50, 50], baseline: HEAVIEST_50 });
+    await drain();
+    window.updateLocalSet(0, 1, 'weight_kg', 255);
+    expect(notes(c)).toHaveLength(1);
+    await window.saveWorkoutSessionDetails({ fromAutosave: true });
+    expect(updates(window).at(-1)[2].sets.map((s) => s.weight_kg)).toEqual([50, 255]);
+    window.updateLocalSet(0, 1, 'weight_kg', 25.5);
+    expect(notes(c)).toHaveLength(0);
+  });
+
+  it('no note before three earlier logs', async () => {
+    const { window, document } = env;
+    const c = mount(window, document, { sets: [50, 255], baseline: { ...HEAVIEST_50, prior_logs: 2 } });
+    await drain();
+    expect(notes(c)).toHaveLength(0);
+  });
+
+  it('kg on a band: Clear kg sets 0, Keep 75 kg confirms', async () => {
+    const { window, document } = env;
+    const band = { prior_logs: 0, heaviest_kg: 0, unweighted: true };
+    let c = mount(window, document, { name: 'Band pull-apart', sets: [75], baseline: band });
+    await drain();
+    expect(notes(c)[0].textContent).toContain('A band has no weight in kg. Log reps only?');
+    [...notes(c)[0].querySelectorAll('button')].find((b) => b.textContent === 'Clear kg').click();
+    expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(0);
+    expect(notes(c)).toHaveLength(0);
+
+    window.WorkoutSessionsState.ui = null;
+    c = mount(window, document, { name: 'Band pull-apart', sets: [75], baseline: band });
+    await drain();
+    [...notes(c)[0].querySelectorAll('button')].find((b) => b.textContent === 'Keep 75 kg').click();
+    expect(window.WorkoutSessionsState.logs[0].sets[0].confirmed).toBe(true);
+    expect(notes(c)).toHaveLength(0);
   });
 });

@@ -374,6 +374,7 @@ function renderWorkoutSessionLogs(logsContainer) {
     } else {
         logsContainer.replaceChildren(_buildSessionExerciseCard(logs[ui.current], ui.current));
         _ensureExerciseHistory(logs[ui.current].exercise_name);
+        _ensureWeightCheck(logs[ui.current].exercise_name);
     }
     const actions = document.getElementById('workout-session-actions');
     if (actions) renderSessionDetailActions(actions);
@@ -666,6 +667,88 @@ async function _ensureExerciseHistory(name) {
     if (!ui.overview && !ui.addStep && cur && cur.exercise_name === name) _rerenderSessionLogs();
 }
 
+// -- Weight check (med-l5yr.5, kit WS1–WS3) --
+// The rule lives in /domain/weight-sanity.js; this view loads it once, and the
+// baseline each exercise is judged on (its history before this session) once
+// per name per open, then evaluates the on-screen done sets synchronously —
+// so a ticked or edited set gets its note at once. Never blocks a save.
+function _ensureWeightCheck(name) {
+    const ui = _sessionUi();
+    const st = window.WorkoutSessionsState;
+    if (!name || !st.data) return;
+    if (!ui.sanity) ui.sanity = {};
+    if (Object.prototype.hasOwnProperty.call(ui.sanity, name)) return;
+    ui.sanity[name] = null;
+    // Tests inject the real module as window.WeightSanity (like
+    // WorkoutAnalysis in exercise-detail.js); bot mode has no /domain/ → null.
+    const injected = window.WeightSanity && typeof window.WeightSanity.flagSets === 'function' ? window.WeightSanity : null;
+    const mod = ui.sanityMod
+        || (ui.sanityMod = injected ? Promise.resolve(injected) : import('/domain/weight-sanity.js').catch(() => null));
+    let base;
+    try {
+        base = Promise.resolve(apiCall(`/api/workout/exercises/weight-check?name=${encodeURIComponent(name)}&session_id=${st.data.id}`));
+    } catch (e) {
+        base = Promise.reject(e);
+    }
+    Promise.all([mod, base]).then(([m, b]) => {
+        if (st.ui !== ui || !m || !b || typeof b !== 'object') return;
+        ui.sanity[name] = { flagSets: m.flagSets, baseline: b };
+        const cur = st.logs[ui.current];
+        if (!ui.overview && !ui.addStep && cur && cur.exercise_name === name) _rerenderSessionLogs();
+    }, () => {});
+}
+
+// Per done set: null or { flag: 'jump'|'unweighted', reference_kg }.
+function _weightFlags(log) {
+    const ui = _sessionUi();
+    const s = ui.sanity && ui.sanity[log.exercise_name];
+    if (!s) return [];
+    return s.flagSets(_ensureLogSets(log), s.baseline).flags;
+}
+
+function _buildWeightNote(log, index, row, flag) {
+    const set = log.sets[row];
+    const kg = _fmtSetNumber(set.weight_kg);
+    const note = document.createElement('div');
+    note.className = 'wg-note wg-note--warn';
+    note.dataset.weightFlag = flag.flag;
+    const body = document.createElement('div');
+    body.className = 'wg-note__body';
+    const text = document.createElement('span');
+    const actions = document.createElement('div');
+    actions.className = 'wg-hstack';
+    if (flag.flag === 'unweighted') {
+        text.textContent = 'A band has no weight in kg. Log reps only?';
+        actions.append(
+            _wgBtn('Clear kg', 'wg-btn--sm', () => updateLocalSet(index, row, 'weight_kg', 0)),
+            _wgBtn(`Keep ${kg} kg`, 'wg-btn--ghost wg-btn--sm', () => _confirmSessionSet(index, row)));
+    } else {
+        const ratio = Number(set.weight_kg) / Number(flag.reference_kg);
+        const b = document.createElement('b');
+        b.textContent = `${kg} kg`;
+        text.append(b, document.createTextNode(
+            ` is ${ratio >= 3 ? Math.round(ratio) : _fmtSetNumber(Math.round(ratio * 10) / 10)}× your heaviest ${_fmtSetNumber(flag.reference_kg)} kg. A typo?`));
+        actions.append(
+            _wgBtn('Edit', 'wg-btn--sm', () => { _onSetCellTap(index, row, 'weight_kg'); }),
+            _wgBtn("It's right", 'wg-btn--ghost wg-btn--sm', () => _confirmSessionSet(index, row)));
+    }
+    body.append(text, actions);
+    note.append(_wgIco('alert'), body);
+    return note;
+}
+
+// "It's right" / "Keep N kg": the user's answer is stored on the set
+// (`confirmed`), so the note is gone for good and the set counts again.
+function _confirmSessionSet(logIndex, row) {
+    const log = window.WorkoutSessionsState.logs[logIndex];
+    if (!log || !Array.isArray(log.sets) || !log.sets[row]) return;
+    log.sets[row].confirmed = true;
+    log._dirty = true;
+    log._setsDirty = true;
+    _rerenderSessionLogs();
+    scheduleAutosave();
+}
+
 // The per-set rows of the newest OTHER session on or before this one, from a
 // history read; null when there is none.
 function _priorSessionSets(rows) {
@@ -739,7 +822,7 @@ function _activeSetRow(index, log) {
 const SESSION_SET_TYPES = [['normal', 'Normal'], ['warmup', 'Warm-up'], ['drop', 'Drop'], ['failure', 'Failure']];
 const SESSION_SET_GLYPH = { warmup: 'W', drop: 'D', failure: 'F' };
 
-function _buildSetRow(log, index, row, activeRow) {
+function _buildSetRow(log, index, row, activeRow, flag) {
     const v = _setRowValues(log, row);
     const ui = _sessionUi();
     const el = document.createElement('div');
@@ -776,7 +859,9 @@ function _buildSetRow(log, index, row, activeRow) {
         c.appendChild(document.createTextNode(blank ? '—' : _fmtSetNumber(value)));
         // A rated row shows its RPE in the reps cell; the active pending row
         // keeps "last N" there (its chip row already shows the rating).
-        const small = field === 'reps' && v.rpe != null && (v.done || row !== activeRow)
+        // A weight-check flag marks the kg cell "check" (kit WS1).
+        const small = field === 'weight_kg' && flag ? 'check'
+            : field === 'reps' && v.rpe != null && (v.done || row !== activeRow)
             ? `RPE ${_fmtSetNumber(v.rpe)}`
             : ghost ? (v.fromLast ? 'last' : (v.fromDefault && !blank ? 'default' : ''))
                 : (lastSet && !v.done && row === activeRow ? `last ${_fmtSetNumber(lastSet[field])}` : '');
@@ -960,7 +1045,13 @@ function _buildSessionExerciseCard(log, index) {
     const activeRow = _activeSetRow(index, log);
     const setsWrap = document.createElement('div');
     setsWrap.className = 'wg-vstack wg-workouts-session-exercise__sets';
-    for (let row = 0; row < total; row++) setsWrap.appendChild(_buildSetRow(log, index, row, activeRow));
+    // A flagged done set keeps its warn note under it until Edit or "It's
+    // right" (kit WS1–WS3); the set is saved either way.
+    const flags = _weightFlags(log);
+    for (let row = 0; row < total; row++) {
+        setsWrap.appendChild(_buildSetRow(log, index, row, activeRow, flags[row]));
+        if (flags[row]) setsWrap.appendChild(_buildWeightNote(log, index, row, flags[row]));
+    }
     entry.appendChild(setsWrap);
 
     const tools = document.createElement('div');
@@ -1923,7 +2014,10 @@ function _applySetField(s, field, value) {
     } else if (field === 'reps') {
         s.reps = Math.min(100, Math.max(0, Math.round(parseFloat(value) || 0)));
     } else if (field === 'weight_kg') {
+        const prev = s.weight_kg;
         s.weight_kg = Math.min(500, Math.max(0, Math.round((parseFloat(value) || 0) * 100) / 100));
+        // A confirmed weight-check answer was for the old number.
+        if (s.weight_kg !== prev) delete s.confirmed;
     } else if (field === 'rpe') {
         const n = parseFloat(value);
         if (value === '' || value === null || Number.isNaN(n)) delete s.rpe;
@@ -2289,6 +2383,7 @@ async function showWorkoutSessionModal(sessionId) {
             st.ui.hist = {};
             st.ui.last = {};
             st.ui.suggest = {};
+            st.ui.sanity = {};
         }
 
         window.WorkoutSessionsState.logs = data.logs || [];

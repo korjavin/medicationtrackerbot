@@ -35,10 +35,12 @@ export function est1RMLowConfidence(reps) {
 }
 
 // nonWarmup returns a log's working sets (warm-ups dropped, absent → []).
+// A set carrying an unconfirmed weight-sanity `flag` (listExerciseLogsByName,
+// med-l5yr.5) is dropped too: a typo is not a record.
 function nonWarmup(log) {
   const sets = log && log.sets;
   if (!Array.isArray(sets)) return [];
-  return sets.filter((s) => s && s.set_type !== 'warmup');
+  return sets.filter((s) => s && s.set_type !== 'warmup' && !s.flag);
 }
 
 // exercisePRs folds over the non-warmup sets across a list of logs and returns
