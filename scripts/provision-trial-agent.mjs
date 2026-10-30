@@ -126,7 +126,17 @@ try {
     console.error(`Resolved only ${toolIds.length}/${TOOL_SPECS.length} tool ids — refusing to wire a partial agent.`);
     process.exit(1);
   }
-  await patchAgent(apiKey, agentId, buildAgentConfig(toolIds, { llmURL, llmHeaders: llmHeaders(relaySecret), maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }));
+  const config = buildAgentConfig(toolIds, { llmURL, llmHeaders: llmHeaders(relaySecret), maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS });
+  try {
+    await patchAgent(apiKey, agentId, config);
+  } catch (err) {
+    // This PATCH body carries the relay secret, and toError copies up to 300
+    // bytes of ElevenLabs' answer into the message — a validation error may
+    // echo request_headers (possibly cut mid-value, so redaction would leak a
+    // prefix). With a secret set, drop the upstream detail entirely.
+    if (relaySecret) throw new Error(`ElevenLabs update agent failed (${err && err.status}); upstream detail suppressed because the request carried TRIAL_VOICE_RELAY_SECRET`);
+    throw err;
+  }
   console.log(`\nAgent ${agentId} updated: ${toolIds.length} tools, TOOLSET_VERSION ${TOOLSET_VERSION}.`);
 } catch (err) {
   // A 404 here means TRIAL_ELEVENLABS_AGENT_ID does not exist under this key —

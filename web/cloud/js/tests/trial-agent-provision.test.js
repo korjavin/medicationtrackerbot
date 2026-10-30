@@ -141,6 +141,26 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(unset.stdout).not.toContain('request_headers');
   });
 
+  it('never prints the hop secret when the agent PATCH fails and ElevenLabs echoes the body (bd med-k80h)', () => {
+    const SECRET = 'hop-secret-do-not-print';
+    // Fake ElevenLabs: empty tool list, tools created, agent readable, and the
+    // agent PATCH answers 422 echoing the request body (secret included).
+    const mock = `globalThis.fetch = async (url, opts = {}) => {
+      const m = opts.method || 'GET';
+      const json = (status, b) => new Response(typeof b === 'string' ? b : JSON.stringify(b), { status });
+      if (String(url).includes('/tools')) return m === 'GET' ? json(200, { tools: [] }) : json(200, { id: 'tool_x' });
+      if (m === 'PATCH') return json(422, opts.body);
+      return json(200, { access_info: { role: 'admin' } });
+    };`;
+    const r = run(['--apply'], {
+      TRIAL_ELEVENLABS_API_KEY: FAKE_KEY, TRIAL_ELEVENLABS_AGENT_ID: 'agent_fake', TRIAL_VOICE_LLM_URL: LLM_URL,
+      TRIAL_VOICE_RELAY_SECRET: SECRET, NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(mock)}`,
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('update agent failed (422)');
+    expect(r.stdout + r.stderr).not.toContain(SECRET);
+  });
+
   it('refuses --apply without TRIAL_VOICE_LLM_URL', () => {
     const r = run(['--apply'], { TRIAL_ELEVENLABS_API_KEY: FAKE_KEY, TRIAL_ELEVENLABS_AGENT_ID: 'agent_fake' });
     expect(r.status).toBe(1);
