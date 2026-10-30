@@ -16,6 +16,10 @@
 //
 // Cloud only (bd med-qj4.9): there is no legacy-bot path here by design.
 
+// Same name identity as everywhere else (med-l5yr.1): trim, lowercase,
+// collapse inner whitespace — so a model echoing "Bench  Press" still matches.
+import { exerciseKey as normName } from './workout.js';
+
 export const SHEET_QR_VERSION = 1;
 
 // Compact enough for a small printed QR: `workout-plan:1:<groupId>`.
@@ -90,7 +94,6 @@ function invalid(message, code) {
   return err;
 }
 
-const normName = (s) => String(s || '').trim().toLowerCase();
 
 function numOrNull(v) {
   if (v === null || v === undefined || v === '') return null;

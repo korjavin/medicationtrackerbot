@@ -277,8 +277,15 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
 - **library_entry** — `id`, `user_id`, `name`, `default_sets` (int),
   `default_reps_min` (int), `default_reps_max` (int|null), `default_weight_kg`
   (num|null), `equipment_id` (num|null, omitted when unset — the optional
-  library-level equipment binding, med-niix.5), `notes`, `created_at`,
+  library-level equipment binding, med-niix.5), `notes`, `aliases` (string[],
+  omitted when empty — other spellings that resolve to this row on read, so
+  history logged under them folds into it; med-l5yr.1), `created_at`,
   `updated_at`.
+  - An older bundle that renames a row keeps `aliases` (it spreads the row) but
+    records no alias for the old name, so history under the old name stays split
+    until the user merges it.
+  - Deleting a row drops its aliases with it: logs under those aliases fall back
+    to per-name groups. Logs are never rewritten, so nothing is lost.
 - **equipment** — `id`, `user_id`, `name`, `kind` (`fixed`|`plated`); fixed
   carries `loads_kg` (num array), plated carries `bar_kg` (num), `sides` (1|2),
   `pair` (bool), `plates` (`[{kg, count}]`), and optionally
@@ -727,7 +734,7 @@ Export → import → export (and each single hop) must be
   counting.
 - **Cloud-only equipment** — `workouts.equipment`, `workouts.locations`,
   `workouts.active_location_id`, the per-row
-  `library.equipment_id` / `exercises.equipment_id` and the session
+  `library.equipment_id` / `exercises.equipment_id`, `library.aliases` and the session
   `location_id` / `location_name` stamp are cloud inventory
   (med-niix.1/med-niix.5/med-3gln/med-8j5w.1). Legacy bot
   files omit them; equality holds after stripping, the way

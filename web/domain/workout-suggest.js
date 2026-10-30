@@ -2,8 +2,11 @@
 // kit WA3/WA5/WA6). Pure: plain records in, a ranked list out; no ports, no
 // clock, no browser globals. workout.js loads the records and calls it; the
 // add sheet and the Next › step render the result.
-
-const key = (name) => String(name || '').trim().toLowerCase();
+//
+// Names are matched through workout.js's exercise resolver (med-l5yr.1): a
+// library row's aliases and case/spacing variants are one exercise. ESM cycle
+// with workout.js — safe, both sides only call each other inside functions.
+import { buildExerciseResolver } from './workout.js';
 
 // rankNextExercises picks up to `limit` exercises to offer after `after` in
 // session `sessionId`, from the user's own data only, in this order:
@@ -19,8 +22,14 @@ const key = (name) => String(name || '').trim().toLowerCase();
 //   library  — the library rows as listLibrary returns them
 // Returns library rows where the name has one, else { name }.
 export function rankNextExercises({ sessions = [], logs = [], library = [], sessionId = 0, after = '', limit = 3 } = {}) {
+  const resolve = buildExerciseResolver(library);
+  const key = (name) => resolve(name).key;
   const libByKey = new Map();
-  for (const item of library) if (item && key(item.name)) libByKey.set(key(item.name), item);
+  // One row per key: the resolver's winner when two rows' names share a key.
+  for (const item of library) {
+    const k = item && key(item.name);
+    if (k && (!libByKey.has(k) || resolve(item.name).libraryId === item.id)) libByKey.set(k, item);
+  }
 
   const inSession = logs.filter((l) => l.session_id === sessionId);
   const taken = new Set(inSession.map((l) => key(l.exercise_name)));
