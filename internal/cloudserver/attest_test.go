@@ -850,6 +850,10 @@ func TestAttestRejoinVoice(t *testing.T) {
 	if rec.Code != http.StatusOK || out.Granted != attestDefaultVoiceCallMax {
 		t.Fatalf("k1 start: %d %s", rec.Code, rec.Body.String())
 	}
+	c := e.relay.lookup(out.Call)
+	c.mu.Lock()
+	c.anon.attached = true // live: a pending call would be replaced (bd med-02b0)
+	c.mu.Unlock()
 	wantErr(t, mustRec(e.voiceStart(k2, 1)), http.StatusConflict, "call_in_progress")
 	e.reapNow(out.Call)
 	rec, out = e.voiceStart(k2, 2)
@@ -861,7 +865,7 @@ func TestAttestRejoinVoice(t *testing.T) {
 	}
 	// bd med-o7zq.28: a rejoin answers the bucket's voice seconds left and
 	// the limits, so Settings shows the minutes before any call.
-	e.reapNow(out.Call)
+	e.dropAttached(out.Call)
 	e.attest.cfg.VoiceDaily = 300
 	k3 := attestKey(t)
 	rec = e.enrollPass(k3, attestTestAppID, e.challenge(), "tok-V3", pass)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,6 +76,19 @@ func (e *attestEnv) reapNow(token string) {
 	e.relay.reap(c)
 }
 
+// dropAttached reaps token's call as if a leg had attached and dropped (so no
+// never-attached refund applies, bd med-02b0).
+func (e *attestEnv) dropAttached(token string) {
+	c := e.relay.lookup(token)
+	if c == nil {
+		e.t.Fatal("call not in the relay")
+	}
+	c.mu.Lock()
+	c.anon.attached = true
+	c.mu.Unlock()
+	e.reapNow(token)
+}
+
 // waitReaped waits until install k has no call in the relay.
 func (e *attestEnv) waitReaped(k *ecdsa.PrivateKey) {
 	deadline := time.Now().Add(relayTestDeadline)
@@ -87,8 +101,12 @@ func (e *attestEnv) waitReaped(k *ecdsa.PrivateKey) {
 }
 
 func dialAnonVoice(ctx context.Context, srv *httptest.Server, call string) (*websocket.Conn, error) {
+	return dialAnonVoiceFrom(ctx, srv, call, localAppOrigin)
+}
+
+func dialAnonVoiceFrom(ctx context.Context, srv *httptest.Server, call, origin string) (*websocket.Conn, error) {
 	hdr := http.Header{}
-	hdr.Set("Origin", localAppOrigin)
+	hdr.Set("Origin", origin)
 	conn, _, err := websocket.Dial(ctx, "ws://localhost"+attestVoiceDevice+"?call="+call,
 		&websocket.DialOptions{HTTPClient: wsClientFor(srv.Listener.Addr().String()), HTTPHeader: hdr})
 	return conn, err
@@ -147,10 +165,6 @@ func TestAttestVoiceStartAndHangUp(t *testing.T) {
 	if q, _ := e.mintQuery.Load().(string); q != "agent_id=agent_trial&include_conversation_id=true" {
 		t.Fatalf("mint query = %q", q)
 	}
-	// One live call per install.
-	rec, _ = e.voiceStart(k, 3)
-	wantErr(t, rec, http.StatusConflict, "call_in_progress")
-
 	srv := httptest.NewServer(e.h)
 	t.Cleanup(srv.Close)
 	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
@@ -186,6 +200,9 @@ func TestAttestVoiceStartAndHangUp(t *testing.T) {
 	if hello := readVoiceFrame(t, ctx, device); hello.Type != "hello" || hello.Call != out.Call {
 		t.Fatalf("hello = %+v", hello)
 	}
+	// One live call per install.
+	rec, _ = e.voiceStart(k, 3)
+	wantErr(t, rec, http.StatusConflict, "call_in_progress")
 
 	// Turns are answered by the server: the upstream stream (model stripped),
 	// a clamped body, no device frame, the stream limiter (a 1/min shared
@@ -349,27 +366,26 @@ func TestAttestVoiceBudgets(t *testing.T) {
 	e := newAttestEnv(t, 50, 0, 0)
 	e.voiceOn()
 	e.attest.cfg.VoiceDaily = 300
-	e.relay.attachWindow = 20 * time.Millisecond
 	k1, k2 := attestKey(t), attestKey(t)
 	e.enrolled(k1, "tok-b1")
 	e.enrolled(k2, "tok-b2")
 
-	// The per-call max caps the grant; daily 100 caps the next one. Never
-	// attached → reaped after the attach window and charged in full.
+	// The per-call max caps the grant; daily 100 caps the next one. Attached
+	// then dropped → charged in full.
 	rec, out := e.voiceStart(k1, 1)
 	if rec.Code != http.StatusOK || out.Granted != 120 || out.Remaining != 480 || out.DailyRemaining != 180 {
 		t.Fatalf("call-max grant: %d %s", rec.Code, rec.Body.String())
 	}
-	e.waitReaped(k1)
+	e.dropAttached(out.Call)
 	if used := e.voiceUsed(k1); used != 120 {
-		t.Fatalf("never-attached call charged %d, want the full 120", used)
+		t.Fatalf("attached call charged %d, want the full 120", used)
 	}
 	e.attest.cfg.VoiceDaily = 150
 	rec, out = e.voiceStart(k1, 2)
 	if rec.Code != http.StatusOK || out.Granted != 30 || out.DailyRemaining != 0 {
 		t.Fatalf("daily grant: %d %s", rec.Code, rec.Body.String())
 	}
-	e.waitReaped(k1)
+	e.dropAttached(out.Call)
 
 	scopeOf := func(rec *httptest.ResponseRecorder) map[string]string {
 		var body map[string]string
@@ -451,6 +467,171 @@ func TestAttestVoiceBudgetTimer(t *testing.T) {
 	e.reapNow(out.Call)
 	if used := e.voiceUsed(k); used != 120 {
 		t.Fatalf("exhausted call refunded: used %d", used)
+	}
+}
+
+// bd med-iqbf: the anonymous device leg accepts the iOS and the Android local
+// page origins, and nothing else cross-origin.
+func TestAttestVoiceDeviceOrigins(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	srv := httptest.NewServer(e.h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	for i, origin := range []string{localAppOrigin, androidLocalOrigin} {
+		call, ok := e.relay.MintAnonCall("k-origin-"+string(rune('a'+i)), time.Minute, nil)
+		if !ok {
+			t.Fatal("mint")
+		}
+		device, err := dialAnonVoiceFrom(ctx, srv, call, origin)
+		if err != nil {
+			t.Fatalf("%s: %v", origin, err)
+		}
+		if hello := readVoiceFrame(t, ctx, device); hello.Type != "hello" || hello.Call != call {
+			t.Fatalf("%s hello = %+v", origin, hello)
+		}
+		device.CloseNow()
+	}
+	call, _ := e.relay.MintAnonCall("k-origin-evil", time.Minute, nil)
+	if device, err := dialAnonVoiceFrom(ctx, srv, call, "https://evil.example"); err == nil {
+		device.CloseNow()
+		t.Fatal("an arbitrary https origin attached")
+	}
+}
+
+// bd med-02b0, relay side: a call reaped with no leg ever attached runs its
+// abandon hook exactly once; one that attached and dropped never does.
+func TestVoiceAnonAbandonHook(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	srv := httptest.NewServer(e.h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+
+	var pending, attached atomic.Int32
+	e.relay.attachWindow = 10 * time.Millisecond
+	call, _ := e.relay.MintAnonCall("k-pending", time.Minute, func() { pending.Add(1) })
+	c := e.relay.lookup(call)
+	deadline := time.Now().Add(relayTestDeadline)
+	for e.relay.HasAnonCall("k-pending") {
+		if time.Now().After(deadline) {
+			t.Fatal("never reaped")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	e.relay.reap(c) // a second reap (the exhaust timer's) is a no-op
+	if n := pending.Load(); n != 1 {
+		t.Fatalf("never-attached abandon ran %d times, want 1", n)
+	}
+
+	e.relay.attachWindow = time.Minute
+	e.relay.grace = 10 * time.Millisecond
+	call, _ = e.relay.MintAnonCall("k-attached", time.Minute, func() { attached.Add(1) })
+	device, err := dialAnonVoice(ctx, srv, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readVoiceFrame(t, ctx, device) // hello
+	_ = device.Close(websocket.StatusNormalClosure, "")
+	deadline = time.Now().Add(relayTestDeadline)
+	for e.relay.HasAnonCall("k-attached") {
+		if time.Now().After(deadline) {
+			t.Fatal("never reaped")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n := attached.Load(); n != 0 {
+		t.Fatalf("attached-then-dropped abandon ran %d times", n)
+	}
+}
+
+// bd med-02b0, end to end: a start no leg attaches to is refunded (daily and
+// lifetime), a retry during a pending call replaces it instead of 409, a
+// live or in-grace call still 409s, and only 3 abandonments a bucket per UTC
+// day are free.
+func TestAttestVoiceNeverAttachedRefund(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.attest.cfg.VoiceDaily = 300
+	srv := httptest.NewServer(e.h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	k := attestKey(t)
+	e.enrolled(k, "tok-abandon")
+	usage := func() (int, int) {
+		life, day, err := e.store.AttestVoiceUsage(context.Background(), attestKeyID(t, k), time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return life, day
+	}
+	start := func(counter uint32) voiceStartResp {
+		t.Helper()
+		rec, out := e.voiceStart(k, counter)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("start %d: %d %s", counter, rec.Code, rec.Body.String())
+		}
+		return out
+	}
+
+	// 1st free abandonment: reaped after the attach window, fully refunded.
+	e.relay.attachWindow = 20 * time.Millisecond
+	start(1)
+	e.waitReaped(k)
+	if life, day := usage(); life != 0 || day != 0 {
+		t.Fatalf("never-attached call kept %d/%d s", life, day)
+	}
+	if l := logs.String(); !strings.Contains(l, "attest voice start abandoned") || !strings.Contains(l, "refunded=true") || !strings.Contains(l, "seconds=120") {
+		t.Fatalf("logs = %q", l)
+	}
+	e.relay.attachWindow = time.Minute
+
+	// 2nd: an instant retry replaces the pending call (refunded), no 409.
+	first := start(2)
+	second := start(3)
+	if second.Call == first.Call || e.relay.lookup(first.Call) != nil {
+		t.Fatal("the pending call was not replaced")
+	}
+	if life, day := usage(); life != 120 || day != 120 || second.DailyRemaining != 180 {
+		t.Fatalf("after replace: %d/%d s, daily left %d", life, day, second.DailyRemaining)
+	}
+	stale, err := dialAnonVoice(ctx, srv, first.Call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCloseCode(t, ctx, stale, voiceStatusUnknownCall)
+
+	// Live, then in grace: 409; attached-then-dropped is charged.
+	device, err := dialAnonVoice(ctx, srv, second.Call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readVoiceFrame(t, ctx, device) // hello
+	wantErr(t, mustRec(e.voiceStart(k, 4)), http.StatusConflict, "call_in_progress")
+	_ = device.Close(websocket.StatusNormalClosure, "")
+	waitLegDetached(t, e.relay.lookup(second.Call))
+	wantErr(t, mustRec(e.voiceStart(k, 5)), http.StatusConflict, "call_in_progress")
+	e.reapNow(second.Call)
+	if life, _ := usage(); life != 120 {
+		t.Fatalf("attached call refunded: %d", life)
+	}
+
+	// 3rd free (replaced by start 7), then the 4th (replaced by start 8) is
+	// charged: 120 (attached) + 120 (4th) + 120 (start 8, pending).
+	e.attest.cfg.VoiceDaily = 0
+	start(6)
+	start(7)
+	start(8)
+	if life, _ := usage(); life != 360 {
+		t.Fatalf("after the 4th abandonment: %d s, want 360", life)
+	}
+	if !strings.Contains(logs.String(), "refunded=false") {
+		t.Fatal("4th abandonment not logged as unrefunded")
 	}
 }
 

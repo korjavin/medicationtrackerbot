@@ -98,8 +98,13 @@ const voiceAnonAttachWindow = 60 * time.Second
 type anonVoice struct {
 	keyID string
 	timer *time.Timer
+	// abandon is the minting side's refund hook (bd med-02b0): the relay calls
+	// it exactly once when it drops the call while no leg ever attached. The
+	// relay itself never touches money.
+	abandon func()
 	// Guarded by the call's mu.
 	exhausted bool
+	attached  bool // a device leg attached at least once; never reset
 }
 
 type voiceFrame struct {
@@ -203,6 +208,7 @@ func (c *voiceCall) attachAnon(conn *websocket.Conn) bool {
 	if c.anon.exhausted {
 		return false
 	}
+	c.anon.attached = true
 	c.attachLocked(conn)
 	return true
 }
@@ -373,13 +379,63 @@ func (a *VoiceLLMRelayAPI) RevokeAccount(accountID string) {
 
 func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	var abandon func()
 	if a.calls[c.token] == c && c.expired(time.Now()) {
-		delete(a.calls, c.token)
-		if c.anon != nil {
-			c.anon.timer.Stop()
+		abandon = a.dropLocked(c)
+	}
+	a.mu.Unlock()
+	if abandon != nil {
+		abandon() // store I/O: never under a.mu
+	}
+}
+
+// dropLocked removes c from the table and returns the abandon hook to run
+// (outside a.mu) when c is an anonymous call no leg ever attached to. The
+// table delete is the "exactly once": a dropped call is never dropped again.
+func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
+	delete(a.calls, c.token)
+	if c.anon == nil {
+		return nil
+	}
+	c.anon.timer.Stop()
+	c.mu.Lock()
+	attached := c.anon.attached
+	c.mu.Unlock()
+	if attached {
+		return nil
+	}
+	return c.anon.abandon
+}
+
+// EndPendingAnonCall drops bucket keyID's call if no leg ever attached to it
+// (its abandon hook runs before this returns), so a retry after a failed
+// attach mints anew instead of waiting out the attach window (bd med-02b0).
+// True when the bucket still has a call: live, or within a grace after a
+// leg attached — that one still answers call_in_progress. A leg dialing the
+// dropped token gets 4404.
+func (a *VoiceLLMRelayAPI) EndPendingAnonCall(keyID string) bool {
+	subject := cloudstore.AttestSubject(keyID)
+	a.mu.Lock()
+	var abandons []func()
+	for _, c := range a.calls {
+		if c.accountID != subject || c.anon == nil {
+			continue
+		}
+		c.mu.Lock()
+		attached := c.anon.attached
+		c.mu.Unlock()
+		if !attached {
+			if f := a.dropLocked(c); f != nil {
+				abandons = append(abandons, f)
+			}
 		}
 	}
+	busy := a.hasCallLocked(subject)
+	a.mu.Unlock()
+	for _, f := range abandons {
+		f()
+	}
+	return busy
 }
 
 func newVoiceCallToken() string {
@@ -412,9 +468,10 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 
 // MintAnonCall pre-registers an anonymous trial call for trial bucket keyID with a
 // grant of call time. It must be attached within attachWindow; grant after
-// the mint the budget timer ends it (budget_exhausted + close 4429).
+// the mint the budget timer ends it (budget_exhausted + close 4429). abandon
+// runs once if the relay drops the call with no leg ever attached (nil: none).
 // ("", false) when the bucket already has a call.
-func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration) (string, bool) {
+func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, abandon func()) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
 	now := time.Now()
 	a.mu.Lock()
@@ -428,7 +485,7 @@ func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration) (stri
 		ready:     make(chan struct{}),
 		expires:   now.Add(a.attachWindow), // pending attach ages out like a grace
 		waiters:   make(map[int64]*voiceWaiter),
-		anon:      &anonVoice{keyID: keyID},
+		anon:      &anonVoice{keyID: keyID, abandon: abandon},
 	}
 	a.calls[c.token] = c
 	c.anon.timer = time.AfterFunc(grant, func() { a.exhaustAnon(c) })
@@ -505,7 +562,9 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 // call's token answers 4404 here, and an anonymous token 4404s on the session
 // route because its subject is never an account id).
 func (a *VoiceLLMRelayAPI) AnonDeviceSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{localAppOrigin}})
+	// The iOS and Android local pages (same install, already CORS-trusted on
+	// the attest REST routes; bd med-iqbf).
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{localAppOrigin, androidLocalOrigin}})
 	if err != nil {
 		return
 	}
