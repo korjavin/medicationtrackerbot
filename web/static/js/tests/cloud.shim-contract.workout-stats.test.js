@@ -821,6 +821,52 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(rows.every((r) => flagsOf(r).every((f) => f === null))).toBe(true);
         });
 
+        // A legacy flat log (no `sets`, or `sets: []`) is judged as its
+        // synthesized rows: details carry the flag, one confirm holds.
+        for (const [label, legacy] of [['sets absent', undefined], ['sets: []', []]]) {
+            async function flatLog(env, name, weight_kg, reps) {
+                const { window } = env;
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: 999, exercise_name: name, source: 'library',
+                    status: 'completed',
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                // An old bundle's flat write: scalars only.
+                for (const rec of await env.records.list('exerciselog')) {
+                    if (rec.id === log.id) {
+                        const { sets: _drop, ...r } = rec;
+                        const rest = { ...r, sets_completed: 1, reps_completed: reps, weight_kg };
+                        await env.records.put('exerciselog', legacy ? { ...rest, sets: legacy } : rest);
+                    }
+                }
+                return { ...log, session_id: session.id };
+            }
+
+            it(`a flat band log carries its flag in session details (${label})`, async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const band = await flatLog(env, 'Band pull-apart', 75, 15);
+                const d = await env.window.apiCallDirect(`/api/workout/sessions/details?id=${band.session_id}`);
+                expect(d.logs[0]).toEqual(expect.objectContaining({ flag: 'unweighted', reference_kg: null }));
+            });
+
+            it(`one "It's right" confirms a flat slip (${label})`, async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                for (let d = 10; d > 5; d--) await logSets(env, 'Goblet Squat', sets(50), d);
+                const slip = await flatLog(env, 'Goblet Squat', 255, 8);
+                const details = () => env.window.apiCallDirect(`/api/workout/sessions/details?id=${slip.session_id}`);
+                expect((await details()).logs[0]).toEqual(expect.objectContaining({ flag: 'jump', reference_kg: 50 }));
+                // What the editor sends: its synthesized row, unchanged, marked.
+                await env.window.apiCallDirect('/api/workout/sessions/logs/update', 'POST', {
+                    id: slip.id, sets: [{ weight_kg: 255, reps: 8, confirmed: true }],
+                });
+                const rows = await history(env, 'Goblet Squat');
+                expect(rows[0].sets[0].confirmed).toBe(true);
+                expect(flagsOf(rows[0])).toEqual([null]);
+                expect((await details()).logs[0].flag).toBeUndefined();
+            });
+        }
+
         it('a scalar-only update keeps a confirmation that still matches; MCP session details carry the flag', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             const slip = await seedSlip(env);

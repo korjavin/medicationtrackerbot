@@ -2408,9 +2408,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (perSet) {
       // A weight-sanity confirmation (med-l5yr.5) answers the stored weight:
       // a set whose weight changed (or that is new) loses it, from any writer
-      // (the session view does the same; MCP agents too).
+      // (the session view does the same; MCP agents too). A flat log's stored
+      // weight is its synthesized rows, so its first confirm holds.
+      const was = setsOf(log);
       for (const [i, s] of perSet.entries()) {
-        if (s.confirmed && !(stored[i] && stored[i].weight_kg === s.weight_kg)) delete s.confirmed;
+        if (s.confirmed && !(was[i] && Number(was[i].weight_kg) === s.weight_kg)) delete s.confirmed;
       }
       setsWrite = { sets: perSet };
     } else if (stored.length > 0) {
@@ -2848,7 +2850,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     const withFlags = (r) => {
       const f = flagsByLog.get(r.id);
-      if (!f || !Array.isArray(r.sets) || r.sets.length === 0) return r;
+      if (!f) return r;
+      // A flat log has no rows to carry it: its synthesized sets share one
+      // weight, so the flag sits on the log itself.
+      if (!Array.isArray(r.sets) || r.sets.length === 0) {
+        const hit = f.find(Boolean);
+        return { ...r, flag: hit.flag, reference_kg: hit.reference_kg };
+      }
       return { ...r, sets: r.sets.map((s, i) => (f[i] ? { ...s, flag: f[i].flag, reference_kg: f[i].reference_kg } : s)) };
     };
     return {
