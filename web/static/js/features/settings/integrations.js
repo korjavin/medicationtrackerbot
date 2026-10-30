@@ -120,12 +120,11 @@
     }
 
     function photoSaveIssue() {
-        if (!_aiProviderLoaded) return '';
         const key = getInput(FIELD_IDS.openai.vision_api_key)?.value.trim();
         const url = normalizeProviderURL(getInput(FIELD_IDS.openai.vision_url)?.value);
-        if (key === '***' && (!_aiProviderLoaded.visionKey || photoBase() !== savedPhotoBase())) return 'retarget';
+        if (key === '***' && (!_aiProviderLoaded?.visionKey || photoBase() !== savedPhotoBase())) return 'retarget';
         if (key && key !== '***' && (!_aiProviderPhotoDraftBase || photoBase() !== _aiProviderPhotoDraftBase)) return 'retarget';
-        if (!key && url && mainBase() !== mainBase(true)) {
+        if (_aiProviderLoaded && !key && url && mainBase() !== mainBase(true)) {
             const origin = (base) => { try { return new URL(base).origin; } catch (_) { return ''; } };
             if (origin(url) !== origin(mainBase())) return 'inherited';
         }

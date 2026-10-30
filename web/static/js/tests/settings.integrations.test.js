@@ -405,7 +405,7 @@ describe('Settings → Integrations section', () => {
     describe('photo credentials through Settings → settings domain → AI client', () => {
         const main = { api_key: 'fixture-main-key', url: 'https://api.openai.com/v1', model: 'gpt-6-luna' };
 
-        async function setup(overrides) {
+        async function setup(overrides, load = true) {
             const memory = new Map();
             const settings = createSettingsDomain({ records: {
                 async list(type) { return memory.get(type) || []; },
@@ -416,7 +416,7 @@ describe('Settings → Integrations section', () => {
                 if (path !== '/api/settings/integrations') return null;
                 return method === 'PATCH' ? settings.patchIntegrations(body) : settings.getIntegrations();
             });
-            await env.window.SettingsIntegrations.load();
+            if (load) await env.window.SettingsIntegrations.load();
             return { settings, page: env.window.SettingsView.openSettingsPage('integrations') };
         }
 
@@ -464,6 +464,22 @@ describe('Settings → Integrations section', () => {
                 expect(env.document.querySelector('[data-own-key="openai"] [data-own-key-state]').textContent).toBe('Not set');
                 page.close();
             }
+        });
+
+        it('photo presence and typed-key binding guards stay closed before any successful initial read', async () => {
+            const { settings, page } = await setup({ vision_api_key: 'fixture-stored-photo-key', vision_url: '', vision_model: '' }, false);
+            fill('vision-api-key', '***');
+            expect(saveButton(page).disabled).toBe(true);
+            await env.window.SettingsIntegrations.save();
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            fill('vision-api-key', 'fixture-new-openai-photo-key');
+            await pick('anthropic');
+            fill('api-key', 'fixture-anthropic-key');
+            expect(saveButton(page).disabled).toBe(true);
+            await env.window.SettingsIntegrations.save();
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            expect((await settings.readIntegrationsUnmasked()).openai.vision_api_key).toBe('fixture-stored-photo-key');
+            page.close();
         });
 
         it('keeps an explicit saved photo key at its old inherited URL/model after main switch and Save', async () => {
