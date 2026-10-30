@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { TOOL_SPECS, TOOLSET_VERSION } from '../../../cloud/js/elevenlabs-agent.js';
+import { installApiShim } from '../../../cloud/js/apishim.js';
 
 describe('cloud shim contract — ElevenLabs signed URL (web/cloud/js/elevenlabs-signed-url.js)', () => {
     let env;
@@ -239,6 +240,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         const agent = createCall.body.conversation_config.agent;
         expect(agent.prompt.tool_ids).toHaveLength(TOOL_SPECS.length);
         expect(agent.prompt.prompt).toMatch(/tool/i);
+        expect(agent.first_message).toContain("I'm your MyHealthBot health bot.");
         expect(createCall.body.conversation_config.tts.voice_id).toBeTruthy();
         // The agent's LLM is the voice relay on this account's origin (bd med-h849.3).
         expect(agent.prompt.llm).toBe('custom-llm');
@@ -270,6 +272,41 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(patch.url).toContain('preset-1');
         expect(patch.body.conversation_config.tts.voice_id).toBeTruthy();
         expect(patch.body.conversation_config.agent.prompt.custom_llm.url).toBe(`${window.location.origin}/api/voice-llm`);
+    });
+
+    it('silently upgrades the existing agent with the instance identity from app metadata', async () => {
+        const { window, records } = env;
+        const meta = window.document.createElement('meta');
+        meta.name = 'medtracker-product-name';
+        meta.content = 'Example Health & Care';
+        window.document.head.appendChild(meta);
+        // Reinstall against the same vault after the server-provided metadata
+        // is present, as it is before the shim boots in a served app document.
+        installApiShim({}, { records, win: window });
+        await setKey(window);
+        await records.put('voiceprovisioning', {
+            recordId: 'voiceprovisioning', agentId: 'agent-existing',
+            toolsetVersion: 10, toolIds: {},
+        });
+        const { spy, calls } = makeElevenLabsFetch({ existingTools: existingAll() });
+        vi.stubGlobal('fetch', spy);
+
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-existing');
+        expect(calls.some((c) => c.url.endsWith('/agents/create'))).toBe(false);
+        const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/agents/agent-existing'));
+        const config = patch.body.conversation_config;
+        expect(config.agent.prompt.prompt).toContain("You are the user's Example Health & Care health bot");
+        expect(config.agent.first_message).toContain("I'm your Example Health & Care health bot.");
+        for (const preset of Object.values(config.language_presets)) {
+            expect(preset.overrides.agent.first_message).toContain(meta.content);
+        }
+        expect((await records.list('voiceprovisioning'))[0].toolsetVersion).toBe(TOOLSET_VERSION);
+        const saved = await window.apiCall('/api/settings/integrations');
+        expect(saved.elevenlabs.api_key).toBe('***');
+
+        spy.mockClear();
+        expect(await window.CloudElevenLabsAgent.provision()).toBe('agent-existing');
+        expect(spy).not.toHaveBeenCalled();
     });
 
     it('missing key: throws a Settings/Integrations hint without calling fetch', async () => {

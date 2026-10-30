@@ -14,16 +14,16 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 10;
+export const TOOLSET_VERSION = 11;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 
-// Adapted from the owner's "Silas" concierge persona (med-eas.27) — trimmed to
+// Adapted from the owner's concierge persona (med-eas.27) — trimmed to
 // our actual tools (BP / weight / notes / workouts + mcp_help/mcp_call) and kept
 // concise for voice.
-const SYSTEM_PROMPT = [
-  "You are Silas, the user's personal health concierge in this app, where they",
+const systemPrompt = (productName) => [
+  `You are the user's ${productName} health bot, their personal health concierge in this app, where they`,
   'track their own health — blood pressure, weight, workouts, medications,',
   'food, sleep and diary notes. You are grounded, observant, and quietly',
   'encouraging — you offer brief, insightful reflections, not commands, and you',
@@ -52,18 +52,18 @@ const SYSTEM_PROMPT = [
   'switch with them. Tool names and arguments stay in English.',
 ].join('\n');
 
-const FIRST_MESSAGE = 'Silas here. Would you like to log a reading, or take a look at your numbers?';
+const firstMessage = (productName) => `I'm your ${productName} health bot. Would you like to log a reading, or take a look at your numbers?`;
 
 // Languages the language_detection system tool may switch to mid-call (it only
 // switches between the default language and these presets), each with a
 // translated greeting. English stays the default (bd med-qxdv).
-const FIRST_MESSAGE_TRANSLATIONS = {
-  ru: 'Это Сайлас. Хотите записать показатель или посмотреть свои данные?',
-  uk: 'Це Сайлас. Хочете записати показник чи переглянути свої дані?',
-  de: 'Hier ist Silas. Möchtest du einen Wert eintragen oder dir deine Zahlen ansehen?',
-  es: 'Aquí Silas. ¿Quieres registrar una medición o echar un vistazo a tus datos?',
-  fr: 'Ici Silas. Voulez-vous enregistrer une mesure ou consulter vos chiffres ?',
-};
+const firstMessageTranslations = (productName) => ({
+  ru: `Я ваш бот здоровья ${productName}. Хотите записать показатель или посмотреть свои данные?`,
+  uk: `Я ваш бот здоров'я ${productName}. Хочете записати показник чи переглянути свої дані?`,
+  de: `Ich bin dein ${productName}-Gesundheitsbot. Möchtest du einen Wert eintragen oder dir deine Zahlen ansehen?`,
+  es: `Soy tu bot de salud de ${productName}. ¿Quieres registrar una medición o echar un vistazo a tus datos?`,
+  fr: `Je suis votre bot de santé ${productName}. Voulez-vous enregistrer une mesure ou consulter vos chiffres ?`,
+});
 
 // Soft-timeout filler per preset language (bd med-h849.13). Set through
 // overrides.turn.soft_timeout_config.message (documented, no source_hash) rather
@@ -377,13 +377,13 @@ export async function ensureTools(key, onEvent) {
 // https://elevenlabs.io/docs/api-reference/agents/update. Only the trial
 // script passes it ({ 'X-Voice-Relay-Secret': TRIAL_VOICE_RELAY_SECRET }); the
 // relay checks it on anonymous calls only. BYO agents pass nothing.
-export function buildAgentConfig(toolIds, { llmURL, llmHeaders, maxDurationSeconds, silenceEndCallSeconds } = {}) {
+export function buildAgentConfig(toolIds, { productName = 'MyHealthBot', llmURL, llmHeaders, maxDurationSeconds, silenceEndCallSeconds } = {}) {
   if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
       agent: {
         prompt: {
-          prompt: SYSTEM_PROMPT,
+          prompt: systemPrompt(productName),
           llm: 'custom-llm',
           custom_llm: {
             url: llmURL, model_id: 'medtracker', api_type: 'chat_completions',
@@ -404,7 +404,7 @@ export function buildAgentConfig(toolIds, { llmURL, llmHeaders, maxDurationSecon
             },
           },
         },
-        first_message: FIRST_MESSAGE,
+        first_message: firstMessage(productName),
         language: 'en',
       },
       // One short filler per slow turn so the caller isn't met with silence.
@@ -424,7 +424,7 @@ export function buildAgentConfig(toolIds, { llmURL, llmHeaders, maxDurationSecon
         ...(maxDurationSeconds ? { max_duration_seconds: maxDurationSeconds } : {}),
       },
       language_presets: Object.fromEntries(
-        Object.entries(FIRST_MESSAGE_TRANSLATIONS).map(([lang, text]) => [
+        Object.entries(firstMessageTranslations(productName)).map(([lang, text]) => [
           lang, {
             overrides: {
               agent: { first_message: text },
@@ -463,7 +463,7 @@ export async function patchAgent(key, agentId, config) {
 }
 
 // llmURL: the voice LLM relay base on this account's own origin (apishim.js).
-export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL }) {
+export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL, productName }) {
   async function apiKey() {
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     if (!elevenlabs || !elevenlabs.api_key) {
@@ -480,7 +480,7 @@ export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL }) {
     const stored = await settingsDomain.getVoiceProvisioning();
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     const presetId = (elevenlabs && elevenlabs.agent_id) || stored.agentId || '';
-    const config = buildAgentConfig(toolIds, { llmURL });
+    const config = buildAgentConfig(toolIds, { llmURL, productName });
 
     let agentId;
     if (presetId) {
