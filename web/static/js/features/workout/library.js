@@ -314,8 +314,7 @@ function _syncBodyPartSelect(current) {
 // the return value are unaffected. `isCurrent`, when given, is checked after
 // the inventory read and before the selection lands: a superseded fill leaves
 // the newer select state (options reset, value, loaded flag) alone instead
-// of painting its stale binding over it. The library editor passes none and
-// keeps last-finish-wins.
+// of painting its stale binding over it.
 async function _syncEquipmentSelect(currentId, selectId = 'exercise-library-equipment', isCurrent = null) {
     const select = document.getElementById(selectId);
     if (!select) return null;
@@ -362,6 +361,7 @@ async function _syncEquipmentSelect(currentId, selectId = 'exercise-library-equi
     } catch (_) {
         locations = [];
     }
+    if (typeof isCurrent === 'function' && !isCurrent()) return null;
     const option = (item) => {
         const opt = doc.createElement('option');
         opt.value = String(item.id);
@@ -387,7 +387,6 @@ async function _syncEquipmentSelect(currentId, selectId = 'exercise-library-equi
             select.appendChild(og);
         });
     }
-    if (typeof isCurrent === 'function' && !isCurrent()) return null;
     select.dataset.loaded = 'true';
     select.value = currentId != null && currentId !== '' ? String(currentId) : '';
     return items;
@@ -439,7 +438,8 @@ async function showEditExerciseLibraryModal(id) {
 
     window.WorkoutEdit.editingLibraryItemId = id;
     document.getElementById('exercise-library-modal-title').textContent = 'Edit Exercise';
-    _sheetSession++;
+    const session = ++_sheetSession;
+    const isCurrent = () => session === _sheetSession;
     _editingRow = item;
     _editLibrary = items;
     document.getElementById('exercise-library-names').hidden = false;
@@ -453,13 +453,10 @@ async function showEditExerciseLibraryModal(id) {
     document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
     document.getElementById('exercise-library-notes').value = item.notes || '';
     _syncBodyPartSelect(item.body_part || '');
+    // Reset the previous sheet's binding before any identity read can yield.
+    const equipment = _syncEquipmentSelect(item.equipment_id, 'exercise-library-equipment', isCurrent);
     _paintExerciseAliases();
     checkExerciseLibraryName();
-    await Promise.all([_loadIdentityDomain(), _loadExerciseNames()]);
-    if (_editingRow !== item) return; // closed or reopened meanwhile
-    _paintExerciseAliases();
-    checkExerciseLibraryName();
-    await _syncEquipmentSelect(item.equipment_id);
 
     // The picker starts closed, so the stored name is not immediately buried
     // under suggestions for itself; it opens again as soon as the user types.
@@ -469,6 +466,12 @@ async function showEditExerciseLibraryModal(id) {
         withLibrary: false,
         onPick: () => checkExerciseLibraryName()
     });
+
+    await Promise.all([equipment, _loadIdentityDomain(), _loadExerciseNames()]);
+    // Alias writes replace _editingRow within this same sheet.
+    if (!isCurrent()) return;
+    _paintExerciseAliases();
+    checkExerciseLibraryName();
 }
 
 function closeExerciseLibraryModal() {

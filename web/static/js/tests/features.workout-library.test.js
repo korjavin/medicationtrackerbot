@@ -1021,6 +1021,56 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     expect($('exercise-library-name-merge').hidden).toBe(true);
   });
 
+  it('resets equipment before names load and finishes opening after an alias write replaces the row', async () => {
+    const { window } = env;
+    const equipment = await window.apiCallDirect('/api/workout/equipment', 'POST', {
+      kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12],
+    });
+    const bound = await lib('Dumbbell Curl', { equipment_id: equipment.id });
+    const unbound = await lib('Kettlebell Swings', { aliases: ['Swings', 'KB Swings'] });
+    await window.WorkoutLibrary.openEdit(bound.id);
+    expect($('exercise-library-equipment').value).toBe(String(equipment.id));
+    window.closeExerciseLibraryModal();
+
+    let releaseNames;
+    const namesGate = new Promise((resolve) => { releaseNames = resolve; });
+    const api = window.apiCall;
+    window.apiCall = vi.fn(async (url, ...args) => {
+      if (url === '/api/workout/exercises/names') await namesGate;
+      return api(url, ...args);
+    });
+    let releaseEquipment;
+    const equipmentGate = new Promise((resolve) => { releaseEquipment = resolve; });
+    const list = window.WorkoutEquipment.list;
+    window.WorkoutEquipment.list = vi.fn(async () => {
+      await equipmentGate;
+      return list();
+    });
+
+    const opening = window.WorkoutLibrary.openEdit(unbound.id);
+    await vi.waitFor(() => expect($('exercise-library-name').value).toBe('Kettlebell Swings'));
+    // The interactive sheet must never carry the preceding row's binding,
+    // even while both its names and equipment reads are outstanding.
+    expect($('exercise-library-equipment').value).toBe('');
+    expect($('exercise-library-equipment').dataset.loaded).toBe('false');
+    const removed = window.WorkoutLibrary.removeAlias('Swings');
+    await vi.waitFor(async () => expect((await library()).find((r) => r.id === unbound.id).aliases)
+      .toEqual(['KB Swings']));
+    releaseNames();
+    await removed;
+    releaseEquipment();
+    await opening;
+
+    // Alias removal replaced the in-sheet row, but this is still the same
+    // sheet: its inventory must finish loading and Save must keep it unbound.
+    expect($('exercise-library-equipment').dataset.loaded).toBe('true');
+    expect($('exercise-library-equipment').value).toBe('');
+    await window.saveExerciseLibraryItem();
+    const saved = (await library()).find((r) => r.id === unbound.id);
+    expect(saved.aliases).toEqual(['KB Swings']);
+    expect(saved.equipment_id ?? null).toBeNull();
+  });
+
   it('merges Swings into Kettlebell Swings from the Edit sheet; stats then show one row', async () => {
     const ks = await lib('Kettlebell Swings', { body_part: 'upper legs' });
     const swings = await lib('Swings');
