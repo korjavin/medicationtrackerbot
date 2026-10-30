@@ -165,6 +165,24 @@ enum LocalOrigin {
             + "frame-ancestors 'none'; form-action 'none'"
     }
 
+    /// Shared with the cloud/Android document contract (med-ezux): only the
+    /// external HTTPS origins from this response's connect-src. The reader
+    /// handles self itself; a WebSocket source does not authorize HTTPS.
+    static func document(_ data: Data, hosts: [String]) -> Data {
+        guard var html = String(data: data, encoding: .utf8),
+              let head = html.range(of: "<head>", options: .caseInsensitive) else { return data }
+        // An array of validated DNS host strings always serializes as JSON.
+        let json = try! JSONSerialization.data(withJSONObject: hosts.map { "https://" + $0 }, options: .withoutEscapingSlashes)
+        let escaped = String(decoding: json, as: UTF8.self)
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+        html.insert(contentsOf: "\n<meta name=\"medtracker-connect-origins\" content=\"\(escaped)\">", at: head.upperBound)
+        return Data(html.utf8)
+    }
+
     /// The page's host list, accepted only whole (like the server endpoint):
     /// an array of at most maxHosts bare, already-normalized DNS hostnames.
     static func validHosts(_ raw: Any?) -> [String]? {

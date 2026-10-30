@@ -8,20 +8,43 @@ import WebKit
 @MainActor
 final class LocalApp: NSObject, WKURLSchemeHandler {
     static let shared = LocalApp()
-    private let root = Bundle.main.bundleURL.appendingPathComponent("LocalApp", isDirectory: true).standardizedFileURL
+    private let root: URL
+    private let defaults: UserDefaults
+
+    init(root: URL = Bundle.main.bundleURL.appendingPathComponent("LocalApp", isDirectory: true),
+         defaults: UserDefaults = .standard) {
+        self.root = root.standardizedFileURL
+        self.defaults = defaults
+        super.init()
+    }
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         guard let url = task.request.url else {
             task.didFailWithError(URLError(.badURL))
             return
         }
+        guard let served = response(for: url) else {
+            task.didFailWithError(URLError(.cannotParseResponse))
+            return
+        }
+        task.didReceive(served.response)
+        task.didReceive(served.body)
+        task.didFinish()
+    }
+
+    /// Capture header and body together: later setEgressHosts calls cannot
+    /// change the origins reported by a document that has already loaded.
+    func response(for url: URL) -> (response: HTTPURLResponse, body: Data)? {
         var body: Data?
         let rel = url.host?.lowercased() == LocalOrigin.host ? LocalOrigin.file(for: url.path) : nil
         if let rel {
             let file = root.appendingPathComponent(rel).standardizedFileURL
             if file.path.hasPrefix(root.path + "/") { body = try? Data(contentsOf: file) }
         }
-        let hosts = LocalOrigin.validHosts(UserDefaults.standard.array(forKey: LocalOrigin.hostsKey)) ?? []
+        let hosts = LocalOrigin.validHosts(defaults.array(forKey: LocalOrigin.hostsKey)) ?? []
+        if rel == "index.html", let document = body {
+            body = LocalOrigin.document(document, hosts: hosts)
+        }
         let headers = [
             "Content-Type": body == nil ? "text/plain" : LocalOrigin.mime(rel ?? ""), // MIME of the file served
             "Content-Security-Policy": LocalOrigin.csp(hosts),
@@ -29,12 +52,9 @@ final class LocalApp: NSObject, WKURLSchemeHandler {
             "Cache-Control": "no-store",
         ]
         guard let response = HTTPURLResponse(url: url, statusCode: body == nil ? 404 : 200, httpVersion: "HTTP/1.1", headerFields: headers) else {
-            task.didFailWithError(URLError(.cannotParseResponse))
-            return
+            return nil
         }
-        task.didReceive(response)
-        task.didReceive(body ?? Data())
-        task.didFinish()
+        return (response, body ?? Data())
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {} // answered synchronously
