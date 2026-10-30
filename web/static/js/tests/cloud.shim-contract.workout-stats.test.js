@@ -712,6 +712,52 @@ describe('cloud shim contract — workout stats + mi-band', () => {
                 await expect(merge(env, { id: dup.id, into_id: ks.id })).rejects.toThrow(/id must be/);
                 expect((await library(env)).map((i) => i.name)).toEqual(['Kettlebell Swings']);
             });
+
+            it('a name that is only another row\'s alias is refused; that row\'s own name in any case merges it', async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                await lib(env, 'Kettlebell Swings', ['Swings']);
+                const goblet = await lib(env, 'Goblet Squat');
+                await expect(merge(env, { name: 'Swings', into_id: goblet.id }))
+                    .rejects.toThrow('"Swings" is an alias of Kettlebell Swings; merge Kettlebell Swings itself');
+                expect((await library(env)).map((i) => i.name)).toEqual(['Goblet Squat', 'Kettlebell Swings']);
+                const merged = await merge(env, { name: '  KETTLEBELL   swings ', into_id: goblet.id });
+                expect(merged.aliases).toEqual(['Kettlebell Swings', 'Swings']);
+                expect((await library(env)).map((i) => i.name)).toEqual(['Goblet Squat']);
+            });
+
+            it('a spelling a case twin answers to stays with it and is reported as skipped', async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const squat = await lib(env, 'Squat');
+                await seedCaseTwin(env, 'squat', {});
+                const back = await lib(env, 'Back Squat');
+                const merged = await merge(env, { id: squat.id, into_id: back.id });
+                expect(merged.skipped_aliases).toEqual([{ name: 'Squat', owner: 'squat' }]);
+                expect('aliases' in merged).toBe(false);
+                expect((await library(env)).map((i) => i.name)).toEqual(['Back Squat', 'squat']);
+            });
+
+            it('a library log of the merged-away row keeps the survivor\'s equipment in suggest-target', async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const { window } = env;
+                const eq = await window.apiCall('/api/workout/equipment', 'POST', {
+                    kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16],
+                });
+                const ks = await env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', {
+                    name: 'Kettlebell Swings', equipment_id: eq.id,
+                });
+                const swings = await lib(env, 'Swings');
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: swings.id, exercise_name: 'Swings',
+                    source: 'library', status: 'completed',
+                    sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg: 16, reps: 12, set_type: 'normal' })),
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                await merge(env, { id: swings.id, into_id: ks.id });
+
+                const sug = await window.apiCallDirect('/api/workout/exercises/suggest-target?name=Swings&goal=hypertrophy');
+                expect(sug.equipment).toEqual({ id: eq.id, name: 'Hex DBs', min_step_kg: 2 });
+            });
         });
 
         it('exercises/names lists history-only names, and one entry once the alias lands', async () => {

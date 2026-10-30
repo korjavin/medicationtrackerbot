@@ -1483,6 +1483,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const source = hasId ? live.find((r) => r.id === Number(input.id)) : findLibraryRowByName(all, name);
     if (hasId && !source) throw invalidRequest('id must be a library exercise');
     if (source && source.id === into.id) throw invalidRequest('Cannot merge an exercise into itself');
+    // A name that is only another row's alias names one spelling, not the row:
+    // refuse rather than tombstone that row by accident.
+    if (source && !hasId && exerciseKey(source.name) !== exerciseKey(name)) {
+      throw invalidRequest(`"${name}" is an alias of ${source.name}; merge ${source.name} itself`);
+    }
     if (!source) {
       const k = exerciseKey(name);
       const logs = await activeRecords(WORKOUT_RECORD_TYPES.LOG);
@@ -1490,13 +1495,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         throw invalidRequest(`No exercise named "${name}" in your library or history`, 'not_found');
       }
     }
-    // A spelling a third row already answers to (a case twin) stays with it.
-    const taken = takenExerciseKeys(all.filter((r) => !source || r.recordId !== source.recordId), into.recordId);
+    // A spelling a third row already answers to (a case twin) stays with it,
+    // reported back as skipped_aliases.
+    const thirdRows = live.filter((r) => r.recordId !== into.recordId && (!source || r.recordId !== source.recordId));
     const added = source ? [source.name, ...(Array.isArray(source.aliases) ? source.aliases : [])] : [name];
-    const aliases = normalizeAliases(
-      [...(Array.isArray(into.aliases) ? into.aliases : []), ...added.filter((a) => !taken.has(exerciseKey(a)))],
-      into.name,
-    );
+    const kept = [];
+    const skipped = [];
+    for (const a of added) {
+      const owner = findLibraryRowByName(thirdRows, a);
+      if (owner) skipped.push({ name: a, owner: owner.name });
+      else kept.push(a);
+    }
+    const aliases = normalizeAliases([...(Array.isArray(into.aliases) ? into.aliases : []), ...kept], into.name);
     const nowMs = now();
     const next = { ...into, clientTs: nowMs, updated_at: new Date(nowMs).toISOString() };
     if (aliases.length) next.aliases = aliases;
@@ -1515,7 +1525,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       }
       await records.del(WORKOUT_RECORD_TYPES.LIBRARY, source.recordId);
     }
-    return toLibraryResponse(next);
+    const resp = toLibraryResponse(next);
+    if (skipped.length) resp.skipped_aliases = skipped;
+    return resp;
   }
 
   // -- Rotation state --
@@ -3582,8 +3594,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // workoutexercise row (follow the row itself — override included); a
     // library log's id already names the library row. Anything else → unbound.
     let exercise = row;
-    if (!exercise && latest.source === 'library') exercise = { exercise_library_id: latest.exercise_id };
-    else if (!exercise && latest.exercise_id > 0) {
+    if (!exercise && latest.source === 'library') {
+      // An id merged away (med-l5yr.3) or deleted → the row the log's name
+      // resolves to now, so the log keeps its equipment binding.
+      const library = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
+      const live = library.some((r) => !r.deleted && r.id === latest.exercise_id);
+      const hit = live ? null : findLibraryRowByName(library, latest.exercise_name);
+      exercise = { exercise_library_id: live ? latest.exercise_id : (hit ? hit.id : null) };
+    } else if (!exercise && latest.exercise_id > 0) {
       exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, latest.exercise_id);
     }
     // A library log carries no plan target: auto-match on the logged weight.
