@@ -313,7 +313,7 @@ func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) boo
 	if a.abandons[bucket] >= attestVoiceFreeAbandons {
 		return false
 	}
-	// Half the global daily voice seconds (Miles 8461).
+	// The free-session allowance is half the global daily cap (Miles 8461).
 	if a.cfg.VoiceGlobal > 0 && a.abandonFree+cost > a.cfg.VoiceGlobal/2 {
 		return false
 	}

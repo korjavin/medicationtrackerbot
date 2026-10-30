@@ -587,12 +587,12 @@ func TestVoiceAnonAbandonSettlesBeforeNextStart(t *testing.T) {
 // Argus 8452: free refunds are capped server-wide too (they give the global
 // SUM back), each counted at max(grant, call max), and the cap resets daily.
 func TestAttestVoiceFreeAbandonGlobalCap(t *testing.T) {
-	a := &AttestAPI{cfg: AttestConfig{VoiceGlobal: 480, VoiceCallMax: 120}} // free cap 240
+	a := &AttestAPI{cfg: AttestConfig{VoiceGlobal: 240, VoiceCallMax: 120}} // free cap 120 (half)
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
-	if !a.takeFreeAbandon("b1", now, 30) || !a.takeFreeAbandon("b2", now, 120) {
+	if !a.takeFreeAbandon("b1", now, 30) { // counted at the 120 call max
 		t.Fatal("within the cap: not free")
 	}
-	if a.takeFreeAbandon("b3", now, 30) {
+	if a.takeFreeAbandon("b2", now, 120) {
 		t.Fatal("past the server-wide cap: still free")
 	}
 	if !a.takeFreeAbandon("b3", now.Add(24*time.Hour), 120) {
