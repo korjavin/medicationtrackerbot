@@ -109,6 +109,22 @@ describe('createEmptyState / createOfflineEmptyState / createErrorState / create
         }
     });
 
+    it('a degraded account page (no shim) says Reload, not "back online", with no second button (med-kk1q.4)', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
+            const body = (el) => el.querySelector('.wg-empty__body').textContent;
+            expect(body(window.createOfflineEmptyState())).toBe('This loads once you are back online.');
+            window.MedTrackerCloud = { degraded: { error: new Error('boom'), at: 1 } };
+            const el = window.createOfflineEmptyState();
+            expect(el.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
+            expect(body(el)).toBe('Some saved data did not load. Reload to fix.');
+            expect(el.querySelector('button')).toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
     it('createErrorState renders .wg-error with an optional Retry', () => {
         const { window, cleanup } = loadComponents();
         try {
