@@ -1460,6 +1460,7 @@ function openSettingsPage(name) {
         onClose: () => {
             _openSettingsPages.delete(name);
             store.appendChild(body);
+            if (name === 'integrations') window.SettingsIntegrations?.bindPage(null);
             if (name === 'units' && _heightDirty) {
                 // An unsaved (invalid) height is dropped with the page.
                 _heightDirty = false;
@@ -1470,6 +1471,7 @@ function openSettingsPage(name) {
         },
     });
     _openSettingsPages.set(name, page);
+    if (name === 'integrations') window.SettingsIntegrations?.bindPage(page);
     if (name === 'devices') mountCloudDevices();
     if (name === 'units') refreshBmiHint().catch(() => {});
     return page;
@@ -1578,13 +1580,13 @@ function refreshSettingsSummaries() {
     window.SettingsIntegrations?.syncTelegramRow?.();
 }
 
-// Read once right after SettingsIntegrations.load() refilled the fields from
-// the server — not on page close, where an unsaved edit would read as set.
+// Refresh after SettingsIntegrations.load()/save() accepted masked settings,
+// not on page close, where an unsaved edit would read as set.
 // A stored secret comes back as "***".
 function refreshIntegrationsSummary() {
     const filled = (id) => !!document.getElementById(id)?.value.trim();
     const set = [
-        filled('integrations-openai-api-key') && 'OpenAI',
+        window.SettingsIntegrations?.savedProviderLabel(),
         filled('integrations-elevenlabs-api-key') && 'Voice',
         document.getElementById('telegram-settings-mount')?.dataset.tgState === 'linked' && 'Telegram',
     ].filter(Boolean);
@@ -2153,6 +2155,7 @@ function openHeightField() {
 // Public surface mirror — bare names above are the live call path; this object
 // documents the module's API and satisfies the globals allowlist.
 window.SettingsView = {
+    refreshIntegrationsSummary,
     loadSettings,
     openSettingsPage,
     openDevicesDeeplink,
