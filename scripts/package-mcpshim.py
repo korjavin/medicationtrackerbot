@@ -25,6 +25,8 @@ root = Path(__file__).resolve().parent.parent
 output = args.directory
 names = [f"mcpshim_{args.version}_{system}_{arch}" + (".exe" if system == "windows" else "")
          for system in ("darwin", "linux", "windows") for arch in ("amd64", "arm64")]
+if {path.name for path in output.iterdir()} != set(names):
+    parser.error("input must contain exactly the six named raw binaries")
 for name in names:
     if not (output / name).is_file():
         parser.error(f"missing raw asset: {name}")
@@ -39,12 +41,13 @@ posix = ("( set -eu; umask 077; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT HUP IN
          "if command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum \"$d/install.sh\"); else h=$(shasum -a 256 \"$d/install.sh\"); fi; "
          f"[ \"${{h%% *}}\" = '{digest('install.sh')}' ]; "
          f"sh \"$d/install.sh\" --version {args.version} --pairing-code '<PAIRING_CODE>' )")
-powershell = ("& { $ErrorActionPreference='Stop'; $d=Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N')); "
-              "[IO.Directory]::CreateDirectory($d) | Out-Null; try { $p=Join-Path $d 'install.ps1'; "
+powershell = ("& { $ErrorActionPreference='Stop'; $d=$null; try { $d=Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N')); "
+              "[IO.Directory]::CreateDirectory($d) | Out-Null; $a=Get-Acl -LiteralPath $d; $a.SetAccessRuleProtection($true,$false); "
+              "$a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.WindowsIdentity]::GetCurrent().User,'FullControl','ContainerInherit,ObjectInherit','None','Allow')); Set-Acl -LiteralPath $d -AclObject $a; $p=Join-Path $d 'install.ps1'; "
               f"Invoke-WebRequest -Uri '{base}/install.ps1' -OutFile $p; "
               f"if ((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -ne '{digest('install.ps1')}') {{ throw 'Installer checksum mismatch' }}; "
               f"& $p -Version {args.version} -PairingCode '<PAIRING_CODE>'; "
-              "if ($LASTEXITCODE -ne 0) { throw 'Installer failed' } } finally { Remove-Item -LiteralPath $d -Recurse -Force } }")
+              "if ($LASTEXITCODE -ne 0) { throw 'Installer failed' } } catch { [Console]::Error.WriteLine('Helper installation failed; check the pinned release and host policy.'); exit 1 } finally { if ($d -and (Test-Path -LiteralPath $d)) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } } }")
 commands = {"version": args.version, "tag": "mcpshim-v" + args.version,
             "source_commit": args.commit, "placeholder": "<PAIRING_CODE>",
             "posix": posix, "powershell": powershell,

@@ -3,7 +3,7 @@
 set -eu
 umask 077
 fail() { printf '%s\n' "$1" >&2; exit 1; }
-version= code= replace=false
+version='' code='' replace=false
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --version) [ "$#" -ge 2 ] || fail 'Missing version.'; version=$2; shift 2 ;;
@@ -13,6 +13,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 # Only stable decimal semver, with no path or shell metacharacters.
+case "$version" in ''|*[!0-9.]*) fail 'An explicit stable version is required.' ;; esac
 printf '%s\n' "$version" | LC_ALL=C grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || fail 'An explicit stable version is required.'
 case "$code" in mtmcp1.?*) ;; *) fail 'A Med Tracker pairing code is required.' ;; esac
 command -v claude >/dev/null 2>&1 || fail 'Install Claude Code first, then retry.'
@@ -48,6 +49,7 @@ mkdir -p "$directory" || fail 'Cannot create the versioned install directory.'
 [ ! -L "$directory" ] && [ ! -L "$binary" ] || fail 'Refusing a symlink installation target.'
 if [ -e "$binary" ]; then
     [ -f "$binary" ] && [ "$(digest "$binary")" = "$expected" ] || fail 'This version already contains different bytes; preserve it and choose another version.'
+    [ -x "$binary" ] || fail 'The matching installed helper is not executable; restore its user execution permission before retrying.'
 else
     # Stage on the destination filesystem; hard-link promotion is atomic and
     # refuses an existing target rather than overwriting a working process.

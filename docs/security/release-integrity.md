@@ -85,9 +85,12 @@ published becomes detectable by anyone who looks, rather than being invisible.
 
 ## How to verify a deployment
 
-The separately packaged private MCP helper has its own immutable
-`mcpshim-v0.1.0` release, raw binary SHA-256 manifest and exact-byte GitHub
-attestations. See [the helper reference](../mcpshim.md) for its installer ABI,
+The private MCP helper's source defines a separate version-pinned
+`mcpshim-v0.1.0` release contract, raw binary SHA-256 manifest and exact-byte
+GitHub attestations. Source merge alone does not publish that release: exact
+public downloads and attestations must be verified after authorized publication.
+Publishers can still alter GitHub releases or tags; version pinning is not
+publisher immutability. See [the helper reference](../mcpshim.md) for its installer ABI,
 source/version/run evidence and manual binary verification. Its installers
 verify a uniquely named binary before registration. A manifest and bootstrap
 downloaded from the same trusted publisher do not authenticate a malicious

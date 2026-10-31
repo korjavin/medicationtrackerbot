@@ -1,15 +1,15 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)][string]$Version,
-    [Parameter(Mandatory=$true)][string]$PairingCode,
+    [string]$Version,
+    [string]$PairingCode,
     [switch]$ReplaceUserHealth
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $temporary = $null
 try {
-    if ($Version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'An explicit stable version is required.' }
-    if (-not $PairingCode.StartsWith('mtmcp1.') -or $PairingCode.Length -le 7) { throw 'A Med Tracker pairing code is required.' }
+    if ($Version -cnotmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z') { throw 'An explicit stable version is required.' }
+    if (-not $PairingCode -or -not $PairingCode.StartsWith('mtmcp1.') -or $PairingCode.Length -le 7) { throw 'A Med Tracker pairing code is required.' }
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Use install.sh on macOS, Linux, or WSL.' }
     if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { throw 'Install Claude Code first, then retry.' }
     $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()

@@ -34,6 +34,9 @@ Every file is at the exact public, unauthenticated root:
 | `commands.json` | Exact POSIX/PowerShell bootstrap command bytes and installer digests |
 | `provenance.json` | Version, source commit, toolchain and workflow-run link |
 
+This source defines the contract; it does not claim these release URLs already
+exist. GitHub publishers can alter releases/tags despite version pinning.
+
 The tagged `go.mod` pins Go **1.26.5**; builds use `CGO_ENABLED=0` and stamp
 `0.1.0+<full-source-commit>`. `mcpshim --version` and MCP initialize advertise
 the same value. There are six cross-builds. The three native CI jobs log the
