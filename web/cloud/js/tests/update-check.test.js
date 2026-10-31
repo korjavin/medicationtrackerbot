@@ -487,6 +487,28 @@ describe('showUpdateBanner', () => {
         expect(win.location.reload).toHaveBeenCalledOnce();
     });
 
+    // med-kk1q.6: cloud-boot.js runs in <head>; state C (waiting worker) fires
+    // before <body> is parsed. Wait for DOMContentLoaded instead of throwing.
+    it('waits for the body when called before it is parsed, then renders into #app-banners', () => {
+        const { doc, win } = setup();
+        const body = doc.body;
+        body.remove();
+        expect(() => showUpdateBanner({ doc, win })).not.toThrow();
+        expect(doc.getElementById('cloud-update-banner')).toBeNull();
+
+        doc.documentElement.appendChild(body);
+        body.innerHTML = '<div id="app-banners"></div>';
+        doc.dispatchEvent(new doc.defaultView.Event('DOMContentLoaded'));
+        expect(doc.querySelectorAll('#app-banners #cloud-update-banner')).toHaveLength(1);
+    });
+
+    it('stays out of the way when the degraded banner is up (one banner, degraded wins)', () => {
+        const { doc, win } = setup();
+        doc.body.innerHTML = '<div id="app-banners"><div id="boot-degraded-banner"></div></div>';
+        showUpdateBanner({ doc, win });
+        expect(doc.getElementById('cloud-update-banner')).toBeNull();
+    });
+
     it('adds only one banner however many times it is called (dedupe)', () => {
         const { doc, win } = setup();
         showUpdateBanner({ doc, win });

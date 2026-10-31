@@ -506,6 +506,30 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     }
   });
 
+  // bd med-kk1q.6: one banner, degraded wins.
+  it('a degraded boot removes an update banner already up and leaves exactly one banner', async () => {
+    const dom = new JSDOM('<!doctype html><body><div id="app-banners"><div id="cloud-update-banner"></div></div></body>');
+    vi.stubGlobal('document', dom.window.document);
+    const doc = dom.window.document;
+    try {
+      await runBoot({
+        console: { error() {}, warn() {} },
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': () => Promise.reject(new TypeError('Failed to fetch dynamically imported module')),
+          'sync.js': { pullOnOpen: () => new Promise(() => {}) },
+        },
+      });
+      await vi.waitFor(() => expect(doc.getElementById('boot-degraded-banner')).not.toBeNull());
+      expect(doc.getElementById('cloud-update-banner')).toBeNull();
+      const { showUpdateBanner } = await import('../update-check.js');
+      showUpdateBanner({ doc, win: { location: { reload() {} } }, registration: { waiting: {} } });
+      expect(doc.querySelectorAll('#app-banners > *')).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
     const { location } = await runBoot({ hash: '#claim=tok123', modules: {} });
     expect(location.href).toBe('/unlock#claim=tok123');
