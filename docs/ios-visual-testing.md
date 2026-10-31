@@ -61,7 +61,9 @@ gh run download <run> -n ios-visual-web-compare -D /tmp/claude-vw/<run>-webcmp
 | `readyLost` (`failed` has `ready`) | a ready selector vanished before the shot: the app switched away | race with a late redraw; re-run once before filing |
 | `paint` | rect the XCUITest waits on to be non-blank | a blank-frame failure means boot starvation or a crash, not a layout bug |
 
-`keyboardShown` is informational. A keyboard scene with `keyboardShown:false` has no keyboard in the shot (box setting `ConnectHardwareKeyboard`), so it proves nothing.
+`keyboardShown` is inferred from viewport shrink against the pre-focus height, including WKWebView shrinking both viewport heights. It is informational; inspect the screenshot for the actual software keyboard. `focusContext` records the target, active modal and coordinate data. Only a visible editable field in the top modal can be classified as keyboard-occluded; a focused field outside the viewport without keyboard evidence instead fails `focusOutsideViewport`. A keyboard scene captured without a keyboard (for example `ConnectHardwareKeyboard` enabled) remains unverified.
+
+For a targeted four-profile web rerun, build the QA bundle and set `WG_QA_SCENES` to comma-separated exact names when running `tests/visual/playwright/run.mjs`, for example `meds-take-reminder-hint,trial-consent,settings-ai-key-keyboard`. Unknown/ineligible or empty names (including an explicitly empty variable) fail before execution; leaving it unset preserves the ordinary full run. `--list-scenes` validates and lists the selection without Playwright or starting a browser/server. Web keyboard steps still do not show a software keyboard, so native keyboard screenshots remain required.
 
 ## Add a scene
 

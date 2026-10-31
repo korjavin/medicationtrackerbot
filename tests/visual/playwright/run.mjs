@@ -4,6 +4,10 @@
 //   local: the QA=1 local bundle in WebKit at the two Simulator widths, plus
 //          Chromium at desktop 1280x800 and Pixel 7.
 //     QA=1 ios/bundle-web.sh ci && node tests/visual/playwright/run.mjs [outDir]
+//     WG_QA_SCENES=meds-take-reminder-hint,trial-consent node ... [outDir]
+//       selects exact eligible scene names; an unset filter keeps the full run.
+//     node tests/visual/playwright/run.mjs --list-scenes
+//       validates/list scenes without Playwright or starting a browser/server.
 //   cloud: the real cmd/cloud (CLOUD_BIN) on *.localhost, one fresh account per
 //          device signed up with Chromium's virtual PRF authenticator; the
 //          driver is injected by addInitScript, never served by the cloud.
@@ -19,13 +23,13 @@ import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
-import { webkit, chromium, devices } from 'playwright';
 
 const repo = resolve(import.meta.dirname, '../../..');
 const root = join(repo, 'ios/LocalApp');
 const out = resolve(process.argv[2] || 'visual-web');
 const mode = process.argv[3] || 'local';
-await mkdir(out, { recursive: true });
+const listOnly = process.argv.includes('--list-scenes');
+if (!listOnly) await mkdir(out, { recursive: true });
 
 // LocalOrigin.file(for:) routing and mime(), plus the shell's CSP with no hosts.
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -69,6 +73,24 @@ function nativeStub() {
   Object.defineProperty(window, 'webkit', { configurable: true, value: { messageHandlers: { wgNative } } });
 }
 
+const { scenes } = JSON.parse(await readFile(join(repo, 'tests/visual/scenes.json'), 'utf8'));
+const nativeOnly = (s) => (s.nativeOnly !== undefined ? s.nativeOnly : s.name.startsWith('native-'));
+const eligible = scenes.filter((s) => !nativeOnly(s) && !s.requiresNativeHealth
+  && !(mode === 'cloud' ? s.localOnly : s.cloudOnly));
+const requested = process.env.WG_QA_SCENES;
+let selected = scenes;
+if (requested !== undefined) {
+  const names = requested.split(',').map((name) => name.trim());
+  if (names.some((name) => !name)) throw new Error('WG_QA_SCENES contains an empty scene name');
+  const invalid = names.filter((name) => !eligible.some((s) => s.name === name));
+  if (invalid.length) throw new Error(`WG_QA_SCENES contains unknown or ineligible scenes: ${invalid.join(', ')}`);
+  selected = scenes.filter((s) => names.includes(s.name));
+}
+if (listOnly) {
+  console.log(JSON.stringify(selected.filter((s) => eligible.includes(s)).map((s) => s.name)));
+  process.exit(0);
+}
+const { webkit, chromium, devices } = await import('playwright');
 const DESKTOP = { viewport: { width: 1280, height: 800 }, screen: { width: 1280, height: 800 }, deviceScaleFactor: 1 };
 const DEVICES = mode === 'cloud' ? {
   'cloud-desktop-1280': [chromium, DESKTOP],
@@ -79,9 +101,6 @@ const DEVICES = mode === 'cloud' ? {
   'desktop-1280': [chromium, DESKTOP],
   'pixel-7': [chromium, devices['Pixel 7']],
 };
-
-const { scenes } = JSON.parse(await readFile(join(repo, 'tests/visual/scenes.json'), 'utf8'));
-const nativeOnly = (s) => (s.nativeOnly !== undefined ? s.nativeOnly : s.name.startsWith('native-'));
 
 // Web stand-ins for the scene's XCUITest steps: a click and typed text, no
 // software keyboard (so `keyboard` is a no-op and keyboardShown stays false).
@@ -245,7 +264,7 @@ else {
 const browsers = new Map();
 const rows = [];
 let shots = 0;
-if (mode === 'cloud') await inviteLandingShots();
+if (mode === 'cloud' && requested === undefined) await inviteLandingShots();
 for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
   if (!browsers.has(engine)) browsers.set(engine, await engine.launch());
   const browser = browsers.get(engine);
@@ -291,7 +310,7 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
       continue;
     }
   }
-  for (const scene of scenes) {
+  for (const scene of selected) {
     if (nativeOnly(scene) || scene.requiresNativeHealth) {
       rows.push({ device, scene: scene.name, status: 'skipped', note: 'native-only (SwiftUI screen, Simulator tier only)' });
       continue;

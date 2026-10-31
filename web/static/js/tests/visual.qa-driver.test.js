@@ -6,6 +6,7 @@
 // publish the accessible ready node with the probe report.
 import 'fake-indexeddb/auto';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
     afterEach, beforeEach, describe, expect, it, vi
@@ -96,6 +97,22 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         return node && JSON.parse(node.getAttribute('aria-label'));
     }
 
+    it('boots from a document-start injection before the parser creates the root element', async () => {
+        const { window } = env;
+        const root = window.document.documentElement;
+        window.document.removeChild(root);
+        try {
+            // The cloud runner uses addInitScript: its initial document has no
+            // documentElement, unlike the local bundle's ordinary script tag.
+            window.eval(DRIVER_SRC);
+        } finally {
+            window.document.appendChild(root);
+        }
+        await window.__wgQA.done;
+        expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+        expect(await load('today')).toMatchObject({ ok: true, failed: [] });
+    });
+
     it('seeds the golden vault once, then publishes ok ready nodes for today and the food add sheet', async () => {
         const { window } = env;
 
@@ -120,6 +137,131 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         // Idempotent: the later loads found content and never imported again.
         expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
         expect(window.document.querySelectorAll('#wg-qa-ready')).toHaveLength(1);
+    });
+
+    it('opens the Generic hint through a real projected reminder slot and keeps its once-only guard', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        // Establish the original scene's failure through the real projection:
+        // its arbitrary current instant is not the first medication's slot.
+        const meds = await window.apiCall('/api/medications');
+        const synthetic = new window.Date().toISOString();
+        const absent = await window.apiCall(`/api/doses?at=${encodeURIComponent(synthetic)}`);
+        expect(absent.some((row) => row.medId === meds.find((med) => !med.archived).id)).toBe(false);
+        await window.apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: 'detailed' });
+        const action = vi.spyOn(window, 'handlePushAction');
+
+        const report = await load('meds-take-reminder-hint');
+        expect(report).toMatchObject({ ok: true, failed: [] });
+        const [kind, params] = action.mock.calls.at(-1);
+        expect(kind).toBe('medication_confirm');
+        const scheduled = params.get('scheduled');
+        const rows = await window.apiCall(`/api/doses?at=${encodeURIComponent(scheduled)}`);
+        const row = rows.find((r) => String(r.medId) === params.get('ids'));
+        expect(row).toMatchObject({ state: 'due', plannedAt: scheduled });
+        expect(report.reminderSlot).toMatchObject({ occId: row.occId, medId: row.medId, plannedAt: scheduled });
+        expect(window.document.querySelector('#med-confirm-list > *')).not.toBeNull();
+        expect(window.document.querySelector('#med-confirm-hint [data-reminder-hint]').textContent)
+            .toContain('Want the medication name on the lock screen?');
+
+        window.closeMedicationConfirmModal();
+        window.handlePushAction(kind, params);
+        await new Promise((resolve) => setTimeout(resolve, 650));
+        expect(window.document.querySelector('#med-confirm-hint [data-reminder-hint]')).toBeNull();
+    });
+
+    it('does not reschedule or offer permission again for an already Generic reminder fixture', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await window.apiCall('/api/settings/reminder-delivery')).toMatchObject({ verbosity: 'generic' });
+        const api = vi.spyOn(window, 'apiCall');
+        const report = await load('meds-take-reminder-hint');
+        expect(report).toMatchObject({ ok: true, failed: [] });
+        // PUT is a UI-origin write that recomputes reminders with askPermission
+        // (reminders.js). Reading an already-correct fixture must not send it.
+        expect(api.mock.calls.filter(([path, method]) => path === '/api/settings/reminder-delivery' && method === 'PUT')).toEqual([]);
+        expect(window.document.querySelector('#med-confirm-hint [data-reminder-hint]')).not.toBeNull();
+    });
+
+    function focusGeometry() {
+        const { window } = env;
+        const viewport = { offsetTop: 0, width: 390, height: 800, scale: 1, addEventListener() {} };
+        let layoutHeight = 800;
+        let focusBottom = 350;
+        let visualRects = false;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, get: () => layoutHeight });
+        Object.defineProperty(window.document.documentElement, 'clientHeight', { configurable: true, get: () => layoutHeight });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+        vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+            const top = this.style.position === 'fixed' ? (visualRects ? -viewport.offsetTop : 0)
+                : this === window.document.activeElement ? focusBottom - 30 : visualRects ? 0 : viewport.offsetTop;
+            return { top, bottom: top + 30, left: 0, right: 100, width: 100, height: 30, x: 0, y: top };
+        });
+        return {
+            viewport,
+            shrink: (height) => { layoutHeight = height; viewport.height = height; },
+            pan: (offset, fromVisual) => { viewport.offsetTop = offset; visualRects = fromVisual; },
+            focusBottom: (bottom) => { focusBottom = bottom; },
+        };
+    }
+
+    it.each(['non-input', 'background-input'])('does not call a no-keyboard consent focus keyboard occlusion (%s)', async (target) => {
+        const { window } = env;
+        const geometry = focusGeometry();
+        expect(await load('today')).toBeNull();
+        expect(await load('trial-consent')).toMatchObject({ ok: true });
+        const modal = window.document.getElementById('trial-consent-modal-anon');
+        let focused = modal.querySelector('[data-trial-consent-choice="allow"]');
+        if (target === 'background-input') {
+            focused = window.document.createElement('input');
+            focused.id = 'qa-background-focus';
+            window.document.body.append(focused);
+        }
+        focused.focus();
+        geometry.focusBottom(900);
+        expect(window.document.activeElement).toBe(focused);
+        const report = window.__wgQA.probe();
+        expect(report.failed).not.toContain('focusUnderKeyboard');
+        expect(report.probes).toMatchObject({ keyboardShown: false, focusUnderKeyboard: false });
+        expect(report.probes.focusContext).toMatchObject({ target: expect.any(String), editable: target === 'background-input', onTop: target !== 'background-input' });
+    });
+
+    it.each([
+        { visual: false, occluded: true }, { visual: false, occluded: false },
+        { visual: true, occluded: true }, { visual: true, occluded: false },
+    ])('keeps true keyboard visibility when both heights shrink (visual rects $visual, occluded $occluded)', async ({ visual, occluded }) => {
+        const { window } = env;
+        const geometry = focusGeometry();
+        expect(await load('today')).toBeNull();
+        expect(await load('trial-consent')).toMatchObject({ ok: true });
+        const input = window.document.createElement('input');
+        input.id = 'qa-modal-focus';
+        window.document.getElementById('trial-consent-modal-anon').append(input);
+        input.focus();
+        geometry.shrink(400);
+        geometry.pan(300, visual);
+        const top = visual ? 0 : 300;
+        geometry.focusBottom(top + (occluded ? 650 : 350));
+        const report = window.__wgQA.probe();
+        expect(report.probes).toMatchObject({ keyboardShown: true, focusUnderKeyboard: occluded });
+        expect(report.failed.includes('focusUnderKeyboard')).toBe(occluded);
+        expect(report.probes.focusContext).toMatchObject({ editable: true, onTop: true, viewportTop: top, viewportBottom: top + 400 });
+        if (!occluded) expect(report.failed).toEqual([]);
+    });
+
+    it('reports an offscreen editable field as visibility, not a keyboard that is absent', async () => {
+        const { window } = env;
+        const geometry = focusGeometry();
+        expect(await load('today')).toBeNull();
+        expect(await load('trial-consent')).toMatchObject({ ok: true });
+        const input = window.document.createElement('input');
+        window.document.getElementById('trial-consent-modal-anon').append(input);
+        input.focus();
+        geometry.focusBottom(900);
+        const report = window.__wgQA.probe();
+        expect(report.probes).toMatchObject({ keyboardShown: false, focusUnderKeyboard: false, focusOutsideViewport: true });
+        expect(report.failed).toContain('focusOutsideViewport');
+        expect(report.failed).not.toContain('focusUnderKeyboard');
     });
 
     // med-m1x5: iOS WKWebView measures client rects from the visual viewport;
@@ -242,5 +384,35 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
     it('publishes a failed report for a scene the list does not have', async () => {
         expect(await load('no-such-scene')).toMatchObject({ scene: 'no-such-scene', ok: false });
         expect(env.window.CloudVault.importAll).not.toHaveBeenCalled();
+    });
+});
+
+describe('web visual scene selection', () => {
+    const runner = fileURLToPath(new URL('../../../../tests/visual/playwright/run.mjs', import.meta.url));
+    function list(filter) {
+        const env = { ...process.env };
+        if (filter === undefined) delete env.WG_QA_SCENES;
+        else env.WG_QA_SCENES = filter;
+        return spawnSync(process.execPath, [runner, '--list-scenes'], { env, encoding: 'utf8' });
+    }
+
+    it('keeps the ordinary full run only when the scene filter is absent', () => {
+        const absent = list(undefined);
+        expect(absent.status).toBe(0);
+        expect(JSON.parse(absent.stdout)).toEqual(expect.arrayContaining(['today', 'meds-take-reminder-hint', 'trial-consent']));
+        const empty = list('');
+        expect(empty.status).toBe(1);
+        expect(empty.stderr).toContain('WG_QA_SCENES contains an empty scene name');
+    });
+
+    it('selects exactly known eligible scenes and refuses a partial request', () => {
+        const chosen = list('meds-take-reminder-hint, trial-consent');
+        expect(chosen.status).toBe(0);
+        expect(JSON.parse(chosen.stdout)).toEqual(['meds-take-reminder-hint', 'trial-consent']);
+        for (const invalid of ['today,no-such-scene', 'today,health-kit-import', 'today,,trial-consent']) {
+            const result = list(invalid);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain('WG_QA_SCENES contains');
+        }
     });
 });
