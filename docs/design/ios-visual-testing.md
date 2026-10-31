@@ -450,3 +450,13 @@ any of them.
    runner's default runtime; the iOS 18 runtime (414pt) is deferred.
 5. **Gate or evidence:** evidence only — probe failures and diffs never fail
    the job in the MVP.
+
+### Qualification (2026-10-31)
+
+The 2026-10-19 defaults above record the historical MVP decision. The
+[current visual runbook](../ios-visual-testing.md) distinguishes ordinary
+full runs, which remain evidence-only, from explicit `visual_scenes`
+dispatches, which fail on XCTest/probe failure (introduced by med-y5xx.17).
+Native filtered runs validate every requested name before any scene activity;
+unknown, ineligible or blank entries reject the complete request. Image diffs
+remain informational in both modes.
