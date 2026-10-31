@@ -116,22 +116,31 @@ enum QA {
     /// painted. The optional observer records QA capture timing without
     /// changing the stability/paint acceptance used by existing callers.
     static func stableScreenshot(paint region: CGRect? = nil, points: CGFloat = 0,
-                                 observe: ((XCUIScreenshot, String, Int, Bool) -> Void)? = nil) -> (XCUIScreenshot, Bool) {
+                                 observe: ((XCUIScreenshot, String, Int, Bool, Date, Date) -> Void)? = nil) -> (XCUIScreenshot, Bool) {
+        var lastCaptureStarted = Date()
         var last = XCUIScreen.main.screenshot()
+        var lastCaptureFinished = Date()
         var painted = false
-        if let observe { observe(last, "initial", 0, region.map { Self.painted(last, $0, points: points) } ?? true) }
+        if let observe {
+            observe(last, "initial", 0, region.map { Self.painted(last, $0, points: points) } ?? true,
+                    lastCaptureStarted, lastCaptureFinished)
+        }
         for sample in 1...15 {
             Thread.sleep(forTimeInterval: 1)
+            let captureStarted = Date()
             let next = XCUIScreen.main.screenshot()
+            let captureFinished = Date()
             painted = region.map { Self.painted(next, $0, points: points) } ?? true
             if painted, next.pngRepresentation == last.pngRepresentation {
-                observe?(next, "stable-painted", sample, painted)
+                observe?(next, "stable-painted", sample, painted, captureStarted, captureFinished)
                 return (next, true)
             }
-            observe?(next, "sample", sample, painted)
+            observe?(next, "sample", sample, painted, captureStarted, captureFinished)
             last = next
+            lastCaptureStarted = captureStarted
+            lastCaptureFinished = captureFinished
         }
-        observe?(last, "iteration-limit", 15, painted)
+        observe?(last, "iteration-limit", 15, painted, lastCaptureStarted, lastCaptureFinished)
         return (last, painted)
     }
 
