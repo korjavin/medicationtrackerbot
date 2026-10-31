@@ -196,15 +196,8 @@ final class VisualQATests: XCTestCase {
             }
         }
         let (screenshot, painted) = QA.stableScreenshot(paint: region, points: app.frame.width, observe: captureObserver)
-        if !captureSamples.isEmpty,
-           let data = try? JSONSerialization.data(withJSONObject: ["samples": captureSamples,
-                                                                  "exitReason": captureSamples.last?["phase"] ?? "unknown"],
-                                                   options: [.prettyPrinted, .sortedKeys]) {
-            let capture = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
-            capture.name = "\(scene.name)-capture.json"
-            capture.lifetime = .keepAlways
-            add(capture)
-        }
+        let captureReturnedAt = Date()
+        let captureExitReason = captureSamples.last?["phase"] ?? "unknown"
         if !painted, failure == nil { failure = "the ready content never painted (blank frame)" }
         // The app is dark: a white status-bar band hides the clock (med-o7zq.44).
         if !scene.nativeOnly, failure == nil, Self.cornerLuma(screenshot.image) > 0.9 {
@@ -227,6 +220,27 @@ final class VisualQATests: XCTestCase {
                    (obj["failed"] as? [String])?.contains("ready") == true {
                     failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
                 }
+            }
+        }
+        if let captureObserver {
+            // Preserve the ordinary screenshot/report above. Later frames are
+            // diagnostic only: determine whether keyboard pixels paint after
+            // an early stable return. AX observations follow each screenshot.
+            for delay in [5, 10, 15] {
+                let remaining = Double(delay) - Date().timeIntervalSince(captureReturnedAt)
+                if remaining > 0 { Thread.sleep(forTimeInterval: remaining) }
+                let later = XCUIScreen.main.screenshot()
+                captureObserver(later, "after-\(delay)s", delay,
+                                region.map { QA.painted(later, $0, points: app.frame.width) } ?? true)
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: [
+                "samples": captureSamples, "exitReason": captureExitReason,
+                "ordinaryCaptureReturnElapsedSeconds": captureReturnedAt.timeIntervalSince(captureStarted),
+            ], options: [.prettyPrinted, .sortedKeys]) {
+                let capture = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+                capture.name = "\(scene.name)-capture.json"
+                capture.lifetime = .keepAlways
+                add(capture)
             }
         }
         if scene.name == "health-kit-import" {
