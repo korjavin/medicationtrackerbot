@@ -60,6 +60,95 @@ describe('Settings → Integrations section', () => {
         env = null;
     });
 
+    describe('initial integrations load through the page and real settings domain', () => {
+        async function setup({ empty = false } = {}) {
+            const memory = new Map();
+            const writes = [];
+            const settings = createSettingsDomain({ records: {
+                async list(type) { return memory.get(type) || []; },
+                async put(type, row) { writes.push(type); memory.set(type, [structuredClone(row)]); }
+            }, now: () => 1, timeZone: () => 'UTC' });
+            if (!empty) await settings.patchIntegrations({
+                openai: { api_key: 'fixture-main-key', url: 'https://api.openai.com/v1', model: 'fixture-main-model',
+                    vision_api_key: 'fixture-photo-key', vision_url: 'https://api.openai.com/v1', vision_model: 'fixture-photo-model' },
+                food: { api_key: 'fixture-food-key', url: 'https://food.example', domain: 'legacy.example' },
+                elevenlabs: { api_key: 'fixture-voice-key', agent_id: 'fixture-agent' }
+            });
+            const before = await settings.readIntegrationsUnmasked();
+            writes.length = 0;
+            let read = () => settings.getIntegrations();
+            const patches = [];
+            env.window.apiCall = vi.fn(async (path, method, body) => {
+                if (path !== '/api/settings/integrations') return null;
+                if (method === 'PATCH') { patches.push(body); return settings.patchIntegrations(body); }
+                return read();
+            });
+            const page = env.window.SettingsView.openSettingsPage('integrations');
+            const save = vi.spyOn(env.window.SettingsIntegrations, 'save');
+            return { settings, before, writes, patches, page, save,
+                setRead: (fn) => { read = fn; },
+                button: page.el.querySelector('.wg-pagebar .wg-btn--primary') };
+        }
+
+        it.each(['pending', 'null', 'error'])('preserves stored fields before a valid initial read (%s), including direct Save', async (state) => {
+            const fixture = await setup();
+            const { settings, before, writes, patches, button, save, page } = fixture;
+            let finish;
+            fixture.setRead(state === 'pending' ? () => finish ? settings.getIntegrations() : new Promise((resolve) => { finish = resolve; })
+                : state === 'error' ? () => { throw new Error('fixture unavailable'); } : () => null);
+            if (state === 'error') allowConsoleNoise('error', /Failed to load integrations/);
+            const loading = env.window.SettingsIntegrations.load();
+            if (state !== 'pending') await loading;
+            button.click();
+            if (save.mock.results.length) await save.mock.results[0].value;
+            await env.window.SettingsIntegrations.save();
+            expect(patches).toEqual([]);
+            expect(writes).toEqual([]);
+            expect(await settings.readIntegrationsUnmasked()).toEqual(before);
+            expect(await env.window.DataStore.getCached('settings_integrations')).toBeNull();
+            expect(button.disabled).toBe(true);
+            if (state === 'pending') { finish(null); await loading; }
+
+            // Retrying the existing load, rather than treating failure as an
+            // empty setup, paints masks and makes ordinary Save available.
+            fixture.setRead(() => settings.getIntegrations());
+            await env.window.SettingsIntegrations.load();
+            expect(button.disabled).toBe(false);
+            button.click();
+            await save.mock.results.at(-1).value;
+            expect(patches).toHaveLength(1);
+            expect(await settings.readIntegrationsUnmasked()).toEqual(before);
+            expect(JSON.stringify(await env.window.DataStore.getCached('settings_integrations'))).not.toContain('fixture-main-key');
+            page.close();
+        });
+
+        it.each([false, true])('allows deliberate edits and clears after a valid baseline (initially empty=%s)', async (empty) => {
+            const { settings, before, writes, patches, page, button, save } = await setup({ empty });
+            await env.window.SettingsIntegrations.load();
+            expect(button.disabled).toBe(false);
+            const field = env.document.getElementById('integrations-elevenlabs-agent-id');
+            field.value = 'fixture-edited-agent';
+            field.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            button.click();
+            await save.mock.results.at(-1).value;
+            expect((await settings.readIntegrationsUnmasked()).elevenlabs.agent_id).toBe('fixture-edited-agent');
+            // Clear deliberately through the real direct handler. Omitted
+            // legacy food settings retain the domain's preservation semantics.
+            for (const input of env.document.querySelectorAll('#settings-integrations input')) {
+                input.value = '';
+                input.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            }
+            await env.window.SettingsIntegrations.save();
+            const stored = await settings.readIntegrationsUnmasked();
+            expect(Object.values(stored.openai).every((value) => value === '')).toBe(true);
+            expect(stored.elevenlabs).toEqual({ api_key: '', agent_id: '' });
+            expect(stored.food).toEqual(before.food);
+            expect(patches).toHaveLength(2);
+            expect(writes).toEqual(['integrations', 'integrations']);
+            page.close();
+        });
+    });
+
     describe('Check key through the direct UI port and real settings/client', () => {
         afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
         const field = (name) => env.document.getElementById('integrations-openai-' + name);
@@ -738,6 +827,8 @@ describe('Settings → Integrations section', () => {
 
     it('the page-bar primary saves the integrations form', async () => {
         const { window } = env;
+        window.apiCall = vi.fn(async () => ({ openai: {}, elevenlabs: {} }));
+        await window.SettingsIntegrations.load();
         const save = vi.spyOn(window.SettingsIntegrations, 'save').mockResolvedValue(undefined);
         const page = window.SettingsView.openSettingsPage('integrations');
         expect(page).not.toBeNull();
@@ -1674,6 +1765,7 @@ describe('Settings → Integrations section', () => {
             };
         });
 
+        await window.SettingsIntegrations.load();
         await window.SettingsIntegrations.save();
 
         const patch = calls.find((c) => c.method === 'PATCH');
@@ -2212,6 +2304,8 @@ describe('Settings → Integrations section', () => {
             elevenlabs: { api_key: '', agent_id: '' }
         };
         await window.DataStore.setCachedWithTags('settings_integrations', priorPayload, ['settings', 'integrations']);
+        window.apiCall = vi.fn(async () => priorPayload);
+        await window.SettingsIntegrations.load();
 
         document.getElementById('integrations-openai-api-key').value = 'sk-new-key';
 
@@ -2219,6 +2313,7 @@ describe('Settings → Integrations section', () => {
 
         await window.SettingsIntegrations.save();
 
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/integrations', 'PATCH', expect.any(Object));
         const cached = await window.DataStore.getCached('settings_integrations');
         expect(cached).toEqual(priorPayload);
     });
@@ -2390,6 +2485,7 @@ describe('Settings → Integrations section', () => {
                 };
             });
 
+            await window.SettingsIntegrations.load();
             await window.SettingsIntegrations._loadModels('text');
             expect(optionValues(document, 'text')).toEqual(['old-a']);
 
