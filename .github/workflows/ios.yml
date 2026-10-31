@@ -113,9 +113,9 @@ jobs:
           retention-days: 3
 
   build:
-    # Not on a visual- or qa-only run: a label event, or a visual / qa
-    # dispatch (which must never reach the TestFlight steps).
-    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa && !inputs.health_diagnostic
+    # Simulator flags AND modifier-only dispatches must never reach TestFlight.
+    # A default dispatch still intentionally runs the distribution build.
+    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa && !inputs.health_diagnostic && !inputs.health_sign && !inputs.visual_scenes
     # Job-level, so a visual run never cancels a build or a TestFlight dispatch.
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
@@ -330,8 +330,8 @@ jobs:
 
   # Visual QA on the Simulator (bd med-y5xx.3, docs/design/ios-visual-testing.md):
   # every scene of tests/visual/scenes.json on a 390pt and a 440pt iPhone, as
-  # the `ios-visual` artifact. Evidence, not a gate: scene and probe failures
-  # are warnings; a device job fails only when its device produced no screenshots.
+  # the `ios-visual` artifact. Full runs report scene/probe failures as warnings;
+  # explicit visual_scenes runs instead fail on any XCTest error.
   # One device per job (bd med-y5xx.12): booting both in one job is serial,
   # and overlapping boots starved the scenes; `visual-merge` joins them.
   visual:
@@ -417,7 +417,7 @@ jobs:
           {
             echo "## iOS visual QA"
             echo
-            echo "Artifact \`ios-visual\`: \`<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`compare/\` (diffs against master, in the visual-merge job). Evidence only, never a gate."
+            echo "Artifact \`ios-visual\`: \`<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`compare/\` (diffs against master, in the visual-merge job). Full runs are evidence-only; explicit \`visual_scenes\` runs fail on XCTest errors."
             while IFS='=' read -r dev udid; do
               d="shots/$dev"
               n="$(find "$d" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"

@@ -204,6 +204,41 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(report.probes.readyLost).toContain('#today-view.active');
     });
 
+    it.each(['sleep', 'steps', 'hr', 'spo2', 'missing'])('rejects incorrect rendered Health values (%s) while the API remains correct', async (defect) => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        const overview = {
+            average_sleep_hours_7d: 7, average_sleep_hours_30d: 7,
+            average_steps_7d: 4000, average_steps_30d: 4000,
+            average_heart_rate_7d: 65, average_heart_rate_30d: 65,
+            average_spo2_7d: 98, average_spo2_30d: 98,
+            sleep_stats_7d: [], sleep_stats_30d: [], step_stats_7d: [], step_stats_30d: [],
+            heart_rate_history_7d: [], heart_rate_history_30d: [], spo2_history_7d: [], spo2_history_30d: [],
+        };
+        const call = window.apiCall;
+        window.apiCall = (path, ...args) => path.startsWith('/api/health/overview')
+            ? Promise.resolve(overview) : call(path, ...args);
+        // Native save/import has its own Simulator proof. Here the real renderer
+        // gets a correct API response, then only its DOM output is corrupted.
+        const nativeScene = QA_FILES['/qa/scenes.json'].scenes.find((s) => s.name === 'health-kit-import');
+        const scene = { ...nativeScene, name: 'health-render-check', steps: [{ tab: 'health' }] };
+        window.__wgQAFiles = { ...QA_FILES, '/qa/scenes.json': { scenes: [scene] } };
+        expect(await load(scene.name)).toMatchObject({ ok: true, failed: [] });
+
+        const vital = defect === 'missing' ? 'spo2' : defect;
+        const value = window.document.querySelector(`.wg-health-summary__tile[data-vital="${vital}"] .wg-health-summary__value`);
+        expect(value).not.toBeNull();
+        if (defect === 'missing') value.remove();
+        else value.textContent = '0';
+        expect(await window.apiCall('/api/health/overview')).toEqual(overview);
+        await vi.waitFor(() => {
+            const report = JSON.parse(window.document.getElementById('wg-qa-ready').getAttribute('aria-label'));
+            expect(report.ok).toBe(false);
+            expect(report.failed).toContain('rendered');
+            expect(report.probes.renderedValues.some((v) => v.expected !== v.actual)).toBe(true);
+        });
+    });
+
     it('publishes a failed report for a scene the list does not have', async () => {
         expect(await load('no-such-scene')).toMatchObject({ scene: 'no-such-scene', ok: false });
         expect(env.window.CloudVault.importAll).not.toHaveBeenCalled();

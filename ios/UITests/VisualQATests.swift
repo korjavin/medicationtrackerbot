@@ -125,10 +125,10 @@ final class VisualQATests: XCTestCase {
         if scene.name == "health-kit-import" {
             if let json = readyReport(app),
                let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-               obj["ok"] as? Bool == true {
+               obj["ok"] as? Bool == true, obj["paint"] as? [String: Any] != nil {
                 // Required native import/value assertions completed.
             } else {
-                failure = "native Health scene requires a present valid report with ok=true: \(readyReport(app) ?? "missing")"
+                failure = "native Health scene requires a valid report with ok=true and a painted-content region: \(readyReport(app) ?? "missing")"
             }
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }

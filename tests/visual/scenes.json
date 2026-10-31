@@ -378,6 +378,12 @@
       "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] },
     { "name": "health-kit-import", "platform": "ios", "localOnly": true, "requiresNativeHealth": true,
       "steps": [{ "healthNative": true }, { "tab": "health" }],
-      "ready": ["#health-view.active", "#health-overview-content", ".wg-sleep-card", ".wg-steps-card", ".wg-vitals-card--hr", ".wg-vitals-card--spo2"] }
+      "rendered": [
+        { "selector": ".wg-health-summary__tile[data-vital=\"sleep\"] .wg-health-summary__value", "text": "7.0 h" },
+        { "selector": ".wg-health-summary__tile[data-vital=\"steps\"] .wg-health-summary__value", "text": "4,000" },
+        { "selector": ".wg-health-summary__tile[data-vital=\"hr\"] .wg-health-summary__value", "text": "65 bpm" },
+        { "selector": ".wg-health-summary__tile[data-vital=\"spo2\"] .wg-health-summary__value", "text": "98 %" }
+      ],
+      "ready": ["#health-view.active", "#health-overview-content", ".wg-sleep-card", ".wg-steps-card", ".wg-vitals-card--hr", ".wg-vitals-card--spo2", ".wg-health-summary"] }
   ]
 }

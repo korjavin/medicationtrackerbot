@@ -703,6 +703,14 @@
         // (the app switched away) is a failed scene, not a passing one.
         probes.readyLost = lostReady(def);
         if (probes.readyLost.length) failed.push('ready');
+        if (def.rendered && def.rendered.length) {
+            probes.renderedValues = def.rendered.map(({ selector, text }) => {
+                const el = firstVisible(selector);
+                const actual = el ? el.textContent.replace(/\s+/g, ' ').trim() : null;
+                return { selector, expected: text, actual };
+            });
+            if (probes.renderedValues.some(({ expected, actual }) => expected !== actual)) failed.push('rendered');
+        }
         return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def) };
     }
 
@@ -765,6 +773,12 @@
         // Tab / sub-tab switches flip classes and [hidden]: re-check readiness.
         if (window.MutationObserver) {
             new window.MutationObserver(again).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+            // Re-check asserted values when a view re-renders after the initial report.
+            // Observe its content container, not body: probe() adds a temporary body marker.
+            const anchor = def.rendered && firstVisible((def.ready || []).at(-1));
+            if (anchor && anchor.parentElement) {
+                new window.MutationObserver(again).observe(anchor.parentElement, { subtree: true, childList: true, characterData: true });
+            }
         }
     }
 

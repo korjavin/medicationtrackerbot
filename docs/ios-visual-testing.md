@@ -10,6 +10,7 @@ Flow tests (first run, relaunch, and later lock, stash, backup), which are a gat
 - **Dispatch on a branch:** `gh workflow run ios.yml --ref <branch> -f visual=true` (skips the build and TestFlight); `gh workflow run visual-web.yml --ref <branch>`.
 - **Dispatch on `master` only to refresh the compare reference.** Compare uses the newest master `workflow_dispatch` run that has the artifact. The visual job has its own concurrency group (`ios.yml-visual-<ref>`, cancel-in-progress) and does not touch the TestFlight build. Never dispatch or cancel a master run while another master visual run is in flight: the shared group cancels it.
 - macOS minutes are expensive: label only when the change can move layout.
+- A default dispatch still runs the intentional TestFlight build. Any Simulator flag or non-default modifier (`health_sign` or `visual_scenes`) excludes that build, including an incomplete modifier-only dispatch; enable the owning diagnostic/visual flag to actually run its job.
 
 ## Native HealthKit diagnostic
 
