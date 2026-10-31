@@ -20,7 +20,8 @@
     const SETTLE_CAP_MS = 5000;
     // Capture the unoccluded viewport before app scripts can focus a field.
     // WKWebView may shrink both layout and visual heights for its keyboard.
-    const viewportBaseline = { width: window.innerWidth, height: Math.max(window.innerHeight, document.documentElement.clientHeight) };
+    // The cloud runner injects at document start, before the root exists.
+    const viewportBaseline = { width: window.innerWidth, height: Math.max(window.innerHeight, document.documentElement?.clientHeight || 0) };
 
     const scene = new URLSearchParams(window.location.search).get('qa');
     const qa = { scene, done: null, probe };

@@ -97,6 +97,22 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         return node && JSON.parse(node.getAttribute('aria-label'));
     }
 
+    it('boots from a document-start injection before the parser creates the root element', async () => {
+        const { window } = env;
+        const root = window.document.documentElement;
+        window.document.removeChild(root);
+        try {
+            // The cloud runner uses addInitScript: its initial document has no
+            // documentElement, unlike the local bundle's ordinary script tag.
+            window.eval(DRIVER_SRC);
+        } finally {
+            window.document.appendChild(root);
+        }
+        await window.__wgQA.done;
+        expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+        expect(await load('today')).toMatchObject({ ok: true, failed: [] });
+    });
+
     it('seeds the golden vault once, then publishes ok ready nodes for today and the food add sheet', async () => {
         const { window } = env;
 
