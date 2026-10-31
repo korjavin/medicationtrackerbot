@@ -43,12 +43,85 @@ final class VisualQATests: XCTestCase {
 
     func testScenes() throws {
         continueAfterFailure = true
-        let only = ProcessInfo.processInfo.environment["WG_QA_SCENES"].flatMap { $0.isEmpty ? nil : Set($0.split(separator: ",").map(String.init)) }
-        let scenes = try Self.scenes().filter { only?.contains($0.name) ?? true }
-        XCTAssertFalse(scenes.isEmpty, "no scenes to run")
-        for scene in scenes {
+        try executeScenes(requested: ProcessInfo.processInfo.environment["WG_QA_SCENES"]) { run($0) }
+    }
+
+    struct SceneFilterError: Error, CustomStringConvertible {
+        let entries: [String]
+        var description: String { "Invalid WG_QA_SCENES: \(entries.joined(separator: "; ")). No scenes ran." }
+    }
+
+    /// The same entry point for real runs and guard regressions. Validate the
+    /// whole request before creating any activity (including Health seeding).
+    /// Keep catalog order: later scenes can depend on earlier fixture writes.
+    private func executeScenes(requested: String?, run: (Scene) -> Void) throws {
+        let eligible = try Self.scenes()
+        var selected = eligible
+        if let requested, !requested.isEmpty {
+            let names = requested.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let eligibleNames = Set(eligible.map(\.name))
+            let invalid = names.enumerated().compactMap { index, name -> String? in
+                if name.isEmpty { return "blank entry \(index + 1)" }
+                return eligibleNames.contains(name) ? nil : "\"\(name)\" (unknown or ineligible on iOS)"
+            }
+            guard invalid.isEmpty else { throw SceneFilterError(entries: invalid) }
+            let only = Set(names)
+            selected = eligible.filter { only.contains($0.name) }
+        }
+        guard !selected.isEmpty else { throw SceneFilterError(entries: ["no eligible scenes"]) }
+        for scene in selected {
             XCTContext.runActivity(named: scene.name) { _ in run(scene) }
         }
+    }
+
+    func testSceneFilterExecutionGuard() throws {
+        // Expected rejection is asserted here; it is not a failed dispatch
+        // relabelled green. Exercise the real selection/activity entry point,
+        // replacing only the scene body so no apps or permissions are touched.
+        continueAfterFailure = true
+        let all = try Self.scenes().map(\.name)
+        let pair = all.filter { ["today", "food-add-sheet"].contains($0) }
+        XCTAssertEqual(pair, ["today", "food-add-sheet"])
+        var evidence = [[String: Any]]()
+        let valid: [(String?, [String])] = [
+            (nil, all), ("", all),
+            (" today, food-add-sheet \n", pair),
+            ("food-add-sheet,today, today,food-add-sheet", pair)
+        ]
+        for (request, expected) in valid {
+            var executed = [String]()
+            try executeScenes(requested: request) { executed.append($0.name) }
+            XCTAssertEqual(executed, expected, "request: \(String(describing: request))")
+            evidence.append(["request": request as Any? ?? NSNull(), "executed": executed, "rejected": false])
+        }
+        let invalid: [(String, String)] = [
+            ("today,unknown-scene", "unknown-scene"),
+            ("unknown-scene,also-unknown", "also-unknown"),
+            ("today,settings-account", "settings-account"), // bundled cloud-only scene
+            ("settings-account", "settings-account"),
+            ("today,native-android-first-run", "native-android-first-run"),
+            (" \n\t", "blank entry 1"),
+            (",today", "blank entry 1"),
+            ("today,", "blank entry 2"),
+            ("today, ,food-add-sheet", "blank entry 2"),
+            (",", "blank entry 2")
+        ]
+        for (request, diagnostic) in invalid {
+            var executed = [String]()
+            var rejection = ""
+            XCTAssertThrowsError(try executeScenes(requested: request) { executed.append($0.name) }) { error in
+                rejection = String(describing: error)
+                XCTAssertTrue(error is SceneFilterError, rejection)
+                XCTAssertTrue(rejection.contains(diagnostic), rejection)
+            }
+            XCTAssertTrue(executed.isEmpty, "invalid request started scenes: \(executed)")
+            evidence.append(["request": request, "executed": executed, "rejected": !rejection.isEmpty, "error": rejection])
+        }
+        let report = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]),
+                                   uniformTypeIdentifier: "public.json")
+        report.name = "scene-filter-execution-guard.json"
+        report.lifetime = .keepAlways
+        add(report)
     }
 
     static func scenes() throws -> [Scene] {
