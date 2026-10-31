@@ -48,6 +48,100 @@ const ROWS = [
 const page = (document, name) => document.querySelector(`.wg-settings-pages > [data-settings-page="${name}"]`);
 const row = (document, name) => document.querySelector(`.wg-settings-home [data-settings-open="${name}"]`);
 
+describe('Settings reads crossing provider reload commitment', () => {
+    // The actual presenter/worker integration owns setting this content-free
+    // flag. These cases pause each real Settings helper at its injected read
+    // port, then verify the committed form cannot be repainted by that result.
+    it.each(['targets', 'mode', 'devices', 'nudge', 'bmi', 'kit', 'vault', 'privacy',
+        'sync-card', 'sync-section', 'local-text', 'local-permission', 'native-wake',
+        'push-permission', 'push-module', 'push-subscription', 'push-note',
+        'reminder-module', 'reminder-pref'])('%s cannot mutate the committed document or begin more lazy work', async (kind) => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        let observer;
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.MedTrackerCloud = { ctx: { accountId: 'fixture' } };
+            let release;
+            let started = false;
+            const pending = new Promise((resolve) => { release = resolve; });
+            const pause = vi.fn(() => { started = true; return pending; });
+            const unused = vi.fn(async () => null);
+            let begin, reply;
+            if (kind === 'targets') {
+                window.featureSettings.gamification = true;
+                window.apiCall = pause; begin = () => window.loadGamificationTargets();
+                reply = { enabled: true, targets: [{ metric_key: 'bp_systolic', is_custom: true, low: 111, high: 139, recommended_low: 110, recommended_high: 140 }] };
+            } else if (kind === 'mode') {
+                window.apiCall = pause; begin = () => window.loadGamificationMode();
+                reply = { experiments: true, traits: true, narration: true, ed_safe: true };
+            } else if (kind === 'devices' || kind === 'nudge') {
+                window.fetch = pause;
+                begin = () => kind === 'devices' ? window.refreshDevicesSummary() : window.bindSecondDeviceNudge();
+                reply = { ok: true, json: async () => kind === 'devices' ? [{}, {}] : [{}] };
+            } else if (kind === 'bmi') {
+                window.applyBundleBody({ height_cm: 180, height_unit: 'cm', show_bmi: true });
+                window.loadWeightDomain = async () => ({ bmi: () => 24.7 });
+                window.apiCall = pause; begin = () => window.refreshBmiHint(); reply = { latest_kg: 80, ed_safe: false };
+            } else if (kind === 'kit') {
+                window.apiCallDirect = pause; begin = () => window.paintKitState(); reply = { how: 'none' };
+            } else if (kind === 'vault') {
+                window.loadCloudSyncModule = async () => ({ getSyncStatus: pause });
+                begin = () => window.paintVaultCard(); reply = { lastSyncedAt: Date.now() };
+            } else if (kind === 'privacy') {
+                window.loadPrivacyModule = pause; begin = () => window.bindOperatorVisibility(); reply = { renderPrivacyInto: unused };
+            } else if (kind === 'sync-card') {
+                window.DataStore = null; window.apiCall = pause;
+                begin = () => window.paintSyncCard(); reply = { records: 43, lastSavedAt: new Date().toISOString() };
+            } else if (kind === 'sync-section') {
+                window.InviteSheet = { pending: pause, base: async () => 'fixture.example', canRequest: async () => true };
+                begin = () => window.paintSyncSection(); reply = 'https://fixture.example/claim';
+            } else if (kind === 'local-text') {
+                window.apiCall = pause; begin = () => window.bindLocalReminderText(); reply = { verbosity: 'detailed' };
+            } else if (kind === 'local-permission' || kind === 'push-permission') {
+                window.localNotificationsSupported = () => true;
+                window.LocalNotifications.permission = pause;
+                window.NativePush = { isSupported: () => true, token: unused };
+                begin = () => kind === 'local-permission' ? window.refreshLocalNotifyState()
+                    : window.refreshCloudPushToggleState(document.getElementById('cloud-push-toggle'), document.getElementById('cloud-push-status'));
+                reply = 'granted';
+            } else if (kind === 'native-wake') {
+                window.NativePush = { isSupported: () => true, token: pause };
+                begin = () => window.paintNativeWake(document); reply = 'fixture-token';
+            } else if (kind === 'push-module' || kind === 'push-subscription') {
+                window.localNotificationsSupported = () => false;
+                window.loadCloudPushModule = kind === 'push-module' ? pause : async () => ({ getSubscription: pause });
+                begin = () => window.refreshCloudPushToggleState(document.getElementById('cloud-push-toggle'), document.getElementById('cloud-push-status'));
+                reply = kind === 'push-module' ? { getSubscription: unused } : {};
+            } else if (kind === 'push-note') {
+                window.NotifyPermission.state = pause;
+                window.NotifyPermission.renderNote = unused;
+                begin = () => window.paintCloudPush(document.getElementById('cloud-push-toggle'), true); reply = 'denied';
+            } else {
+                window.loadCloudRemindersModule = kind === 'reminder-module' ? pause
+                    : async () => ({ remindersDomain: () => ({ getDeliveryPref: pause }) });
+                begin = () => window.bindCloudReminderDelivery();
+                reply = kind === 'reminder-module' ? { remindersDomain: unused }
+                    : { delivery: 'telegram', verbosity: 'detailed', lockscreen: 'detailed' };
+            }
+            const work = begin();
+            await vi.waitFor(() => expect(started).toBe(true));
+            const controls = () => [...document.querySelectorAll('input, button, select')]
+                .map((el) => [el.id, el.value, el.checked, el.disabled, el.hidden, el.placeholder]);
+            const before = controls();
+            const mutations = [];
+            observer = new window.MutationObserver((records) => mutations.push(...records.map((r) => r.target.id || r.target.nodeName)));
+            observer.observe(document.body, { subtree: true, attributes: true, childList: true, characterData: true });
+            document.documentElement.setAttribute('data-provider-reload-committed', '');
+            release(reply);
+            await work;
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(controls()).toEqual(before);
+            expect(mutations).toEqual([]);
+            expect(unused).not.toHaveBeenCalled();
+        } finally { observer?.disconnect(); cleanup(); }
+    });
+});
+
 describe('Settings v2 home (kit S1, med-xso6.23)', () => {
     it('renders the everyday and connected groups as .wg-list of .wg-setting rows', () => {
         const { document, cleanup } = loadSettingsView();

@@ -20,6 +20,56 @@ function stubCloudModules(window, { push, reminders }) {
     window.loadCloudRemindersModule = () => Promise.resolve(reminders);
 }
 
+describe('notification notes crossing provider reload commitment', () => {
+    it.each(['permission', 'native-capability'])('the actual note renderer preserves its slot when %s resolves after commitment', async (boundary) => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            let release;
+            let started = false;
+            const pending = new Promise((resolve) => { release = resolve; });
+            const pause = vi.fn(() => { started = true; return pending; });
+            window.LocalNotifications = {
+                isSupported: () => true, copy: { os: 'Android' },
+                permission: boundary === 'permission' ? pause : async () => 'denied',
+            };
+            window.nativeHas = boundary === 'native-capability' ? pause : vi.fn(async () => true);
+            const slot = document.getElementById('local-notify-note');
+            slot.textContent = 'Existing note stays until navigation.';
+            const work = window.NotifyPermission.renderNote(slot);
+            await vi.waitFor(() => expect(started).toBe(true));
+            document.documentElement.setAttribute('data-provider-reload-committed', '');
+            release(boundary === 'permission' ? 'denied' : true);
+            await work;
+            expect(slot.textContent).toBe('Existing note stays until navigation.');
+            expect(slot.querySelector('button')).toBeNull();
+            if (boundary === 'permission') expect(window.nativeHas).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('the real Settings painter and nested note renderer do not repaint after the second permission await', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            let release;
+            const pending = new Promise((resolve) => { release = resolve; });
+            const permission = vi.fn().mockResolvedValueOnce('denied').mockImplementation(() => pending);
+            window.LocalNotifications = { isSupported: () => true, permission, copy: { os: 'Android' } };
+            window.nativeHas = vi.fn(async () => true);
+            const note = document.getElementById('cloud-push-note');
+            note.textContent = 'Existing note';
+            const work = window.paintCloudPush(document.getElementById('cloud-push-toggle'), true);
+            await vi.waitFor(() => expect(permission).toHaveBeenCalledTimes(2));
+            const card = document.getElementById('cloud-push-card');
+            const before = card.outerHTML;
+            document.documentElement.setAttribute('data-provider-reload-committed', '');
+            release('denied');
+            await work;
+            expect(card.outerHTML).toBe(before);
+            expect(note.textContent).toBe('Existing note');
+            expect(window.nativeHas).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+});
+
 describe('cloud Notifications block visibility (server vs cloud mode)', () => {
     it('server mode: cloud block stays hidden', async () => {
         allowConsoleNoise();

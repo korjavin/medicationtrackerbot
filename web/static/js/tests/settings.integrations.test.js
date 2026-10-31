@@ -549,6 +549,86 @@ describe('Settings → Integrations section', () => {
             expect(panel.getAttribute('aria-label')).toBe('Reload needed');
         });
 
+        it('the actual page Save and handler cannot start a PATCH while Reload owns preparation', async () => {
+            const { page, settings, writes, port } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
+            voice.value = 'fixture-unsaved-voice'; voice.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            env.window.safeConfirm = vi.fn(async () => true);
+            let finishDelete;
+            const owed = new Promise((resolve) => { finishDelete = resolve; });
+            env.window.flushPendingDelete = vi.fn(() => owed);
+            const replace = vi.fn();
+            const controller = { postMessage: (message, ports) => ports[0].postMessage({ type: message.type, version: 1 }) };
+            const win = { document: env.document, CustomEvent: env.window.CustomEvent, navigator: { serviceWorker: { controller } },
+                location: { href: 'https://account.example/', replace } };
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: (options) => reloadProviderDocument({ ...options, win }) }));
+            writes.length = 0; env.window.apiCall.mockClear(); port.checkAIKey.mockClear();
+            const reloading = env.window.SettingsIntegrations.reloadForKeyCheck();
+            await vi.waitFor(() => expect(env.window.flushPendingDelete).toHaveBeenCalledOnce());
+            const saveButton = page.el.querySelector('.wg-pagebar .wg-btn--primary');
+            expect(saveButton.disabled).toBe(true);
+            saveButton.click();
+            await env.window.SettingsIntegrations.save(); // handler gate also covers programmatic entry
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            expect(writes).toEqual([]);
+            expect(voice.value).toBe('fixture-unsaved-voice');
+            finishDelete();
+            expect(await reloading).toBe(true);
+            expect(replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
+            expect((await settings.readIntegrationsUnmasked()).elevenlabs.agent_id).toBe('');
+            expect(writes).toEqual([]);
+            expect(port.checkAIKey).not.toHaveBeenCalled();
+            page.close();
+        });
+
+        it('an already-issued page Save retains ownership through PATCH, registration and cache commit before Reload can begin', async () => {
+            const { page, settings, port } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
+            voice.value = 'fixture-explicitly-saved-voice'; voice.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            let finishPatch, finishRegistration, finishCommit;
+            const patch = new Promise((resolve) => { finishPatch = resolve; });
+            const registration = new Promise((resolve) => { finishRegistration = resolve; });
+            const committed = new Promise((resolve) => { finishCommit = resolve; });
+            const realApi = env.window.apiCall;
+            env.window.apiCall = vi.fn(async (path, method, body) => {
+                if (path === '/api/settings/integrations' && method === 'PATCH') await patch;
+                return realApi(path, method, body);
+            });
+            port.aiProviderRegistration.mockImplementation(() => registration);
+            const realOptimistic = env.window.DataStore.applyOptimistic.bind(env.window.DataStore);
+            const cacheCommit = vi.fn(async (...args) => {
+                const handle = await realOptimistic(...args);
+                return { rollback: handle.rollback, commit: async (...commitArgs) => { await committed; return handle.commit(...commitArgs); } };
+            });
+            env.window.DataStore.applyOptimistic = cacheCommit;
+            const realSave = env.window.SettingsIntegrations.save;
+            let saving;
+            vi.spyOn(env.window.SettingsIntegrations, 'save').mockImplementation((...args) => { saving = realSave(...args); return saving; });
+            const reload = vi.fn(async () => true);
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: reload }));
+            page.el.querySelector('.wg-pagebar .wg-btn--primary').click();
+            await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/settings/integrations', 'PATCH', expect.any(Object)));
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect((await settings.readIntegrationsUnmasked()).elevenlabs.agent_id).toBe('');
+            expect(voice.value).toBe('fixture-explicitly-saved-voice');
+            finishPatch();
+            await vi.waitFor(() => expect(port.aiProviderRegistration).toHaveBeenCalledTimes(2));
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            finishRegistration({ state: 'registered' });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false); // cache handle still owns Save
+            expect(reload).not.toHaveBeenCalled();
+            expect(env.document.getElementById('provider-committed-reload')).toBeNull();
+            finishCommit(); await saving;
+            expect((await settings.readIntegrationsUnmasked()).elevenlabs.agent_id).toBe('fixture-explicitly-saved-voice');
+            expect(voice.value).toBe('fixture-explicitly-saved-voice');
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(true);
+            expect(reload).toHaveBeenCalledOnce();
+            page.close();
+        });
+
         it('two quick Reload calls during the first delete flush start only one handoff', async () => {
             const { page } = await setup([]);
             await env.window.SettingsIntegrations.save();

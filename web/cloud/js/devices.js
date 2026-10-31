@@ -23,6 +23,8 @@ const PLATFORM_LABELS = { web: 'Browser', android: 'Android phone', ios: 'iPhone
 const KNOWN_DEVICES_KEY = 'knownDevices';
 const NOTICE_MS = 7 * 24 * 60 * 60 * 1000;
 const SETTINGS_DEVICES_URL = '/?tab=settings&page=devices';
+const renderBlocked = (mount) => !mount.isConnected || !mount.ownerDocument?.documentElement
+  || mount.ownerDocument.documentElement.hasAttribute('data-provider-reload-committed');
 
 function deviceLabel(d) {
   return PLATFORM_LABELS[d.platform] || `Passkey ${d.credential_id.slice(0, 8)}…`;
@@ -86,6 +88,7 @@ export async function checkNewDevices(now = Date.now()) {
 // hooks: { onAddDevice() — the page opens the transfer flow;
 //          onLoaded(devices) — the page refreshes its summary/nudge }
 export function renderDeviceList(mount, ctx, hooks = {}) {
+  if (renderBlocked(mount)) return;
   mount.innerHTML = '<p class="wg-hint">Loading your devices&hellip;</p>';
   loadDevices(mount, ctx, hooks).catch((err) => {
     renderDeviceListError(mount, ctx, hooks, err.message || String(err));
@@ -111,7 +114,9 @@ async function fetchDeviceList() {
 
 async function loadDevices(mount, ctx, hooks) {
   const res = await fetchDeviceList();
+  if (renderBlocked(mount)) return;
   const devices = await res.json();
+  if (renderBlocked(mount)) return;
 
   // Verify-only K_mac leaf key from the warm ctx (unlock.js warmUnlock).
   const audited = await Promise.all(
@@ -133,7 +138,9 @@ async function loadDevices(mount, ctx, hooks) {
     })
   );
 
+  if (renderBlocked(mount)) return;
   const known = await readKnownDevices();
+  if (renderBlocked(mount)) return;
   const noticed = new Set(((known && known.notices) || [])
     .filter((n) => Date.now() - n.at < NOTICE_MS)
     .map((n) => n.credential_id));
@@ -147,6 +154,7 @@ async function loadDevices(mount, ctx, hooks) {
 // "This device" tag and the synced-passkey hint, the copyable account address
 // (Path 0 on another device asks for it), and any new-device notices.
 function renderDevices(mount, ctx, hooks, devices, notices = []) {
+  if (renderBlocked(mount)) return;
   mount.innerHTML = `
     <section class="wg-section">
       <div class="wg-section__head"><span class="wg-eyebrow">Devices</span><span class="wg-meta" id="device-count"></span></div>
@@ -360,6 +368,7 @@ async function revokeDevice(mount, ctx, hooks, credentialId) {
 }
 
 function renderDeviceListError(mount, ctx, hooks, errorText) {
+  if (renderBlocked(mount)) return;
   mount.innerHTML = `
     <section class="wg-section">
       <p class="wg-error"></p>

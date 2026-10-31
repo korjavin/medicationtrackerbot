@@ -69,6 +69,43 @@ afterEach(() => {
 });
 
 describe('telegram.js onboarding module', () => {
+  it.each(['status', 'status-error', 'glossary', 'diagnostics', 'poll', 'teardown'])('does not paint a pending %s read after provider reload commits or the mount leaves', async (stage) => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const linked = { enabled: true, state: 'linked', bot_username: 'tracker_bot' };
+    let statusCalls = 0;
+    global.fetch = vi.fn(async (url) => {
+      if (url === '/api/telegram/status') {
+        statusCalls++;
+        if (stage.startsWith('status') || stage === 'teardown' || (stage === 'poll' && statusCalls > 1)) return pending;
+        return { ok: true, json: async () => stage === 'poll' ? { enabled: true, state: 'pending' } : linked };
+      }
+      if (stage === 'diagnostics') return pending;
+      return { ok: true, json: async () => ({}) };
+    });
+    const prefsPort = { get: vi.fn(() => stage === 'glossary' ? pending : Promise.resolve('')), set: vi.fn() };
+    if (stage === 'poll') vi.useFakeTimers();
+    const mounting = mountTelegram(app, { prefsPort });
+    if (!stage.startsWith('status') && stage !== 'teardown') await mounting;
+    if (stage === 'poll') await vi.advanceTimersByTimeAsync(2500);
+    const before = app.innerHTML;
+    const beforeValue = app.querySelector('textarea')?.value;
+    if (stage === 'teardown') app.remove();
+    else dom.window.document.documentElement.setAttribute('data-provider-reload-committed', '');
+    release(stage === 'glossary' ? 'late glossary' : stage === 'status-error' ? { ok: false, status: 401 } : {
+      ok: true, json: async () => stage === 'diagnostics' ? { last_error: 'late error' } : linked,
+    });
+    await mounting;
+    if (stage === 'poll') await vi.advanceTimersByTimeAsync(0);
+    else await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(app.innerHTML).toBe(before);
+    expect(app.querySelector('textarea')?.value).toBe(beforeValue);
+    if (stage.startsWith('status')) {
+      expect(prefsPort.get).not.toHaveBeenCalled();
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('self-hides in the wizard when Telegram is disabled (calls onDone, renders nothing)', async () => {
     // Disabled => routes unregistered => status 404 => module treats as disabled.
     global.fetch = fetchStub({});

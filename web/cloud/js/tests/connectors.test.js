@@ -79,6 +79,32 @@ async function connectThroughConsent() {
 }
 
 describe('connectors.js Claude connector page', () => {
+  it('loads a mount staged immediately before the Settings page push', async () => {
+    getPairing.mockResolvedValue(null);
+    getRemoteStatus.mockResolvedValue({ enabled: false });
+    const body = dom.window.document.createElement('div');
+    renderConnectors(body, ctx);
+    app.appendChild(body);
+    await vi.waitFor(() => expect(body.querySelector('#claude-status')?.textContent).toBe('Not connected'));
+  });
+
+  it.each(['pairing', 'remote', 'error', 'teardown'])('does not continue a pending %s read after provider reload commits or the mount leaves', async (stage) => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    getPairing.mockImplementation(() => stage === 'pairing' ? pending : Promise.resolve(null));
+    getRemoteStatus.mockImplementation(() => pending);
+    renderConnectors(app, ctx);
+    await vi.waitFor(() => expect(stage === 'pairing' ? getPairing : getRemoteStatus).toHaveBeenCalled());
+    const before = app.innerHTML;
+    if (stage === 'teardown') app.remove();
+    else dom.window.document.documentElement.setAttribute('data-provider-reload-committed', '');
+    release(stage === 'pairing' ? null : stage === 'error' ? Promise.reject(new Error('unavailable')) : { enabled: true, url: REMOTE_URL });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(app.innerHTML).toBe(before);
+    if (stage === 'pairing') expect(getRemoteStatus).not.toHaveBeenCalled();
+    expect(app.querySelector('#connectors-retry')).toBeNull();
+  });
+
   // CC1: one way in, the build-from-source shim is no longer offered.
   it('offers one primary "Connect an AI app" and no local shim when nothing is connected', async () => {
     getPairing.mockResolvedValue(null);

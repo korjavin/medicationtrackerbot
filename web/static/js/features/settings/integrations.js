@@ -50,6 +50,7 @@
     let _keyCheckRegistration = null; // module-state: registration outcome, never a permission grant
     let _keyCheckSaveSeq = 0; // module-state: accepted snapshot generation, independent of subsequent draft edits
     let _keyCheckReloadBusy = false; // module-state: one explicit document/worker handoff, never a permission grant
+    let _integrationSaveBusy = false; // module-state: the current explicit Save owns its issued write through real settlement
     let _providerReloadPanel = null; // module-state: committed presentation nodes only, never draft values
     let _providerReloadLoader = () => import('/js/update-check.js'); // module-state: existing updater module, injectable for owning tests
 
@@ -85,7 +86,7 @@
     }
 
     function renderKeyCheck() {
-        if (_providerReloadPanel) return;
+        if (_providerReloadPanel || !document?.documentElement) return;
         const button = getInput('integrations-check-key');
         const note = getInput('integrations-check-result');
         if (!button || !note) return;
@@ -136,8 +137,8 @@
         icon.dataset.icon = tone === 'ok' ? 'check' : tone === 'danger' ? 'alert' : 'info';
         window.WGIcons?.hydrate(icon);
         getInput('integrations-check-reload').hidden = !reload;
-        getInput('integrations-check-reload').disabled = _keyCheckReloadBusy;
-        _aiProviderPage?.setPrimaryEnabled(!_providerReloadPanel && providerSaveAllowed());
+        getInput('integrations-check-reload').disabled = _keyCheckReloadBusy || _integrationSaveBusy;
+        _aiProviderPage?.setPrimaryEnabled(!_providerReloadPanel && !_keyCheckReloadBusy && !_integrationSaveBusy && providerSaveAllowed());
     }
 
     async function checkKey() {
@@ -245,7 +246,7 @@
     }
 
     async function reloadForKeyCheck() {
-        if (_keyCheckReloadBusy || keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
+        if (_integrationSaveBusy || _keyCheckReloadBusy || keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
         // Own the whole user action before confirmation/delete flushing can
         // yield. Two quick taps must not start competing navigation intents.
         _keyCheckReloadBusy = true;
@@ -447,7 +448,7 @@
                     : 'Your saved setup is unchanged. ') + 'Paste a ' + provider.summary + ' key to switch.';
         }
         renderPhotoSafety();
-        _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
+        _aiProviderPage?.setPrimaryEnabled(!_keyCheckReloadBusy && !_integrationSaveBusy && providerSaveAllowed());
         renderKeyCheck();
     }
 
@@ -950,6 +951,7 @@
     }
 
     async function loadTrialConsent() {
+        if (_providerReloadPanel) return;
         if (typeof apiCall !== 'function') return;
         const anyTrial = CONSENT_MOUNTS.some(([metaName]) =>
             document.querySelector('meta[name="' + metaName + '"]')?.content === '1');
@@ -1014,6 +1016,7 @@
     // shim's cache keys on base URL + key fingerprint so it re-fetches anyway;
     // this only stops the stale dropdown from lingering on screen until then.
     function resetModelSuggestions() {
+        if (_providerReloadPanel) return;
         for (const cfg of MODEL_LOADERS) {
             _modelSeq[cfg.scope] += 1;
             renderModelOptions(cfg.list, []);
@@ -1111,6 +1114,7 @@
     // mount with the rendered state; no stamp or 'disabled' = Telegram is off
     // on this server, so the row (and its page) stays hidden.
     function syncTelegramRow() {
+        if (_providerReloadPanel) return;
         const mount = document.getElementById('telegram-settings-mount');
         const row = document.getElementById('integrations-telegram-row');
         const state = mount ? mount.dataset.tgState : '';
@@ -1134,9 +1138,11 @@
     // Turn on sync: the shell slot's invite → P3 "Turn on sync?", else the W5
     // Sync & backup page (the same branch W5's own button takes).
     async function turnOnSync() {
+        if (_providerReloadPanel) return;
         const sheet = window.InviteSheet;
         let invite = null;
         try { invite = sheet ? await sheet.pending() : null; } catch (_) { invite = null; }
+        if (_providerReloadPanel) return;
         if (invite) {
             sheet.offer(invite, { kit: true });
             return 'offer';
@@ -1187,14 +1193,15 @@
         mount.appendChild(section);
         mount.dataset.tgState = 'needs-sync';
         // Same target as W5's link: the deployment's base landing.
-        Promise.resolve().then(() => window.InviteSheet && window.InviteSheet.base()).then((base) => {
-            if (!base) return;
+        Promise.resolve().then(() => !_providerReloadPanel && window.InviteSheet && window.InviteSheet.base()).then((base) => {
+            if (_providerReloadPanel || !base) return;
             how.href = `https://${base}/`;
             how.hidden = false;
         }).catch(() => {});
     }
 
     function mountLocalTelegram() {
+        if (_providerReloadPanel) return;
         const mount = document.getElementById('telegram-settings-mount');
         if (!mount || !window.WGOfferCard) return;
         // The 'needs-sync' stamp is what syncTelegramRow (also run by every
@@ -1273,7 +1280,20 @@
     }
 
     async function saveIntegrations() {
-        if (_providerReloadPanel) return;
+        if (_providerReloadPanel || _keyCheckReloadBusy || _integrationSaveBusy) return;
+        // Acquire before the first await. Reload cannot commit over an issued
+        // Save, and Reload preparation cannot start another settings write.
+        _integrationSaveBusy = true;
+        _integrationDraftSeq += 1;
+        renderKeyCheck();
+        try { return await persistIntegrations(); }
+        finally {
+            _integrationSaveBusy = false;
+            renderKeyCheck();
+        }
+    }
+
+    async function persistIntegrations() {
         if (!providerSaveAllowed()) return;
         if (getInput(FIELD_IDS.elevenlabs.api_key)?.value === '***' && !savedVoiceKeySet()) {
             if (typeof safeToast === 'function') safeToast('Enter your voice API key or clear the field — there is no saved key to keep.', 'error');
@@ -1331,7 +1351,7 @@
         // locally-masked payload — never the raw cleartext keys.
         if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
 
-        if (typeof safeToast === 'function') {
+        if (!_providerReloadPanel && typeof safeToast === 'function') {
             safeToast('Integrations saved.', 'info');
         }
     }

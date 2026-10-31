@@ -92,6 +92,9 @@ export async function getStatus() {
 // opts.prefsPort (optional) overrides the tgprefs glossary read/write port —
 // tests inject a stub; production defaults to DEFAULT_PREFS_PORT (real vault).
 export async function mountTelegram(container, opts = {}) {
+  const renderBlocked = () => !container.isConnected || !container.ownerDocument?.documentElement
+    || container.ownerDocument.documentElement.hasAttribute('data-provider-reload-committed');
+  if (renderBlocked()) return;
   const onDone = opts.onDone;
   const inWizard = typeof onDone === 'function';
   const prefsPort = opts.prefsPort || DEFAULT_PREFS_PORT;
@@ -124,7 +127,7 @@ export async function mountTelegram(container, opts = {}) {
       // rewrites app.innerHTML, detaching container). Without this the interval
       // would fetch /api/telegram/status forever and accumulate a new timer on
       // every re-entry to the Devices screen.
-      if (!container.isConnected) {
+      if (!container.isConnected || renderBlocked()) {
         stopPolling();
         return;
       }
@@ -150,6 +153,7 @@ export async function mountTelegram(container, opts = {}) {
   let shown = null;
 
   function render(status) {
+    if (renderBlocked()) { stopPolling(); return; }
     if (!status.enabled) {
       stopPolling();
       stamp('disabled');
@@ -181,6 +185,7 @@ export async function mountTelegram(container, opts = {}) {
   }
 
   function showError(err) {
+    if (renderBlocked()) return;
     const p = document.createElement('p');
     p.className = C.err;
     p.textContent = err.message || String(err);
@@ -191,6 +196,7 @@ export async function mountTelegram(container, opts = {}) {
   // --- Consent + provisioning entry -------------------------------------
 
   function renderConsent() {
+    if (renderBlocked()) { stopPolling(); return; }
     stopPolling();
     stamp('none');
     container.innerHTML = `
@@ -273,6 +279,7 @@ export async function mountTelegram(container, opts = {}) {
   // (status carries deep_link while pending), so the "Open Telegram" button
   // stays put until Telegram reports the bot created.
   function renderCreateBot(deepLink, suggested) {
+    if (renderBlocked()) { stopPolling(); return; }
     stamp('pending');
     container.innerHTML = `
       <section class="${C.step}">
@@ -293,6 +300,7 @@ export async function mountTelegram(container, opts = {}) {
       const btn = container.querySelector('#tg-reset');
       btn.disabled = true;
       resetPending().catch((err) => {
+        if (renderBlocked()) return;
         btn.disabled = false;
         showError(err);
       });
@@ -327,6 +335,7 @@ export async function mountTelegram(container, opts = {}) {
       });
       renderOpenBot({ enabled: true, state: 'bot_created', bot_username });
     } catch (e) {
+      if (renderBlocked()) return;
       btn.disabled = false;
       throw e.status === 400 ? new Error('That bot token was rejected by Telegram.') : e;
     }
@@ -335,6 +344,7 @@ export async function mountTelegram(container, opts = {}) {
   // --- Post-provision states --------------------------------------------
 
   function renderOpenBot(status) {
+    if (renderBlocked()) { stopPolling(); return; }
     stamp('bot_created');
     container.innerHTML = `
       <section class="${C.step}">
@@ -351,6 +361,7 @@ export async function mountTelegram(container, opts = {}) {
   }
 
   function renderLinked(status) {
+    if (renderBlocked()) { stopPolling(); return; }
     stopPolling();
     stamp('linked');
     container.innerHTML = `
@@ -384,6 +395,7 @@ export async function mountTelegram(container, opts = {}) {
     // visible in Settings without server logs — /status alone never shows it.
     // Best-effort: a diag failure must not break the connected pane.
     apiJSON('/api/telegram/diag').then((d) => {
+      if (renderBlocked()) return;
       const el = container.querySelector('#tg-webhook-health');
       if (!el) return;
       if (!d) return;
@@ -409,12 +421,14 @@ export async function mountTelegram(container, opts = {}) {
       result.textContent = 'Sending…';
       fetch('/api/telegram/test', { method: 'POST' })
         .then((res) => {
+          if (renderBlocked()) return;
           btn.disabled = false;
           result.textContent = res.ok
             ? 'Sent — check your Telegram chat.'
             : 'Could not send. Open your bot and tap Start, then retry.';
         })
         .catch(() => {
+          if (renderBlocked()) return;
           btn.disabled = false;
           result.textContent = 'Could not send. Try again.';
         });
@@ -457,8 +471,9 @@ export async function mountTelegram(container, opts = {}) {
     if (!textarea || !btn || !result) return;
 
     prefsPort.get()
-      .then((note) => { textarea.value = note; })
+      .then((note) => { if (!renderBlocked()) textarea.value = note; })
       .catch((e) => {
+        if (renderBlocked()) return;
         result.textContent = 'Could not load — try again.';
         console.error('[telegram] prefs load failed', e);
       });
@@ -468,11 +483,13 @@ export async function mountTelegram(container, opts = {}) {
       result.textContent = 'Saving…';
       prefsPort.set(textarea.value)
         .then((saved) => {
+          if (renderBlocked()) return;
           textarea.value = saved;
           btn.disabled = false;
           result.textContent = 'Saved.';
         })
         .catch((e) => {
+          if (renderBlocked()) return;
           btn.disabled = false;
           result.textContent = 'Could not save — try again.';
           console.error('[telegram] prefs save failed', e);
@@ -484,6 +501,7 @@ export async function mountTelegram(container, opts = {}) {
   try {
     render(await getStatus());
   } catch (e) {
+    if (renderBlocked()) return;
     stamp('error'); // keep the Settings row reachable so the error is visible
     showError(e);
   }
