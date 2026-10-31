@@ -251,7 +251,7 @@ function renderPicker(mount, ctx, pairing, remote, showReconnect = true) {
       if (renderBlocked(mount) || !button.isConnected) return;
       const currentRemote = await getRemoteStatus();
       if (renderBlocked(mount) || !button.isConnected) return;
-      if ((currentPairing || currentRemote.enabled) && !(await confirmReplacement('remote'))) return;
+      if ((currentPairing || currentRemote.enabled) && !(await confirmReplacement('remote', button))) return;
       if (!(await window.safeConfirm(REMOTE_CONSENT_TEXT, null, { title: 'Connect an AI app?', confirmLabel: 'Connect', icon: 'plug' }))) return;
       if (renderBlocked(mount) || !button.isConnected) return;
       mutationStarted = true;
@@ -325,13 +325,19 @@ function bindComputerChoice(mount, show) {
   }));
 }
 
-function confirmReplacement(destination) {
-  return window.safeConfirm(
-    'Creating a new connection disconnects your current AI app. ' + (destination === 'private'
-      ? 'You will need to set up Claude Code with the new code.'
-      : 'You will need to set up your AI app with the new link.'),
-    null, { title: 'Replace this connection?', confirmLabel: 'Replace connection', icon: 'plug', focusCancel: true },
-  );
+async function confirmReplacement(destination, backgroundAction) {
+  const wasPrimary = backgroundAction.classList.contains('wg-btn--primary');
+  backgroundAction.classList.remove('wg-btn--primary');
+  try {
+    return await window.safeConfirm(
+      'Creating a new connection disconnects your current AI app. ' + (destination === 'private'
+        ? 'You will need to set up Claude Code with the new code.'
+        : 'You will need to set up your AI app with the new link.'),
+      null, { title: 'Replace this connection?', confirmLabel: 'Replace connection', icon: 'plug', focusCancel: true },
+    );
+  } finally {
+    if (wasPrimary && backgroundAction.isConnected) backgroundAction.classList.add('wg-btn--primary');
+  }
 }
 
 function renderPrivateChoice(mount, ctx, reconnect = false) {
@@ -364,7 +370,7 @@ function renderPrivateChoice(mount, ctx, reconnect = false) {
       if (renderBlocked(mount) || !create.isConnected) return;
       const remote = await getRemoteStatus();
       if (renderBlocked(mount) || !create.isConnected) return;
-      if ((pairing || remote.enabled || reconnect) && !(await confirmReplacement('private'))) return;
+      if ((pairing || remote.enabled || reconnect) && !(await confirmReplacement('private', create))) return;
       if (renderBlocked(mount) || !create.isConnected) return;
       // The existing session-authenticated legacy mint atomically tears down
       // hosted remote enablement (MCPRelayAPI.onLegacyPairingMutation). Never

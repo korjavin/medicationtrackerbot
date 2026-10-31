@@ -370,9 +370,12 @@ describe('connectors.js Claude connector page', () => {
     expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Replace this connection?');
     expect(dom.window.document.activeElement).toBe(dialog.querySelector('.mt-confirm-modal__cancel'));
     expect(dialog.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(false);
+    expect(app.querySelector('#claude-private-create').classList.contains('wg-btn--primary')).toBe(false);
+    expect(dom.window.document.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
     expect(connectClaude).not.toHaveBeenCalled();
     await answerDialog(dom.window.document, false);
     await vi.waitFor(() => expect(app.querySelector('#claude-private-create').disabled).toBe(false));
+    expect(app.querySelector('#claude-private-create').classList.contains('wg-btn--primary')).toBe(true);
     expect(disconnectClaude).not.toHaveBeenCalled();
     expect(disconnectRemote).not.toHaveBeenCalled();
     connectClaude.mockResolvedValue({ code: CODE });
