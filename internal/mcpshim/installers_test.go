@@ -429,6 +429,9 @@ func TestInstallers(t *testing.T) {
 			if strings.Contains(string(out), code) {
 				t.Fatal("pairing code leaked")
 			}
+			if test.conflict && (!strings.Contains(string(out), "retry with --replace-user-health") || strings.Contains(string(out), "without --replace-user-health")) {
+				t.Fatal("initial conflict must recommend explicit user replacement")
+			}
 			if test.ok {
 				before, _ := os.Stat(binary)
 				if before == nil {
@@ -459,6 +462,9 @@ func TestInstallers(t *testing.T) {
 						}
 						if strings.Contains(string(out), code) {
 							t.Fatal("replacement failure exposed code")
+						}
+						if failure == "add" && (!strings.Contains(string(out), "without --replace-user-health") || strings.Contains(string(out), "retry with --replace-user-health")) {
+							t.Fatal("failed add after removal must recommend plain registration")
 						}
 						calls, _ := os.ReadFile(marker)
 						expected := "remove\n"
@@ -654,6 +660,12 @@ func testPowerShellInstaller(t *testing.T) {
 			if strings.Contains(string(out), code) {
 				t.Fatal("pairing code leaked")
 			}
+			if scenario == "conflict" && (!strings.Contains(string(out), "Retry with -ReplaceUserHealth") || strings.Contains(string(out), "without -ReplaceUserHealth")) {
+				t.Fatal("native initial conflict must recommend explicit user replacement")
+			}
+			if scenario == "replace-add-failure" && (!strings.Contains(string(out), "without -ReplaceUserHealth") || strings.Contains(string(out), "Retry with -ReplaceUserHealth")) {
+				t.Fatal("native failed add after removal must recommend plain registration")
+			}
 			if scenario == "success" {
 				if _, err := os.Stat(binary); err != nil {
 					t.Fatal("no installed binary")
@@ -699,7 +711,8 @@ func testPowerShellInstaller(t *testing.T) {
 	}
 }
 
-const powerShellFixtureFunctions = `function Invoke-WebRequest { param($Uri,$OutFile)
+const powerShellFixtureFunctions = `function Invoke-WebRequest { param([switch]$UseBasicParsing,$Uri,$OutFile)
+if (-not $UseBasicParsing) { throw 'safe parsing switch boundary' }
 if ($Uri -notlike 'https://github.com/korjavin/medicationtrackerbot/releases/download/mcpshim-v0.1.0/*' -or $Uri.Contains($env:MCP_FIXTURE_CODE)) { throw 'URL boundary' }
 if ($Uri.EndsWith('/SHA256SUMS')) { [IO.File]::WriteAllText($OutFile,$env:MCP_FIXTURE_MANIFEST) }
 elseif ($Uri.EndsWith('/install.ps1')) { [IO.File]::Copy($env:MCP_FIXTURE_INSTALLER,$OutFile) }

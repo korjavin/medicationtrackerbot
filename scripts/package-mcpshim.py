@@ -44,7 +44,7 @@ posix = ("( set -eu; umask 077; d=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT HUP IN
 powershell = ("& { $ErrorActionPreference='Stop'; $d=$null; try { $d=Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N')); "
               "[IO.Directory]::CreateDirectory($d) | Out-Null; $a=Get-Acl -LiteralPath $d; $a.SetAccessRuleProtection($true,$false); "
               "$a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.WindowsIdentity]::GetCurrent().User,'FullControl','ContainerInherit,ObjectInherit','None','Allow')); Set-Acl -LiteralPath $d -AclObject $a; $p=Join-Path $d 'install.ps1'; "
-              f"Invoke-WebRequest -Uri '{base}/install.ps1' -OutFile $p; "
+              f"Invoke-WebRequest -UseBasicParsing -Uri '{base}/install.ps1' -OutFile $p; "
               f"if ((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -ne '{digest('install.ps1')}') {{ throw 'Installer checksum mismatch' }}; "
               f"& $p -Version {args.version} -PairingCode '<PAIRING_CODE>'; "
               "if ($LASTEXITCODE -ne 0) { throw 'Installer failed' } } catch { [Console]::Error.WriteLine('Helper installation failed; check the pinned release and host policy.'); exit 1 } finally { if ($d -and (Test-Path -LiteralPath $d)) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } } }")

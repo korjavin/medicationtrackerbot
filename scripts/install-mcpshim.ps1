@@ -29,11 +29,11 @@ try {
     $manifest = Join-Path $temporary 'SHA256SUMS'
     $download = Join-Path $temporary 'mcpshim.exe'
     try {
-        Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile $manifest
+        Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $manifest
         $matchesForAsset = @(Get-Content -LiteralPath $manifest | Where-Object { $_ -match ('\s\*?' + [regex]::Escape($asset) + '$') })
         if ($matchesForAsset.Count -ne 1 -or $matchesForAsset[0] -cnotmatch ('^([0-9a-fA-F]{64}) [ *]' + [regex]::Escape($asset) + '$')) { throw 'manifest' }
         $expected = $Matches[1].ToLowerInvariant()
-        Invoke-WebRequest -Uri "$base/$asset" -OutFile $download
+        Invoke-WebRequest -UseBasicParsing -Uri "$base/$asset" -OutFile $download
     } catch { throw 'Cannot download the pinned helper or validate its unique checksum entry.' }
     if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Helper checksum mismatch; nothing was installed or registered.' }
     $directory = Join-Path $env:LOCALAPPDATA "MedTracker/mcpshim/$Version"
@@ -77,11 +77,15 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Could not remove user-scope health. Other scopes were left unchanged.' }
     }
     & claude mcp add --env "MEDTRACKER_MCP_CODE=$PairingCode" --transport stdio --scope user health -- $binary *> $null
-    if ($LASTEXITCODE -ne 0) { throw 'Claude registration failed. Retry with -ReplaceUserHealth only to explicitly replace user-scope health. Local/project entries are never removed.' }
+    if ($LASTEXITCODE -ne 0) {
+        if ($ReplaceUserHealth) { throw 'Claude registration failed after removing user-scope health. Retry the original command without -ReplaceUserHealth. Local/project entries were left unchanged.' }
+        throw 'Claude registration failed. Retry with -ReplaceUserHealth only to explicitly replace user-scope health. Local/project entries are never removed.'
+    }
     Write-Output 'Installed and registered user-scope health. Reconnect Claude; an unlocked paired browser must be online. Local/project health entries can shadow this registration.'
 } catch {
     # Only our own fixed messages are exposed, never native/download diagnostics.
     $safe = @('An explicit stable version is required.', 'A Med Tracker pairing code is required.', 'Use install.sh on macOS, Linux, or WSL.', 'Install Claude Code first, then retry.', 'Unsupported CPU architecture.', 'LOCALAPPDATA must be an absolute user data directory.', 'Cannot download the pinned helper or validate its unique checksum entry.', 'Helper checksum mismatch; nothing was installed or registered.', 'Refusing a reparse-point installation target.', 'This version already contains different bytes; preserve it and choose another version.', 'The verified helper could not run with the expected version. Check host execution policy; nothing was registered.', 'Could not remove user-scope health. Other scopes were left unchanged.', 'Claude registration failed. Retry with -ReplaceUserHealth only to explicitly replace user-scope health. Local/project entries are never removed.')
+    $safe += 'Claude registration failed after removing user-scope health. Retry the original command without -ReplaceUserHealth. Local/project entries were left unchanged.'
     if ($safe -contains $_.Exception.Message) { [Console]::Error.WriteLine($_.Exception.Message) } else { [Console]::Error.WriteLine('Installation failed; existing versions were preserved.') }
     exit 1
 } finally {

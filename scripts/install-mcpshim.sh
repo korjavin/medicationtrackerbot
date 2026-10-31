@@ -71,6 +71,9 @@ if [ "$replace" = true ]; then
     claude mcp remove --scope user health >/dev/null 2>&1 || fail 'Could not remove user-scope health. Other scopes were left unchanged.'
 fi
 if ! claude mcp add --env "MEDTRACKER_MCP_CODE=$code" --transport stdio --scope user health -- "$binary" >/dev/null 2>&1; then
+    if [ "$replace" = true ]; then
+        fail 'Claude registration failed after removing user-scope health. Retry the original command without --replace-user-health. Local/project entries were left unchanged.'
+    fi
     fail 'Claude registration failed. An existing user-scope health is preserved unless replacement was explicitly requested. To replace it, retry with --replace-user-health. Local/project entries are never removed.'
 fi
 printf '%s\n' 'Installed and registered user-scope health. Reconnect Claude; an unlocked paired browser must be online. Local/project health entries can shadow this registration.'
