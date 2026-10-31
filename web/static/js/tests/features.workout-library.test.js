@@ -950,7 +950,7 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
   const lib = (name, body = {}) => env.window.apiCallDirect('/api/workout/exercise-library/create', 'POST', { ...body, name });
   const library = () => env.window.apiCallDirect('/api/workout/exercise-library');
   const names = () => env.window.apiCallDirect('/api/workout/exercises/names');
-  async function logAs(name) {
+  async function logAs(name, scheduledDate) {
     const { window } = env;
     const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
     await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
@@ -958,6 +958,11 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
       source: 'library', status: 'completed', sets: [{ weight_kg: 16, reps: 10 }],
     });
     await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+    if (scheduledDate !== undefined) {
+      // Imported/synced sessions retain their original offset-carrying date.
+      const record = (await env.records.list('workoutsession')).find((r) => r.id === session.id);
+      await env.records.put('workoutsession', { ...record, scheduled_date: scheduledDate });
+    }
   }
   const type = (value) => {
     $('exercise-library-name').value = value;
@@ -1097,7 +1102,8 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     await vi.waitFor(() => expect(dialog()).not.toBeNull());
     expect(dialog().querySelector('.wg-dialog__title').textContent).toBe('Merge Swings into Kettlebell Swings?');
     expect(dialog().textContent).toContain('Its 2 logs count as Kettlebell Swings in history, stats and records.');
-    expect(dialog().textContent).toContain('To undo, remove the name under "Also logged as".');
+    expect(dialog().textContent).toContain('Remove the name under "Also logged as" to separate its history again.');
+    expect(dialog().textContent).not.toContain('To undo');
     const confirm = dialog().querySelector('.mt-confirm-modal__confirm');
     expect(confirm.textContent).toBe('Merge');
     expect(confirm.classList.contains('wg-btn--primary')).toBe(true);
@@ -1151,6 +1157,50 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
     expect(rows($('exercise-library-picker-list')).map(([t]) => t)).toEqual(['Lateral Raises']);
     expect((await library())[0].aliases).toEqual(['Swings']);
     expect((await names()).map((e) => [e.name, e.log_count])).toEqual([['Kettlebell Swings', 3], ['Lateral Raises', 1]]);
+  });
+
+  it.each([
+    ['America/Los_Angeles', '2026-10-30T00:00:00+10:00'],
+    ['Pacific/Auckland', '2026-10-30T23:30:00-10:00'],
+  ])('keeps the recorded day in history-name and alias metadata viewed in %s', async (viewerZone, scheduledDate) => {
+    // Model the browser's default viewing zone; explicit formatter zones still
+    // take precedence. The assertions below drive the real domain + Edit UI.
+    const format = env.window.Date.prototype.toLocaleDateString;
+    const viewerFormat = vi.spyOn(env.window.Date.prototype, 'toLocaleDateString')
+      .mockImplementation(function (locale, options) {
+        return format.call(this, locale, { timeZone: viewerZone, ...options });
+      });
+    try {
+      const ks = await lib('Kettlebell Swings', { aliases: ['Unused spelling'] });
+      await logAs('Swings', scheduledDate);
+      await env.window.WorkoutLibrary.openEdit(ks.id);
+      expect(rows($('exercise-library-aliases'))).toEqual([['Unused spelling', 'No logs yet']]);
+      $('exercise-library-add-name-btn').click();
+      expect(rows($('exercise-library-picker-list'))).toEqual([['Swings', '1 log · last 30 Oct']]);
+
+      $('exercise-library-picker-list').querySelector('[aria-label="Add Swings"]').click();
+      await vi.waitFor(() => expect(rows($('exercise-library-aliases'))).toEqual([
+        ['Unused spelling', 'No logs yet'], ['Swings', '1 log · last 30 Oct'],
+      ]));
+      expect(rows($('exercise-library-picker-list'))).toEqual([]);
+
+      // Removing an alias exposes that same recorded date in history again.
+      $('exercise-library-aliases').querySelector('[aria-label="Remove Swings"]').click();
+      await vi.waitFor(() => expect(rows($('exercise-library-picker-list')))
+        .toEqual([['Swings', '1 log · last 30 Oct']]));
+    } finally {
+      viewerFormat.mockRestore();
+    }
+  });
+
+  it.each(['', 'not-a-date', '2026-10-30Tinvalid'])('omits missing or invalid last dates (%s) without losing log counts', async (scheduledDate) => {
+    const ks = await lib('Kettlebell Swings');
+    await logAs('Swings', scheduledDate);
+    await env.window.WorkoutLibrary.openEdit(ks.id);
+    $('exercise-library-add-name-btn').click();
+    expect(rows($('exercise-library-picker-list'))).toEqual([['Swings', '1 log']]);
+    $('exercise-library-picker-list').querySelector('[aria-label="Add Swings"]').click();
+    await vi.waitFor(() => expect(rows($('exercise-library-aliases'))).toEqual([['Swings', '1 log']]));
   });
 
   it('two quick + taps both land: the sheet\'s identity writes run one at a time', async () => {
@@ -1212,8 +1262,7 @@ describe('features/workout/library.js — other names, rename and merge (med-l5y
   });
 
   it('× removes a name at once, no confirm; its logs go back under that name', async () => {
-    // Logged before the aliases exist: a log written under an alias is
-    // stored under the row's own name (med-l5yr.2).
+    // Logs keep their historical spelling; aliases group those names on read.
     await logAs('Swings');
     const ks = await lib('Kettlebell Swings');
     await env.window.apiCallDirect(`/api/workout/exercise-library/update?id=${ks.id}`, 'PUT', {

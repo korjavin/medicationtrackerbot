@@ -633,9 +633,11 @@ function _nameKey(name) {
 function _logsMeta(count, date) {
     const n = Number(count) || 0;
     if (!n) return 'No logs yet';
-    const when = date ? new Date(date) : null;
+    // scheduled_date carries its recorded calendar day, not the viewer's day.
+    const day = date && !Number.isNaN(new Date(date).getTime()) ? String(date).split('T')[0] : '';
+    const when = day ? new Date(`${day}T00:00:00Z`) : null;
     const last = when && !Number.isNaN(when.getTime())
-        ? ` · last ${when.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : '';
+        ? ` · last ${when.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}` : '';
     return `${n} log${n === 1 ? '' : 's'}${last}`;
 }
 
@@ -774,8 +776,7 @@ async function _postExerciseMerge(body, mutator) {
 }
 
 // EI5: merge the row being edited into `target`, after a confirm that says
-// what moves and what goes. Merge is primary, not danger: "Also logged as"
-// undoes it.
+// what moves and what goes. Removing an alias only separates history again.
 async function confirmExerciseMerge(target) {
     const src = _editingRow;
     if (!src || !target) return;
@@ -783,7 +784,7 @@ async function confirmExerciseMerge(target) {
     const n = entry ? Number(entry.log_count) || 0 : 0;
     const logs = n ? `Its ${n} log${n === 1 ? '' : 's'} count` : 'Its logs count';
     const msg = `${logs} as ${target.name} in history, stats and records. ${src.name} leaves your library, `
-        + `and plans that use it switch to ${target.name}. To undo, remove the name under "Also logged as".`;
+        + `and plans that use it switch to ${target.name}. Remove the name under "Also logged as" to separate its history again.`;
     const ok = await safeConfirm(msg, null, {
         title: `Merge ${src.name} into ${target.name}?`, confirmLabel: 'Merge', icon: 'link', tone: 'warn',
         focusCancel: true,
