@@ -655,10 +655,11 @@ window.MedTrackerCloudReady = (async function boot() {
         // remote change from another device renders stale until some other
         // refresh path repaints. 'medications'/'history' cover the meds list,
         // Today next-dose tile (next_intake) and per-med history. Only after a
-        // pull in this page load reached the tail (bd med-kk1q.1): a pull that
-        // failed offline changed nothing, and evicting then wiped exactly the
-        // ApiCache rows a cold offline open reads. An offline boot evicts after
-        // the first drain that lands instead (onSettled below).
+        // pull in this page load reached the tail (bd med-kk1q.1): evicting
+        // after a failed pull wiped exactly the ApiCache rows a cold offline
+        // open reads. A boot whose pull failed evicts after the first drain
+        // that lands instead (onSettled below); until then a row read through
+        // cachedFetch revalidates against the local shim.
         let evicted = false;
         const evictShimTags = async () => {
             if (evicted || !window.DataStore || typeof window.DataStore.invalidateTags !== 'function' || !pulledThisSession()) return;
