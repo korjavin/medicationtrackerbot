@@ -51,6 +51,27 @@ try {
             [IO.File]::Move($stage, $binary)
         } finally { if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Force } }
     }
+    # Execute only the verified file, without the pairing-code environment or
+    # shell, before any removal/registration. Capture/discard native diagnostics.
+    $probe = [Diagnostics.Process]::new()
+    try {
+        $probe.StartInfo = [Diagnostics.ProcessStartInfo]::new()
+        $probe.StartInfo.FileName = $binary
+        $probe.StartInfo.Arguments = '--version'
+        $probe.StartInfo.UseShellExecute = $false
+        $probe.StartInfo.CreateNoWindow = $true
+        $probe.StartInfo.RedirectStandardOutput = $true
+        $probe.StartInfo.RedirectStandardError = $true
+        $probe.StartInfo.EnvironmentVariables.Remove('MEDTRACKER_MCP_CODE')
+        if (-not $probe.Start()) { throw 'probe' }
+        $probeOutput = $probe.StandardOutput.ReadToEndAsync()
+        $probeError = $probe.StandardError.ReadToEndAsync()
+        if (-not $probe.WaitForExit(15000)) { $probe.Kill(); throw 'probe timeout' }
+        $reportedVersion = $probeOutput.GetAwaiter().GetResult().Trim()
+        $null = $probeError.GetAwaiter().GetResult()
+        if ($probe.ExitCode -ne 0 -or $reportedVersion -cnotmatch ('\Amcpshim ' + [regex]::Escape($Version) + '\+[0-9a-f]{40}\z')) { throw 'probe version' }
+    } catch { throw 'The verified helper could not run with the expected version. Check host execution policy; nothing was registered.' }
+    finally { $probe.Dispose() }
     if ($ReplaceUserHealth) {
         & claude mcp remove --scope user health *> $null
         if ($LASTEXITCODE -ne 0) { throw 'Could not remove user-scope health. Other scopes were left unchanged.' }
@@ -60,7 +81,7 @@ try {
     Write-Output 'Installed and registered user-scope health. Reconnect Claude; an unlocked paired browser must be online. Local/project health entries can shadow this registration.'
 } catch {
     # Only our own fixed messages are exposed, never native/download diagnostics.
-    $safe = @('An explicit stable version is required.', 'A Med Tracker pairing code is required.', 'Use install.sh on macOS, Linux, or WSL.', 'Install Claude Code first, then retry.', 'Unsupported CPU architecture.', 'LOCALAPPDATA must be an absolute user data directory.', 'Cannot download the pinned helper or validate its unique checksum entry.', 'Helper checksum mismatch; nothing was installed or registered.', 'Refusing a reparse-point installation target.', 'This version already contains different bytes; preserve it and choose another version.', 'Could not remove user-scope health. Other scopes were left unchanged.', 'Claude registration failed. Retry with -ReplaceUserHealth only to explicitly replace user-scope health. Local/project entries are never removed.')
+    $safe = @('An explicit stable version is required.', 'A Med Tracker pairing code is required.', 'Use install.sh on macOS, Linux, or WSL.', 'Install Claude Code first, then retry.', 'Unsupported CPU architecture.', 'LOCALAPPDATA must be an absolute user data directory.', 'Cannot download the pinned helper or validate its unique checksum entry.', 'Helper checksum mismatch; nothing was installed or registered.', 'Refusing a reparse-point installation target.', 'This version already contains different bytes; preserve it and choose another version.', 'The verified helper could not run with the expected version. Check host execution policy; nothing was registered.', 'Could not remove user-scope health. Other scopes were left unchanged.', 'Claude registration failed. Retry with -ReplaceUserHealth only to explicitly replace user-scope health. Local/project entries are never removed.')
     if ($safe -contains $_.Exception.Message) { [Console]::Error.WriteLine($_.Exception.Message) } else { [Console]::Error.WriteLine('Installation failed; existing versions were preserved.') }
     exit 1
 } finally {

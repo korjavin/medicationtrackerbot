@@ -111,7 +111,7 @@ jobs:
           echo "Actually executing $system/$arch: $asset"
           export MEDTRACKER_PACKAGED_SHIM_TEST_BINARY="$PWD/dist/$asset"
           if [ "$system" = windows ]; then MEDTRACKER_PACKAGED_SHIM_TEST_BINARY=$(cygpath -w "$MEDTRACKER_PACKAGED_SHIM_TEST_BINARY"); export MEDTRACKER_PACKAGED_SHIM_TEST_BINARY; fi
-          go test ./internal/mcpshim -run '^TestInstallers$|^TestPackagedInstallCommands$' -count=1
+          go test ./internal/mcpshim -run '^TestInstallers$|^TestPackagedInstallCommands$|^TestInstallerBlockedExecution$' -count=1 -v
           go test ./internal/cloudserver -run '^TestMCPShim_PackagedProcess$' -count=1 -timeout 3m
       - name: Install pinned Claude CLI on clean Linux runner
         if: runner.os == 'Linux'

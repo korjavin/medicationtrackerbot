@@ -1,5 +1,6 @@
 #!/bin/sh
-# Public, pinned release installer. Never put the pairing code in a URL/file/log.
+# Public pinned installer: no code in download URLs, installer-owned temporary
+# files, output or logs. Claude intentionally stores it in normal MCP config.
 set -eu
 umask 077
 fail() { printf '%s\n' "$1" >&2; exit 1; }
@@ -60,6 +61,12 @@ else
     fi
     rm -f "$stage"
 fi
+# Hash verification precedes execution. This key-free readiness check catches
+# host execution refusal before an explicit replacement can remove anything.
+probe_output=$(unset MEDTRACKER_MCP_CODE; "$binary" --version 2>/dev/null) || fail 'The verified helper could not run. Check host execution policy; nothing was registered.'
+case "$probe_output" in "mcpshim $version+"*) source_commit=${probe_output#"mcpshim $version+"} ;; *) fail 'The verified helper did not report the requested release version; nothing was registered.' ;; esac
+[ "${#source_commit}" -eq 40 ] || fail 'The verified helper did not report the requested release version; nothing was registered.'
+case "$source_commit" in *[!0-9a-f]*) fail 'The verified helper did not report the requested release version; nothing was registered.' ;; esac
 if [ "$replace" = true ]; then
     claude mcp remove --scope user health >/dev/null 2>&1 || fail 'Could not remove user-scope health. Other scopes were left unchanged.'
 fi

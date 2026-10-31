@@ -2,6 +2,7 @@ package mcpshim
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,7 +13,115 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+// A real kernel execution restriction catches the difference between valid
+// bytes and a runnable installed process. Only this disposable Python child
+// and its descendants receive the policy; the Go test/caller stay unchanged.
+func TestInstallerBlockedExecution(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("child-only Landlock regression is Linux-specific")
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("Landlock fixture requires Python 3")
+	}
+	root := t.TempDir()
+	tools := filepath.Join(root, "tools")
+	_ = os.Mkdir(tools, 0700)
+	self, _ := os.Executable()
+	fixture, _ := os.ReadFile(self)
+	for _, tool := range []string{"curl", "claude", "uname"} {
+		if err := os.WriteFile(filepath.Join(tools, tool), fixture, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	payload := os.Getenv("MEDTRACKER_PACKAGED_SHIM_TEST_BINARY")
+	if payload == "" {
+		payload = filepath.Join(root, "genuine-packaged-helper")
+		build := exec.Command("go", "build", "-trimpath", "-ldflags=-X main.version=0.1.0 -X main.commit="+strings.Repeat("a", 40), "-o", payload, "../../cmd/mcpshim")
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build genuine readiness fixture: %v %s", err, out)
+		}
+	}
+	if err := os.Chmod(payload, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command(payload, "--version").Run(); err != nil {
+		t.Fatal("genuine helper cannot execute before the child-only policy")
+	}
+	contents, err := os.ReadFile(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(contents)
+	asset := "mcpshim_0.1.0_linux_" + runtime.GOARCH
+	data := filepath.Join(root, "data with spaces")
+	binary := filepath.Join(data, "medtracker", "mcpshim", "0.1.0", "mcpshim")
+	marker := filepath.Join(root, "registration-marker")
+	installer, _ := filepath.Abs("../../scripts/install-mcpshim.sh")
+	code := "mtmcp1.fixture-sensitive-value"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, python, "-c", landlockInstallerFixture, installer)
+	arch := "x86_64"
+	if runtime.GOARCH == "arm64" {
+		arch = "aarch64"
+	}
+	command.Env = append(os.Environ(), "PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"), "XDG_DATA_HOME="+data, "MCP_INSTALL_FIXTURE_CHILD=1", "MCP_FIXTURE_OS=Linux", "MCP_FIXTURE_ARCH="+arch, "MCP_FIXTURE_TOOLS="+tools, "MCP_FIXTURE_ASSET="+asset, "MCP_FIXTURE_CODE="+code, "MEDTRACKER_MCP_CODE="+code, "MCP_FIXTURE_MANIFEST="+hex.EncodeToString(digest[:])+"  "+asset+"\n", "MCP_FIXTURE_PAYLOAD="+payload, "MCP_FIXTURE_BINARY="+binary, "MCP_FIXTURE_REGISTRATION_MARKER="+marker)
+	out, err := command.CombinedOutput()
+	if status, ok := err.(*exec.ExitError); ok && status.ExitCode() == 77 {
+		t.Skip("kernel cannot apply disposable child Landlock policy; no execution-policy proof claimed")
+	}
+	if err != nil {
+		t.Fatal("child-only execution-policy fixture failed (output omitted)")
+	}
+	var result struct {
+		InstallerExit int  `json:"installer_exit"`
+		NativeDenied  bool `json:"native_denied"`
+		SecretLeak    bool `json:"secret_leak"`
+	}
+	if json.Unmarshal(out, &result) != nil {
+		t.Fatal("invalid execution-policy proof result")
+	}
+	if !result.NativeDenied || result.InstallerExit == 0 || result.SecretLeak {
+		t.Fatal("blocked native execution must fail sanitized before registration")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("blocked native execution invoked Claude remove/add")
+	}
+	installed, _ := os.ReadFile(binary)
+	if sha256.Sum256(installed) != digest {
+		t.Fatal("execution refusal changed verified installed bytes")
+	}
+	t.Log("genuine packaged binary denied by child-only Linux policy; installer failed before explicit user removal/add, no key output")
+}
+
+const landlockInstallerFixture = `import ctypes,json,os,pathlib,subprocess,sys
+class Ruleset(ctypes.Structure): _fields_=[('handled_access_fs',ctypes.c_uint64)]
+class Beneath(ctypes.Structure):
+ _pack_=1
+ _fields_=[('allowed_access',ctypes.c_uint64),('parent_fd',ctypes.c_int32)]
+try:
+ libc=ctypes.CDLL(None,use_errno=True); rules=Ruleset(1)
+ fd=libc.syscall(444,ctypes.byref(rules),ctypes.sizeof(rules),0)
+ if fd<0: sys.exit(77)
+ for path in ['/usr','/bin','/sbin','/lib','/lib64',os.environ['MCP_FIXTURE_TOOLS']]:
+  if not pathlib.Path(path).exists(): continue
+  opened=os.open(path,os.O_PATH|os.O_CLOEXEC); beneath=Beneath(1,opened)
+  if libc.syscall(445,fd,1,ctypes.byref(beneath),0)<0: sys.exit(77)
+  os.close(opened)
+ if libc.prctl(38,1,0,0,0)<0 or libc.syscall(446,fd,0)<0: sys.exit(77)
+ os.close(fd)
+except (OSError,AttributeError): sys.exit(77)
+code=os.environ['MCP_FIXTURE_CODE']
+result=subprocess.run(['sh',sys.argv[1],'--version','0.1.0','--pairing-code',code,'--replace-user-health'],capture_output=True)
+denied=False
+try: subprocess.run([os.environ['MCP_FIXTURE_BINARY'],'--version'],capture_output=True)
+except PermissionError: denied=True
+print(json.dumps({'installer_exit':result.returncode,'native_denied':denied,'secret_leak':code.encode() in result.stdout+result.stderr}))
+`
 
 func TestInstallerInstalledClaudeIsolated(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -58,12 +167,13 @@ func TestInstallerInstalledClaudeIsolated(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		asset = "mcpshim_0.1.0_darwin_amd64"
 	}
-	hash := sha256.Sum256([]byte("fixture executable bytes"))
+	hash := sha256.Sum256(fixture)
 	env := append(os.Environ(), "CLAUDE_CONFIG_DIR="+config, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "DISABLE_TELEMETRY=1", "DISABLE_ERROR_REPORTING=1", "XDG_DATA_HOME="+data, "PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"), "MCP_INSTALL_FIXTURE_CHILD=1", "MCP_FIXTURE_OS=Linux", "MCP_FIXTURE_ARCH=x86_64", "MCP_FIXTURE_ASSET="+asset, "MCP_FIXTURE_CODE="+code, "MCP_FIXTURE_MANIFEST="+hex.EncodeToString(hash[:])+"  "+asset+"\n")
 	if runtime.GOOS == "darwin" {
 		env = append(env, "MCP_FIXTURE_OS=Darwin")
 	}
 	env = append(env, "TMPDIR="+temporary)
+	env = append(env, "MCP_FIXTURE_PAYLOAD="+self, "MEDTRACKER_MCP_CODE="+code)
 	run := func(program string, args ...string) ([]byte, error) {
 		arguments := append([]string{}, sandbox...)
 		arguments = append(arguments, program)
@@ -124,6 +234,23 @@ func TestMain(m *testing.M) {
 
 func installerFixtureCommand() int {
 	switch strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe") {
+	case "mcpshim":
+		if len(os.Args) != 2 || os.Args[1] != "--version" {
+			return 97
+		}
+		if _, present := os.LookupEnv("MEDTRACKER_MCP_CODE"); present {
+			return 98
+		}
+		if os.Getenv("MCP_FIXTURE_PROBE_FAIL") == "1" {
+			fmt.Fprintln(os.Stderr, os.Getenv("MCP_FIXTURE_CODE"))
+			return 1
+		}
+		version := "0.1.0"
+		if os.Getenv("MCP_FIXTURE_PROBE_VERSION") == "1" {
+			version = "0.2.0"
+		}
+		fmt.Println("mcpshim " + version + "+" + strings.Repeat("a", 40))
+		return 0
 	case "uname":
 		if os.Args[1] == "-s" {
 			fmt.Println(os.Getenv("MCP_FIXTURE_OS"))
@@ -156,7 +283,7 @@ func installerFixtureCommand() int {
 		} else if name == "install.sh" {
 			data, _ = os.ReadFile(os.Getenv("MCP_FIXTURE_INSTALLER"))
 		} else if name == os.Getenv("MCP_FIXTURE_ASSET") {
-			data = []byte("fixture executable bytes")
+			data, _ = os.ReadFile(os.Getenv("MCP_FIXTURE_PAYLOAD"))
 		} else {
 			return 91
 		}
@@ -221,6 +348,8 @@ func TestInstallers(t *testing.T) {
 		{"unknown-existing", "Linux", "x86_64", "linux_amd64", "existing", false, false},
 		{"noexec-existing", "Linux", "x86_64", "linux_amd64", "noexec", false, false},
 		{"newline-version", "Linux", "x86_64", "linux_amd64", "newline", false, false},
+		{"probe-failure", "Linux", "x86_64", "linux_amd64", "probe-fail", false, false},
+		{"probe-version", "Linux", "x86_64", "linux_amd64", "probe-version", false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -234,7 +363,7 @@ func TestInstallers(t *testing.T) {
 				}
 			}
 			asset := "mcpshim_0.1.0_" + test.suffix
-			hash := sha256.Sum256([]byte("fixture executable bytes"))
+			hash := sha256.Sum256(bytes)
 			manifest := hex.EncodeToString(hash[:]) + "  " + asset + "\n"
 			switch test.manifest {
 			case "duplicate":
@@ -255,7 +384,7 @@ func TestInstallers(t *testing.T) {
 			}
 			if test.manifest == "noexec" {
 				_ = os.MkdirAll(filepath.Dir(binary), 0700)
-				_ = os.WriteFile(binary, []byte("fixture executable bytes"), 0600)
+				_ = os.WriteFile(binary, bytes, 0600)
 			}
 			marker := filepath.Join(root, "registration-marker")
 			cmd := exec.Command("sh", "../../scripts/install-mcpshim.sh", "--version", "0.1.0", "--pairing-code", code)
@@ -267,6 +396,15 @@ func TestInstallers(t *testing.T) {
 				cmd.Env = append(cmd.Env, "MCP_FIXTURE_CONFLICT=1")
 			}
 			cmd.Env = append(cmd.Env, "MCP_FIXTURE_REGISTRATION_MARKER="+marker)
+			cmd.Env = append(cmd.Env, "MCP_FIXTURE_PAYLOAD="+self, "MEDTRACKER_MCP_CODE="+code)
+			if test.manifest == "probe-fail" || test.manifest == "probe-version" {
+				cmd.Args = append(cmd.Args, "--replace-user-health")
+				if test.manifest == "probe-fail" {
+					cmd.Env = append(cmd.Env, "MCP_FIXTURE_PROBE_FAIL=1")
+				} else {
+					cmd.Env = append(cmd.Env, "MCP_FIXTURE_PROBE_VERSION=1")
+				}
+			}
 			out, err := cmd.CombinedOutput()
 			if (err == nil) != test.ok {
 				t.Fatalf("unexpected installer outcome: %v (sanitized output omitted)", err)
@@ -314,13 +452,13 @@ func TestInstallers(t *testing.T) {
 							t.Fatal("replacement failure invoked an unexpected scope or command")
 						}
 						contents, _ := os.ReadFile(binary)
-						if string(contents) != "fixture executable bytes" {
+						if sha256.Sum256(contents) != hash {
 							t.Fatal("replacement failure changed verified installed bytes")
 						}
 					}
 				}
 			}
-			if !test.ok && !test.conflict && test.manifest != "existing" && test.manifest != "noexec" {
+			if !test.ok && !test.conflict && test.manifest != "existing" && test.manifest != "noexec" && test.manifest != "probe-fail" && test.manifest != "probe-version" {
 				if _, err := os.Stat(binary); err == nil {
 					t.Fatal("verification failure installed executable")
 				}
@@ -356,13 +494,15 @@ func TestPackagedInstallCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	self, _ := os.Executable()
+	payload, _ := os.ReadFile(self)
 	for _, system := range []string{"darwin", "linux", "windows"} {
 		for _, arch := range []string{"amd64", "arm64"} {
 			name := "mcpshim_0.1.0_" + system + "_" + arch
 			if system == "windows" {
 				name += ".exe"
 			}
-			_ = os.WriteFile(filepath.Join(dist, name), []byte("fixture executable bytes"), 0600)
+			_ = os.WriteFile(filepath.Join(dist, name), payload, 0600)
 		}
 	}
 	packageCmd := exec.Command(python, "../../scripts/package-mcpshim.py", dist, "--version", "0.1.0", "--commit", strings.Repeat("a", 40), "--run-url", "https://github.com/korjavin/medicationtrackerbot/actions/runs/fixture")
@@ -388,13 +528,11 @@ func TestPackagedInstallCommands(t *testing.T) {
 	if !strings.Contains(contract.PowerShell, contract.Digests["install.ps1"]) {
 		t.Fatal("PowerShell bootstrap omits installer digest")
 	}
-	self, _ := os.Executable()
-	bytes, _ := os.ReadFile(self)
 	for _, tool := range []string{"curl", "claude", "uname"} {
 		if runtime.GOOS == "windows" {
 			tool += ".exe"
 		}
-		_ = os.WriteFile(filepath.Join(tools, tool), bytes, 0700)
+		_ = os.WriteFile(filepath.Join(tools, tool), payload, 0700)
 	}
 	code := "mtmcp1.fixture-sensitive-value"
 	data := filepath.Join(root, "data with spaces")
@@ -412,6 +550,7 @@ func TestPackagedInstallCommands(t *testing.T) {
 		command = exec.Command("pwsh", "-NoProfile", "-NonInteractive", "-Command", powerShellFixtureFunctions+strings.ReplaceAll(contract.PowerShell, "<PAIRING_CODE>", code))
 		command.Env = append(os.Environ(), "PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"), "MCP_INSTALL_FIXTURE_CHILD=1", "LOCALAPPDATA="+data, "MCP_FIXTURE_CODE="+code, "MCP_FIXTURE_MANIFEST="+string(manifest), "MCP_FIXTURE_BINARY="+binary, "MCP_FIXTURE_INSTALLER="+filepath.Join(dist, "install.ps1"), "MCP_FIXTURE_ASSET=mcpshim_0.1.0_windows_"+arch+".exe")
 	}
+	command.Env = append(command.Env, "MCP_FIXTURE_PAYLOAD="+self, "MEDTRACKER_MCP_CODE="+code)
 	out, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("exact native bootstrap failed: %v; sanitized diagnostics: %s", err, strings.ReplaceAll(string(out), code, "[REDACTED]"))
@@ -428,7 +567,7 @@ func testPowerShellInstaller(t *testing.T) {
 		t.Fatal("native installer smoke requires PowerShell")
 	}
 	script, _ := filepath.Abs("../../scripts/install-mcpshim.ps1")
-	for _, scenario := range []string{"success", "duplicate", "missing", "corrupt", "malformed", "newline", "conflict", "unknown", "replace", "remove-failure", "replace-add-failure"} {
+	for _, scenario := range []string{"success", "duplicate", "missing", "corrupt", "malformed", "newline", "conflict", "unknown", "replace", "remove-failure", "replace-add-failure", "probe-failure", "probe-version"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			fixture := filepath.Join(root, "fixture.ps1")
@@ -448,7 +587,7 @@ func testPowerShellInstaller(t *testing.T) {
 				suffix = "arm64"
 			}
 			asset := "mcpshim_0.1.0_windows_" + suffix + ".exe"
-			hash := sha256.Sum256([]byte("fixture executable bytes"))
+			hash := sha256.Sum256(executable)
 			manifest := hex.EncodeToString(hash[:]) + "  " + asset + "\n"
 			switch scenario {
 			case "duplicate":
@@ -482,6 +621,15 @@ func testPowerShellInstaller(t *testing.T) {
 			if scenario == "newline" {
 				cmd.Env = append(cmd.Env, "MCP_FIXTURE_VERSION=0.1.0\ninvalid")
 			}
+			cmd.Env = append(cmd.Env, "MCP_FIXTURE_PAYLOAD="+self, "MEDTRACKER_MCP_CODE="+code)
+			if scenario == "probe-failure" || scenario == "probe-version" {
+				cmd.Env = append(cmd.Env, "MCP_FIXTURE_REPLACE=1")
+				if scenario == "probe-failure" {
+					cmd.Env = append(cmd.Env, "MCP_FIXTURE_PROBE_FAIL=1")
+				} else {
+					cmd.Env = append(cmd.Env, "MCP_FIXTURE_PROBE_VERSION=1")
+				}
+			}
 			out, err := cmd.CombinedOutput()
 			if (err == nil) != (scenario == "success" || scenario == "replace") {
 				t.Fatalf("unexpected native installer outcome: %v; sanitized diagnostics: %s", err, strings.ReplaceAll(string(out), code, "[REDACTED]"))
@@ -509,6 +657,12 @@ func testPowerShellInstaller(t *testing.T) {
 					t.Fatal("existing binary changed")
 				}
 			}
+			switch scenario {
+			case "duplicate", "missing", "corrupt", "malformed", "newline":
+				if _, err := os.Stat(binary); !os.IsNotExist(err) {
+					t.Fatal("native verification failure left a final executable")
+				}
+			}
 			calls, _ := os.ReadFile(marker)
 			expectedCalls := ""
 			switch scenario {
@@ -532,7 +686,7 @@ const powerShellFixtureFunctions = `function Invoke-WebRequest { param($Uri,$Out
 if ($Uri -notlike 'https://github.com/korjavin/medicationtrackerbot/releases/download/mcpshim-v0.1.0/*' -or $Uri.Contains($env:MCP_FIXTURE_CODE)) { throw 'URL boundary' }
 if ($Uri.EndsWith('/SHA256SUMS')) { [IO.File]::WriteAllText($OutFile,$env:MCP_FIXTURE_MANIFEST) }
 elseif ($Uri.EndsWith('/install.ps1')) { [IO.File]::Copy($env:MCP_FIXTURE_INSTALLER,$OutFile) }
-elseif ($Uri.EndsWith('/'+$env:MCP_FIXTURE_ASSET)) { [IO.File]::WriteAllText($OutFile,'fixture executable bytes') }
+elseif ($Uri.EndsWith('/'+$env:MCP_FIXTURE_ASSET)) { [IO.File]::Copy($env:MCP_FIXTURE_PAYLOAD,$OutFile) }
 else { throw 'asset boundary' }
 }
 `

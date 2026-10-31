@@ -148,10 +148,10 @@ func TestMCPShim_PackagedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal("packaged --version failed without pairing key")
 	}
-	version := strings.TrimPrefix(strings.TrimSpace(string(versionBytes)), "mcpshim ")
-	if version != expectedVersion {
-		t.Fatalf("packaged version %q does not match expected source version %q", version, expectedVersion)
+	if strings.TrimSpace(string(versionBytes)) != "mcpshim "+expectedVersion {
+		t.Fatalf("packaged version output does not match exact expected CLI identity %q", "mcpshim "+expectedVersion)
 	}
+	version := expectedVersion
 
 	h, host, claim := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claim)

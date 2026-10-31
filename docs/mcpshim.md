@@ -82,6 +82,13 @@ anything. The final binary is promoted atomically on its destination filesystem;
 an existing version is reused only when its bytes match. Unknown existing bytes
 are preserved and refused. Other installed versions are retained.
 
+Before any Claude remove/add operation, the hash-verified installed binary must
+run its key-free `--version` probe and report the requested version plus source
+commit. The probe excludes `MEDTRACKER_MCP_CODE` and suppresses diagnostics.
+Execution refusal or an unexpected version fails with a fixed error, preserving
+the previous registration and other working versions. This checks current local
+readiness; it cannot guarantee future antivirus/policy state or device availability.
+
 User-local absolute destinations:
 
 - POSIX: `${XDG_DATA_HOME:-$HOME/.local/share}/medtracker/mcpshim/0.1.0/mcpshim`
