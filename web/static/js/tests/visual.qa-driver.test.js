@@ -6,6 +6,7 @@
 // publish the accessible ready node with the probe report.
 import 'fake-indexeddb/auto';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
     afterEach, beforeEach, describe, expect, it, vi
@@ -354,5 +355,35 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
     it('publishes a failed report for a scene the list does not have', async () => {
         expect(await load('no-such-scene')).toMatchObject({ scene: 'no-such-scene', ok: false });
         expect(env.window.CloudVault.importAll).not.toHaveBeenCalled();
+    });
+});
+
+describe('web visual scene selection', () => {
+    const runner = fileURLToPath(new URL('../../../../tests/visual/playwright/run.mjs', import.meta.url));
+    function list(filter) {
+        const env = { ...process.env };
+        if (filter === undefined) delete env.WG_QA_SCENES;
+        else env.WG_QA_SCENES = filter;
+        return spawnSync(process.execPath, [runner, '--list-scenes'], { env, encoding: 'utf8' });
+    }
+
+    it('keeps the ordinary full run only when the scene filter is absent', () => {
+        const absent = list(undefined);
+        expect(absent.status).toBe(0);
+        expect(JSON.parse(absent.stdout)).toEqual(expect.arrayContaining(['today', 'meds-take-reminder-hint', 'trial-consent']));
+        const empty = list('');
+        expect(empty.status).toBe(1);
+        expect(empty.stderr).toContain('WG_QA_SCENES contains an empty scene name');
+    });
+
+    it('selects exactly known eligible scenes and refuses a partial request', () => {
+        const chosen = list('meds-take-reminder-hint, trial-consent');
+        expect(chosen.status).toBe(0);
+        expect(JSON.parse(chosen.stdout)).toEqual(['meds-take-reminder-hint', 'trial-consent']);
+        for (const invalid of ['today,no-such-scene', 'today,health-kit-import', 'today,,trial-consent']) {
+            const result = list(invalid);
+            expect(result.status).toBe(1);
+            expect(result.stderr).toContain('WG_QA_SCENES contains');
+        }
     });
 });
