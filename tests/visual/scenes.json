@@ -172,7 +172,7 @@
     { "name": "settings-ai-key-keyboard",
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "integrations" }, { "tag": "#integrations-openai-api-key", "id": "wg-qa-api-key" }],
       "ready": ["#integrations-openai-api-key"],
-      "native": [{ "tap": "#wg-qa-api-key", "placeholder": "sk-..." }, { "keyboard": true }] },
+      "native": [{ "tap": "#integrations-openai-api-key", "placeholder": "sk-..." }, { "keyboard": true }] },
     { "name": "settings-backup-passphrase-keyboard",
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "backup" }, { "click": "#importexport-export-btn" }, { "tag": "#importexport-export-passphrase", "id": "wg-qa-passphrase" }],
       "ready": ["#importexport-export-sheet .wg-sheet__foot"],
