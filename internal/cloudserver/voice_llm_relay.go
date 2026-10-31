@@ -46,6 +46,7 @@ const (
 
 	voiceCallTokenBytes   = 24
 	voiceCallGrace        = 30 * time.Second
+	voiceCallLifetime     = 4 * time.Hour
 	voiceNoDeviceWait     = 10 * time.Second
 	voiceTurnTimeout      = 120 * time.Second
 	voiceDeviceWriteLimit = 10 * time.Second
@@ -132,6 +133,8 @@ type VoiceLLMRelayAPI struct {
 	noDeviceWait time.Duration
 	turnTimeout  time.Duration
 	attachWindow time.Duration // anonymous calls: mint → first attach
+	callLifetime time.Duration // authenticated calls only; fixed in production
+	now          func() time.Time
 
 	mu    sync.Mutex
 	calls map[string]*voiceCall
@@ -153,6 +156,8 @@ func NewVoiceLLMRelayAPI(store mcpRelayStore, sessionSecret string) *VoiceLLMRel
 		noDeviceWait:  voiceNoDeviceWait,
 		turnTimeout:   voiceTurnTimeout,
 		attachWindow:  voiceAnonAttachWindow,
+		callLifetime:  voiceCallLifetime,
+		now:           time.Now,
 		calls:         make(map[string]*voiceCall),
 		settling:      make(map[string]chan struct{}),
 	}
@@ -188,6 +193,14 @@ type voiceCall struct {
 	expires time.Time       // set on detach; zero while attached
 	nextID  int64
 	waiters map[int64]*voiceWaiter
+	// Authenticated capabilities have an immutable deadline, independent of
+	// reconnect/detach grace. done also wakes a turn that already holds c.
+	deadline time.Time
+	timer    *time.Timer
+	done     chan struct{}
+	retired  bool
+	now      func() time.Time
+	onRetire func()
 
 	anon *anonVoice // non-nil for an anonymous trial call; set at mint, never changed
 }
@@ -195,15 +208,62 @@ type voiceCall struct {
 func (c *voiceCall) expired(now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.conn == nil && !c.expires.IsZero() && now.After(c.expires)
+	return c.retired || (!c.deadline.IsZero() && !now.Before(c.deadline)) ||
+		(c.conn == nil && !c.expires.IsZero() && now.After(c.expires))
+}
+
+// retireLocked is idempotent and never waits on a network handshake. Closing
+// done/failing waiters happens before the asynchronous 4404 close, so relay
+// work stops even when the device or cleanup timer is slow.
+func (c *voiceCall) retireLocked() {
+	if c.retired {
+		return
+	}
+	c.retired = true
+	if c.timer != nil {
+		c.timer.Stop()
+		c.timer = nil
+	}
+	close(c.done)
+	if c.onRetire != nil {
+		// Cached-pointer checks can win the deadline timer. Remove their
+		// terminal call from the table without taking a.mu under c.mu.
+		go c.onRetire()
+	}
+	if conn := c.conn; conn != nil {
+		c.failWaitersLocked(conn)
+		c.conn = nil
+		go conn.Close(voiceStatusUnknownCall, "unknown or expired call")
+	}
+}
+
+func (c *voiceCall) liveLocked() bool {
+	if c.retired {
+		return false
+	}
+	if !c.deadline.IsZero() && !c.now().Before(c.deadline) {
+		c.retireLocked()
+		return false
+	}
+	return true
+}
+
+func (c *voiceCall) live() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.liveLocked()
 }
 
 // attach makes conn the live leg, replacing (4409) any previous one and
 // failing the requests that were in flight on it.
-func (c *voiceCall) attach(conn *websocket.Conn) {
+func (c *voiceCall) attach(conn *websocket.Conn) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if !c.liveLocked() {
+		return false
+	}
 	c.attachLocked(conn)
+	return true
 }
 
 // attachAnon attaches conn to an anonymous call unless its grant ran out.
@@ -234,13 +294,13 @@ func (c *voiceCall) attachLocked(conn *websocket.Conn) {
 func (c *voiceCall) detach(conn *websocket.Conn, grace time.Duration) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.conn != conn {
+	if !c.liveLocked() || c.conn != conn {
 		return false
 	}
 	c.failWaitersLocked(conn)
 	c.conn = nil
 	c.ready = make(chan struct{})
-	c.expires = time.Now().Add(grace)
+	c.expires = c.now().Add(grace)
 	return true
 }
 
@@ -255,10 +315,19 @@ func (c *voiceCall) failWaitersLocked(conn *websocket.Conn) {
 
 // waitConn returns the live leg, waiting up to d for one to attach.
 func (c *voiceCall) waitConn(ctx context.Context, d time.Duration) *websocket.Conn {
+	c.mu.Lock()
+	if !c.deadline.IsZero() {
+		d = min(d, c.deadline.Sub(c.now()))
+	}
+	c.mu.Unlock()
 	t := time.NewTimer(d)
 	defer t.Stop()
 	for {
 		c.mu.Lock()
+		if !c.liveLocked() {
+			c.mu.Unlock()
+			return nil
+		}
 		conn, ready := c.conn, c.ready
 		c.mu.Unlock()
 		if conn != nil {
@@ -270,6 +339,8 @@ func (c *voiceCall) waitConn(ctx context.Context, d time.Duration) *websocket.Co
 			return nil
 		case <-ctx.Done():
 			return nil
+		case <-c.done:
+			return nil
 		}
 	}
 }
@@ -279,7 +350,7 @@ func (c *voiceCall) waitConn(ctx context.Context, d time.Duration) *websocket.Co
 func (c *voiceCall) register(conn *websocket.Conn) (int64, *voiceWaiter, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.conn != conn {
+	if !c.liveLocked() || c.conn != conn {
 		return 0, nil, false
 	}
 	c.nextID++
@@ -300,6 +371,10 @@ func (c *voiceCall) unregister(id int64, w *voiceWaiter) {
 // dispatch routes a device frame to its waiter; unknown ids are dropped.
 func (c *voiceCall) dispatch(f voiceFrame) {
 	c.mu.Lock()
+	if !c.liveLocked() {
+		c.mu.Unlock()
+		return
+	}
 	w := c.waiters[f.ID]
 	c.mu.Unlock()
 	if w == nil {
@@ -330,7 +405,10 @@ func (a *VoiceLLMRelayAPI) attachLeg(accountID, token string, conn *websocket.Co
 	var c *voiceCall
 	if token != "" {
 		c = a.calls[token]
-		if c == nil || c.accountID != accountID || c.expired(time.Now()) {
+		if c == nil || c.accountID != accountID || c.expired(a.now()) {
+			if c != nil && c.accountID == accountID && c.anon == nil {
+				a.dropLocked(c)
+			}
 			return nil
 		}
 	} else {
@@ -339,10 +417,18 @@ func (a *VoiceLLMRelayAPI) attachLeg(accountID, token string, conn *websocket.Co
 			accountID: accountID,
 			ready:     make(chan struct{}),
 			waiters:   make(map[int64]*voiceWaiter),
+			deadline:  a.now().Add(a.callLifetime),
+			done:      make(chan struct{}),
+			now:       a.now,
 		}
+		c.onRetire = func() { a.reap(c) }
 		a.calls[c.token] = c
+		c.timer = time.AfterFunc(a.callLifetime, func() { a.reap(c) })
 	}
-	c.attach(conn)
+	if !c.attach(conn) {
+		a.dropLocked(c)
+		return nil
+	}
 	return c
 }
 
@@ -353,14 +439,16 @@ func (a *VoiceLLMRelayAPI) lookup(token string) *voiceCall {
 	}
 	a.mu.Lock()
 	c := a.calls[token]
-	a.mu.Unlock()
-	if c == nil || c.expired(time.Now()) {
-		return nil
+	if c != nil && c.expired(a.now()) {
+		if c.anon == nil {
+			a.dropLocked(c)
+		}
+		c = nil
 	}
+	a.mu.Unlock()
 	return c
 }
 
-// reap drops c once its grace has run out with no leg re-attached.
 // RevokeAccount kills every call of accountID (account teardown): tokens stop
 // resolving at once, grace included, and live device legs are closed.
 func (a *VoiceLLMRelayAPI) RevokeAccount(accountID string) {
@@ -372,20 +460,16 @@ func (a *VoiceLLMRelayAPI) RevokeAccount(accountID string) {
 		}
 		delete(a.calls, token)
 		c.mu.Lock()
-		if c.conn != nil {
-			c.failWaitersLocked(c.conn)
-			c.conn.CloseNow() // non-blocking, safe under the locks
-			c.conn = nil
-			c.ready = make(chan struct{})
-		}
+		c.retireLocked()
 		c.mu.Unlock()
 	}
 }
 
+// reap drops a call after detach grace, its hard deadline or retirement.
 func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 	a.mu.Lock()
 	var abandon func()
-	if a.calls[c.token] == c && c.expired(time.Now()) {
+	if a.calls[c.token] == c && c.expired(a.now()) {
 		abandon = a.dropLocked(c)
 	}
 	a.mu.Unlock()
@@ -400,6 +484,9 @@ func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	delete(a.calls, c.token)
 	if c.anon == nil {
+		c.mu.Lock()
+		c.retireLocked()
+		c.mu.Unlock()
 		return nil
 	}
 	c.anon.timer.Stop()
@@ -512,6 +599,8 @@ func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, aband
 		expires:   now.Add(a.attachWindow), // pending attach ages out like a grace
 		waiters:   make(map[int64]*voiceWaiter),
 		anon:      &anonVoice{keyID: keyID, abandon: abandon},
+		done:      make(chan struct{}),
+		now:       a.now,
 	}
 	a.calls[c.token] = c
 	c.anon.timer = time.AfterFunc(grant, func() { a.exhaustAnon(c) })
@@ -734,7 +823,7 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 
 	// Lift cmd/cloud's 15s read / 45s write server deadlines for this turn.
 	rc := http.NewResponseController(w)
-	deadline := time.Now().Add(a.noDeviceWait + a.turnTimeout + 15*time.Second)
+	deadline := minTime(time.Now().Add(a.noDeviceWait+a.turnTimeout+15*time.Second), call.deadline)
 	_ = rc.SetReadDeadline(deadline)
 	_ = rc.SetWriteDeadline(deadline)
 
@@ -768,6 +857,23 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		waiter *voiceWaiter
 		conn   *websocket.Conn
 	)
+	sawDone := false
+	tail := "\n\n" // last two bytes written; terminal SSE starts a fresh event
+	// Expiry is terminal, unlike a transient device drop. Never splice a
+	// spoken fallback into an answer whose model output already started.
+	expired := func() {
+		outcome = "expired"
+		// Only terminal SSE is allowed beyond the model-write deadline.
+		_ = rc.SetWriteDeadline(time.Now().Add(voiceDeviceWriteLimit))
+		if respBytes == 0 {
+			writeVoiceFallback(write, voiceHangUp(lang))
+		} else if !sawDone {
+			if tail != "\n\n" {
+				_ = write("\n\n")
+			}
+			_ = write("data: [DONE]\n\n")
+		}
+	}
 	defer func() {
 		if waiter != nil {
 			call.unregister(id, waiter)
@@ -780,6 +886,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		defer cancelWait()
 		for waiter == nil {
 			if conn = call.waitConn(waitCtx, a.noDeviceWait); conn == nil {
+				if !call.live() {
+					expired()
+					return false
+				}
 				if r.Context().Err() != nil {
 					outcome = "cancel"
 					return false
@@ -790,7 +900,20 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			}
 			id, waiter, _ = call.register(conn)
 		}
-		if err := writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "request", Body: forward}); err != nil {
+		if !call.live() {
+			expired()
+			return false
+		}
+		// Unlike cancellation frames, a model request must not outlive this
+		// capability even if its socket write stalls.
+		writeCtx, cancelWrite := peerWriteContext(r.Context(), minTime(time.Now().Add(voiceDeviceWriteLimit), call.deadline))
+		err := writeVoiceFrame(writeCtx, conn, voiceFrame{ID: id, Type: "request", Body: forward})
+		cancelWrite()
+		if err != nil {
+			if !call.live() {
+				expired()
+				return false
+			}
 			writeVoiceFallback(write, voiceRetry(lang))
 			return false
 		}
@@ -799,13 +922,15 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	if !send() {
 		return
 	}
-	cancel := func() { _ = writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "cancel"}) }
+	cancel := func() {
+		if call.live() {
+			_ = writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "cancel"})
+		}
+	}
 
 	turnTimer := time.NewTimer(a.turnTimeout) // re-armed on a re-send
 	defer turnTimer.Stop()
 	resent := false
-	sawDone := false
-	tail := "\n\n" // last two bytes written: the fallback must start a fresh SSE event
 	fallback := func() {
 		if tail != "\n\n" {
 			_ = write("\n\n")
@@ -814,6 +939,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	}
 	// handle applies one device frame; true ends the turn.
 	handle := func(f voiceFrame) bool {
+		if !call.live() {
+			expired()
+			return true
+		}
 		switch f.Type {
 		case "chunk":
 			if err := write(f.Data); err != nil {
@@ -840,12 +969,23 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 	for {
+		if !call.live() {
+			expired()
+			return
+		}
 		select {
+		case <-call.done:
+			expired()
+			return
 		case f := <-waiter.ch:
 			if handle(f) {
 				return
 			}
 		case <-waiter.gone:
+			if !call.live() {
+				expired()
+				return
+			}
 			// Frames read before the leg dropped (maybe its final chunks and
 			// end) are already queued; honour them before calling it a failure.
 		drain:
@@ -875,18 +1015,29 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			if !send() {
 				return
 			}
-			_ = rc.SetWriteDeadline(time.Now().Add(a.noDeviceWait + a.turnTimeout + 15*time.Second))
+			_ = rc.SetWriteDeadline(minTime(time.Now().Add(a.noDeviceWait+a.turnTimeout+15*time.Second), call.deadline))
 			turnTimer.Reset(a.turnTimeout)
 		case <-r.Context().Done():
 			cancel()
 			outcome = "cancel"
 			return
 		case <-turnTimer.C:
+			if !call.live() {
+				expired()
+				return
+			}
 			cancel()
 			fallback()
 			return
 		}
 	}
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
 }
 
 // voiceRelaySecretHeader carries TRIAL_VOICE_RELAY_SECRET from the shared trial

@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,7 +40,219 @@ func newVoiceRelayFixture(t *testing.T) *voiceRelayFixture {
 	session := registerAndGetSession(t, h, host, claimToken)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
+	t.Cleanup(func() {
+		api.mu.Lock()
+		accounts := make(map[string]bool)
+		for _, call := range api.calls {
+			accounts[call.accountID] = true
+		}
+		api.mu.Unlock()
+		for account := range accounts {
+			api.RevokeAccount(account)
+		}
+	})
 	return &voiceRelayFixture{api: api, h: h, host: host, session: session, client: wsClientFor(srv.Listener.Addr().String())}
+}
+
+// advanceVoiceClock leaves the real cleanup timer pending: handler and cached
+// call-pointer checks must enforce the boundary even when that timer is late.
+func advanceVoiceClock(f *voiceRelayFixture) func(time.Duration) {
+	base := time.Now()
+	var elapsed atomic.Int64
+	f.api.now = func() time.Time { return base.Add(time.Duration(elapsed.Load())) }
+	return func(d time.Duration) { elapsed.Store(int64(d)) }
+}
+
+func TestVoiceLLMRelay_AuthenticatedDeadline(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	advance := advanceVoiceClock(f)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	first, token := f.dialDevice(t, ctx, "")
+	defer first.CloseNow()
+	call := f.api.lookup(token)
+	deadline := call.deadline
+	if got := deadline.Sub(f.api.now()); got != 4*time.Hour {
+		t.Fatalf("authenticated lifetime = %v", got)
+	}
+	for _, boundary := range []struct {
+		offset  time.Duration
+		expired bool
+	}{{-time.Nanosecond, false}, {0, true}, {time.Nanosecond, true}} {
+		if got := call.expired(deadline.Add(boundary.offset)); got != boundary.expired {
+			t.Fatalf("expired at deadline %+v = %v", boundary.offset, got)
+		}
+	}
+	advance(time.Hour)
+	replacement, same := f.dialDevice(t, ctx, token)
+	if same != token || call.deadline != deadline {
+		t.Fatal("replacement changed the capability or deadline")
+	}
+	advance(4*time.Hour - time.Second)
+	replacement.Close(websocket.StatusNormalClosure, "")
+	f.waitDetached(t, ctx, token)
+	advance(4*time.Hour - time.Nanosecond)
+	reclaimed, _ := f.dialDevice(t, ctx, token)
+	defer reclaimed.CloseNow()
+	if call.deadline != deadline {
+		t.Fatal("reclaim renewed the deadline")
+	}
+	// Grace would run beyond the immutable deadline, but cannot extend it.
+	reclaimed.Close(websocket.StatusNormalClosure, "")
+	f.waitDetached(t, ctx, token)
+	advance(4 * time.Hour)
+	if f.api.lookup(token) != nil || call.live() {
+		t.Fatal("equal-deadline call survived lookup/cached-pointer checks")
+	}
+	call.mu.Lock()
+	retainedTimer := call.timer != nil
+	call.mu.Unlock()
+	if retainedTimer {
+		t.Fatal("retired call retained its four-hour timer")
+	}
+	resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`)
+	out, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !isVoiceFallback(resp.StatusCode, string(out)) {
+		t.Fatalf("expired completion = %d %s", resp.StatusCode, out)
+	}
+}
+
+func TestVoiceLLMRelay_ConnectedIdleDeadline(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	f.api.callLifetime = 150 * time.Millisecond
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	conn, token := f.dialDevice(t, ctx, "")
+	defer conn.CloseNow()
+	_, _, err := conn.Read(ctx)
+	if websocket.CloseStatus(err) != voiceStatusUnknownCall {
+		t.Fatalf("idle expiry close = %v", err)
+	}
+	if f.api.lookup(token) != nil {
+		t.Fatal("idle token still resolves")
+	}
+	hdr := http.Header{"Cookie": []string{f.session.Name + "=" + f.session.Value}}
+	reclaim, _, err := websocket.Dial(ctx, "ws://"+f.host+"/api/voice-llm/device?call="+token,
+		&websocket.DialOptions{HTTPClient: f.client, HTTPHeader: hdr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reclaim.CloseNow()
+	_, _, err = reclaim.Read(ctx)
+	if websocket.CloseStatus(err) != voiceStatusUnknownCall {
+		t.Fatalf("expired reclaim close = %v", err)
+	}
+	fresh, newToken := f.dialDevice(t, ctx, "")
+	defer fresh.CloseNow()
+	if newToken == token || f.api.lookup(newToken) == nil {
+		t.Fatal("user-started fresh call did not get a new usable capability")
+	}
+}
+
+func TestVoiceLLMRelay_DeadlineWhileWaitingForDevice(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	f.api.callLifetime = 200 * time.Millisecond
+	f.api.noDeviceWait = time.Second
+	f.api.grace = time.Second
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	conn, token := f.dialDevice(t, ctx, "")
+	conn.Close(websocket.StatusNormalClosure, "")
+	f.waitDetached(t, ctx, token)
+	start := time.Now()
+	resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`)
+	out, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil || !isVoiceFallback(resp.StatusCode, string(out)) {
+		t.Fatalf("waiting expiry = %q, %v", out, err)
+	}
+	if time.Since(start) >= f.api.noDeviceWait {
+		t.Fatal("expired call waited through ordinary no-device grace")
+	}
+}
+
+func TestVoiceLLMRelay_DeadlineStopsPartialStream(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	advance := advanceVoiceClock(f)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	conn, token := f.dialDevice(t, ctx, "")
+	defer conn.CloseNow()
+	call := f.api.lookup(token)
+	resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`)
+	defer resp.Body.Close()
+	request := readVoiceFrame(t, ctx, conn)
+	chunk := "data: {\"choices\":[{\"delta\":{\"content\":\"partial answer\"}}]}\n\n"
+	sendVoiceFrame(t, ctx, conn, voiceFrame{ID: request.ID, Type: "chunk", Data: chunk})
+	reader := bufio.NewReader(resp.Body)
+	first, err := reader.ReadString('\n')
+	if err != nil || !strings.Contains(first, "partial answer") {
+		t.Fatalf("first model output = %q, %v", first, err)
+	}
+	advance(4 * time.Hour)
+	// Dispatch uses a previously obtained pointer, independently of lookup or
+	// timer punctuality. Its late chunk must not enter the waiter queue.
+	call.dispatch(voiceFrame{ID: request.ID, Type: "chunk", Data: "data: late model output\n\n"})
+	rest, err := io.ReadAll(reader)
+	if err != nil || strings.Contains(string(rest), "late model") || strings.Contains(string(rest), "hang up") ||
+		strings.Contains(string(rest), "say it again") || !strings.HasSuffix(string(rest), "data: [DONE]\n\n") {
+		t.Fatalf("partial stream ending = %q, %v", rest, err)
+	}
+	if f.api.lookup(token) != nil {
+		t.Fatal("expired streaming call still resolves")
+	}
+	resp2 := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`)
+	out, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if !isVoiceFallback(resp2.StatusCode, string(out)) {
+		t.Fatalf("next completion = %q", out)
+	}
+}
+
+func TestVoiceLLMRelay_DeadlineReclaimRevokeRace(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	advance := advanceVoiceClock(f)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	conn, token := f.dialDevice(t, ctx, "")
+	defer conn.CloseNow()
+	call := f.api.lookup(token)
+	call.mu.Lock()
+	serverConn := call.conn
+	call.mu.Unlock()
+	id, waiter, ok := call.register(serverConn)
+	if !ok {
+		t.Fatal("register before deadline failed")
+	}
+	defer call.unregister(id, waiter)
+	advance(4 * time.Hour)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(3)
+		go func() { defer wg.Done(); f.api.reap(call) }()
+		go func() { defer wg.Done(); f.api.RevokeAccount(call.accountID) }()
+		go func() {
+			defer wg.Done()
+			if f.api.attachLeg(call.accountID, token, serverConn) != nil {
+				t.Error("expired capability reclaimed")
+			}
+		}()
+	}
+	wg.Wait()
+	if _, _, ok := call.register(serverConn); ok || call.waitConn(ctx, time.Second) != nil || f.api.lookup(token) != nil {
+		t.Fatal("expired cached pointer remained usable")
+	}
+	select {
+	case <-waiter.gone:
+	default:
+		t.Fatal("expiry/revocation left a blocked waiter")
+	}
+	call.mu.Lock()
+	defer call.mu.Unlock()
+	if call.timer != nil || len(call.waiters) != 0 || call.conn != nil {
+		t.Fatal("retired call retains timer, waiters or device")
+	}
 }
 
 // dialDevice attaches a device leg (optionally reclaiming call) and returns it
