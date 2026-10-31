@@ -936,6 +936,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		if tail != "\n\n" {
 			_ = write("\n\n")
 		}
+		if !call.live() {
+			expired()
+			return
+		}
 		writeVoiceFallback(write, voiceRetry(lang))
 	}
 	// handle applies one device frame; true ends the turn.

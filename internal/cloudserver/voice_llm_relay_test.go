@@ -107,7 +107,7 @@ func TestVoiceLLMRelay_RealDeadlineDuringHTTPFlush(t *testing.T) {
 	for _, stage := range []struct {
 		name  string
 		flush int
-	}{{"headers", 1}, {"partial model", 2}} {
+	}{{"headers", 1}, {"partial model", 2}, {"fallback framing", 3}} {
 		t.Run(stage.name, func(t *testing.T) {
 			f := newVoiceRelayFixture(t)
 			f.api.callLifetime = 150 * time.Millisecond
@@ -127,9 +127,16 @@ func TestVoiceLLMRelay_RealDeadlineDuringHTTPFlush(t *testing.T) {
 			f.client = wsClientFor(server.Listener.Addr().String())
 			resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`)
 			defer resp.Body.Close()
-			if stage.flush == 2 {
+			if stage.flush >= 2 {
 				request := readVoiceFrame(t, ctx, device)
-				sendVoiceFrame(t, ctx, device, voiceFrame{ID: request.ID, Type: "chunk", Data: "data: partial model\n\n"})
+				data := "data: partial model\n\n"
+				if stage.flush == 3 {
+					data = "data: partial model"
+				}
+				sendVoiceFrame(t, ctx, device, voiceFrame{ID: request.ID, Type: "chunk", Data: data})
+				if stage.flush == 3 {
+					sendVoiceFrame(t, ctx, device, voiceFrame{ID: request.ID, Type: "error"})
+				}
 			}
 			out, err := io.ReadAll(resp.Body)
 			if err != nil || !strings.HasSuffix(string(out), "data: [DONE]\n\n") {
@@ -140,6 +147,10 @@ func TestVoiceLLMRelay_RealDeadlineDuringHTTPFlush(t *testing.T) {
 			}
 			if stage.flush == 2 && (string(out) != "data: partial model\n\ndata: [DONE]\n\n") {
 				t.Fatalf("partial output got mixed or lost terminal framing: %q", out)
+			}
+			if stage.flush == 3 && (!strings.HasPrefix(string(out), "data: partial model\n\n") ||
+				strings.Contains(string(out), "say it again") || strings.Contains(string(out), "hang up")) {
+				t.Fatalf("expiry during fallback framing appended spoken text: %q", out)
 			}
 		})
 	}
