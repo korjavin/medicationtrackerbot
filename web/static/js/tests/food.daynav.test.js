@@ -69,6 +69,33 @@ describe('Food day navigator (kit F1)', () => {
         expect(nav.querySelector('#add-food-inline-btn')).toBeNull();
     });
 
+    it('opens on today on a page load even when the browser restored an older day; browsing stays in-page', async () => {
+        const { window, document } = env;
+        const filter = document.getElementById('food-date-filter');
+        expect(filter.getAttribute('autocomplete')).toBe('off');
+
+        // Simulate form-state restoration, then a fresh page load of the Food module.
+        filter.value = '2026-10-25';
+        const dir = path.dirname(fileURLToPath(import.meta.url));
+        window.eval(fs.readFileSync(path.join(dir, '../features/food/index.js'), 'utf8'));
+        expect(filter.value).toBe('');
+
+        window.loadFoodTargets = async () => {};
+        window.DataStore.getCached = async () => null;
+        window.DataStore.setCached = async () => {};
+        const apiSpy = vi.fn(async () => null);
+        window.apiCall = apiSpy;
+
+        await window.loadFoodLogs();
+        const today = toISODateLocal(new Date());
+        expect(filter.value).toBe(today);
+        expect(apiSpy).toHaveBeenCalledWith(expect.stringContaining(`/api/food/log?date=${today}`), 'GET');
+
+        window.shiftFoodDate(-1);
+        await window.loadFoodLogs();
+        expect(filter.value).not.toBe(today);
+    });
+
     it('Add is the single .wg-btn--primary in the Food app bar', () => {
         const { document, window } = env;
         const view = document.getElementById('food-view');
