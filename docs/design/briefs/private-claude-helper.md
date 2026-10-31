@@ -1,6 +1,6 @@
 # Private mode for Claude Code — med-ztzg
 
-Approved design (Iris 10180) extending `screens-connect-ai.html` CC1–CC4 with CC5–CC11. Product boundary: Developer 7933–7936, Archie 10159 and Miles 10160. Remote stays the default for Claude Code / Claude app / ChatGPT. Private is a second choice for Claude Code using the existing Go helper, no source/build/manual JSON or Node requirement.
+Visual design approved by Developer, 2026-10-31 (Zulip 10219). Extends `screens-connect-ai.html` CC1–CC4 with CC5–CC11. Product boundary: Developer 7933–7936, Archie 10159 and Miles 10160. Remote stays the default for Claude Code / Claude app / ChatGPT. Private is a second choice for Claude Code using the existing Go helper, no source/build/manual JSON or Node requirement.
 
 Current surface: `web/cloud/js/connectors.js` renderPicker/renderAppPanel; its current master copy matches the read local source. Pairing: `web/cloud/js/mcp-pairing.js` connectClaude/getPairing; the pairing record is not a live-helper connection check. Code is shown once; existing pairing expiry/redeploy behavior is unchanged. Neighbours: CC1–CC4 and Settings S5. Inspected historical actual-app CC1, CC3-code and CC4-local captures from #1466 head 14e8291c5 (Webb 10171), alongside the byte-identical current master connectors.js source. Those are historical focused captures, not a current-head CI claim.
 
