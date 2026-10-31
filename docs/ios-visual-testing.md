@@ -1,6 +1,6 @@
 # iOS visual testing: runbook and agent QA
 
-Normative how-to. Design and rationale: [design/ios-visual-testing.md](design/ios-visual-testing.md). Visual scene probes and diffs are **evidence, never a gate**: failures warn. The explicit native HealthKit diagnostic below instead fails its job on a failed XCTest.
+Normative how-to. Design and rationale: [design/ios-visual-testing.md](design/ios-visual-testing.md). Ordinary full visual runs report scene/probe failures as warning evidence. Explicit `visual_scenes` runs and the native HealthKit diagnostic fail their jobs on XCTest errors; image diffs remain informational.
 
 Flow tests (first run, relaunch, and later lock, stash, backup), which are a gate, are a separate job: see [ios.md → Flow QA (Simulator)](ios.md#flow-qa-simulator-bd-med-w6gx23) (label `ios-qa`).
 
