@@ -265,10 +265,11 @@ function renderSleepCard(data, activeRange) {
 
         const sourcesText = sleepSourcesText(stats);
         if (sourcesText) {
-            const sourcesDiv = document.createElement('div');
-            sourcesDiv.className = 'wg-section-label wg-sleep-card__stat wg-sleep-card__sources';
-            sourcesDiv.textContent = sourcesText;
-            card.appendChild(sourcesDiv);
+            // Kit HS3/HS4: a plain muted hint, not the section-label style.
+            const sourcesLine = document.createElement('p');
+            sourcesLine.className = 'wg-hint wg-sleep-card__sources';
+            sourcesLine.textContent = sourcesText;
+            card.appendChild(sourcesLine);
         }
     } else {
         const empty = chartEl || (() => {

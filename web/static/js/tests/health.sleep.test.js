@@ -250,12 +250,15 @@ describe('Health sleep card (Phase 8, Task 4)', () => {
         }
         const sourcesLine = (card) => card.querySelector('.wg-sleep-card__sources')?.textContent ?? null;
 
-        it('Health-only nights name just Health import, in muted stat styling', async () => {
+        it('Health-only nights name just Health import, as the kit\'s plain muted hint', async () => {
             const data = await overviewOf([night(1, { source: 'apple_health' }), night(2, { source: 'apple_health' })]);
             const card = env.window.renderSleepCard(data, '7d');
             const line = card.querySelector('.wg-sleep-card__sources');
             expect(line.textContent).toBe('Sources · Health import');
-            expect(line.classList.contains('wg-sleep-card__stat')).toBe(true);
+            expect(line.tagName).toBe('P');
+            expect(line.classList.contains('wg-hint')).toBe(true);
+            expect(line.classList.contains('wg-section-label')).toBe(false);
+            expect(line.classList.contains('wg-sleep-card__stat')).toBe(false);
             expect(line.getAttribute('style')).toBeNull();
             expect(line.previousElementSibling.textContent).toContain('(7d avg)');
         });
