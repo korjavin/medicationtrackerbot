@@ -1826,6 +1826,7 @@ export function createApiRouter(ctx, {
 // serves its own CSP).
 export function installApiShim(ctx, {
   records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
+  registerEgressTimeoutMs = 15000,
   win, now: nowOverride, timeZone: timeZoneOverride, caughtUp, documentPolicy,
   // Read at call time so a test's fake timers apply.
   timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h) },
@@ -1934,10 +1935,14 @@ export function installApiShim(ctx, {
     registration = registration.then(() => {
       const controller = new AbortController();
       let timer;
-      return Promise.race([
-        Promise.resolve().then(() => registerEgress({ settings, fetchImpl: boundFetch, signal: controller.signal })),
-        new Promise((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(null); }, 15000); }),
-      ]).then((result) => {
+      const work = Promise.resolve().then(() => registerEgress({ settings, fetchImpl: boundFetch, signal: controller.signal }));
+      // Cloud fetch is abortable. The native callback has no cancellation/
+      // deadline contract and retains reload authority until real settlement.
+      const outcome = registerEgressTimeoutMs > 0 ? Promise.race([
+        work,
+        new Promise((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(null); }, registerEgressTimeoutMs); }),
+      ]) : work;
+      return outcome.then((result) => {
         const hosts = Array.isArray(result) ? result : result?.hosts;
         if (!Array.isArray(hosts)) return { state: 'failed' };
         const key = hosts.join(',');

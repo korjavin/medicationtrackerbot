@@ -42,26 +42,30 @@ if (window.location?.search && typeof window.history?.replaceState === 'function
 // a harmless no-op. Cloud-only: this file is served solely by cmd/cloud, so no
 // platform guard is needed.
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-    let providerReloadAttempt = null;
     const providerActivations = new Map();
-    window.document?.addEventListener('wg:provider-reload', (event) => {
-        if (event.detail?.active === true) providerReloadAttempt = event.detail.attempt;
-        else if (providerReloadAttempt === event.detail?.attempt) providerReloadAttempt = null;
-    });
     const retireProviderActivation = (worker) => {
-        providerActivations.get(worker)?.();
+        providerActivations.get(worker)?.cleanup();
         providerActivations.delete(worker);
     };
     window.document?.addEventListener('wg:provider-reload-activation', (event) => {
-        const worker = event.detail?.worker;
-        if (!worker) return;
-        if (providerActivations.has(worker)) { event.detail.pending = true; return; }
-        // A timed-out SKIP_WAITING may still claim later. Retire only once
-        // that actual worker controls us, or is definitively redundant.
-        const changed = () => { if (worker.state === 'redundant') retireProviderActivation(worker); };
-        providerActivations.set(worker, () => worker.removeEventListener?.('statechange', changed));
+        const operation = event.detail?.operation;
+        const worker = operation?.worker;
+        if (!worker || typeof operation.claim !== 'function') return;
+        const prior = providerActivations.get(worker);
+        if (prior && prior.operation !== operation) return;
+        if (prior) { event.detail.accepted = true; return; }
+        const changed = () => {
+            if (worker.state !== 'redundant') return;
+            retireProviderActivation(worker);
+            operation.redundant();
+        };
+        providerActivations.set(worker, { operation, cleanup: () => worker.removeEventListener?.('statechange', changed) });
         worker.addEventListener?.('statechange', changed);
-        changed();
+        event.detail.accepted = true;
+    });
+    window.document?.addEventListener('wg:provider-reload-abort', (event) => {
+        const operation = event.detail?.operation;
+        if (providerActivations.get(operation?.worker)?.operation === operation) retireProviderActivation(operation.worker);
     });
     // First-install vs update is decided entirely by whether a SW already
     // controls this page: absent = first-ever install (activate's
@@ -97,12 +101,24 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     // controllerchange without a reload (bead: first install controls silently).
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         const controller = navigator.serviceWorker.controller;
-        if (providerActivations.has(controller)) {
+        const owned = providerActivations.get(controller);
+        if (owned?.operation.committed) {
             retireProviderActivation(controller);
+            if (!reloading) {
+                reloading = true;
+                // Already verified before activation. Replace this document in
+                // this callback; no probe, flush or dirty wait under the new SW.
+                owned.operation.claim();
+            }
             return;
         }
-        if (!hadController || reloading || providerReloadAttempt) return;
+        if (!hadController || reloading) return;
         reloading = true;
+        for (const [worker, activation] of providerActivations) {
+            activation.operation.supersede();
+            retireProviderActivation(worker);
+        }
+        if (window.document && window.CustomEvent) window.document.dispatchEvent(new window.CustomEvent('wg:provider-reload-unrelated'));
         // Another tab's Reload can land here mid-Undo-window: send the delete first.
         const owed = window.flushPendingDelete?.();
         if (owed) owed.catch(() => {}).finally(() => location.reload());

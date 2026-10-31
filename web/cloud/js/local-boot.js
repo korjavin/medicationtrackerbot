@@ -67,6 +67,7 @@ window.MedTrackerCloudReady = (async function boot() {
             operatorFoodDb: policy.LOCAL_FOOD_DB,
             protection: policy.LOCAL_PROTECTION,
             registerEgress,
+            registerEgressTimeoutMs: 0, // native.call cannot revoke a pending registration/reload
             win: window,
         });
         window.CloudVault = policy.LOCAL_VAULT;

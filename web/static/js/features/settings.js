@@ -539,6 +539,7 @@ function noteDeviceList(devices) {
 }
 
 async function mountCloudDevices() {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const ctx = cloudCtx();
     const mount = document.getElementById('settings-devices-mount');
     if (!ctx || !mount) return;
@@ -553,6 +554,7 @@ async function mountCloudDevices() {
 }
 
 async function refreshConnectorStatus(ctx) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const el = document.getElementById('settings-claude-connector-status');
     if (!el) return;
     try {
@@ -564,6 +566,7 @@ async function refreshConnectorStatus(ctx) {
 // "Add a device" pushes its own page. Back runs the flow's server-side cancel
 // and refuses to leave if that fails: leaving would imply a live code is dead.
 async function openAddDevicePage(opts) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const ctx = cloudCtx();
     if (!ctx || !window.WGPage) return;
     const { renderAddDevice } = await loadCloudTransferModule();
@@ -584,6 +587,7 @@ async function openAddDevicePage(opts) {
 }
 
 async function openConnectorPage() {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const ctx = cloudCtx();
     if (!ctx || !window.WGPage) return;
     const { renderConnectors } = await loadCloudConnectorsModule();
@@ -682,6 +686,7 @@ function openDevicesDeeplink(target) {
 // another device made the code, or the page was closed, which deleted the slot —
 // open Add a device on its AD4 "not open here" end state.
 async function resumeAddDevice() {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     if (!cloudCtx()) return;
     const { resumeLiveTransfer } = await loadCloudTransferModule();
     if (resumeLiveTransfer()) return;
@@ -1242,6 +1247,7 @@ async function paintSyncSection() {
 
 // Load settings (BP reminders status, etc.)
 async function loadSettings({ source } = {}) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
     // builds alike, so the row is not wrapped in a wg-settings-cloud-* reveal.
     bindRerunOnboarding();
@@ -1442,6 +1448,7 @@ function settingsPagePrimary(name, getPage) {
 }
 
 function openSettingsPage(name) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return null;
     const store = document.querySelector('.wg-settings-pages');
     const body = settingsPageBody(name);
     if (!store || !body || !window.WGPage) return null; // absent, or already open

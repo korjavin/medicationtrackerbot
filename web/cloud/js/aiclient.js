@@ -106,6 +106,7 @@ async function isCheckCompletion(response, trial) {
     return typeof result?.id === 'string' && !!result.id && result.object === 'chat.completion'
       && (trial || (Number.isFinite(result.created) && typeof result.model === 'string' && !!result.model))
       && Array.isArray(result.choices) && !!message && typeof message === 'object'
+      && Number.isInteger(choice.index) && choice.index >= 0
       && message.role === 'assistant'
       && Object.hasOwn(message, 'content') && (message.content === null || typeof message.content === 'string')
       && CHECK_FINISH_REASONS.has(choice.finish_reason);

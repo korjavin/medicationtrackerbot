@@ -634,6 +634,7 @@ function applyPendingTabRefresh() {
 }
 
 function requestTabRefresh(meta = {}) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const source = meta?.source || 'changes';
     // Optimistic / commit / rollback paths originate from the caller's own
     // write flow. The user is actively engaged with the app — no deferred
@@ -685,6 +686,7 @@ document.addEventListener('visibilitychange', () => {
 
 // Reload current active tab data.
 function reloadCurrentTab(meta = {}) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     let tab = window.AppStore && window.AppStore.get && window.AppStore.get('currentTab');
     if (!tab) {
         const activeView = document.querySelector('.view.active');

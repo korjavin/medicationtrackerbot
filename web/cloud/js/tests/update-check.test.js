@@ -51,6 +51,10 @@ describe('explicit provider document freshness handoff', () => {
             return instance;
         };
         const change = (controller) => { serviceWorker.controller = controller; serviceWorker.dispatchEvent(new dom.window.Event('controllerchange')); };
+        let operation;
+        // Unit seam only; owning cloud-boot tests exercise the actual handler.
+        win.document.addEventListener('wg:provider-reload-activation', (event) => { operation = event.detail.operation; event.detail.accepted = true; });
+        serviceWorker.addEventListener('controllerchange', () => operation?.claim());
         return { win, worker, serviceWorker, change, dom };
     }
 
@@ -72,7 +76,7 @@ describe('explicit provider document freshness handoff', () => {
         next.state = 'installing';
         const registration = { installing: next, waiting: null, update: vi.fn(async () => {}) };
         serviceWorker.getRegistration = vi.fn(async () => registration);
-        const running = reloadProviderDocument({ win });
+        const running = reloadProviderDocument({ win, onCommit: () => true });
         await vi.waitFor(() => expect(registration.update).toHaveBeenCalledOnce());
         expect(win.location.replace).not.toHaveBeenCalled();
         next.state = 'installed'; registration.waiting = next;
@@ -85,7 +89,7 @@ describe('explicit provider document freshness handoff', () => {
         dom.window.close();
     });
 
-    it.each(['update', 'install', 'unsupported', 'handoff'])('fails closed for %s failure without a stale timed reload', async (failure) => {
+    it.each(['update', 'install', 'unsupported'])('fails closed for %s preparation failure without a stale timed reload', async (failure) => {
         vi.useFakeTimers();
         const { win, worker, serviceWorker, dom } = environment();
         serviceWorker.controller = worker(false);
@@ -94,14 +98,11 @@ describe('explicit provider document freshness handoff', () => {
         const registration = { installing: candidate, waiting: failure === 'install' ? null : candidate,
             update: failure === 'update' ? vi.fn(async () => { throw new Error('offline'); }) : vi.fn(async () => {}) };
         serviceWorker.getRegistration = vi.fn(async () => registration);
-        const intent = [];
-        win.document.addEventListener('wg:provider-reload', (event) => intent.push(event.detail.active));
         const running = reloadProviderDocument({ win });
         await vi.advanceTimersByTimeAsync(21000);
         expect(await running).toBe(false);
         expect(win.location.replace).not.toHaveBeenCalled();
         expect(win.location.reload).not.toHaveBeenCalled();
-        expect(intent).toEqual([true, false]);
         dom.window.close();
     });
 
@@ -114,7 +115,7 @@ describe('explicit provider document freshness handoff', () => {
         let resolveUpdate;
         const next = worker(true);
         serviceWorker.getRegistration = async () => ({ waiting: next, update: () => new Promise((resolve) => { resolveUpdate = resolve; }) });
-        const running = reloadProviderDocument({ win });
+        const running = reloadProviderDocument({ win, onCommit: () => true });
         await vi.advanceTimersByTimeAsync(21000);
         expect(await running).toBe(false);
         resolveUpdate();
@@ -138,7 +139,7 @@ describe('explicit provider document freshness handoff', () => {
         const next = worker(true, () => change(next)); next.state = 'installing';
         const registration = { installing: next, active: null, waiting: null, update: vi.fn(async () => {}) };
         serviceWorker.getRegistration = async () => registration;
-        const running = reloadProviderDocument({ win });
+        const running = reloadProviderDocument({ win, onCommit: () => true });
         await vi.waitFor(() => expect(registration.update).toHaveBeenCalled());
         expect(win.location.replace).not.toHaveBeenCalled();
         registration.waiting = next; next.state = 'installed';

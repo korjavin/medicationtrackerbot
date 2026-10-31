@@ -1169,7 +1169,9 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
       modules: { 'unlock.js': { warmUnlock: async () => null } },
     });
     booted.location.reload = vi.fn();
-    expect(await reloadProviderDocument({ win: booted.window })).toBe(true);
+    const commit = vi.fn(() => true);
+    expect(await reloadProviderDocument({ win: booted.window, onCommit: commit })).toBe(true);
+    expect(commit).toHaveBeenCalledOnce();
     expect(sw.controller).toBe(next);
     expect(registration.update).toHaveBeenCalledOnce();
     expect(replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
@@ -1177,7 +1179,39 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
     dom.window.close();
   });
 
-  it('coalesces retry and consumes a failed activation late event without reloading resumed edits', async () => {
+  it('an edit during real preparation aborts before skip and keeps unrelated update policy', async () => {
+    priorNavigator = globalThis.navigator;
+    const dom = new JSDOM('<html></html>');
+    const sw = new dom.window.EventTarget();
+    sw.controller = { postMessage() {} };
+    let dirty = false;
+    const next = new dom.window.EventTarget(); next.state = 'installed';
+    next.postMessage = vi.fn((message, ports) => {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') {
+        dirty = true;
+        ports[0].postMessage({ type: message.type, version: 1 });
+      }
+    });
+    const registration = { waiting: next, update: async () => {} };
+    sw.register = async () => registration; sw.getRegistration = async () => registration;
+    globalThis.navigator = { serviceWorker: sw };
+    const replace = vi.fn();
+    const booted = await runBoot({ setupWindow(win) {
+      win.document = dom.window.document; win.CustomEvent = dom.window.CustomEvent; win.navigator = globalThis.navigator;
+      win.location = { origin: 'https://account.example', href: 'https://account.example/', replace };
+    }, modules: { 'unlock.js': { warmUnlock: async () => null } } });
+    booted.location.reload = vi.fn();
+    const commit = vi.fn(() => true);
+    expect(await reloadProviderDocument({ win: booted.window, isCurrent: () => !dirty, onCommit: commit })).toBe(false);
+    expect(commit).not.toHaveBeenCalled();
+    expect(next.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    expect(replace).not.toHaveBeenCalled();
+    sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
+    expect(booted.location.reload).toHaveBeenCalledOnce();
+    dom.window.close();
+  });
+
+  it('keeps late activation committed, coalesces Retry and immediately marks exactly one navigation on claim', async () => {
     priorNavigator = globalThis.navigator;
     const env = loadFrontendEnv();
     const domWindow = env.window;
@@ -1205,27 +1239,33 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
     const realTimeout = globalThis.setTimeout;
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...args) => realTimeout(fn, ms === 500 ? 10 : ms === 20000 ? 300 : ms, ...args));
     try {
-      expect(await reloadProviderDocument({ win: booted.window })).toBe(false);
+      const commit = vi.fn(() => true);
+      const pending = vi.fn();
+      expect(await reloadProviderDocument({ win: booted.window, onCommit: commit, onPending: pending })).toMatchObject({ state: 'committed' });
       expect(skipWaiting).toHaveBeenCalledOnce();
       // The same still-pending actual worker belongs to the first activation;
       // a subsequent explicit retry may join it but must not stack activation.
-      expect(await reloadProviderDocument({ win: booted.window })).toBe(false);
+      expect(await reloadProviderDocument({ win: booted.window })).toMatchObject({ state: 'committed' });
       expect(skipWaiting).toHaveBeenCalledOnce();
-      const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
-      voice.value = 'resumed-after-failure';
-      voice.dispatchEvent(new domWindow.Event('input', { bubbles: true }));
+      expect(commit).toHaveBeenCalledOnce();
+      expect(pending).toHaveBeenCalledTimes(2);
+      const probes = next.postMessage;
+      const beforeClaim = skipWaiting.mock.calls.length;
       sw.controller = next; next.state = 'activated';
       sw.dispatchEvent(new domWindow.Event('controllerchange'));
       expect(booted.location.reload).not.toHaveBeenCalled();
-      expect(replace).not.toHaveBeenCalled();
+      // Synchronous assertion: no additional await/probe before replacement.
+      expect(replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
       expect(flush).not.toHaveBeenCalled();
-      expect(voice.value).toBe('resumed-after-failure');
-      // Only that activation was consumed. A distinct future worker follows
-      // the unchanged ordinary boot policy, including the pending-delete seam.
+      expect(skipWaiting.mock.calls.length).toBe(beforeClaim);
+      expect(next.postMessage).toBe(probes);
+      sw.dispatchEvent(new domWindow.Event('controllerchange'));
+      expect(replace).toHaveBeenCalledOnce();
+      // This page is already leaving. No second ordinary navigation races it.
       sw.controller = {};
       sw.dispatchEvent(new domWindow.Event('controllerchange'));
-      expect(flush).toHaveBeenCalledOnce();
-      expect(booted.location.reload).toHaveBeenCalledOnce();
+      expect(flush).not.toHaveBeenCalled();
+      expect(booted.location.reload).not.toHaveBeenCalled();
     } finally { vi.restoreAllMocks(); env.cleanup(); }
   });
 
@@ -1237,24 +1277,24 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
     globalThis.navigator = { serviceWorker: sw };
     const booted = await runBoot({ setupWindow(win) { win.document = dom.window.document; }, modules: { 'unlock.js': { warmUnlock: async () => null } } });
     booted.location.reload = vi.fn();
-    const first = {}, second = {};
-    const intent = (attempt, active) => dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload', { detail: { attempt, active } }));
+    const first = { claim: vi.fn(), redundant: vi.fn(), supersede: vi.fn() }, second = { claim: vi.fn(), redundant: vi.fn(), supersede: vi.fn() };
     const candidate = new dom.window.EventTarget(); candidate.state = 'installed';
-    const activation = { worker: candidate, attempt: first, pending: false };
+    first.worker = candidate; second.worker = candidate;
+    const activation = { operation: first, accepted: false };
     dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: activation }));
-    const retry = { worker: candidate, attempt: second, pending: false };
+    const retry = { operation: second, accepted: false };
     dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: retry }));
-    expect(retry.pending).toBe(true);
+    expect(activation.accepted).toBe(true);
+    expect(retry.accepted).toBe(false);
     candidate.state = 'redundant'; candidate.dispatchEvent(new dom.window.Event('statechange'));
-    const retired = { worker: candidate, attempt: second, pending: false };
+    expect(first.redundant).toHaveBeenCalledOnce();
+    const retired = { operation: second, accepted: false };
     dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: retired }));
-    expect(retired.pending).toBe(false);
-    intent(first, true); intent(second, true); intent(first, false);
-    sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
-    expect(booted.location.reload).not.toHaveBeenCalled();
-    intent(second, false);
+    expect(retired.accepted).toBe(true);
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-abort', { detail: { operation: first } }));
     sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
     expect(booted.location.reload).toHaveBeenCalledOnce();
+    expect(second.supersede).toHaveBeenCalledOnce();
     dom.window.close();
   });
 });

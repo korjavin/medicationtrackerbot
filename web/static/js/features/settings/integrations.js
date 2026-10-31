@@ -50,6 +50,7 @@
     let _keyCheckRegistration = null; // module-state: registration outcome, never a permission grant
     let _keyCheckSaveSeq = 0; // module-state: accepted snapshot generation, independent of subsequent draft edits
     let _keyCheckReloadBusy = false; // module-state: one explicit document/worker handoff, never a permission grant
+    let _providerReloadPanel = null; // module-state: committed presentation nodes only, never draft values
     let _providerReloadLoader = () => import('/js/update-check.js'); // module-state: existing updater module, injectable for owning tests
 
     function keyCheckArgs() {
@@ -104,7 +105,7 @@
             } else if (local) result = { message: 'Save your provider settings. This app reloads automatically before you can check the key.' };
         }
         const valid = mainProviderSaveAllowed() && !photoSaveIssue();
-        button.disabled = _keyCheckBusy || !valid || permission.state !== 'ready';
+        button.disabled = !!_providerReloadPanel || _keyCheckBusy || !valid || permission.state !== 'ready';
         // Preserve the icon while changing the visible progress text.
         const label = button.querySelector('[data-check-label]');
         if (label) label.textContent = _keyCheckBusy ? 'Checking…' : 'Check key';
@@ -135,11 +136,11 @@
         window.WGIcons?.hydrate(icon);
         getInput('integrations-check-reload').hidden = !reload;
         getInput('integrations-check-reload').disabled = _keyCheckReloadBusy;
-        _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
+        _aiProviderPage?.setPrimaryEnabled(!_providerReloadPanel && providerSaveAllowed());
     }
 
     async function checkKey() {
-        if (_keyCheckBusy || !mainProviderSaveAllowed() || photoSaveIssue()) return;
+        if (_providerReloadPanel || _keyCheckBusy || !mainProviderSaveAllowed() || photoSaveIssue()) return;
         const permission = keyCheckPermission();
         if (permission.state !== 'ready') { renderKeyCheck(); return; }
         const seq = ++_keyCheckSeq;
@@ -166,6 +167,82 @@
         return false;
     }
 
+    function commitProviderReload({ retry }) {
+        if (_providerReloadPanel) return true;
+        const backdrop = document.createElement('div');
+        backdrop.className = 'mt-confirm-backdrop';
+        const panel = document.createElement('mt-modal');
+        panel.id = 'provider-committed-reload';
+        panel.className = 'wg-dialog mt-confirm-modal';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('tabindex', '-1');
+        const icon = document.createElement('span');
+        icon.className = 'wg-dialog__icon wg-dialog__icon--info';
+        const glyph = document.createElement('i');
+        glyph.className = 'wg-ico';
+        glyph.dataset.icon = 'refresh';
+        icon.append(glyph);
+        const title = document.createElement('p');
+        title.className = 'wg-dialog__title mt-confirm-modal__title';
+        const body = document.createElement('p');
+        body.className = 'wg-dialog__body mt-confirm-modal__body';
+        body.setAttribute('role', 'status');
+        const actions = document.createElement('div');
+        actions.className = 'wg-dialog__acts';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'wg-btn wg-btn--primary wg-btn--block';
+        button.textContent = 'Reload page';
+        button.onclick = () => retry();
+        actions.append(button);
+        panel.append(icon, title, body, actions);
+        _providerReloadPanel = { panel, title, body, actions, button };
+        document.documentElement.setAttribute('data-provider-reload-committed', '');
+        // The commitment is one-way. Keep every existing app/page/modal inert;
+        // no key is copied, and no old field value is serialized for recovery.
+        for (const child of document.body.children) child.inert = true;
+        _aiProviderPage?.setPrimaryEnabled(false);
+        _aiProviderPage?.el?.querySelector('.wg-pagebar .wg-btn--primary')?.classList.remove('wg-btn--primary');
+        document.body.append(backdrop, panel);
+        const blockBackground = (event) => {
+            if (!panel.contains(event.target) || event.key === 'Escape') {
+                event.preventDefault(); event.stopImmediatePropagation();
+            }
+        };
+        for (const name of ['click', 'keydown', 'input', 'change', 'submit']) document.addEventListener(name, blockBackground, true);
+        window.ModalManager?.register(panel.id, () => false);
+        window.ModalManager?.open(panel.id);
+        if (!window.ModalManager) panel.setAttribute('open', '');
+        window.WGIcons?.hydrate(panel);
+        providerReloadProgress();
+        return true;
+    }
+
+    function providerReloadProgress() {
+        if (!_providerReloadPanel) return;
+        const { panel, title, body, actions, button } = _providerReloadPanel;
+        title.textContent = 'Reloading…';
+        panel.setAttribute('aria-label', 'Reloading…');
+        body.textContent = 'Reloading this page. Please keep it open.';
+        actions.hidden = true;
+        actions.classList.add('hidden');
+        button.disabled = true;
+        panel.focus();
+    }
+
+    function providerReloadPending() {
+        if (!_providerReloadPanel) return;
+        const { panel, title, body, actions, button } = _providerReloadPanel;
+        title.textContent = 'Reload needed';
+        panel.setAttribute('aria-label', 'Reload needed');
+        body.textContent = 'Reload has not finished. Reload the page to continue.';
+        actions.hidden = false;
+        actions.classList.remove('hidden');
+        button.disabled = false;
+        button.focus();
+    }
+
     async function reloadForKeyCheck() {
         if (_keyCheckReloadBusy || keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
         // Own the whole user action before confirmation/delete flushing can
@@ -186,7 +263,8 @@
             let reloaded = false;
             try {
                 const { reloadProviderDocument } = await _providerReloadLoader();
-                reloaded = await reloadProviderDocument({ win: window, isCurrent: () => seq === _integrationDraftSeq, beforeNavigate: async () => {
+                reloaded = await reloadProviderDocument({ win: window, isCurrent: () => seq === _integrationDraftSeq,
+                    onCommit: commitProviderReload, onPending: providerReloadPending, onProgress: providerReloadProgress, beforeNavigate: async () => {
                     const pending = window.flushPendingDelete?.();
                     if (pending) { try { await pending; } catch (_) { return false; } }
                     return seq === _integrationDraftSeq;
@@ -197,8 +275,10 @@
             }
             return reloaded;
         } finally {
-            _keyCheckReloadBusy = false;
-            renderKeyCheck();
+            if (!_providerReloadPanel) {
+                _keyCheckReloadBusy = false;
+                renderKeyCheck();
+            }
         }
     }
 
@@ -370,6 +450,7 @@
     }
 
     async function chooseProvider() {
+        if (_providerReloadPanel) return;
         if (typeof safeChoose !== 'function') return;
         const sub = { openai: 'GPT models', openrouter: 'Many providers with one key', other: 'Your own API URL, e.g. a local server' };
         const picked = await safeChoose('', AI_PROVIDERS.map((p) => ({ value: p.id, label: p.label, sub: sub[p.id], selected: p.id === _aiProviderDraft })), { title: 'AI provider' });
@@ -1128,6 +1209,7 @@
     let _telegramModuleLoader = () => import('/js/telegram.js');
 
     async function loadIntegrations({ preserveDraft = false } = {}) {
+        if (_providerReloadPanel) return;
         if (typeof apiCall !== 'function') return null;
         // Skip the fetch when the section is hidden so a hidden panel
         // doesn't log failures for every Settings visit or advertise the
@@ -1178,6 +1260,7 @@
     }
 
     async function saveIntegrations() {
+        if (_providerReloadPanel) return;
         if (!providerSaveAllowed()) return;
         if (getInput(FIELD_IDS.elevenlabs.api_key)?.value === '***' && !savedVoiceKeySet()) {
             if (typeof safeToast === 'function') safeToast('Enter your voice API key or clear the field — there is no saved key to keep.', 'error');

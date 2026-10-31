@@ -334,7 +334,7 @@ export const PRIVACY_MANIFEST = [
       'internal/cloudserver/trial_proxy.go:104',
       'web/cloud/js/aiclient.js:321',
       'web/cloud/js/aiclient.js:550',
-      'web/cloud/js/aiclient.js:611',
+      'web/cloud/js/aiclient.js:612',
       'web/domain/settings.js:56',
     ],
     code: { go: ['internal/cloudserver/trial_proxy.go', 'internal/cloudserver/trial_anthropic.go'], hosts: ['api.openai.com', 'api.anthropic.com'] },
@@ -468,7 +468,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'no-toggle',
     activationNote: 'whenever you have a key set and use an AI feature, press "Load models", or explicitly press "Check key" with a permitted draft/saved provider key in Settings',
     byo: 'This IS the BYO path',
-    evidence: ['web/cloud/js/aiclient.js:18', 'web/cloud/js/aiclient.js:611', 'web/cloud/js/aiclient.js:737', 'web/cloud/js/aiclient.js:763'],
+    evidence: ['web/cloud/js/aiclient.js:18', 'web/cloud/js/aiclient.js:612', 'web/cloud/js/aiclient.js:738', 'web/cloud/js/aiclient.js:764'],
     code: { go: [], hosts: ['api.openai.com'] },
     docSignal: 'Meal descriptions + photos (AI parsing)',
     userCopy: {

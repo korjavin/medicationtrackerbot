@@ -44,7 +44,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         const shim = installApiShim({}, { records: env.records, win: env.window, documentPolicy: capability });
         await shim('/api/settings/integrations', 'PATCH', { openai: { api_key: 'fixture-first-key', url: 'https://api.openai.com/v1', model: 'gpt-6-luna' } });
         expect(await shim.aiProviderRegistration()).toEqual({ state: 'registered' });
-        const provider = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ id: 'fixture-check', object: 'chat.completion', created: 1, model: 'fixture-model', choices: [{ message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status: 200 }));
+        const provider = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ id: 'fixture-check', object: 'chat.completion', created: 1, model: 'fixture-model', choices: [{ index: 0, message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status: 200 }));
         expect(await shim.checkAIKey({ intent: 'saved', draft: { api_key: '***', url: 'https://api.openai.com/v1' } })).toMatchObject({ state: 'success' });
         expect(provider.mock.calls[0][1].headers.Authorization).toBe('Bearer fixture-first-key');
         rejectRegistration = true;

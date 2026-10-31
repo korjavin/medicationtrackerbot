@@ -100,7 +100,7 @@ describe('Settings → Integrations section', () => {
         function reply(status = 200, body) {
             // OpenAI nonstreamed completion (Chat Completions reference);
             // length/null is valid for this tiny credential probe.
-            return new Response(JSON.stringify(body || { id: 'fixture-check', object: 'chat.completion', created: 1, model: 'fixture-model', choices: [{ message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status });
+            return new Response(JSON.stringify(body || { id: 'fixture-check', object: 'chat.completion', created: 1, model: 'fixture-model', choices: [{ index: 0, message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status });
         }
 
         it('checks a rotated draft without Save, generic API, raw cache or field replacement; edits clear results', async () => {
@@ -398,14 +398,14 @@ describe('Settings → Integrations section', () => {
             page.close();
         });
 
-        it('an actual voice edit during the final controller ACK cannot pass the last navigation guard', async () => {
+        it('an actual voice edit during the controller ACK cannot pass the final synchronous navigation guard', async () => {
             const { page } = await setup([]);
             await env.window.SettingsIntegrations.save();
             const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
             let probes = 0;
             const controller = { postMessage(message, ports) {
                 probes += 1;
-                if (probes === 2) {
+                if (probes === 1) {
                     voice.value = 'edited-during-final-ack';
                     voice.dispatchEvent(new env.window.Event('input', { bubbles: true }));
                 }
@@ -414,10 +414,55 @@ describe('Settings → Integrations section', () => {
             Object.defineProperty(env.window.navigator, 'serviceWorker', { configurable: true, value: { controller } });
             env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument }));
             expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
-            expect(probes).toBe(2);
+            expect(probes).toBe(1);
             expect(voice.value).toBe('edited-during-final-ack');
             expect(env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(1);
             page.close();
+        });
+
+        it('commits the actual page before activation and retains an inert actionable retry without Save, Check or lazy pages', async () => {
+            const { page, port } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            let finish;
+            const retry = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+            let callbacks;
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: async (options) => {
+                callbacks = options;
+                expect(options.onCommit({ retry })).toBe(true);
+                expect(env.document.documentElement.hasAttribute('data-provider-reload-committed')).toBe(true);
+                expect(page.el.closest('[inert]') || page.el.inert).toBeTruthy();
+                expect(env.document.getElementById('provider-committed-reload').getAttribute('aria-label')).toBe('Reloading…');
+                options.onPending();
+                return { state: 'committed', retry };
+            } }));
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toMatchObject({ state: 'committed' });
+            const panel = env.document.getElementById('provider-committed-reload');
+            expect(panel.getAttribute('aria-label')).toBe('Reload needed');
+            expect(env.document.activeElement.textContent).toBe('Reload page');
+            expect(panel.querySelectorAll('button')).toHaveLength(1);
+            expect(page.el.querySelector('.wg-pagebar .wg-btn').disabled).toBe(true);
+            expect(env.window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+            env.document.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            expect(panel.isConnected).toBe(true);
+            env.window.apiCall.mockClear(); port.checkAIKey.mockClear();
+            await env.window.SettingsIntegrations.save();
+            await env.window.SettingsIntegrations.checkKey();
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            expect(port.checkAIKey).not.toHaveBeenCalled();
+            expect(env.window.SettingsView.openSettingsPage('devices')).toBeNull();
+            expect(env.window.SettingsView.openSettingsPage('connectors')).toBeNull();
+            const fieldEvent = new env.window.Event('input', { bubbles: true, cancelable: true });
+            expect(field('model').dispatchEvent(fieldEvent)).toBe(false);
+            const click = new env.window.MouseEvent('click', { bubbles: true, cancelable: true });
+            expect(env.document.querySelector('[data-settings-open="devices"]').dispatchEvent(click)).toBe(false);
+            panel.querySelector('button').click();
+            expect(retry).toHaveBeenCalledOnce();
+            finish(); callbacks.onProgress();
+            expect(panel.getAttribute('aria-label')).toBe('Reloading…');
+            expect(panel.querySelector('.wg-dialog__acts').classList.contains('hidden')).toBe(true);
+            expect(panel.querySelector('button').disabled).toBe(true);
+            callbacks.onPending();
+            expect(panel.getAttribute('aria-label')).toBe('Reload needed');
         });
 
         it('two quick Reload calls during the first delete flush start only one handoff', async () => {
