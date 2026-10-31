@@ -104,7 +104,7 @@
     // empty here, so the import's replace confirm never shows (importexport.js
     // skips it when hasUserContent() === false).
     async function seed() {
-        const vault = shiftDates(withPileUp(await getJSON('/qa/vault-v1.json')), new Date());
+        const vault = shiftDates(withHealthSources(withPileUp(await getJSON('/qa/vault-v1.json'))), new Date());
         // The fixture is Europe/Berlin; a different device zone would raise the
         // timezone confirm over every screenshot (bootstrap.js maybeUpdateTimezone).
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -133,6 +133,20 @@
                 status: 'PENDING', snoozed_until: null, source: 'schedule', tz: 'Europe/Berlin',
             });
         }
+        return vault;
+    }
+
+    // HS1–HS4 source labels (bd med-w6gx.32): mark one BP reading and one
+    // weight log as Health imports and the one sleep night as Mi Band, so
+    // health-bp / weight / health-vitals show the labels. Only `source` is
+    // added (no source_id), so ids, values, dates and trends stay as they were.
+    // Visual seed only; tests/fixtures/vault-v1.json stays the vault-format pin.
+    function withHealthSources(vault) {
+        const d = (vault && vault.data) || {};
+        const mark = (list, i, source) => { if (Array.isArray(list) && list[i]) list[i].source = source; };
+        mark(d.bp && d.bp.readings, 1, 'apple_health');
+        mark(d.weight && d.weight.logs, 1, 'apple_health');
+        mark(d.vitals && d.vitals.sleep, 0, 'miband');
         return vault;
     }
 
