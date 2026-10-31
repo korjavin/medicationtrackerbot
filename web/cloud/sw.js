@@ -184,6 +184,10 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('message', (event) => {
+  if (event.data?.type === 'PROVIDER_RELOAD_CAPABILITY') {
+    event.ports?.[0]?.postMessage({ type: 'PROVIDER_RELOAD_CAPABILITY', version: 1 });
+    return;
+  }
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
@@ -336,6 +340,36 @@ function revalidateShell() {
     .catch(() => {});
 }
 
+// Only explicit provider Reload uses a complete bounded network document.
+// A late/failed response cannot replace the cache or masquerade as freshness.
+function freshProviderDocument(event, request) {
+  const controller = new AbortController();
+  let expired = false;
+  let timer;
+  const network = (async () => {
+    const response = await fetch(request, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok || response.redirected) throw new Error('fresh document unavailable');
+    const body = await response.clone().text();
+    if (expired) throw new Error('fresh document expired');
+    const fingerprint = body.match(DOC_FINGERPRINT_RE);
+    if ((BUILD_TS && (!fingerprint || fingerprint[1] !== BUILD_TS))
+      || !body.includes('name="medtracker-connect-origins"')
+      || !response.headers.get('Content-Security-Policy')?.includes('connect-src')) {
+      throw new Error('fresh document does not match this worker');
+    }
+    // Return the ORIGINAL response/CSP. Only this verified same-build response
+    // may refresh '/', exactly as normal background revalidation already does.
+    event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put('/', response.clone())).catch(() => {}));
+    return response;
+  })();
+  return Promise.race([
+    network,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => { expired = true; controller.abort(); reject(new Error('fresh document timed out')); }, 5000);
+    }),
+  ]).catch(() => retryDocument()).finally(() => clearTimeout(timer));
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -344,6 +378,10 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/mcp/')) return;
 
   if (request.mode === 'navigate') {
+    if (url.pathname === '/' && url.searchParams.get('__wg_provider_reload') === '1') {
+      event.respondWith(freshProviderDocument(event, request));
+      return;
+    }
     // Stale-while-revalidate: cached document now, refresh '/' in the background.
     event.respondWith(
       cachedNavigationDoc(request).then((doc) => {

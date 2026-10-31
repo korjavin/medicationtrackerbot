@@ -18,6 +18,16 @@ const cloudDocumentPolicy = Object.freeze({
     origin: window.location?.origin || location.origin || '',
 });
 
+// The supporting worker selected a fresh response for this one-shot navigation.
+// Future ordinary starts retain their immediate offline shell.
+if (window.location?.search && typeof window.history?.replaceState === 'function') {
+    const loadedURL = new URL(window.location.href);
+    if (loadedURL.searchParams.get('__wg_provider_reload') === '1') {
+        loadedURL.searchParams.delete('__wg_provider_reload');
+        window.history.replaceState(window.history.state, '', loadedURL.href);
+    }
+}
+
 // Register the service worker on FIRST PAINT (med-gvk.1), before the
 // unlock/sync gates in boot() below and OUTSIDE the detached background sync
 // IIFE where push.js's ensurePushSubscription otherwise registers it. The SW
@@ -32,6 +42,10 @@ const cloudDocumentPolicy = Object.freeze({
 // a harmless no-op. Cloud-only: this file is served solely by cmd/cloud, so no
 // platform guard is needed.
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    let providerReloadActive = false;
+    window.document?.addEventListener('wg:provider-reload', (event) => {
+        providerReloadActive = event.detail?.active === true;
+    });
     // First-install vs update is decided entirely by whether a SW already
     // controls this page: absent = first-ever install (activate's
     // clients.claim() controls with NO banner and NO reload), present = update
@@ -65,7 +79,7 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     // install hadController is false, so activate's clients.claim() fires
     // controllerchange without a reload (bead: first install controls silently).
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!hadController || reloading) return;
+        if (!hadController || reloading || providerReloadActive) return;
         reloading = true;
         // Another tab's Reload can land here mid-Undo-window: send the delete first.
         const owed = window.flushPendingDelete?.();

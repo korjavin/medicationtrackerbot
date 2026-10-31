@@ -50,11 +50,11 @@ function checkCapability(policy) {
 function effectiveCheckDraft(draft, scope) {
   const own = draft || {};
   return scope === 'vision' ? {
-    apiKey: String(own.vision_api_key || own.api_key || '').trim(),
+    apiKey: String(own.vision_api_key || own.api_key || ''),
     url: String(own.vision_url || own.url || DEFAULT_URL),
     model: String(own.vision_model || own.model || DEFAULT_MODEL),
   } : {
-    apiKey: String(own.api_key || '').trim(),
+    apiKey: String(own.api_key || ''),
     url: String(own.url || DEFAULT_URL),
     model: String(own.model || DEFAULT_MODEL),
   };
@@ -70,7 +70,7 @@ function checkResult(status, trial = false) {
   return { state: 'error', code: 'unreachable', message: 'Could not reach your provider — check the URL' };
 }
 
-async function isCheckCompletion(response) {
+async function isCheckCompletion(response, trial) {
   // The nonstreamed ChatCompletion contract permits null/empty content and
   // finish_reason:length at this tiny budget. It does not permit arbitrary
   // 200 JSON/HTML to count as a completion. See the OpenAI Chat Completions
@@ -99,8 +99,13 @@ async function isCheckCompletion(response) {
     const result = JSON.parse(text);
     const choice = result?.choices?.[0];
     const message = choice?.message;
-    return Array.isArray(result?.choices) && !!message && typeof message === 'object'
-      && (!message.role || message.role === 'assistant')
+    // The existing trusted trial relay deliberately removes model; its
+    // Anthropic translation also omits created. Never require disclosure of
+    // operator settings to validate that explicit, consented transport.
+    return typeof result?.id === 'string' && !!result.id && result.object === 'chat.completion'
+      && (trial || (Number.isFinite(result.created) && typeof result.model === 'string' && !!result.model))
+      && Array.isArray(result.choices) && !!message && typeof message === 'object'
+      && message.role === 'assistant'
       && Object.hasOwn(message, 'content') && (message.content === null || typeof message.content === 'string')
       && typeof choice.finish_reason === 'string';
   } catch { return false; }
@@ -614,7 +619,7 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
         const { openai: savedFields } = await settingsDomain.readIntegrationsUnmasked();
         const saved = effectiveCheckDraft(savedFields, scope);
         const keyField = scope === 'vision' && draft?.vision_api_key ? 'vision_api_key' : 'api_key';
-        const savedKey = String(savedFields?.[keyField] || '').trim();
+        const savedKey = String(savedFields?.[keyField] || '');
         const normalized = (base) => String(base).trim().replace(/\/+$/, '');
         if (!savedKey || savedKey === '***' || savedKey !== saved.apiKey
           || normalized(provider.url) !== normalized(saved.url)) {
@@ -625,7 +630,7 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
         return { state: 'error', code: 'key', message: 'Could not read the saved key. Try again.' };
       }
     }
-    if (!useTrial && !apiKey) return { state: 'error', code: 'key', message: 'Enter an API key before checking.' };
+    if (!useTrial && !apiKey.trim()) return { state: 'error', code: 'key', message: 'Enter an API key before checking.' };
     if (!['draft', 'saved', 'trial'].includes(intent)) return { state: 'error', code: 'key', message: 'Choose which key to check.' };
     if (useTrial) {
       if (!trialAIAvailable()) return { state: 'error', code: 'trial_unavailable', message: 'Trial AI is unavailable. Add your own key to check it.' };
@@ -650,7 +655,7 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
         referrerPolicy: 'no-referrer', credentials: useTrial ? 'same-origin' : 'omit', redirect: 'error',
       });
       if (res.status >= 200 && res.status < 300) {
-        if (!await isCheckCompletion(res)) return { state: 'error', code: 'response', message: 'Provider did not return a chat completion — check the API URL' };
+        if (!await isCheckCompletion(res, useTrial)) return { state: 'error', code: 'response', message: 'Provider did not return a chat completion — check the API URL' };
       } else if (res.body?.cancel) await res.body.cancel().catch(() => {});
       return checkResult(res.status, useTrial);
     } catch { return checkResult(0); } finally { clearTimeout(timer); }

@@ -59,7 +59,7 @@ describe('Settings → Integrations section', () => {
     });
 
     describe('Check key through the direct UI port and real settings/client', () => {
-        afterEach(() => vi.restoreAllMocks());
+        afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
         const field = (name) => env.document.getElementById('integrations-openai-' + name);
         const fill = (name, value) => {
             field(name).value = value;
@@ -99,7 +99,7 @@ describe('Settings → Integrations section', () => {
         function reply(status = 200, body) {
             // OpenAI nonstreamed completion (Chat Completions reference);
             // length/null is valid for this tiny credential probe.
-            return new Response(JSON.stringify(body || { choices: [{ message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status });
+            return new Response(JSON.stringify(body || { id: 'fixture-check', object: 'chat.completion', created: 1, model: 'fixture-model', choices: [{ message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status });
         }
 
         it('checks a rotated draft without Save, generic API, raw cache or field replacement; edits clear results', async () => {
@@ -117,6 +117,54 @@ describe('Settings → Integrations section', () => {
             expect(JSON.stringify(await env.window.MedTrackerDB.ApiCache.get('settings_integrations'))).not.toContain('fixture-');
             fill('model', 'another-model');
             expect(env.document.getElementById('integrations-check-result').hidden).toBe(true);
+            page.close();
+        });
+
+        it.each([true, false])('empty own-key draft never infers consented Trial (saved own key=%s)', async (ownKey) => {
+            const { settings, writes, page } = await setup();
+            if (!ownKey) await settings.patchIntegrations({ openai: { api_key: '' } });
+            await settings.setTrialConsent({ ai: true });
+            const meta = env.document.createElement('meta');
+            meta.name = 'medtracker-trial-ai'; meta.content = '1'; env.document.head.appendChild(meta);
+            vi.stubGlobal('document', env.document);
+            await env.window.SettingsIntegrations.load();
+            const cache = JSON.stringify(await env.window.DataStore.getCached('settings_integrations'));
+            const state = env.document.querySelector('[data-own-key="openai"] [data-own-key-state]').textContent;
+            const send = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply());
+            writes.length = 0; env.window.apiCall.mockClear();
+            for (const value of ['', '   ']) {
+                fill('api-key', value);
+                expect(button().disabled).toBe(true);
+                await env.window.SettingsIntegrations.checkKey();
+                expect(note()).toBe('Enter an API key before checking.');
+            }
+            expect(send).not.toHaveBeenCalled();
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            expect(writes).toEqual([]);
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe(ownKey ? 'fixture-saved-key' : '');
+            expect(env.document.querySelector('[data-own-key="openai"] [data-own-key-state]').textContent).toBe(state);
+            expect(JSON.stringify(await env.window.DataStore.getCached('settings_integrations'))).toBe(cache);
+            fill('api-key', 'fixture-explicit-own-draft');
+            await env.window.SettingsIntegrations.checkKey();
+            expect(note()).toBe('Key works');
+            expect(send.mock.calls[0][0]).toBe('https://api.openai.com/v1/chat/completions');
+            expect(send.mock.calls[0][1].headers.Authorization).toBe('Bearer fixture-explicit-own-draft');
+            page.close();
+        });
+
+        it('an edited non-exact mask checks the same opaque key bytes Save and normal AI will use', async () => {
+            const { settings, page } = await setup();
+            const send = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(reply(401));
+            fill('api-key', '*** ');
+            await env.window.SettingsIntegrations.checkKey();
+            expect(note()).toBe('Key rejected');
+            expect(send.mock.calls[0][1].headers.Authorization).toBe('Bearer *** ');
+            expect(send.mock.calls[0][1].headers.Authorization).not.toContain('fixture-saved-key');
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('*** ');
+            send.mockResolvedValueOnce(reply());
+            await createAIClient({ settingsDomain: settings }).chat({ messages: [{ role: 'user', content: 'fixture' }], tools: [] });
+            expect(send.mock.calls[1][1].headers.Authorization).toBe(send.mock.calls[0][1].headers.Authorization);
             page.close();
         });
 
@@ -208,13 +256,22 @@ describe('Settings → Integrations section', () => {
 
         it('keeps registration outcome valid across subsequent edits and protects those edits before Reload', async () => {
             const { port, page } = await setup([]);
+            const refreshes = [];
+            env.window.requestTabRefresh = vi.fn(({ source }) => {
+                if (source === 'optimistic-commit') refreshes.push(env.window.SettingsIntegrations.load());
+            });
             let finish;
             port.aiProviderRegistration.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
             const saving = env.window.SettingsIntegrations.save();
             await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+            // A same-settings refresh while registration is pending must not
+            // detach the eventual result from this accepted Save.
+            await env.window.SettingsIntegrations.load();
             fill('model', 'unsaved-after-save');
             finish({ state: 'registered' });
             await saving;
+            await Promise.all(refreshes);
+            expect(field('model').value).toBe('unsaved-after-save');
             expect(env.document.getElementById('integrations-check-reload').hidden).toBe(false);
             env.window.safeConfirm = vi.fn(async () => false);
             expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
@@ -227,6 +284,77 @@ describe('Settings → Integrations section', () => {
             env.window.flushPendingDelete = vi.fn(async () => { fill('model', 'newest-draft'); });
             expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
             expect(field('model').value).toBe('newest-draft');
+            page.close();
+        });
+
+        it.each(['registered', 'failed'])('retains %s after real DataStore commit refreshes the identical masked settings', async (state) => {
+            const { port, page } = await setup([]);
+            port.aiProviderRegistration.mockResolvedValue({ state });
+            const refreshes = [];
+            env.window.requestTabRefresh = vi.fn(({ source }) => {
+                if (source === 'optimistic-commit') refreshes.push(env.window.SettingsIntegrations.load());
+            });
+            await env.window.SettingsIntegrations.save();
+            await Promise.all(refreshes);
+            expect(refreshes).toHaveLength(1);
+            expect(button().disabled).toBe(true);
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(state !== 'registered');
+            expect(note()).toBe(state === 'registered'
+                ? 'Settings saved. Reload this page before checking the key.'
+                : 'Settings saved, but the provider could not be registered. Save again to retry.');
+            // A genuinely different accepted view forgets the old Save state.
+            env.window.SettingsIntegrations._applyPayloadToDOM({ openai: { api_key: '***', url: 'https://different.example/v1' } });
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(true);
+            expect(note()).toBe('Save your provider settings and reload this page before checking the key.');
+            page.close();
+        });
+
+        it('keeps failed freshness handoff retryable and refuses newer edits made during that handoff', async () => {
+            const { page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            const reload = vi.fn(async () => false);
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: reload }));
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(note()).toBe('Could not refresh this page. Check your connection and try Reload page again.');
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(false);
+            expect(button().disabled).toBe(true);
+            reload.mockImplementation(async ({ beforeNavigate }) => {
+                fill('model', 'edited-during-worker-update');
+                expect(await beforeNavigate()).toBe(false);
+                return false;
+            });
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(field('model').value).toBe('edited-during-worker-update');
+            expect(note()).toBe('Settings saved. Reload this page before checking the key.');
+            page.close();
+        });
+
+        it('an identical accepted-settings refresh during worker handoff is not a new edit', async () => {
+            const { page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: async ({ beforeNavigate }) => {
+                await env.window.SettingsIntegrations.load();
+                expect(await beforeNavigate()).toBe(true);
+                return false;
+            } }));
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(note()).toBe('Could not refresh this page. Check your connection and try Reload page again.');
+            page.close();
+        });
+
+        it.each(['integrations-elevenlabs-api-key', 'integrations-elevenlabs-agent-id', 'integrations-openai-vision-model'])('protects %s edited during an awaited delete before Reload', async (id) => {
+            const { page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            const reload = vi.fn(async () => true);
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: reload }));
+            env.window.flushPendingDelete = vi.fn(async () => {
+                const input = env.document.getElementById(id);
+                input.value = 'new-draft-during-flush';
+                input.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            });
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(reload).not.toHaveBeenCalled();
+            expect(env.document.getElementById(id).value).toBe('new-draft-during-flush');
             page.close();
         });
 

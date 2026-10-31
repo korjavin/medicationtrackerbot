@@ -10,6 +10,12 @@ const completion = (content = 'OK', finish_reason = 'stop') => ({
   choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason }],
 });
 const response = (body = completion(), status = 200) => new Response(JSON.stringify(body), { status });
+// Actual sanitized relay contract: trial_proxy.go:421 strips model, and
+// trial_anthropic.go:fromAnthropicResponse also omits created. Neither field
+// may be demanded from this trusted transport just to Check the trial key.
+const trialCompletion = () => ({ id: 'fixture-trial', object: 'chat.completion',
+  choices: [{ index: 0, message: { role: 'assistant', content: '' }, finish_reason: 'length' }],
+  usage: { prompt_tokens: 1, completion_tokens: 8, total_tokens: 9 } });
 const policy = (origins = ['https://a.example', 'https://vision.example']) => ({
   origins: JSON.stringify(origins), origin: 'https://account.example',
 });
@@ -129,6 +135,7 @@ describe('Check key: loaded-document permission and scoped credential intent', (
     document.head.innerHTML = '<meta name="medtracker-trial-ai" content="1">';
     const { client } = clientWith({}, policy([]));
     const args = { intent: 'trial', draft: draft({ api_key: '' }) };
+    fetch.mockResolvedValueOnce(response(trialCompletion()));
     expect(await client.checkKey(args)).toMatchObject({ state: 'success', message: 'Trial key works' });
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe('/api/trial/openai/chat/completions');
@@ -142,10 +149,10 @@ describe('Check key: loaded-document permission and scoped credential intent', (
   });
 
   it('uses existing native trial transport and anon consent only on explicit Trial', async () => {
-    const post = vi.fn(async () => response());
+    const post = vi.fn(async () => response(trialCompletion()));
     setTrialTransport({ post });
     const { client, settingsDomain } = clientWith({}, policy([]));
-    await client.checkKey({ scope: 'vision', intent: 'trial', draft: { api_key: '' } });
+    expect(await client.checkKey({ scope: 'vision', intent: 'trial', draft: { api_key: '' } })).toMatchObject({ message: 'Trial key works' });
     expect(post.mock.calls[0][0]).toBe('/api/trial/openai/chat/completions?vision=1');
     expect(settingsDomain.getTrialConsent).toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
@@ -167,7 +174,12 @@ describe('Check key: loaded-document permission and scoped credential intent', (
     const { client } = clientWith();
     fetch.mockResolvedValueOnce(response(completion(null, 'length')));
     expect(await client.checkKey({ intent: 'draft', draft: draft() })).toMatchObject({ state: 'success' });
-    for (const body of [{ error: { message: 'fixture-draft-key' } }, { choices: [] }, 'not a completion', { padding: 'x'.repeat(70 << 10) }]) {
+    for (const body of [{ error: { message: 'fixture-draft-key' } }, { choices: [] },
+      { choices: [{ message: { content: null }, finish_reason: 'length' }] },
+      trialCompletion(),
+      { ...completion(), object: 'not-a-completion' }, { ...completion(), created: 'yesterday' },
+      { ...completion(), choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] },
+      'not a completion', { padding: 'x'.repeat(70 << 10) }]) {
       fetch.mockResolvedValueOnce(response(body));
       const result = await client.checkKey({ intent: 'draft', draft: draft() });
       expect(result).toMatchObject({ state: 'error', code: 'response' });

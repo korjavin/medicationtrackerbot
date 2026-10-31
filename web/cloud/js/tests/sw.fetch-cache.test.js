@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SW_ORIGIN as ORIGIN, loadCloudSw } from './helpers/sw-loader.js';
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
+import { createAIClient } from '../aiclient.js';
 
 // SW_VERSION is CACHE_VERSION_PLACEHOLDER at rest (rewritten per deploy).
 const SHELL_CACHE = 'medtracker-cloud-shell-CACHE_VERSION_PLACEHOLDER';
@@ -301,6 +302,92 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         const { response } = await fireFetch(listeners, navigate('/'));
         expect(response).toBe(cachedShell);
         expect(fetchMock).toHaveBeenCalledWith('/');
+    });
+
+    // HTML/CSP fixture mirrors the owning router's
+    // TestRouter_AppDocumentReflectsEgressHosts exact-response contract.
+    const policyDocument = (host, build = 'checked') => new Response(
+        `<head><meta name="medtracker-connect-origins" content='["https://${host}"]'><script src="/static/js/app.js?v=${build}"></script></head>`,
+        { headers: { 'Content-Security-Policy': `default-src 'self'; connect-src 'self' https://${host}` } });
+
+    it('acknowledges fresh-navigation support without claiming any origin permission', () => {
+        const postMessage = vi.fn();
+        listeners.get('message')[0]({ data: { type: 'PROVIDER_RELOAD_CAPABILITY' }, ports: [{ postMessage }] });
+        expect(postMessage).toHaveBeenCalledExactlyOnceWith({ type: 'PROVIDER_RELOAD_CAPABILITY', version: 1 });
+    });
+
+    it('explicit Reload uses the first fresh response/CSP after registration, not cached policy A', async () => {
+        const old = policyDocument('a.example');
+        caches.seed(SHELL_CACHE, '/', old);
+        const next = policyDocument('b.example');
+        fetchMock.mockResolvedValue(next);
+        const args = { intent: 'draft', draft: { api_key: 'fixture-only', url: 'https://b.example/v1' } };
+        const oldClient = createAIClient({ documentPolicy: { origins: '["https://a.example"]', origin: ORIGIN } });
+        expect(oldClient.keyCheckPermission(args).state).toBe('needs_reload');
+        // The registration POST is outside the SW; its success grants nothing.
+        expect((await fireFetch(listeners, req('/api/egress-hosts', { method: 'POST' }))).response).toBeUndefined();
+        expect(oldClient.keyCheckPermission(args).state).toBe('needs_reload');
+        const request = navigate('/?__wg_provider_reload=1');
+        const { response } = await fireFetch(listeners, request);
+        expect(response).toBe(next);
+        expect(fetchMock).toHaveBeenCalledWith(request, { cache: 'no-store', signal: expect.any(AbortSignal) });
+        expect(response.headers.get('Content-Security-Policy')).toContain('https://b.example');
+        const origins = (await response.clone().text()).match(/content='([^']+)'/)[1];
+        expect(createAIClient({ documentPolicy: { origins, origin: ORIGIN } }).keyCheckPermission(args).state).toBe('ready');
+        expect(oldClient.keyCheckPermission(args).state).toBe('needs_reload');
+        expect(caches.store.get(SHELL_CACHE).get('/').headers.get('Content-Security-Policy')).toContain('https://b.example');
+    });
+
+    it.each([401, 503])('fresh navigation HTTP %i returns retry, never a cached success', async (status) => {
+        caches.seed(SHELL_CACHE, '/', policyDocument('a.example'));
+        fetchMock.mockResolvedValue(new Response('unavailable', { status }));
+        const { response } = await fireFetch(listeners, navigate('/?__wg_provider_reload=1'));
+        expect(response.status).toBe(503);
+        expect(await response.text()).not.toContain('medtracker-connect-origins');
+        expect(caches.store.get(SHELL_CACHE).get('/').headers.get('Content-Security-Policy')).toContain('a.example');
+    });
+
+    it('rejects a newer-build response instead of putting it into an older coherent graph', async () => {
+        const version = 'vchecked';
+        ({ listeners } = loadCloudSw({ fetch: fetchMock, caches, swVersion: version }));
+        caches.seed('medtracker-cloud-shell-' + version, '/', policyDocument('a.example'));
+        fetchMock.mockResolvedValue(policyDocument('b.example', 'newer'));
+        const { response } = await fireFetch(listeners, navigate('/?__wg_provider_reload=1'));
+        expect(response.status).toBe(503);
+        expect(caches.store.get('medtracker-cloud-shell-' + version).get('/').headers.get('Content-Security-Policy')).toContain('a.example');
+    });
+
+    it.each(['offline', 'redirect', 'missing-meta', 'missing-csp'])('fresh %s failure does not poison the ordinary offline shell', async (failure) => {
+        const old = policyDocument('a.example');
+        caches.seed(SHELL_CACHE, '/', old);
+        let next = policyDocument('b.example');
+        if (failure === 'offline') fetchMock.mockRejectedValue(new TypeError('offline'));
+        else {
+            if (failure === 'redirect') Object.defineProperty(next, 'redirected', { value: true });
+            if (failure === 'missing-meta') next = new Response('<head>sign in</head>', { headers: next.headers });
+            if (failure === 'missing-csp') next = new Response(await next.text());
+            fetchMock.mockResolvedValue(next);
+        }
+        const { response } = await fireFetch(listeners, navigate('/?__wg_provider_reload=1'));
+        expect(response.status).toBe(503);
+        expect(caches.store.get(SHELL_CACHE).get('/')).toBe(old);
+    });
+
+    it('bounds the full fresh body and never caches a late successful response after timeout', async () => {
+        vi.useFakeTimers();
+        try {
+            const old = policyDocument('a.example');
+            caches.seed(SHELL_CACHE, '/', old);
+            let finishBody;
+            const next = policyDocument('b.example');
+            fetchMock.mockResolvedValue({ ok: true, headers: next.headers, clone: () => ({ text: () => new Promise((resolve) => { finishBody = resolve; }) }) });
+            const { promise } = fireFetchRaw(listeners, navigate('/?__wg_provider_reload=1'));
+            await vi.advanceTimersByTimeAsync(5001);
+            expect((await promise).status).toBe(503);
+            finishBody(await next.text());
+            await vi.advanceTimersByTimeAsync(1);
+            expect(caches.store.get(SHELL_CACHE).get('/')).toBe(old);
+        } finally { vi.useRealTimers(); }
     });
 
     // A body-carrying response for the install warm: clone() and text() are

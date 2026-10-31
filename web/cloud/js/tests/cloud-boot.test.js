@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as realVault from '../../../domain/vault.js';
 import { loadFrontendEnv } from '../../../static/js/tests/helpers/frontend-harness.js';
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
+import { reloadProviderDocument } from '../update-check.js';
 
 // cloud-boot.js is a self-executing classic script (not an ES module) that
 // assigns window.MedTrackerCloudReady and issues dynamic import('/js/*.js')
@@ -40,9 +41,14 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     const dom = new JSDOM('<head><meta name="medtracker-connect-origins" content=\'["https://a.example"]\'></head>');
     let unlock;
     let captured;
+    const replaceState = vi.fn();
     const warming = new Promise((resolve) => { unlock = resolve; });
     const running = runBoot({
-      setupWindow(win) { win.document = dom.window.document; win.location = { origin: 'https://account.example' }; },
+      setupWindow(win) {
+        win.document = dom.window.document;
+        win.location = { origin: 'https://account.example', href: 'https://account.example/?__wg_provider_reload=1&keep=1', search: '?__wg_provider_reload=1&keep=1' };
+        win.history = { state: null, replaceState };
+      },
       modules: {
         'unlock.js': { warmUnlock: () => warming },
         'apishim.js': { installApiShim: (_ctx, options) => { captured = options.documentPolicy; return () => Promise.resolve(null); } },
@@ -54,6 +60,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     await running;
     expect(captured).toEqual({ origins: '["https://a.example"]', origin: 'https://account.example' });
     expect(Object.isFrozen(captured)).toBe(true);
+    expect(replaceState).toHaveBeenCalledExactlyOnceWith(null, '', 'https://account.example/?keep=1');
     dom.window.close();
   });
 
@@ -1132,6 +1139,42 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
       modules: { 'unlock.js': { warmUnlock: async () => null } },
     });
     expect(location.href).toBe('/unlock');
+  });
+
+  it('coordinates the REAL boot controllerchange handler with provider handoff before activation', async () => {
+    priorNavigator = globalThis.navigator;
+    const dom = new JSDOM('<html></html>');
+    const sw = new dom.window.EventTarget();
+    const old = { postMessage() {} }; // deployed older worker has no capability reply
+    sw.controller = old;
+    let next;
+    next = { state: 'installed', postMessage(message, ports) {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') ports[0].postMessage({ type: message.type, version: 1 });
+      if (message.type === 'SKIP_WAITING') {
+        sw.controller = next;
+        sw.dispatchEvent(new dom.window.Event('controllerchange'));
+      }
+    } };
+    const registration = { waiting: null, update: vi.fn(async () => { registration.waiting = next; }) };
+    sw.register = async () => registration;
+    sw.getRegistration = async () => registration;
+    globalThis.navigator = { serviceWorker: sw };
+    const replace = vi.fn();
+    const booted = await runBoot({
+      setupWindow(win) {
+        win.document = dom.window.document; win.CustomEvent = dom.window.CustomEvent;
+        win.navigator = globalThis.navigator;
+        win.location = { origin: 'https://account.example', href: 'https://account.example/', replace };
+      },
+      modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    booted.location.reload = vi.fn();
+    expect(await reloadProviderDocument({ win: booted.window })).toBe(true);
+    expect(sw.controller).toBe(next);
+    expect(registration.update).toHaveBeenCalledOnce();
+    expect(replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
+    expect(booted.location.reload).not.toHaveBeenCalled();
+    dom.window.close();
   });
 });
 

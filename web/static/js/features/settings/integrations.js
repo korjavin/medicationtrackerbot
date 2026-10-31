@@ -43,16 +43,19 @@
     let _aiProviderMainKeyEdited = false; // module-state: explicit main-key intent prevents automatic mask replacement
     let _aiProviderMainClearBase = null; // module-state: only a deliberate clear at this public base may remove its saved key
     let _keyCheckSeq = 0; // module-state: edits/loads supersede an in-flight Check, never stores credentials
+    let _integrationDraftSeq = 0; // module-state: actual form edits/changed snapshots, independent of identical read refreshes
     let _keyCheckBusy = false; // module-state: current Check button progress
     let _keyCheckResult = null; // module-state: fixed sanitized result only
     let _keyCheckSavedBase = null; // module-state: public base explicitly saved on this page
     let _keyCheckRegistration = null; // module-state: registration outcome, never a permission grant
     let _keyCheckSaveSeq = 0; // module-state: accepted snapshot generation, independent of subsequent draft edits
+    let _keyCheckReloadBusy = false; // module-state: one explicit document/worker handoff, never a permission grant
+    let _providerReloadLoader = () => import('/js/update-check.js'); // module-state: existing updater module, injectable for owning tests
 
     function keyCheckArgs() {
         const key = getInput(FIELD_IDS.openai.api_key)?.value || '';
         return {
-            scope: 'text', intent: key.trim() === '***' ? 'saved' : key.trim() ? 'draft' : 'trial',
+            scope: 'text', intent: key === '***' ? 'saved' : 'draft',
             draft: { api_key: key, url: getInput(FIELD_IDS.openai.url)?.value || '', model: getInput(FIELD_IDS.openai.model)?.value || '' }
         };
     }
@@ -61,7 +64,12 @@
         try {
             const port = window.offlineAwareApiCall;
             if (typeof port?.aiKeyCheckPermission === 'function' && typeof port.checkAIKey === 'function') {
-                return port.aiKeyCheckPermission(keyCheckArgs());
+                const args = keyCheckArgs();
+                const permission = port.aiKeyCheckPermission(args);
+                if (permission.state === 'ready' && !args.draft.api_key.trim()) {
+                    return { state: 'unsupported', code: 'key', message: 'Enter an API key before checking.' };
+                }
+                return permission;
             }
         } catch (_) { /* a missing/older capability never falls through to HTTP */ }
         return { state: 'unsupported', code: 'capability', message: 'Key checking is unavailable in this app version. Update the app to check your key.' };
@@ -69,6 +77,7 @@
 
     function invalidateKeyCheck() {
         _keyCheckSeq += 1;
+        _integrationDraftSeq += 1;
         _keyCheckBusy = false;
         _keyCheckResult = null;
         renderKeyCheck();
@@ -109,6 +118,7 @@
         const urlHint = getInput('integrations-provider-url-hint');
         if (urlError && urlHint) urlHint.textContent = permission.message;
         if (_keyCheckBusy) result = { message: 'Checking your key…' };
+        if (_keyCheckResult?.code === 'reload' && permission.state === 'needs_reload') result = _keyCheckResult;
         // Unsupported URL has its explanation beside the field, not a second note.
         note.hidden = !result || urlError;
         const tone = result?.state === 'success' ? 'ok' : result?.code === 'rejected' ? 'danger' : result?.state === 'error' ? 'warn' : '';
@@ -124,6 +134,7 @@
         icon.dataset.icon = tone === 'ok' ? 'check' : tone === 'danger' ? 'alert' : 'info';
         window.WGIcons?.hydrate(icon);
         getInput('integrations-check-reload').hidden = !reload;
+        getInput('integrations-check-reload').disabled = _keyCheckReloadBusy;
         _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
     }
 
@@ -156,17 +167,33 @@
     }
 
     async function reloadForKeyCheck() {
-        if (keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
-        const seq = _keyCheckSeq;
+        if (_keyCheckReloadBusy || keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
+        const seq = _integrationDraftSeq;
         if (integrationsHaveUnsavedChanges()) {
             if (typeof safeConfirm !== 'function' || !await safeConfirm('Reloading will discard your unsaved changes.', null,
                 { title: 'Reload page?', confirmLabel: 'Discard and reload', cancelLabel: 'Keep editing', tone: 'warn' })) return false;
         }
         const owed = window.flushPendingDelete?.();
         if (owed) { try { await owed; } catch (_) { return false; } }
-        if (seq !== _keyCheckSeq) return false;
-        window.location.reload();
-        return true;
+        if (seq !== _integrationDraftSeq) return false;
+        _keyCheckReloadBusy = true;
+        _keyCheckResult = null;
+        renderKeyCheck();
+        let reloaded = false;
+        try {
+            const { reloadProviderDocument } = await _providerReloadLoader();
+            reloaded = await reloadProviderDocument({ win: window, beforeNavigate: async () => {
+                const pending = window.flushPendingDelete?.();
+                if (pending) { try { await pending; } catch (_) { return false; } }
+                return seq === _integrationDraftSeq;
+            } });
+        } catch (_) { /* a failed/older updater keeps this document's gate */ }
+        _keyCheckReloadBusy = false;
+        if (!reloaded && seq === _integrationDraftSeq) {
+            _keyCheckResult = { state: 'error', code: 'reload', message: 'Could not refresh this page. Check your connection and try Reload page again.' };
+        }
+        renderKeyCheck();
+        return reloaded;
     }
 
     function normalizeProviderURL(url) {
@@ -431,12 +458,28 @@
 
     function applyPayloadToDOM(payload) {
         if (!payload || typeof payload !== 'object') return;
+        // DataStore's optimistic commit refreshes Settings again. An identical
+        // accepted masked view must retain the registration outcome (including
+        // pending/failure); a read is not a new Save or a permission upgrade.
+        const masked = maskPayload(payload);
+        const keepRegistration = _keyCheckSavedBase !== null && Object.entries(FIELD_IDS).every(([group, fields]) =>
+            Object.keys(fields).every((field) => (masked[group]?.[field] || '') === (_aiProviderSavedPayload?.[group]?.[field] || '')));
         _keyCheckSeq += 1;
-        _keyCheckSaveSeq += 1;
         _keyCheckBusy = false;
         _keyCheckResult = null;
-        _keyCheckSavedBase = null;
-        _keyCheckRegistration = null;
+        if (!keepRegistration) {
+            _integrationDraftSeq += 1;
+            _keyCheckSaveSeq += 1;
+            _keyCheckSavedBase = null;
+            _keyCheckRegistration = null;
+        }
+        // The commit's same-settings refresh may land after the user starts
+        // another edit while registration is pending. Keep that newer draft
+        // for the Reload guard rather than replacing it with saved masks.
+        if (keepRegistration && integrationsHaveUnsavedChanges()) {
+            renderProvider();
+            return;
+        }
         for (const group of Object.keys(FIELD_IDS)) {
             const groupPayload = payload[group] || {};
             for (const field of Object.keys(FIELD_IDS[group])) {
@@ -1198,7 +1241,11 @@
             check.dataset.integrationsBound = '1';
             check.addEventListener('click', checkKey);
             getInput('integrations-check-reload').addEventListener('click', reloadForKeyCheck);
-            for (const id of Object.values(FIELD_IDS.openai)) getInput(id)?.addEventListener('input', invalidateKeyCheck);
+            // Reload discards the whole integrations form, including voice
+            // and photo edits made while a delete/worker handoff is pending.
+            for (const fields of Object.values(FIELD_IDS)) {
+                for (const id of Object.values(fields)) getInput(id)?.addEventListener('input', invalidateKeyCheck);
+            }
         }
         const providerButton = getInput('integrations-provider-choose');
         if (providerButton && !providerButton.dataset.integrationsBound) {
@@ -1307,6 +1354,7 @@
         _renderTrialCard: renderTrialCard,
         _setLocalTrial: setLocalTrial,
         _resetTelegramMounted: () => { _telegramMounted = false; },
-        _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
+        _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; },
+        _setProviderReloadLoader: (loader) => { _providerReloadLoader = loader; }
     };
 })();
