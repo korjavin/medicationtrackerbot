@@ -579,10 +579,30 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount, requestFreshDrain, pulledThisSession }] = await Promise.all([
-            import('/js/apishim.js'),
-            import('/js/sync.js'),
+        // bd med-kk1q.4: the two modules the shim needs load with one retry
+        // after 2 s, so a transient import hiccup does not strand the page. Only
+        // the LOAD is retried: nothing below has run yet, so a retry cannot
+        // install the shim or start sync twice. installApiShim itself has side
+        // effects (ledger cut, egress registration) and is never re-run. The
+        // specifiers stay literal: sw.js precaches what import('…') names.
+        const tagSpecifier = (specifier) => (e) => {
+            const err = e instanceof Error ? e : new Error(String(e));
+            err.specifier = specifier;
+            throw err;
+        };
+        const loadBootModules = () => Promise.all([
+            import('/js/apishim.js').catch(tagSpecifier('/js/apishim.js')),
+            import('/js/sync.js').catch(tagSpecifier('/js/sync.js')),
         ]);
+        let bootModules;
+        try {
+            bootModules = await loadBootModules();
+        } catch (e) {
+            console.warn('[cloud-boot] post-unlock module load failed; retrying in 2 s', e && e.specifier, e);
+            await new Promise((r) => setTimeout(r, 2000));
+            bootModules = await loadBootModules();
+        }
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate, hasCaughtUp, getRecordsChangeCount, requestFreshDrain, pulledThisSession }] = bootModules;
 
         // bd med-ydt2: /api/bootstrap omits needs_first_run until this device
         // has pulled the account (bd med-ejgf) AND the move pickup below has
@@ -1114,6 +1134,52 @@ window.MedTrackerCloudReady = (async function boot() {
         // Only the SYNCHRONOUS shim install can reach here now (e.g. the
         // apiCallDirect redefine hazard above); background-sync failures land in
         // the IIFE's own .catch and likewise never redirect.
-        console.error('[cloud-boot] post-unlock boot failed', e);
+        //
+        // bd med-kk1q.4: no shim on this page, so every /api/* read goes to the
+        // network. That is a first-class state, not a silent one: flag it and
+        // say so. Diagnostics stay on the device (console only).
+        console.error('[cloud-boot] post-unlock boot failed', {
+            specifier: (e && e.specifier) || null,
+            message: e && e.message,
+            stack: e && e.stack,
+        }, e);
+        window.MedTrackerCloud.degraded = { error: e, at: Date.now() };
+        surfaceBootDegraded().catch((err) => console.error('[cloud-boot] degraded banner failed', err));
     }
 })();
+
+// bd med-kk1q.4: the persistent banner for a page whose account shim never
+// installed. Reload goes through reloadToLatest, so a stale shell lands on the
+// current build; a user tap, never automatic, so a persistent failure cannot
+// loop.
+async function surfaceBootDegraded() {
+    if (!document.body) await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+    if (document.getElementById('boot-degraded-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'boot-degraded-banner';
+    banner.className = 'wg-banner wg-banner--warn';
+    banner.setAttribute('role', 'alert');
+    if (window.WGIcons) {
+        const ico = document.createElement('i');
+        ico.className = 'wg-ico wg-ico--sm';
+        ico.appendChild(window.WGIcons.iconSvg('alert'));
+        banner.appendChild(ico);
+    }
+    const text = document.createElement('span');
+    text.className = 'wg-banner__text';
+    text.textContent = 'Local data is not available on this page';
+    banner.appendChild(text);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-btn wg-btn--sm';
+    btn.textContent = 'Reload';
+    btn.addEventListener('click', () => {
+        btn.disabled = true;
+        import('/js/update-check.js')
+            .then((m) => m.reloadToLatest(window))
+            .catch(() => location.reload());
+    });
+    banner.appendChild(btn);
+    const host = document.getElementById('app-banners');
+    if (host) host.appendChild(banner); else document.body.prepend(banner);
+}

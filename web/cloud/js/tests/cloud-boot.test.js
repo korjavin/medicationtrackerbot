@@ -19,7 +19,7 @@ const SRC = readFileSync(
   'utf8',
 ).replace(/\bimport\(/g, '__imp(');
 
-async function runBoot({ hash = '', modules, setupWindow }) {
+async function runBoot({ hash = '', modules, setupWindow, console = { error() {}, warn() {} } }) {
   const location = { hash, href: '' };
   const window = {};
   if (setupWindow) setupWindow(window);
@@ -31,7 +31,7 @@ async function runBoot({ hash = '', modules, setupWindow }) {
   };
   // eslint-disable-next-line no-new-func
   const fn = new Function('window', 'location', 'console', 'URLSearchParams', '__imp', SRC);
-  fn(window, location, { error() {}, warn() {} }, URLSearchParams, __imp);
+  fn(window, location, console, URLSearchParams, __imp);
   await window.MedTrackerCloudReady;
   return { location, window };
 }
@@ -462,6 +462,74 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  // bd med-kk1q.4: a post-unlock module load failure is retried once after
+  // 2 s; a second failure leaves a flagged, bannered page instead of a silent
+  // network-only one.
+  describe('post-unlock boot degrade (med-kk1q.4)', () => {
+    const syncStub = {
+      pullOnOpen: () => new Promise(() => {}),
+    };
+    const bootWith = async ({ apishim, errors = [], warns = [] }) => {
+      const dom = new JSDOM('<!doctype html><body><div id="app-banners"></div></body>');
+      vi.stubGlobal('document', dom.window.document);
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      let installs = 0;
+      let reloads = 0;
+      const running = runBoot({
+        console: { error: (...a) => errors.push(a), warn: (...a) => warns.push(a) },
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': () => apishim({ installApiShim: () => { installs++; return () => Promise.resolve(null); } }),
+          'sync.js': syncStub,
+          'update-check.js': { reloadToLatest: async () => { reloads++; } },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+      const { window, location } = await running;
+      vi.useRealTimers();
+      return { window, location, doc: dom.window.document, installs: () => installs, reloads: () => reloads };
+    };
+    afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+    it('a transient import rejection is retried after 2 s: shim installed, no banner, no degraded flag', async () => {
+      let attempts = 0;
+      const warns = [];
+      const { window, location, doc, installs } = await bootWith({
+        warns,
+        apishim: (mod) => (++attempts === 1 ? Promise.reject(new TypeError('Failed to fetch dynamically imported module')) : Promise.resolve(mod)),
+      });
+      expect(attempts).toBe(2);
+      expect(installs()).toBe(1);
+      expect(window.MedTrackerCloud.degraded).toBeUndefined();
+      expect(doc.getElementById('boot-degraded-banner')).toBeNull();
+      expect(location.href).toBe('');
+      expect(warns[0][1]).toBe('/js/apishim.js');
+    });
+
+    it('a second rejection flags the page, logs the specifier and shows one Reload banner wired to reloadToLatest', async () => {
+      const errors = [];
+      const { window, location, doc, installs, reloads } = await bootWith({
+        errors,
+        apishim: () => Promise.reject(new TypeError('Failed to fetch dynamically imported module')),
+      });
+      expect(installs()).toBe(0);
+      expect(location.href).toBe(''); // mounts degraded, never bounces to /unlock
+      expect(window.MedTrackerCloud.degraded.error.message).toContain('Failed to fetch');
+      expect(typeof window.MedTrackerCloud.degraded.at).toBe('number');
+      const logged = errors.find((a) => a[0] === '[cloud-boot] post-unlock boot failed');
+      expect(logged[1]).toMatchObject({ specifier: '/js/apishim.js', message: 'Failed to fetch dynamically imported module' });
+      expect(logged[1].stack).toEqual(expect.any(String));
+      await vi.waitFor(() => expect(doc.querySelectorAll('#app-banners #boot-degraded-banner')).toHaveLength(1));
+      const banner = doc.getElementById('boot-degraded-banner');
+      expect(banner.className).toBe('wg-banner wg-banner--warn');
+      expect(banner.textContent).toContain('Local data is not available on this page');
+      const btn = banner.querySelector('button');
+      expect(btn.textContent).toBe('Reload');
+      btn.click();
+      await vi.waitFor(() => expect(reloads()).toBe(1));
+    });
   });
 
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
