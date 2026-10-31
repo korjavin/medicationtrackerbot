@@ -7564,6 +7564,19 @@ body:has(.wg-callbar--dock) .wg-toasts {
    Claude Code prompt): wraps instead of ellipsis-truncating. Doubled class:
    styles.css loads before components.css, whose .wg-code / .wg-code>span
    would otherwise win the specificity tie. */
+.wg-private-feedback {
+    min-height: 2.5em;
+}
+
+/* Published bootstrap commands stay fully selectable without making the
+   primary Copy action several screens away on a short phone viewport. */
+.wg-code.wg-private-code > span {
+    max-height: 14rem;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
 .wg-code.wg-code--wrap {
     height: auto;
     padding-block: var(--space-sm);

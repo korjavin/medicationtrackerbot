@@ -12,6 +12,12 @@ import { refreshResponder, stopResponder, clearNonceRing } from './mcp-responder
 export const MCPPAIRING_RECORD_TYPE = 'mcppairing';
 export const MCPPAIRING_RECORD_ID = 'mcppairing';
 
+// Only an observed 4404 purge establishes expiry/revocation. This transient,
+// key-free hint is scoped to the unlocked context; generic offline errors and
+// 4409 (another device replaced the pairing) must not invent that conclusion.
+const gonePairings = new WeakSet();
+export function pairingNeedsReconnect(ctx) { return gonePairings.has(ctx); }
+
 function relayOrigin() {
   return (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host;
 }
@@ -47,6 +53,7 @@ export async function connectClaude(ctx) {
     relayUrl,
     key: toBase64(key),
   });
+  gonePairings.delete(ctx);
   if (previous && previous.pairingId && previous.pairingId !== pairingId) {
     await clearNonceRing(previous.pairingId);
   }
@@ -79,6 +86,7 @@ export async function disconnectClaude(ctx) {
   const res = await fetch('/api/mcp/pairings', { method: 'DELETE' });
   if (!res.ok) throw new Error('Could not disconnect. Try again.');
   await forgetPairing(ctx);
+  gonePairings.delete(ctx);
 }
 
 // Drops the vault record for a pairing the relay has already forgotten — its
@@ -88,4 +96,5 @@ export async function disconnectClaude(ctx) {
 // and DELETE /api/mcp/pairings would also run the tier-2 teardown path.
 export async function purgePairing(ctx) {
   await forgetPairing(ctx);
+  gonePairings.add(ctx);
 }
