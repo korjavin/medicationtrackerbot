@@ -126,8 +126,12 @@ browser copy-command integration are separate end-to-end acceptance evidence;
 fixture/native process tests do not claim them.
 
 The tag workflow uses GitHub's current `actions/attest@v4` mechanism, pinned to
-an immutable action commit, with `id-token: write`, `contents: read` and
-`attestations: write`. Release publishing is a separate `contents: write` job.
+an immutable action commit. Packaging runs with only `contents: read`, including
+on pull requests. A separate **job-level tag-only** attestation job downloads
+the finalized artifact with `id-token: write`, `contents: read` and
+`attestations: write`; it never executes the pull request's packaging script.
+Release publishing is a separate `contents: write` job which requires that
+attestation job to succeed.
 Attestations cover the exact downloaded binary and companion bytes. Verify a
 binary manually after verifying its named checksum:
 
@@ -141,6 +145,124 @@ corruption; it does not authenticate a malicious publisher. Bootstrap digests
 start trust at the repository/UI supplying the command. GitHub attestations
 identify the repository/workflow build, not an honest publisher or an audited
 binary. See [release integrity](security/release-integrity.md).
+
+### First publication: operator sequence
+
+These are post-merge operator instructions, not actions performed by source CI.
+The operator needs authenticated repository release access, `curl`, SHA-256
+tooling, and a modern GitHub CLI with `gh attestation verify` (ordinary users do
+not need `gh`). Record the reviewed **merged master commit**, not the PR's
+synthetic merge-ref SHA or the pre-merge branch SHA. Fetch refs without changing
+the working checkout, and require that full commit to be reachable from master:
+
+```sh
+git fetch origin master --tags
+reviewed_commit='<reviewed-full-master-commit>'
+git merge-base --is-ancestor "$reviewed_commit" origin/master
+git show --no-patch --format='%H %s' "$reviewed_commit"
+git ls-remote --tags origin refs/tags/mcpshim-v0.1.0
+gh api --include repos/korjavin/medicationtrackerbot/releases/tags/mcpshim-v0.1.0
+```
+
+Stop on a failed reachability check, a remote/local tag, or an existing release
+(including a draft). The remote-tag query must succeed with **empty output**;
+the authenticated exact-release API must return **404**, not an authentication
+or network error. Confirm local `refs/tags/mcpshim-v0.1.0` is also absent. Then
+create the one annotated tag without force and push only that ref:
+
+```sh
+git tag -a mcpshim-v0.1.0 "$reviewed_commit" -m 'Private MCP helper 0.1.0'
+git push origin refs/tags/mcpshim-v0.1.0
+```
+
+That push starts workflow **`MCP helper release`**, file
+`.github/workflows/release-mcpshim.yml`. There are **no workflow inputs**: source
+validation accepts only `mcpshim-v0.1.0`, selecting version `0.1.0`; tag source
+must remain master-reachable. Do not also dispatch a duplicate live run.
+If a fresh run is needed before any release exists, dispatch that fixed tag,
+without inputs:
+
+```sh
+gh workflow run release-mcpshim.yml --repo korjavin/medicationtrackerbot --ref mcpshim-v0.1.0
+gh run list --repo korjavin/medicationtrackerbot --workflow release-mcpshim.yml --branch mcpshim-v0.1.0 --json databaseId,headSha,event,status,conclusion,url
+gh run watch <release-run-id> --repo korjavin/medicationtrackerbot --exit-status
+```
+
+Require the run's `headSha` to equal `reviewed_commit` and **all** `source`, six
+`build`, three `native`, `package`, `attest` and `publish` jobs to succeed.
+In particular, `attest` must succeed, not skip. Expected signer workflow is
+`korjavin/medicationtrackerbot/.github/workflows/release-mcpshim.yml`, certificate
+identity is
+`https://github.com/korjavin/medicationtrackerbot/.github/workflows/release-mcpshim.yml@refs/tags/mcpshim-v0.1.0`,
+and source ref is `refs/tags/mcpshim-v0.1.0` at that reviewed commit. The publisher
+creates a draft once, uploads exact assets, then publishes with `make_latest=false`;
+there is no overwrite or product release operation.
+
+In a fresh verification directory, download **without GitHub authentication**
+(`curl -q` disables curl configuration), using these exact names and root:
+
+```sh
+base='https://github.com/korjavin/medicationtrackerbot/releases/download/mcpshim-v0.1.0'
+for asset in SHA256SUMS install.sh install.ps1 commands.json provenance.json mcpshim_0.1.0_darwin_amd64 mcpshim_0.1.0_darwin_arm64 mcpshim_0.1.0_linux_amd64 mcpshim_0.1.0_linux_arm64 mcpshim_0.1.0_windows_amd64.exe mcpshim_0.1.0_windows_arm64.exe; do
+  curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 "$base/$asset" --output "$asset" || exit 1
+done
+sha256sum -c SHA256SUMS
+```
+
+Compare `provenance.json` fields `version=0.1.0`, `source_commit=reviewed_commit`,
+`toolchain=go1.26.5`, `CGO_ENABLED=0`, and `workflow_run` with the successful
+tag run. Compare `commands.json`'s version/tag/source and both installer digests
+with these downloaded bytes. Execute `--version` only on native supported
+OS/architecture and require exactly `mcpshim 0.1.0+<reviewed_commit>`.
+Verify **each** downloaded binary and the manifest against the precise policy:
+
+```sh
+gh attestation verify ./mcpshim_0.1.0_linux_amd64 --repo korjavin/medicationtrackerbot --signer-workflow korjavin/medicationtrackerbot/.github/workflows/release-mcpshim.yml --source-ref refs/tags/mcpshim-v0.1.0 --source-digest "$reviewed_commit" --deny-self-hosted-runners
+```
+
+Repeat with the other five binary filenames and `SHA256SUMS`; save the successful
+verification output. An exact certificate identity may additionally be enforced
+with `--cert-identity` and the URL above. Record actual native job OS/architecture
+limits separately from six cross-builds. Only after these public URL/hash/source/
+attestation checks is packaging release acceptance complete; source merge or a
+green workflow alone does not close it. Fresh-machine live Claude health reads
+and browser copy-command acceptance remain separate end-to-end gates.
+
+### Recovery from a failed unpublished draft
+
+An upload failure can leave a partial draft; the workflow deliberately refuses
+to overwrite or reuse it. Recovery is an explicit operator action, never an
+automatic cleanup. Pause publication and ensure no concurrent publisher is
+running. Inspect the failed run, the fixed tag's full source commit and the
+release metadata:
+
+```sh
+gh api repos/korjavin/medicationtrackerbot/releases/tags/mcpshim-v0.1.0 --jq '{id,draft,tag_name,target_commitish,html_url,assets:[.assets[]|{name,id,size,digest}]}'
+```
+
+Proceed only if the operator has verified this is the failed run's **still
+unpublished draft**, with `draft: true`, and it has **never been published**.
+If it is published, has ever been published, or ownership/state is uncertain,
+stop: do not delete the public release or overwrite its assets; use a new
+reviewed version. For a verified never-published draft only, deliberately delete
+that draft by its inspected release ID, preserving the tag:
+
+```sh
+gh api --method DELETE repos/korjavin/medicationtrackerbot/releases/<verified-draft-release-id>
+```
+
+Do not delete or move the tag, use `--cleanup-tag`, or repair assets in place.
+After correcting a transient delivery problem, start a fresh run against the
+same fixed reviewed tag (which repeats source, six builds, native proof,
+packaging and attestations):
+
+```sh
+gh workflow run release-mcpshim.yml --repo korjavin/medicationtrackerbot --ref mcpshim-v0.1.0
+```
+
+A source or workflow defect requiring a different tagged commit requires a new
+reviewed version instead. Complete the exact public download/digest/attestation
+acceptance after recovery; a successful retry alone is not that evidence.
 
 Primary references: [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations),
 [Claude MCP registration and scopes](https://code.claude.com/docs/en/mcp), and

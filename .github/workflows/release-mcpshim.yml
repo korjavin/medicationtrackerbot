@@ -101,6 +101,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.source.outputs.version }}
+          MEDTRACKER_PACKAGED_SHIM_TEST_VERSION: ${{ needs.source.outputs.version }}+${{ needs.source.outputs.commit }}
         run: |
           set -eu
           system=$(go env GOOS)
@@ -123,10 +124,6 @@ jobs:
   package:
     needs: [source, native]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -140,19 +137,31 @@ jobs:
           COMMIT: ${{ needs.source.outputs.commit }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: python3 scripts/package-mcpshim.py dist --version "$VERSION" --commit "$COMMIT" --run-url "$RUN_URL"
-      - name: Attest exact release bytes
-        if: github.ref_type == 'tag'
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-path: dist/*
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mcpshim-release-contract
           path: dist/*
           if-no-files-found: error
-  publish:
+  attest:
     if: github.ref_type == 'tag'
     needs: [source, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: mcpshim-release-contract
+          path: dist
+      - name: Attest exact finalized release bytes
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [source, attest]
     runs-on: ubuntu-latest
     permissions:
       contents: write

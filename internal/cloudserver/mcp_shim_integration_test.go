@@ -121,7 +121,9 @@ func (d *fakeDevice) serveOnce(t *testing.T) {
 // CI supplies its downloaded native artifact; local runs build a stamped one.
 func TestMCPShim_PackagedProcess(t *testing.T) {
 	binary := os.Getenv("MEDTRACKER_PACKAGED_SHIM_TEST_BINARY")
+	expectedVersion := os.Getenv("MEDTRACKER_PACKAGED_SHIM_TEST_VERSION")
 	if binary == "" {
+		expectedVersion = "0.1.0+fixture"
 		binary = filepath.Join(t.TempDir(), "mcpshim")
 		if runtime.GOOS == "windows" {
 			binary += ".exe"
@@ -130,6 +132,9 @@ func TestMCPShim_PackagedProcess(t *testing.T) {
 		if out, err := build.CombinedOutput(); err != nil {
 			t.Fatalf("build packaged helper: %v: %s", err, out)
 		}
+	}
+	if expectedVersion == "" {
+		t.Fatal("packaged artifact proof requires the independently expected version and source commit")
 	}
 	env := make([]string, 0, len(os.Environ()))
 	for _, entry := range os.Environ() {
@@ -144,8 +149,8 @@ func TestMCPShim_PackagedProcess(t *testing.T) {
 		t.Fatal("packaged --version failed without pairing key")
 	}
 	version := strings.TrimPrefix(strings.TrimSpace(string(versionBytes)), "mcpshim ")
-	if !strings.HasPrefix(version, "0.1.0+") {
-		t.Fatalf("unexpected packaged version %q", version)
+	if version != expectedVersion {
+		t.Fatalf("packaged version %q does not match expected source version %q", version, expectedVersion)
 	}
 
 	h, host, claim := newTestMCPRelayHandler(t)
@@ -203,6 +208,12 @@ func TestMCPShim_PackagedProcess(t *testing.T) {
 	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{Name: "mcp_help", Arguments: map[string]any{}})
 	if err != nil || !result.IsError {
 		t.Fatal("absent device must return an MCP tool error")
+	}
+	// Client-side results carry the tool error as protocol content; GetError
+	// only reports an in-process server error and is always nil on clients.
+	offlineResult, _ := json.Marshal(result)
+	if !strings.Contains(string(offlineResult), "through a blind cloud relay") || strings.Contains(string(offlineResult), "not to a server") {
+		t.Fatal("packaged offline error must describe the factual relay boundary")
 	}
 	if time.Since(start) > mcpshim.CallTimeout+2*time.Second {
 		t.Fatal("absent device exceeded bounded wait")

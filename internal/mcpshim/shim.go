@@ -44,7 +44,7 @@ const CallTimeout = 30 * time.Second
 // sentence just says what to do.
 //
 //nolint:staticcheck // ST1005: this is a terminal, user-facing sentence relayed verbatim to the model (the plan's offline-device UX text), not a wrapped Go error.
-var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open the Med Tracker app on any device and unlock it, then retry — this connector talks to your device, not to a server, because your data is end-to-end encrypted.")
+var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open the Med Tracker app on any device and unlock it, then retry — this connector exchanges end-to-end encrypted messages with your device through a blind cloud relay.")
 
 // errFrameNotSent marks a Call that failed BEFORE its request frame left this
 // process — the cached connection was already dead when we tried to write. No
