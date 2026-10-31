@@ -30,10 +30,22 @@ on:
   # Any branch: spike branches ship to TestFlight from here.
   workflow_dispatch:
     inputs:
+      health_diagnostic:
+        description: Native HealthKit unsigned Simulator baseline only
+        type: boolean
+        default: false
+      health_sign:
+        description: Use Xcode Simulator signing for the HealthKit diagnostic
+        type: boolean
+        default: false
       visual:
         description: Simulator screenshots only (skips the build and TestFlight)
         type: boolean
         default: false
+      visual_scenes:
+        description: Optional comma-separated Simulator scenes (strict XCTest result)
+        type: string
+        default: ''
       qa:
         description: Simulator flow QA only (skips the build and TestFlight)
         type: boolean
@@ -43,10 +55,67 @@ permissions:
   contents: read
 
 jobs:
+  health-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.health_diagnostic
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native baseline
+        env:
+          HEALTH_SIGN: ${{ inputs.health_sign }}
+        run: |
+          set -o pipefail
+          QA=1 ios/bundle-web.sh "${{ github.run_number }}"
+          command -v xcodegen >/dev/null || brew install xcodegen
+          cd ios
+          xcodegen generate
+          xcodebuild -version
+          signing=NO
+          [ "$HEALTH_SIGN" != true ] || signing=YES
+          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED="$signing" CODE_SIGN_IDENTITY=- \
+            WG_BASE_DOMAIN=qa.test > build.log 2>&1
+      - name: Inspect built entitlements
+        run: |
+          app=ios/build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app
+          mkdir -p evidence
+          codesign -dvvv --entitlements :- "$app" > evidence/signature.txt 2>&1 || true
+          otool -l "$app/MedTracker" > evidence/load-commands.txt
+          cp ios/App/MedTracker.entitlements evidence/requested-entitlements.plist
+      - name: Boot Simulator
+        run: ios/qa/boot-sim.sh 'iPhone 16e,iPhone 16,iPhone 15' '390pt'
+      - name: Direct native authorization and query
+        run: |
+          set -o pipefail
+          udid=$(cut -d= -f2 "$RUNNER_TEMP/devices")
+          xcodebuild test-without-building -project ios/MedTracker.xcodeproj -scheme MedTracker \
+            -only-testing:MedTrackerUITests/HealthDiagnosticTests -destination "platform=iOS Simulator,id=$udid" \
+            -derivedDataPath ios/build/sim -resultBundlePath evidence/health.xcresult \
+            > evidence/xctest.log 2>&1
+      - name: Collect native system logs
+        if: always()
+        run: |
+          mkdir -p evidence
+          if [ -f "$RUNNER_TEMP/devices" ]; then
+            udid=$(cut -d= -f2 "$RUNNER_TEMP/devices")
+            xcrun simctl spawn "$udid" log show --last 15m --style compact \
+              --predicate 'process == "healthd" OR process == "MedTracker" OR subsystem CONTAINS "health"' \
+              > evidence/health-system.log 2>&1 || true
+          fi
+          cp ios/build.log evidence/build.log 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: health-native-baseline
+          path: evidence/
+          retention-days: 3
+
   build:
-    # Not on a visual- or qa-only run: a label event, or a visual / qa
-    # dispatch (which must never reach the TestFlight steps).
-    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa
+    # Simulator flags AND modifier-only dispatches must never reach TestFlight.
+    # A default dispatch still intentionally runs the distribution build.
+    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa && !inputs.health_diagnostic && !inputs.health_sign && !inputs.visual_scenes
     # Job-level, so a visual run never cancels a build or a TestFlight dispatch.
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
@@ -261,8 +330,8 @@ jobs:
 
   # Visual QA on the Simulator (bd med-y5xx.3, docs/design/ios-visual-testing.md):
   # every scene of tests/visual/scenes.json on a 390pt and a 440pt iPhone, as
-  # the `ios-visual` artifact. Evidence, not a gate: scene and probe failures
-  # are warnings; a device job fails only when its device produced no screenshots.
+  # the `ios-visual` artifact. Full runs report scene/probe failures as warnings;
+  # explicit visual_scenes runs instead fail on any XCTest error.
   # One device per job (bd med-y5xx.12): booting both in one job is serial,
   # and overlapping boots starved the scenes; `visual-merge` joins them.
   visual:
@@ -301,7 +370,7 @@ jobs:
           xcodebuild -version
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             WG_BASE_DOMAIN=qa.test | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
 
@@ -310,6 +379,8 @@ jobs:
 
       - name: Run the scenes per device
         working-directory: ios
+        env:
+          TEST_RUNNER_WG_QA_SCENES: ${{ inputs.visual_scenes }}
         run: |
           while IFS='=' read -r dev udid; do
             echo "::group::$dev"
@@ -317,7 +388,8 @@ jobs:
               -only-testing:MedTrackerUITests/VisualQATests -destination "platform=iOS Simulator,id=$udid" \
               -derivedDataPath build/sim -resultBundlePath "build/$dev.xcresult" < /dev/null \
               | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
-            [ "${PIPESTATUS[0]}" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the errors above)"
+            test_status=${PIPESTATUS[0]}
+            [ "$test_status" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the errors above)"
             out="$GITHUB_WORKSPACE/shots/$dev"
             raw="$RUNNER_TEMP/raw-$dev"
             mkdir -p "$out"
@@ -334,6 +406,7 @@ jobs:
             fi
             ls -l "$out"
             echo "::endgroup::"
+            if [ -n "$TEST_RUNNER_WG_QA_SCENES" ] && [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
           done < "$RUNNER_TEMP/devices"
 
       - name: Summary
@@ -344,7 +417,7 @@ jobs:
           {
             echo "## iOS visual QA"
             echo
-            echo "Artifact \`ios-visual\`: \`<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`compare/\` (diffs against master, in the visual-merge job). Evidence only, never a gate."
+            echo "Artifact \`ios-visual\`: \`<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`compare/\` (diffs against master, in the visual-merge job). Full runs are evidence-only; explicit \`visual_scenes\` runs fail on XCTest errors."
             while IFS='=' read -r dev udid; do
               d="shots/$dev"
               n="$(find "$d" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"
@@ -431,7 +504,8 @@ jobs:
           IFS='=' read -r dev udid < "$RUNNER_TEMP/devices"
           # The invite fake-server.sh minted, for FlowQACeremonyExitTests (TEST_RUNNER_ → the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
-            -only-testing:MedTrackerUITests -skip-testing:MedTrackerUITests/VisualQATests -destination "platform=iOS Simulator,id=$udid" \
+            -only-testing:MedTrackerUITests -skip-testing:MedTrackerUITests/VisualQATests \
+            -skip-testing:MedTrackerUITests/HealthDiagnosticTests -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
             | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
           exit "${PIPESTATUS[0]}"

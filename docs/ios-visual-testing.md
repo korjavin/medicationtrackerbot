@@ -1,6 +1,6 @@
 # iOS visual testing: runbook and agent QA
 
-Normative how-to. Design and rationale: [design/ios-visual-testing.md](design/ios-visual-testing.md). Everything here is **evidence, never a gate**: probe failures and diffs warn, they do not fail CI.
+Normative how-to. Design and rationale: [design/ios-visual-testing.md](design/ios-visual-testing.md). Ordinary full visual runs report scene/probe failures as warning evidence. Explicit `visual_scenes` runs and the native HealthKit diagnostic fail their jobs on XCTest errors; image diffs remain informational.
 
 Flow tests (first run, relaunch, and later lock, stash, backup), which are a gate, are a separate job: see [ios.md → Flow QA (Simulator)](ios.md#flow-qa-simulator-bd-med-w6gx23) (label `ios-qa`).
 
@@ -10,6 +10,24 @@ Flow tests (first run, relaunch, and later lock, stash, backup), which are a gat
 - **Dispatch on a branch:** `gh workflow run ios.yml --ref <branch> -f visual=true` (skips the build and TestFlight); `gh workflow run visual-web.yml --ref <branch>`.
 - **Dispatch on `master` only to refresh the compare reference.** Compare uses the newest master `workflow_dispatch` run that has the artifact. The visual job has its own concurrency group (`ios.yml-visual-<ref>`, cancel-in-progress) and does not touch the TestFlight build. Never dispatch or cancel a master run while another master visual run is in flight: the shared group cancels it.
 - macOS minutes are expensive: label only when the change can move layout.
+- A default dispatch still runs the intentional TestFlight build. Any Simulator flag or non-default modifier (`health_sign` or `visual_scenes`) excludes that build, including an incomplete modifier-only dispatch; enable the owning diagnostic/visual flag to actually run its job.
+
+## Native HealthKit diagnostic
+
+When the browser reports Health unavailable, capture the native result before changing signing:
+
+```bash
+gh workflow run ios.yml --ref <branch> -f health_diagnostic=true
+gh workflow run ios.yml --ref <branch> -f health_diagnostic=true -f health_sign=true
+```
+
+Run one variant at a time. The first reproduces the former unsigned visual build; the second lets Xcode sign for the Simulator, as the visual job now does. Both skip TestFlight. `health_sign` only affects the diagnostic job. The default Debug/Simulator-only diagnostic requests read access to Steps and executes a real sample query, without the browser's error translation; it never writes samples. Ordinary flow QA excludes this experiment.
+
+For the populated native scene, dispatch `-f visual=true -f visual_scenes=health-kit-import`. Both widths run with a strict XCTest exit status. This scene separately opts into a Debug/Simulator-only seed that saves real Steps/HR/SpO2/sleep samples to Health, clears fixture vitals, imports through the actual native bridge and local importer, and asserts the resulting overview values. Release does not compile the seed or request write permissions. Playwright skips this native-only proof.
+
+Download `health-native-baseline`: `xctest.log`, the result bundle with a screenshot and native JSON report, requested entitlements, actual executable signature/entitlements and load commands, build log and Simulator Health system logs. Check native `available`, authorization errors and `queryCompleted`, plus XCTest's actual failure count. An empty successful query proves API access, not populated-card acceptance. Inspect the permission screenshot if authorization remains pending. Simulator entitlements may be in a Mach-O `__entitlements` section even when the code-signature entitlement dictionary is empty.
+
+The unsigned baseline on 2026-10-30 returned `available: true` and HealthKit error 4, `Missing com.apple.developer.healthkit entitlement.` Xcode Simulator signing subsequently launched the real Health Access sheet. These observations distinguish the original entitlement failure from a missing Health store; they do not establish seeded visual scenes.
 
 ## Duration
 

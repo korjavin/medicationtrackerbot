@@ -43,7 +43,7 @@ final class VisualQATests: XCTestCase {
 
     func testScenes() throws {
         continueAfterFailure = true
-        let only = ProcessInfo.processInfo.environment["WG_QA_SCENES"].map { Set($0.split(separator: ",").map(String.init)) }
+        let only = ProcessInfo.processInfo.environment["WG_QA_SCENES"].flatMap { $0.isEmpty ? nil : Set($0.split(separator: ",").map(String.init)) }
         let scenes = try Self.scenes().filter { only?.contains($0.name) ?? true }
         XCTAssertFalse(scenes.isEmpty, "no scenes to run")
         for scene in scenes {
@@ -71,6 +71,10 @@ final class VisualQATests: XCTestCase {
     }
 
     private func run(_ scene: Scene) {
+        if scene.name == "health-kit-import" {
+            do { try HealthDiagnosticTests.run(seed: true, in: self) }
+            catch { XCTFail("HealthKit seeding failed: \(error)"); return }
+        }
         let app = XCUIApplication()
         // Launch arguments land in NSArgumentDomain, over the persisted choice:
         // no account (local mode unless a QA error screen sets a host) or local mode, lock off, on the scene.
@@ -116,6 +120,15 @@ final class VisualQATests: XCTestCase {
                    (obj["failed"] as? [String])?.contains("ready") == true {
                     failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
                 }
+            }
+        }
+        if scene.name == "health-kit-import" {
+            if let json = readyReport(app),
+               let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+               obj["ok"] as? Bool == true, obj["paint"] as? [String: Any] != nil {
+                // Required native import/value assertions completed.
+            } else {
+                failure = "native Health scene requires a valid report with ok=true and a painted-content region: \(readyReport(app) ?? "missing")"
             }
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }

@@ -484,6 +484,31 @@
             const reload = window.reloadCurrentTab;
             window.reloadCurrentTab = () => {};
             try { await window.TZPlanBanner.refresh(); } finally { window.reloadCurrentTab = reload; }
+        } else if (step.healthNative) {
+            // iOS Simulator scene: only the native seed writes Health samples.
+            // Remove fixture vitals, then run the real native importer and assert its values.
+            if (!document.documentElement.classList.contains('wg-local-vault') || !window.Health?.isSupported()) {
+                throw new Error('native Health scene requires the iOS local shell');
+            }
+            const key = 'wg-qa-native-health-cleared';
+            if (!sessionStorage.getItem(key)) {
+                const vault = shiftDates(await getJSON('/qa/vault-v1.json'), new Date());
+                vault.data.vitals = { day_stats: [], heart: [], sleep: [], spo2: [] };
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (tz) vault.data.settings.timezone = tz;
+                await window.CloudVault.importAll(vault);
+                sessionStorage.setItem(key, '1');
+                window.location.reload();
+                await new Promise(() => {});
+            }
+            const { runHealthImport, resetHealthAnchors } = await import('/js/health-import.js');
+            const { localRecordsPort } = await import('/js/sync.js');
+            resetHealthAnchors();
+            localStorage.setItem('wg.health.enabled', 'true');
+            await runHealthImport({ accountId: 'local' }, { records: localRecordsPort(), flush: async () => {} });
+            const data = await window.apiCall('/api/health/overview', 'GET');
+            if (data.average_heart_rate_7d !== 65 || data.average_spo2_7d !== 98 || data.average_sleep_hours_7d !== 7 ||
+                !data.step_stats_7d.some((d) => d.steps === 4000)) throw new Error('native Health seed values missing from imported overview');
         } else if (step.startHere) {
             // W3 "Start here" (bd med-ta2n.3): the seed has a record in every
             // module, so replace it once with the fixture minus step.startHere.drop
@@ -678,6 +703,14 @@
         // (the app switched away) is a failed scene, not a passing one.
         probes.readyLost = lostReady(def);
         if (probes.readyLost.length) failed.push('ready');
+        if (def.rendered && def.rendered.length) {
+            probes.renderedValues = def.rendered.map(({ selector, text }) => {
+                const el = firstVisible(selector);
+                const actual = el ? el.textContent.replace(/\s+/g, ' ').trim() : null;
+                return { selector, expected: text, actual };
+            });
+            if (probes.renderedValues.some(({ expected, actual }) => expected !== actual)) failed.push('rendered');
+        }
         return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def) };
     }
 
@@ -740,6 +773,12 @@
         // Tab / sub-tab switches flip classes and [hidden]: re-check readiness.
         if (window.MutationObserver) {
             new window.MutationObserver(again).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+            // Re-check asserted values when a view re-renders after the initial report.
+            // Observe its content container, not body: probe() adds a temporary body marker.
+            const anchor = def.rendered && firstVisible((def.ready || []).at(-1));
+            if (anchor && anchor.parentElement) {
+                new window.MutationObserver(again).observe(anchor.parentElement, { subtree: true, childList: true, characterData: true });
+            }
         }
     }
 

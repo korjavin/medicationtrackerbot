@@ -14,7 +14,17 @@ struct WGApp: App {
     }
 
     var body: some Scene {
-        WindowGroup { RootView(shell: shell) }
+        WindowGroup {
+            #if DEBUG && targetEnvironment(simulator)
+            if UserDefaults.standard.bool(forKey: "wgQAHealthDiagnostic") || UserDefaults.standard.bool(forKey: "wgQAHealthSeed") {
+                HealthDiagnosticView()
+            } else {
+                RootView(shell: shell)
+            }
+            #else
+            RootView(shell: shell)
+            #endif
+        }
     }
 }
 
