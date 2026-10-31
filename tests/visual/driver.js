@@ -190,6 +190,19 @@
             // Writes through the app's own API, e.g. PATCH /api/settings/body.
             // The write stays in the store for later scenes.
             await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.emptyWorkout) {
+            // Ad hoc resumes today's running session, which earlier scenes
+            // may have populated. Finish those fixtures through the real API
+            // before History's Ad hoc action opens a new, empty session.
+            const finished = new Set();
+            for (;;) {
+                const next = await window.apiCall('/api/workout/sessions/next');
+                const session = next && next.session;
+                if (!session || session.status !== 'in_progress') break;
+                if (finished.has(session.id)) throw new Error('emptyWorkout: running session did not finish');
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                finished.add(session.id);
+            }
         } else if (step.weightCheck) {
             // Kit WS1–WS3 (bd med-l5yr.5): completed sessions of one exercise
             // at the `earlier` weights (three sets each), then one holding
