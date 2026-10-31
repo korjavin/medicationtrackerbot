@@ -121,6 +121,19 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(time.textContent.length).toBeGreaterThan(0);
     });
 
+    it('a Health-imported log shows muted "Health import" after the time; others show none (med-w6gx.32)', () => {
+        const { document, window } = env;
+        window.renderWeightLogs([
+            { id: 'hk', measured_at: midnight(0).toISOString(), weight: 82.1, source: 'apple_health' },
+            { id: 'manual', measured_at: midnight(0).toISOString(), weight: 82.4 },
+        ]);
+        const label = document.querySelector('[data-weight-id="hk"] .wg-source-label');
+        expect(label.textContent).toBe('Health import');
+        expect(label.getAttribute('style')).toBeNull();
+        expect(label.previousElementSibling.classList.contains('wg-weight-history-row__time')).toBe(true);
+        expect(document.querySelector('[data-weight-id="manual"] .wg-source-label')).toBeNull();
+    });
+
     it('an optimistic log renders the shared Pending sync chip; a committed one renders none', () => {
         const { document, window } = env;
         window.renderWeightLogs([

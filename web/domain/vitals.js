@@ -23,7 +23,9 @@
 //                density. Decided while implementing C2a Task 4.
 
 import { dayStartMs } from './bp.js';
-import { sameBody, unifySleep, visibleSleep } from './healthsource.js';
+import {
+  HEALTH_SOURCE, sameBody, unifySleep, visibleSleep,
+} from './healthsource.js';
 
 // The vault holds one user's data; handleListSleepLogs stamps the row's
 // user_id, so the wire shape carries it too.
@@ -75,6 +77,10 @@ function calcAvg(values) {
 // chart read the same numbers from one fold. The day key is the log's own
 // `day` — the local day the session is filed under — falling back to the
 // start_time's date only when the importer left `day` unset.
+// Each day also carries `sources` (bd med-w6gx.32): the source markers of the
+// rows folded into it, in SLEEP_SOURCE_ORDER — response metadata only, never
+// stored. A missing or unrecognised marker is 'unknown', never inferred.
+const SLEEP_SOURCE_ORDER = [HEALTH_SOURCE, 'miband', 'unknown'];
 function foldSleepDaily(logs) {
   const dailyMap = new Map();
   const hrAcc = new Map();
@@ -85,9 +91,14 @@ function foldSleepDaily(logs) {
     let stat = dailyMap.get(day);
     if (!stat) {
       stat = {
-        date: day, light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0, total_mins: 0, heart_rate_avg: 0,
+        date: day, light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0, total_mins: 0, heart_rate_avg: 0, sources: [],
       };
       dailyMap.set(day, stat);
+    }
+    const source = SLEEP_SOURCE_ORDER.includes(l.source) ? l.source : 'unknown';
+    if (!stat.sources.includes(source)) {
+      stat.sources.push(source);
+      stat.sources.sort((a, b) => SLEEP_SOURCE_ORDER.indexOf(a) - SLEEP_SOURCE_ORDER.indexOf(b));
     }
     stat.total_mins += l.total_minutes;
     if (l.light_minutes) stat.light_mins += l.light_minutes;
@@ -301,8 +312,11 @@ export function createVitalsDomain({ records, now, timeZone }) {
     // ISO string alike, so callers can pass either.
     const fromDay = dayString(from === undefined || from === null ? now() - days * DAY_MS : from, timeZone);
     const toDay = to === undefined || to === null ? null : dayString(to, timeZone);
+    // `sources` is Vitals-screen metadata (bd med-w6gx.32); the brief's shape
+    // stays as it was.
     return foldSleepDaily(await readSleepLogs())
-      .filter((s) => s.date >= fromDay && (toDay === null || s.date <= toDay));
+      .filter((s) => s.date >= fromDay && (toDay === null || s.date <= toDay))
+      .map(({ sources, ...stat }) => stat);
   }
 
   // sleep mirrors handleListSleepLogs: raw sessions over an explicit from/to

@@ -218,6 +218,93 @@ describe('Health sleep card (Phase 8, Task 4)', () => {
         expect(card.querySelector('.wg-health-legend__badge--asleep')).not.toBeNull();
     });
 
+    // bd med-w6gx.32: the source line below the chart comes from the fold's
+    // per-day `sources` over the visible rows of the displayed range.
+    describe('source summary (med-w6gx.32)', () => {
+        const H = 3600000;
+        const DAY = 24 * H;
+        const now = Date.now();
+        const todayUtc = Math.floor(now / DAY) * DAY;
+        // A night ending 07:00 UTC `daysAgo` days back, in its sleep day (UTC).
+        function night(daysAgo, { id, source, minutes = 420 } = {}) {
+            const end = todayUtc - daysAgo * DAY + 7 * H;
+            const day = new Date(end).toISOString().slice(0, 10);
+            const row = {
+                recordId: id || `sleep-hk-${day}`, deleted: false, day, timezone_offset: 0,
+                start_time: new Date(end - minutes * 60000).toISOString(), end_time: new Date(end).toISOString(),
+                total_minutes: minutes, light_minutes: minutes, recordType: 'sleep',
+            };
+            if (source) row.source = source;
+            if (!id) row.source_id = day;
+            return row;
+        }
+        async function overviewOf(rows) {
+            const all = rows.map((r) => ({ ...r }));
+            const records = {
+                list: async (t) => all.filter((r) => r.recordType === t && !r.deleted),
+                listRaw: async (t) => all.filter((r) => r.recordType === t),
+                listRange: async () => [],
+            };
+            const { createVitalsDomain } = await import('../../../domain/vitals.js');
+            return createVitalsDomain({ records, now: () => now, timeZone: 'UTC' }).overview();
+        }
+        const sourcesLine = (card) => card.querySelector('.wg-sleep-card__sources')?.textContent ?? null;
+
+        it('Health-only nights name just Health import, in muted stat styling', async () => {
+            const data = await overviewOf([night(1, { source: 'apple_health' }), night(2, { source: 'apple_health' })]);
+            const card = env.window.renderSleepCard(data, '7d');
+            const line = card.querySelector('.wg-sleep-card__sources');
+            expect(line.textContent).toBe('Sources · Health import');
+            expect(line.classList.contains('wg-sleep-card__stat')).toBe(true);
+            expect(line.getAttribute('style')).toBeNull();
+            expect(line.previousElementSibling.textContent).toContain('(7d avg)');
+        });
+
+        it('Mi Band-only nights name just Mi Band', async () => {
+            const data = await overviewOf([night(1, { source: 'miband' })]);
+            expect(sourcesLine(env.window.renderSleepCard(data, '7d'))).toBe('Sources · Mi Band');
+        });
+
+        it('mixed nights list Health import, Mi Band, Other sources in order; unknown markers are never Mi Band', async () => {
+            const data = await overviewOf([
+                night(1, { source: 'miband' }),
+                night(2, { id: 'sleep-legacy-1' }),
+                night(3, { source: 'apple_health' }),
+            ]);
+            expect(data.sleep_stats_7d.map((s) => s.sources)).toEqual([['apple_health'], ['unknown'], ['miband']]);
+            expect(sourcesLine(env.window.renderSleepCard(data, '7d')))
+                .toBe('Sources · Health import · Mi Band · Other sources');
+        });
+
+        it('an unrecognised marker alone reads Other sources', async () => {
+            const data = await overviewOf([night(1, { id: 'sleep-legacy-2', source: 'garmin' })]);
+            expect(sourcesLine(env.window.renderSleepCard(data, '7d'))).toBe('Sources · Other sources');
+        });
+
+        it('follows the active range: a night outside 7d only shows in 30d', async () => {
+            const data = await overviewOf([night(1, { source: 'apple_health' }), night(20, { source: 'miband' })]);
+            expect(sourcesLine(env.window.renderSleepCard(data, '7d'))).toBe('Sources · Health import');
+            expect(sourcesLine(env.window.renderSleepCard(data, '30d'))).toBe('Sources · Health import · Mi Band');
+        });
+
+        it('a hidden legacy session on a shown Health day never affects the summary', async () => {
+            const data = await overviewOf([
+                night(1, { source: 'apple_health', minutes: 420 }),
+                night(1, { id: 'sleep-legacy-3', minutes: 300 }),
+            ]);
+            expect(data.sleep_stats_7d).toHaveLength(1);
+            expect(data.sleep_stats_7d[0]).toMatchObject({ total_mins: 420, sources: ['apple_health'] });
+            expect(sourcesLine(env.window.renderSleepCard(data, '7d'))).toBe('Sources · Health import');
+        });
+
+        it('an empty chart has no source line', async () => {
+            const data = await overviewOf([night(20, { source: 'miband' })]);
+            const card = env.window.renderSleepCard(data, '7d');
+            expect(card.querySelector('.wg-sleep-chart--empty')).not.toBeNull();
+            expect(sourcesLine(card)).toBeNull();
+        });
+    });
+
     it('a staged night renders exactly the stage bars and legend it always did', () => {
         const { window } = env;
         const card = window.renderSleepCard(makeData(), '7d');

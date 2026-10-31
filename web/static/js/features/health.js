@@ -217,6 +217,22 @@ function buildSleepLegend(hasAsleep) {
     return legend;
 }
 
+// bd med-w6gx.32: the sources of the displayed nights, from the fold's per-day
+// `sources` (vitals.js). apple_health is shared by Apple Health and Health
+// Connect, so it reads "Health import" — never inferred from this device.
+const HEALTH_SLEEP_SOURCE_LABELS = [
+    ['apple_health', 'Health import'],
+    ['miband', 'Mi Band'],
+    ['unknown', 'Other sources'],
+];
+
+function sleepSourcesText(stats) {
+    const present = new Set();
+    stats.forEach((s) => (Array.isArray(s?.sources) ? s.sources : []).forEach((src) => present.add(src)));
+    const labels = HEALTH_SLEEP_SOURCE_LABELS.filter(([key]) => present.has(key)).map(([, label]) => label);
+    return labels.length ? ['Sources', ...labels].join(' · ') : '';
+}
+
 function renderSleepCard(data, activeRange) {
     const range = HEALTH_RANGE_OPTIONS.indexOf(activeRange) !== -1 ? activeRange : HEALTH_RANGE_DEFAULT;
     const card = document.createElement('div');
@@ -246,6 +262,14 @@ function renderSleepCard(data, activeRange) {
         statDiv.className = 'wg-section-label wg-sleep-card__stat';
         statDiv.textContent = `${avg7Text} hrs (7d avg) \u00B7 ${avg30Text} hrs (30d avg)`;
         card.appendChild(statDiv);
+
+        const sourcesText = sleepSourcesText(stats);
+        if (sourcesText) {
+            const sourcesDiv = document.createElement('div');
+            sourcesDiv.className = 'wg-section-label wg-sleep-card__stat wg-sleep-card__sources';
+            sourcesDiv.textContent = sourcesText;
+            card.appendChild(sourcesDiv);
+        }
     } else {
         const empty = chartEl || (() => {
             const el = document.createElement('div');

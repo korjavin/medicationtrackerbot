@@ -158,6 +158,23 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(states).toEqual({ normal: 'ok', highnormal: 'warn', grade1: 'danger', grade2: 'danger' });
     });
 
+    it('a Health-imported reading shows muted "Health import" before the sync chip; others show none (med-w6gx.32)', () => {
+        const { document, window } = env;
+        window.renderBPReadings([
+            { id: 'hk', measured_at: midnight(0).toISOString(), systolic: 135, diastolic: 85, source: 'apple_health', _optimistic: true },
+            { id: 'manual', measured_at: midnight(0).toISOString(), systolic: 122, diastolic: 78 },
+            { id: 'other', measured_at: midnight(1).toISOString(), systolic: 121, diastolic: 77, source: 'manual' },
+        ]);
+        const meta = document.querySelector('[data-reading-id="hk"] .wg-bp-reading-row__meta');
+        const label = meta.querySelector('.wg-source-label');
+        expect(label.textContent).toBe('Health import');
+        expect(label.getAttribute('style')).toBeNull();
+        expect(label.classList.contains('wg-chip')).toBe(false);
+        expect(label.nextElementSibling.classList.contains('wg-chip--pending')).toBe(true);
+        expect(document.querySelector('[data-reading-id="manual"] .wg-source-label')).toBeNull();
+        expect(document.querySelector('[data-reading-id="other"] .wg-source-label')).toBeNull();
+    });
+
     it('an optimistic reading renders the shared Pending sync chip; a rejected one renders danger', () => {
         const { document, window } = env;
         window.renderBPReadings([

@@ -580,7 +580,8 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
             vitalsDomain.overview()
         ]);
 
-        expect(vitals.sleep_daily).toEqual(overview.sleep_stats_30d);
+        // Vitals adds per-day `sources` (bd med-w6gx.32); the brief keeps its shape.
+        expect(vitals.sleep_daily).toEqual(overview.sleep_stats_30d.map(({ sources, ...stat }) => stat));
     });
 
     // A window with no sleep in it yields an empty array, not a hole: the
