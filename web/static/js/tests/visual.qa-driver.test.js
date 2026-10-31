@@ -170,6 +170,61 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.document.querySelector('#med-confirm-hint [data-reminder-hint]')).toBeNull();
     });
 
+    it.each([null, 'exercises'])('opens a fresh empty workout after restored subtab %s, including ordered reruns', async (stored) => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        const prior = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: prior.id, exercise_id: 999, exercise_name: 'Existing row', source: 'library',
+            sets: [{ weight_kg: 16, reps: 10 }],
+        });
+        if (stored) window.localStorage.setItem('mt-workouts-subtab', stored);
+        else window.localStorage.removeItem('mt-workouts-subtab');
+        let previousId = prior.id;
+        for (let run = 0; run < 2; run++) {
+            const report = await load('workout-next-step-empty');
+            const selected = window.document.querySelector('.workout-tab.active')?.dataset.tab;
+            expect({ report, selected }).toMatchObject({ report: { ok: true, failed: [] }, selected: 'history' });
+            expect(window.WorkoutSessionsState.data).toMatchObject({ group_id: -1, status: 'in_progress' });
+            expect(window.WorkoutSessionsState.logs).toEqual([]);
+            expect(window.WorkoutSessionsState.data.id).not.toBe(previousId);
+            previousId = window.WorkoutSessionsState.data.id;
+            const addStep = window.document.getElementById('workout-session-addstep');
+            expect(addStep.querySelector('.wg-ex__name').textContent).toBe('What’s next?');
+            expect(addStep.querySelector('#workout-session-addstep-search').placeholder)
+                .toBe('Search your exercises and the library');
+            expect(window.document.querySelector('#workout-session-logs .wg-set')).toBeNull();
+            await window.closeWorkoutSessionModal();
+            if (run === 0) {
+                // Another real scene changes the persisted subtab between runs.
+                expect(await load('workouts-plans')).toMatchObject({ ok: true });
+                window.document.querySelector('.workout-tab[data-tab="exercises"]').click();
+                expect(window.localStorage.getItem('mt-workouts-subtab')).toBe('exercises');
+            }
+        }
+    }, 30000);
+
+    it('tags the API-key input without changing its product ID and maps both runner lookups to it', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('settings-ai-key-keyboard')).toMatchObject({ ok: true, failed: [] });
+        const field = window.document.getElementById('integrations-openai-api-key');
+        expect(field).not.toBeNull();
+        expect(field.getAttribute('aria-label')).toBe('wg-qa-api-key');
+        expect(window.document.getElementById('wg-qa-api-key')).toBeNull();
+        const scene = QA_FILES['/qa/scenes.json'].scenes.find((s) => s.name === 'settings-ai-key-keyboard');
+        const tap = scene.native.find((s) => s.tap);
+        // QA.webElement matches the tag's AX label when WKWebView omits ID.
+        expect(tap.tap.slice(1)).toBe(field.getAttribute('aria-label'));
+        // Playwright uses the exact placeholder fallback for a retained DOM ID.
+        expect(tap.placeholder).toBe(field.placeholder);
+        expect([...window.document.querySelectorAll('input')].filter((el) => el.placeholder === tap.placeholder)).toEqual([field]);
+        field.focus();
+        expect(window.__wgQA.probe().probes.focusContext).toMatchObject({
+            target: expect.stringContaining('#integrations-openai-api-key'), editable: true,
+        });
+    });
+
     it('does not reschedule or offer permission again for an already Generic reminder fixture', async () => {
         const { window } = env;
         expect(await load('today')).toBeNull();

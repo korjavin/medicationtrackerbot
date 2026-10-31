@@ -170,7 +170,49 @@ final class VisualQATests: XCTestCase {
         if failure == nil { failure = perform(scene.steps, in: app) }
         Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle; the driver re-publishes
         let region = scene.nativeOnly ? nil : paintRegion(app)
-        let (screenshot, painted) = QA.stableScreenshot(paint: region, points: app.frame.width)
+        var captureSamples = [[String: Any]]()
+        var captureObserver: ((XCUIScreenshot, String, Int, Bool, Date, Date) -> Void)?
+        var ordinaryCaptureReturnedAt: Date?
+        let captureStarted = Date()
+        if scene.name == "settings-ai-key-keyboard" {
+            captureObserver = { screenshot, phase, sample, painted, screenshotStarted, screenshotFinished in
+                guard phase != "sample" || [1, 5, 10, 15].contains(sample) else { return }
+                let observationStarted = Date()
+                let keyboard = app.keyboards.firstMatch
+                let exists = keyboard.exists
+                let frame = exists ? keyboard.frame : .zero
+                let keyCount = exists ? keyboard.keys.count : 0
+                let descendantCount = exists ? keyboard.descendants(matching: .any).count : 0
+                let observationFinished = Date()
+                var row: [String: Any] = [
+                    "captureStartedEpochSeconds": screenshotStarted.timeIntervalSince1970,
+                    "captureFinishedEpochSeconds": screenshotFinished.timeIntervalSince1970,
+                    "captureStartedElapsedSeconds": screenshotStarted.timeIntervalSince(captureStarted),
+                    "captureFinishedElapsedSeconds": screenshotFinished.timeIntervalSince(captureStarted),
+                    "axObservationStartedEpochSeconds": observationStarted.timeIntervalSince1970,
+                    "axObservationFinishedEpochSeconds": observationFinished.timeIntervalSince1970,
+                    "phase": phase, "sample": sample, "contentPainted": painted,
+                    "keyboardExists": exists,
+                    "keyboardFrame": ["x": Double(frame.minX), "y": Double(frame.minY),
+                                      "width": Double(frame.width), "height": Double(frame.height)],
+                    "keyCount": keyCount, "descendantCount": descendantCount,
+                ]
+                if let ordinaryCaptureReturnedAt {
+                    row["captureStartedAfterReturnSeconds"] = screenshotStarted.timeIntervalSince(ordinaryCaptureReturnedAt)
+                    row["captureFinishedAfterReturnSeconds"] = screenshotFinished.timeIntervalSince(ordinaryCaptureReturnedAt)
+                }
+                if phase.hasPrefix("post-capture-target-") { row["targetAfterReturnSeconds"] = sample }
+                captureSamples.append(row)
+                let frameShot = XCTAttachment(screenshot: screenshot)
+                frameShot.name = "\(scene.name)-capture-\(sample)-\(phase).png"
+                frameShot.lifetime = .keepAlways
+                self.add(frameShot)
+            }
+        }
+        let (screenshot, painted) = QA.stableScreenshot(paint: region, points: app.frame.width, observe: captureObserver)
+        let captureReturnedAt = Date()
+        ordinaryCaptureReturnedAt = captureReturnedAt
+        let captureExitReason = captureSamples.last?["phase"] ?? "unknown"
         if !painted, failure == nil { failure = "the ready content never painted (blank frame)" }
         // The app is dark: a white status-bar band hides the clock (med-o7zq.44).
         if !scene.nativeOnly, failure == nil, Self.cornerLuma(screenshot.image) > 0.9 {
@@ -193,6 +235,30 @@ final class VisualQATests: XCTestCase {
                    (obj["failed"] as? [String])?.contains("ready") == true {
                     failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
                 }
+            }
+        }
+        if let captureObserver {
+            // Preserve the ordinary screenshot/report above. Later frames are
+            // diagnostic only: determine whether keyboard pixels paint after
+            // an early stable return. AX observations follow each screenshot.
+            for delay in [5, 10, 15] {
+                let remaining = Double(delay) - Date().timeIntervalSince(captureReturnedAt)
+                if remaining > 0 { Thread.sleep(forTimeInterval: remaining) }
+                let screenshotStarted = Date()
+                let later = XCUIScreen.main.screenshot()
+                let screenshotFinished = Date()
+                captureObserver(later, "post-capture-target-\(delay)s", delay,
+                                region.map { QA.painted(later, $0, points: app.frame.width) } ?? true,
+                                screenshotStarted, screenshotFinished)
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: [
+                "samples": captureSamples, "exitReason": captureExitReason,
+                "ordinaryCaptureReturnElapsedSeconds": captureReturnedAt.timeIntervalSince(captureStarted),
+            ], options: [.prettyPrinted, .sortedKeys]) {
+                let capture = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+                capture.name = "\(scene.name)-capture.json"
+                capture.lifetime = .keepAlways
+                add(capture)
             }
         }
         if scene.name == "health-kit-import" {

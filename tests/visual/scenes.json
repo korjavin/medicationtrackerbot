@@ -172,7 +172,7 @@
     { "name": "settings-ai-key-keyboard",
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "integrations" }, { "tag": "#integrations-openai-api-key", "id": "wg-qa-api-key" }],
       "ready": ["#integrations-openai-api-key"],
-      "native": [{ "tap": "#integrations-openai-api-key", "placeholder": "sk-..." }, { "keyboard": true }] },
+      "native": [{ "tap": "#wg-qa-api-key", "placeholder": "Paste your OpenAI key" }, { "keyboard": true }] },
     { "name": "settings-backup-passphrase-keyboard",
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "backup" }, { "click": "#importexport-export-btn" }, { "tag": "#importexport-export-passphrase", "id": "wg-qa-passphrase" }],
       "ready": ["#importexport-export-sheet .wg-sheet__foot"],
@@ -370,9 +370,10 @@
       "ready": ["#exercise-library-picker-list .wg-row"] },
     { "name": "workout-next-step-empty",
       "steps": [
-        { "tab": "workouts" }, { "click": "#next-workout-card .wg-workouts-next-card__actions .wg-btn" }
+        { "tab": "workouts" }, { "emptyWorkout": true }, { "click": ".workout-tab[data-tab=\"history\"]" },
+        { "click": "#next-workout-card .wg-workouts-next-card__actions .wg-btn:first-child" }
       ],
-      "ready": ["#workout-session-addstep", "#workout-session-addstep-search"] },
+      "ready": ["#workout-history-tab.active", "#workout-session-addstep", "#workout-session-addstep-search"] },
     { "name": "today-start-here", "localOnly": true,
       "steps": [{ "startHere": { "drop": ["medications", "bp", "food", "workouts"], "picked": ["medication", "bp", "weight", "food"] } }, { "tab": "today" }],
       "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] },
