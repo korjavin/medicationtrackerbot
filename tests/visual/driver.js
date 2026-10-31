@@ -18,6 +18,10 @@
     const STEP_MS = 10000;
     const QUIET_MS = 400;
     const SETTLE_CAP_MS = 5000;
+    // Capture the unoccluded viewport before app scripts can focus a field.
+    // WKWebView may shrink both layout and visual heights for its keyboard.
+    // The cloud runner injects at document start, before the root exists.
+    const viewportBaseline = { width: window.innerWidth, height: Math.max(window.innerHeight, document.documentElement?.clientHeight || 0) };
 
     const scene = new URLSearchParams(window.location.search).get('qa');
     const qa = { scene, done: null, probe };
@@ -299,12 +303,21 @@
         } else if (step.reminderHint) {
             // Kit RD3 (bd med-mt0l): the take sheet as a reminder tap opens it
             // (the deeplink's ids + slot), with the one-time lock-screen hint
-            // re-armed for this device. Nothing is written until a tap.
+            // re-armed for this QA device and its fixture preference Generic.
             try { window.localStorage.removeItem('wg.reminderDetailHint.shown'); } catch (_) { /* hint just won't show */ }
-            const meds = (await window.apiCall('/api/medications')) || [];
-            const med = meds.find((m) => !m.archived);
-            if (!med) throw new Error('reminderHint: no active medication in the seed');
-            window.handlePushAction('medication_confirm', new URLSearchParams({ ids: String(med.id), scheduled: new Date().toISOString() }));
+            const pref = await window.apiCall('/api/settings/reminder-delivery');
+            if ((pref?.lockscreen || pref?.verbosity) !== 'generic') {
+                // A UI write can offer notification permission. Keep an
+                // already-Generic fixture untouched; otherwise finish that
+                // real setup prompt before opening the reminder's take sheet.
+                await window.apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: 'generic' });
+                await runStep({ click: '[data-notify-choice="not-now"]', optional: true });
+            }
+            const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
+            const row = (Array.isArray(rows) ? rows : []).sort((a, b) => Date.parse(b.plannedAt) - Date.parse(a.plannedAt))[0];
+            if (!row) throw new Error('reminderHint: no projected due dose in the seed');
+            qa.reminderSlot = { occId: row.occId, medId: row.medId, plannedAt: row.plannedAt };
+            window.handlePushAction('medication_confirm', new URLSearchParams({ ids: String(row.medId), scheduled: row.plannedAt }));
         } else if (step.staleReminder) {
             // A dose reminder gone stale before its tap (bd med-wi09.6): "taken"
             // takes the dose in-app first; "moved" points the reminder a minute
@@ -654,6 +667,22 @@
         // header back there panned off by the iOS keyboard is not clipped UI.
         const layers = shown('mt-modal');
         const onTop = (el) => !layers.length || layers.some((m) => m.contains(el));
+        const stacked = (window.ModalManager?._stack || []).map((id) => document.getElementById(id)).filter((el) => layers.includes(el));
+        const activeModal = layers.filter((el) => el.classList.contains('mt-confirm-modal')).at(-1) || stacked.at(-1) || layers.at(-1);
+        const focusOnTop = !activeModal || !!(focused && activeModal.contains(focused));
+        const editable = !!(focused && !focused.disabled && !focused.readOnly && (focused.isContentEditable
+            || focused.tagName === 'TEXTAREA'
+            || (focused.tagName === 'INPUT' && ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(focused.type))));
+        const focusRect = focused && rect(focused);
+        const layoutHeight = Math.max(window.innerHeight, document.documentElement.clientHeight);
+        const width = (vv && vv.width) || window.innerWidth;
+        if (Math.abs(width - viewportBaseline.width) > 1) viewportBaseline.height = layoutHeight;
+        viewportBaseline.width = width;
+        viewportBaseline.height = Math.max(viewportBaseline.height, layoutHeight);
+        const keyboardShown = !!(vv && vv.scale === 1 && vv.height < viewportBaseline.height - 100);
+        const viewportBottom = top + (vv ? vv.height : window.innerHeight);
+        const checkFocus = !!(focused && editable && focusOnTop && visible(focused));
+        const focusOutsideViewport = !!(checkFocus && (focusRect.bottom > viewportBottom + 0.5 || focusRect.top < top - 0.5));
         // An in-flow header above the top of a scrolled document was scrolled
         // past, not clipped (med-y5xx.15: the meds timeline scrolls to today,
         // a scene step scrolls a row into view). A fixed/sticky one still counts.
@@ -680,11 +709,19 @@
                 const w = rect(el).width;
                 return w > 64 && el.parentElement && w > rect(el.parentElement).width + 0.5;
             }).map(tag),
-            focusUnderKeyboard: !!(focused && vv && rect(focused).bottom > top + vv.height + 0.5),
+            focusUnderKeyboard: !!(checkFocus && keyboardShown && focusRect.bottom > viewportBottom + 0.5),
+            focusOutsideViewport,
+            // Enough geometry to distinguish a background/button focus from
+            // a genuinely obscured editable field in the actual screenshot.
+            focusContext: {
+                target: focused ? tag(focused) : null, editable, onTop: focusOnTop,
+                activeModal: activeModal ? tag(activeModal) : null,
+                rect: focusRect ? { top: focusRect.top, bottom: focusRect.bottom } : null,
+                viewportTop: top, viewportBottom, layoutHeight, baselineHeight: viewportBaseline.height,
+                visualViewport: vv ? { height: vv.height, width: vv.width, offsetTop: vv.offsetTop, scale: vv.scale } : null,
+            },
             bottomNavCovered: !!(tabbar && rect(tabbar).bottom > window.innerHeight + 0.5),
-            // Against the layout viewport: in WKWebView innerHeight shrinks
-            // with the keyboard too (seen on the Simulator, bd med-y5xx.3).
-            keyboardShown: !!(vv && vv.height < document.documentElement.clientHeight - 100),
+            keyboardShown,
         };
         const failed = [];
         if (probes.scale !== 1) failed.push('scale');
@@ -692,6 +729,7 @@
         if (probes.clippedTop.length) failed.push('clippedTop');
         if (probes.canvasOverflow.length) failed.push('canvasOverflow');
         if (probes.focusUnderKeyboard) failed.push('focusUnderKeyboard');
+        else if (probes.focusOutsideViewport) failed.push('focusOutsideViewport');
         if (probes.bottomNavCovered) failed.push('bottomNavCovered');
         return { probes, failed };
     }
@@ -711,7 +749,7 @@
             });
             if (probes.renderedValues.some(({ expected, actual }) => expected !== actual)) failed.push('rendered');
         }
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def) };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot };
     }
 
     // Where the scene's last ready element shows, in points of the web view
