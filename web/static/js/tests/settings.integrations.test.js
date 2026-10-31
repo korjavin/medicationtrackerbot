@@ -14,6 +14,7 @@ import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { createSettingsDomain } from '../../../domain/settings.js';
 import { createAIClient } from '../../../cloud/js/aiclient.js';
 import { reloadProviderDocument } from '../../../cloud/js/update-check.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function installApiCacheMap(window, initialCache = {}) {
     const map = new Map();
@@ -418,6 +419,89 @@ describe('Settings → Integrations section', () => {
             expect(voice.value).toBe('edited-during-final-ack');
             expect(env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(1);
             page.close();
+        });
+
+        it('an applicable already-active noncontroller fails editable preparation with the actual helper', async () => {
+            const { page, port } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
+            voice.value = 'fixture-keep-unsaved-voice';
+            voice.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            env.window.safeConfirm = vi.fn(async () => true);
+            const active = new env.window.EventTarget(); active.state = 'activated';
+            active.postMessage = vi.fn((message, ports) => ports?.[0]?.postMessage({ type: message.type, version: 1 }));
+            const registration = { active, installing: null, waiting: null, update: vi.fn(async () => {}) };
+            Object.defineProperty(env.window.navigator, 'serviceWorker', { configurable: true, value: {
+                controller: null, getRegistration: async () => registration,
+            } });
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument }));
+            env.window.apiCall.mockClear(); port.checkAIKey.mockClear();
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(registration.update).toHaveBeenCalledOnce();
+            expect(active.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+            expect(env.document.getElementById('provider-committed-reload')).toBeNull();
+            expect(env.document.documentElement.hasAttribute('data-provider-reload-committed')).toBe(false);
+            expect(env.document.getElementById('app').inert).not.toBe(true);
+            expect(voice.value).toBe('fixture-keep-unsaved-voice');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            expect(button().disabled).toBe(true);
+            expect(note()).toBe('Could not refresh this page. Check your connection and try Reload page again.');
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            expect(port.checkAIKey).not.toHaveBeenCalled();
+            page.close();
+        });
+
+        it.each(['GET', 'cache'])('a settings read awaiting %s at commitment cannot mutate the form or begin a new Telegram import afterward', async (boundary) => {
+            // Failed initial mount permits a later read to genuinely retry the
+            // lazy loader; a previously successful mount would hide the defect.
+            const originalLoader = vi.fn(async () => { throw new Error('fixture mount failure'); });
+            allowConsoleNoise();
+            env.window.SettingsIntegrations._setTelegramLoader(originalLoader);
+            const { settings } = await setup([]);
+            await vi.waitFor(() => expect(originalLoader).toHaveBeenCalledOnce());
+            await env.window.SettingsIntegrations.save();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            const loader = vi.fn(async () => ({ mountTelegram: vi.fn() }));
+            env.window.SettingsIntegrations._setTelegramLoader(loader);
+            const realApi = env.window.apiCall;
+            let releaseRead;
+            env.window.apiCall = vi.fn((path, method, ...rest) => boundary === 'GET' && path === '/api/settings/integrations' && method === 'GET'
+                ? new Promise((resolve) => { releaseRead = resolve; }) : realApi(path, method, ...rest));
+            if (boundary === 'cache') env.window.DataStore.setCachedWithTags = vi.fn(() => new Promise((resolve) => { releaseRead = resolve; }));
+            const read = env.window.SettingsIntegrations.load({ preserveDraft: true });
+            await vi.waitFor(() => expect(releaseRead).toBeTypeOf('function'));
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: async ({ onCommit, onPending }) => {
+                onCommit({ retry: vi.fn() }); onPending(); return { state: 'committed' };
+            } }));
+            await env.window.SettingsIntegrations.reloadForKeyCheck();
+            const before = field('model').value;
+            const payload = await settings.getIntegrations();
+            payload.openai.model = 'fixture-stale-read-must-not-paint';
+            releaseRead(payload);
+            expect(await read).toBeNull();
+            expect(field('model').value).toBe(before);
+            expect(loader).not.toHaveBeenCalled();
+            expect(env.document.getElementById('provider-committed-reload').getAttribute('aria-label')).toBe('Reload needed');
+        });
+
+        it('an already-started Telegram import may settle but cannot mount new UI after commitment', async () => {
+            let releaseModule;
+            const module = new Promise((resolve) => { releaseModule = resolve; });
+            const mountTelegram = vi.fn();
+            const loader = vi.fn(() => module);
+            env.window.SettingsIntegrations._setTelegramLoader(loader);
+            await setup([]);
+            await env.window.SettingsIntegrations.save();
+            expect(loader).toHaveBeenCalledOnce();
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: async ({ onCommit, onPending }) => {
+                onCommit({ retry: vi.fn() }); onPending(); return { state: 'committed' };
+            } }));
+            await env.window.SettingsIntegrations.reloadForKeyCheck();
+            releaseModule({ mountTelegram });
+            await module;
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(mountTelegram).not.toHaveBeenCalled();
+            expect(loader).toHaveBeenCalledOnce(); // the import itself was already begun
         });
 
         it('commits the actual page before activation and retains an inert actionable retry without Save, Check or lazy pages', async () => {

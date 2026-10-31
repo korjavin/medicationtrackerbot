@@ -545,8 +545,10 @@ async function mountCloudDevices() {
     if (!ctx || !mount) return;
     try {
         const { renderDeviceList } = await loadCloudDevicesModule();
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         renderDeviceList(mount, ctx, { onAddDevice: () => openAddDevicePage(), onLoaded: noteDeviceList });
     } catch (e) {
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         console.error('devices module failed to load', e);
         mount.textContent = 'Could not load your devices. Check your connection and reopen this page.';
     }
@@ -559,7 +561,10 @@ async function refreshConnectorStatus(ctx) {
     if (!el) return;
     try {
         const { claudeConnectorMode } = await loadCloudConnectorsModule();
-        el.textContent = CONNECTOR_STATUS_TEXT[await claudeConnectorMode(ctx)] || '';
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
+        const mode = await claudeConnectorMode(ctx);
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
+        el.textContent = CONNECTOR_STATUS_TEXT[mode] || '';
     } catch (_) { /* keep the static description */ }
 }
 
@@ -570,6 +575,7 @@ async function openAddDevicePage(opts) {
     const ctx = cloudCtx();
     if (!ctx || !window.WGPage) return;
     const { renderAddDevice } = await loadCloudTransferModule();
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const body = document.createElement('div');
     body.className = 'wg-vstack';
     let page = null;
@@ -591,6 +597,7 @@ async function openConnectorPage() {
     const ctx = cloudCtx();
     if (!ctx || !window.WGPage) return;
     const { renderConnectors } = await loadCloudConnectorsModule();
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const body = document.createElement('div');
     body.className = 'wg-vstack';
     renderConnectors(body, ctx);
@@ -617,10 +624,12 @@ async function paintVaultCard() {
     try {
         const { getSyncStatus } = await loadCloudSyncModule();
         const { lastSyncedAt } = await getSyncStatus(cloudCtx());
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         if (lastSyncedAt) {
             parts.push(`synced ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
         }
     } catch { /* no sync status: leave it out */ }
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     meta.textContent = parts.join(' · ');
 }
 
@@ -636,6 +645,7 @@ async function paintKitState() {
         const kit = await window.apiCallDirect('/api/settings/emergency-kit', 'GET');
         unsaved = !kit || kit.how === 'none';
     } catch { /* keep it hidden */ }
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     document.getElementById('settings-kit-chip')?.classList.toggle('wg-settings-hidden', !unsaved);
     placeAccountKitRow(unsaved);
 }
@@ -689,6 +699,7 @@ async function resumeAddDevice() {
     if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     if (!cloudCtx()) return;
     const { resumeLiveTransfer } = await loadCloudTransferModule();
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     if (resumeLiveTransfer()) return;
     openSettingsPage('devices');
     openAddDevicePage({ notHere: true });
@@ -732,6 +743,7 @@ async function bindOperatorVisibility() {
     if (_operatorVisibilityRendered) return;
     try {
         const { renderPrivacyInto } = await loadPrivacyModule();
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         // Pass document explicitly: privacy.js is a cloud-only module that may be
         // evaluated in a context without a global `document` (the test seam).
         renderPrivacyInto(mount, document);
@@ -1259,6 +1271,7 @@ async function loadSettings({ source } = {}) {
         // updateWeeklyDigestVisibility hides it when gamification is off.
         document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         // Devices & connectors only make sense in cloud mode — server/mobile
         // builds have no vault devices or relay.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
@@ -1270,7 +1283,9 @@ async function loadSettings({ source } = {}) {
             paintKitState();
         }
         await bindSecondDeviceNudge();
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         await bindOperatorVisibility();
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         bindLeaveAccount();
         bindDeleteAccount();
         bindCloudInvite();
@@ -1284,6 +1299,7 @@ async function loadSettings({ source } = {}) {
         paintSyncSection();
     }
     const applyBundle = async (rawBundle) => {
+        if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
         paintAccountTimeZone(bundle.timezone, bundle.timezoneSource);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
@@ -1401,6 +1417,7 @@ async function loadSettings({ source } = {}) {
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     // The Integrations section is loaded lazily from its own endpoint so
     // the settings_bundle SWR fetch stays focused on the feature-flags +
     // food-targets + reminders + weight-unit slice that bootstrap also
@@ -1408,6 +1425,7 @@ async function loadSettings({ source } = {}) {
     if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
         try { await window.SettingsIntegrations.load({ preserveDraft: source === 'optimistic-commit' }); } catch (_) { /* no-op */ }
     }
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     // Import/Export section (C2e Task 6) — static, so load() just (re)binds its
     // controls; safe in both bot and cloud modes.
     if (window.SettingsImportExport && typeof window.SettingsImportExport.load === 'function') {
@@ -1416,7 +1434,9 @@ async function loadSettings({ source } = {}) {
     // Journey targets editor — loaded lazily off its own endpoint (best-effort;
     // internally gated on the gamification flag).
     await loadGamificationTargets();
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     await loadGamificationMode();
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     // Hide any home row whose page sections are all hidden (e.g. a cloud-only
     // page in bot mode) so it never opens onto an empty page.
     fillDeviceWords();

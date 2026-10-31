@@ -57,7 +57,7 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
         const changed = () => {
             if (worker.state !== 'redundant') return;
             retireProviderActivation(worker);
-            operation.redundant();
+            operation.redundant(worker);
         };
         providerActivations.set(worker, { operation, cleanup: () => worker.removeEventListener?.('statechange', changed) });
         worker.addEventListener?.('statechange', changed);

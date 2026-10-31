@@ -163,6 +163,50 @@ describe('explicit provider document freshness handoff', () => {
         dom.window.close();
     });
 
+    it.each([false, true])('an already-active noncontroller is not an activation candidate (support=%s)', async (supports) => {
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = null;
+        const active = worker(supports); active.state = 'activated';
+        serviceWorker.getRegistration = async () => ({ active, installing: null, waiting: null, update: async () => {} });
+        const commit = vi.fn(() => true);
+        expect(await reloadProviderDocument({ win, onCommit: commit })).toBe(false);
+        expect(commit).not.toHaveBeenCalled();
+        expect(active.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).not.toHaveBeenCalled();
+        expect(win.location.reload).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it('rechecks candidate state/registration identity after the final awaited preparation', async () => {
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = null;
+        const next = worker(true);
+        const registration = { waiting: next, update: async () => {} };
+        serviceWorker.getRegistration = async () => registration;
+        const commit = vi.fn(() => true);
+        expect(await reloadProviderDocument({ win, onCommit: commit, beforeNavigate: async () => {
+            next.state = 'activated'; registration.waiting = null; registration.active = next;
+            return true;
+        } })).toBe(false);
+        expect(commit).not.toHaveBeenCalled();
+        expect(next.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it('an actual supporting claim during preparation takes the current-controller path without skip', async () => {
+        const { win, worker, serviceWorker, change, dom } = environment();
+        serviceWorker.controller = null;
+        const active = worker(true); active.state = 'activated';
+        serviceWorker.getRegistration = async () => ({ active, update: async () => change(active) });
+        const commit = vi.fn(() => true);
+        expect(await reloadProviderDocument({ win, onCommit: commit })).toBe(true);
+        expect(commit).not.toHaveBeenCalled();
+        expect(active.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).toHaveBeenCalledOnce();
+        dom.window.close();
+    });
+
     it('a registration appearing during the final guard prevents unverified first-claim navigation', async () => {
         const { win, serviceWorker, dom } = environment();
         serviceWorker.controller = null;

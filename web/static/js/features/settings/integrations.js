@@ -85,6 +85,7 @@
     }
 
     function renderKeyCheck() {
+        if (_providerReloadPanel) return;
         const button = getInput('integrations-check-key');
         const note = getInput('integrations-check-result');
         if (!button || !note) return;
@@ -152,7 +153,7 @@
         try { result = await window.offlineAwareApiCall.checkAIKey(args); } catch (_) {
             result = { state: 'error', code: 'unreachable', message: 'Could not reach your provider — check the URL' };
         }
-        if (seq !== _keyCheckSeq) return;
+        if (_providerReloadPanel || seq !== _keyCheckSeq) return;
         _keyCheckBusy = false;
         _keyCheckResult = result;
         renderKeyCheck();
@@ -413,6 +414,7 @@
     }
 
     function renderProvider() {
+        if (_providerReloadPanel) return;
         reconcilePhotoPins();
         const provider = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
         const label = getInput('integrations-provider-value');
@@ -454,6 +456,7 @@
         if (typeof safeChoose !== 'function') return;
         const sub = { openai: 'GPT models', openrouter: 'Many providers with one key', other: 'Your own API URL, e.g. a local server' };
         const picked = await safeChoose('', AI_PROVIDERS.map((p) => ({ value: p.id, label: p.label, sub: sub[p.id], selected: p.id === _aiProviderDraft })), { title: 'AI provider' });
+        if (_providerReloadPanel) return;
         const provider = AI_PROVIDERS.find((p) => p.id === picked);
         if (!provider) return;
         const previous = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
@@ -544,6 +547,7 @@
     }
 
     function applyPayloadToDOM(payload, { isRefresh = false, isSave = false } = {}) {
+        if (_providerReloadPanel) return;
         if (!payload || typeof payload !== 'object') return;
         // DataStore's optimistic commit refreshes Settings again. An identical
         // accepted masked view must retain the registration outcome (including
@@ -605,6 +609,7 @@
     // injected by cmd/cloud) and the user has no own key in the vault
     // (masked value "***" means a key is stored).
     function applyTrialHints() {
+        if (_providerReloadPanel) return;
         const hints = [
             ['integrations-openai-trial-hint', 'medtracker-trial-ai', FIELD_IDS.openai.api_key],
             ['integrations-elevenlabs-trial-hint', 'medtracker-trial-voice', FIELD_IDS.elevenlabs.api_key]
@@ -655,6 +660,7 @@
     }
 
     function renderTrialConsentRows() {
+        if (_providerReloadPanel) return;
         renderTrialCard();
         for (const [metaName, hintId, scopes] of CONSENT_MOUNTS) {
             const hint = document.getElementById(hintId);
@@ -768,6 +774,7 @@
     // reloads the page when it changed. Enrollment runs after that reload.
     let _trialSeq = 0;
     async function renderTrialCard() {
+        if (_providerReloadPanel) return;
         const wrap = document.getElementById('integrations-trial');
         const mount = document.getElementById('integrations-trial-card');
         if (!wrap || !mount || !window.WGOfferCard) return;
@@ -778,7 +785,7 @@
         let on;
         if (trial) {
             try { status = await trial.status(); } catch (_) { status = null; }
-            if (seq !== _trialSeq) return; // a newer render owns the card
+            if (_providerReloadPanel || seq !== _trialSeq) return; // a newer render owns the card
             available = !!status;
             on = available && status.on === true;
         } else {
@@ -952,6 +959,7 @@
             // only overwrite prior state with a real record, so a failed
             // refresh doesn't repaint granted scopes as "Not asked".
             const fresh = await apiCall('/api/settings/trial-consent', 'GET');
+            if (_providerReloadPanel) return;
             if (fresh && typeof fresh === 'object') _trialConsent = fresh;
         } catch (_) { /* aborted — keep prior state */ }
         renderTrialConsentRows();
@@ -1019,6 +1027,7 @@
     }
 
     async function loadModels(cfg) {
+        if (_providerReloadPanel) return null;
         const btn = document.getElementById(cfg.button);
         const refresh = !!(btn && btn.dataset.modelsLoaded);
         const seq = (_modelSeq[cfg.scope] += 1);
@@ -1036,7 +1045,7 @@
             res = null;
         }
         // Superseded: leave the button to the newer call, which owns it now.
-        if (seq !== _modelSeq[cfg.scope]) return null;
+        if (_providerReloadPanel || seq !== _modelSeq[cfg.scope]) return null;
         if (btn) btn.disabled = false;
 
         if (!res || res.error || !Array.isArray(res.models)) {
@@ -1055,11 +1064,13 @@
     // the kit choice dialog. Picking fills the free-text input; Save writes it.
     async function chooseModel(cfg) {
         const models = await loadModels(cfg);
+        if (_providerReloadPanel) return;
         if (!models || !models.length || typeof safeChoose !== 'function') return;
         const input = getInput(cfg.input);
         if (!input) return;
         const picked = await safeChoose('', models.map((id) => ({ value: id, label: id, selected: id === input.value })),
             { title: cfg.scope === 'vision' ? 'Vision model' : 'Model' });
+        if (_providerReloadPanel) return;
         if (picked == null) return;
         input.value = picked;
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1224,11 +1235,13 @@
         if (document.documentElement.classList.contains('wg-local-vault')) mountLocalTelegram();
         try {
             const payload = await apiCall('/api/settings/integrations', 'GET');
+            if (_providerReloadPanel) return null;
             if (!payload) return null;
             applyPayloadToDOM(payload, { isRefresh: preserveDraft });
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }
             }
+            if (_providerReloadPanel) return null;
 
             // Fire-and-forget: consent rows repaint when the GET lands; the
             // integrations payload itself doesn't wait on it.
@@ -1244,8 +1257,8 @@
             if (tgMount && !_telegramMounted && !local) {
                 _telegramMounted = true;
                 _telegramModuleLoader()
-                    .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
-                    .then(syncTelegramRow)
+                    .then(({ mountTelegram }) => { if (!_providerReloadPanel) return mountTelegram(tgMount, {}); })
+                    .then(() => { if (!_providerReloadPanel) syncTelegramRow(); })
                     .catch((err) => {
                         _telegramMounted = false;
                         console.error('[settings] telegram module failed', err);

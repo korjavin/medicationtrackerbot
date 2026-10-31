@@ -162,6 +162,7 @@ export function reloadProviderDocument(options = {}) {
     let navigating = false;
     let superseded = false;
     let running = null;
+    let finishClaimWait = null;
     let resolveClaim;
     const claimed = new Promise((resolve) => { resolveClaim = resolve; });
     const send = (type, detail) => win.document?.dispatchEvent(new win.CustomEvent(type, { detail }));
@@ -185,7 +186,11 @@ export function reloadProviderDocument(options = {}) {
             if (!committed || sw?.controller !== worker || providerReloadOperations.get(win) !== operation) return false;
             return navigate();
         },
-        redundant() { if (committed) pending(); },
+        redundant(expected) {
+            if (!committed || expected !== worker || providerReloadOperations.get(win) !== operation) return;
+            if (finishClaimWait) finishClaimWait(pending());
+            else pending();
+        },
         supersede() { superseded = true; resolveClaim({ state: 'superseded' }); },
         retry() {
             if (running) return running;
@@ -197,10 +202,17 @@ export function reloadProviderDocument(options = {}) {
 
     function waitForClaim() {
         if (navigating) return Promise.resolve(true);
+        if (worker?.state === 'redundant') return Promise.resolve(pending());
         if (sw?.controller === worker && operation.claim()) return Promise.resolve(true);
         return new Promise((resolve) => {
-            const timer = setTimeout(() => resolve(pending()), 20000);
-            claimed.then((result) => { clearTimeout(timer); resolve(result); });
+            const finish = (result) => {
+                clearTimeout(timer);
+                if (finishClaimWait === finish) finishClaimWait = null;
+                resolve(result);
+            };
+            const timer = setTimeout(() => finish(pending()), 20000);
+            finishClaimWait = finish;
+            claimed.then(finish);
         });
     }
 
@@ -233,7 +245,10 @@ export function reloadProviderDocument(options = {}) {
         });
         const installed = (registration) => new Promise((resolve, reject) => {
             if (registration.waiting) { resolve(registration.waiting); return; }
-            const candidate = registration.installing || registration.active;
+            // An already-active NON-controller has no future activation for
+            // SKIP_WAITING to complete. It cannot strand an inert page waiting
+            // for a phantom claim. A real current controller can be re-probed.
+            const candidate = registration.installing || (registration.active === sw?.controller ? registration.active : null);
             if (!candidate?.addEventListener) { reject(new Error('no supporting worker')); return; }
             const changed = () => {
                 if (candidate.state === 'installed' || candidate.state === 'activated') resolve(registration.waiting || candidate);
@@ -250,6 +265,7 @@ export function reloadProviderDocument(options = {}) {
                     let ready = !!current && await probe(current) && current === sw.controller;
                     ensure();
                     let candidate = null;
+                    let candidateRegistration = null;
                     let priorController = current;
                     if (sw && !ready) {
                         const registration = await sw.getRegistration?.();
@@ -262,6 +278,7 @@ export function reloadProviderDocument(options = {}) {
                             ensure();
                             if (!ready) {
                                 priorController = sw.controller;
+                                candidateRegistration = registration;
                                 candidate = await installed(registration); ensure();
                                 if (!await probe(candidate)) throw new Error('unsupported worker');
                                 ensure();
@@ -278,6 +295,8 @@ export function reloadProviderDocument(options = {}) {
                     if (ready && sw.controller !== current) return false;
                     if (candidate && sw.controller !== candidate && sw.controller !== priorController) return false;
                     if (candidate?.state === 'redundant') throw new Error('worker superseded');
+                    if (candidate && sw.controller !== candidate
+                        && (candidate.state !== 'installed' || candidateRegistration.waiting !== candidate)) return false;
                     if (!committed && isCurrent() !== true) return false;
                     // No await from this final check through commitment/send.
                     if (!candidate || sw.controller === candidate) return navigate();

@@ -145,6 +145,30 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
 });
 
 describe('Settings v2 pushed pages + summaries (harness)', () => {
+    it.each(['connector', 'add-device', 'device-list'])('a deferred %s module cannot render or push another page after reload commitment', async (kind) => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.MedTrackerCloud = { ctx: { accountId: 'fixture' } };
+            let resolveModule;
+            const pending = new Promise((resolve) => { resolveModule = resolve; });
+            const render = vi.fn();
+            window.loadCloudConnectorsModule = vi.fn(() => pending);
+            window.loadCloudTransferModule = vi.fn(() => pending);
+            window.loadCloudDevicesModule = vi.fn(() => pending);
+            const pages = () => document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]').length;
+            const before = pages();
+            const work = kind === 'connector' ? window.openConnectorPage()
+                : kind === 'add-device' ? window.openAddDevicePage() : window.mountCloudDevices();
+            document.documentElement.setAttribute('data-provider-reload-committed', '');
+            resolveModule({ renderConnectors: render, renderAddDevice: render, renderDeviceList: render });
+            await work;
+            expect(render).not.toHaveBeenCalled();
+            expect(pages()).toBe(before);
+            if (kind === 'device-list') expect(window.loadCloudConnectorsModule).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
     it('a home row pushes a WGPage holding its page body; Back returns the body to the store', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
