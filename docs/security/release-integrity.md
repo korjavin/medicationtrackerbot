@@ -85,6 +85,16 @@ published becomes detectable by anyone who looks, rather than being invisible.
 
 ## How to verify a deployment
 
+The separately packaged private MCP helper has its own immutable
+`mcpshim-v0.1.0` release, raw binary SHA-256 manifest and exact-byte GitHub
+attestations. See [the helper reference](../mcpshim.md) for its installer ABI,
+source/version/run evidence and manual binary verification. Its installers
+verify a uniquely named binary before registration. A manifest and bootstrap
+downloaded from the same trusted publisher do not authenticate a malicious
+publisher; attestations identify the build workflow, not trustworthy behavior.
+The helper's pairing key is stored in Claude's normal MCP config and may appear
+in the user's copied prompt/history/process arguments. It is not the vault DEK.
+
 **1. Ask the origin which build it claims to be.** The Settings screen shows the
 short commit SHA (`VERSION_PLACEHOLDER` is stamped at build time), and
 `GET /api/version` returns the asset build id a running tab polls against.
@@ -101,8 +111,9 @@ A pass means: an image with that digest was built by this repository's workflow,
 from that commit. A failure — or a missing attestation — means the running image
 is not one CI produced, which is exactly the signal worth having.
 
-Caveat: GitHub only persists attestations for public repositories (and paid orgs),
-so while this repo is private the deploy workflow skips the attest step and step 2
+Caveat: GitHub persists attestations for public repositories and eligible
+Enterprise Cloud repositories. This repository is public. If a private fork
+cannot publish attestations, the deploy workflow skips the attest step and step 2
 has nothing to check. Step 3 (published bundle hashes) still runs.
 
 **3. Check that the origin serves those bytes.** Download
