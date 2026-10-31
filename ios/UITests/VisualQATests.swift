@@ -170,7 +170,41 @@ final class VisualQATests: XCTestCase {
         if failure == nil { failure = perform(scene.steps, in: app) }
         Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle; the driver re-publishes
         let region = scene.nativeOnly ? nil : paintRegion(app)
-        let (screenshot, painted) = QA.stableScreenshot(paint: region, points: app.frame.width)
+        var captureSamples = [[String: Any]]()
+        var captureObserver: ((XCUIScreenshot, String, Int, Bool) -> Void)?
+        let captureStarted = Date()
+        if scene.name == "settings-ai-key-keyboard" {
+            captureObserver = { screenshot, phase, sample, painted in
+                guard phase != "sample" || [1, 5, 10, 15].contains(sample) else { return }
+                let keyboard = app.keyboards.firstMatch
+                let exists = keyboard.exists
+                let frame = exists ? keyboard.frame : .zero
+                captureSamples.append([
+                    "timestamp": ISO8601DateFormatter().string(from: Date()),
+                    "elapsedSeconds": Date().timeIntervalSince(captureStarted),
+                    "phase": phase, "sample": sample, "contentPainted": painted,
+                    "keyboardExists": exists,
+                    "keyboardFrame": ["x": Double(frame.minX), "y": Double(frame.minY),
+                                      "width": Double(frame.width), "height": Double(frame.height)],
+                    "keyCount": exists ? keyboard.keys.count : 0,
+                    "descendantCount": exists ? keyboard.descendants(matching: .any).count : 0,
+                ])
+                let frameShot = XCTAttachment(screenshot: screenshot)
+                frameShot.name = "\(scene.name)-capture-\(sample)-\(phase).png"
+                frameShot.lifetime = .keepAlways
+                self.add(frameShot)
+            }
+        }
+        let (screenshot, painted) = QA.stableScreenshot(paint: region, points: app.frame.width, observe: captureObserver)
+        if !captureSamples.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: ["samples": captureSamples,
+                                                                  "exitReason": captureSamples.last?["phase"] ?? "unknown"],
+                                                   options: [.prettyPrinted, .sortedKeys]) {
+            let capture = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            capture.name = "\(scene.name)-capture.json"
+            capture.lifetime = .keepAlways
+            add(capture)
+        }
         if !painted, failure == nil { failure = "the ready content never painted (blank frame)" }
         // The app is dark: a white status-bar band hides the clock (med-o7zq.44).
         if !scene.nativeOnly, failure == nil, Self.cornerLuma(screenshot.image) > 0.9 {

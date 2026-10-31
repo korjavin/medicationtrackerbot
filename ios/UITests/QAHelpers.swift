@@ -112,17 +112,26 @@ enum QA {
     /// shoot once two screenshots a second apart match. Two identical blank
     /// boot frames also match (run 39209916915, bd med-y5xx.11), so a web
     /// scene's frame must also show painted content where the driver says its
-    /// last ready element is. 15 s cap; returns whether the region painted.
-    static func stableScreenshot(paint region: CGRect? = nil, points: CGFloat = 0) -> (XCUIScreenshot, Bool) {
+    /// last ready element is. At most 15 samples; returns whether the region
+    /// painted. The optional observer records QA capture timing without
+    /// changing the stability/paint acceptance used by existing callers.
+    static func stableScreenshot(paint region: CGRect? = nil, points: CGFloat = 0,
+                                 observe: ((XCUIScreenshot, String, Int, Bool) -> Void)? = nil) -> (XCUIScreenshot, Bool) {
         var last = XCUIScreen.main.screenshot()
         var painted = false
-        for _ in 0..<15 {
+        if let observe { observe(last, "initial", 0, region.map { Self.painted(last, $0, points: points) } ?? true) }
+        for sample in 1...15 {
             Thread.sleep(forTimeInterval: 1)
             let next = XCUIScreen.main.screenshot()
             painted = region.map { Self.painted(next, $0, points: points) } ?? true
-            if painted, next.pngRepresentation == last.pngRepresentation { return (next, true) }
+            if painted, next.pngRepresentation == last.pngRepresentation {
+                observe?(next, "stable-painted", sample, painted)
+                return (next, true)
+            }
+            observe?(next, "sample", sample, painted)
             last = next
         }
+        observe?(last, "iteration-limit", 15, painted)
         return (last, painted)
     }
 
