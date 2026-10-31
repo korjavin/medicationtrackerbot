@@ -781,27 +781,17 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		call = nil
 	}
 	if call == nil {
-		if !a.badCalls.Allow(clientIP(r)) {
-			// No IP in the log (none of the server's logs carry one); the
-			// fixed message is what an operator greps for a spike.
-			slog.Warn("voice llm relay: unknown call rate limited")
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-			return
-		}
-		// A custom-llm agent reaches us on EVERY turn, including calls whose
-		// relay leg never came up (elevenlabs-call.js then starts the session
-		// without the extra body) and calls orphaned by a restart. ElevenLabs
-		// retries a failing custom LLM a few times but has no backup model to
-		// fall to, so an error status ends in silence; answer with a spoken
-		// fallback instead. It carries no data, and misses still count above.
-		slog.Info("voice llm relay: unknown call", "has_token", extra.Call != "")
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusOK)
-		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceHangUp(lang))
+		a.unknownCall(w, r, lang, extra.Call != "")
 		return
 	}
-	if !a.callTurns.Allow(call.token) {
+	allowed := a.callTurns.Allow(call.token)
+	if call.anon == nil && !call.live() {
+		// The limiter can yield after lookup. Expiry wins even a denial;
+		// the existing unknown-token limiter/terminal answer still applies.
+		a.unknownCall(w, r, lang, true)
+		return
+	}
+	if !allowed {
 		// The call is alive: the retry sentence, never an error status
 		// (ElevenLabs would turn that into silence).
 		slog.Warn("voice llm relay: call turn rate limited", "account_id", call.accountID, "call", endpointFingerprint(call.token))
@@ -823,7 +813,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 
 	// Lift cmd/cloud's 15s read / 45s write server deadlines for this turn.
 	rc := http.NewResponseController(w)
-	deadline := minTime(time.Now().Add(a.noDeviceWait+a.turnTimeout+15*time.Second), call.deadline)
+	// Logical expiry is enforced below, not by poisoning the HTTP writer's
+	// socket at cutoff. Already-admitted I/O keeps its existing finite bound;
+	// the terminal operation gets one bounded cleanup allowance.
+	deadline := time.Now().Add(a.noDeviceWait + a.turnTimeout + 15*time.Second)
 	_ = rc.SetReadDeadline(deadline)
 	_ = rc.SetWriteDeadline(deadline)
 
@@ -859,9 +852,14 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	)
 	sawDone := false
 	tail := "\n\n" // last two bytes written; terminal SSE starts a fresh event
+	terminalStarted := false
 	// Expiry is terminal, unlike a transient device drop. Never splice a
 	// spoken fallback into an answer whose model output already started.
 	expired := func() {
+		if terminalStarted {
+			return
+		}
+		terminalStarted = true
 		outcome = "expired"
 		// Only terminal SSE is allowed beyond the model-write deadline.
 		_ = rc.SetWriteDeadline(time.Now().Add(voiceDeviceWriteLimit))
@@ -904,16 +902,15 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			expired()
 			return false
 		}
-		// Unlike cancellation frames, a model request must not outlive this
-		// capability even if its socket write stalls.
-		writeCtx, cancelWrite := peerWriteContext(r.Context(), minTime(time.Now().Add(voiceDeviceWriteLimit), call.deadline))
-		err := writeVoiceFrame(writeCtx, conn, voiceFrame{ID: id, Type: "request", Body: forward})
-		cancelWrite()
+		// Admission is checked immediately before this bounded write. Do not
+		// expire its context at the capability boundary: coder/websocket
+		// aborts TCP on a cancelled write, preempting the terminal 4404 close.
+		err := writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "request", Body: forward})
+		if !call.live() {
+			expired()
+			return false
+		}
 		if err != nil {
-			if !call.live() {
-				expired()
-				return false
-			}
 			writeVoiceFallback(write, voiceRetry(lang))
 			return false
 		}
@@ -932,6 +929,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	defer turnTimer.Stop()
 	resent := false
 	fallback := func() {
+		if !call.live() {
+			expired()
+			return
+		}
 		if tail != "\n\n" {
 			_ = write("\n\n")
 		}
@@ -946,6 +947,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		switch f.Type {
 		case "chunk":
 			if err := write(f.Data); err != nil {
+				if !call.live() {
+					expired()
+					return true
+				}
 				cancel()
 				outcome = "cancel"
 				return true
@@ -956,6 +961,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			// ponytail: per-chunk check; a [DONE] split across chunks just
 			// gets a harmless second [DONE] below.
 			sawDone = sawDone || strings.Contains(f.Data, "data: [DONE]")
+			if !call.live() {
+				expired()
+				return true
+			}
 		case "end":
 			if !sawDone {
 				_ = write("data: [DONE]\n\n")
@@ -999,10 +1008,18 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 					break drain
 				}
 			}
+			if !call.live() {
+				expired()
+				return
+			}
 			// Leg dropped or this turn overflowed its queue; in the latter
 			// case the device is still streaming, so stop it.
 			oldConn, oldID := conn, id
-			go func() { _ = writeDeviceFrame(r.Context(), oldConn, voiceFrame{ID: oldID, Type: "cancel"}) }()
+			go func() {
+				if call.live() {
+					_ = writeDeviceFrame(r.Context(), oldConn, voiceFrame{ID: oldID, Type: "cancel"})
+				}
+			}()
 			if resent || respBytes > 0 {
 				fallback()
 				return
@@ -1015,9 +1032,13 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			if !send() {
 				return
 			}
-			_ = rc.SetWriteDeadline(minTime(time.Now().Add(a.noDeviceWait+a.turnTimeout+15*time.Second), call.deadline))
+			_ = rc.SetWriteDeadline(time.Now().Add(a.noDeviceWait + a.turnTimeout + 15*time.Second))
 			turnTimer.Reset(a.turnTimeout)
 		case <-r.Context().Done():
+			if !call.live() {
+				expired()
+				return
+			}
 			cancel()
 			outcome = "cancel"
 			return
@@ -1033,11 +1054,22 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func minTime(a, b time.Time) time.Time {
-	if b.Before(a) {
-		return b
+// unknownCall preserves the public fallback and per-IP miss limiter for both
+// initial lookup failures and a capability that expires during admission.
+func (a *VoiceLLMRelayAPI) unknownCall(w http.ResponseWriter, r *http.Request, lang string, hasToken bool) {
+	if !a.badCalls.Allow(clientIP(r)) {
+		slog.Warn("voice llm relay: unknown call rate limited")
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
 	}
-	return a
+	// ElevenLabs has no backup model for this custom-LLM hop; a terminal
+	// spoken answer also covers orphaned calls after a process restart.
+	slog.Info("voice llm relay: unknown call", "has_token", hasToken)
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(voiceDeviceWriteLimit))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceHangUp(lang))
 }
 
 // voiceRelaySecretHeader carries TRIAL_VOICE_RELAY_SECRET from the shared trial
