@@ -376,7 +376,9 @@
     }
 
     function providerSaveAllowed() {
-        return mainProviderSaveAllowed() && !photoSaveIssue() && keyCheckPermission().code !== 'url';
+        // Blank initial inputs are not an intentionally empty saved setup.
+        // The accepted masked snapshot is also the page's cancel baseline.
+        return !!_aiProviderSavedPayload && mainProviderSaveAllowed() && !photoSaveIssue() && keyCheckPermission().code !== 'url';
     }
 
     function renderPhotoSafety() {
@@ -1281,6 +1283,10 @@
 
     async function saveIntegrations() {
         if (_providerReloadPanel || _keyCheckReloadBusy || _integrationSaveBusy) return;
+        if (!_aiProviderSavedPayload) {
+            if (typeof safeToast === 'function') safeToast('Integrations have not loaded. Reopen Settings to try again.', 'error');
+            return;
+        }
         // Acquire before the first await. Reload cannot commit over an issued
         // Save, and Reload preparation cannot start another settings write.
         _integrationSaveBusy = true;

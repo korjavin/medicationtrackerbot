@@ -562,6 +562,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
 
     it('Integrations round-trip: entering a key, saving, then reloading shows the masked value', async () => {
         const { window, document } = env;
+        await window.SettingsIntegrations.load();
 
         document.getElementById('integrations-openai-api-key').value = 'sk-test-dummy-key';
         document.getElementById('integrations-openai-url').value = 'https://api.openai.example/v1';
