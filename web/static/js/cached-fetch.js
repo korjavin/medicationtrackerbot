@@ -34,7 +34,14 @@
         }
     }
 
+    // "Can the fetcher answer?" rather than "is the radio on?". In account
+    // mode the apishim is installed (window.offlineAwareApiCall) and
+    // apiCallDirect routes /api/* into the local vault (cloud-boot.js), so
+    // the fetcher answers offline too; skipping it there turned a local read
+    // into "connect to load" (bd med-kk1q.1). A fetcher that still fails
+    // takes the online branch's fallbacks (cache, else OfflineNoCacheError).
     function isOnline() {
+        if (typeof window !== 'undefined' && typeof window.offlineAwareApiCall === 'function') return true;
         return typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     }
 

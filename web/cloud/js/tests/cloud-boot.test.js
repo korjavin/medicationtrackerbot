@@ -274,6 +274,45 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(runs).toBe(1);
   });
 
+  // bd med-kk1q.1: the boot eviction of the shim-served tags runs only after a
+  // pull in this page load landed; an offline boot keeps the ApiCache rows and
+  // evicts after the first drain that lands, once.
+  it('evicts the shim-served tags only once a pull lands, on the boot pull or a later drain', async () => {
+    for (const pulledAtBoot of [true, false]) {
+      let pulled = pulledAtBoot;
+      let drainOpts;
+      const evicted = [];
+      const shimCall = async () => null;
+      shimCall.unifyLegacy = async () => {};
+      shimCall.floorTimeZone = async () => true;
+      await runBoot({
+        setupWindow: (w) => { w.DataStore = { invalidateTags: async (tags) => { evicted.push(tags); } }; },
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': { installApiShim: () => shimCall },
+          'sync.js': {
+            pullOnOpen: async () => {},
+            pulledThisSession: () => pulled,
+            hasCaughtUp: async () => false,
+            startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+            getSyncStatus: async () => ({ authExpired: false }),
+            readAllLiveRecords: async () => [],
+          },
+          'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+          'mcp-responder.js': { refreshResponder: () => {} },
+        },
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(evicted).toEqual(pulledAtBoot ? [['bp', 'weight', 'medications', 'history', 'workout']] : []);
+      await drainOpts.onSettled(); // still offline: nothing to evict
+      pulled = true;
+      await drainOpts.onSettled();
+      await drainOpts.onSettled();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(evicted).toEqual([['bp', 'weight', 'medications', 'history', 'workout']]);
+    }
+  });
+
   // bd med-wi09.19: the account-zone floor runs from the boot, never from a
   // request; tried after the boot pull and each drain until a pull in this
   // page load has let it run, then never again.

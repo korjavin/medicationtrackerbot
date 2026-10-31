@@ -82,4 +82,18 @@ describe('features/food/db.js — split-file integration', () => {
         const list = document.getElementById('fooddb-list');
         expect(list.textContent).toContain('Apple');
     });
+
+    // bd med-kk1q.1: offline in account mode the products come from the
+    // vault through apiCall (the shim); no "No cached data yet" state.
+    it('loadFoodDB offline in account mode renders the vault products', async () => {
+        const { window, document } = env;
+        Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+        window.apiCall = vi.fn().mockResolvedValue({ products: [{ id: 1, name: 'Apple', energy_kcal_100g: 52, usage_count: 3, is_meal: false }], total: 1 });
+
+        await window.loadFoodDB();
+
+        const list = document.getElementById('fooddb-list');
+        expect(list.textContent).toContain('Apple');
+        expect(list.textContent).not.toContain('No cached data yet');
+    });
 });

@@ -470,6 +470,31 @@ describe('Journey render', () => {
         expect(urls).toContain('/api/gamification/goal-line');
     });
 
+    // bd med-kk1q.1: cold open offline in account mode (empty ApiCache, radio
+    // off, shim installed) reads the gauges through the real cachedFetch into
+    // the local vault instead of "No cached gauge data — connect to load.".
+    it('cold offline load in account mode reads gauges through the shim, no connect-to-load', async () => {
+        const { window, document } = env;
+        Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+        const store = new Map();
+        window.MedTrackerDB = { ApiCache: {
+            async getWithMeta(k) { return store.get(k) || null; },
+            async get(k) { return (store.get(k) || {}).data ?? null; },
+            async set(k, data) { store.set(k, { data, timestamp: Date.now() }); },
+        } };
+        window.eval(fs.readFileSync(path.join(REPO_ROOT, 'web/static/js/cached-fetch.js'), 'utf8'));
+        const GAUGES = { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } };
+        window.offlineAwareApiCall = vi.fn(async (url) => (url.endsWith('/journey') ? journey() : null));
+        window.apiCallDirect = vi.fn(async (url) => {
+            if (url === '/api/gamification/journey') return journey();
+            return url === '/api/gamification/gauges' ? GAUGES : null;
+        });
+        await window.Gamification.load();
+        expect(window.apiCallDirect).toHaveBeenCalledWith('/api/gamification/gauges', 'GET', null);
+        expect(document.querySelector('.wg-journey-gauges__empty')).toBeNull();
+        expect(document.body.textContent).not.toContain('connect to load');
+    });
+
     // med-8tur.12: the level-tier-gated sleep→BP / good-day insight cards were
     // the last level consumers (cloud /insights always answers {enabled:false},
     // so they never rendered). Gone with them: the Gauges "why is this moving?"

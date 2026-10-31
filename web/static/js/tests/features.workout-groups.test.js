@@ -146,6 +146,18 @@ describe('features/workout/groups.js — split-file integration', () => {
       expect(topPage(document).querySelector('.wg-pagebar__crumb').textContent).toBe('Edit plan');
     });
 
+    // bd med-kk1q.1: a cold open offline in account mode lists the plans
+    // from the vault (apiCallDirect is the shim), not "No cached data yet".
+    it('the Plans tab offline in account mode lists the vault plans', async () => {
+      const { window, document } = env;
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+      window.apiCallDirect = vi.fn(async (url) => (url === '/api/workout/groups' ? [PLAN] : null));
+      await window.loadWorkoutGroups();
+      const container = document.getElementById('workout-groups-list');
+      await vi.waitFor(() => expect(container.querySelectorAll('.wg-workout-plan-row')).toHaveLength(1));
+      expect(container.textContent).not.toContain('No cached data yet');
+    });
+
     it('Add plan opens a fresh Plan page: Repeats on picks, flat exercise list, no tools rows', async () => {
       const { window, document } = env;
       backend(window);

@@ -150,6 +150,30 @@ describe('cachedFetch — read-through helper', () => {
     }
   });
 
+  // bd med-kk1q.1: with the account shim installed the fetcher is the local
+  // vault, so navigator.onLine=false must not skip it; a fetcher failure
+  // still falls back exactly like the online branch.
+  it('offline with the account shim installed: calls the fetcher, then falls back like online', async () => {
+    const { window, cacheMap, cleanup } = loadCachedFetchEnv({ online: false });
+
+    try {
+      window.offlineAwareApiCall = vi.fn();
+      window.apiCallDirect = vi.fn().mockResolvedValue([{ id: 7 }]);
+
+      const result = await window.cachedFetch('workout_equipment', '/api/workout/equipment', { tags: ['workout'] });
+
+      expect(window.apiCallDirect).toHaveBeenCalledWith('/api/workout/equipment', 'GET', null);
+      expect(result).toMatchObject({ data: [{ id: 7 }], isFromCache: false });
+      expect(cacheMap.get('workout_equipment').data).toEqual([{ id: 7 }]);
+
+      window.apiCallDirect = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+      await expect(window.cachedFetch('ai_x', '/api/ai/x', { tags: ['food'] }))
+        .rejects.toBeInstanceOf(window.OfflineNoCacheError);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('online but apiCall throws 5xx and no cache: throws OfflineNoCacheError', async () => {
     const { window, cleanup } = loadCachedFetchEnv();
 
