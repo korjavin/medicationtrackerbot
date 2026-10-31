@@ -634,6 +634,7 @@ function applyPendingTabRefresh() {
 }
 
 function requestTabRefresh(meta = {}) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const source = meta?.source || 'changes';
     // Optimistic / commit / rollback paths originate from the caller's own
     // write flow. The user is actively engaged with the app — no deferred
@@ -642,7 +643,7 @@ function requestTabRefresh(meta = {}) {
     // optimistic window (see DataStore.fetchFresh's pendingOptimistic check)
     // so the user sees only optimistic → real, no stale flash.
     if (typeof source === 'string' && source.startsWith('optimistic')) {
-        reloadCurrentTab();
+        reloadCurrentTab(meta);
         return;
     }
     // `self-echo` is the echo of one of the user's own recent writes.
@@ -684,7 +685,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // Reload current active tab data.
-function reloadCurrentTab() {
+function reloadCurrentTab(meta = {}) {
+    if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     let tab = window.AppStore && window.AppStore.get && window.AppStore.get('currentTab');
     if (!tab) {
         const activeView = document.querySelector('.view.active');
@@ -710,7 +712,7 @@ function reloadCurrentTab() {
         const stored = typeof getActiveHealthSubTab === 'function' ? getActiveHealthSubTab() : 'overview';
         switchHealthTab(stored);
     }
-    else if (tab === 'settings') { loadSettings(); }
+    else if (tab === 'settings') { loadSettings(meta); }
 }
 
 // Expose for sync manager

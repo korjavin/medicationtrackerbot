@@ -32,6 +32,7 @@ vi.mock('../sync.js', () => ({
 import { assertPasskey } from '../unlock.js';
 import { auditEnvelopeWithKey } from '../crypto.js';
 import { renderEmergencyKit } from '../signup.js';
+import { deviceValues } from '../sync.js';
 
 import { renderDeviceList, renderRegenerateKit, checkNewDevices } from '../devices.js';
 import { installDialogs, installRowActions, answerDialog, openDialog, SHELL_DIALOG_SCRIPTS } from './helpers/dialogs.js';
@@ -80,6 +81,34 @@ const CALM_ERROR = "Couldn't reach the server. Your data is safe — try again."
 const revokeItem = (row) => row.querySelector('.wg-menu__item--danger');
 
 describe('devices.js device list', () => {
+  it.each(['fetch', 'body', 'audit', 'known', 'error', 'teardown'])('keeps a pending %s device read from painting the committed or departed mount', async (stage) => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const json = vi.fn(() => stage === 'body' ? pending : Promise.resolve(DEVICES));
+    const response = { ok: true, json };
+    global.fetch = vi.fn(() => ['fetch', 'error', 'teardown'].includes(stage) ? pending : Promise.resolve(response));
+    const audit = vi.mocked(auditEnvelopeWithKey).mockImplementation(() => stage === 'audit' ? pending : Promise.resolve(true));
+    audit.mockClear();
+    const known = vi.spyOn(deviceValues, 'get').mockImplementation(() => stage === 'known' ? pending : Promise.resolve(null));
+    try {
+      renderDeviceList(app, ctx, hooks);
+      const entered = stage === 'body' ? json : stage === 'audit' ? audit : stage === 'known' ? known : global.fetch;
+      await vi.waitFor(() => expect(entered).toHaveBeenCalled());
+      const before = app.innerHTML;
+      if (stage === 'teardown') app.remove();
+      else dom.window.document.documentElement.setAttribute('data-provider-reload-committed', '');
+      release(stage === 'fetch' || stage === 'teardown' ? response : stage === 'body' ? DEVICES : stage === 'error' ? { ok: false, status: 403 } : stage === 'audit' ? true : null);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(app.innerHTML).toBe(before);
+      expect(hooks.onLoaded).not.toHaveBeenCalled();
+      if (stage === 'fetch' || stage === 'teardown') expect(json).not.toHaveBeenCalled();
+      if (['fetch', 'body', 'audit', 'error'].includes(stage)) expect(known).not.toHaveBeenCalled();
+    } finally {
+      known.mockRestore();
+      audit.mockImplementation(async () => true);
+    }
+  });
+
   it('renders one kit row per device with its audit chip', async () => {
     await renderAndSettle();
 

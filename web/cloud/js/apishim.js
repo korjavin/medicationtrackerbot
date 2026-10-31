@@ -220,7 +220,7 @@ function debugOnce(key, ...args) {
 //                 the inbox applier passes () => false. Local mode never floors.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
-  rxnorm = createRxnormPort(), operatorFoodDb, protection,
+  rxnorm = createRxnormPort(), operatorFoodDb, protection, documentPolicy,
   caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
   canFloor = recordsOverride ? caughtUp : async () => (await caughtUp()) && pulledThisSession(),
 } = {}) {
@@ -290,7 +290,7 @@ export function createApiRouter(ctx, {
     // operator-proxied trial path (POST /api/trial/openai), gated on an explicit
     // consent scope — `ai` for food, `tg` for the narrator. See
     // docs/cloud-mode.md → Privacy boundary (bd med-eas.80).
-    aiClient = createAIClient({ settingsDomain: settings, deviceStore: deviceValues });
+    aiClient = createAIClient({ settingsDomain: settings, deviceStore: deviceValues, documentPolicy });
     foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
     workout = createWorkoutDomain({ records, now, timeZone });
     equipment = createEquipmentDomain({ records, now });
@@ -1826,7 +1826,8 @@ export function createApiRouter(ctx, {
 // serves its own CSP).
 export function installApiShim(ctx, {
   records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, registerEgress = registerEgressHosts,
-  win, now: nowOverride, timeZone: timeZoneOverride, caughtUp,
+  registerEgressTimeoutMs = 15000,
+  win, now: nowOverride, timeZone: timeZoneOverride, caughtUp, documentPolicy,
   // Read at call time so a test's fake timers apply.
   timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h) },
 } = {}) {
@@ -1849,7 +1850,7 @@ export function installApiShim(ctx, {
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
     recordsPort: portFactory, effects, rxnorm, operatorFoodDb, protection, now: nowOverride, timeZone: timeZoneOverride, win, caughtUp,
-    onDoseBoundary,
+    onDoseBoundary, documentPolicy: documentPolicy ? Object.freeze({ origins: documentPolicy.origins, origin: documentPolicy.origin }) : undefined,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });
@@ -1927,9 +1928,33 @@ export function installApiShim(ctx, {
   const boundFetch = typeof targetWindow.fetch === 'function'
     ? targetWindow.fetch.bind(targetWindow) : undefined;
   let lastEgressHosts = null; // comma-joined last-registered set, for change detection
-  registerEgress({ settings, fetchImpl: boundFetch })
-    .then((hosts) => { if (hosts) lastEgressHosts = hosts.join(','); })
-    .catch((e) => console.error('[cloud egress] initial register failed', e));
+  let registration = Promise.resolve({ state: 'pending' });
+  function registerCurrentEgress() {
+    // Serial registration prevents an older slow upload from replacing the
+    // newest saved host set after its registration was reported successful.
+    registration = registration.then(() => {
+      const controller = new AbortController();
+      let timer;
+      const work = Promise.resolve().then(() => registerEgress({ settings, fetchImpl: boundFetch, signal: controller.signal }));
+      // Cloud fetch is abortable. The native callback has no cancellation/
+      // deadline contract and retains reload authority until real settlement.
+      const outcome = registerEgressTimeoutMs > 0 ? Promise.race([
+        work,
+        new Promise((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(null); }, registerEgressTimeoutMs); }),
+      ]) : work;
+      return outcome.then((result) => {
+        const hosts = Array.isArray(result) ? result : result?.hosts;
+        if (!Array.isArray(hosts)) return { state: 'failed' };
+        const key = hosts.join(',');
+        if (lastEgressHosts !== null && key !== lastEgressHosts && !result?.reloading) {
+          targetWindow.SyncManager?.showToast?.('New provider saved — reload to apply it on this device', 'info');
+        }
+        lastEgressHosts = key;
+        return { state: result?.reloading ? 'reloading' : 'registered' };
+      }).catch(() => ({ state: 'failed' })).finally(() => clearTimeout(timer));
+    });
+  }
+  registerCurrentEgress();
 
   // A provider URL change (Settings → Integrations save) must re-scope the CSP.
   // The save flows through offlineAwareApiCall as PATCH /api/settings/integrations,
@@ -1938,19 +1963,7 @@ export function installApiShim(ctx, {
   async function offlineAwareApiCall(endpoint, method = 'GET', body = null, opts = {}) {
     const result = await shimCall(endpoint, method, body, opts);
     if (method === 'PATCH' && String(endpoint).split('?')[0] === '/api/settings/integrations') {
-      registerEgress({ settings, fetchImpl: boundFetch })
-        .then((hosts) => {
-          if (!hosts) return;
-          const key = hosts.join(',');
-          if (lastEgressHosts !== null && key !== lastEgressHosts) {
-            const sm = targetWindow.SyncManager;
-            if (sm && typeof sm.showToast === 'function') {
-              sm.showToast('New provider saved — reload to apply it on this device', 'info');
-            }
-          }
-          lastEgressHosts = key;
-        })
-        .catch((e) => console.error('[cloud egress] re-register failed', e));
+      registerCurrentEgress();
     }
     return result;
   }
@@ -1958,6 +1971,12 @@ export function installApiShim(ctx, {
   // timezone-resolve instances for every consumer of the installed seam.
   Object.defineProperty(offlineAwareApiCall, 'domains', { enumerable: true, get: () => shimCall.domains });
   offlineAwareApiCall.ensureTimeZone = shimCall.ensureTimeZone;
+  // Direct in-memory UI port: raw draft keys never enter core/api's network
+  // fallback, write queue, route logging or API cache. Old/missing shims simply
+  // have no Check capability; existing AI operations remain unchanged.
+  offlineAwareApiCall.aiKeyCheckPermission = (args) => aiClient.keyCheckPermission(args);
+  offlineAwareApiCall.checkAIKey = (args) => aiClient.checkKey(args);
+  offlineAwareApiCall.aiProviderRegistration = () => registration;
   // The boot's account-zone floor (bd med-wi09.19), on the background router so
   // a floor that moves the zone repaints the open screens.
   offlineAwareApiCall.floorTimeZone = bgCall.floorTimeZone;

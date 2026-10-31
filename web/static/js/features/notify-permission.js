@@ -395,9 +395,12 @@
     // device was never asked.
     async function renderNote(slot, opts) {
         if (!slot) return;
+        if (slot.ownerDocument?.documentElement?.hasAttribute('data-provider-reload-committed')) return;
         var s = await state();
+        if (slot.ownerDocument?.documentElement?.hasAttribute('data-provider-reload-committed')) return;
         var show = s === 'denied' || (s === 'default' && (asked() || !!(opts && opts.askNow)));
         var note = show ? await buildNote(slot, s === 'default', !!(opts && opts.askNow)) : null;
+        if (slot.ownerDocument?.documentElement?.hasAttribute('data-provider-reload-committed')) return;
         slot.replaceChildren.apply(slot, note ? [note] : []);
     }
 

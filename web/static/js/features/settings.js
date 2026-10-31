@@ -32,6 +32,11 @@
 // cloud-only modules).
 // ponytail: no memoization — import() already caches by specifier. These
 // functions exist only as the test seam (Vitest overrides the window globals).
+// Private lexical predicate, not a window API: reads may finish after either
+// one-way reload commitment or document teardown, neither permits a repaint.
+const settingsRenderBlocked = (doc = document) => !doc?.documentElement
+    || doc.documentElement.hasAttribute('data-provider-reload-committed');
+
 let _cloudNotificationsBound = false; // module-state: one-time guard so the cloud toggle/test click listeners bind once across repeated loadSettings() calls
 function loadCloudPushModule() { return import('/js/push.js'); }
 function loadCloudRemindersModule() { return import('/js/reminders.js'); }
@@ -39,6 +44,7 @@ function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 // The toggle plus the S8 status chip (bd med-ckm5.8). Denied swaps the card
 // for O3's warn note (NotifyPermission.renderNote, med-ckm5.4), as in local mode.
 async function paintCloudPush(toggleBtn, on) {
+    if (settingsRenderBlocked()) return;
     toggleBtn.dataset.subscribed = on ? '1' : '0';
     toggleBtn.textContent = on ? 'Disable' : 'Enable';
     // The button's own document: a refresh can land after the page went away.
@@ -55,8 +61,10 @@ async function paintCloudPush(toggleBtn, on) {
     try {
         // Undecided: the card's Enable is the one-tap path, so the note is for denied only.
         const denied = (await np.state()) === 'denied';
+        if (settingsRenderBlocked()) return;
         if (denied) await np.renderNote(note);
         else note.replaceChildren();
+        if (settingsRenderBlocked()) return;
         card.hidden = denied && !!note.firstChild;
         chip?.classList.toggle('wg-chip--warn', denied);
     } catch (e) { /* the card still offers Enable */ }
@@ -66,12 +74,14 @@ async function paintCloudPush(toggleBtn, on) {
 // "on" once the shell has a device token for the relay to wake. Hidden on the
 // web and on a page without the capability.
 async function paintNativeWake(doc) {
+    if (settingsRenderBlocked(doc)) return;
     const line = doc?.getElementById('cloud-push-wake');
     if (!line) return;
     let on = null;
     try {
         if (window.NativePush?.isSupported?.() === true) on = !!(await window.NativePush.token());
     } catch (e) { /* native/ stub: leave the line hidden */ }
+    if (settingsRenderBlocked(doc)) return;
     line.hidden = on === null;
     if (on !== null) line.textContent = on ? 'Wake-ups: on' : 'Wake-ups: off (allow notifications)';
 }
@@ -80,16 +90,20 @@ async function paintNativeWake(doc) {
 // the granted-but-unsubscribed state is exactly what the user asked for, and
 // warning about it there would stomp the "Notifications disabled" confirmation.
 async function refreshCloudPushToggleState(toggleBtn, status) {
+    if (settingsRenderBlocked()) return;
     try {
         if (localNotificationsSupported()) {
             // iOS app shell: "subscribed" is the iOS notification permission.
             const granted = (await window.LocalNotifications.permission()) === 'granted';
+            if (settingsRenderBlocked()) return;
             paintCloudPush(toggleBtn, granted);
             await paintNativeWake(toggleBtn.ownerDocument);
             return;
         }
         const { getSubscription } = await loadCloudPushModule();
+        if (settingsRenderBlocked()) return;
         const sub = await getSubscription();
+        if (settingsRenderBlocked()) return;
         paintCloudPush(toggleBtn, !!sub);
         // Permission granted but no subscription means the push service evicted
         // it and the boot-time repair could not restore it (med-d5t.3). A bare
@@ -189,6 +203,7 @@ async function toggleLocalNotifications(toggleBtn, status) {
 }
 
 function bindCloudNotifications() {
+    if (settingsRenderBlocked()) return;
     const toggleBtn = document.getElementById('cloud-push-toggle');
     const testBtn = document.getElementById('cloud-push-test-btn');
     const status = document.getElementById('cloud-push-status');
@@ -201,6 +216,7 @@ function bindCloudNotifications() {
     toggleBtn.disabled = true;
     testBtn.disabled = true;
     const ready = refreshCloudPushToggleState(toggleBtn, status).finally(() => {
+        if (settingsRenderBlocked()) return;
         toggleBtn.disabled = false;
         testBtn.disabled = false;
     });
@@ -292,6 +308,7 @@ function bindCloudNotifications() {
 // that isn't re-pushed wouldn't take effect until the next mutation.
 let _cloudReminderDeliveryBound = false; // module-state: bind the choice groups once across repeated loadSettings() calls
 function bindCloudReminderDelivery() {
+    if (settingsRenderBlocked()) return;
     const deliveryEl = document.getElementById('cloud-reminder-delivery');
     const verbosityEl = document.getElementById('cloud-reminder-verbosity');
     const status = document.getElementById('cloud-reminder-delivery-status');
@@ -300,8 +317,10 @@ function bindCloudReminderDelivery() {
     const ctx = window.MedTrackerCloud?.ctx;
     if (ctx) {
         loadCloudRemindersModule()
-            .then(({ remindersDomain }) => remindersDomain(ctx).getDeliveryPref())
+            .then(({ remindersDomain }) => settingsRenderBlocked()
+                ? null : remindersDomain(ctx).getDeliveryPref())
             .then((pref) => {
+                if (settingsRenderBlocked() || !pref) return;
                 setChoiceValue(deliveryEl, pref.delivery);
                 // The resolved lock-screen value (med-5vy0): a floored Detailed shows as Detailed.
                 setChoiceValue(verbosityEl, pref.lockscreen || pref.verbosity);
@@ -482,6 +501,7 @@ function fetchDeviceCount() {
 }
 
 async function bindSecondDeviceNudge() {
+    if (settingsRenderBlocked()) return;
     const nudge = document.getElementById('second-device-nudge');
     if (!nudge) return;
 
@@ -503,6 +523,7 @@ async function bindSecondDeviceNudge() {
     // Reveal only on a confirmed single-device count. A failed fetch leaves the
     // card hidden rather than nagging on incomplete information.
     const count = await fetchDeviceCount();
+    if (settingsRenderBlocked()) return;
     nudge.classList.toggle('wg-settings-hidden', count !== 1);
 }
 
@@ -533,19 +554,23 @@ function cloudCtx() {
 // The list load already fetched /api/devices; reuse it for the home-row
 // summary and the nudge instead of a second request.
 function noteDeviceList(devices) {
+    if (settingsRenderBlocked()) return;
     _deviceCountPromise = Promise.resolve(devices.length);
     refreshDevicesSummary();
     bindSecondDeviceNudge();
 }
 
 async function mountCloudDevices() {
+    if (settingsRenderBlocked()) return;
     const ctx = cloudCtx();
     const mount = document.getElementById('settings-devices-mount');
     if (!ctx || !mount) return;
     try {
         const { renderDeviceList } = await loadCloudDevicesModule();
+        if (settingsRenderBlocked()) return;
         renderDeviceList(mount, ctx, { onAddDevice: () => openAddDevicePage(), onLoaded: noteDeviceList });
     } catch (e) {
+        if (settingsRenderBlocked()) return;
         console.error('devices module failed to load', e);
         mount.textContent = 'Could not load your devices. Check your connection and reopen this page.';
     }
@@ -553,20 +578,26 @@ async function mountCloudDevices() {
 }
 
 async function refreshConnectorStatus(ctx) {
+    if (settingsRenderBlocked()) return;
     const el = document.getElementById('settings-claude-connector-status');
     if (!el) return;
     try {
         const { claudeConnectorMode } = await loadCloudConnectorsModule();
-        el.textContent = CONNECTOR_STATUS_TEXT[await claudeConnectorMode(ctx)] || '';
+        if (settingsRenderBlocked()) return;
+        const mode = await claudeConnectorMode(ctx);
+        if (settingsRenderBlocked()) return;
+        el.textContent = CONNECTOR_STATUS_TEXT[mode] || '';
     } catch (_) { /* keep the static description */ }
 }
 
 // "Add a device" pushes its own page. Back runs the flow's server-side cancel
 // and refuses to leave if that fails: leaving would imply a live code is dead.
 async function openAddDevicePage(opts) {
+    if (settingsRenderBlocked()) return;
     const ctx = cloudCtx();
     if (!ctx || !window.WGPage) return;
     const { renderAddDevice } = await loadCloudTransferModule();
+    if (settingsRenderBlocked()) return;
     const body = document.createElement('div');
     body.className = 'wg-vstack';
     let page = null;
@@ -584,9 +615,11 @@ async function openAddDevicePage(opts) {
 }
 
 async function openConnectorPage() {
+    if (settingsRenderBlocked()) return;
     const ctx = cloudCtx();
     if (!ctx || !window.WGPage) return;
     const { renderConnectors } = await loadCloudConnectorsModule();
+    if (settingsRenderBlocked()) return;
     const body = document.createElement('div');
     body.className = 'wg-vstack';
     renderConnectors(body, ctx);
@@ -605,6 +638,7 @@ async function openConnectorPage() {
 // Repainted on every Settings open.
 function loadCloudSyncModule() { return import('/js/sync.js'); }
 async function paintVaultCard() {
+    if (settingsRenderBlocked()) return;
     const card = document.getElementById('settings-vault-card');
     const meta = document.getElementById('settings-vault-meta');
     if (!card || !meta) return;
@@ -612,11 +646,14 @@ async function paintVaultCard() {
     const parts = [window.location.hostname];
     try {
         const { getSyncStatus } = await loadCloudSyncModule();
+        if (settingsRenderBlocked()) return;
         const { lastSyncedAt } = await getSyncStatus(cloudCtx());
+        if (settingsRenderBlocked()) return;
         if (lastSyncedAt) {
             parts.push(`synced ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
         }
     } catch { /* no sync status: leave it out */ }
+    if (settingsRenderBlocked()) return;
     meta.textContent = parts.join(' · ');
 }
 
@@ -627,11 +664,13 @@ async function paintVaultCard() {
 // apiCall would hand back the same null as "no record". The same read places
 // the S9 Emergency Kit row (bd med-ckm5.9).
 async function paintKitState() {
+    if (settingsRenderBlocked()) return;
     let unsaved = false;
     try {
         const kit = await window.apiCallDirect('/api/settings/emergency-kit', 'GET');
         unsaved = !kit || kit.how === 'none';
     } catch { /* keep it hidden */ }
+    if (settingsRenderBlocked()) return;
     document.getElementById('settings-kit-chip')?.classList.toggle('wg-settings-hidden', !unsaved);
     placeAccountKitRow(unsaved);
 }
@@ -682,8 +721,10 @@ function openDevicesDeeplink(target) {
 // another device made the code, or the page was closed, which deleted the slot —
 // open Add a device on its AD4 "not open here" end state.
 async function resumeAddDevice() {
+    if (settingsRenderBlocked()) return;
     if (!cloudCtx()) return;
     const { resumeLiveTransfer } = await loadCloudTransferModule();
+    if (settingsRenderBlocked()) return;
     if (resumeLiveTransfer()) return;
     openSettingsPage('devices');
     openAddDevicePage({ notHere: true });
@@ -718,6 +759,7 @@ function paintAccountTimeZone(timezone, source) {
 let _operatorVisibilityRendered = false; // module-state: render the static content once across repeated loadSettings() calls
 
 async function bindOperatorVisibility() {
+    if (settingsRenderBlocked()) return;
     const section = document.querySelector('.wg-settings-privacy');
     const mount = document.getElementById('privacy-content');
     if (!section || !mount) return;
@@ -727,6 +769,7 @@ async function bindOperatorVisibility() {
     if (_operatorVisibilityRendered) return;
     try {
         const { renderPrivacyInto } = await loadPrivacyModule();
+        if (settingsRenderBlocked()) return;
         // Pass document explicitly: privacy.js is a cloud-only module that may be
         // evaluated in a context without a global `document` (the test seam).
         renderPrivacyInto(mount, document);
@@ -882,6 +925,7 @@ function bindLeaveAccount() {
 }
 
 function showLeaveAccount(leave) {
+    if (settingsRenderBlocked()) return;
     fillDeviceWords(); // the row may show before loadSettings' own fill (Android: after the probe)
     document.querySelector('.wg-settings-leave-account')?.classList.remove('wg-settings-hidden');
     const btn = document.getElementById('settings-leave-account-btn');
@@ -987,15 +1031,18 @@ function bindRerunOnboarding() {
 // The .wg-notif preview mirrors what reminders.js schedules for a dose.
 let _localReminderTextBound = false; // module-state: bind the choice pair once across repeated loadSettings() calls
 function setLocalReminderText(group, value) {
+    if (settingsRenderBlocked()) return;
     setChoiceValue(group, value);
     const preview = document.getElementById('local-reminder-preview');
     if (preview) preview.textContent = value === 'detailed' ? 'Time to take: Metformin' : 'Medication time';
 }
 
 async function bindLocalReminderText() {
+    if (settingsRenderBlocked()) return;
     const group = document.getElementById('local-reminder-verbosity');
     if (!group) return;
     const pref = await apiCall('/api/settings/reminder-delivery', 'GET');
+    if (settingsRenderBlocked()) return;
     setLocalReminderText(group, (pref && pref.verbosity) || choiceValue(group));
     group.dataset.saved = choiceValue(group);
     if (_localReminderTextBound) return;
@@ -1018,6 +1065,7 @@ async function bindLocalReminderText() {
 // the state.
 let _localNotificationsBound = false; // module-state: bind the buttons once across repeated loadSettings() calls
 async function refreshLocalNotifyState() {
+    if (settingsRenderBlocked()) return;
     const state = document.getElementById('local-notify-state');
     const enable = document.getElementById('local-notify-enable');
     const test = document.getElementById('local-notify-test');
@@ -1035,6 +1083,7 @@ async function refreshLocalNotifyState() {
             permission = 'unknown';
         }
     }
+    if (settingsRenderBlocked()) return;
     enable.hidden = permission !== 'default';
     test.hidden = permission !== 'granted';
     const [text, tone] = localNotifyText(permission, window.CloudVault?.lastReminderSchedule?.() || null);
@@ -1049,6 +1098,7 @@ async function refreshLocalNotifyState() {
         if (permission === 'denied') await state.ownerDocument?.defaultView?.NotifyPermission?.renderNote(note);
         else note?.replaceChildren();
     } catch (e) { /* the card still says what is wrong */ }
+    if (settingsRenderBlocked()) return;
     if (card) card.hidden = permission === 'denied' && !!note?.firstChild;
 }
 
@@ -1074,6 +1124,7 @@ function localNotifyText(permission, last) {
 }
 
 async function bindLocalNotifications() {
+    if (settingsRenderBlocked()) return;
     const enable = document.getElementById('local-notify-enable');
     const test = document.getElementById('local-notify-test');
     const state = document.getElementById('local-notify-state');
@@ -1164,6 +1215,7 @@ function daysAgo(at) {
 }
 
 function paintSyncChip(status) {
+    if (settingsRenderBlocked()) return;
     const chip = document.getElementById('settings-sync-chip');
     const meta = document.getElementById('settings-sync-meta');
     if (!chip || !meta) return;
@@ -1182,7 +1234,9 @@ function paintSyncChip(status) {
 
 // The same cache entry the Today W4 card reads (protection_status).
 function paintSyncCard() {
-    const fetcher = () => window.apiCall('/api/protection/status');
+    if (settingsRenderBlocked()) return;
+    const fetcher = () => settingsRenderBlocked()
+        ? null : window.apiCall('/api/protection/status');
     const ds = window.DataStore;
     if (typeof ds?.loadSWR === 'function') {
         ds.loadSWR({ key: 'protection_status', tags: ['protection'], fetcher, onCached: paintSyncChip, onFresh: paintSyncChip, onError: () => {} })
@@ -1202,6 +1256,7 @@ function paintSyncCard() {
 let _syncSectionBound = false; // module-state: bind the buttons once across repeated loadSettings() calls
 let _syncInvite = null; // module-state: the slot's claim URL from the last paint
 async function paintSyncSection() {
+    if (settingsRenderBlocked()) return;
     const none = document.getElementById('settings-sync-none');
     const waiting = document.getElementById('settings-sync-waiting');
     const how = document.getElementById('settings-sync-how');
@@ -1226,6 +1281,7 @@ async function paintSyncSection() {
         // The shell POSTs the request (base.post); without the op, no button.
         Promise.resolve().then(() => sheet.canRequest && sheet.canRequest()).catch(() => false),
     ]);
+    if (settingsRenderBlocked()) return;
     _syncInvite = invite || null;
     none.hidden = !!_syncInvite;
     waiting.hidden = !_syncInvite;
@@ -1241,7 +1297,8 @@ async function paintSyncSection() {
 }
 
 // Load settings (BP reminders status, etc.)
-async function loadSettings() {
+async function loadSettings({ source } = {}) {
+    if (settingsRenderBlocked()) return;
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
     // builds alike, so the row is not wrapped in a wg-settings-cloud-* reveal.
     bindRerunOnboarding();
@@ -1253,6 +1310,7 @@ async function loadSettings() {
         // updateWeeklyDigestVisibility hides it when gamification is off.
         document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
+        if (settingsRenderBlocked()) return;
         // Devices & connectors only make sense in cloud mode — server/mobile
         // builds have no vault devices or relay.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
@@ -1264,7 +1322,9 @@ async function loadSettings() {
             paintKitState();
         }
         await bindSecondDeviceNudge();
+        if (settingsRenderBlocked()) return;
         await bindOperatorVisibility();
+        if (settingsRenderBlocked()) return;
         bindLeaveAccount();
         bindDeleteAccount();
         bindCloudInvite();
@@ -1278,6 +1338,7 @@ async function loadSettings() {
         paintSyncSection();
     }
     const applyBundle = async (rawBundle) => {
+        if (settingsRenderBlocked()) return;
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
         paintAccountTimeZone(bundle.timezone, bundle.timezoneSource);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
@@ -1395,13 +1456,15 @@ async function loadSettings() {
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
+    if (settingsRenderBlocked()) return;
     // The Integrations section is loaded lazily from its own endpoint so
     // the settings_bundle SWR fetch stays focused on the feature-flags +
     // food-targets + reminders + weight-unit slice that bootstrap also
     // returns. Best-effort: never blocks the rest of Settings.
     if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
-        try { await window.SettingsIntegrations.load(); } catch (_) { /* no-op */ }
+        try { await window.SettingsIntegrations.load({ preserveDraft: source === 'optimistic-commit' }); } catch (_) { /* no-op */ }
     }
+    if (settingsRenderBlocked()) return;
     // Import/Export section (C2e Task 6) — static, so load() just (re)binds its
     // controls; safe in both bot and cloud modes.
     if (window.SettingsImportExport && typeof window.SettingsImportExport.load === 'function') {
@@ -1410,7 +1473,9 @@ async function loadSettings() {
     // Journey targets editor — loaded lazily off its own endpoint (best-effort;
     // internally gated on the gamification flag).
     await loadGamificationTargets();
+    if (settingsRenderBlocked()) return;
     await loadGamificationMode();
+    if (settingsRenderBlocked()) return;
     // Hide any home row whose page sections are all hidden (e.g. a cloud-only
     // page in bot mode) so it never opens onto an empty page.
     fillDeviceWords();
@@ -1442,6 +1507,7 @@ function settingsPagePrimary(name, getPage) {
 }
 
 function openSettingsPage(name) {
+    if (settingsRenderBlocked()) return null;
     const store = document.querySelector('.wg-settings-pages');
     const body = settingsPageBody(name);
     if (!store || !body || !window.WGPage) return null; // absent, or already open
@@ -1536,6 +1602,7 @@ function isSettingsSectionHidden(s) {
 }
 
 function setSettingsSummary(name, text) {
+    if (settingsRenderBlocked()) return;
     const el = document.querySelector(`[data-settings-summary="${name}"]`);
     if (el && typeof text === 'string') el.textContent = text;
 }
@@ -1594,8 +1661,10 @@ function refreshIntegrationsSummary() {
 }
 
 async function refreshDevicesSummary() {
+    if (settingsRenderBlocked()) return;
     if (!window.__MEDTRACKER_CLOUD__) return;
     const count = await fetchDeviceCount();
+    if (settingsRenderBlocked()) return;
     if (typeof count === 'number') setSettingsSummary('devices', count === 1 ? '1 device' : `${count} devices`);
 }
 
@@ -1643,6 +1712,7 @@ function gamificationModeToggleId(key) {
 }
 
 function applyGamificationMode(mode) {
+    if (settingsRenderBlocked()) return;
     for (const key of GAMIFICATION_MODE_KEYS) {
         const input = document.getElementById(gamificationModeToggleId(key));
         if (input && typeof mode[key] === 'boolean') input.checked = mode[key];
@@ -1653,8 +1723,10 @@ function applyGamificationMode(mode) {
 // Not gated on Journey: the ED-safe switch is visible with it off (med-njny)
 // and /api/gamification/mode is not feature-gated.
 async function loadGamificationMode() {
+    if (settingsRenderBlocked()) return;
     try {
         const mode = await apiCall('/api/gamification/mode', 'GET');
+        if (settingsRenderBlocked()) return;
         if (mode && mode.enabled !== false) applyGamificationMode(mode);
     } catch (e) {
         console.warn('Failed to load journey mode:', e);
@@ -1718,6 +1790,7 @@ function fmtGamTargetVal(n) {
 // prefill the inputs (so a recommended metric shows faint placeholders and a
 // customized one shows its own values).
 function applyGamificationTargets(view) {
+    if (settingsRenderBlocked()) return;
     if (!view || view.enabled === false || !Array.isArray(view.targets)) return;
     gamCustomMetrics.clear();
     for (const t of view.targets) {
@@ -1745,9 +1818,11 @@ function applyGamificationTargets(view) {
 // (mirrors SettingsIntegrations.load) so a targets-endpoint outage never blanks
 // the rest of Settings. Skips entirely when the feature is off.
 async function loadGamificationTargets() {
+    if (settingsRenderBlocked()) return;
     if (!window.featureSettings || !window.featureSettings.gamification) return;
     try {
         const view = await apiCall('/api/gamification/targets', 'GET');
+        if (settingsRenderBlocked()) return;
         if (view) applyGamificationTargets(view);
     } catch (e) {
         console.warn('Failed to load journey targets:', e);
@@ -1958,6 +2033,7 @@ function showHeightError(message) {
 }
 
 function paintBodySettings(body) {
+    if (settingsRenderBlocked()) return;
     if (body) _body = { ..._body, ...body };
     const unit = _body.height_unit === 'ftin' ? 'ftin' : 'cm';
     document.querySelectorAll('#height-unit-segmented [data-height-unit]').forEach((btn) => {
@@ -1989,11 +2065,13 @@ let _weightDomain = null; // module-state: web/domain/weight.js once imported
 function loadWeightDomain() { return import('/domain/weight.js'); }
 
 async function refreshBmiHint() {
+    if (settingsRenderBlocked()) return;
     try {
         const [facts, domain] = await Promise.all([
             apiCall('/api/weight/bmi', 'GET'),
             _weightDomain || loadWeightDomain(),
         ]);
+        if (settingsRenderBlocked()) return;
         _bmiFacts = facts || null;
         _weightDomain = domain;
     } catch (_) {
@@ -2005,6 +2083,7 @@ async function refreshBmiHint() {
 function paintBmiHint() {
     // The fetch can land after the page (or a test's jsdom) is gone.
     if (typeof document === 'undefined' || !document) return;
+    if (settingsRenderBlocked()) return;
     const hint = document.getElementById('settings-height-bmi-hint');
     if (!hint) return;
     const kg = _bmiFacts && !_bmiFacts.ed_safe && Number.isFinite(_bmiFacts.latest_kg) ? _bmiFacts.latest_kg : null;

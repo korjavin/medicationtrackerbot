@@ -142,6 +142,211 @@ export async function reloadToLatest(win = window) {
     return activateAndReload(registration, win);
 }
 
+// module-state: one content-free preparation/committed reload owner per page;
+// no key, draft values or origin permissions are stored here.
+const providerReloadOperations = new WeakMap();
+
+// Preparation can be cancelled. Once activation is requested, the inert page
+// stays committed until its pre-verified worker claims and immediately replaces
+// it. A progress deadline returns a retry handle, never editing authority.
+export function reloadProviderDocument(options = {}) {
+    const win = options.win ?? window;
+    const existing = providerReloadOperations.get(win);
+    if (existing) return existing.retry();
+    const { beforeNavigate = async () => true, isCurrent = () => true, onCommit, onPending = () => {}, onProgress = () => {} } = options;
+    const sw = win.navigator?.serviceWorker;
+    const target = new URL('/', win.location.href);
+    target.searchParams.set('__wg_provider_reload', '1');
+    let worker = null;
+    let committed = false;
+    let navigating = false;
+    let superseded = false;
+    let running = null;
+    let finishClaimWait = null;
+    let resolveClaim;
+    const claimed = new Promise((resolve) => { resolveClaim = resolve; });
+    const send = (type, detail) => win.document?.dispatchEvent(new win.CustomEvent(type, { detail }));
+    const pending = () => {
+        if (!navigating && !superseded) onPending({ retry: operation.retry });
+        return { state: 'committed', retry: operation.retry };
+    };
+    const navigate = () => {
+        if (navigating || superseded) return false;
+        navigating = true;
+        win.location.replace(target.href);
+        resolveClaim(true);
+        return true;
+    };
+    const operation = {
+        get worker() { return worker; },
+        get committed() { return committed; },
+        claim() {
+            // Boot calls this in the matching controllerchange stack. Support
+            // was verified BEFORE commitment: no async probe/dirty check here.
+            if (!committed || sw?.controller !== worker || providerReloadOperations.get(win) !== operation) return false;
+            return navigate();
+        },
+        redundant(expected) {
+            if (!committed || expected !== worker || providerReloadOperations.get(win) !== operation) return;
+            if (finishClaimWait) finishClaimWait(pending());
+            else pending();
+        },
+        supersede() { superseded = true; resolveClaim({ state: 'superseded' }); },
+        retry() {
+            if (running) return running;
+            running = run().finally(() => { running = null; });
+            return running;
+        },
+    };
+    providerReloadOperations.set(win, operation);
+
+    function waitForClaim() {
+        if (navigating) return Promise.resolve(true);
+        if (worker?.state === 'redundant') return Promise.resolve(pending());
+        if (sw?.controller === worker && operation.claim()) return Promise.resolve(true);
+        return new Promise((resolve) => {
+            const finish = (result) => {
+                clearTimeout(timer);
+                if (finishClaimWait === finish) finishClaimWait = null;
+                resolve(result);
+            };
+            const timer = setTimeout(() => finish(pending()), 20000);
+            finishClaimWait = finish;
+            claimed.then(finish);
+        });
+    }
+
+    async function prepare() {
+        const cleanups = [];
+        let alive = true;
+        let timer;
+        const ensure = () => {
+            if (!alive || superseded || navigating || providerReloadOperations.get(win) !== operation) throw new Error('provider reload cancelled');
+        };
+        const unrelated = () => { alive = false; };
+        win.document?.addEventListener('wg:provider-reload-unrelated', unrelated);
+        cleanups.push(() => win.document?.removeEventListener('wg:provider-reload-unrelated', unrelated));
+        const probe = (candidate) => new Promise((resolve) => {
+            const Channel = win.MessageChannel || globalThis.MessageChannel;
+            if (!candidate || !Channel) { resolve(false); return; }
+            const channel = new Channel();
+            let done = false;
+            const finish = (supported) => {
+                if (done) return;
+                done = true; clearTimeout(probeTimer);
+                channel.port1.close(); channel.port2.close();
+                resolve(supported);
+            };
+            const probeTimer = setTimeout(() => finish(false), 500);
+            cleanups.push(() => finish(false));
+            channel.port1.onmessage = (event) => finish(event.data?.type === 'PROVIDER_RELOAD_CAPABILITY' && event.data.version === 1);
+            channel.port1.start?.();
+            try { candidate.postMessage({ type: 'PROVIDER_RELOAD_CAPABILITY' }, [channel.port2]); } catch { finish(false); }
+        });
+        const installed = (registration) => new Promise((resolve, reject) => {
+            if (registration.waiting) { resolve(registration.waiting); return; }
+            // An already-active NON-controller has no future activation for
+            // SKIP_WAITING to complete. It cannot strand an inert page waiting
+            // for a phantom claim. A real current controller can be re-probed.
+            const candidate = registration.installing || (registration.active === sw?.controller ? registration.active : null);
+            if (!candidate?.addEventListener) { reject(new Error('no supporting worker')); return; }
+            const changed = () => {
+                if (candidate.state === 'installed' || candidate.state === 'activated') resolve(registration.waiting || candidate);
+                else if (candidate.state === 'redundant') reject(new Error('worker install failed'));
+            };
+            candidate.addEventListener('statechange', changed);
+            cleanups.push(() => candidate.removeEventListener('statechange', changed));
+            changed();
+        });
+        try {
+            return await Promise.race([
+                (async () => {
+                    let current = sw?.controller;
+                    let ready = !!current && await probe(current) && current === sw.controller;
+                    ensure();
+                    let candidate = null;
+                    let candidateRegistration = null;
+                    let priorController = current;
+                    if (sw && !ready) {
+                        const registration = await sw.getRegistration?.();
+                        ensure();
+                        if (!registration && sw.controller) throw new Error('no registration');
+                        if (registration) {
+                            await registration.update(); ensure();
+                            current = sw.controller;
+                            ready = !!current && await probe(current) && current === sw.controller;
+                            ensure();
+                            if (!ready) {
+                                priorController = sw.controller;
+                                candidateRegistration = registration;
+                                candidate = await installed(registration); ensure();
+                                if (!await probe(candidate)) throw new Error('unsupported worker');
+                                ensure();
+                            }
+                        }
+                    }
+                    // All asynchronous dirty/delete work ends BEFORE activation.
+                    if (!committed && !await beforeNavigate()) return false;
+                    ensure();
+                    if (!ready && !candidate && sw) {
+                        if (await sw.getRegistration?.() || sw.controller) return false;
+                        ensure();
+                    }
+                    if (ready && sw.controller !== current) return false;
+                    if (candidate && sw.controller !== candidate && sw.controller !== priorController) return false;
+                    if (candidate?.state === 'redundant') throw new Error('worker superseded');
+                    if (candidate && sw.controller !== candidate
+                        && (candidate.state !== 'installed' || candidateRegistration.waiting !== candidate)) return false;
+                    if (!committed && isCurrent() !== true) return false;
+                    // No await from this final check through commitment/send.
+                    if (!candidate || sw.controller === candidate) return navigate();
+                    worker = candidate;
+                    const activation = { operation, accepted: false };
+                    send('wg:provider-reload-activation', activation);
+                    if (!activation.accepted) throw new Error('boot cannot own activation');
+                    if (!committed) {
+                        if (typeof onCommit !== 'function' || onCommit({ retry: operation.retry }) !== true) {
+                            send('wg:provider-reload-abort', { operation });
+                            return false;
+                        }
+                        committed = true;
+                    }
+                    clearTimeout(timer);
+                    worker.postMessage({ type: 'SKIP_WAITING' });
+                    return true;
+                })(),
+                new Promise((_, reject) => { timer = setTimeout(() => { alive = false; reject(new Error('provider preparation timed out')); }, 20000); }),
+            ]);
+        } finally {
+            alive = false; clearTimeout(timer);
+            for (const cleanup of cleanups) cleanup();
+            if (!committed) send('wg:provider-reload-abort', { operation });
+        }
+    }
+
+    async function run() {
+        if (navigating) return true;
+        if (superseded) return { state: 'superseded' };
+        try {
+            if (committed) {
+                onProgress();
+                // Retry joins an already-requested activation; no second skip.
+                if (worker?.state !== 'redundant') return await waitForClaim();
+            }
+            const result = await prepare();
+            if (navigating) return true;
+            if (committed) return await waitForClaim();
+            return result;
+        } catch {
+            if (committed) return pending();
+            return false;
+        } finally {
+            if (!committed && providerReloadOperations.get(win) === operation) providerReloadOperations.delete(win);
+        }
+    }
+    return operation.retry();
+}
+
 // Latched when the user taps "Later" so a banner they dismissed does not
 // re-appear seconds later. The two triggers race: the build-ID poll shows the
 // banner immediately and kicks registration.update(), and when that install

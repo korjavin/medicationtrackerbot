@@ -5,10 +5,10 @@
 // The environment is node (vitest.config.mjs), so we build a real jsdom document
 // per test and inject it — which also means importing this module here starts
 // nothing: its auto-start guard reads the global `document`, which is undefined.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
-import { bootBuildID, fetchServerBuildID, renderUpdateBanner, showUpdateBanner, startUpdateCheck } from '../update-check.js';
+import { bootBuildID, fetchServerBuildID, renderUpdateBanner, showUpdateBanner, startUpdateCheck, reloadProviderDocument } from '../update-check.js';
 
 function setup({ booted = '20260710-1000' } = {}) {
     const meta = booted ? `<meta name="medtracker-build-id" content="${booted}">` : '';
@@ -33,6 +33,207 @@ const serving = (build_id, ok = true) => vi.fn().mockResolvedValue({ ok, json: a
 
 // Lets the promise chain inside startUpdateCheck's fire-and-forget check() settle.
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe('explicit provider document freshness handoff', () => {
+    afterEach(() => vi.useRealTimers());
+    function environment() {
+        const dom = new JSDOM('<html></html>');
+        const serviceWorker = new dom.window.EventTarget();
+        const win = { document: dom.window.document, CustomEvent: dom.window.CustomEvent,
+            navigator: { serviceWorker }, location: { href: 'https://account.example/?ordinary=1#settings', replace: vi.fn(), reload: vi.fn() } };
+        const worker = (supports, onActivate) => {
+            const instance = new dom.window.EventTarget();
+            instance.state = 'installed';
+            instance.postMessage = vi.fn((message, ports) => {
+                if (message.type === 'PROVIDER_RELOAD_CAPABILITY' && supports) ports[0].postMessage({ type: message.type, version: 1 });
+                if (message.type === 'SKIP_WAITING') onActivate?.();
+            });
+            return instance;
+        };
+        const change = (controller) => { serviceWorker.controller = controller; serviceWorker.dispatchEvent(new dom.window.Event('controllerchange')); };
+        let operation;
+        // Unit seam only; owning cloud-boot tests exercise the actual handler.
+        win.document.addEventListener('wg:provider-reload-activation', (event) => { operation = event.detail.operation; event.detail.accepted = true; });
+        serviceWorker.addEventListener('controllerchange', () => operation?.claim());
+        return { win, worker, serviceWorker, change, dom };
+    }
+
+    it('uses the actual supporting controller, then one content-free marked root navigation', async () => {
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = worker(true);
+        const guard = vi.fn(async () => true);
+        expect(await reloadProviderDocument({ win, beforeNavigate: guard })).toBe(true);
+        expect(guard).toHaveBeenCalledOnce();
+        expect(win.location.replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
+        expect(win.location.reload).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it.each([false, true])('old controller: awaits real supported handoff even when control changes during the old probe (%s)', async (delayed) => {
+        const { win, worker, serviceWorker, change, dom } = environment();
+        serviceWorker.controller = worker(false);
+        const next = worker(true, () => { if (delayed) setTimeout(() => change(next), 20); else change(next); });
+        next.state = 'installing';
+        const registration = { installing: next, waiting: null, update: vi.fn(async () => {}) };
+        serviceWorker.getRegistration = vi.fn(async () => registration);
+        const running = reloadProviderDocument({ win, onCommit: () => true });
+        await vi.waitFor(() => expect(registration.update).toHaveBeenCalledOnce());
+        expect(win.location.replace).not.toHaveBeenCalled();
+        next.state = 'installed'; registration.waiting = next;
+        next.dispatchEvent(new dom.window.Event('statechange'));
+        expect(await running).toBe(true);
+        expect(serviceWorker.controller).toBe(next);
+        expect(next.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).toHaveBeenCalledOnce();
+        expect(win.location.reload).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it.each(['update', 'install', 'unsupported'])('fails closed for %s preparation failure without a stale timed reload', async (failure) => {
+        vi.useFakeTimers();
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = worker(false);
+        const candidate = worker(failure !== 'unsupported');
+        candidate.state = failure === 'install' ? 'redundant' : 'installed';
+        const registration = { installing: candidate, waiting: failure === 'install' ? null : candidate,
+            update: failure === 'update' ? vi.fn(async () => { throw new Error('offline'); }) : vi.fn(async () => {}) };
+        serviceWorker.getRegistration = vi.fn(async () => registration);
+        const running = reloadProviderDocument({ win });
+        await vi.advanceTimersByTimeAsync(21000);
+        expect(await running).toBe(false);
+        expect(win.location.replace).not.toHaveBeenCalled();
+        expect(win.location.reload).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it('does not navigate after an edit/guard cancellation or a late update result', async () => {
+        vi.useFakeTimers();
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = worker(true);
+        expect(await reloadProviderDocument({ win, beforeNavigate: async () => false })).toBe(false);
+        serviceWorker.controller = worker(false);
+        let resolveUpdate;
+        const next = worker(true);
+        serviceWorker.getRegistration = async () => ({ waiting: next, update: () => new Promise((resolve) => { resolveUpdate = resolve; }) });
+        const running = reloadProviderDocument({ win, onCommit: () => true });
+        await vi.advanceTimersByTimeAsync(21000);
+        expect(await running).toBe(false);
+        resolveUpdate();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(next.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it('with no controller, requests a genuine root navigation without inventing worker capability', async () => {
+        const { win, serviceWorker, dom } = environment();
+        serviceWorker.controller = null;
+        expect(await reloadProviderDocument({ win })).toBe(true);
+        expect(win.location.replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
+        dom.window.close();
+    });
+
+    it('controller-null with an applicable installing registration waits for a real first claim', async () => {
+        const { win, worker, serviceWorker, change, dom } = environment();
+        serviceWorker.controller = null;
+        const next = worker(true, () => change(next)); next.state = 'installing';
+        const registration = { installing: next, active: null, waiting: null, update: vi.fn(async () => {}) };
+        serviceWorker.getRegistration = async () => registration;
+        const running = reloadProviderDocument({ win, onCommit: () => true });
+        await vi.waitFor(() => expect(registration.update).toHaveBeenCalled());
+        expect(win.location.replace).not.toHaveBeenCalled();
+        registration.waiting = next; next.state = 'installed';
+        next.dispatchEvent(new dom.window.Event('statechange'));
+        expect(await running).toBe(true);
+        expect(serviceWorker.controller).toBe(next);
+        expect(win.location.replace).toHaveBeenCalledOnce();
+        dom.window.close();
+    });
+
+    it('controller-null with an old active registration fails closed instead of assuming no SW', async () => {
+        vi.useFakeTimers();
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = null;
+        const active = worker(false); active.state = 'activated';
+        serviceWorker.getRegistration = async () => ({ active, update: async () => {} });
+        const running = reloadProviderDocument({ win });
+        await vi.advanceTimersByTimeAsync(21000);
+        expect(await running).toBe(false);
+        expect(win.location.replace).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it.each([false, true])('an already-active noncontroller is not an activation candidate (support=%s)', async (supports) => {
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = null;
+        const active = worker(supports); active.state = 'activated';
+        serviceWorker.getRegistration = async () => ({ active, installing: null, waiting: null, update: async () => {} });
+        const commit = vi.fn(() => true);
+        expect(await reloadProviderDocument({ win, onCommit: commit })).toBe(false);
+        expect(commit).not.toHaveBeenCalled();
+        expect(active.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).not.toHaveBeenCalled();
+        expect(win.location.reload).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it('rechecks candidate state/registration identity after the final awaited preparation', async () => {
+        const { win, worker, serviceWorker, dom } = environment();
+        serviceWorker.controller = null;
+        const next = worker(true);
+        const registration = { waiting: next, update: async () => {} };
+        serviceWorker.getRegistration = async () => registration;
+        const commit = vi.fn(() => true);
+        expect(await reloadProviderDocument({ win, onCommit: commit, beforeNavigate: async () => {
+            next.state = 'activated'; registration.waiting = null; registration.active = next;
+            return true;
+        } })).toBe(false);
+        expect(commit).not.toHaveBeenCalled();
+        expect(next.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it('an actual supporting claim during preparation takes the current-controller path without skip', async () => {
+        const { win, worker, serviceWorker, change, dom } = environment();
+        serviceWorker.controller = null;
+        const active = worker(true); active.state = 'activated';
+        serviceWorker.getRegistration = async () => ({ active, update: async () => change(active) });
+        const commit = vi.fn(() => true);
+        expect(await reloadProviderDocument({ win, onCommit: commit })).toBe(true);
+        expect(commit).not.toHaveBeenCalled();
+        expect(active.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.replace).toHaveBeenCalledOnce();
+        dom.window.close();
+    });
+
+    it('a registration appearing during the final guard prevents unverified first-claim navigation', async () => {
+        const { win, serviceWorker, dom } = environment();
+        serviceWorker.controller = null;
+        let registration;
+        serviceWorker.getRegistration = async () => registration;
+        expect(await reloadProviderDocument({ win, beforeNavigate: async () => { registration = { active: {} }; return true; } })).toBe(false);
+        expect(win.location.replace).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+
+    it('ignores a late capability reply after the bounded operation has failed', async () => {
+        vi.useFakeTimers();
+        const { win, serviceWorker, dom } = environment();
+        let replyPort;
+        serviceWorker.controller = { postMessage(_message, ports) { replyPort = ports[0]; } };
+        serviceWorker.getRegistration = async () => undefined;
+        const guard = vi.fn(async () => true);
+        const running = reloadProviderDocument({ win, beforeNavigate: guard });
+        await vi.advanceTimersByTimeAsync(21000);
+        expect(await running).toBe(false);
+        replyPort.postMessage({ type: 'PROVIDER_RELOAD_CAPABILITY', version: 1 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(guard).not.toHaveBeenCalled();
+        expect(win.location.replace).not.toHaveBeenCalled();
+        dom.window.close();
+    });
+});
 
 // A minimal ServiceWorker stand-in: postMessage + an addEventListener/fire pair
 // so a test can drive its 'statechange' just like the browser would.

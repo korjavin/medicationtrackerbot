@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"html"
 	"io/fs"
@@ -380,6 +381,21 @@ func buildConnectSrc(hosts []string) string {
 	return b.String()
 }
 
+// appDocumentWithConnectOrigins describes THIS response's HTTPS connect-src,
+// not a subsequently registered account policy. The cached template is never
+// modified: another account/request must not inherit this response's hosts.
+func appDocumentWithConnectOrigins(index []byte, hosts []string) []byte {
+	origins := []string{}
+	for _, source := range strings.Fields(buildConnectSrc(hosts)) {
+		if strings.HasPrefix(source, "https://") {
+			origins = append(origins, source)
+		}
+	}
+	encoded, _ := json.Marshal(origins) // a slice of strings cannot fail
+	meta := "<head>\n    <meta name=\"medtracker-connect-origins\" content=\"" + html.EscapeString(string(encoded)) + "\">"
+	return bytes.Replace(index, []byte("<head>"), []byte(meta), 1)
+}
+
 // baseDomainStaticAssets are the only web/static files the base domain serves:
 // the feedback reader's decrypt bundle, and the kit stylesheet + self-hosted
 // fonts every shell page links (landing, /feedback, /s/ share landing —
@@ -595,11 +611,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hosts, err := h.store.EgressHosts(r.Context(), account.ID)
 		if err != nil {
 			slog.Error("cloudserver: read egress hosts", "error", err, "subdomain", sub)
+			hosts = nil
 		}
 		setSecurityHeaders(w, true, hosts)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Write(h.appIndex)
+		w.Write(appDocumentWithConnectOrigins(h.appIndex, hosts))
 		return
 	case strings.HasPrefix(r.URL.Path, "/static/"):
 		noStore(w)

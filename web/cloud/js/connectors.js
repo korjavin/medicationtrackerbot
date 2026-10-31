@@ -21,7 +21,12 @@
 import { getPairing, disconnectClaude } from './mcp-pairing.js';
 import { getRemoteStatus, connectRemote, disconnectRemote } from './mcp-remote.js';
 
+const renderBlocked = (mount, staging = false) => (!staging && !mount.isConnected) || !mount.ownerDocument?.documentElement
+  || mount.ownerDocument.documentElement.hasAttribute('data-provider-reload-committed');
+
 export function renderConnectors(mount, ctx) {
+  // Settings stages this mount immediately before its synchronous WGPage push.
+  if (renderBlocked(mount, true)) return;
   mount.innerHTML = '<p class="wg-hint">Loading&hellip;</p>';
   loadConnectors(mount, ctx).catch((err) => {
     renderConnectorsError(mount, ctx, err.message || String(err));
@@ -38,7 +43,9 @@ export async function claudeConnectorMode(ctx) {
 
 async function loadConnectors(mount, ctx) {
   const pairing = await getPairing(ctx);
+  if (renderBlocked(mount)) return;
   const remote = await getRemoteStatus();
+  if (renderBlocked(mount)) return;
   renderPicker(mount, ctx, pairing, remote);
 }
 
@@ -197,6 +204,7 @@ const CONNECT_BLOCK = {
 };
 
 function renderPicker(mount, ctx, pairing, remote) {
+  if (renderBlocked(mount)) return;
   const mode = claudeMode(pairing, remote.enabled);
   const showApps = mode === 'remote' && remote.url;
   mount.innerHTML = `
@@ -250,6 +258,7 @@ function renderPicker(mount, ctx, pairing, remote) {
 // the clear (it's a capability URL, that's the point), so the screen says the
 // link is a key. Copy prompt is the one primary; Done is secondary.
 function renderConnected(mount, ctx, url) {
+  if (renderBlocked(mount)) return;
   mount.innerHTML = `
     <div class="wg-note wg-note--ok"><i class="wg-ico" data-icon="check"></i><div class="wg-note__body">Connector on. Pick the app you use.</div></div>
     <div id="claude-apps" class="wg-vstack"></div>
@@ -263,6 +272,7 @@ function renderConnected(mount, ctx, url) {
 }
 
 function renderConnectorsError(mount, ctx, errorText) {
+  if (renderBlocked(mount)) return;
   mount.innerHTML = `
     <section class="wg-section">
       <p class="wg-error"></p>

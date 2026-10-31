@@ -7502,7 +7502,9 @@ body:has(.wg-callbar--dock) .wg-toasts {
 #integrations-provider-switch-note[hidden],
 #integrations-photo-key-hint[hidden],
 #integrations-photo-url-hint[hidden],
-#integrations-photo-model-hint[hidden] {
+#integrations-photo-model-hint[hidden],
+.wg-ai-key-check-result[hidden],
+.wg-ai-key-check-result [hidden] {
     display: none;
 }
 

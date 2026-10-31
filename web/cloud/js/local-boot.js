@@ -16,6 +16,13 @@
 // installApiShim's ctx keys the per-account caches (reminder debounce); there is
 // one local "account" per origin and no key material.
 const LOCAL_CTX = { accountId: 'local' };
+// The native loader supplied this response's policy before this classic
+// script. setEgressHosts/changed:false later cannot replace this snapshot.
+// module-state: immutable per-document public permission snapshot.
+const localDocumentPolicy = Object.freeze({
+    origins: window.document?.querySelector('meta[name="medtracker-connect-origins"]')?.content ?? null,
+    origin: window.location?.origin || '',
+});
 
 // The capability marker the page reads through CSS (styles.css: .wg-cloud-only
 // hides, .wg-local-only shows under :root.wg-local-vault). Set now, before the
@@ -40,25 +47,27 @@ window.MedTrackerCloudReady = (async function boot() {
         // it keeps a mirror of the BYOK hosts and a change applies on the next
         // document load: this document's CSP is stale, so reload — at boot and
         // after a Settings save alike (the app shell has no reload control of
-        // its own). The next load's list matches, so it reloads once. null
-        // skips apishim's "reload to apply" toast.
+        // its own). The next load's list matches, so it reloads once. Report the
+        // automatic navigation so apishim does not offer another reload toast.
         const registerEgress = async ({ settings }) => {
             await domReady;
             const res = await policy.registerLocalEgress({ settings, win: window });
             if (!res) return null;
             if (res.changed) {
                 window.location.reload();
-                return null;
+                return { hosts: res.hosts, reloading: true };
             }
             return res.hosts;
         };
         const shimCall = installApiShim(LOCAL_CTX, {
+            documentPolicy: localDocumentPolicy,
             recordsPort: localRecordsPort,
             effects: policy.LOCAL_EFFECTS,
             rxnorm: null,
             operatorFoodDb: policy.LOCAL_FOOD_DB,
             protection: policy.LOCAL_PROTECTION,
             registerEgress,
+            registerEgressTimeoutMs: 0, // native.call cannot revoke a pending registration/reload
             win: window,
         });
         window.CloudVault = policy.LOCAL_VAULT;

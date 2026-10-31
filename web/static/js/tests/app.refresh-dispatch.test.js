@@ -50,6 +50,20 @@ describe('app.js refresh dispatch behavior', () => {
     }
   });
 
+  it('committed provider activation prevents new refresh work, including direct and optimistic Settings refresh', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.AppStore.set('currentTab', 'settings');
+      window.loadSettings = vi.fn();
+      document.documentElement.setAttribute('data-provider-reload-committed', '');
+      window.requestTabRefresh({ source: 'optimistic-commit' });
+      window.requestTabRefresh({ source: 'changes' });
+      window.reloadCurrentTab();
+      expect(window.loadSettings).not.toHaveBeenCalled();
+      expect(document.getElementById('data-refresh-banner')?.classList.contains('hidden') ?? true).toBe(true);
+    } finally { cleanup(); }
+  });
+
   it('requestTabRefresh defers reload while user is editing and applies on demand', () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
@@ -73,6 +87,19 @@ describe('app.js refresh dispatch behavior', () => {
     } finally {
       cleanup();
     }
+  });
+
+  it.each(['optimistic', 'optimistic-commit', 'optimistic-rollback'])('forwards %s provenance to the Settings loader only', (source) => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      window.AppStore.set('currentTab', 'settings');
+      window.loadSettings = vi.fn();
+      window.requestTabRefresh({ source });
+      expect(window.loadSettings).toHaveBeenCalledExactlyOnceWith({ source });
+      window.loadSettings.mockClear();
+      window.reloadCurrentTab();
+      expect(window.loadSettings).toHaveBeenCalledExactlyOnceWith({});
+    } finally { cleanup(); }
   });
 
   it('requestTabRefresh source=self-echo never surfaces the banner, even with a modal open', () => {

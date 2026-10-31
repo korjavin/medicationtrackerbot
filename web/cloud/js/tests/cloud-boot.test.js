@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as realVault from '../../../domain/vault.js';
 import { loadFrontendEnv } from '../../../static/js/tests/helpers/frontend-harness.js';
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
+import { reloadProviderDocument } from '../update-check.js';
 
 // cloud-boot.js is a self-executing classic script (not an ES module) that
 // assigns window.MedTrackerCloudReady and issues dynamic import('/js/*.js')
@@ -36,6 +37,33 @@ async function runBoot({ hash = '', modules, setupWindow }) {
 }
 
 describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
+  it('captures exact document origins before async unlock, not later DOM or settings state', async () => {
+    const dom = new JSDOM('<head><meta name="medtracker-connect-origins" content=\'["https://a.example"]\'></head>');
+    let unlock;
+    let captured;
+    const replaceState = vi.fn();
+    const warming = new Promise((resolve) => { unlock = resolve; });
+    const running = runBoot({
+      setupWindow(win) {
+        win.document = dom.window.document;
+        win.location = { origin: 'https://account.example', href: 'https://account.example/?__wg_provider_reload=1&keep=1', search: '?__wg_provider_reload=1&keep=1' };
+        win.history = { state: null, replaceState };
+      },
+      modules: {
+        'unlock.js': { warmUnlock: () => warming },
+        'apishim.js': { installApiShim: (_ctx, options) => { captured = options.documentPolicy; return () => Promise.resolve(null); } },
+        'sync.js': { pullOnOpen: () => new Promise(() => {}) },
+      },
+    });
+    dom.window.document.querySelector('meta').content = '["https://b.example"]';
+    unlock({ accountId: 'fixture-account', kData: {}, kMac: {} });
+    await running;
+    expect(captured).toEqual({ origins: '["https://a.example"]', origin: 'https://account.example' });
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(replaceState).toHaveBeenCalledExactlyOnceWith(null, '', 'https://account.example/?keep=1');
+    dom.window.close();
+  });
+
   it('redirects to /unlock when there is no cached LDK record (warmUnlock -> null)', async () => {
     const { location } = await runBoot({
       modules: { 'unlock.js': { warmUnlock: async () => null } },
@@ -1111,6 +1139,219 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
       modules: { 'unlock.js': { warmUnlock: async () => null } },
     });
     expect(location.href).toBe('/unlock');
+  });
+
+  it('coordinates the REAL boot controllerchange handler with provider handoff before activation', async () => {
+    priorNavigator = globalThis.navigator;
+    const dom = new JSDOM('<html></html>');
+    const sw = new dom.window.EventTarget();
+    const old = { postMessage() {} }; // deployed older worker has no capability reply
+    sw.controller = old;
+    let next;
+    next = { state: 'installed', postMessage(message, ports) {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') ports[0].postMessage({ type: message.type, version: 1 });
+      if (message.type === 'SKIP_WAITING') {
+        sw.controller = next;
+        sw.dispatchEvent(new dom.window.Event('controllerchange'));
+      }
+    } };
+    const registration = { waiting: null, update: vi.fn(async () => { registration.waiting = next; }) };
+    sw.register = async () => registration;
+    sw.getRegistration = async () => registration;
+    globalThis.navigator = { serviceWorker: sw };
+    const replace = vi.fn();
+    const booted = await runBoot({
+      setupWindow(win) {
+        win.document = dom.window.document; win.CustomEvent = dom.window.CustomEvent;
+        win.navigator = globalThis.navigator;
+        win.location = { origin: 'https://account.example', href: 'https://account.example/', replace };
+      },
+      modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    booted.location.reload = vi.fn();
+    const commit = vi.fn(() => true);
+    expect(await reloadProviderDocument({ win: booted.window, onCommit: commit })).toBe(true);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(sw.controller).toBe(next);
+    expect(registration.update).toHaveBeenCalledOnce();
+    expect(replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
+    expect(booted.location.reload).not.toHaveBeenCalled();
+    dom.window.close();
+  });
+
+  it('an edit during real preparation aborts before skip and keeps unrelated update policy', async () => {
+    priorNavigator = globalThis.navigator;
+    const dom = new JSDOM('<html></html>');
+    const sw = new dom.window.EventTarget();
+    sw.controller = { postMessage() {} };
+    let dirty = false;
+    const next = new dom.window.EventTarget(); next.state = 'installed';
+    next.postMessage = vi.fn((message, ports) => {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') {
+        dirty = true;
+        ports[0].postMessage({ type: message.type, version: 1 });
+      }
+    });
+    const registration = { waiting: next, update: async () => {} };
+    sw.register = async () => registration; sw.getRegistration = async () => registration;
+    globalThis.navigator = { serviceWorker: sw };
+    const replace = vi.fn();
+    const booted = await runBoot({ setupWindow(win) {
+      win.document = dom.window.document; win.CustomEvent = dom.window.CustomEvent; win.navigator = globalThis.navigator;
+      win.location = { origin: 'https://account.example', href: 'https://account.example/', replace };
+    }, modules: { 'unlock.js': { warmUnlock: async () => null } } });
+    booted.location.reload = vi.fn();
+    const commit = vi.fn(() => true);
+    expect(await reloadProviderDocument({ win: booted.window, isCurrent: () => !dirty, onCommit: commit })).toBe(false);
+    expect(commit).not.toHaveBeenCalled();
+    expect(next.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    expect(replace).not.toHaveBeenCalled();
+    sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
+    expect(booted.location.reload).toHaveBeenCalledOnce();
+    dom.window.close();
+  });
+
+  it('keeps late activation committed, coalesces Retry and immediately marks exactly one navigation on claim', async () => {
+    priorNavigator = globalThis.navigator;
+    const env = loadFrontendEnv();
+    const domWindow = env.window;
+    const sw = new domWindow.EventTarget();
+    const old = new domWindow.EventTarget(); old.state = 'activated'; old.postMessage = () => {};
+    const next = new domWindow.EventTarget(); next.state = 'installed';
+    const skipWaiting = vi.fn();
+    next.postMessage = (message, ports) => {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') ports[0].postMessage({ type: message.type, version: 1 });
+      if (message.type === 'SKIP_WAITING') skipWaiting(); // activation finishes after the helper times out
+    };
+    const registration = { waiting: null, update: async () => { registration.waiting = next; } };
+    sw.controller = old; sw.register = async () => registration; sw.getRegistration = async () => registration;
+    globalThis.navigator = { serviceWorker: sw };
+    const replace = vi.fn();
+    const flush = vi.fn();
+    const booted = await runBoot({
+      setupWindow(win) {
+        win.document = env.document; win.CustomEvent = domWindow.CustomEvent;
+        win.navigator = globalThis.navigator; win.flushPendingDelete = flush;
+        win.location = { origin: 'https://account.example', href: 'https://account.example/', replace };
+      }, modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    booted.location.reload = vi.fn();
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...args) => realTimeout(fn, ms === 500 ? 10 : ms === 20000 ? 300 : ms, ...args));
+    try {
+      const commit = vi.fn(() => true);
+      const pending = vi.fn();
+      expect(await reloadProviderDocument({ win: booted.window, onCommit: commit, onPending: pending })).toMatchObject({ state: 'committed' });
+      expect(skipWaiting).toHaveBeenCalledOnce();
+      // The same still-pending actual worker belongs to the first activation;
+      // a subsequent explicit retry may join it but must not stack activation.
+      expect(await reloadProviderDocument({ win: booted.window })).toMatchObject({ state: 'committed' });
+      expect(skipWaiting).toHaveBeenCalledOnce();
+      expect(commit).toHaveBeenCalledOnce();
+      expect(pending).toHaveBeenCalledTimes(2);
+      const probes = next.postMessage;
+      const beforeClaim = skipWaiting.mock.calls.length;
+      sw.controller = next; next.state = 'activated';
+      sw.dispatchEvent(new domWindow.Event('controllerchange'));
+      expect(booted.location.reload).not.toHaveBeenCalled();
+      // Synchronous assertion: no additional await/probe before replacement.
+      expect(replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
+      expect(flush).not.toHaveBeenCalled();
+      expect(skipWaiting.mock.calls.length).toBe(beforeClaim);
+      expect(next.postMessage).toBe(probes);
+      sw.dispatchEvent(new domWindow.Event('controllerchange'));
+      expect(replace).toHaveBeenCalledOnce();
+      // This page is already leaving. No second ordinary navigation races it.
+      sw.controller = {};
+      sw.dispatchEvent(new domWindow.Event('controllerchange'));
+      expect(flush).not.toHaveBeenCalled();
+      expect(booted.location.reload).not.toHaveBeenCalled();
+    } finally { vi.restoreAllMocks(); env.cleanup(); }
+  });
+
+  it('definitive redundancy wakes the owned wait so the first Retry prepares a real replacement immediately', async () => {
+    priorNavigator = globalThis.navigator;
+    const dom = new JSDOM('<html></html>');
+    const sw = new dom.window.EventTarget();
+    sw.controller = { postMessage() {} };
+    const skipped = vi.fn(), replacementSkipped = vi.fn();
+    const first = new dom.window.EventTarget(); first.state = 'installed';
+    const next = new dom.window.EventTarget(); next.state = 'installed';
+    first.postMessage = (message, ports) => {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') ports[0].postMessage({ type: message.type, version: 1 });
+      if (message.type === 'SKIP_WAITING') skipped();
+    };
+    next.postMessage = (message, ports) => {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') ports[0].postMessage({ type: message.type, version: 1 });
+      if (message.type === 'SKIP_WAITING') {
+        replacementSkipped(); sw.controller = next; next.state = 'activated';
+        sw.dispatchEvent(new dom.window.Event('controllerchange'));
+      }
+    };
+    const registration = { waiting: first, update: vi.fn(async () => {
+      if (first.state === 'redundant') registration.waiting = next;
+    }) };
+    sw.register = async () => registration; sw.getRegistration = async () => registration;
+    globalThis.navigator = { serviceWorker: sw };
+    const replace = vi.fn();
+    const booted = await runBoot({ setupWindow(win) {
+      win.document = dom.window.document; win.CustomEvent = dom.window.CustomEvent; win.navigator = globalThis.navigator;
+      win.location = { origin: 'https://account.example', href: 'https://account.example/', replace };
+    }, modules: { 'unlock.js': { warmUnlock: async () => null } } });
+    booted.location.reload = vi.fn();
+    const commit = vi.fn(() => true), pending = vi.fn();
+    let settled = false;
+    const running = reloadProviderDocument({ win: booted.window, onCommit: commit, onPending: pending });
+    running.then(() => { settled = true; });
+    try {
+      await vi.waitFor(() => expect(skipped).toHaveBeenCalledOnce(), { timeout: 2500 });
+      expect(settled).toBe(false);
+      first.state = 'redundant'; first.dispatchEvent(new dom.window.Event('statechange'));
+      // This is well before the real twenty-second progress deadline.
+      await vi.waitFor(() => expect(settled).toBe(true));
+      const result = await running;
+      expect(result.state).toBe('committed');
+      expect(pending).toHaveBeenCalledOnce();
+      expect(await result.retry()).toBe(true);
+      expect(registration.update).toHaveBeenCalledTimes(2);
+      expect(skipped).toHaveBeenCalledOnce();
+      expect(replacementSkipped).toHaveBeenCalledOnce();
+      expect(commit).toHaveBeenCalledOnce();
+      expect(replace).toHaveBeenCalledExactlyOnceWith('https://account.example/?__wg_provider_reload=1');
+      expect(booted.location.reload).not.toHaveBeenCalled();
+    } finally {
+      sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
+      dom.window.close();
+    }
+  });
+
+  it('retires redundant activation guards and ignores cleanup from an older UI attempt', async () => {
+    priorNavigator = globalThis.navigator;
+    const dom = new JSDOM('<html></html>');
+    const sw = new dom.window.EventTarget();
+    sw.controller = {}; sw.register = async () => ({ waiting: null });
+    globalThis.navigator = { serviceWorker: sw };
+    const booted = await runBoot({ setupWindow(win) { win.document = dom.window.document; }, modules: { 'unlock.js': { warmUnlock: async () => null } } });
+    booted.location.reload = vi.fn();
+    const first = { claim: vi.fn(), redundant: vi.fn(), supersede: vi.fn() }, second = { claim: vi.fn(), redundant: vi.fn(), supersede: vi.fn() };
+    const candidate = new dom.window.EventTarget(); candidate.state = 'installed';
+    first.worker = candidate; second.worker = candidate;
+    const activation = { operation: first, accepted: false };
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: activation }));
+    const retry = { operation: second, accepted: false };
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: retry }));
+    expect(activation.accepted).toBe(true);
+    expect(retry.accepted).toBe(false);
+    candidate.state = 'redundant'; candidate.dispatchEvent(new dom.window.Event('statechange'));
+    expect(first.redundant).toHaveBeenCalledOnce();
+    const retired = { operation: second, accepted: false };
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: retired }));
+    expect(retired.accepted).toBe(true);
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-abort', { detail: { operation: first } }));
+    sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
+    expect(booted.location.reload).toHaveBeenCalledOnce();
+    expect(second.supersede).toHaveBeenCalledOnce();
+    dom.window.close();
   });
 });
 

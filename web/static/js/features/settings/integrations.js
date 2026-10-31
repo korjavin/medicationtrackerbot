@@ -42,6 +42,247 @@
     let _aiProviderSavedPayload = null; // module-state: masked accepted form snapshot for full page cancellation
     let _aiProviderMainKeyEdited = false; // module-state: explicit main-key intent prevents automatic mask replacement
     let _aiProviderMainClearBase = null; // module-state: only a deliberate clear at this public base may remove its saved key
+    let _keyCheckSeq = 0; // module-state: edits/loads supersede an in-flight Check, never stores credentials
+    let _integrationDraftSeq = 0; // module-state: actual form edits/changed snapshots, independent of identical read refreshes
+    let _keyCheckBusy = false; // module-state: current Check button progress
+    let _keyCheckResult = null; // module-state: fixed sanitized result only
+    let _keyCheckSavedBase = null; // module-state: public base explicitly saved on this page
+    let _keyCheckRegistration = null; // module-state: registration outcome, never a permission grant
+    let _keyCheckSaveSeq = 0; // module-state: accepted snapshot generation, independent of subsequent draft edits
+    let _keyCheckReloadBusy = false; // module-state: one explicit document/worker handoff, never a permission grant
+    let _integrationSaveBusy = false; // module-state: the current explicit Save owns its issued write through real settlement
+    let _providerReloadPanel = null; // module-state: committed presentation nodes only, never draft values
+    let _providerReloadLoader = () => import('/js/update-check.js'); // module-state: existing updater module, injectable for owning tests
+
+    function keyCheckArgs() {
+        const key = getInput(FIELD_IDS.openai.api_key)?.value || '';
+        return {
+            scope: 'text', intent: key === '***' ? 'saved' : 'draft',
+            draft: { api_key: key, url: getInput(FIELD_IDS.openai.url)?.value || '', model: getInput(FIELD_IDS.openai.model)?.value || '' }
+        };
+    }
+
+    function keyCheckPermission() {
+        try {
+            const port = window.offlineAwareApiCall;
+            if (typeof port?.aiKeyCheckPermission === 'function' && typeof port.checkAIKey === 'function') {
+                const args = keyCheckArgs();
+                const permission = port.aiKeyCheckPermission(args);
+                if (permission.state === 'ready' && !args.draft.api_key.trim()) {
+                    return { state: 'unsupported', code: 'key', message: 'Enter an API key before checking.' };
+                }
+                return permission;
+            }
+        } catch (_) { /* a missing/older capability never falls through to HTTP */ }
+        return { state: 'unsupported', code: 'capability', message: 'Key checking is unavailable in this app version. Update the app to check your key.' };
+    }
+
+    function invalidateKeyCheck() {
+        _keyCheckSeq += 1;
+        _integrationDraftSeq += 1;
+        _keyCheckBusy = false;
+        _keyCheckResult = null;
+        renderKeyCheck();
+    }
+
+    function renderKeyCheck() {
+        if (_providerReloadPanel || !document?.documentElement) return;
+        const button = getInput('integrations-check-key');
+        const note = getInput('integrations-check-result');
+        if (!button || !note) return;
+        const permission = keyCheckPermission();
+        const local = document.documentElement.classList.contains('wg-local-vault');
+        let result = _keyCheckResult;
+        let reload = false;
+        if (permission.state !== 'ready') result = permission;
+        if (permission.state === 'needs_reload') {
+            if (_keyCheckSavedBase === mainBase()) {
+                if (_keyCheckRegistration === 'failed') result = { state: 'error', message: 'Settings saved, but the provider could not be registered. Save again to retry.' };
+                else if (_keyCheckRegistration === 'pending') result = { message: 'Settings saved. Registering your provider…' };
+                else if (local) result = { message: 'Save your provider settings. This app reloads automatically before you can check the key.' };
+                else {
+                    result = { message: 'Settings saved. Reload this page before checking the key.' };
+                    reload = _keyCheckRegistration === 'registered';
+                }
+            } else if (local) result = { message: 'Save your provider settings. This app reloads automatically before you can check the key.' };
+        }
+        const valid = mainProviderSaveAllowed() && !photoSaveIssue();
+        button.disabled = !!_providerReloadPanel || _keyCheckBusy || !valid || permission.state !== 'ready';
+        // Preserve the icon while changing the visible progress text.
+        const label = button.querySelector('[data-check-label]');
+        if (label) label.textContent = _keyCheckBusy ? 'Checking…' : 'Check key';
+        const urlError = permission.code === 'url';
+        getInput('integrations-openai-url-field')?.classList.toggle('wg-field--error', urlError);
+        const urlInput = getInput(FIELD_IDS.openai.url);
+        if (urlInput) {
+            if (urlError) urlInput.setAttribute('aria-invalid', 'true');
+            else urlInput.removeAttribute('aria-invalid');
+        }
+        const urlHint = getInput('integrations-provider-url-hint');
+        if (urlError && urlHint) urlHint.textContent = permission.message;
+        if (_keyCheckBusy) result = { message: 'Checking your key…' };
+        if (_keyCheckResult?.code === 'reload' && permission.state === 'needs_reload') result = _keyCheckResult;
+        // Unsupported URL has its explanation beside the field, not a second note.
+        note.hidden = !result || urlError;
+        const tone = result?.state === 'success' ? 'ok' : result?.code === 'rejected' ? 'danger' : result?.state === 'error' ? 'warn' : '';
+        note.className = 'wg-note wg-ai-key-check-result' + (tone ? ' wg-note--' + tone : '');
+        let message = result?.message || '';
+        if (result?.code === 'unreachable') {
+            const provider = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
+            message = 'Could not reach ' + (provider.id === 'other' ? 'your provider' : provider.summary) + ' — check the URL';
+        }
+        getInput('integrations-check-message').textContent = message;
+        const icon = getInput('integrations-check-icon');
+        icon.textContent = '';
+        icon.dataset.icon = tone === 'ok' ? 'check' : tone === 'danger' ? 'alert' : 'info';
+        window.WGIcons?.hydrate(icon);
+        getInput('integrations-check-reload').hidden = !reload;
+        getInput('integrations-check-reload').disabled = _keyCheckReloadBusy || _integrationSaveBusy;
+        _aiProviderPage?.setPrimaryEnabled(!_providerReloadPanel && !_keyCheckReloadBusy && !_integrationSaveBusy && providerSaveAllowed());
+    }
+
+    async function checkKey() {
+        if (_providerReloadPanel || _keyCheckBusy || !mainProviderSaveAllowed() || photoSaveIssue()) return;
+        const permission = keyCheckPermission();
+        if (permission.state !== 'ready') { renderKeyCheck(); return; }
+        const seq = ++_keyCheckSeq;
+        const args = keyCheckArgs();
+        _keyCheckBusy = true;
+        _keyCheckResult = null;
+        renderKeyCheck();
+        let result;
+        try { result = await window.offlineAwareApiCall.checkAIKey(args); } catch (_) {
+            result = { state: 'error', code: 'unreachable', message: 'Could not reach your provider — check the URL' };
+        }
+        if (_providerReloadPanel || seq !== _keyCheckSeq) return;
+        _keyCheckBusy = false;
+        _keyCheckResult = result;
+        renderKeyCheck();
+    }
+
+    function integrationsHaveUnsavedChanges() {
+        for (const [group, fields] of Object.entries(FIELD_IDS)) {
+            for (const [field, id] of Object.entries(fields)) {
+                if ((getInput(id)?.value || '') !== (_aiProviderSavedPayload?.[group]?.[field] || '')) return true;
+            }
+        }
+        return false;
+    }
+
+    function commitProviderReload({ retry }) {
+        if (_providerReloadPanel) return true;
+        const backdrop = document.createElement('div');
+        backdrop.className = 'mt-confirm-backdrop';
+        const panel = document.createElement('mt-modal');
+        panel.id = 'provider-committed-reload';
+        panel.className = 'wg-dialog mt-confirm-modal';
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('tabindex', '-1');
+        const icon = document.createElement('span');
+        icon.className = 'wg-dialog__icon wg-dialog__icon--info';
+        const glyph = document.createElement('i');
+        glyph.className = 'wg-ico';
+        glyph.dataset.icon = 'refresh';
+        icon.append(glyph);
+        const title = document.createElement('p');
+        title.className = 'wg-dialog__title mt-confirm-modal__title';
+        const body = document.createElement('p');
+        body.className = 'wg-dialog__body mt-confirm-modal__body';
+        body.setAttribute('role', 'status');
+        const actions = document.createElement('div');
+        actions.className = 'wg-dialog__acts';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'wg-btn wg-btn--primary wg-btn--block';
+        button.textContent = 'Reload page';
+        button.onclick = () => retry();
+        actions.append(button);
+        panel.append(icon, title, body, actions);
+        _providerReloadPanel = { panel, title, body, actions, button };
+        document.documentElement.setAttribute('data-provider-reload-committed', '');
+        // The commitment is one-way. Keep every existing app/page/modal inert;
+        // no key is copied, and no old field value is serialized for recovery.
+        for (const child of document.body.children) child.inert = true;
+        _aiProviderPage?.setPrimaryEnabled(false);
+        _aiProviderPage?.el?.querySelector('.wg-pagebar .wg-btn--primary')?.classList.remove('wg-btn--primary');
+        document.body.append(backdrop, panel);
+        const blockBackground = (event) => {
+            if (!panel.contains(event.target) || event.key === 'Escape') {
+                event.preventDefault(); event.stopImmediatePropagation();
+            }
+        };
+        for (const name of ['click', 'keydown', 'input', 'change', 'submit']) document.addEventListener(name, blockBackground, true);
+        window.ModalManager?.register(panel.id, () => false);
+        window.ModalManager?.open(panel.id);
+        if (!window.ModalManager) panel.setAttribute('open', '');
+        window.WGIcons?.hydrate(panel);
+        providerReloadProgress();
+        return true;
+    }
+
+    function providerReloadProgress() {
+        if (!_providerReloadPanel) return;
+        const { panel, title, body, actions, button } = _providerReloadPanel;
+        title.textContent = 'Reloading…';
+        panel.setAttribute('aria-label', 'Reloading…');
+        body.textContent = 'Reloading this page. Please keep it open.';
+        actions.hidden = true;
+        actions.classList.add('hidden');
+        button.disabled = true;
+        panel.focus();
+    }
+
+    function providerReloadPending() {
+        if (!_providerReloadPanel) return;
+        const { panel, title, body, actions, button } = _providerReloadPanel;
+        title.textContent = 'Reload needed';
+        panel.setAttribute('aria-label', 'Reload needed');
+        body.textContent = 'Reload has not finished. Reload the page to continue.';
+        actions.hidden = false;
+        actions.classList.remove('hidden');
+        button.disabled = false;
+        button.focus();
+    }
+
+    async function reloadForKeyCheck() {
+        if (_integrationSaveBusy || _keyCheckReloadBusy || keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
+        // Own the whole user action before confirmation/delete flushing can
+        // yield. Two quick taps must not start competing navigation intents.
+        _keyCheckReloadBusy = true;
+        renderKeyCheck();
+        const seq = _integrationDraftSeq;
+        try {
+            if (integrationsHaveUnsavedChanges()) {
+                if (typeof safeConfirm !== 'function' || !await safeConfirm('Reloading will discard your unsaved changes.', null,
+                    { title: 'Reload page?', confirmLabel: 'Discard and reload', cancelLabel: 'Keep editing', tone: 'warn' })) return false;
+            }
+            const owed = window.flushPendingDelete?.();
+            if (owed) { try { await owed; } catch (_) { return false; } }
+            if (seq !== _integrationDraftSeq) return false;
+            _keyCheckResult = null;
+            renderKeyCheck();
+            let reloaded = false;
+            try {
+                const { reloadProviderDocument } = await _providerReloadLoader();
+                reloaded = await reloadProviderDocument({ win: window, isCurrent: () => seq === _integrationDraftSeq,
+                    onCommit: commitProviderReload, onPending: providerReloadPending, onProgress: providerReloadProgress, beforeNavigate: async () => {
+                    const pending = window.flushPendingDelete?.();
+                    if (pending) { try { await pending; } catch (_) { return false; } }
+                    return seq === _integrationDraftSeq;
+                } });
+            } catch (_) { /* a failed/older updater keeps this document's gate */ }
+            if (!reloaded && seq === _integrationDraftSeq) {
+                _keyCheckResult = { state: 'error', code: 'reload', message: 'Could not refresh this page. Check your connection and try Reload page again.' };
+            }
+            return reloaded;
+        } finally {
+            if (!_providerReloadPanel) {
+                _keyCheckReloadBusy = false;
+                renderKeyCheck();
+            }
+        }
+    }
 
     function normalizeProviderURL(url) {
         return String(url || '').trim().replace(/\/+$/, '');
@@ -53,7 +294,7 @@
     }
 
     function mainProviderSaveAllowed() {
-        const key = getInput(FIELD_IDS.openai.api_key)?.value.trim();
+        const key = getInput(FIELD_IDS.openai.api_key)?.value || '';
         const url = normalizeProviderURL(getInput(FIELD_IDS.openai.url)?.value);
         // The sentinel can preserve a saved key only at its saved API base.
         // Legacy keyless settings may remain unchanged, but new custom
@@ -64,10 +305,10 @@
             const sameSavedURL = _aiProviderLoaded?.provider === 'other'
                 && url === normalizeProviderURL(_aiProviderLoaded.url);
             const preserveKeyless = sameSavedURL && (!_aiProviderLoaded.key || _aiProviderMainClearBase === url);
-            return !!url && (key === '***' || preserveKeyless || (!!key && key !== '***'));
+            return !!url && (key === '***' || preserveKeyless || (!!key.trim() && key !== '***'));
         }
         if (_aiProviderDraft === (_aiProviderLoaded?.provider || 'openai')) return true;
-        return !!key && key !== '***';
+        return !!key.trim() && key !== '***';
     }
 
     function mainURL(saved = false) {
@@ -103,7 +344,7 @@
 
     function reconcilePhotoPins() {
         if (!_aiProviderLoaded) return;
-        const retainedMask = _aiProviderLoaded.visionKey && getInput(FIELD_IDS.openai.vision_api_key)?.value.trim() === '***';
+        const retainedMask = _aiProviderLoaded.visionKey && getInput(FIELD_IDS.openai.vision_api_key)?.value === '***';
         const untouchedInheritance = !getInput(FIELD_IDS.openai.vision_url)?.value && !_aiProviderPhotoEdited.has('vision_url');
         if (mainBase() === mainBase(true) || !retainedMask || (photoBase() !== savedPhotoBase() && !untouchedInheritance)) {
             undoPhotoPins();
@@ -123,11 +364,11 @@
     }
 
     function photoSaveIssue() {
-        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value.trim();
+        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value || '';
         const url = normalizeProviderURL(getInput(FIELD_IDS.openai.vision_url)?.value);
         if (key === '***' && (!_aiProviderLoaded?.visionKey || photoBase() !== savedPhotoBase())) return 'retarget';
-        if (key && key !== '***' && (!_aiProviderPhotoDraftBase || photoBase() !== _aiProviderPhotoDraftBase)) return 'retarget';
-        if (_aiProviderLoaded && !key && url && mainBase() !== mainBase(true)) {
+        if (key.trim() && key !== '***' && (!_aiProviderPhotoDraftBase || photoBase() !== _aiProviderPhotoDraftBase)) return 'retarget';
+        if (_aiProviderLoaded && !key.trim() && url && mainBase() !== mainBase(true)) {
             const origin = (base) => { try { return new URL(base).origin; } catch (_) { return ''; } };
             if (origin(url) !== origin(mainBase())) return 'inherited';
         }
@@ -135,7 +376,7 @@
     }
 
     function providerSaveAllowed() {
-        return mainProviderSaveAllowed() && !photoSaveIssue();
+        return mainProviderSaveAllowed() && !photoSaveIssue() && keyCheckPermission().code !== 'url';
     }
 
     function renderPhotoSafety() {
@@ -153,7 +394,7 @@
         }
         const desc = getInput('integrations-photo-summary');
         const retainedSavedProvider = _aiProviderLoaded?.visionKey
-            && getInput(FIELD_IDS.openai.vision_api_key)?.value.trim() === '***'
+            && getInput(FIELD_IDS.openai.vision_api_key)?.value === '***'
             && photoBase() === savedPhotoBase() && photoBase() !== mainBase();
         if (desc) desc.textContent = issue ? 'Review Photo API key' : (Object.keys(_aiProviderPhotoPins).length || retainedSavedProvider)
             ? 'Food photos keep their saved provider' : photoBase() !== mainBase()
@@ -174,6 +415,7 @@
     }
 
     function renderProvider() {
+        if (_providerReloadPanel) return;
         reconcilePhotoPins();
         const provider = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
         const label = getInput('integrations-provider-value');
@@ -186,7 +428,7 @@
         if (keyLabel) keyLabel.textContent = 'API key';
         const hint = getInput('integrations-provider-key-hint');
         const needsOtherKey = provider.id === 'other' && !mainProviderSaveAllowed()
-            && (!key?.value.trim() || key.value.trim() === '***');
+            && (!key?.value.trim() || key.value === '***');
         if (hint) hint.textContent = needsOtherKey ? 'Enter an API key for this provider before saving.' : provider.hint;
         const urlHint = getInput('integrations-provider-url-hint');
         if (urlHint) urlHint.textContent = provider.id === 'other' && !normalizeProviderURL(getInput(FIELD_IDS.openai.url)?.value)
@@ -206,24 +448,28 @@
                     : 'Your saved setup is unchanged. ') + 'Paste a ' + provider.summary + ' key to switch.';
         }
         renderPhotoSafety();
-        _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
+        _aiProviderPage?.setPrimaryEnabled(!_keyCheckReloadBusy && !_integrationSaveBusy && providerSaveAllowed());
+        renderKeyCheck();
     }
 
     async function chooseProvider() {
+        if (_providerReloadPanel) return;
         if (typeof safeChoose !== 'function') return;
         const sub = { openai: 'GPT models', openrouter: 'Many providers with one key', other: 'Your own API URL, e.g. a local server' };
         const picked = await safeChoose('', AI_PROVIDERS.map((p) => ({ value: p.id, label: p.label, sub: sub[p.id], selected: p.id === _aiProviderDraft })), { title: 'AI provider' });
+        if (_providerReloadPanel) return;
         const provider = AI_PROVIDERS.find((p) => p.id === picked);
         if (!provider) return;
         const previous = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
         const url = getInput(FIELD_IDS.openai.url);
         const model = getInput(FIELD_IDS.openai.model);
         const key = getInput(FIELD_IDS.openai.api_key);
-        const hasRawDraftKey = key.value.trim() && key.value.trim() !== '***';
+        const hasRawDraftKey = key.value.trim() && key.value !== '***';
         const restoreLoaded = picked === _aiProviderLoaded?.provider && !hasRawDraftKey
             && (normalizeProviderURL(url.value) !== normalizeProviderURL(_aiProviderLoaded.url)
                 || (_aiProviderLoaded.key && !key.value.trim()));
         if (picked === _aiProviderDraft && !restoreLoaded) return;
+        invalidateKeyCheck();
         _aiProviderDraft = picked;
         const savedSetup = _aiProviderLoaded && (_aiProviderLoaded.key || _aiProviderLoaded.url.trim() || _aiProviderLoaded.model.trim());
         if (savedSetup && picked === _aiProviderLoaded.provider) {
@@ -301,8 +547,31 @@
         return out;
     }
 
-    function applyPayloadToDOM(payload) {
+    function applyPayloadToDOM(payload, { isRefresh = false, isSave = false } = {}) {
+        if (_providerReloadPanel) return;
         if (!payload || typeof payload !== 'object') return;
+        // DataStore's optimistic commit refreshes Settings again. An identical
+        // accepted masked view must retain the registration outcome (including
+        // pending/failure); a read is not a new Save or a permission upgrade.
+        const masked = maskPayload(payload);
+        const keepRegistration = _keyCheckSavedBase !== null && Object.entries(FIELD_IDS).every(([group, fields]) =>
+            Object.keys(fields).every((field) => (masked[group]?.[field] || '') === (_aiProviderSavedPayload?.[group]?.[field] || '')));
+        _keyCheckSeq += 1;
+        _keyCheckBusy = false;
+        _keyCheckResult = null;
+        if (!isRefresh || !keepRegistration) _integrationDraftSeq += 1;
+        if (isSave || !keepRegistration) _keyCheckSaveSeq += 1;
+        if (!keepRegistration) {
+            _keyCheckSavedBase = null;
+            _keyCheckRegistration = null;
+        }
+        // The commit's same-settings refresh may land after the user starts
+        // another edit while registration is pending. Keep that newer draft
+        // for the Reload guard rather than replacing it with saved masks.
+        if (isRefresh && keepRegistration && integrationsHaveUnsavedChanges()) {
+            renderProvider();
+            return;
+        }
         for (const group of Object.keys(FIELD_IDS)) {
             const groupPayload = payload[group] || {};
             for (const field of Object.keys(FIELD_IDS[group])) {
@@ -341,6 +610,7 @@
     // injected by cmd/cloud) and the user has no own key in the vault
     // (masked value "***" means a key is stored).
     function applyTrialHints() {
+        if (_providerReloadPanel) return;
         const hints = [
             ['integrations-openai-trial-hint', 'medtracker-trial-ai', FIELD_IDS.openai.api_key],
             ['integrations-elevenlabs-trial-hint', 'medtracker-trial-voice', FIELD_IDS.elevenlabs.api_key]
@@ -391,6 +661,7 @@
     }
 
     function renderTrialConsentRows() {
+        if (_providerReloadPanel) return;
         renderTrialCard();
         for (const [metaName, hintId, scopes] of CONSENT_MOUNTS) {
             const hint = document.getElementById(hintId);
@@ -504,6 +775,7 @@
     // reloads the page when it changed. Enrollment runs after that reload.
     let _trialSeq = 0;
     async function renderTrialCard() {
+        if (_providerReloadPanel) return;
         const wrap = document.getElementById('integrations-trial');
         const mount = document.getElementById('integrations-trial-card');
         if (!wrap || !mount || !window.WGOfferCard) return;
@@ -514,7 +786,7 @@
         let on;
         if (trial) {
             try { status = await trial.status(); } catch (_) { status = null; }
-            if (seq !== _trialSeq) return; // a newer render owns the card
+            if (_providerReloadPanel || seq !== _trialSeq) return; // a newer render owns the card
             available = !!status;
             on = available && status.on === true;
         } else {
@@ -679,6 +951,7 @@
     }
 
     async function loadTrialConsent() {
+        if (_providerReloadPanel) return;
         if (typeof apiCall !== 'function') return;
         const anyTrial = CONSENT_MOUNTS.some(([metaName]) =>
             document.querySelector('meta[name="' + metaName + '"]')?.content === '1');
@@ -688,6 +961,7 @@
             // only overwrite prior state with a real record, so a failed
             // refresh doesn't repaint granted scopes as "Not asked".
             const fresh = await apiCall('/api/settings/trial-consent', 'GET');
+            if (_providerReloadPanel) return;
             if (fresh && typeof fresh === 'object') _trialConsent = fresh;
         } catch (_) { /* aborted — keep prior state */ }
         renderTrialConsentRows();
@@ -742,6 +1016,7 @@
     // shim's cache keys on base URL + key fingerprint so it re-fetches anyway;
     // this only stops the stale dropdown from lingering on screen until then.
     function resetModelSuggestions() {
+        if (_providerReloadPanel) return;
         for (const cfg of MODEL_LOADERS) {
             _modelSeq[cfg.scope] += 1;
             renderModelOptions(cfg.list, []);
@@ -755,6 +1030,7 @@
     }
 
     async function loadModels(cfg) {
+        if (_providerReloadPanel) return null;
         const btn = document.getElementById(cfg.button);
         const refresh = !!(btn && btn.dataset.modelsLoaded);
         const seq = (_modelSeq[cfg.scope] += 1);
@@ -772,7 +1048,7 @@
             res = null;
         }
         // Superseded: leave the button to the newer call, which owns it now.
-        if (seq !== _modelSeq[cfg.scope]) return null;
+        if (_providerReloadPanel || seq !== _modelSeq[cfg.scope]) return null;
         if (btn) btn.disabled = false;
 
         if (!res || res.error || !Array.isArray(res.models)) {
@@ -791,11 +1067,13 @@
     // the kit choice dialog. Picking fills the free-text input; Save writes it.
     async function chooseModel(cfg) {
         const models = await loadModels(cfg);
+        if (_providerReloadPanel) return;
         if (!models || !models.length || typeof safeChoose !== 'function') return;
         const input = getInput(cfg.input);
         if (!input) return;
         const picked = await safeChoose('', models.map((id) => ({ value: id, label: id, selected: id === input.value })),
             { title: cfg.scope === 'vision' ? 'Vision model' : 'Model' });
+        if (_providerReloadPanel) return;
         if (picked == null) return;
         input.value = picked;
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -836,6 +1114,7 @@
     // mount with the rendered state; no stamp or 'disabled' = Telegram is off
     // on this server, so the row (and its page) stays hidden.
     function syncTelegramRow() {
+        if (_providerReloadPanel) return;
         const mount = document.getElementById('telegram-settings-mount');
         const row = document.getElementById('integrations-telegram-row');
         const state = mount ? mount.dataset.tgState : '';
@@ -859,9 +1138,11 @@
     // Turn on sync: the shell slot's invite → P3 "Turn on sync?", else the W5
     // Sync & backup page (the same branch W5's own button takes).
     async function turnOnSync() {
+        if (_providerReloadPanel) return;
         const sheet = window.InviteSheet;
         let invite = null;
         try { invite = sheet ? await sheet.pending() : null; } catch (_) { invite = null; }
+        if (_providerReloadPanel) return;
         if (invite) {
             sheet.offer(invite, { kit: true });
             return 'offer';
@@ -912,14 +1193,15 @@
         mount.appendChild(section);
         mount.dataset.tgState = 'needs-sync';
         // Same target as W5's link: the deployment's base landing.
-        Promise.resolve().then(() => window.InviteSheet && window.InviteSheet.base()).then((base) => {
-            if (!base) return;
+        Promise.resolve().then(() => !_providerReloadPanel && window.InviteSheet && window.InviteSheet.base()).then((base) => {
+            if (_providerReloadPanel || !base) return;
             how.href = `https://${base}/`;
             how.hidden = false;
         }).catch(() => {});
     }
 
     function mountLocalTelegram() {
+        if (_providerReloadPanel) return;
         const mount = document.getElementById('telegram-settings-mount');
         if (!mount || !window.WGOfferCard) return;
         // The 'needs-sync' stamp is what syncTelegramRow (also run by every
@@ -944,7 +1226,8 @@
     let _telegramMounted = false;
     let _telegramModuleLoader = () => import('/js/telegram.js');
 
-    async function loadIntegrations() {
+    async function loadIntegrations({ preserveDraft = false } = {}) {
+        if (_providerReloadPanel) return;
         if (typeof apiCall !== 'function') return null;
         // Skip the fetch when the section is hidden so a hidden panel
         // doesn't log failures for every Settings visit or advertise the
@@ -959,11 +1242,13 @@
         if (document.documentElement.classList.contains('wg-local-vault')) mountLocalTelegram();
         try {
             const payload = await apiCall('/api/settings/integrations', 'GET');
+            if (_providerReloadPanel) return null;
             if (!payload) return null;
-            applyPayloadToDOM(payload);
+            applyPayloadToDOM(payload, { isRefresh: preserveDraft });
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }
             }
+            if (_providerReloadPanel) return null;
 
             // Fire-and-forget: consent rows repaint when the GET lands; the
             // integrations payload itself doesn't wait on it.
@@ -979,8 +1264,8 @@
             if (tgMount && !_telegramMounted && !local) {
                 _telegramMounted = true;
                 _telegramModuleLoader()
-                    .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
-                    .then(syncTelegramRow)
+                    .then(({ mountTelegram }) => { if (!_providerReloadPanel) return mountTelegram(tgMount, {}); })
+                    .then(() => { if (!_providerReloadPanel) syncTelegramRow(); })
                     .catch((err) => {
                         _telegramMounted = false;
                         console.error('[settings] telegram module failed', err);
@@ -995,8 +1280,22 @@
     }
 
     async function saveIntegrations() {
+        if (_providerReloadPanel || _keyCheckReloadBusy || _integrationSaveBusy) return;
+        // Acquire before the first await. Reload cannot commit over an issued
+        // Save, and Reload preparation cannot start another settings write.
+        _integrationSaveBusy = true;
+        _integrationDraftSeq += 1;
+        renderKeyCheck();
+        try { return await persistIntegrations(); }
+        finally {
+            _integrationSaveBusy = false;
+            renderKeyCheck();
+        }
+    }
+
+    async function persistIntegrations() {
         if (!providerSaveAllowed()) return;
-        if (getInput(FIELD_IDS.elevenlabs.api_key)?.value.trim() === '***' && !savedVoiceKeySet()) {
+        if (getInput(FIELD_IDS.elevenlabs.api_key)?.value === '***' && !savedVoiceKeySet()) {
             if (typeof safeToast === 'function') safeToast('Enter your voice API key or clear the field — there is no saved key to keep.', 'error');
             getInput(FIELD_IDS.elevenlabs.api_key)?.focus();
             return;
@@ -1034,7 +1333,16 @@
         try {
             fresh = apiOk ? await apiCall('/api/settings/integrations', 'GET') : null;
         } catch (_) { /* fall through with optimistic payload */ }
-        applyPayloadToDOM(fresh || maskPayload(payload));
+        applyPayloadToDOM(fresh || maskPayload(payload), { isSave: true });
+        _keyCheckSavedBase = mainBase();
+        _keyCheckRegistration = 'pending';
+        renderKeyCheck();
+        const saveSeq = _keyCheckSaveSeq;
+        try {
+            const status = await window.offlineAwareApiCall?.aiProviderRegistration?.();
+            if (saveSeq === _keyCheckSaveSeq) _keyCheckRegistration = status?.state || 'failed';
+        } catch (_) { if (saveSeq === _keyCheckSaveSeq) _keyCheckRegistration = 'failed'; }
+        renderKeyCheck();
         window.SettingsView?.refreshIntegrationsSummary?.();
         // The saved provider may now be a different one, which makes any list
         // already on screen wrong. Drop it; the next click re-fetches.
@@ -1043,13 +1351,24 @@
         // locally-masked payload — never the raw cleartext keys.
         if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
 
-        if (typeof safeToast === 'function') {
+        if (!_providerReloadPanel && typeof safeToast === 'function') {
             safeToast('Integrations saved.', 'info');
         }
     }
 
     // Save is the page-bar primary (features/settings.js openSettingsPage).
     function bindControls() {
+        const check = getInput('integrations-check-key');
+        if (check && !check.dataset.integrationsBound) {
+            check.dataset.integrationsBound = '1';
+            check.addEventListener('click', checkKey);
+            getInput('integrations-check-reload').addEventListener('click', reloadForKeyCheck);
+            // Reload discards the whole integrations form, including voice
+            // and photo edits made while a delete/worker handoff is pending.
+            for (const fields of Object.values(FIELD_IDS)) {
+                for (const id of Object.values(fields)) getInput(id)?.addEventListener('input', invalidateKeyCheck);
+            }
+        }
         const providerButton = getInput('integrations-provider-choose');
         if (providerButton && !providerButton.dataset.integrationsBound) {
             providerButton.dataset.integrationsBound = '1';
@@ -1067,13 +1386,13 @@
                         // A key event deliberately establishes a NEW binding only
                         // after untouched values belonging to the old key unwind.
                         undoPhotoPins();
-                        const key = getInput(FIELD_IDS.openai[field]).value.trim();
-                        _aiProviderPhotoDraftBase = key && key !== '***' ? photoBase() : null;
+                        const key = getInput(FIELD_IDS.openai[field]).value;
+                        _aiProviderPhotoDraftBase = key.trim() && key !== '***' ? photoBase() : null;
                     }
                     _aiProviderPhotoEdited.add(field);
                     delete _aiProviderPhotoPins[field];
                     if (field === 'vision_url') {
-                        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value.trim();
+                        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value;
                         const boundBase = key === '***' ? savedPhotoBase() : _aiProviderPhotoDraftBase;
                         if (boundBase && photoBase() !== boundBase) undoPhotoPin('vision_model');
                     }
@@ -1084,7 +1403,7 @@
                 const url = normalizeProviderURL(getInput(FIELD_IDS.openai.url).value);
                 if (url !== _aiProviderKeyURL) {
                     const key = getInput(FIELD_IDS.openai.api_key);
-                    if (key.value.trim() && key.value.trim() !== '***') _aiProviderMainKeyEdited = true;
+                    if (key.value.trim() && key.value !== '***') _aiProviderMainKeyEdited = true;
                     const restored = _aiProviderDraft === 'other' && _aiProviderLoaded?.provider === 'other'
                         && _aiProviderLoaded.key && !_aiProviderMainKeyEdited && url === normalizeProviderURL(_aiProviderLoaded.url);
                     // Returning to the saved custom base restores only its known
@@ -1127,6 +1446,8 @@
     }
 
     window.SettingsIntegrations = {
+        checkKey,
+        reloadForKeyCheck,
         load: loadIntegrations,
         save: saveIntegrations,
         trialOffer,
@@ -1134,7 +1455,7 @@
         turnOnSync,
         bindPage(page) {
             _aiProviderPage = page;
-            if (!page) restoreProviderDraft();
+            if (!page) { invalidateKeyCheck(); restoreProviderDraft(); }
             else renderProvider();
         },
         savedProviderLabel() {
@@ -1155,6 +1476,7 @@
         _renderTrialCard: renderTrialCard,
         _setLocalTrial: setLocalTrial,
         _resetTelegramMounted: () => { _telegramMounted = false; },
-        _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
+        _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; },
+        _setProviderReloadLoader: (loader) => { _providerReloadLoader = loader; }
     };
 })();

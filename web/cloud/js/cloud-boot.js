@@ -10,6 +10,24 @@
 // network.
 window.__MEDTRACKER_CLOUD__ = true;
 
+// Immutable raw capability from the loaded response, captured before unlock,
+// dynamic imports or any later settings/DOM changes can substitute a policy.
+// module-state: immutable per-document public permission snapshot.
+const cloudDocumentPolicy = Object.freeze({
+    origins: window.document?.querySelector('meta[name="medtracker-connect-origins"]')?.content ?? null,
+    origin: window.location?.origin || location.origin || '',
+});
+
+// The supporting worker selected a fresh response for this one-shot navigation.
+// Future ordinary starts retain their immediate offline shell.
+if (window.location?.search && typeof window.history?.replaceState === 'function') {
+    const loadedURL = new URL(window.location.href);
+    if (loadedURL.searchParams.get('__wg_provider_reload') === '1') {
+        loadedURL.searchParams.delete('__wg_provider_reload');
+        window.history.replaceState(window.history.state, '', loadedURL.href);
+    }
+}
+
 // Register the service worker on FIRST PAINT (med-gvk.1), before the
 // unlock/sync gates in boot() below and OUTSIDE the detached background sync
 // IIFE where push.js's ensurePushSubscription otherwise registers it. The SW
@@ -24,6 +42,31 @@ window.__MEDTRACKER_CLOUD__ = true;
 // a harmless no-op. Cloud-only: this file is served solely by cmd/cloud, so no
 // platform guard is needed.
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    const providerActivations = new Map();
+    const retireProviderActivation = (worker) => {
+        providerActivations.get(worker)?.cleanup();
+        providerActivations.delete(worker);
+    };
+    window.document?.addEventListener('wg:provider-reload-activation', (event) => {
+        const operation = event.detail?.operation;
+        const worker = operation?.worker;
+        if (!worker || typeof operation.claim !== 'function') return;
+        const prior = providerActivations.get(worker);
+        if (prior && prior.operation !== operation) return;
+        if (prior) { event.detail.accepted = true; return; }
+        const changed = () => {
+            if (worker.state !== 'redundant') return;
+            retireProviderActivation(worker);
+            operation.redundant(worker);
+        };
+        providerActivations.set(worker, { operation, cleanup: () => worker.removeEventListener?.('statechange', changed) });
+        worker.addEventListener?.('statechange', changed);
+        event.detail.accepted = true;
+    });
+    window.document?.addEventListener('wg:provider-reload-abort', (event) => {
+        const operation = event.detail?.operation;
+        if (providerActivations.get(operation?.worker)?.operation === operation) retireProviderActivation(operation.worker);
+    });
     // First-install vs update is decided entirely by whether a SW already
     // controls this page: absent = first-ever install (activate's
     // clients.claim() controls with NO banner and NO reload), present = update
@@ -57,8 +100,25 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     // install hadController is false, so activate's clients.claim() fires
     // controllerchange without a reload (bead: first install controls silently).
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+        const controller = navigator.serviceWorker.controller;
+        const owned = providerActivations.get(controller);
+        if (owned?.operation.committed) {
+            retireProviderActivation(controller);
+            if (!reloading) {
+                reloading = true;
+                // Already verified before activation. Replace this document in
+                // this callback; no probe, flush or dirty wait under the new SW.
+                owned.operation.claim();
+            }
+            return;
+        }
         if (!hadController || reloading) return;
         reloading = true;
+        for (const [worker, activation] of providerActivations) {
+            activation.operation.supersede();
+            retireProviderActivation(worker);
+        }
+        if (window.document && window.CustomEvent) window.document.dispatchEvent(new window.CustomEvent('wg:provider-reload-unrelated'));
         // Another tab's Reload can land here mid-Undo-window: send the delete first.
         const owed = window.flushPendingDelete?.();
         if (owed) owed.catch(() => {}).finally(() => location.reload());
@@ -529,7 +589,7 @@ window.MedTrackerCloudReady = (async function boot() {
         // settled without a reload, so no boot-time bootstrap mounts W1 ahead
         // of an import that stamps `firstrun` and reloads the page.
         let moveSettled = false;
-        const shimCall = installApiShim(ctx, { caughtUp: async () => moveSettled && hasCaughtUp() });
+        const shimCall = installApiShim(ctx, { documentPolicy: cloudDocumentPolicy, caughtUp: async () => moveSettled && hasCaughtUp() });
         // Decision 3 (C2d plan): groups.js/next-card.js/stats.js/today-loader.js
         // call window.apiCallDirect directly, bypassing the offlineAwareApiCall
         // seam apiCall() checks first. Route /api/* straight into the same shim

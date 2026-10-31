@@ -15,6 +15,7 @@ import { MealSystemPrompt, MealPhotoSystemPrompt, mealSchema } from '../../domai
 import { ActivitySystemPrompt, activitySchema } from '../../domain/activityai.js';
 import { ExerciseTagSystemPrompt, exerciseTagSchema } from '../../domain/exercisetag.js';
 import { WorkoutSheetPhotoSystemPrompt, workoutSheetSchema } from '../../domain/workoutsheet.js';
+import { canAllowlist, providerURLPolicy } from './egress-hosts.js';
 
 const DEFAULT_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-6-luna';
@@ -23,6 +24,94 @@ const DEFAULT_MODEL = 'gpt-6-luna';
 const FETCH_TIMEOUT_MS = 90000;
 // matches maxFoodPhotoBytes (food_handlers.go).
 const MAX_PHOTO_BYTES = 8 << 20;
+const KEY_CHECK_TIMEOUT_MS = 15000;
+const CHECK_UNAVAILABLE = 'Key checking is unavailable in this app version. Update the app to check your key.';
+const CHECK_FINISH_REASONS = new Set(['stop', 'length', 'tool_calls', 'content_filter', 'function_call']);
+
+// Input is the boot's immutable raw snapshot, never a late DOM/settings read.
+// Copy all values: even a caller mutating its original array cannot grant reach.
+function checkCapability(policy) {
+  try {
+    const values = JSON.parse(policy?.origins);
+    if (!Array.isArray(values)) return null;
+    const origins = new Set();
+    for (const value of values) {
+      if (typeof value !== 'string') return null;
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.username || url.password || !canAllowlist(url.hostname)
+        || value !== url.origin) return null;
+      origins.add(url.origin);
+    }
+    // 'self' is resolved from THIS document, not a registered host response.
+    if (policy?.origin) origins.add(String(policy.origin));
+    return origins;
+  } catch { return null; }
+}
+
+function effectiveCheckDraft(draft, scope) {
+  const own = draft || {};
+  return scope === 'vision' ? {
+    apiKey: String(own.vision_api_key || own.api_key || ''),
+    url: String(own.vision_url || own.url || DEFAULT_URL),
+    model: String(own.vision_model || own.model || DEFAULT_MODEL),
+  } : {
+    apiKey: String(own.api_key || ''),
+    url: String(own.url || DEFAULT_URL),
+    model: String(own.model || DEFAULT_MODEL),
+  };
+}
+
+function checkResult(status, trial = false) {
+  if (status >= 200 && status < 300) return { state: 'success', code: 'works', message: trial ? 'Trial key works' : 'Key works' };
+  if (status === 401 || status === 403) return { state: 'error', code: 'rejected', message: 'Key rejected' };
+  if (status === 404) return { state: 'error', code: 'model', message: 'Model not found — pick one with Choose' };
+  if (status === 429) return { state: 'error', code: 'rate_limit', message: 'Rate limited — try again in a minute' };
+  if (status === 400) return { state: 'error', code: 'request', message: 'Provider rejected this request — check the model and API URL' };
+  if (status) return { state: 'error', code: 'provider', message: 'Provider could not complete the check — try again later' };
+  return { state: 'error', code: 'unreachable', message: 'Could not reach your provider — check the URL' };
+}
+
+async function isCheckCompletion(response, trial) {
+  // The nonstreamed ChatCompletion contract permits null/empty content and
+  // finish_reason:length at this tiny budget. It does not permit arbitrary
+  // 200 JSON/HTML to count as a completion. See the OpenAI Chat Completions
+  // reference; do not require a literal "OK" or expose returned prose.
+  const limit = 64 << 10;
+  let text = '';
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > limit) { await reader.cancel(); return false; }
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+    } finally { reader.releaseLock(); }
+  } else {
+    text = await response.text();
+    if (text.length > limit) return false;
+  }
+  try {
+    const result = JSON.parse(text);
+    const choice = result?.choices?.[0];
+    const message = choice?.message;
+    // The existing trusted trial relay deliberately removes model; its
+    // Anthropic translation also omits created. Never require disclosure of
+    // operator settings to validate that explicit, consented transport.
+    return typeof result?.id === 'string' && !!result.id && result.object === 'chat.completion'
+      && (trial || (Number.isFinite(result.created) && typeof result.model === 'string' && !!result.model))
+      && Array.isArray(result.choices) && !!message && typeof message === 'object'
+      && Number.isInteger(choice.index) && choice.index >= 0
+      && message.role === 'assistant'
+      && Object.hasOwn(message, 'content') && (message.content === null || typeof message.content === 'string')
+      && CHECK_FINISH_REASONS.has(choice.finish_reason);
+  } catch { return false; }
+}
 
 function noKeyError() {
   const err = new Error('Add an OpenAI key in Settings → Integrations to use AI food logging.');
@@ -502,7 +591,77 @@ Do not wrap the JSON in markdown fences or add explanations.`;
 // deviceStore ({ get(key), set(key, value) }, sync.js's deviceValues in
 // production) persists the BYO "no json_schema" memory on this device only;
 // omitted → no BYO memory, today's strict-then-fenced on every call.
-export function createAIClient({ settingsDomain, deviceStore = null }) {
+export function createAIClient({ settingsDomain, deviceStore = null, documentPolicy }) {
+  const permittedCheckOrigins = checkCapability(documentPolicy);
+
+  function keyCheckPermission({ scope = 'text', draft, intent } = {}) {
+    if (!permittedCheckOrigins) return { state: 'unsupported', code: 'capability', message: CHECK_UNAVAILABLE };
+    if (scope !== 'text' && scope !== 'vision') return { state: 'unsupported', code: 'scope', message: 'This key-check scope is unavailable.' };
+    const provider = effectiveCheckDraft(draft, scope);
+    // Trial is an explicit operation, never an empty-key fallback for BYO.
+    if (intent === 'trial' && !provider.apiKey) return { state: 'ready', trial: true };
+    const policy = providerURLPolicy(provider.url);
+    if (policy.state !== 'ready') return policy;
+    if (!permittedCheckOrigins.has(policy.origin)) return {
+      state: 'needs_reload', code: 'permission',
+      message: 'Save your provider settings and reload this page before checking the key.',
+    };
+    return { state: 'ready' };
+  }
+
+  async function checkKey({ scope = 'text', draft, intent } = {}) {
+    const permission = keyCheckPermission({ scope, draft, intent });
+    if (permission.state !== 'ready') return permission;
+    const provider = effectiveCheckDraft(draft, scope);
+    let apiKey = provider.apiKey;
+    const useTrial = intent === 'trial' && !apiKey;
+    if (apiKey === '***') {
+      if (intent !== 'saved') return { state: 'error', code: 'key', message: 'Enter the API key for this provider before checking.' };
+      try {
+        const { openai: savedFields } = await settingsDomain.readIntegrationsUnmasked();
+        const saved = effectiveCheckDraft(savedFields, scope);
+        const keyField = scope === 'vision' && draft?.vision_api_key ? 'vision_api_key' : 'api_key';
+        const savedKey = String(savedFields?.[keyField] || '');
+        const normalized = (base) => String(base).trim().replace(/\/+$/, '');
+        if (!savedKey || savedKey === '***' || savedKey !== saved.apiKey
+          || normalized(provider.url) !== normalized(saved.url)) {
+          return { state: 'error', code: 'key', message: 'Enter the API key again for this URL before checking.' };
+        }
+        apiKey = savedKey;
+      } catch {
+        return { state: 'error', code: 'key', message: 'Could not read the saved key. Try again.' };
+      }
+    }
+    if (!useTrial && !apiKey.trim()) return { state: 'error', code: 'key', message: 'Enter an API key before checking.' };
+    if (!['draft', 'saved', 'trial'].includes(intent)) return { state: 'error', code: 'key', message: 'Choose which key to check.' };
+    if (useTrial) {
+      if (!trialAIAvailable()) return { state: 'error', code: 'trial_unavailable', message: 'Trial AI is unavailable. Add your own key to check it.' };
+      try { await ensureTrialConsent('ai'); } catch {
+        return { state: 'error', code: 'trial_consent_required', message: 'Allow trial AI in Settings before checking the trial key.' };
+      }
+    }
+    const body = { messages: [{ role: 'user', content: 'Reply OK.' }], max_tokens: 8 };
+    if (!useTrial) body.model = provider.model;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), KEY_CHECK_TIMEOUT_MS);
+    try {
+      // OpenAI-compatible POST /chat/completions, non-streaming, no tools or
+      // schema. Validate only a bounded success envelope; never read/render/log
+      // upstream error bodies, which may echo the key.
+      const res = await (useTrial ? trialFetch : fetch)(useTrial
+        ? `/api/trial/openai/chat/completions${scope === 'vision' ? '?vision=1' : ''}`
+        : `${String(provider.url).replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(!useTrial ? { Authorization: `Bearer ${apiKey}` } : {}) },
+        body: JSON.stringify(body), signal: controller.signal,
+        referrerPolicy: 'no-referrer', credentials: useTrial ? 'same-origin' : 'omit', redirect: 'error',
+      });
+      if (res.status >= 200 && res.status < 300) {
+        if (!await isCheckCompletion(res, useTrial)) return { state: 'error', code: 'response', message: 'Provider did not return a chat completion — check the API URL' };
+      } else if (res.body?.cancel) await res.body.cancel().catch(() => {});
+      return checkResult(res.status, useTrial);
+    } catch { return checkResult(0); } finally { clearTimeout(timer); }
+  }
   async function credentials() {
     const { openai } = await settingsDomain.readIntegrationsUnmasked();
     return {
@@ -903,5 +1062,5 @@ export function createAIClient({ settingsDomain, deviceStore = null }) {
     return !text.apiKey && !trialTransport && trialAIAvailable();
   }
 
-  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, chatStream, usesTrial, listModels };
+  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, chatStream, usesTrial, listModels, keyCheckPermission, checkKey };
 }

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { userContentCount } from '../../../domain/vault.js';
+import { installApiShim } from '../../../cloud/js/apishim.js';
 
 describe('cloud shim contract — settings flows (features/settings.js over web/domain/settings.js)', () => {
     let env;
@@ -25,8 +26,42 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
     });
 
     afterEach(() => {
+        vi.restoreAllMocks();
         env.cleanup();
         env = null;
+    });
+
+    it('Check uses a direct in-memory port; registration failure/retry never upgrades this document policy', async () => {
+        allowConsoleNoise(); // the genuine egress helper logs a rejected registration status
+        const uploads = [];
+        let rejectRegistration = false;
+        env.window.fetch = vi.fn(async (url, init) => {
+            expect(url).toBe('/api/egress-hosts');
+            uploads.push(init.body);
+            return new Response(null, { status: rejectRegistration ? 503 : 204 });
+        });
+        const capability = { origins: '["https://api.openai.com"]', origin: 'https://account.example' };
+        const shim = installApiShim({}, { records: env.records, win: env.window, documentPolicy: capability });
+        await shim('/api/settings/integrations', 'PATCH', { openai: { api_key: 'fixture-first-key', url: 'https://api.openai.com/v1', model: 'gpt-6-luna' } });
+        expect(await shim.aiProviderRegistration()).toEqual({ state: 'registered' });
+        const provider = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ id: 'fixture-check', object: 'chat.completion', created: 1, model: 'fixture-model', choices: [{ index: 0, message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status: 200 }));
+        expect(await shim.checkAIKey({ intent: 'saved', draft: { api_key: '***', url: 'https://api.openai.com/v1' } })).toMatchObject({ state: 'success' });
+        expect(provider.mock.calls[0][1].headers.Authorization).toBe('Bearer fixture-first-key');
+        rejectRegistration = true;
+        await shim('/api/settings/integrations', 'PATCH', { openai: { api_key: 'fixture-second-key', url: 'https://b.example/v1' } });
+        expect(await shim.aiProviderRegistration()).toEqual({ state: 'failed' });
+        const args = { intent: 'saved', draft: { api_key: '***', url: 'https://b.example/v1' } };
+        expect(await shim.checkAIKey(args)).toMatchObject({ state: 'needs_reload' });
+        rejectRegistration = false;
+        await shim('/api/settings/integrations', 'PATCH', { openai: { api_key: '***' } });
+        expect(await shim.aiProviderRegistration()).toEqual({ state: 'registered' });
+        capability.origins = '["https://b.example"]';
+        const meta = env.document.createElement('meta');
+        meta.name = 'medtracker-connect-origins'; meta.content = capability.origins; env.document.head.appendChild(meta);
+        expect(await shim.checkAIKey(args)).toMatchObject({ state: 'needs_reload' });
+        expect(provider).toHaveBeenCalledTimes(1);
+        expect(uploads.every((body) => !body.includes('fixture-') && !body.includes('api_key'))).toBe(true);
+        expect(JSON.stringify(await env.window.MedTrackerDB.ApiCache.get('settings_integrations'))).not.toContain('fixture-');
     });
 
     it('toggleFeatureSetting persists through the shim and GET /api/settings/features echoes it back', async () => {

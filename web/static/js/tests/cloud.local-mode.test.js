@@ -19,7 +19,8 @@ import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
 import { createApiRouter, installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
-import { LOCAL_EFFECTS, shellPost, BASE_POST_PATHS } from '../../../cloud/js/local-policy.js';
+import { LOCAL_EFFECTS, shellPost, BASE_POST_PATHS, registerLocalEgress, egressIdle } from '../../../cloud/js/local-policy.js';
+import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
@@ -411,8 +412,101 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
     });
 });
 
+describe('native egress callback settlement ownership', () => {
+    it.each(['ios', 'android'])('%s foundation has no 15s cancellation contract; registration stays serialized until its real reply', async (platform) => {
+        const env = loadFrontendEnv();
+        const pending = [];
+        const reload = vi.fn();
+        let shim;
+        if (platform === 'ios') {
+            env.window.webkit = { messageHandlers: { wgNative: { postMessage: (message) => new Promise((resolve) => pending.push({ message, resolve })) } } };
+        } else {
+            const bridge = new env.window.EventTarget();
+            bridge.postMessage = (raw) => {
+                const message = JSON.parse(raw);
+                pending.push({ message, resolve: (result) => bridge.dispatchEvent(new env.window.MessageEvent('message', { data: JSON.stringify({ id: message.id, result }) })) });
+            };
+            env.window.wgNative = bridge;
+        }
+        // REAL production call(): WK reply Promise / Android correlated reply,
+        // neither with a JS timeout or cancellation op (native/index.js:77).
+        env.window.eval(readFileSync(fileURLToPath(new URL('../native/index.js', import.meta.url)), 'utf8'));
+        const win = { document: env.document, location: { reload }, LocalNotifications: { __native: env.window.LocalNotifications.__native } };
+        const start = LOCAL_BOOT_SRC.indexOf('const registerEgress = ') + 'const registerEgress = '.length;
+        const callback = LOCAL_BOOT_SRC.slice(start, LOCAL_BOOT_SRC.indexOf('        const shimCall =')).trim().replace(/;$/, '');
+        const registerEgress = new Function('window', 'policy', 'domReady', 'return (' + callback + ');')(win, { registerLocalEgress }, Promise.resolve()); // eslint-disable-line no-new-func
+        vi.useFakeTimers();
+        try {
+            shim = installApiShim({ accountId: 'native-egress-' + platform }, {
+                records: createInMemoryRecordsPort(), effects: LOCAL_EFFECTS, rxnorm: null,
+                win, registerEgress, registerEgressTimeoutMs: 0,
+            });
+            let settled = false;
+            const first = shim.aiProviderRegistration(); first.then(() => { settled = true; });
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+            expect(pending[0].message.op).toBe('setEgressHosts');
+            await vi.advanceTimersByTimeAsync(15001);
+            expect(settled).toBe(false);
+            expect(reload).not.toHaveBeenCalled();
+            await shim('/api/settings/integrations', 'PATCH', { openai: { api_key: 'fixture-native-key', url: 'https://api.openai.com/v1' } });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(pending).toHaveLength(1); // second callback has not overtaken it
+            pending[0].resolve({ changed: true });
+            expect(await first).toEqual({ state: 'reloading' });
+            expect(reload).toHaveBeenCalledOnce(); // existing native automatic reload
+            await vi.waitFor(() => expect(pending).toHaveLength(2));
+            expect(JSON.stringify(pending[1].message)).not.toContain('fixture-native-key');
+            pending[1].resolve({ changed: false });
+            expect(await shim.aiProviderRegistration()).toEqual({ state: 'registered' });
+        } finally {
+            for (const entry of pending) entry.resolve({ changed: false });
+            if (shim) await shim.aiProviderRegistration();
+            await egressIdle();
+            cancelReminderRecompute({ accountId: 'native-egress-' + platform });
+            vi.useRealTimers();
+            env.cleanup();
+        }
+    });
+});
+
 describe('local-boot apiCallDirect ordering (med-o7zq.2)', () => {
     beforeEach(deleteDb);
+
+    it('captures native exact-response metadata before imports; a later meta change cannot grant Check reach', async () => {
+        let raw = '["https://a.example"]';
+        let release;
+        const imports = new Promise((resolve) => { release = resolve; });
+        let captured;
+        let registrationTimeout;
+        const win = {
+            location: { origin: 'wgapp://local' },
+            document: {
+                documentElement: { classList: { add() {} } },
+                querySelector() { return { content: raw }; },
+                readyState: 'complete',
+            },
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        const shim = () => Promise.resolve(null);
+        shim.unifyLegacy = async () => {};
+        const modules = {
+            '/js/apishim.js': { installApiShim: (_ctx, options) => { captured = options.documentPolicy; registrationTimeout = options.registerEgressTimeoutMs; return shim; } },
+            '/js/sync.js': { localRecordsPort: () => ({}) },
+            '/js/local-policy.js': {
+                LOCAL_EFFECTS: {}, LOCAL_PROTECTION: {}, LOCAL_FOOD_DB: null, LOCAL_VAULT: {},
+                registerLocalEgress: async () => ({ changed: false, hosts: [] }),
+                showLeaveToastOnce() {}, pickupLeaveStash: async () => {}, keepLocalRemindersFresh() {}, startLocalHealthImport() {},
+                mountLocalLockRow: async () => {}, mountLocalFeedback: async () => {},
+            },
+        };
+        run(win, async (spec) => { await imports; return modules[spec]; });
+        raw = '["https://b.example"]';
+        release();
+        await win.MedTrackerCloudReady;
+        expect(captured).toEqual({ origins: '["https://a.example"]', origin: 'wgapp://local' });
+        expect(Object.isFrozen(captured)).toBe(true);
+        expect(registrationTimeout).toBe(0);
+    });
 
     it('wraps the apiCallDirect core/api.js assigns later in the parse, not an earlier one', async () => {
         let onReady;
@@ -1494,6 +1588,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             input.value = '  MedTracker://I/ABC#0a1b2c ';
             act(document, 'submit').click();
             await vi.waitFor(() => expect(sheet(document)).toBeNull());
+            await vi.waitFor(() => expect(document.getElementById('invite-sync-sheet') || document.getElementById('invite-ready')).not.toBeNull());
             const next = document.getElementById('invite-sync-sheet') || document.getElementById('invite-ready');
             tap(next, next.id === 'invite-ready' ? 'sign-in' : 'turn-on-sync');
             await vi.waitFor(() => expect(leaveOps().at(-1)).toEqual(['local.leave', { url: CLAIM }]));
