@@ -154,6 +154,19 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.document.querySelector('#med-confirm-hint [data-reminder-hint]')).toBeNull();
     });
 
+    it('does not reschedule or offer permission again for an already Generic reminder fixture', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await window.apiCall('/api/settings/reminder-delivery')).toMatchObject({ verbosity: 'generic' });
+        const api = vi.spyOn(window, 'apiCall');
+        const report = await load('meds-take-reminder-hint');
+        expect(report).toMatchObject({ ok: true, failed: [] });
+        // PUT is a UI-origin write that recomputes reminders with askPermission
+        // (reminders.js). Reading an already-correct fixture must not send it.
+        expect(api.mock.calls.filter(([path, method]) => path === '/api/settings/reminder-delivery' && method === 'PUT')).toEqual([]);
+        expect(window.document.querySelector('#med-confirm-hint [data-reminder-hint]')).not.toBeNull();
+    });
+
     function focusGeometry() {
         const { window } = env;
         const viewport = { offsetTop: 0, width: 390, height: 800, scale: 1, addEventListener() {} };

@@ -304,7 +304,14 @@
             // (the deeplink's ids + slot), with the one-time lock-screen hint
             // re-armed for this QA device and its fixture preference Generic.
             try { window.localStorage.removeItem('wg.reminderDetailHint.shown'); } catch (_) { /* hint just won't show */ }
-            await window.apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: 'generic' });
+            const pref = await window.apiCall('/api/settings/reminder-delivery');
+            if ((pref?.lockscreen || pref?.verbosity) !== 'generic') {
+                // A UI write can offer notification permission. Keep an
+                // already-Generic fixture untouched; otherwise finish that
+                // real setup prompt before opening the reminder's take sheet.
+                await window.apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: 'generic' });
+                await runStep({ click: '[data-notify-choice="not-now"]', optional: true });
+            }
             const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`);
             const row = (Array.isArray(rows) ? rows : []).sort((a, b) => Date.parse(b.plannedAt) - Date.parse(a.plannedAt))[0];
             if (!row) throw new Error('reminderHint: no projected due dose in the seed');
