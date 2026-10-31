@@ -422,6 +422,10 @@ describe('connectors.js Claude connector page', () => {
     getRemoteStatus.mockResolvedValue({ enabled: false });
     pairingNeedsReconnect.mockReturnValue(true);
     renderConnectors(app, ctx);
+    await vi.waitFor(() => expect(app.querySelector('#claude-status')?.textContent).toBe('Reconnect needed'));
+    expect(app.querySelector('#claude-remote-connect-button').classList.contains('wg-btn--primary')).toBe(true);
+    expect(app.textContent).not.toContain('private pairing no longer works');
+    app.querySelector('#claude-private-button').click();
     await vi.waitFor(() => expect(app.querySelector('#claude-private-create')).not.toBeNull());
     expect(app.textContent).toContain('Reconnect needed');
     expect(app.querySelector('#claude-private-create').disabled).toBe(true);
@@ -431,6 +435,24 @@ describe('connectors.js Claude connector page', () => {
     renderConnectors(app, ctx);
     await vi.waitFor(() => expect(app.querySelector('#connectors-retry')).not.toBeNull());
     expect(app.textContent).not.toContain('Reconnect needed');
+  });
+
+  it.each(['private', 'remote'])('reports pre-mutation %s status failure as unchanged, without confirmation or POST', async (destination) => {
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    getRemoteStatus.mockResolvedValue({ enabled: false });
+    await renderAndSettle();
+    if (destination === 'private') {
+      app.querySelector('#claude-private-button').click();
+      app.querySelector('[data-computer="linux"]').click();
+    }
+    getRemoteStatus.mockRejectedValue(new Error('offline fixture'));
+    app.querySelector(destination === 'private' ? '#claude-private-create' : '#claude-remote-connect-button').click();
+    await vi.waitFor(() => expect(app.querySelector('#connectors-retry')).not.toBeNull());
+    expect(app.textContent).toContain('Nothing was changed.');
+    expect(app.textContent).not.toContain('may have been replaced');
+    expect(connectClaude).not.toHaveBeenCalled();
+    expect(connectRemote).not.toHaveBeenCalled();
+    expect(dom.window.document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
   });
 
   it.each(["mtmcp1.';touch /tmp/invalid", '<img src=x>', ''])('refuses an unsafe pairing result as shell data: %s', async (code) => {
@@ -496,6 +518,9 @@ describe('connectors.js Claude connector page', () => {
     await realPairing.purgePairing(ctx); // only real 4404 controller path invokes this.
     expect(realPairing.pairingNeedsReconnect(ctx)).toBe(true);
     renderConnectors(app, ctx);
+    await vi.waitFor(() => expect(app.querySelector('#claude-status')?.textContent).toBe('Reconnect needed'));
+    expect(app.querySelector('#claude-remote-connect-button').classList.contains('wg-btn--primary')).toBe(true);
+    app.querySelector('#claude-private-button').click();
     await vi.waitFor(() => expect(app.querySelector('#claude-private-create')).not.toBeNull());
     expect(app.textContent).toContain('Reconnect needed');
     await realPairing.disconnectClaude(ctx);

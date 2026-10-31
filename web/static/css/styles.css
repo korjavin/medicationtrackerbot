@@ -7560,10 +7560,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     min-width: 0;
 }
 
-/* A code the user must read in full (the Add a device fallback code, the
-   Claude Code prompt): wraps instead of ellipsis-truncating. Doubled class:
-   styles.css loads before components.css, whose .wg-code / .wg-code>span
-   would otherwise win the specificity tie. */
 .wg-private-feedback {
     min-height: 2.5em;
 }
@@ -7577,6 +7573,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
     user-select: text;
 }
 
+/* A code the user must read in full (the Add a device fallback code, the
+   Claude Code prompt): wraps instead of ellipsis-truncating. Doubled class:
+   styles.css loads before components.css, whose .wg-code / .wg-code>span
+   would otherwise win the specificity tie. */
 .wg-code.wg-code--wrap {
     height: auto;
     padding-block: var(--space-sm);

@@ -64,7 +64,7 @@ const CLAUDE_STATUS_TEXT = {
 
 const CLAUDE_STATUS_META = {
   remote: 'Use your records in Claude Code, the Claude app or ChatGPT.',
-  local: 'Helper setup was shown when you connected.',
+  local: 'The pairing code was shown once when you connected.',
   none: 'Use your records in Claude Code, the Claude app or ChatGPT.',
 };
 
@@ -202,17 +202,14 @@ const CONNECT_BLOCK = {
     <button type="button" id="claude-private-button" class="wg-btn wg-btn--block">Reconnect</button>
     <button type="button" id="claude-remote-connect-button" class="wg-btn wg-btn--block">Use the standard connection instead</button>
     <p class="wg-hint">A pairing can expire or need reconnecting after the relay restarts. Reconnect creates a new code.</p>`,
-  // Remote on: no offer — it would be a no-op affordance.
+  // Remote on: switching to Private is a confirmed replacement, not a no-op.
   remote: '<button type="button" id="claude-private-button" class="wg-btn wg-btn--block">Private mode for Claude Code</button>',
 };
 
 function renderPicker(mount, ctx, pairing, remote, showReconnect = true) {
   if (renderBlocked(mount)) return;
   const mode = claudeMode(pairing, remote.enabled);
-  if (showReconnect && mode === 'none' && pairingNeedsReconnect(ctx)) {
-    renderPrivateChoice(mount, ctx, true);
-    return;
-  }
+  const needsReconnect = showReconnect && mode === 'none' && pairingNeedsReconnect(ctx);
   const showApps = mode === 'remote' && remote.url;
   mount.innerHTML = `
     <div class="wg-card wg-hstack">
@@ -227,8 +224,11 @@ function renderPicker(mount, ctx, pairing, remote, showReconnect = true) {
     ${CONNECT_BLOCK[mode]}
     ${mode === 'none' ? '' : '<button type="button" id="claude-disconnect-button" class="wg-btn wg-btn--danger-ghost wg-btn--block">Disconnect</button>'}`;
 
-  mount.querySelector('#claude-status').textContent = CLAUDE_STATUS_TEXT[mode];
-  mount.querySelector('#claude-status-meta').textContent = CLAUDE_STATUS_META[mode];
+  // Remote and Private share the pairing record, so a 4404 alone cannot say
+  // which mode ended. Keep both choices and the remote default on this return
+  // view; Private's OS/reconnect instructions follow only its explicit choice.
+  mount.querySelector('#claude-status').textContent = needsReconnect ? 'Reconnect needed' : CLAUDE_STATUS_TEXT[mode];
+  mount.querySelector('#claude-status-meta').textContent = needsReconnect ? 'The previous connection ended. Choose how to connect again.' : CLAUDE_STATUS_META[mode];
 
   // CC4: remote is on — show the per-app instructions again (the token lives
   // server-side, med-24d), with no primary: nothing is waiting.
@@ -238,8 +238,9 @@ function renderPicker(mount, ctx, pairing, remote, showReconnect = true) {
     apps.insertAdjacentHTML('beforeend', KEEP_OPEN_HINT);
   }
 
-  mount.querySelector('#claude-private-button')?.addEventListener('click', () => renderPrivateChoice(mount, ctx));
+  mount.querySelector('#claude-private-button')?.addEventListener('click', () => renderPrivateChoice(mount, ctx, needsReconnect));
   let pending = false;
+  let mutationStarted = false;
   mount.querySelector('#claude-remote-connect-button')?.addEventListener('click', async (event) => {
     if (pending || renderBlocked(mount)) return;
     pending = true;
@@ -253,10 +254,11 @@ function renderPicker(mount, ctx, pairing, remote, showReconnect = true) {
       if ((currentPairing || currentRemote.enabled) && !(await confirmReplacement('remote'))) return;
       if (!(await window.safeConfirm(REMOTE_CONSENT_TEXT, null, { title: 'Connect an AI app?', confirmLabel: 'Connect', icon: 'plug' }))) return;
       if (renderBlocked(mount) || !button.isConnected) return;
+      mutationStarted = true;
       const { url } = await connectRemote(ctx);
       if (button.isConnected) renderConnected(mount, ctx, url);
     } catch {
-      if (button.isConnected) renderMutationError(mount, ctx);
+      if (button.isConnected) renderMutationError(mount, ctx, mutationStarted);
     } finally {
       pending = false;
       if (button.isConnected) mount.querySelectorAll('button').forEach((b) => { b.disabled = false; });
@@ -335,7 +337,7 @@ function confirmReplacement(destination) {
 function renderPrivateChoice(mount, ctx, reconnect = false) {
   if (renderBlocked(mount)) return;
   mount.innerHTML = `${reconnect
-    ? '<div class="wg-card"><span class="wg-row__title">Reconnect needed</span><p class="wg-meta">This private pairing no longer works.</p></div><div class="wg-note wg-note--warn"><i class="wg-ico" data-icon="plug"></i><div class="wg-note__body">Reconnect to create a new code and update Claude Code.</div></div>'
+    ? '<div class="wg-card"><span class="wg-row__title">Reconnect needed</span><p class="wg-meta">The previous connection ended.</p></div><div class="wg-note wg-note--warn"><i class="wg-ico" data-icon="plug"></i><div class="wg-note__body">Reconnect to create a new code and update Claude Code.</div></div>'
     : '<h2 class="wg-card__title">Private mode for Claude Code</h2>'}
     ${PRIVATE_PRIVACY}
     <p class="wg-hint">The setup command installs our helper on your computer and verifies its release checksum. Claude Code must already be installed.</p>
@@ -346,6 +348,7 @@ function renderPrivateChoice(mount, ctx, reconnect = false) {
     <button type="button" id="claude-private-back" class="wg-btn wg-btn--block">Back to connector</button>`;
   let computer;
   let pending = false;
+  let mutationStarted = false;
   const create = mount.querySelector('#claude-private-create');
   bindComputerChoice(mount, (os) => { computer = os; create.disabled = false; });
   mount.querySelector('#claude-private-back').addEventListener('click', () => {
@@ -366,10 +369,11 @@ function renderPrivateChoice(mount, ctx, reconnect = false) {
       // The existing session-authenticated legacy mint atomically tears down
       // hosted remote enablement (MCPRelayAPI.onLegacyPairingMutation). Never
       // POST the client-generated private key to /api/mcp/remote.
+      mutationStarted = true;
       const { code } = await connectClaude(ctx);
       if (create.isConnected) renderPrivateSetup(mount, ctx, code, computer);
     } catch {
-      if (create.isConnected) renderMutationError(mount, ctx);
+      if (create.isConnected) renderMutationError(mount, ctx, mutationStarted);
     } finally {
       pending = false;
       if (create.isConnected) mount.querySelectorAll('button').forEach((button) => { button.disabled = false; });
@@ -383,7 +387,7 @@ function renderPrivateSetup(mount, ctx, code, computer) {
   // connectClaude owns the wire format. Fail closed if a future caller returns
   // arbitrary text: the published templates quote only this restricted alphabet.
   if (typeof code !== 'string' || !/^mtmcp1\.[A-Za-z0-9_-]+$/.test(code)) {
-    renderMutationError(mount, ctx);
+    renderMutationError(mount, ctx, true);
     return;
   }
   mount.innerHTML = `
@@ -431,10 +435,12 @@ function renderPrivateSetup(mount, ctx, code, computer) {
   hydrateIcons(mount);
 }
 
-function renderMutationError(mount, ctx) {
+function renderMutationError(mount, ctx, mutationStarted) {
   // A replacement can fail after revoking the old link. Never promise rollback
   // or show Connected from the previous snapshot; re-read actual status first.
-  renderConnectorsError(mount, ctx, 'Could not finish setup. Your previous connection may have been replaced. Check status, then retry setup if needed.');
+  renderConnectorsError(mount, ctx, mutationStarted
+    ? 'Could not finish setup. Your previous connection may have been replaced. Check status, then retry setup if needed.'
+    : 'Could not check the connection status. Nothing was changed. Try again.');
 }
 
 function renderConnectorsError(mount, ctx, errorText) {
