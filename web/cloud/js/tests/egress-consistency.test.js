@@ -57,10 +57,20 @@ function literalHosts(src) {
   return hosts;
 }
 
+function cloudSourceForEgress(file) {
+  const src = fs.readFileSync(file, 'utf8');
+  if (path.basename(file) !== 'connectors.js') return src;
+  // Only these two JSON string literals are copied as shell commands for the
+  // destination computer; no browser request runs them. A real fetch, another
+  // constant, or an expression in this object remains in the scan. The owning
+  // connector suite additionally pins their complete published-command digest.
+  return src.replace(/const PRIVATE_COMMANDS = \{\s*posix: "(?:[^"\\]|\\.)*",\s*powershell: "(?:[^"\\]|\\.)*",\s*\};/, 'const PRIVATE_COMMANDS = {};');
+}
+
 describe('cloud client egress consistency (med-yor.14)', () => {
   const files = nonTestJsFiles();
   const allHosts = new Set(
-    files.flatMap((f) => [...literalHosts(fs.readFileSync(f, 'utf8'))]),
+    files.flatMap((f) => [...literalHosts(cloudSourceForEgress(f))]),
   );
 
   it('the scan actually reached the client sources (sanity)', () => {
@@ -71,6 +81,14 @@ describe('cloud client egress consistency (med-yor.14)', () => {
   it('every literal external host is in the curated ALLOWED map', () => {
     const unexplained = [...allHosts].filter((h) => !(h in ALLOWED));
     expect(unexplained).toEqual([]);
+  });
+
+  it('only excludes the copied installer literals, so a future GitHub browser fetch is still flagged', () => {
+    const src = cloudSourceForEgress(path.join(JS_DIR, 'connectors.js'));
+    expect(src).toContain('const PRIVATE_COMMANDS = {};');
+    expect(literalHosts(src).has('github.com')).toBe(false);
+    const withFetch = src + '\nfetch("https://github.com/browser-request");';
+    expect([...literalHosts(withFetch)].filter((h) => !(h in ALLOWED))).toContain('github.com');
   });
 
   it('no ALLOWED entry has gone stale (delete it when the last literal goes)', () => {

@@ -230,6 +230,14 @@ function stripGoComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
+function browserEgressSource(file, src) {
+  if (file !== 'web/cloud/js/connectors.js') return src;
+  // Exact data-only POSIX/PowerShell constants copied to the destination
+  // computer, not browser egress. Keep any real fetch/other literal or
+  // expression in the scan; do not exempt github.com or this file.
+  return src.replace(/const PRIVATE_COMMANDS = \{\s*posix: "(?:[^"\\]|\\.)*",\s*powershell: "(?:[^"\\]|\\.)*",\s*\};/, 'const PRIVATE_COMMANDS = {};');
+}
+
 function goSourceFiles() {
   const dir = path.join(REPO_ROOT, 'internal/cloudserver');
   return fs
@@ -377,7 +385,7 @@ describe('every egress / plaintext path in the code is disclosed (med-yor.4)', (
   it('every literal third-party host in the cloud client is claimed or exempt', () => {
     const found = new Map();
     for (const file of jsSourceFiles()) {
-      const src = stripGoComments(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'));
+      const src = browserEgressSource(file, stripGoComments(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8')));
       for (const host of literalHostsIn(src)) if (!found.has(host)) found.set(host, file);
     }
     const unexplained = [...found].filter(([h]) => !claimedHosts.has(h) && !(h in HOST_EXEMPT));
@@ -385,6 +393,19 @@ describe('every egress / plaintext path in the code is disclosed (med-yor.4)', (
       unexplained.map(([h, f]) => `${h} (${f})`),
       'the browser can reach this host but no manifest entry discloses it',
     ).toEqual([]);
+  });
+
+  it('copied installer data does not exempt a future actual browser GitHub request', () => {
+    const file = 'web/cloud/js/connectors.js';
+    const src = stripGoComments(read(file));
+    const filtered = browserEgressSource(file, src);
+    expect(filtered).toContain('const PRIVATE_COMMANDS = {};');
+    expect(literalHostsIn(filtered).has('github.com')).toBe(false);
+    const mutant = browserEgressSource(file, src + '\nfetch("https://github.com/browser-request");');
+    expect([...literalHostsIn(mutant)].filter((h) => !claimedHosts.has(h) && !(h in HOST_EXEMPT))).toContain('github.com');
+    // An executable expression inside the object invalidates the exemption.
+    const expression = src.replace('posix: "', 'posix: fetch("https://github.com/browser-request") + "');
+    expect(literalHostsIn(browserEgressSource(file, expression)).has('github.com')).toBe(true);
   });
 
   it('no manifest host-anchor has gone stale', () => {
