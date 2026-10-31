@@ -1580,8 +1580,8 @@ function refreshSettingsSummaries() {
     window.SettingsIntegrations?.syncTelegramRow?.();
 }
 
-// Read once right after SettingsIntegrations.load() refilled the fields from
-// the server — not on page close, where an unsaved edit would read as set.
+// Refresh after SettingsIntegrations.load()/save() accepted masked settings,
+// not on page close, where an unsaved edit would read as set.
 // A stored secret comes back as "***".
 function refreshIntegrationsSummary() {
     const filled = (id) => !!document.getElementById(id)?.value.trim();

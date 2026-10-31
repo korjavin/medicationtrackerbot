@@ -429,7 +429,7 @@ describe('Settings → Integrations section', () => {
             env.window.safeChoose = vi.fn(async () => id);
             env.document.getElementById('integrations-provider-choose').click();
             await vi.waitFor(() => expect(env.document.getElementById('integrations-provider-value').textContent)
-                .toBe(id === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI'));
+                .toBe({ anthropic: 'Anthropic (Claude)', openai: 'OpenAI', other: 'Other', gemini: 'Google Gemini' }[id]));
         }
         async function request(settings, image = true) {
             const send = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('data: [DONE]\n\n', { status: 200 }));
@@ -464,6 +464,98 @@ describe('Settings → Integrations section', () => {
                 expect(env.document.querySelector('[data-own-key="openai"] [data-own-key-state]').textContent).toBe('Not set');
                 page.close();
             }
+        });
+
+        it('Other P→Q→P restores only a confirmed saved key and preserves an already-keyless legacy P', async () => {
+            const url = 'https://custom.example/v1';
+            for (const api_key of ['fixture-custom-main-key', '']) {
+                const { settings, page } = await setup({ api_key, url, vision_api_key: '', vision_url: '', vision_model: '' });
+                fill('url', 'https://different.example/v1');
+                expect(field('api-key').value).toBe('');
+                expect(saveButton(page).disabled).toBe(true);
+                fill('url', url);
+                expect(field('api-key').value).toBe(api_key ? '***' : '');
+                expect(saveButton(page).disabled).toBe(false);
+                await env.window.SettingsIntegrations.save();
+                expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe(api_key);
+                expect((await settings.readIntegrationsUnmasked()).openai.url).toBe(url);
+                if (api_key) expect(await request(settings, false)).toEqual({ url: url + '/chat/completions', authorization: 'Bearer fixture-custom-main-key', model: main.model });
+                page.close();
+            }
+        });
+
+        it('an explicit key clear at the unchanged saved Other URL still removes that credential', async () => {
+            const url = 'https://custom.example/v1';
+            const { settings, page } = await setup({ url, vision_api_key: '', vision_url: '', vision_model: '' });
+            fill('api-key', '');
+            expect(saveButton(page).disabled).toBe(false);
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('');
+            expect((await settings.readIntegrationsUnmasked()).openai.url).toBe(url);
+            expect(env.window.SettingsIntegrations.savedProviderLabel()).toBe('');
+            page.close();
+        });
+
+        it('does not substitute the saved mask for a new raw key during Other URL reversal or same-provider selection', async () => {
+            const url = 'https://custom.example/v1';
+            const { settings, page } = await setup({ url, vision_api_key: '', vision_url: '', vision_model: '' });
+            fill('api-key', 'fixture-new-custom-key');
+            fill('url', url); // same-base input cannot overwrite this deliberate entry
+            await pick('other'); // neither can reselecting the already selected provider
+            expect(field('api-key').value).toBe('fixture-new-custom-key');
+            await env.window.SettingsIntegrations.save();
+            expect(await request(settings, false)).toEqual({ url: url + '/chat/completions', authorization: 'Bearer fixture-new-custom-key', model: main.model });
+            fill('url', 'https://different.example/v1');
+            fill('api-key', 'fixture-different-key');
+            fill('url', url);
+            expect(field('api-key').value).toBe('');
+            expect(saveButton(page).disabled).toBe(true);
+            const before = env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH').length;
+            await env.window.SettingsIntegrations.save();
+            expect(env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(before);
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('fixture-new-custom-key');
+            await pick('other'); // deliberate restore of the loaded provider now has no raw key to replace
+            await vi.waitFor(() => expect(field('api-key').value).toBe('***'));
+            await env.window.SettingsIntegrations.save();
+            expect(await request(settings, false)).toEqual({ url: url + '/chat/completions', authorization: 'Bearer fixture-new-custom-key', model: main.model });
+            page.close();
+        });
+
+        it('rejects an unconfirmed voice mask before PATCH/cache even if the follow-up GET would fail', async () => {
+            const { settings, page } = await setup({ vision_api_key: '', vision_url: '', vision_model: '' });
+            const voice = env.document.getElementById('integrations-elevenlabs-api-key');
+            const toast = vi.fn();
+            env.window.safeToast = toast;
+            env.window.apiCall = vi.fn(async (path, method, body) => method === 'PATCH' ? settings.patchIntegrations(body) : null);
+            voice.value = '***';
+            await env.window.SettingsIntegrations._renderTrialCard();
+            await env.window.SettingsIntegrations.save();
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            expect(toast).toHaveBeenCalledWith('Enter your voice API key or clear the field — there is no saved key to keep.', 'error');
+            expect((await settings.readIntegrationsUnmasked()).elevenlabs.api_key).toBe('');
+            expect((await env.window.MedTrackerDB.ApiCache.get('settings_integrations')).elevenlabs.api_key).toBe('');
+            expect(env.document.querySelector('[data-own-key="elevenlabs"] [data-own-key-state]').textContent).toBe('Not set');
+            // An actual accepted raw key still establishes truthful masked state
+            // after a failed refresh; it is never copied into the cache.
+            voice.value = 'fixture-new-voice-key';
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).elevenlabs.api_key).toBe('fixture-new-voice-key');
+            expect((await env.window.MedTrackerDB.ApiCache.get('settings_integrations')).elevenlabs.api_key).toBe('***');
+            expect(env.document.querySelector('[data-own-key="elevenlabs"] [data-own-key-state]').textContent).toBe('Set');
+            page.close();
+        });
+
+        it('describes a valid explicit separate photo draft truthfully before and after Save', async () => {
+            const { settings, page } = await setup({ vision_api_key: '', vision_url: '', vision_model: '' });
+            fill('vision-url', 'https://photos.example/v1');
+            fill('vision-api-key', 'fixture-separate-photo-key');
+            fill('vision-model', 'photo-custom');
+            expect(saveButton(page).disabled).toBe(false);
+            expect(env.document.getElementById('integrations-photo-summary').textContent).toBe('Food photos use separate settings');
+            await env.window.SettingsIntegrations.save();
+            expect(await request(settings)).toEqual({ url: 'https://photos.example/v1/chat/completions', authorization: 'Bearer fixture-separate-photo-key', model: 'photo-custom' });
+            expect(env.document.getElementById('integrations-photo-summary').textContent).toBe('Food photos keep their saved provider');
+            page.close();
         });
 
         it('photo presence and typed-key binding guards stay closed before any successful initial read', async () => {
