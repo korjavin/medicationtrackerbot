@@ -600,6 +600,14 @@ function buildBPReadingRow(reading) {
     statusChip.dataset.bpCategory = category.class;
     meta.appendChild(statusChip);
 
+    // bd med-w6gx.32: Apple Health and Health Connect share this marker.
+    if (reading.source === 'apple_health') {
+        const source = document.createElement('span');
+        source.className = 'wg-source-label';
+        source.textContent = 'Health import';
+        meta.appendChild(source);
+    }
+
     const syncChip = window.WGChip.sync(reading);
     if (syncChip) meta.appendChild(syncChip);
 

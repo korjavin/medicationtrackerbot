@@ -4004,6 +4004,11 @@ body:has(.wg-callbar--dock) .wg-toasts {
     letter-spacing: 0.02em;
 }
 
+/* bd med-w6gx.32: small muted "Health import" text in BP/weight row metadata. */
+.wg-source-label {
+    color: var(--wg-fg-3);
+}
+
 .wg-bp-reading-row__actions {
     display: flex;
     align-items: center;

@@ -1161,6 +1161,14 @@ function buildWeightHistoryRow(log) {
         meta.appendChild(time);
     }
 
+    // bd med-w6gx.32: Apple Health and Health Connect share this marker.
+    if (log.source === 'apple_health') {
+        const source = document.createElement('span');
+        source.className = 'wg-source-label';
+        source.textContent = 'Health import';
+        meta.appendChild(source);
+    }
+
     const syncChip = window.WGChip.sync(log);
     if (syncChip) meta.appendChild(syncChip);
 
