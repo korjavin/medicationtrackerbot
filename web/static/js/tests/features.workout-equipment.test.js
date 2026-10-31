@@ -835,6 +835,22 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(rowsOf(document)).toHaveLength(0);
     });
 
+    // bd med-kk1q.1: in account mode apiCallDirect is the local vault shim,
+    // so a cold open offline (empty ApiCache) still reads the rows and the
+    // gym list instead of "connect to load".
+    it('no-cache offline render in account mode reads the vault through the shim', async () => {
+        const { window, document } = env;
+        setOnline(window, false);
+        window.offlineAwareApiCall = vi.fn();
+        window.apiCallDirect = gymsAware(async () => [FIXED_DB], [{ id: 41, name: 'Home' }], 41);
+
+        await window.WorkoutEquipment.load();
+
+        expect(rowsOf(document)).toHaveLength(1);
+        expect(document.getElementById('workout-equipment-list').textContent).not.toContain('No cached equipment');
+        expect(window.apiCallDirect).toHaveBeenCalledWith('/api/workout/locations', 'GET', null);
+    });
+
     it('five sub-tab options carry no inline style and the strip is the kit scrolling segment', () => {
         const { document } = env;
         const strip = document.getElementById('workouts-subtabs');

@@ -650,6 +650,21 @@ window.MedTrackerCloudReady = (async function boot() {
             });
         };
         unifyLegacy();
+        // Cloud mode has no change-poll loop — the boot pull is the first sync
+        // trigger — so every shim-served tag is evicted once a pull lands, or a
+        // remote change from another device renders stale until some other
+        // refresh path repaints. 'medications'/'history' cover the meds list,
+        // Today next-dose tile (next_intake) and per-med history. Only after a
+        // pull in this page load reached the tail (bd med-kk1q.1): a pull that
+        // failed offline changed nothing, and evicting then wiped exactly the
+        // ApiCache rows a cold offline open reads. An offline boot evicts after
+        // the first drain that lands instead (onSettled below).
+        let evicted = false;
+        const evictShimTags = async () => {
+            if (evicted || !window.DataStore || typeof window.DataStore.invalidateTags !== 'function' || !pulledThisSession()) return;
+            evicted = true;
+            await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'workout']);
+        };
         // bd med-ejgf: the shim reports needs_first_run false until this
         // device has pulled the account once, so W1 never writes flags or the
         // reminder default over an existing account from an empty mirror. The
@@ -795,7 +810,7 @@ window.MedTrackerCloudReady = (async function boot() {
             const host = document.getElementById('app-banners');
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { unifyLegacy(); floorTimeZone(); return askFirstRun(); } });
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });
         // Pull to refresh (bd med-y7b4.6): one more drain through the same
         // single-slot guard. Registered after the boot pull so the two never
         // overlap. What lands repaints through notifyRecordsChanged.
@@ -823,17 +838,9 @@ window.MedTrackerCloudReady = (async function boot() {
         }
         surfaceAuthExpired();
         surfaceUpdateRequired();
-        if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
-            // Cloud mode has no change-poll loop — this boot pullOnOpen is the
-            // first sync trigger — so every shim-served tag must be evicted here or a
-            // remote change from another device renders stale until some other
-            // refresh path repaints. 'medications'/'history' cover the meds
-            // list, Today next-dose tile (next_intake) and per-med history.
-            // Runs in the background block (med-gvk.2): the UI already mounted
-            // from local, so evicting here simply repaints those tags once the
-            // background pull lands — no longer gating MedTrackerCloudReady.
-            await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'workout']);
-        }
+        // Runs in the background block (med-gvk.2): the UI already mounted from
+        // local, so this simply repaints those tags once the pull lands.
+        await evictShimTags();
         // med-prk.2: one-time backfill linking pre-migration plan exercises to
         // their exercise_library row, so a later library rename shows through in
         // plans (history logs snapshot the name at log time and stay unchanged;
