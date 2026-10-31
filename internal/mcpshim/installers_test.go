@@ -70,7 +70,12 @@ func TestInstallerBlockedExecution(t *testing.T) {
 		arch = "aarch64"
 	}
 	command.Env = append(os.Environ(), "PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"), "XDG_DATA_HOME="+data, "MCP_INSTALL_FIXTURE_CHILD=1", "MCP_FIXTURE_OS=Linux", "MCP_FIXTURE_ARCH="+arch, "MCP_FIXTURE_TOOLS="+tools, "MCP_FIXTURE_ASSET="+asset, "MCP_FIXTURE_CODE="+code, "MEDTRACKER_MCP_CODE="+code, "MCP_FIXTURE_MANIFEST="+hex.EncodeToString(digest[:])+"  "+asset+"\n", "MCP_FIXTURE_PAYLOAD="+payload, "MCP_FIXTURE_BINARY="+binary, "MCP_FIXTURE_REGISTRATION_MARKER="+marker)
-	out, err := command.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err = command.Run()
+	if bytes.Contains(stdout.Bytes(), []byte(code)) || bytes.Contains(stderr.Bytes(), []byte(code)) {
+		t.Fatal("execution-policy fixture exposed pairing code")
+	}
 	if status, ok := err.(*exec.ExitError); ok && status.ExitCode() == 77 {
 		t.Skip("kernel cannot apply disposable child Landlock policy; no execution-policy proof claimed")
 	}
@@ -78,14 +83,23 @@ func TestInstallerBlockedExecution(t *testing.T) {
 		t.Fatal("child-only execution-policy fixture failed (output omitted)")
 	}
 	var result struct {
-		InstallerExit int  `json:"installer_exit"`
-		NativeDenied  bool `json:"native_denied"`
-		SecretLeak    bool `json:"secret_leak"`
+		InstallerExit int    `json:"installer_exit"`
+		NativeDenied  bool   `json:"native_denied"`
+		SecretLeak    bool   `json:"secret_leak"`
+		PythonVersion [3]int `json:"python_version"`
+		PackedBytes   int    `json:"packed_bytes"`
 	}
-	if json.Unmarshal(out, &result) != nil {
-		t.Fatal("invalid execution-policy proof result")
+	diagnostic := "none"
+	if stderr.Len() > 0 {
+		diagnostic = "other child diagnostic"
+		if bytes.Contains(stderr.Bytes(), []byte("DeprecationWarning")) && bytes.Contains(stderr.Bytes(), []byte("_pack_")) {
+			diagnostic = "ctypes packed-layout deprecation"
+		}
 	}
-	if !result.NativeDenied || result.InstallerExit == 0 || result.SecretLeak {
+	if json.Unmarshal(stdout.Bytes(), &result) != nil {
+		t.Fatalf("invalid execution-policy proof stdout (%d bytes); stderr category: %s", stdout.Len(), diagnostic)
+	}
+	if !result.NativeDenied || result.InstallerExit == 0 || result.SecretLeak || result.PackedBytes != 12 {
 		t.Fatal("blocked native execution must fail sanitized before registration")
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
@@ -95,14 +109,17 @@ func TestInstallerBlockedExecution(t *testing.T) {
 	if sha256.Sum256(installed) != digest {
 		t.Fatal("execution refusal changed verified installed bytes")
 	}
-	t.Log("genuine packaged binary denied by child-only Linux policy; installer failed before explicit user removal/add, no key output")
+	t.Logf("genuine packaged binary denied by child-only Linux policy; installer failed before user removal/add, no key output; Python %d.%d.%d, packed ABI bytes=%d, stderr=%s", result.PythonVersion[0], result.PythonVersion[1], result.PythonVersion[2], result.PackedBytes, diagnostic)
 }
 
 const landlockInstallerFixture = `import ctypes,json,os,pathlib,subprocess,sys
 class Ruleset(ctypes.Structure): _fields_=[('handled_access_fs',ctypes.c_uint64)]
 class Beneath(ctypes.Structure):
+ # Explicit packed layout avoids implicit-layout deprecation on Python 3.14+.
+ _layout_='ms'
  _pack_=1
  _fields_=[('allowed_access',ctypes.c_uint64),('parent_fd',ctypes.c_int32)]
+if ctypes.sizeof(Beneath)!=12: raise RuntimeError('invalid packed Landlock ABI')
 try:
  libc=ctypes.CDLL(None,use_errno=True); rules=Ruleset(1)
  fd=libc.syscall(444,ctypes.byref(rules),ctypes.sizeof(rules),0)
@@ -120,7 +137,7 @@ result=subprocess.run(['sh',sys.argv[1],'--version','0.1.0','--pairing-code',cod
 denied=False
 try: subprocess.run([os.environ['MCP_FIXTURE_BINARY'],'--version'],capture_output=True)
 except PermissionError: denied=True
-print(json.dumps({'installer_exit':result.returncode,'native_denied':denied,'secret_leak':code.encode() in result.stdout+result.stderr}))
+print(json.dumps({'installer_exit':result.returncode,'native_denied':denied,'secret_leak':code.encode() in result.stdout+result.stderr,'python_version':list(sys.version_info[:3]),'packed_bytes':ctypes.sizeof(Beneath)}))
 `
 
 func TestInstallerInstalledClaudeIsolated(t *testing.T) {
