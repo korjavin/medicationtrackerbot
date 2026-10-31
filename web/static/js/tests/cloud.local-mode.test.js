@@ -414,6 +414,40 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
 describe('local-boot apiCallDirect ordering (med-o7zq.2)', () => {
     beforeEach(deleteDb);
 
+    it('captures native exact-response metadata before imports; a later meta change cannot grant Check reach', async () => {
+        let raw = '["https://a.example"]';
+        let release;
+        const imports = new Promise((resolve) => { release = resolve; });
+        let captured;
+        const win = {
+            location: { origin: 'wgapp://local' },
+            document: {
+                documentElement: { classList: { add() {} } },
+                querySelector() { return { content: raw }; },
+                readyState: 'complete',
+            },
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        const shim = () => Promise.resolve(null);
+        shim.unifyLegacy = async () => {};
+        const modules = {
+            '/js/apishim.js': { installApiShim: (_ctx, options) => { captured = options.documentPolicy; return shim; } },
+            '/js/sync.js': { localRecordsPort: () => ({}) },
+            '/js/local-policy.js': {
+                LOCAL_EFFECTS: {}, LOCAL_PROTECTION: {}, LOCAL_FOOD_DB: null, LOCAL_VAULT: {},
+                registerLocalEgress: async () => ({ changed: false, hosts: [] }),
+                showLeaveToastOnce() {}, pickupLeaveStash: async () => {}, keepLocalRemindersFresh() {}, startLocalHealthImport() {},
+                mountLocalLockRow: async () => {}, mountLocalFeedback: async () => {},
+            },
+        };
+        run(win, async (spec) => { await imports; return modules[spec]; });
+        raw = '["https://b.example"]';
+        release();
+        await win.MedTrackerCloudReady;
+        expect(captured).toEqual({ origins: '["https://a.example"]', origin: 'wgapp://local' });
+        expect(Object.isFrozen(captured)).toBe(true);
+    });
+
     it('wraps the apiCallDirect core/api.js assigns later in the parse, not an earlier one', async () => {
         let onReady;
         const win = {

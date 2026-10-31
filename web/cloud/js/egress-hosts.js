@@ -16,11 +16,25 @@
 // actually contacts when the user leaves the provider URL blank.
 const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
 
-function canAllowlist(host) {
+export function canAllowlist(host) {
   if (!host || host.length > 253) return false;
   if (host.startsWith('.') || host.startsWith('-')
     || host.endsWith('.') || host.endsWith('-') || host.includes('..')) return false;
   return /^[a-z0-9.-]+$/.test(host);
+}
+
+// Check uses the same hostname/default-port reach that registration can grant.
+// Return fixed explanations only: a supplied URL may itself contain a secret.
+export function providerURLPolicy(raw) {
+  let url;
+  try { url = new URL(String(raw || '')); } catch {
+    return { state: 'unsupported', code: 'url', message: 'Enter an absolute HTTPS API URL.' };
+  }
+  if (url.protocol !== 'https:') return { state: 'unsupported', code: 'url', message: 'This app needs an HTTPS API URL. Enter an HTTPS address.' };
+  if (url.username || url.password) return { state: 'unsupported', code: 'url', message: 'Use an API URL without a username or password.' };
+  if (url.port) return { state: 'unsupported', code: 'url', message: 'Use an HTTPS API URL on the default port (443).' };
+  if (!canAllowlist(url.hostname)) return { state: 'unsupported', code: 'url', message: 'Use an HTTPS API URL with a supported hostname.' };
+  return { state: 'ready', origin: url.origin };
 }
 
 // hostsFromIntegrations extracts the unique lowercased hostnames the DEK page
@@ -82,7 +96,7 @@ export function hostsFromIntegrations(integrations) {
 // (no fetch available, read error, network/HTTP error) — a failure just leaves
 // the server's prior (or fixed-fallback) allowlist in place. Only hostnames
 // leave the browser here; api_key fields never enter the request body.
-export async function registerEgressHosts({ settings, fetchImpl }) {
+export async function registerEgressHosts({ settings, fetchImpl, signal }) {
   if (typeof fetchImpl !== 'function') return null;
   let hosts;
   try {
@@ -97,6 +111,7 @@ export async function registerEgressHosts({ settings, fetchImpl }) {
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hosts }),
+      ...(signal ? { signal } : {}),
     });
     if (res && res.ok === false) {
       console.error('[cloud egress] register rejected', res.status);

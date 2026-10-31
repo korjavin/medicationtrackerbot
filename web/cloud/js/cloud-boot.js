@@ -10,6 +10,14 @@
 // network.
 window.__MEDTRACKER_CLOUD__ = true;
 
+// Immutable raw capability from the loaded response, captured before unlock,
+// dynamic imports or any later settings/DOM changes can substitute a policy.
+// module-state: immutable per-document public permission snapshot.
+const cloudDocumentPolicy = Object.freeze({
+    origins: window.document?.querySelector('meta[name="medtracker-connect-origins"]')?.content ?? null,
+    origin: window.location?.origin || location.origin || '',
+});
+
 // Register the service worker on FIRST PAINT (med-gvk.1), before the
 // unlock/sync gates in boot() below and OUTSIDE the detached background sync
 // IIFE where push.js's ensurePushSubscription otherwise registers it. The SW
@@ -529,7 +537,7 @@ window.MedTrackerCloudReady = (async function boot() {
         // settled without a reload, so no boot-time bootstrap mounts W1 ahead
         // of an import that stamps `firstrun` and reloads the page.
         let moveSettled = false;
-        const shimCall = installApiShim(ctx, { caughtUp: async () => moveSettled && hasCaughtUp() });
+        const shimCall = installApiShim(ctx, { documentPolicy: cloudDocumentPolicy, caughtUp: async () => moveSettled && hasCaughtUp() });
         // Decision 3 (C2d plan): groups.js/next-card.js/stats.js/today-loader.js
         // call window.apiCallDirect directly, bypassing the offlineAwareApiCall
         // seam apiCall() checks first. Route /api/* straight into the same shim

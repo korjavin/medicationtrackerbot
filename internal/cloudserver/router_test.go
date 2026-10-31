@@ -1,6 +1,10 @@
 package cloudserver
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"html"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -256,8 +260,12 @@ func TestRouter_HostVariants(t *testing.T) {
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d (body %q)", rec.Code, tc.wantStatus, rec.Body.String())
 			}
-			if tc.wantBody != "" && rec.Body.String() != tc.wantBody {
-				t.Fatalf("body = %q, want %q", rec.Body.String(), tc.wantBody)
+			wantBody := tc.wantBody
+			if tc.path == "/" && strings.HasSuffix(tc.host, ".app.example.com") && tc.wantStatus == http.StatusOK {
+				wantBody = strings.Replace(wantBody, "<head>", "<head>\n    <meta name=\"medtracker-connect-origins\" content=\"[&#34;https://api.elevenlabs.io&#34;]\">", 1)
+			}
+			if wantBody != "" && rec.Body.String() != wantBody {
+				t.Fatalf("body = %q, want %q", rec.Body.String(), wantBody)
 			}
 
 			// The no-such-account marker (bd med-nt9p.32.14): only on the
@@ -357,6 +365,12 @@ func TestRouter_AppDocumentReflectsEgressHosts(t *testing.T) {
 	if connect != want {
 		t.Fatalf("connect-src = %q, want %q", connect, want)
 	}
+	if got := appDocumentOrigins(t, rec.Body.String()); !slices.Equal(got, []string{"https://api.openai.com", "https://fooddb.example.com", "https://api.elevenlabs.io"}) {
+		t.Fatalf("loaded-document origins = %v, want HTTPS sources from %q", got, connect)
+	}
+	if strings.Contains(string(h.appIndex), "medtracker-connect-origins") {
+		t.Fatal("per-account policy leaked into cached app template")
+	}
 	for _, tok := range []string{"'self'", "https://api.openai.com", "https://fooddb.example.com", "https://api.elevenlabs.io", "wss://api.elevenlabs.io"} {
 		if !strings.Contains(connect, tok) {
 			t.Errorf("connect-src = %q, missing %q", connect, tok)
@@ -374,6 +388,83 @@ func TestRouter_AppDocumentReflectsEgressHosts(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if got := cspDirective(rec.Header().Get("Content-Security-Policy"), "connect-src"); got != "'self'" {
 		t.Errorf("asset connect-src = %q, want strict 'self'", got)
+	}
+}
+
+func appDocumentOrigins(t *testing.T, body string) []string {
+	t.Helper()
+	const marker = `<meta name="medtracker-connect-origins" content="`
+	_, tail, ok := strings.Cut(body, marker)
+	if !ok {
+		t.Fatal("app document has no loaded-policy metadata")
+	}
+	value, _, ok := strings.Cut(tail, `"`)
+	if !ok {
+		t.Fatal("unterminated policy metadata")
+	}
+	var origins []string
+	if err := json.Unmarshal([]byte(html.UnescapeString(value)), &origins); err != nil {
+		t.Fatalf("decode escaped origins: %v", err)
+	}
+	return origins
+}
+
+type failedEgressReadStore struct{ *cloudstore.Repo }
+
+func (s failedEgressReadStore) EgressHosts(context.Context, string) ([]string, error) {
+	// A partial failed read must not claim or grant the partial host list.
+	return []string{"partial.example.com"}, errors.New("fixture egress read failure")
+}
+
+func TestRouter_AppDocumentOriginsRemainResponseScoped(t *testing.T) {
+	store := setupStore(t)
+	now := time.Now().UTC()
+	for _, id := range []string{"one", "two", "empty"} {
+		if _, err := store.CreateAccount(t.Context(), id, id, []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, hosts := range map[string][]string{"one": {"one.example.com"}, "two": {"two.example.com"}} {
+		if err := store.SetEgressHosts(t.Context(), id, hosts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+	cached := string(h.appIndex)
+	for _, id := range []string{"one", "two", "empty", "one", "two"} {
+		req := httptest.NewRequest(http.MethodGet, "https://"+id+".app.example.com/", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		want := []string{"https://api.elevenlabs.io"}
+		if id != "empty" {
+			want = append([]string{"https://" + id + ".example.com"}, want...)
+		}
+		if got := appDocumentOrigins(t, rec.Body.String()); !slices.Equal(got, want) {
+			t.Fatalf("account %s metadata = %v, want %v", id, got, want)
+		}
+		for _, origin := range want {
+			if !strings.Contains(cspDirective(rec.Header().Get("Content-Security-Policy"), "connect-src"), origin) {
+				t.Fatalf("metadata origin %q absent from actual header", origin)
+			}
+		}
+		if string(h.appIndex) != cached {
+			t.Fatal("request mutated cached app bytes")
+		}
+	}
+	h = New("app.example.com", failedEgressReadStore{store}, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://one.app.example.com/", nil))
+	if got := appDocumentOrigins(t, rec.Body.String()); !slices.Equal(got, []string{"https://api.elevenlabs.io"}) {
+		t.Fatalf("read-error origins = %v", got)
+	}
+	if strings.Contains(rec.Header().Get("Content-Security-Policy"), "partial.example.com") {
+		t.Fatal("read-error header granted partial host")
+	}
+	// Even unexpected stored text is attribute-escaped; it cannot close a meta
+	// tag or create markup. The client rejects malformed origin capabilities.
+	crafted := appDocumentWithConnectOrigins([]byte("<html><head></head></html>"), []string{`x\"><script>fixture</script>`})
+	if strings.Contains(string(crafted), "<script>fixture") {
+		t.Fatal("policy text escaped its HTML attribute")
 	}
 }
 

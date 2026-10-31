@@ -42,6 +42,132 @@
     let _aiProviderSavedPayload = null; // module-state: masked accepted form snapshot for full page cancellation
     let _aiProviderMainKeyEdited = false; // module-state: explicit main-key intent prevents automatic mask replacement
     let _aiProviderMainClearBase = null; // module-state: only a deliberate clear at this public base may remove its saved key
+    let _keyCheckSeq = 0; // module-state: edits/loads supersede an in-flight Check, never stores credentials
+    let _keyCheckBusy = false; // module-state: current Check button progress
+    let _keyCheckResult = null; // module-state: fixed sanitized result only
+    let _keyCheckSavedBase = null; // module-state: public base explicitly saved on this page
+    let _keyCheckRegistration = null; // module-state: registration outcome, never a permission grant
+    let _keyCheckSaveSeq = 0; // module-state: accepted snapshot generation, independent of subsequent draft edits
+
+    function keyCheckArgs() {
+        const key = getInput(FIELD_IDS.openai.api_key)?.value || '';
+        return {
+            scope: 'text', intent: key.trim() === '***' ? 'saved' : key.trim() ? 'draft' : 'trial',
+            draft: { api_key: key, url: getInput(FIELD_IDS.openai.url)?.value || '', model: getInput(FIELD_IDS.openai.model)?.value || '' }
+        };
+    }
+
+    function keyCheckPermission() {
+        try {
+            const port = window.offlineAwareApiCall;
+            if (typeof port?.aiKeyCheckPermission === 'function' && typeof port.checkAIKey === 'function') {
+                return port.aiKeyCheckPermission(keyCheckArgs());
+            }
+        } catch (_) { /* a missing/older capability never falls through to HTTP */ }
+        return { state: 'unsupported', code: 'capability', message: 'Key checking is unavailable in this app version. Update the app to check your key.' };
+    }
+
+    function invalidateKeyCheck() {
+        _keyCheckSeq += 1;
+        _keyCheckBusy = false;
+        _keyCheckResult = null;
+        renderKeyCheck();
+    }
+
+    function renderKeyCheck() {
+        const button = getInput('integrations-check-key');
+        const note = getInput('integrations-check-result');
+        if (!button || !note) return;
+        const permission = keyCheckPermission();
+        const local = document.documentElement.classList.contains('wg-local-vault');
+        let result = _keyCheckResult;
+        let reload = false;
+        if (permission.state !== 'ready') result = permission;
+        if (permission.state === 'needs_reload') {
+            if (_keyCheckSavedBase === mainBase()) {
+                if (_keyCheckRegistration === 'failed') result = { state: 'error', message: 'Settings saved, but the provider could not be registered. Save again to retry.' };
+                else if (_keyCheckRegistration === 'pending') result = { message: 'Settings saved. Registering your provider…' };
+                else if (local) result = { message: 'Save your provider settings. This app reloads automatically before you can check the key.' };
+                else {
+                    result = { message: 'Settings saved. Reload this page before checking the key.' };
+                    reload = _keyCheckRegistration === 'registered';
+                }
+            } else if (local) result = { message: 'Save your provider settings. This app reloads automatically before you can check the key.' };
+        }
+        const valid = mainProviderSaveAllowed() && !photoSaveIssue();
+        button.disabled = _keyCheckBusy || !valid || permission.state !== 'ready';
+        // Preserve the icon while changing the visible progress text.
+        const label = button.querySelector('[data-check-label]');
+        if (label) label.textContent = _keyCheckBusy ? 'Checking…' : 'Check key';
+        const urlError = permission.code === 'url';
+        getInput('integrations-openai-url-field')?.classList.toggle('wg-field--error', urlError);
+        const urlInput = getInput(FIELD_IDS.openai.url);
+        if (urlInput) {
+            if (urlError) urlInput.setAttribute('aria-invalid', 'true');
+            else urlInput.removeAttribute('aria-invalid');
+        }
+        const urlHint = getInput('integrations-provider-url-hint');
+        if (urlError && urlHint) urlHint.textContent = permission.message;
+        if (_keyCheckBusy) result = { message: 'Checking your key…' };
+        // Unsupported URL has its explanation beside the field, not a second note.
+        note.hidden = !result || urlError;
+        const tone = result?.state === 'success' ? 'ok' : result?.code === 'rejected' ? 'danger' : result?.state === 'error' ? 'warn' : '';
+        note.className = 'wg-note wg-ai-key-check-result' + (tone ? ' wg-note--' + tone : '');
+        let message = result?.message || '';
+        if (result?.code === 'unreachable') {
+            const provider = AI_PROVIDERS.find((p) => p.id === _aiProviderDraft);
+            message = 'Could not reach ' + (provider.id === 'other' ? 'your provider' : provider.summary) + ' — check the URL';
+        }
+        getInput('integrations-check-message').textContent = message;
+        const icon = getInput('integrations-check-icon');
+        icon.textContent = '';
+        icon.dataset.icon = tone === 'ok' ? 'check' : tone === 'danger' ? 'alert' : 'info';
+        window.WGIcons?.hydrate(icon);
+        getInput('integrations-check-reload').hidden = !reload;
+        _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
+    }
+
+    async function checkKey() {
+        if (_keyCheckBusy || !mainProviderSaveAllowed() || photoSaveIssue()) return;
+        const permission = keyCheckPermission();
+        if (permission.state !== 'ready') { renderKeyCheck(); return; }
+        const seq = ++_keyCheckSeq;
+        const args = keyCheckArgs();
+        _keyCheckBusy = true;
+        _keyCheckResult = null;
+        renderKeyCheck();
+        let result;
+        try { result = await window.offlineAwareApiCall.checkAIKey(args); } catch (_) {
+            result = { state: 'error', code: 'unreachable', message: 'Could not reach your provider — check the URL' };
+        }
+        if (seq !== _keyCheckSeq) return;
+        _keyCheckBusy = false;
+        _keyCheckResult = result;
+        renderKeyCheck();
+    }
+
+    function integrationsHaveUnsavedChanges() {
+        for (const [group, fields] of Object.entries(FIELD_IDS)) {
+            for (const [field, id] of Object.entries(fields)) {
+                if ((getInput(id)?.value || '') !== (_aiProviderSavedPayload?.[group]?.[field] || '')) return true;
+            }
+        }
+        return false;
+    }
+
+    async function reloadForKeyCheck() {
+        if (keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
+        const seq = _keyCheckSeq;
+        if (integrationsHaveUnsavedChanges()) {
+            if (typeof safeConfirm !== 'function' || !await safeConfirm('Reloading will discard your unsaved changes.', null,
+                { title: 'Reload page?', confirmLabel: 'Discard and reload', cancelLabel: 'Keep editing', tone: 'warn' })) return false;
+        }
+        const owed = window.flushPendingDelete?.();
+        if (owed) { try { await owed; } catch (_) { return false; } }
+        if (seq !== _keyCheckSeq) return false;
+        window.location.reload();
+        return true;
+    }
 
     function normalizeProviderURL(url) {
         return String(url || '').trim().replace(/\/+$/, '');
@@ -135,7 +261,7 @@
     }
 
     function providerSaveAllowed() {
-        return mainProviderSaveAllowed() && !photoSaveIssue();
+        return mainProviderSaveAllowed() && !photoSaveIssue() && keyCheckPermission().code !== 'url';
     }
 
     function renderPhotoSafety() {
@@ -207,6 +333,7 @@
         }
         renderPhotoSafety();
         _aiProviderPage?.setPrimaryEnabled(providerSaveAllowed());
+        renderKeyCheck();
     }
 
     async function chooseProvider() {
@@ -224,6 +351,7 @@
             && (normalizeProviderURL(url.value) !== normalizeProviderURL(_aiProviderLoaded.url)
                 || (_aiProviderLoaded.key && !key.value.trim()));
         if (picked === _aiProviderDraft && !restoreLoaded) return;
+        invalidateKeyCheck();
         _aiProviderDraft = picked;
         const savedSetup = _aiProviderLoaded && (_aiProviderLoaded.key || _aiProviderLoaded.url.trim() || _aiProviderLoaded.model.trim());
         if (savedSetup && picked === _aiProviderLoaded.provider) {
@@ -303,6 +431,12 @@
 
     function applyPayloadToDOM(payload) {
         if (!payload || typeof payload !== 'object') return;
+        _keyCheckSeq += 1;
+        _keyCheckSaveSeq += 1;
+        _keyCheckBusy = false;
+        _keyCheckResult = null;
+        _keyCheckSavedBase = null;
+        _keyCheckRegistration = null;
         for (const group of Object.keys(FIELD_IDS)) {
             const groupPayload = payload[group] || {};
             for (const field of Object.keys(FIELD_IDS[group])) {
@@ -1035,6 +1169,15 @@
             fresh = apiOk ? await apiCall('/api/settings/integrations', 'GET') : null;
         } catch (_) { /* fall through with optimistic payload */ }
         applyPayloadToDOM(fresh || maskPayload(payload));
+        _keyCheckSavedBase = mainBase();
+        _keyCheckRegistration = 'pending';
+        renderKeyCheck();
+        const saveSeq = _keyCheckSaveSeq;
+        try {
+            const status = await window.offlineAwareApiCall?.aiProviderRegistration?.();
+            if (saveSeq === _keyCheckSaveSeq) _keyCheckRegistration = status?.state || 'failed';
+        } catch (_) { if (saveSeq === _keyCheckSaveSeq) _keyCheckRegistration = 'failed'; }
+        renderKeyCheck();
         window.SettingsView?.refreshIntegrationsSummary?.();
         // The saved provider may now be a different one, which makes any list
         // already on screen wrong. Drop it; the next click re-fetches.
@@ -1050,6 +1193,13 @@
 
     // Save is the page-bar primary (features/settings.js openSettingsPage).
     function bindControls() {
+        const check = getInput('integrations-check-key');
+        if (check && !check.dataset.integrationsBound) {
+            check.dataset.integrationsBound = '1';
+            check.addEventListener('click', checkKey);
+            getInput('integrations-check-reload').addEventListener('click', reloadForKeyCheck);
+            for (const id of Object.values(FIELD_IDS.openai)) getInput(id)?.addEventListener('input', invalidateKeyCheck);
+        }
         const providerButton = getInput('integrations-provider-choose');
         if (providerButton && !providerButton.dataset.integrationsBound) {
             providerButton.dataset.integrationsBound = '1';
@@ -1127,6 +1277,8 @@
     }
 
     window.SettingsIntegrations = {
+        checkKey,
+        reloadForKeyCheck,
         load: loadIntegrations,
         save: saveIntegrations,
         trialOffer,
@@ -1134,7 +1286,7 @@
         turnOnSync,
         bindPage(page) {
             _aiProviderPage = page;
-            if (!page) restoreProviderDraft();
+            if (!page) { invalidateKeyCheck(); restoreProviderDraft(); }
             else renderProvider();
         },
         savedProviderLabel() {

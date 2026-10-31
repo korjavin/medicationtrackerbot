@@ -79,6 +79,14 @@ describe('registerEgressHosts', () => {
     expect(init.body).not.toContain('sk-secret');
   });
 
+  it('forwards the bounded registration abort signal without adding secrets to the request', async () => {
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(async () => ({ ok: true }));
+    await registerEgressHosts({ settings, fetchImpl, signal: controller.signal });
+    expect(fetchImpl.mock.calls[0][1].signal).toBe(controller.signal);
+    expect(fetchImpl.mock.calls[0][1].body).toBe('{"hosts":["api.openai.com"]}');
+  });
+
   it('returns null (best-effort) when no fetch, on rejection, or on HTTP error', async () => {
     allowConsoleNoise(); // the rejection + HTTP-error paths log by design
     expect(await registerEgressHosts({ settings, fetchImpl: undefined })).toBeNull();

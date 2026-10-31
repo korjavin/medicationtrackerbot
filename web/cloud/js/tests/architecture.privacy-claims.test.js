@@ -253,6 +253,19 @@ function literalHostsIn(src) {
 describe('privacy manifest is well-formed (med-yor.4)', () => {
   const ids = PRIVACY_MANIFEST.map((e) => e.id);
 
+  it('accounts for health-data-free Check requests on BYO and both explicitly consented trial paths', () => {
+    const byo = PRIVACY_MANIFEST.find((entry) => entry.id === 'byo-openai');
+    expect(byo.boundary).toBe('not-a-carve-out');
+    expect(byo.data).toMatch(/health-data-free.*Check key/);
+    expect(byo.operatorVisibility).toBe('none');
+    for (const id of ['trial-ai', 'local-trial']) {
+      const entry = PRIVACY_MANIFEST.find((item) => item.id === id);
+      expect(entry.activation).toBe('opt-in-consent');
+      expect(entry.data).toMatch(/health-data-free.*(?:sample prompt|Check key)|health-data-free sample prompt/);
+      expect(entry.data).toContain('Check key');
+    }
+  });
+
   it('has unique ids and is non-trivial', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.length).toBeGreaterThanOrEqual(15);

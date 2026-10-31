@@ -58,6 +58,213 @@ describe('Settings → Integrations section', () => {
         env = null;
     });
 
+    describe('Check key through the direct UI port and real settings/client', () => {
+        afterEach(() => vi.restoreAllMocks());
+        const field = (name) => env.document.getElementById('integrations-openai-' + name);
+        const fill = (name, value) => {
+            field(name).value = value;
+            field(name).dispatchEvent(new env.window.Event('input', { bubbles: true }));
+        };
+        const note = () => env.document.getElementById('integrations-check-message').textContent;
+        const button = () => env.document.getElementById('integrations-check-key');
+
+        async function setup(origins = ['https://api.openai.com'], loaded = true) {
+            const memory = new Map();
+            const writes = [];
+            const settings = createSettingsDomain({ records: {
+                async list(type) { return memory.get(type) || []; },
+                async put(type, row) { writes.push(type); memory.set(type, [structuredClone(row)]); }
+            }, now: () => 1, timeZone: () => 'UTC' });
+            await settings.patchIntegrations({ openai: { api_key: 'fixture-saved-key', url: 'https://api.openai.com/v1', model: 'gpt-6-luna' } });
+            env.window.apiCall = vi.fn(async (path, method, body) => {
+                if (path === '/api/settings/integrations') return method === 'PATCH' ? settings.patchIntegrations(body) : settings.getIntegrations();
+                if (path === '/api/settings/trial-consent') return settings.getTrialConsent();
+                return null;
+            });
+            // These are the actual installApiShim direct-port contracts, not
+            // HTTP routes; UI secrets must never use the generic function.
+            const port = vi.fn(() => { throw new Error('Check used generic API'); });
+            const client = createAIClient({ settingsDomain: settings, documentPolicy: { origins: JSON.stringify(origins), origin: 'https://account.example' } });
+            port.aiKeyCheckPermission = client.keyCheckPermission;
+            port.checkAIKey = vi.fn(client.checkKey);
+            port.aiProviderRegistration = vi.fn(async () => ({ state: 'registered' }));
+            env.window.offlineAwareApiCall = port;
+            if (loaded) await env.window.SettingsIntegrations.load();
+            const page = env.window.SettingsView.openSettingsPage('integrations');
+            writes.length = 0;
+            env.window.apiCall.mockClear();
+            return { settings, writes, port, page };
+        }
+
+        function reply(status = 200, body) {
+            // OpenAI nonstreamed completion (Chat Completions reference);
+            // length/null is valid for this tiny credential probe.
+            return new Response(JSON.stringify(body || { choices: [{ message: { role: 'assistant', content: null }, finish_reason: 'length' }] }), { status });
+        }
+
+        it('checks a rotated draft without Save, generic API, raw cache or field replacement; edits clear results', async () => {
+            const { settings, writes, port, page } = await setup();
+            const send = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(reply());
+            fill('api-key', 'fixture-rotated-key');
+            await env.window.SettingsIntegrations.checkKey();
+            expect(note()).toBe('Key works');
+            expect(send.mock.calls[0][1].headers.Authorization).toBe('Bearer fixture-rotated-key');
+            expect(port).not.toHaveBeenCalled();
+            expect(env.window.apiCall).not.toHaveBeenCalled();
+            expect(writes).toEqual([]);
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('fixture-saved-key');
+            expect(field('api-key').value).toBe('fixture-rotated-key');
+            expect(JSON.stringify(await env.window.MedTrackerDB.ApiCache.get('settings_integrations'))).not.toContain('fixture-');
+            fill('model', 'another-model');
+            expect(env.document.getElementById('integrations-check-result').hidden).toBe(true);
+            page.close();
+        });
+
+        it('does not paint a response after any relevant edit or a page close', async () => {
+            const { page } = await setup();
+            let finish;
+            vi.spyOn(globalThis, 'fetch').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+            const pending = env.window.SettingsIntegrations.checkKey();
+            await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+            fill('model', 'newer-model');
+            finish(reply(401, { error: { message: 'fixture-saved-key' } }));
+            await pending;
+            expect(env.document.getElementById('integrations-check-result').hidden).toBe(true);
+            expect(field('model').value).toBe('newer-model');
+            page.close();
+        });
+
+        it('closing before the first successful settings read invalidates an in-flight result too', async () => {
+            const { page } = await setup(['https://api.openai.com'], false);
+            fill('api-key', 'fixture-draft-before-load');
+            let finish;
+            vi.spyOn(globalThis, 'fetch').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+            const pending = env.window.SettingsIntegrations.checkKey();
+            await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+            page.close();
+            finish(reply());
+            await pending;
+            const reopened = env.window.SettingsView.openSettingsPage('integrations');
+            expect(env.document.getElementById('integrations-check-result').hidden).toBe(true);
+            reopened.close();
+        });
+
+        it.each([[401, 'Key rejected'], [403, 'Key rejected'], [404, 'Model not found — pick one with Choose'],
+            [429, 'Rate limited — try again in a minute'], [400, 'Provider rejected this request — check the model and API URL']])(
+            'maps status %s to fixed text, retains fields and never echoes an error body', async (status, expected) => {
+                const { page } = await setup();
+                vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(reply(status, { error: { message: 'fixture-typed-secret' } }));
+                fill('api-key', 'fixture-typed-secret');
+                await env.window.SettingsIntegrations.checkKey();
+                expect(note()).toBe(expected);
+                expect(note()).not.toContain('fixture-typed-secret');
+                expect(field('api-key').value).toBe('fixture-typed-secret');
+                expect(field('model').value).toBe('gpt-6-luna');
+                page.close();
+            }
+        );
+
+        it('keeps a new-host Check blocked after Save/registration until a new loaded document permits it', async () => {
+            const { settings, page, port } = await setup();
+            const send = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply());
+            env.window.safeChoose = vi.fn(async () => 'anthropic');
+            env.document.getElementById('integrations-provider-choose').click();
+            await vi.waitFor(() => expect(env.document.getElementById('integrations-provider-value').textContent).toBe('Anthropic (Claude)'));
+            fill('api-key', 'fixture-new-provider-key');
+            expect(button().disabled).toBe(true);
+            expect(note()).toBe('Save your provider settings and reload this page before checking the key.');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            await env.window.SettingsIntegrations.checkKey();
+            expect(send).not.toHaveBeenCalled();
+            await env.window.SettingsIntegrations.save();
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('fixture-new-provider-key');
+            expect(port.aiProviderRegistration).toHaveBeenCalledTimes(1);
+            expect(button().disabled).toBe(true);
+            expect(note()).toBe('Settings saved. Reload this page before checking the key.');
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(false);
+            expect(send).not.toHaveBeenCalled();
+            // A separately booted document can carry a genuinely new policy.
+            page.close();
+            const next = createAIClient({ settingsDomain: settings, documentPolicy: { origins: '["https://api.anthropic.com"]', origin: 'https://account.example' } });
+            port.aiKeyCheckPermission = next.keyCheckPermission;
+            port.checkAIKey = next.checkKey;
+            const reopened = env.window.SettingsView.openSettingsPage('integrations');
+            expect(button().disabled).toBe(false);
+            expect(env.document.getElementById('integrations-check-result').hidden).toBe(true);
+            reopened.close();
+        });
+
+        it('treats failed registration as retryable Save, not a successful reload fix', async () => {
+            const { port, page } = await setup([]);
+            port.aiProviderRegistration.mockResolvedValue({ state: 'failed' });
+            await env.window.SettingsIntegrations.save();
+            expect(note()).toBe('Settings saved, but the provider could not be registered. Save again to retry.');
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(true);
+            expect(button().disabled).toBe(true);
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            page.close();
+        });
+
+        it('keeps registration outcome valid across subsequent edits and protects those edits before Reload', async () => {
+            const { port, page } = await setup([]);
+            let finish;
+            port.aiProviderRegistration.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+            const saving = env.window.SettingsIntegrations.save();
+            await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+            fill('model', 'unsaved-after-save');
+            finish({ state: 'registered' });
+            await saving;
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(false);
+            env.window.safeConfirm = vi.fn(async () => false);
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(env.window.safeConfirm).toHaveBeenCalledWith('Reloading will discard your unsaved changes.', null, expect.objectContaining({ cancelLabel: 'Keep editing' }));
+            expect(field('model').value).toBe('unsaved-after-save');
+            expect(env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(1);
+            // Even consent to discard an earlier draft cannot discard a newer edit
+            // made while an already owed delete is being flushed.
+            env.window.safeConfirm.mockResolvedValue(true);
+            env.window.flushPendingDelete = vi.fn(async () => { fill('model', 'newest-draft'); });
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(field('model').value).toBe('newest-draft');
+            page.close();
+        });
+
+        it('distinguishes unsupported URL from unavailable capability without losing valid Save', async () => {
+            const { port, page } = await setup();
+            env.window.safeChoose = vi.fn(async () => 'other');
+            env.document.getElementById('integrations-provider-choose').click();
+            await vi.waitFor(() => expect(env.document.getElementById('integrations-provider-value').textContent).toBe('Other'));
+            fill('url', 'http://custom.example/v1');
+            fill('api-key', 'fixture-custom-key');
+            expect(button().disabled).toBe(true);
+            expect(env.document.getElementById('integrations-provider-url-hint').textContent).toBe('This app needs an HTTPS API URL. Enter an HTTPS address.');
+            expect(field('url').getAttribute('aria-invalid')).toBe('true');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(true);
+            fill('url', 'https://custom.example/v1');
+            fill('api-key', 'fixture-custom-key');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            delete port.checkAIKey;
+            env.window.SettingsIntegrations.bindPage(page);
+            expect(note()).toBe('Key checking is unavailable in this app version. Update the app to check your key.');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            expect(button().disabled).toBe(true);
+            page.close();
+        });
+
+        it('preserves native automatic reload wording and never presents a manual Reload action there', async () => {
+            const { port, page } = await setup([]);
+            env.document.documentElement.classList.add('wg-local-vault');
+            env.window.SettingsIntegrations.bindPage(page);
+            expect(note()).toBe('Save your provider settings. This app reloads automatically before you can check the key.');
+            port.aiProviderRegistration.mockResolvedValue({ state: 'reloading' });
+            await env.window.SettingsIntegrations.save();
+            expect(button().disabled).toBe(true);
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(true);
+            page.close();
+        });
+    });
+
     it('renders the Integrations card with one input per provider field', () => {
         const { document } = env;
         const card = document.getElementById('settings-integrations');

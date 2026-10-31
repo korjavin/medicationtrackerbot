@@ -36,6 +36,27 @@ async function runBoot({ hash = '', modules, setupWindow }) {
 }
 
 describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
+  it('captures exact document origins before async unlock, not later DOM or settings state', async () => {
+    const dom = new JSDOM('<head><meta name="medtracker-connect-origins" content=\'["https://a.example"]\'></head>');
+    let unlock;
+    let captured;
+    const warming = new Promise((resolve) => { unlock = resolve; });
+    const running = runBoot({
+      setupWindow(win) { win.document = dom.window.document; win.location = { origin: 'https://account.example' }; },
+      modules: {
+        'unlock.js': { warmUnlock: () => warming },
+        'apishim.js': { installApiShim: (_ctx, options) => { captured = options.documentPolicy; return () => Promise.resolve(null); } },
+        'sync.js': { pullOnOpen: () => new Promise(() => {}) },
+      },
+    });
+    dom.window.document.querySelector('meta').content = '["https://b.example"]';
+    unlock({ accountId: 'fixture-account', kData: {}, kMac: {} });
+    await running;
+    expect(captured).toEqual({ origins: '["https://a.example"]', origin: 'https://account.example' });
+    expect(Object.isFrozen(captured)).toBe(true);
+    dom.window.close();
+  });
+
   it('redirects to /unlock when there is no cached LDK record (warmUnlock -> null)', async () => {
     const { location } = await runBoot({
       modules: { 'unlock.js': { warmUnlock: async () => null } },
