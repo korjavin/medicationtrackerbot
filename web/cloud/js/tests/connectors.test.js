@@ -1,6 +1,6 @@
 // Claude connector page (kit screens-connect-ai.html CC1–CC4, med-73xx): one
 // way in onto the remote connector, per-app instructions from the same URL,
-// and a hidden local-shim offer. Split out of the devices page by med-lyv.
+// and the packaged Private helper. Split out of the devices page by med-lyv.
 // connectors.js drives the real DOM directly (no framework), so these tests run
 // it against a real jsdom document with the pairing/remote modules mocked — the
 // interesting behavior here is the page wiring, not mcp-pairing.js's /
@@ -10,6 +10,7 @@ import { JSDOM } from 'jsdom';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
@@ -17,16 +18,20 @@ vi.mock('../mcp-pairing.js', () => ({
   getPairing: vi.fn(),
   connectClaude: vi.fn(),
   disconnectClaude: vi.fn(),
+  pairingNeedsReconnect: vi.fn(),
 }));
 vi.mock('../mcp-remote.js', () => ({
   getRemoteStatus: vi.fn(),
   connectRemote: vi.fn(),
   disconnectRemote: vi.fn(),
 }));
+vi.mock('../sync.js', () => ({ recordsPort: vi.fn() }));
+vi.mock('../mcp-responder.js', () => ({ refreshResponder: vi.fn(), stopResponder: vi.fn(), clearNonceRing: vi.fn() }));
 import { renderConnectors } from '../connectors.js';
 import { installDialogs, answerDialog } from './helpers/dialogs.js';
-import { getPairing, connectClaude, disconnectClaude } from '../mcp-pairing.js';
+import { getPairing, connectClaude, disconnectClaude, pairingNeedsReconnect } from '../mcp-pairing.js';
 import { getRemoteStatus, connectRemote, disconnectRemote } from '../mcp-remote.js';
+import { recordsPort } from '../sync.js';
 
 let dom;
 let app;
@@ -43,6 +48,7 @@ beforeEach(() => {
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
   app = dom.window.document.getElementById('app');
   vi.clearAllMocks();
+  pairingNeedsReconnect.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -106,7 +112,7 @@ describe('connectors.js Claude connector page', () => {
   });
 
   // CC1: one way in, the build-from-source shim is no longer offered.
-  it('offers one primary "Connect an AI app" and no local shim when nothing is connected', async () => {
+  it('keeps remote as the sole primary and offers Private second without mutating a pairing', async () => {
     getPairing.mockResolvedValue(null);
     getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     await renderAndSettle();
@@ -118,6 +124,8 @@ describe('connectors.js Claude connector page', () => {
     expect(app.querySelector('#claude-status').textContent).toBe('Not connected');
     expect(app.textContent).toContain('One AI app per account.');
     expect(app.querySelector('#claude-local-connect-button')).toBeNull();
+    expect(app.querySelector('#claude-private-button').classList.contains('wg-btn--primary')).toBe(false);
+    expect(connectClaude).not.toHaveBeenCalled();
     // Inactive controls are not rendered at all: kit .wg-btn/.wg-vstack set
     // display, which beats a [hidden] attribute in the body-level page.
     expect(app.querySelector('#claude-disconnect-button')).toBeNull();
@@ -263,19 +271,19 @@ describe('connectors.js Claude connector page', () => {
 
   // CC4 · Local shim: an existing pairing keeps status + Disconnect; it is not
   // offered again, only the switch to the remote connector.
-  it('a local-shim pairing keeps its status and Disconnect, with no shim connect offer', async () => {
+  it('an existing local pairing keeps honest saved status, explicit reconnect and Disconnect', async () => {
     getPairing.mockResolvedValue({ recordId: 'mcppairing' });
     getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     disconnectClaude.mockResolvedValue();
     await renderAndSettle();
 
-    expect(app.querySelector('#claude-status').textContent).toBe('Linked with the local shim');
+    expect(app.querySelector('#claude-status').textContent).toBe('Private pairing saved');
     expect(app.querySelector('#claude-local-connect-button')).toBeNull();
     expect(app.textContent).not.toMatch(/go build|mcpshim/);
     const connect = app.querySelector('#claude-remote-connect-button');
-    expect(connect.textContent).toBe('Connect an AI app instead');
+    expect(connect.textContent).toBe('Use the standard connection instead');
     expect(connect.classList.contains('wg-btn--primary')).toBe(false);
-    expect(app.textContent).toContain('This disconnects the local shim first.');
+    expect(app.textContent).toContain('To set up again or replace this connection, reconnect.');
 
     app.querySelector('#claude-disconnect-button').click();
     await answerDialog(dom.window.document, true);
@@ -286,5 +294,239 @@ describe('connectors.js Claude connector page', () => {
     expect(disconnectClaude).toHaveBeenCalledWith(ctx);
     expect(disconnectRemote).not.toHaveBeenCalled();
     expect(connectClaude).not.toHaveBeenCalled();
+  });
+
+  async function choosePrivate(pairing = null, remote = { enabled: false }) {
+    getPairing.mockResolvedValue(pairing);
+    getRemoteStatus.mockResolvedValue(remote);
+    await renderAndSettle();
+    app.querySelector('#claude-private-button').click();
+  }
+
+  const CODE = 'mtmcp1.eyJmaXh0dXJlIjoib25seSJ9';
+
+  it('waits for explicit destination OS, creates once and copies the same published command across OS/retry', async () => {
+    await choosePrivate();
+    const create = app.querySelector('#claude-private-create');
+    expect(create.disabled).toBe(true);
+    expect(app.querySelector('[aria-pressed="true"]')).toBeNull();
+    expect(connectClaude).not.toHaveBeenCalled();
+    app.querySelector('[data-computer="linux"]').click();
+    let release;
+    connectClaude.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    create.click();
+    await vi.waitFor(() => expect(connectClaude).toHaveBeenCalledTimes(1));
+    expect(create.disabled).toBe(true);
+    create.click();
+    expect(connectClaude).toHaveBeenCalledTimes(1);
+    release({ code: CODE });
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-prompt')).not.toBeNull());
+    const writeText = stubClipboard();
+    const posix = app.querySelector('#claude-private-command').textContent;
+    expect(posix).toContain(`--pairing-code '${CODE}'`);
+    expect(posix).toContain('/mcpshim-v0.1.0/install.sh');
+    expect(posix).not.toMatch(/latest|ExecutionPolicy|npm/);
+    expect(app.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
+    app.querySelector('#claude-private-copy-prompt').click();
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-feedback').textContent).toBe('Copied. Paste into Claude Code.'));
+    expect(writeText).toHaveBeenLastCalledWith(app.querySelector('#claude-private-prompt').textContent);
+    app.querySelector('[data-computer="macos"]').click();
+    expect(app.querySelector('#claude-private-command').textContent).toBe(posix);
+    app.querySelector('[data-computer="windows"]').click();
+    const powershell = app.querySelector('#claude-private-command').textContent;
+    expect(powershell).toContain(`-PairingCode '${CODE}'`);
+    expect(powershell).toContain('/mcpshim-v0.1.0/install.ps1');
+    // Exact published commands.json SHA256, independently verified at release.
+    // This binds the complete template bytes, not just a URL/substring.
+    const contract = {
+      version: '0.1.0', tag: 'mcpshim-v0.1.0', source_commit: '1a7c640616108cc79f1ce1b2b5e52cac56d7fc6c', placeholder: '<PAIRING_CODE>',
+      posix: posix.replace(CODE, '<PAIRING_CODE>'), powershell: powershell.replace(CODE, '<PAIRING_CODE>'),
+      installer_sha256: { 'install.sh': '8be0fc4a40e7ce634567413a5f4dd34c62a81aac002c6fbfd1d18ef9b8065f8c', 'install.ps1': 'd380d9c008c0d396b959d93709a09225660e007f9e6b54074949cc8013f94d57' },
+    };
+    expect(createHash('sha256').update(JSON.stringify(contract, null, 2) + '\n').digest('hex')).toBe('074ee55fb58b2455d4d35ee60e15d3fa5149538bfd8ab1d478aa718e126acadd');
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    app.querySelector('#claude-private-copy-prompt').click();
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-feedback').textContent).toContain('Could not copy.'));
+    expect(app.querySelector('#claude-private-prompt').textContent).toContain(powershell);
+    app.querySelector('#claude-private-copy-prompt').click();
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-feedback').textContent).toContain('Copied.'));
+    app.querySelector('#claude-private-copy-command').click();
+    expect(writeText).toHaveBeenLastCalledWith(powershell);
+    expect(connectClaude).toHaveBeenCalledTimes(1);
+    expect(connectRemote).not.toHaveBeenCalled();
+    expect(app.textContent).toContain('do not establish a live connection');
+    expect(app.textContent).toContain('does not erase earlier data or transcripts');
+  });
+
+  it.each(['local', 'remote'])('confirms %s to Private before the first mutation; Cancel starts focused and preserves the old connection', async (mode) => {
+    await choosePrivate({ recordId: 'mcppairing' }, { enabled: mode === 'remote', url: REMOTE_URL });
+    app.querySelector('[data-computer="macos"]').click();
+    app.querySelector('#claude-private-create').click();
+    const dialog = await vi.waitFor(() => {
+      const modal = dom.window.document.querySelector('mt-modal');
+      expect(modal).not.toBeNull();
+      return modal;
+    });
+    expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Replace this connection?');
+    expect(dom.window.document.activeElement).toBe(dialog.querySelector('.mt-confirm-modal__cancel'));
+    expect(dialog.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(false);
+    expect(app.querySelector('#claude-private-create').classList.contains('wg-btn--primary')).toBe(false);
+    expect(dom.window.document.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
+    expect(connectClaude).not.toHaveBeenCalled();
+    await answerDialog(dom.window.document, false);
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-create').disabled).toBe(false));
+    expect(app.querySelector('#claude-private-create').classList.contains('wg-btn--primary')).toBe(true);
+    expect(disconnectClaude).not.toHaveBeenCalled();
+    expect(disconnectRemote).not.toHaveBeenCalled();
+    connectClaude.mockResolvedValue({ code: CODE });
+    app.querySelector('#claude-private-create').click();
+    await answerDialog(dom.window.document, true);
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-command')).not.toBeNull());
+    expect(connectClaude).toHaveBeenCalledTimes(1);
+    expect(connectRemote).not.toHaveBeenCalled();
+  });
+
+  it('confirms Private to remote before consent and mutation, and cancels without changing the old key', async () => {
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    getRemoteStatus.mockResolvedValue({ enabled: false });
+    await renderAndSettle();
+    app.querySelector('#claude-remote-connect-button').click();
+    let dialog = await answerDialog(dom.window.document, false);
+    expect(dialog.textContent).toContain('new link');
+    expect(connectRemote).not.toHaveBeenCalled();
+    connectRemote.mockResolvedValue({ url: REMOTE_URL });
+    await vi.waitFor(() => expect(app.querySelector('#claude-remote-connect-button').disabled).toBe(false));
+    app.querySelector('#claude-remote-connect-button').click();
+    dialog = await answerDialog(dom.window.document, true);
+    expect(dialog.textContent).toContain('Replace this connection?');
+    expect(connectRemote).not.toHaveBeenCalled();
+    await answerDialog(dom.window.document, true);
+    await vi.waitFor(() => expect(app.querySelector('#claude-code-command')).not.toBeNull());
+    expect(connectRemote).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps status truthful after failed replacement, with an explicit status/retry path and no leaked error/code', async () => {
+    await choosePrivate();
+    connectClaude.mockRejectedValue(new Error(`sensitive diagnostic ${CODE}`));
+    app.querySelector('[data-computer="linux"]').click();
+    app.querySelector('#claude-private-create').click();
+    await vi.waitFor(() => expect(app.querySelector('#connectors-retry')).not.toBeNull());
+    expect(app.textContent).toContain('previous connection may have been replaced');
+    expect(app.textContent).not.toContain(CODE);
+    expect(app.textContent).not.toContain('Connected');
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    app.querySelector('#connectors-retry').click();
+    await vi.waitFor(() => expect(app.querySelector('#claude-status')?.textContent).toBe('Private pairing saved'));
+    expect(app.querySelector('#claude-private-command')).toBeNull();
+  });
+
+  it('uses only proven pairing-gone evidence for the reconnect screen, never a generic offline error', async () => {
+    getPairing.mockResolvedValue(null);
+    getRemoteStatus.mockResolvedValue({ enabled: false });
+    pairingNeedsReconnect.mockReturnValue(true);
+    renderConnectors(app, ctx);
+    await vi.waitFor(() => expect(app.querySelector('#claude-status')?.textContent).toBe('Reconnect needed'));
+    expect(app.querySelector('#claude-remote-connect-button').classList.contains('wg-btn--primary')).toBe(true);
+    expect(app.textContent).not.toContain('private pairing no longer works');
+    app.querySelector('#claude-private-button').click();
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-create')).not.toBeNull());
+    expect(app.textContent).toContain('Reconnect needed');
+    expect(app.querySelector('#claude-private-create').disabled).toBe(true);
+    expect(connectClaude).not.toHaveBeenCalled();
+    pairingNeedsReconnect.mockReturnValue(false);
+    getRemoteStatus.mockRejectedValue(new Error('No unlocked device is online'));
+    renderConnectors(app, ctx);
+    await vi.waitFor(() => expect(app.querySelector('#connectors-retry')).not.toBeNull());
+    expect(app.textContent).not.toContain('Reconnect needed');
+  });
+
+  it.each(['private', 'remote'])('reports pre-mutation %s status failure as unchanged, without confirmation or POST', async (destination) => {
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    getRemoteStatus.mockResolvedValue({ enabled: false });
+    await renderAndSettle();
+    if (destination === 'private') {
+      app.querySelector('#claude-private-button').click();
+      app.querySelector('[data-computer="linux"]').click();
+    }
+    getRemoteStatus.mockRejectedValue(new Error('offline fixture'));
+    app.querySelector(destination === 'private' ? '#claude-private-create' : '#claude-remote-connect-button').click();
+    await vi.waitFor(() => expect(app.querySelector('#connectors-retry')).not.toBeNull());
+    expect(app.textContent).toContain('Nothing was changed.');
+    expect(app.textContent).not.toContain('may have been replaced');
+    expect(connectClaude).not.toHaveBeenCalled();
+    expect(connectRemote).not.toHaveBeenCalled();
+    expect(dom.window.document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+  });
+
+  it.each(["mtmcp1.';touch /tmp/invalid", '<img src=x>', ''])('refuses an unsafe pairing result as shell data: %s', async (code) => {
+    await choosePrivate();
+    connectClaude.mockResolvedValue({ code });
+    app.querySelector('[data-computer="linux"]').click();
+    app.querySelector('#claude-private-create').click();
+    await vi.waitFor(() => expect(app.querySelector('#connectors-retry')).not.toBeNull());
+    expect(app.querySelector('#claude-private-prompt')).toBeNull();
+    expect(app.querySelector('img')).toBeNull();
+  });
+
+  it('drives the real pairing/remote boundary: Private posts no key, replacement tears remote down, expired purge alone requests reconnect', async () => {
+    const realPairing = await vi.importActual('../mcp-pairing.js');
+    const realRemote = await vi.importActual('../mcp-remote.js');
+    const rows = new Map();
+    rows.set('mcppairing', { recordId: 'mcppairing', pairingId: 'old', key: 'old-private-fixture-key' });
+    recordsPort.mockReturnValue({
+      list: async () => [...rows.values()],
+      put: async (_type, record) => rows.set(record.recordId, record),
+      del: async (_type, id) => rows.delete(id),
+    });
+    vi.stubGlobal('location', dom.window.location);
+    let remoteEnabled = true;
+    const calls = [];
+    // Contract: MCPRelayAPI.CreatePairing wraps legacy mint in
+    // onLegacyPairingMutation, which atomically tears down Tier2 remote first
+    // (internal/cloudserver/mcp_relay.go + mcp_remote.go). No fake secret POST.
+    global.fetch = vi.fn(async (url, options = {}) => {
+      calls.push({ url, ...options });
+      if (url === '/api/mcp/remote' && !options.method) return { ok: true, json: async () => ({ enabled: remoteEnabled, token: remoteEnabled ? 'old' : '' }) };
+      if (url === '/api/mcp/pairings' && options.method === 'POST') {
+        remoteEnabled = false;
+        return { ok: true, json: async () => ({ pairing_id: 'fresh-private-fixture' }) };
+      }
+      if (url === '/api/mcp/pairings' && options.method === 'DELETE') return { ok: true };
+      throw new Error('unexpected request');
+    });
+    getPairing.mockImplementation(realPairing.getPairing);
+    connectClaude.mockImplementation(realPairing.connectClaude);
+    disconnectClaude.mockImplementation(realPairing.disconnectClaude);
+    pairingNeedsReconnect.mockImplementation(realPairing.pairingNeedsReconnect);
+    getRemoteStatus.mockImplementation(realRemote.getRemoteStatus);
+    await renderAndSettle();
+    app.querySelector('#claude-private-button').click();
+    app.querySelector('[data-computer="linux"]').click();
+    app.querySelector('#claude-private-create').click();
+    await answerDialog(dom.window.document, false);
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-create').disabled).toBe(false));
+    expect(calls.filter((c) => c.method)).toEqual([]);
+    expect(rows.get('mcppairing').key).toBe('old-private-fixture-key');
+    app.querySelector('#claude-private-create').click();
+    await answerDialog(dom.window.document, true);
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-command')).not.toBeNull());
+    const code = app.querySelector('#claude-private-command').textContent.match(/--pairing-code '([^']+)'/)[1];
+    const wire = JSON.parse(Buffer.from(code.slice('mtmcp1.'.length), 'base64url').toString());
+    expect(wire.pairing_id).toBe('fresh-private-fixture');
+    expect(wire.key).toBe(rows.get('mcppairing').key);
+    expect(calls.filter((c) => c.method)).toEqual([{ url: '/api/mcp/pairings', method: 'POST' }]);
+    expect(JSON.stringify(calls)).not.toContain(code);
+    expect(JSON.stringify(calls)).not.toContain(wire.key);
+    expect(dom.window.localStorage.length).toBe(0);
+    await realPairing.purgePairing(ctx); // only real 4404 controller path invokes this.
+    expect(realPairing.pairingNeedsReconnect(ctx)).toBe(true);
+    renderConnectors(app, ctx);
+    await vi.waitFor(() => expect(app.querySelector('#claude-status')?.textContent).toBe('Reconnect needed'));
+    expect(app.querySelector('#claude-remote-connect-button').classList.contains('wg-btn--primary')).toBe(true);
+    app.querySelector('#claude-private-button').click();
+    await vi.waitFor(() => expect(app.querySelector('#claude-private-create')).not.toBeNull());
+    expect(app.textContent).toContain('Reconnect needed');
+    await realPairing.disconnectClaude(ctx);
+    expect(realPairing.pairingNeedsReconnect(ctx)).toBe(false);
   });
 });

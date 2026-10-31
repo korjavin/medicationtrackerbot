@@ -34,8 +34,11 @@ Every file is at the exact public, unauthenticated root:
 | `commands.json` | Exact POSIX/PowerShell bootstrap command bytes and installer digests |
 | `provenance.json` | Version, source commit, toolchain and workflow-run link |
 
-This source defines the contract; it does not claim these release URLs already
-exist. GitHub publishers can alter releases/tags despite version pinning.
+Release `mcpshim-v0.1.0` is published from reviewed source
+`1a7c640616108cc79f1ce1b2b5e52cac56d7fc6c`. The Private setup UI embeds its
+exact `commands.json` templates and installer digests; it does not fetch GitHub
+or resolve a latest version in the browser. GitHub publishers can still alter
+releases/tags despite version pinning.
 
 The tagged `go.mod` pins Go **1.26.5**; builds use `CGO_ENABLED=0` and stamp
 `0.1.0+<full-source-commit>`. `mcpshim --version` and MCP initialize advertise
