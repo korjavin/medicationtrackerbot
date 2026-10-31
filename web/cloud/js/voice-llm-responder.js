@@ -15,8 +15,9 @@
 // back unparsed.
 
 const RECONNECT_MIN_MS = 1000;
-// The server keeps a detached call for 30 s (voiceCallGrace); 1+2+4+8+8+8 s of
-// backoff spans it, and the first redial past it gets 4404 and stops.
+// The server keeps a detached call for up to 30 s (voiceCallGrace), capped by
+// the authenticated call's absolute lifetime. Backoff spans that maximum;
+// the first redial after the remaining window gets 4404 and stops.
 const RECONNECT_MAX_MS = 8000;
 // Bound on start(): the hello is the server's first frame, so a healthy leg
 // answers in one round trip.

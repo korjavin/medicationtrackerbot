@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/coder/websocket"
@@ -103,6 +104,45 @@ func (c voiceWriteGateConn) Write(p []byte) (int, error) {
 	return c.Conn.Write(p)
 }
 
+// net.Pipe uses channels, so synctest can wait until context.AfterFunc's
+// actual coder/websocket close callback has run. Real TCP cannot provide
+// that scheduler synchronization (testing/synctest's HTTP example uses the
+// same net.Pipe/Transport contract). HTTP and websocket handlers stay real.
+type voicePipeListener struct {
+	pending chan net.Conn
+	done    chan struct{}
+	once    sync.Once
+}
+
+func (l *voicePipeListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-l.pending:
+		return conn, nil
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *voicePipeListener) Close() error { l.once.Do(func() { close(l.done) }); return nil }
+func (l *voicePipeListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
+}
+func (l *voicePipeListener) dial(ctx context.Context, _, _ string) (net.Conn, error) {
+	client, server := net.Pipe()
+	select {
+	case l.pending <- server:
+		return client, nil
+	case <-ctx.Done():
+		client.Close()
+		server.Close()
+		return nil, ctx.Err()
+	case <-l.done:
+		client.Close()
+		server.Close()
+		return nil, net.ErrClosed
+	}
+}
+
 func TestVoiceLLMRelay_RealDeadlineDuringHTTPFlush(t *testing.T) {
 	for _, stage := range []struct {
 		name  string
@@ -157,18 +197,46 @@ func TestVoiceLLMRelay_RealDeadlineDuringHTTPFlush(t *testing.T) {
 }
 
 func TestVoiceLLMRelay_RealDeadlineDuringRequestWrite(t *testing.T) {
+	// Construct the persistent store/rate-limit background services outside
+	// the bubble; the handler, transport, deadlines and websocket callbacks
+	// exercised below all run inside it.
+	f := newVoiceRelayFixture(t)
+	account, credential, ok := VerifySessionToken(f.session.Value, f.api.sessionSecret)
+	if !ok {
+		t.Fatal("fixture session is invalid")
+	}
+	synctest.Test(t, func(t *testing.T) {
+		// Mint the same stored credential's cookie on the bubble clock;
+		// otherwise RequireSession correctly rejects its future timestamp.
+		f.session = sessionCookie(NewSessionToken(account, credential, f.api.sessionSecret))
+		testVoiceDeadlineDuringRequestWrite(t, f)
+	})
+}
+
+func testVoiceDeadlineDuringRequestWrite(t *testing.T, f *voiceRelayFixture) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var releaseOnce sync.Once
 	releaseWrite := func() { releaseOnce.Do(func() { close(release) }) }
-	defer releaseWrite()
 	var once sync.Once
-	f := newVoiceRelayFixtureListener(t, func(l net.Listener) net.Listener {
-		return voiceWriteGateListener{Listener: l, gate: func(p []byte) {
+	listener := &voicePipeListener{pending: make(chan net.Conn), done: make(chan struct{})}
+	server := &http.Server{Handler: f.h}
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		_ = server.Serve(voiceWriteGateListener{Listener: listener, gate: func(p []byte) {
 			if bytes.Contains(p, []byte(`"type":"request"`)) {
 				once.Do(func() { close(entered); <-release })
 			}
-		}}
-	})
+		}})
+	}()
+	transport := &http.Transport{DialContext: listener.dial}
+	f.client = &http.Client{Transport: transport}
+	defer func() {
+		releaseWrite()
+		transport.CloseIdleConnections()
+		server.Close()
+		<-served
+	}()
 	f.api.callLifetime = 200 * time.Millisecond
 	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
@@ -188,9 +256,10 @@ func TestVoiceLLMRelay_RealDeadlineDuringRequestWrite(t *testing.T) {
 		t.Fatal("request write prevented logical expiry")
 	}
 	// A capability-cancelled websocket write context would abruptly close
-	// TCP here (coder/websocket conn.go setupWriteTimeout). A healthy writer
-	// must instead finish its admitted bytes and deliver the existing 4404.
-	time.Sleep(10 * time.Millisecond)
+	// the transport here (coder/websocket conn.go setupWriteTimeout). Wait
+	// for every runnable cancellation callback while the write remains gated;
+	// this cannot falsely pass because a context.AfterFunc was scheduled late.
+	synctest.Wait()
 	releaseWrite()
 	for {
 		_, _, err := device.Read(ctx)
@@ -403,6 +472,75 @@ func TestVoiceLLMRelay_DeadlineStopsPartialStream(t *testing.T) {
 	resp2.Body.Close()
 	if !isVoiceFallback(resp2.StatusCode, string(out)) {
 		t.Fatalf("next completion = %q", out)
+	}
+}
+
+func TestVoiceLLMRelay_QueuedBeforeDeadlineDroppedAfterExpiry(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	advance := advanceVoiceClock(f)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	device, token := f.dialDevice(t, ctx, "")
+	defer device.CloseNow()
+	call := f.api.lookup(token)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseFlush := func() { releaseOnce.Do(func() { close(release) }) }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.h.ServeHTTP(&voiceFlushGate{ResponseWriter: w, gate: func(n int) {
+			if n == 2 {
+				close(entered)
+				<-release
+			}
+		}}, r)
+	}))
+	defer func() { releaseFlush(); server.Close() }()
+	f.client = wsClientFor(server.Listener.Addr().String())
+	resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`)
+	defer resp.Body.Close()
+	request := readVoiceFrame(t, ctx, device)
+	call.mu.Lock()
+	waiter := call.waiters[request.ID]
+	call.mu.Unlock()
+	if waiter == nil {
+		t.Fatal("real handler did not register its request")
+	}
+	// Keep the handler in an admitted model flush while its real socket
+	// reader queues more output. The logical clock is still before expiry.
+	admitted := "data: admitted model\n\n"
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: request.ID, Type: "chunk", Data: admitted})
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("model flush never reached the gate")
+	}
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: request.ID, Type: "chunk", Data: "data: queued model\n\n"})
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: request.ID, Type: "end"})
+	device.CloseNow()
+	select {
+	case <-waiter.gone:
+	case <-ctx.Done():
+		t.Fatal("real device drop did not wake the handler")
+	}
+	call.mu.Lock() // Also synchronize completion of detach's state update.
+	detached := call.conn == nil
+	call.mu.Unlock()
+	if !detached || len(waiter.ch) != 2 {
+		t.Fatalf("pre-expiry leg-drop queue = %d frames, detached=%v", len(waiter.ch), detached)
+	}
+	// The cleanup timer is deliberately late. The handler resumes with a
+	// leg-gone signal AND already-queued frames, all after logical expiry.
+	advance(4 * time.Hour)
+	releaseFlush()
+	out, err := io.ReadAll(resp.Body)
+	if err != nil || string(out) != admitted+"data: [DONE]\n\n" {
+		t.Fatalf("expired leg-drop/drain forwarded queued or spoken output: %q, %v", out, err)
+	}
+	call.mu.Lock()
+	lastID := call.nextID
+	call.mu.Unlock()
+	if len(waiter.ch) != 2 || lastID != request.ID {
+		t.Fatalf("expired handler drained %d queued frames or re-registered id %d", 2-len(waiter.ch), lastID)
 	}
 }
 
