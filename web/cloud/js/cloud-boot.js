@@ -1140,6 +1140,7 @@ window.MedTrackerCloudReady = (async function boot() {
         (async () => {
             if (!document.body) await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
             if (document.getElementById('boot-degraded-banner')) return;
+            document.getElementById('cloud-update-banner')?.remove(); // one banner, degraded wins (med-kk1q.6)
             const banner = document.createElement('div');
             banner.id = 'boot-degraded-banner';
             banner.className = 'wg-banner wg-banner--warn';

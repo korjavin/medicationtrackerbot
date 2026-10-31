@@ -365,13 +365,20 @@ const DISMISSED_ATTR = 'data-cloud-update-dismissed';
 export function showUpdateBanner({ doc, win, registration } = {}) {
     doc ??= document;
     win ??= window;
-    if (doc.documentElement.hasAttribute(DISMISSED_ATTR)) return;
-    if (doc.getElementById('cloud-update-banner')) return;
-    renderUpdateBanner(
-        doc,
-        () => activateAndReload(registration, win),
-        () => doc.documentElement.setAttribute(DISMISSED_ATTR, '1'),
-    );
+    const show = () => {
+        if (doc.documentElement.hasAttribute(DISMISSED_ATTR)) return;
+        if (doc.getElementById('cloud-update-banner')) return;
+        // One banner, degraded wins (med-kk1q.6): its Reload also activates a waiting worker.
+        if (doc.getElementById('boot-degraded-banner')) return;
+        renderUpdateBanner(
+            doc,
+            () => activateAndReload(registration, win),
+            () => doc.documentElement.setAttribute(DISMISSED_ATTR, '1'),
+        );
+    };
+    // cloud-boot.js runs in <head>: state C can reach here before <body> exists.
+    if (doc.body) show();
+    else doc.addEventListener('DOMContentLoaded', show, { once: true });
 }
 
 // Returns a stop() so tests (and any future teardown) can clear the interval.
