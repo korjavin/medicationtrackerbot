@@ -19,7 +19,7 @@ const SRC = readFileSync(
   'utf8',
 ).replace(/\bimport\(/g, '__imp(');
 
-async function runBoot({ hash = '', modules, setupWindow }) {
+async function runBoot({ hash = '', modules, setupWindow, console = { error() {}, warn() {} } }) {
   const location = { hash, href: '' };
   const window = {};
   if (setupWindow) setupWindow(window);
@@ -31,7 +31,7 @@ async function runBoot({ hash = '', modules, setupWindow }) {
   };
   // eslint-disable-next-line no-new-func
   const fn = new Function('window', 'location', 'console', 'URLSearchParams', '__imp', SRC);
-  fn(window, location, { error() {}, warn() {} }, URLSearchParams, __imp);
+  fn(window, location, console, URLSearchParams, __imp);
   await window.MedTrackerCloudReady;
   return { location, window };
 }
@@ -456,6 +456,48 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
       expect(banners[0].textContent).toContain('Update required — reload to keep syncing.');
       expect(banners[0].textContent).not.toMatch(/reset/i);
       const btn = banners[0].querySelector('button');
+      expect(btn.textContent).toBe('Reload');
+      btn.click();
+      await vi.waitFor(() => expect(reloads).toBe(1));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // bd med-kk1q.4: a post-unlock module load failure leaves a flagged,
+  // bannered page instead of a silent network-only one. No in-page retry: a
+  // rejected module-map entry is permanent for the document, Reload recovers.
+  it('a rejected boot import flags the page, logs the specifier and shows one Reload banner wired to reloadToLatest (med-kk1q.4)', async () => {
+    const dom = new JSDOM('<!doctype html><body><div id="app-banners"></div></body>');
+    vi.stubGlobal('document', dom.window.document);
+    const doc = dom.window.document;
+    const errors = [];
+    let attempts = 0;
+    let installs = 0;
+    let reloads = 0;
+    try {
+      const { window, location } = await runBoot({
+        console: { error: (...a) => errors.push(a), warn() {} },
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': () => { attempts++; return Promise.reject(new TypeError('Failed to fetch dynamically imported module')); },
+          'sync.js': { pullOnOpen: () => { installs++; return new Promise(() => {}); } },
+          'update-check.js': { reloadToLatest: async () => { reloads++; } },
+        },
+      });
+      expect(attempts).toBe(1); // no retry
+      expect(installs).toBe(0); // sync never started
+      expect(location.href).toBe(''); // mounts degraded, never bounces to /unlock
+      expect(window.MedTrackerCloud.degraded.error.message).toContain('Failed to fetch');
+      expect(typeof window.MedTrackerCloud.degraded.at).toBe('number');
+      const logged = errors.find((a) => a[0] === '[cloud-boot] post-unlock boot failed');
+      expect(logged[1]).toMatchObject({ specifier: '/js/apishim.js', message: 'Failed to fetch dynamically imported module' });
+      expect(logged[1].stack).toEqual(expect.any(String));
+      await vi.waitFor(() => expect(doc.querySelectorAll('#app-banners #boot-degraded-banner')).toHaveLength(1));
+      const banner = doc.getElementById('boot-degraded-banner');
+      expect(banner.className).toBe('wg-banner wg-banner--warn');
+      expect(banner.textContent).toContain('Some saved data did not load. Reload to fix.');
+      const btn = banner.querySelector('button');
       expect(btn.textContent).toBe('Reload');
       btn.click();
       await vi.waitFor(() => expect(reloads).toBe(1));
