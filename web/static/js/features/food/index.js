@@ -128,6 +128,10 @@ function switchFoodTab(tab) {
                 }
             }
         });
+        // The log opens on today on every page load; a browsed day lives only
+        // in page memory. Drop any browser-restored value (empty = today).
+        const restoredDay = document.getElementById('food-date-filter');
+        if (restoredDay) restoredDay.value = '';
         bindChange('food-date-filter', () => loadFoodLogs());
         bindChange('food-incomplete-toggle', (e) => {
             const dateFilter = document.getElementById('food-date-filter');
