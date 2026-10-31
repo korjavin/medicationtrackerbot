@@ -18,20 +18,22 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// version has no build-time stamping (PoC — no packaged binary yet, per the
-// plan's "Known PoC ceilings").
-const version = "0.1.0-poc"
+// Release builds stamp both values; source builds identify themselves as dev.
+var version = "0.0.0-dev"
+var commit = "unknown"
+
+func implementationVersion() string { return version + "+" + commit }
 
 // toolDescriptionSuffix is appended to both tool descriptions so the model
 // sees the E2E-encrypted, device-required architecture up front (the plan's
 // locked "Offline-device UX" decision) without having to fail a call first.
-const toolDescriptionSuffix = " This connector talks end-to-end encrypted directly to your unlocked Med Tracker browser tab, never to a server — if no device is unlocked and online, it returns a clear error instead of hanging."
+const toolDescriptionSuffix = " This connector exchanges end-to-end encrypted messages with your unlocked Med Tracker browser tab through a blind cloud relay. If no device is unlocked and online, it returns a clear error instead of hanging."
 
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Println("mcpshim " + version)
+		fmt.Println("mcpshim " + implementationVersion())
 		return
 	}
 
@@ -49,7 +51,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "medtracker-mcp-shim", Version: version}, nil)
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "medtracker-mcp-shim", Version: implementationVersion()}, nil)
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "mcp_help",

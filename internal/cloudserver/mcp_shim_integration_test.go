@@ -6,6 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +17,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/korjavin/medicationtrackerbot/internal/mcpshim"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // fakeDevice stands in for web/cloud/js/mcp-responder.js: it dials the
@@ -74,12 +79,16 @@ func (d *fakeDevice) serveOnce(t *testing.T) {
 		result = map[string]any{"catalog": []string{"bp.list", "bp.create"}, "usage_protocol": "discover then call"}
 	case "mcp_call":
 		var params struct {
-			Op     string         `json:"op"`
-			Params map[string]any `json:"params"`
+			OperationID string         `json:"operation_id"`
+			Op          string         `json:"op"`
+			Params      map[string]any `json:"params"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			t.Errorf("fake device: unmarshal mcp_call params: %v", err)
 			return
+		}
+		if params.OperationID != "" {
+			params.Op = params.OperationID
 		}
 		result = map[string]any{"op": params.Op, "echo": params.Params}
 	default:
@@ -104,6 +113,110 @@ func (d *fakeDevice) serveOnce(t *testing.T) {
 	}
 	if err := d.conn.Write(ctx, websocket.MessageBinary, respFrame); err != nil {
 		t.Errorf("fake device write: %v", err)
+	}
+}
+
+// This launches the exact release-style executable through the SDK stdio
+// transport, not a second implementation of the shim or a bare ShimCore.
+// CI supplies its downloaded native artifact; local runs build a stamped one.
+func TestMCPShim_PackagedProcess(t *testing.T) {
+	binary := os.Getenv("MEDTRACKER_PACKAGED_SHIM_TEST_BINARY")
+	expectedVersion := os.Getenv("MEDTRACKER_PACKAGED_SHIM_TEST_VERSION")
+	if binary == "" {
+		expectedVersion = "0.1.0+fixture"
+		binary = filepath.Join(t.TempDir(), "mcpshim")
+		if runtime.GOOS == "windows" {
+			binary += ".exe"
+		}
+		build := exec.Command("go", "build", "-trimpath", "-ldflags=-X main.version=0.1.0 -X main.commit=fixture", "-o", binary, "../../cmd/mcpshim")
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build packaged helper: %v: %s", err, out)
+		}
+	}
+	if expectedVersion == "" {
+		t.Fatal("packaged artifact proof requires the independently expected version and source commit")
+	}
+	env := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "MEDTRACKER_MCP_CODE=") {
+			env = append(env, entry)
+		}
+	}
+	versionCmd := exec.Command(binary, "--version")
+	versionCmd.Env = env
+	versionBytes, err := versionCmd.Output()
+	if err != nil {
+		t.Fatal("packaged --version failed without pairing key")
+	}
+	if strings.TrimSpace(string(versionBytes)) != "mcpshim "+expectedVersion {
+		t.Fatalf("packaged version output does not match exact expected CLI identity %q", "mcpshim "+expectedVersion)
+	}
+	version := expectedVersion
+
+	h, host, claim := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claim)
+	pairingID := mintPairing(t, h, host, session)
+	// The fixture proxy supplies the account host used by the real subdomain
+	// router, allowing the unmodified executable to use a loopback relay URL.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { r.Host = host; h.ServeHTTP(w, r) }))
+	t.Cleanup(srv.Close)
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	device := dialFakeDevice(t, wsClientFor(srv.Listener.Addr().String()), host, session, key, pairingID)
+	t.Cleanup(device.close)
+	pc := &mcpshim.PairingCode{RelayURL: "ws://" + srv.Listener.Addr().String(), PairingID: pairingID, Key: key}
+	code, err := mcpshim.FormatPairingCode(pc)
+	if err != nil {
+		t.Fatal("format fixture pairing")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	command := exec.Command(binary)
+	command.Env = append(env, "MEDTRACKER_MCP_CODE="+code)
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "packaged-smoke", Version: "1"}, nil)
+	cs, err := client.Connect(ctx, &sdkmcp.CommandTransport{Command: command}, nil)
+	if err != nil {
+		t.Fatal("initialize packaged stdio helper failed")
+	}
+	defer cs.Close()
+	if cs.InitializeResult().ServerInfo.Version != version {
+		t.Fatal("--version and MCP initialize differ")
+	}
+	for _, call := range []struct {
+		name, want string
+		args       map[string]any
+	}{
+		{"mcp_help", "bp.list", map[string]any{}},
+		{"mcp_call", "bp.list", map[string]any{"operation_id": "bp.list", "params": map[string]any{"limit": 1}}},
+	} {
+		done := make(chan struct{})
+		go func() { defer close(done); device.serveOnce(t) }()
+		result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{Name: call.name, Arguments: call.args})
+		<-done
+		if err != nil || result.IsError {
+			t.Fatalf("packaged %s round trip failed", call.name)
+		}
+		encoded, _ := json.Marshal(result)
+		if !strings.Contains(string(encoded), call.want) {
+			t.Fatalf("packaged %s missing expected response", call.name)
+		}
+	}
+	device.close()
+	start := time.Now()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{Name: "mcp_help", Arguments: map[string]any{}})
+	if err != nil || !result.IsError {
+		t.Fatal("absent device must return an MCP tool error")
+	}
+	// Client-side results carry the tool error as protocol content; GetError
+	// only reports an in-process server error and is always nil on clients.
+	offlineResult, _ := json.Marshal(result)
+	if !strings.Contains(string(offlineResult), "through a blind cloud relay") || strings.Contains(string(offlineResult), "not to a server") {
+		t.Fatal("packaged offline error must describe the factual relay boundary")
+	}
+	if time.Since(start) > mcpshim.CallTimeout+2*time.Second {
+		t.Fatal("absent device exceeded bounded wait")
 	}
 }
 

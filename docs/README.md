@@ -42,6 +42,7 @@ Also normative, narrower in scope:
 |---|---|
 | [vault-format.md](vault-format.md) | The canonical export/import JSON — field shapes, skip list, round-trip normalizations, age encryption. |
 | [environment.md](environment.md) | Environment variables. |
+| [mcpshim.md](mcpshim.md) | Pinned private MCP helper binaries, verified installation, Claude registration, and release acceptance. |
 | [ios-visual-testing.md](ios-visual-testing.md) | iOS visual testing runbook: triggers, artifacts, probes, agent QA checklist, bead-filing protocol (normative; design in design/ios-visual-testing.md). |
 | [ios.md](ios.md) | iOS app CI: macOS-runner build, TestFlight upload, the repo secrets/variables the owner sets; App Store submission checklist and reviewer access. |
 | [android.md](android.md) | Android app CI: ubuntu-runner Gradle build, debug APK artifact, signed AAB to Play internal testing, the repo secrets/variables the owner sets. |
