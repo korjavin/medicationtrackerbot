@@ -1241,7 +1241,7 @@ async function paintSyncSection() {
 }
 
 // Load settings (BP reminders status, etc.)
-async function loadSettings() {
+async function loadSettings({ source } = {}) {
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
     // builds alike, so the row is not wrapped in a wg-settings-cloud-* reveal.
     bindRerunOnboarding();
@@ -1400,7 +1400,7 @@ async function loadSettings() {
     // food-targets + reminders + weight-unit slice that bootstrap also
     // returns. Best-effort: never blocks the rest of Settings.
     if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
-        try { await window.SettingsIntegrations.load(); } catch (_) { /* no-op */ }
+        try { await window.SettingsIntegrations.load({ preserveDraft: source === 'optimistic-commit' }); } catch (_) { /* no-op */ }
     }
     // Import/Export section (C2e Task 6) — static, so load() just (re)binds its
     // controls; safe in both bot and cloud modes.

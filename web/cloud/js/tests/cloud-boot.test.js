@@ -1176,6 +1176,87 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
     expect(booted.location.reload).not.toHaveBeenCalled();
     dom.window.close();
   });
+
+  it('coalesces retry and consumes a failed activation late event without reloading resumed edits', async () => {
+    priorNavigator = globalThis.navigator;
+    const env = loadFrontendEnv();
+    const domWindow = env.window;
+    const sw = new domWindow.EventTarget();
+    const old = new domWindow.EventTarget(); old.state = 'activated'; old.postMessage = () => {};
+    const next = new domWindow.EventTarget(); next.state = 'installed';
+    const skipWaiting = vi.fn();
+    next.postMessage = (message, ports) => {
+      if (message.type === 'PROVIDER_RELOAD_CAPABILITY') ports[0].postMessage({ type: message.type, version: 1 });
+      if (message.type === 'SKIP_WAITING') skipWaiting(); // activation finishes after the helper times out
+    };
+    const registration = { waiting: null, update: async () => { registration.waiting = next; } };
+    sw.controller = old; sw.register = async () => registration; sw.getRegistration = async () => registration;
+    globalThis.navigator = { serviceWorker: sw };
+    const replace = vi.fn();
+    const flush = vi.fn();
+    const booted = await runBoot({
+      setupWindow(win) {
+        win.document = env.document; win.CustomEvent = domWindow.CustomEvent;
+        win.navigator = globalThis.navigator; win.flushPendingDelete = flush;
+        win.location = { origin: 'https://account.example', href: 'https://account.example/', replace };
+      }, modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    booted.location.reload = vi.fn();
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...args) => realTimeout(fn, ms === 500 ? 10 : ms === 20000 ? 300 : ms, ...args));
+    try {
+      expect(await reloadProviderDocument({ win: booted.window })).toBe(false);
+      expect(skipWaiting).toHaveBeenCalledOnce();
+      // The same still-pending actual worker belongs to the first activation;
+      // a subsequent explicit retry may join it but must not stack activation.
+      expect(await reloadProviderDocument({ win: booted.window })).toBe(false);
+      expect(skipWaiting).toHaveBeenCalledOnce();
+      const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
+      voice.value = 'resumed-after-failure';
+      voice.dispatchEvent(new domWindow.Event('input', { bubbles: true }));
+      sw.controller = next; next.state = 'activated';
+      sw.dispatchEvent(new domWindow.Event('controllerchange'));
+      expect(booted.location.reload).not.toHaveBeenCalled();
+      expect(replace).not.toHaveBeenCalled();
+      expect(flush).not.toHaveBeenCalled();
+      expect(voice.value).toBe('resumed-after-failure');
+      // Only that activation was consumed. A distinct future worker follows
+      // the unchanged ordinary boot policy, including the pending-delete seam.
+      sw.controller = {};
+      sw.dispatchEvent(new domWindow.Event('controllerchange'));
+      expect(flush).toHaveBeenCalledOnce();
+      expect(booted.location.reload).toHaveBeenCalledOnce();
+    } finally { vi.restoreAllMocks(); env.cleanup(); }
+  });
+
+  it('retires redundant activation guards and ignores cleanup from an older UI attempt', async () => {
+    priorNavigator = globalThis.navigator;
+    const dom = new JSDOM('<html></html>');
+    const sw = new dom.window.EventTarget();
+    sw.controller = {}; sw.register = async () => ({ waiting: null });
+    globalThis.navigator = { serviceWorker: sw };
+    const booted = await runBoot({ setupWindow(win) { win.document = dom.window.document; }, modules: { 'unlock.js': { warmUnlock: async () => null } } });
+    booted.location.reload = vi.fn();
+    const first = {}, second = {};
+    const intent = (attempt, active) => dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload', { detail: { attempt, active } }));
+    const candidate = new dom.window.EventTarget(); candidate.state = 'installed';
+    const activation = { worker: candidate, attempt: first, pending: false };
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: activation }));
+    const retry = { worker: candidate, attempt: second, pending: false };
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: retry }));
+    expect(retry.pending).toBe(true);
+    candidate.state = 'redundant'; candidate.dispatchEvent(new dom.window.Event('statechange'));
+    const retired = { worker: candidate, attempt: second, pending: false };
+    dom.window.document.dispatchEvent(new dom.window.CustomEvent('wg:provider-reload-activation', { detail: retired }));
+    expect(retired.pending).toBe(false);
+    intent(first, true); intent(second, true); intent(first, false);
+    sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
+    expect(booted.location.reload).not.toHaveBeenCalled();
+    intent(second, false);
+    sw.controller = {}; sw.dispatchEvent(new dom.window.Event('controllerchange'));
+    expect(booted.location.reload).toHaveBeenCalledOnce();
+    dom.window.close();
+  });
 });
 
 describe('cloud-boot share-plan fragment across unlock (med-uo64.3)', () => {

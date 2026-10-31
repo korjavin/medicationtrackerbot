@@ -145,12 +145,13 @@ export async function reloadToLatest(win = window) {
 // Explicit provider Save → Reload needs a fresh document on the FIRST load.
 // This acknowledges worker support only; the next response alone grants CSP
 // reach. Never use the ordinary updater's timed plain-reload fallback here.
-export async function reloadProviderDocument({ win = window, beforeNavigate = async () => true } = {}) {
+export async function reloadProviderDocument({ win = window, beforeNavigate = async () => true, isCurrent = () => true } = {}) {
     const sw = win.navigator?.serviceWorker;
     const cleanups = [];
+    const attempt = {}; // content-free per-call ownership, never a credential or policy
     let active = true;
     let navigating = false;
-    const intent = (value) => win.document?.dispatchEvent(new win.CustomEvent('wg:provider-reload', { detail: { active: value } }));
+    const intent = (value) => win.document?.dispatchEvent(new win.CustomEvent('wg:provider-reload', { detail: { active: value, attempt } }));
     intent(true);
     const ensureActive = () => { if (!active) throw new Error('provider reload expired'); };
     const probe = (worker) => new Promise((resolve) => {
@@ -208,7 +209,12 @@ export async function reloadProviderDocument({ win = window, beforeNavigate = as
             cleanups.push(() => sw.removeEventListener('controllerchange', changed));
         });
         ensureActive();
-        worker.postMessage({ type: 'SKIP_WAITING' });
+        // Boot retains this worker-specific guard after a timeout: activation
+        // cannot be revoked. A retry joins the same pending activation rather
+        // than sending it again or clearing another attempt's guard.
+        const activation = { worker, attempt, pending: false };
+        win.document?.dispatchEvent(new win.CustomEvent('wg:provider-reload-activation', { detail: activation }));
+        if (!activation.pending) worker.postMessage({ type: 'SKIP_WAITING' });
         changed();
         await controlled;
     };
@@ -228,7 +234,10 @@ export async function reloadProviderDocument({ win = window, beforeNavigate = as
                             ensureActive();
                             if (!await probe(worker)) throw new Error('worker does not support fresh reload');
                             ensureActive();
-                            await handoff(worker);
+                            // First claim/another accepted tab can complete
+                            // while installation/probing was awaited. Join the
+                            // actual supported controller without reactivating.
+                            if (!await supportsController()) await handoff(worker);
                         }
                     }
                 }
@@ -239,6 +248,9 @@ export async function reloadProviderDocument({ win = window, beforeNavigate = as
                 if (sw?.controller && !await supportsController()) return false;
                 if (sw && !sw.controller && await sw.getRegistration?.()) return false;
                 ensureActive();
+                // No await may separate this all-field edit check from the
+                // actual navigation: the final capability probe can take time.
+                if (isCurrent() !== true) return false;
                 const target = new URL('/', win.location.href);
                 target.searchParams.set('__wg_provider_reload', '1');
                 win.location.replace(target.href);

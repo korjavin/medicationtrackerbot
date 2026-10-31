@@ -171,6 +171,23 @@ describe('explicit provider document freshness handoff', () => {
         expect(win.location.replace).not.toHaveBeenCalled();
         dom.window.close();
     });
+
+    it('ignores a late capability reply after the bounded operation has failed', async () => {
+        vi.useFakeTimers();
+        const { win, serviceWorker, dom } = environment();
+        let replyPort;
+        serviceWorker.controller = { postMessage(_message, ports) { replyPort = ports[0]; } };
+        serviceWorker.getRegistration = async () => undefined;
+        const guard = vi.fn(async () => true);
+        const running = reloadProviderDocument({ win, beforeNavigate: guard });
+        await vi.advanceTimersByTimeAsync(21000);
+        expect(await running).toBe(false);
+        replyPort.postMessage({ type: 'PROVIDER_RELOAD_CAPABILITY', version: 1 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(guard).not.toHaveBeenCalled();
+        expect(win.location.replace).not.toHaveBeenCalled();
+        dom.window.close();
+    });
 });
 
 // A minimal ServiceWorker stand-in: postMessage + an addEventListener/fire pair

@@ -26,6 +26,7 @@ const FETCH_TIMEOUT_MS = 90000;
 const MAX_PHOTO_BYTES = 8 << 20;
 const KEY_CHECK_TIMEOUT_MS = 15000;
 const CHECK_UNAVAILABLE = 'Key checking is unavailable in this app version. Update the app to check your key.';
+const CHECK_FINISH_REASONS = new Set(['stop', 'length', 'tool_calls', 'content_filter', 'function_call']);
 
 // Input is the boot's immutable raw snapshot, never a late DOM/settings read.
 // Copy all values: even a caller mutating its original array cannot grant reach.
@@ -107,7 +108,7 @@ async function isCheckCompletion(response, trial) {
       && Array.isArray(result.choices) && !!message && typeof message === 'object'
       && message.role === 'assistant'
       && Object.hasOwn(message, 'content') && (message.content === null || typeof message.content === 'string')
-      && typeof choice.finish_reason === 'string';
+      && CHECK_FINISH_REASONS.has(choice.finish_reason);
   } catch { return false; }
 }
 

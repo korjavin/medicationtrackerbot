@@ -42,9 +42,26 @@ if (window.location?.search && typeof window.history?.replaceState === 'function
 // a harmless no-op. Cloud-only: this file is served solely by cmd/cloud, so no
 // platform guard is needed.
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-    let providerReloadActive = false;
+    let providerReloadAttempt = null;
+    const providerActivations = new Map();
     window.document?.addEventListener('wg:provider-reload', (event) => {
-        providerReloadActive = event.detail?.active === true;
+        if (event.detail?.active === true) providerReloadAttempt = event.detail.attempt;
+        else if (providerReloadAttempt === event.detail?.attempt) providerReloadAttempt = null;
+    });
+    const retireProviderActivation = (worker) => {
+        providerActivations.get(worker)?.();
+        providerActivations.delete(worker);
+    };
+    window.document?.addEventListener('wg:provider-reload-activation', (event) => {
+        const worker = event.detail?.worker;
+        if (!worker) return;
+        if (providerActivations.has(worker)) { event.detail.pending = true; return; }
+        // A timed-out SKIP_WAITING may still claim later. Retire only once
+        // that actual worker controls us, or is definitively redundant.
+        const changed = () => { if (worker.state === 'redundant') retireProviderActivation(worker); };
+        providerActivations.set(worker, () => worker.removeEventListener?.('statechange', changed));
+        worker.addEventListener?.('statechange', changed);
+        changed();
     });
     // First-install vs update is decided entirely by whether a SW already
     // controls this page: absent = first-ever install (activate's
@@ -79,7 +96,12 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     // install hadController is false, so activate's clients.claim() fires
     // controllerchange without a reload (bead: first install controls silently).
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!hadController || reloading || providerReloadActive) return;
+        const controller = navigator.serviceWorker.controller;
+        if (providerActivations.has(controller)) {
+            retireProviderActivation(controller);
+            return;
+        }
+        if (!hadController || reloading || providerReloadAttempt) return;
         reloading = true;
         // Another tab's Reload can land here mid-Undo-window: send the delete first.
         const owed = window.flushPendingDelete?.();

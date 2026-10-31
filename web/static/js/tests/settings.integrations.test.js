@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { createSettingsDomain } from '../../../domain/settings.js';
 import { createAIClient } from '../../../cloud/js/aiclient.js';
+import { reloadProviderDocument } from '../../../cloud/js/update-check.js';
 
 function installApiCacheMap(window, initialCache = {}) {
     const map = new Map();
@@ -152,10 +153,17 @@ describe('Settings → Integrations section', () => {
             page.close();
         });
 
-        it('an edited non-exact mask checks the same opaque key bytes Save and normal AI will use', async () => {
-            const { settings, page } = await setup();
+        it.each(['same', 'custom', 'preset'])('an edited non-exact mask agrees with Save/runtime at a %s target', async (target) => {
+            const { settings, page } = await setup(['https://api.openai.com', 'https://api.anthropic.com', 'https://custom.example']);
+            if (target !== 'same') {
+                env.window.safeChoose = vi.fn(async () => target === 'custom' ? 'other' : 'anthropic');
+                env.document.getElementById('integrations-provider-choose').click();
+                await vi.waitFor(() => expect(env.document.getElementById('integrations-provider-value').textContent).toBe(target === 'custom' ? 'Other' : 'Anthropic (Claude)'));
+                if (target === 'custom') fill('url', 'https://custom.example/v1');
+            }
             const send = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(reply(401));
             fill('api-key', '*** ');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
             await env.window.SettingsIntegrations.checkKey();
             expect(note()).toBe('Key rejected');
             expect(send.mock.calls[0][1].headers.Authorization).toBe('Bearer *** ');
@@ -166,6 +174,40 @@ describe('Settings → Integrations section', () => {
             await createAIClient({ settingsDomain: settings }).chat({ messages: [{ role: 'user', content: 'fixture' }], tools: [] });
             expect(send.mock.calls[1][1].headers.Authorization).toBe(send.mock.calls[0][1].headers.Authorization);
             page.close();
+        });
+
+        it('actual WGPage Back after Save discards the entire newer main/photo/voice draft', async () => {
+            const { settings, page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            fill('api-key', 'fixture-unsaved-main');
+            fill('vision-model', 'unsaved-photo-model');
+            const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
+            voice.value = 'unsaved-voice-agent';
+            voice.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+            page.close();
+            const reopened = env.window.SettingsView.openSettingsPage('integrations');
+            expect(field('api-key').value).toBe('***');
+            expect(field('vision-model').value).toBe('');
+            expect(voice.value).toBe('');
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('fixture-saved-key');
+            expect((await settings.readIntegrationsUnmasked()).elevenlabs.agent_id).toBe('');
+            expect(env.document.getElementById('integrations-check-reload').hidden).toBe(false);
+            reopened.close();
+        });
+
+        it('a repeated explicit Save accepts and remasks a rotated key at identical public settings', async () => {
+            const { settings, page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            fill('api-key', 'fixture-newly-accepted-main');
+            await env.window.SettingsIntegrations.save();
+            expect(field('api-key').value).toBe('***');
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('fixture-newly-accepted-main');
+            expect(JSON.stringify(await env.window.DataStore.getCached('settings_integrations'))).not.toContain('fixture-newly-accepted-main');
+            fill('api-key', 'fixture-discard-this-later');
+            page.close();
+            const reopened = env.window.SettingsView.openSettingsPage('integrations');
+            expect(field('api-key').value).toBe('***');
+            reopened.close();
         });
 
         it('does not paint a response after any relevant edit or a page close', async () => {
@@ -258,7 +300,7 @@ describe('Settings → Integrations section', () => {
             const { port, page } = await setup([]);
             const refreshes = [];
             env.window.requestTabRefresh = vi.fn(({ source }) => {
-                if (source === 'optimistic-commit') refreshes.push(env.window.SettingsIntegrations.load());
+                if (source === 'optimistic-commit') refreshes.push(env.window.SettingsIntegrations.load({ preserveDraft: true }));
             });
             let finish;
             port.aiProviderRegistration.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
@@ -292,7 +334,7 @@ describe('Settings → Integrations section', () => {
             port.aiProviderRegistration.mockResolvedValue({ state });
             const refreshes = [];
             env.window.requestTabRefresh = vi.fn(({ source }) => {
-                if (source === 'optimistic-commit') refreshes.push(env.window.SettingsIntegrations.load());
+                if (source === 'optimistic-commit') refreshes.push(env.window.SettingsIntegrations.load({ preserveDraft: true }));
             });
             await env.window.SettingsIntegrations.save();
             await Promise.all(refreshes);
@@ -333,12 +375,66 @@ describe('Settings → Integrations section', () => {
             const { page } = await setup([]);
             await env.window.SettingsIntegrations.save();
             env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: async ({ beforeNavigate }) => {
-                await env.window.SettingsIntegrations.load();
+                await env.window.SettingsIntegrations.load({ preserveDraft: true });
                 expect(await beforeNavigate()).toBe(true);
                 return false;
             } }));
             expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
             expect(note()).toBe('Could not refresh this page. Check your connection and try Reload page again.');
+            page.close();
+        });
+
+        it('preserves drafts only for the real Settings optimistic-commit refresh, while ordinary load restores', async () => {
+            const { page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            fill('model', 'newer-draft');
+            env.window.DataStore.loadSWR = vi.fn(async () => {});
+            // Unrelated Privacy rendering uses the existing VM import seam.
+            env.window.loadPrivacyModule = vi.fn(async () => ({ renderPrivacyInto() {} }));
+            await env.window.loadSettings({ source: 'optimistic-commit' });
+            expect(field('model').value).toBe('newer-draft');
+            await env.window.loadSettings();
+            expect(field('model').value).toBe('gpt-6-luna');
+            page.close();
+        });
+
+        it('an actual voice edit during the final controller ACK cannot pass the last navigation guard', async () => {
+            const { page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            const voice = env.document.getElementById('integrations-elevenlabs-agent-id');
+            let probes = 0;
+            const controller = { postMessage(message, ports) {
+                probes += 1;
+                if (probes === 2) {
+                    voice.value = 'edited-during-final-ack';
+                    voice.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+                }
+                ports[0].postMessage({ type: message.type, version: 1 });
+            } };
+            Object.defineProperty(env.window.navigator, 'serviceWorker', { configurable: true, value: { controller } });
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument }));
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(probes).toBe(2);
+            expect(voice.value).toBe('edited-during-final-ack');
+            expect(env.window.apiCall.mock.calls.filter((call) => call[1] === 'PATCH')).toHaveLength(1);
+            page.close();
+        });
+
+        it('two quick Reload calls during the first delete flush start only one handoff', async () => {
+            const { page } = await setup([]);
+            await env.window.SettingsIntegrations.save();
+            let release;
+            const owed = new Promise((resolve) => { release = resolve; });
+            env.window.flushPendingDelete = vi.fn(() => owed);
+            const reload = vi.fn(async () => true);
+            env.window.SettingsIntegrations._setProviderReloadLoader(async () => ({ reloadProviderDocument: reload }));
+            const first = env.window.SettingsIntegrations.reloadForKeyCheck();
+            expect(await env.window.SettingsIntegrations.reloadForKeyCheck()).toBe(false);
+            expect(env.window.flushPendingDelete).toHaveBeenCalledTimes(1);
+            expect(reload).not.toHaveBeenCalled();
+            release();
+            expect(await first).toBe(true);
+            expect(reload).toHaveBeenCalledTimes(1);
             page.close();
         });
 

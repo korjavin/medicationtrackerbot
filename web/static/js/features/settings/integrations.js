@@ -168,32 +168,38 @@
 
     async function reloadForKeyCheck() {
         if (_keyCheckReloadBusy || keyCheckPermission().state !== 'needs_reload' || _keyCheckRegistration !== 'registered') return false;
-        const seq = _integrationDraftSeq;
-        if (integrationsHaveUnsavedChanges()) {
-            if (typeof safeConfirm !== 'function' || !await safeConfirm('Reloading will discard your unsaved changes.', null,
-                { title: 'Reload page?', confirmLabel: 'Discard and reload', cancelLabel: 'Keep editing', tone: 'warn' })) return false;
-        }
-        const owed = window.flushPendingDelete?.();
-        if (owed) { try { await owed; } catch (_) { return false; } }
-        if (seq !== _integrationDraftSeq) return false;
+        // Own the whole user action before confirmation/delete flushing can
+        // yield. Two quick taps must not start competing navigation intents.
         _keyCheckReloadBusy = true;
-        _keyCheckResult = null;
         renderKeyCheck();
-        let reloaded = false;
+        const seq = _integrationDraftSeq;
         try {
-            const { reloadProviderDocument } = await _providerReloadLoader();
-            reloaded = await reloadProviderDocument({ win: window, beforeNavigate: async () => {
-                const pending = window.flushPendingDelete?.();
-                if (pending) { try { await pending; } catch (_) { return false; } }
-                return seq === _integrationDraftSeq;
-            } });
-        } catch (_) { /* a failed/older updater keeps this document's gate */ }
-        _keyCheckReloadBusy = false;
-        if (!reloaded && seq === _integrationDraftSeq) {
-            _keyCheckResult = { state: 'error', code: 'reload', message: 'Could not refresh this page. Check your connection and try Reload page again.' };
+            if (integrationsHaveUnsavedChanges()) {
+                if (typeof safeConfirm !== 'function' || !await safeConfirm('Reloading will discard your unsaved changes.', null,
+                    { title: 'Reload page?', confirmLabel: 'Discard and reload', cancelLabel: 'Keep editing', tone: 'warn' })) return false;
+            }
+            const owed = window.flushPendingDelete?.();
+            if (owed) { try { await owed; } catch (_) { return false; } }
+            if (seq !== _integrationDraftSeq) return false;
+            _keyCheckResult = null;
+            renderKeyCheck();
+            let reloaded = false;
+            try {
+                const { reloadProviderDocument } = await _providerReloadLoader();
+                reloaded = await reloadProviderDocument({ win: window, isCurrent: () => seq === _integrationDraftSeq, beforeNavigate: async () => {
+                    const pending = window.flushPendingDelete?.();
+                    if (pending) { try { await pending; } catch (_) { return false; } }
+                    return seq === _integrationDraftSeq;
+                } });
+            } catch (_) { /* a failed/older updater keeps this document's gate */ }
+            if (!reloaded && seq === _integrationDraftSeq) {
+                _keyCheckResult = { state: 'error', code: 'reload', message: 'Could not refresh this page. Check your connection and try Reload page again.' };
+            }
+            return reloaded;
+        } finally {
+            _keyCheckReloadBusy = false;
+            renderKeyCheck();
         }
-        renderKeyCheck();
-        return reloaded;
     }
 
     function normalizeProviderURL(url) {
@@ -206,7 +212,7 @@
     }
 
     function mainProviderSaveAllowed() {
-        const key = getInput(FIELD_IDS.openai.api_key)?.value.trim();
+        const key = getInput(FIELD_IDS.openai.api_key)?.value || '';
         const url = normalizeProviderURL(getInput(FIELD_IDS.openai.url)?.value);
         // The sentinel can preserve a saved key only at its saved API base.
         // Legacy keyless settings may remain unchanged, but new custom
@@ -217,10 +223,10 @@
             const sameSavedURL = _aiProviderLoaded?.provider === 'other'
                 && url === normalizeProviderURL(_aiProviderLoaded.url);
             const preserveKeyless = sameSavedURL && (!_aiProviderLoaded.key || _aiProviderMainClearBase === url);
-            return !!url && (key === '***' || preserveKeyless || (!!key && key !== '***'));
+            return !!url && (key === '***' || preserveKeyless || (!!key.trim() && key !== '***'));
         }
         if (_aiProviderDraft === (_aiProviderLoaded?.provider || 'openai')) return true;
-        return !!key && key !== '***';
+        return !!key.trim() && key !== '***';
     }
 
     function mainURL(saved = false) {
@@ -256,7 +262,7 @@
 
     function reconcilePhotoPins() {
         if (!_aiProviderLoaded) return;
-        const retainedMask = _aiProviderLoaded.visionKey && getInput(FIELD_IDS.openai.vision_api_key)?.value.trim() === '***';
+        const retainedMask = _aiProviderLoaded.visionKey && getInput(FIELD_IDS.openai.vision_api_key)?.value === '***';
         const untouchedInheritance = !getInput(FIELD_IDS.openai.vision_url)?.value && !_aiProviderPhotoEdited.has('vision_url');
         if (mainBase() === mainBase(true) || !retainedMask || (photoBase() !== savedPhotoBase() && !untouchedInheritance)) {
             undoPhotoPins();
@@ -276,11 +282,11 @@
     }
 
     function photoSaveIssue() {
-        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value.trim();
+        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value || '';
         const url = normalizeProviderURL(getInput(FIELD_IDS.openai.vision_url)?.value);
         if (key === '***' && (!_aiProviderLoaded?.visionKey || photoBase() !== savedPhotoBase())) return 'retarget';
-        if (key && key !== '***' && (!_aiProviderPhotoDraftBase || photoBase() !== _aiProviderPhotoDraftBase)) return 'retarget';
-        if (_aiProviderLoaded && !key && url && mainBase() !== mainBase(true)) {
+        if (key.trim() && key !== '***' && (!_aiProviderPhotoDraftBase || photoBase() !== _aiProviderPhotoDraftBase)) return 'retarget';
+        if (_aiProviderLoaded && !key.trim() && url && mainBase() !== mainBase(true)) {
             const origin = (base) => { try { return new URL(base).origin; } catch (_) { return ''; } };
             if (origin(url) !== origin(mainBase())) return 'inherited';
         }
@@ -306,7 +312,7 @@
         }
         const desc = getInput('integrations-photo-summary');
         const retainedSavedProvider = _aiProviderLoaded?.visionKey
-            && getInput(FIELD_IDS.openai.vision_api_key)?.value.trim() === '***'
+            && getInput(FIELD_IDS.openai.vision_api_key)?.value === '***'
             && photoBase() === savedPhotoBase() && photoBase() !== mainBase();
         if (desc) desc.textContent = issue ? 'Review Photo API key' : (Object.keys(_aiProviderPhotoPins).length || retainedSavedProvider)
             ? 'Food photos keep their saved provider' : photoBase() !== mainBase()
@@ -339,7 +345,7 @@
         if (keyLabel) keyLabel.textContent = 'API key';
         const hint = getInput('integrations-provider-key-hint');
         const needsOtherKey = provider.id === 'other' && !mainProviderSaveAllowed()
-            && (!key?.value.trim() || key.value.trim() === '***');
+            && (!key?.value.trim() || key.value === '***');
         if (hint) hint.textContent = needsOtherKey ? 'Enter an API key for this provider before saving.' : provider.hint;
         const urlHint = getInput('integrations-provider-url-hint');
         if (urlHint) urlHint.textContent = provider.id === 'other' && !normalizeProviderURL(getInput(FIELD_IDS.openai.url)?.value)
@@ -373,7 +379,7 @@
         const url = getInput(FIELD_IDS.openai.url);
         const model = getInput(FIELD_IDS.openai.model);
         const key = getInput(FIELD_IDS.openai.api_key);
-        const hasRawDraftKey = key.value.trim() && key.value.trim() !== '***';
+        const hasRawDraftKey = key.value.trim() && key.value !== '***';
         const restoreLoaded = picked === _aiProviderLoaded?.provider && !hasRawDraftKey
             && (normalizeProviderURL(url.value) !== normalizeProviderURL(_aiProviderLoaded.url)
                 || (_aiProviderLoaded.key && !key.value.trim()));
@@ -456,7 +462,7 @@
         return out;
     }
 
-    function applyPayloadToDOM(payload) {
+    function applyPayloadToDOM(payload, { isRefresh = false, isSave = false } = {}) {
         if (!payload || typeof payload !== 'object') return;
         // DataStore's optimistic commit refreshes Settings again. An identical
         // accepted masked view must retain the registration outcome (including
@@ -467,16 +473,16 @@
         _keyCheckSeq += 1;
         _keyCheckBusy = false;
         _keyCheckResult = null;
+        if (!isRefresh || !keepRegistration) _integrationDraftSeq += 1;
+        if (isSave || !keepRegistration) _keyCheckSaveSeq += 1;
         if (!keepRegistration) {
-            _integrationDraftSeq += 1;
-            _keyCheckSaveSeq += 1;
             _keyCheckSavedBase = null;
             _keyCheckRegistration = null;
         }
         // The commit's same-settings refresh may land after the user starts
         // another edit while registration is pending. Keep that newer draft
         // for the Reload guard rather than replacing it with saved masks.
-        if (keepRegistration && integrationsHaveUnsavedChanges()) {
+        if (isRefresh && keepRegistration && integrationsHaveUnsavedChanges()) {
             renderProvider();
             return;
         }
@@ -1121,7 +1127,7 @@
     let _telegramMounted = false;
     let _telegramModuleLoader = () => import('/js/telegram.js');
 
-    async function loadIntegrations() {
+    async function loadIntegrations({ preserveDraft = false } = {}) {
         if (typeof apiCall !== 'function') return null;
         // Skip the fetch when the section is hidden so a hidden panel
         // doesn't log failures for every Settings visit or advertise the
@@ -1137,7 +1143,7 @@
         try {
             const payload = await apiCall('/api/settings/integrations', 'GET');
             if (!payload) return null;
-            applyPayloadToDOM(payload);
+            applyPayloadToDOM(payload, { isRefresh: preserveDraft });
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }
             }
@@ -1173,7 +1179,7 @@
 
     async function saveIntegrations() {
         if (!providerSaveAllowed()) return;
-        if (getInput(FIELD_IDS.elevenlabs.api_key)?.value.trim() === '***' && !savedVoiceKeySet()) {
+        if (getInput(FIELD_IDS.elevenlabs.api_key)?.value === '***' && !savedVoiceKeySet()) {
             if (typeof safeToast === 'function') safeToast('Enter your voice API key or clear the field — there is no saved key to keep.', 'error');
             getInput(FIELD_IDS.elevenlabs.api_key)?.focus();
             return;
@@ -1211,7 +1217,7 @@
         try {
             fresh = apiOk ? await apiCall('/api/settings/integrations', 'GET') : null;
         } catch (_) { /* fall through with optimistic payload */ }
-        applyPayloadToDOM(fresh || maskPayload(payload));
+        applyPayloadToDOM(fresh || maskPayload(payload), { isSave: true });
         _keyCheckSavedBase = mainBase();
         _keyCheckRegistration = 'pending';
         renderKeyCheck();
@@ -1264,13 +1270,13 @@
                         // A key event deliberately establishes a NEW binding only
                         // after untouched values belonging to the old key unwind.
                         undoPhotoPins();
-                        const key = getInput(FIELD_IDS.openai[field]).value.trim();
-                        _aiProviderPhotoDraftBase = key && key !== '***' ? photoBase() : null;
+                        const key = getInput(FIELD_IDS.openai[field]).value;
+                        _aiProviderPhotoDraftBase = key.trim() && key !== '***' ? photoBase() : null;
                     }
                     _aiProviderPhotoEdited.add(field);
                     delete _aiProviderPhotoPins[field];
                     if (field === 'vision_url') {
-                        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value.trim();
+                        const key = getInput(FIELD_IDS.openai.vision_api_key)?.value;
                         const boundBase = key === '***' ? savedPhotoBase() : _aiProviderPhotoDraftBase;
                         if (boundBase && photoBase() !== boundBase) undoPhotoPin('vision_model');
                     }
@@ -1281,7 +1287,7 @@
                 const url = normalizeProviderURL(getInput(FIELD_IDS.openai.url).value);
                 if (url !== _aiProviderKeyURL) {
                     const key = getInput(FIELD_IDS.openai.api_key);
-                    if (key.value.trim() && key.value.trim() !== '***') _aiProviderMainKeyEdited = true;
+                    if (key.value.trim() && key.value !== '***') _aiProviderMainKeyEdited = true;
                     const restored = _aiProviderDraft === 'other' && _aiProviderLoaded?.provider === 'other'
                         && _aiProviderLoaded.key && !_aiProviderMainKeyEdited && url === normalizeProviderURL(_aiProviderLoaded.url);
                     // Returning to the saved custom base restores only its known

@@ -179,6 +179,7 @@ describe('Check key: loaded-document permission and scoped credential intent', (
       trialCompletion(),
       { ...completion(), object: 'not-a-completion' }, { ...completion(), created: 'yesterday' },
       { ...completion(), choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] },
+      { ...completion(), choices: [{ message: { role: 'assistant', content: 'OK' }, finish_reason: 'anything' }] },
       'not a completion', { padding: 'x'.repeat(70 << 10) }]) {
       fetch.mockResolvedValueOnce(response(body));
       const result = await client.checkKey({ intent: 'draft', draft: draft() });

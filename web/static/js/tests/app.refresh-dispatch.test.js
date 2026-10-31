@@ -75,6 +75,19 @@ describe('app.js refresh dispatch behavior', () => {
     }
   });
 
+  it.each(['optimistic', 'optimistic-commit', 'optimistic-rollback'])('forwards %s provenance to the Settings loader only', (source) => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      window.AppStore.set('currentTab', 'settings');
+      window.loadSettings = vi.fn();
+      window.requestTabRefresh({ source });
+      expect(window.loadSettings).toHaveBeenCalledExactlyOnceWith({ source });
+      window.loadSettings.mockClear();
+      window.reloadCurrentTab();
+      expect(window.loadSettings).toHaveBeenCalledExactlyOnceWith({});
+    } finally { cleanup(); }
+  });
+
   it('requestTabRefresh source=self-echo never surfaces the banner, even with a modal open', () => {
     // Regression: when a change payload is tagged as an echo of one of our
     // own recent writes (source 'self-echo'), the banner must NOT appear —
