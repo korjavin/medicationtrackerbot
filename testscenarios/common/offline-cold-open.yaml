@@ -14,6 +14,6 @@ invariants:
   - Writes stay enabled offline and sync later
 covered_by:
   web: manual  # partial: web/static/js/tests/food.offline-cached-fetch.test.js and meds.offline-cold-start.test.js (one section each)
-  android: manual
+  android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (the account renders offline from a cold start; no per-section check)
   ios: manual
 source: [med-kk1q]

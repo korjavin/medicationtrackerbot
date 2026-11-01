@@ -14,6 +14,6 @@ invariants:
   - Once the permission is decided, a later Enable does not prompt again
 covered_by:
   web: web/static/js/tests/settings.cloud-notifications.test.js
-  android: manual
+  android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (Enable and allowing both system grants; no refusal, no second Enable)
   ios: manual
 source: [med-nt9p.65]

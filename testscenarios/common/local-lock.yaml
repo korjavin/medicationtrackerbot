@@ -13,5 +13,5 @@ invariants:
   - A failed or cancelled unlock stays locked, with no prompt loop; Unlock tries again
 covered_by:
   web: manual
-  android: manual
+  android: manual  # partial: android/qa/scenarios/native-lock.mjs (the lock screen via a debug extra; no background, no real unlock)
   ios: manual

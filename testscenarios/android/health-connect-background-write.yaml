@@ -1,0 +1,15 @@
+id: health-connect-background-write
+title: A reading another app saves to Health Connect while the app is closed arrives on return
+platforms: [android]
+preconditions:
+  - Health import on, with Health Connect read access granted
+  - Another app (for example a BP monitor's app) can write blood pressure to Health Connect
+steps:
+  - Send the app to the background or close it
+  - Save a blood pressure reading in the other app
+  - Bring the app back to the foreground and open Vitals
+invariants:
+  - The new reading is among the app's blood pressure readings after the return, with no toggle or manual refresh
+covered_by:
+  android: android/qa/scenarios/health-connect.mjs
+source: [med-nt9p.59, med-0xad.3]

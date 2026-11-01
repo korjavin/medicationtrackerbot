@@ -14,5 +14,5 @@ invariants:
   - 'Local mode shows no network state at all: no pull gesture, no offline banner, no network chip'
 covered_by:
   web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull gesture; not the network banner or chip)
-  android: manual
+  android: manual  # partial: android/qa/scenarios/pull-refresh.mjs (the pull syncs in account mode, no pill in local mode; not the offline banner or chip)
   ios: manual

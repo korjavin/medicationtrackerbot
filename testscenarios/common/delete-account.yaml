@@ -13,5 +13,5 @@ invariants:
   - The device lands outside the account and the account no longer opens
 covered_by:
   web: manual  # partial: web/cloud/js/tests/account-delete.test.js (re-auth, DELETE and local wipe; not the Settings confirm UI)
-  android: manual
+  android: manual  # partial: android/qa/scenarios/delete-account.mjs (typed confirm and delete, host forgotten; no passkey cancel, no wipe or push check)
   ios: manual

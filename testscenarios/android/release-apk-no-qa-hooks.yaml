@@ -1,0 +1,13 @@
+id: release-apk-no-qa-hooks
+title: The release build carries no QA authenticator or QA launch hooks
+platforms: [android]
+preconditions:
+  - A release APK or Play build built from the same tree as the QA debug APK
+steps:
+  - Install the release build and create or unlock an account
+invariants:
+  - Sign-in always goes through the system passkey sheet; no built-in test authenticator answers it
+  - The QA launch extras (test scenes, forced lock screen) do nothing in the release build
+covered_by:
+  android: .github/workflows/android-qa.yml#Release APK carries no QA soft authenticator
+source: [med-nt9p.25]

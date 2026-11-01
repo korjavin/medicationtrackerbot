@@ -14,6 +14,6 @@ invariants:
   - Where there is no Health store (the web) the toggle flips back with a message
 covered_by:
   web: manual  # partial: web/cloud/js/tests/health-import.test.js (the toggle asks for read access and imports; not the Vitals rows)
-  android: manual
+  android: manual  # partial: android/qa/scenarios/health-connect.mjs (access given by pm grant, no system sheet; steps, HR and SpO2 reach Vitals)
   ios: manual
 source: [Zulip 11260]
