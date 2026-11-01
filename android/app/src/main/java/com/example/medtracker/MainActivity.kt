@@ -641,10 +641,11 @@ class MainActivity : Activity() {
         w.settings.builtInZoomControls = true
         w.settings.displayZoomControls = false
         w.overScrollMode = View.OVER_SCROLL_NEVER
-        // Voice calls create their AudioContexts seconds after the tap (attested start, the
-        // ElevenLabs mint, the mic prompt), past the gesture's transient activation; with the
-        // WebView default (true) they stay suspended and the call is silent (bd med-dngs).
-        // Only our own pages load here, so media may start without a gesture.
+        // The ElevenLabs SDK plays the agent through an autoplay <audio> element fed by a
+        // MediaStream, started seconds after the tap (attested start, the mint, the mic
+        // prompt), past the gesture's transient activation. With the WebView default (true)
+        // that play() is refused (NotAllowedError) and the call is silent (bd med-dngs,
+        // measured by android/qa local-app). Only our own pages load here.
         w.settings.mediaPlaybackRequiresUserGesture = false
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
             WebSettingsCompat.setWebAuthenticationSupport(w.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
