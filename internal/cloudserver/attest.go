@@ -287,6 +287,9 @@ type AttestAPI struct {
 	// deploy frequency; persist it if deploys get frequent.
 	abandonDay string
 	abandons   map[string]int
+	// refunded is the unused seconds handed back per bucket on abandonDay to
+	// calls that attached and ended early (bd med-dngs), under mu.
+	refunded map[string]int
 	// abandonFree is the ElevenLabs time the day's free refunds may have let
 	// run, server-wide; capped at cfg.VoiceGlobal / 2 (Argus 8452, Miles 8461).
 	abandonFree int
@@ -303,13 +306,10 @@ const attestVoiceFreeAbandons = 3
 // the daily rows) back too, so the free sessions are capped separately; each
 // costs max(grant, call max), what its ElevenLabs session can have run.
 func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) bool {
-	day := now.UTC().Format("2006-01-02")
 	cost := max(grant, a.cfg.VoiceCallMax)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.abandonDay != day {
-		a.abandonDay, a.abandons, a.abandonFree = day, map[string]int{}, 0
-	}
+	a.rollFreeDayLocked(now)
 	if a.abandons[bucket] >= attestVoiceFreeAbandons {
 		return false
 	}
@@ -320,6 +320,41 @@ func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) boo
 	a.abandons[bucket]++
 	a.abandonFree += cost
 	return true
+}
+
+func (a *AttestAPI) rollFreeDayLocked(now time.Time) {
+	if day := now.UTC().Format("2006-01-02"); a.abandonDay != day {
+		a.abandonDay, a.abandons, a.refunded, a.abandonFree = day, map[string]int{}, map[string]int{}, 0
+	}
+}
+
+// takeUnusedRefund is how many of the unused seconds of an early-ended
+// attached call with this grant it may hand back (bd med-dngs). The ElevenLabs
+// session can outlive the hang-up, so each refund is trust: a bucket gets
+// back at most its daily cap a UTC day (the lifetime budget when there is no
+// daily cap), and the refunds count against the same server-wide half of the
+// global cap as the free abandons — a start/hang-up loop cannot run unbounded
+// sessions. Each refund is counted there with the session's unpaid overrun on
+// a short grant (call max − grant), what it can still run unpaid.
+func (a *AttestAPI) takeUnusedRefund(bucket string, now time.Time, grant, seconds int) int {
+	limit := a.cfg.VoiceDaily
+	if limit <= 0 {
+		limit = a.cfg.VoiceLifetime
+	}
+	overrun := max(a.cfg.VoiceCallMax-grant, 0)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.rollFreeDayLocked(now)
+	seconds = min(seconds, limit-a.refunded[bucket])
+	if a.cfg.VoiceGlobal > 0 {
+		seconds = min(seconds, a.cfg.VoiceGlobal/2-a.abandonFree-overrun)
+	}
+	if seconds <= 0 {
+		return 0
+	}
+	a.refunded[bucket] += seconds
+	a.abandonFree += seconds + overrun
+	return seconds
 }
 
 // NewAttestAPI builds the routes; trial supplies the provider config, the
@@ -474,9 +509,10 @@ func (a *AttestAPI) voiceLimits(resp map[string]any) {
 // logged) and the call is pre-registered in the relay. The charge is refunded
 // when no signed URL reached the client (mint failure, lost relay race), and
 // for a call no device leg ever attached to (bounded per bucket per day, see
-// abandon). Once a leg attached, the ElevenLabs session can run to the
-// agent's own max_duration_seconds whatever the leg does, so an early
-// hang-up or a dropped leg is never refunded.
+// takeFreeAbandon). Once a leg attached, the ElevenLabs session can run to the
+// agent's own max_duration_seconds whatever the leg does, so an early hang-up
+// or a dropped leg gets its unused seconds back only within the bounded
+// allowance of takeUnusedRefund (bd med-dngs).
 func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	if !a.voiceConfigured(w) {
 		return
@@ -532,14 +568,27 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	// a bucket per UTC day and the server-wide daily cap, so devices cannot run
 	// unbounded free ElevenLabs sessions from signed URLs they never attach
 	// to (bd med-02b0).
-	abandon := func() {
-		refunded := a.takeFreeAbandon(bucket, time.Now(), grant)
-		if refunded {
-			refund(grant)
+	// A call that attached and ended before its grant ran out (hang-up,
+	// dropped leg) is charged what it used — nothing when no turn was ever
+	// answered — and gets the rest back, bounded by takeUnusedRefund (bd
+	// med-dngs).
+	end := func(attached bool, used int) {
+		if !attached {
+			refunded := a.takeFreeAbandon(bucket, time.Now(), grant)
+			if refunded {
+				refund(grant)
+			}
+			slog.Info("attest voice start abandoned", "install", keyID, "seconds", grant, "refunded", refunded)
+			return
 		}
-		slog.Info("attest voice start abandoned", "install", keyID, "seconds", grant, "refunded", refunded)
+		back := 0
+		if unused := grant - used; unused > 0 {
+			back = a.takeUnusedRefund(bucket, time.Now(), grant, unused)
+			refund(back)
+		}
+		slog.Info("attest voice call ended", "install", keyID, "granted_seconds", grant, "used_seconds", used, "refunded_seconds", back)
 	}
-	call, ok := a.voice.MintAnonCall(bucket, time.Duration(grant)*time.Second, abandon)
+	call, ok := a.voice.MintAnonCall(bucket, time.Duration(grant)*time.Second, end)
 	if !ok {
 		// A concurrent start for this install won the relay slot; this signed
 		// URL never left the server, so no ElevenLabs session can use it.
