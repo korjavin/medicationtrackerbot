@@ -44,6 +44,7 @@ Also normative, narrower in scope:
 | [environment.md](environment.md) | Environment variables. |
 | [mcpshim.md](mcpshim.md) | Pinned private MCP helper binaries, verified installation, Claude registration, and release acceptance. |
 | [ios-visual-testing.md](ios-visual-testing.md) | iOS visual testing runbook: triggers, artifacts, probes, agent QA checklist, bead-filing protocol (normative; design in design/ios-visual-testing.md). |
+| [../testscenarios/README.md](../testscenarios/README.md) | Testscenarios format: YAML catalogue of user-facing invariants, release device checks, regression-fix rule (normative). |
 | [ios.md](ios.md) | iOS app CI: macOS-runner build, TestFlight upload, the repo secrets/variables the owner sets; App Store submission checklist and reviewer access. |
 | [android.md](android.md) | Android app CI: ubuntu-runner Gradle build, debug APK artifact, signed AAB to Play internal testing, the repo secrets/variables the owner sets. |
 | [mobile-parity.md](mobile-parity.md) | iOS/Android parity rules (twins, `parity:n/a`, `for:<platform>` notes) and the feature matrix. |

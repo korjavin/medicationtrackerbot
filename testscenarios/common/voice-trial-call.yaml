@@ -1,0 +1,18 @@
+id: voice-trial-call
+title: Trial voice call starts, is audible, ends, and a new call starts at once
+platforms: [web, android, ios]
+preconditions:
+  - Anonymous local-mode user with trial budget left
+steps:
+  - Open the voice agent and tap Call; grant the microphone
+  - Hang up after the agent has spoken
+  - Tap Call again
+invariants:
+  - Agent audio is audible within 5 s of the "listening" state
+  - 'After Hang up the slot is free: a new call starts without "previous call in progress"'
+  - The trial counter decreases by the seconds actually used; a failed start is not charged
+covered_by:
+  web: manual
+  android: manual
+  ios: manual
+source: [med-dngs]

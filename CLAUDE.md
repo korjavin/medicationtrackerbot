@@ -24,6 +24,7 @@ Self-hosted health-tracking PWA (meds, BP, weight, workouts, sleep, food, diary)
 14. **App UI copy is English only**; a bead with non-English strings means render the intent in English.
 15. **Compatibility-risky PRs get a dedicated breakage review before merge** — anything touching stored-data shape, sync, auth/crypto, deletions, the SW or the vault format is reviewed against existing users and older clients. Importer/derived-writer checklist: [docs/cloud-mode.md → Sync protocol](docs/cloud-mode.md#importers-and-derived-writers--checklist).
 16. **Native-shell changes (`ios/`, `android/`) ship with a twin bead or `parity:n/a`**; op parity enforced by `architecture.native-bridge-parity.test.js`; cross-session notes are `for:<platform>` beads — see [docs/mobile-parity.md](docs/mobile-parity.md).
+17. **A regression fix adds or updates its scenario** in `testscenarios/` (format: [testscenarios/README.md](testscenarios/README.md)); the reviewer enforces it, not CI. Release device checks are the scenarios whose `covered_by` for that platform is `manual`.
 
 ## Build
 
@@ -69,6 +70,7 @@ Catalog/key tooling: `cmd/genvapid` (VAPID keys for the push relay), `cmd/openfo
 | Workout depth (per-set logging, history snapshots, 1RM/PR analysis, opt-in progression) — **implemented**, all four phases closed | [docs/workout-depth.md](docs/workout-depth.md) |
 | Onboarding v3 (W1/W2 first run, F1/P3 invites, claim sign-in, kit offer) — **implemented** (epic `med-ta2n`; supersedes the `med-4pz` wizard) | [docs/onboarding-wizard.md](docs/onboarding-wizard.md) |
 | iOS visual testing runbook (label `ios-visual`, artifacts, probes, agent QA checklist, bead filing) | [docs/ios-visual-testing.md](docs/ios-visual-testing.md) |
+| Testscenarios — user-facing invariant catalogue (YAML format, release device checks, regression-fix rule) | [testscenarios/README.md](testscenarios/README.md) |
 | Cloud mode per-subsystem + **generated privacy boundary table** (source `web/cloud/js/privacy-manifest.js`, regen `pnpm privacy:docs`, never hand-edit) | [docs/cloud-mode.md](docs/cloud-mode.md) |
 | Vault export/import format — **v1 implemented** | [docs/vault-format.md](docs/vault-format.md) |
 | Cloud crypto (passkey/PRF envelopes over DEK) — **implemented in `web/cloud/js/crypto.js`** | [docs/cloud-crypto.md](docs/cloud-crypto.md) |
