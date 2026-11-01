@@ -73,21 +73,33 @@ export default async function localApp(ctx) {
     if (h.foreign === 'reached') throw new Error('connect-src let https://example.com through');
   });
 
-  // bd med-dngs: a voice call's AudioContexts are created seconds after the tap (attested
-  // start, ElevenLabs mint, mic prompt), past the gesture's ~5 s transient activation. A
-  // WebView that requires a gesture for media keeps such a context suspended: the call
-  // connects and is silent. The evaluate's own CDP gesture is waited out first.
-  await ctx.step('an AudioContext made long after the gesture runs', async () => {
+  // bd med-dngs: a voice call's audio starts seconds after the tap (attested start, the
+  // ElevenLabs mint, the mic prompt), past the gesture's ~5 s transient activation. The SDK
+  // plays the agent through AudioContext → MediaStreamDestination → an autoplay <audio>
+  // element; a WebView that requires a gesture for media refuses that play(): the call
+  // connects and is silent. Same chain here, after the evaluate's own CDP gesture expired.
+  await ctx.step('call audio made long after the gesture plays', async () => {
     r.audio = await page.evaluate(async () => {
       await new Promise((res) => setTimeout(res, 6000));
       const ac = new AudioContext();
-      const created = ac.state;
-      await Promise.race([ac.resume(), new Promise((res) => setTimeout(res, 2000))]);
-      const resumed = ac.state;
+      const context = ac.state;
+      const osc = ac.createOscillator();
+      const dest = ac.createMediaStreamDestination();
+      osc.connect(dest);
+      osc.start();
+      const el = new Audio();
+      el.autoplay = true;
+      el.srcObject = dest.stream;
+      let play = 'ok';
+      try {
+        await Promise.race([el.play(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))]);
+      } catch (e) { play = `${e.name}: ${e.message}`; }
+      const out = { context, contextAfter: ac.state, play, paused: el.paused };
+      el.srcObject = null;
       await ac.close();
-      return { created, resumed };
+      return out;
     });
-    if (r.audio.resumed !== 'running') throw new Error(`AudioContext stays ${JSON.stringify(r.audio)}`);
+    if (r.audio.play !== 'ok' || r.audio.paused) throw new Error(`call audio blocked: ${JSON.stringify(r.audio)}`);
   });
 
   // The expected 404 above and the refused example.com fetch are this step's own; drop them.
