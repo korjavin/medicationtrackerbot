@@ -9,7 +9,7 @@ steps:
   - Save a blood pressure reading in the other app
   - Bring the app back to the foreground and open Vitals
 invariants:
-  - The new reading shows in Vitals after the return, with no toggle or manual refresh
+  - The new reading is among the app's blood pressure readings after the return, with no toggle or manual refresh
 covered_by:
   android: android/qa/scenarios/health-connect.mjs
 source: [med-nt9p.59, med-0xad.3]
