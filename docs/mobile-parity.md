@@ -7,6 +7,7 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 1. **Twins only for user-visible behaviour and bridge ops.** A change to either shell that the user can see, or that adds/removes a bridge op, gets a twin bead for the other platform. Anything else (build, CI, signing, store listing, OS integrations) is labelled `parity:n/a` with a one-line reason.
 2. **Bridge-op parity is enforced.** `web/static/js/tests/architecture.native-bridge-parity.test.js` diffs the op lists in `ios/App/LocalOrigin.swift` and `android/.../LocalOrigin.kt`; a one-platform op must be in its `PLATFORM_ONLY` map with a reason.
 3. **Cross-session notes are beads.** File a `for:ios` / `for:android` task (P3, parent = the receiving epic, title `Q: …` or `FYI: …`). The receiver closes it with the answer or converts it into a twin. If the peer session is live, also SendMessage it.
+4. **Common scenarios are parity contracts.** A `testscenarios/common/` scenario that passes on one platform and fails on another is a parity bug, filed with the scenario id ([testscenarios/README.md](../testscenarios/README.md)).
 
 ## iOS feature hold (2026-10-22 → 2026-10-23, lifted)
 

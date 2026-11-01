@@ -112,3 +112,4 @@ The Simulator cannot verify these. When a change touches one, finish the Simulat
 - TestFlight update-in-place path.
 - Backups: iCloud backup and restore, share sheet into real Files/iCloud, storage eviction.
 - Real-device performance.
+- Scenarios in `testscenarios/` whose `covered_by` for iOS is `manual` are the release device checks ([testscenarios/README.md](../testscenarios/README.md)).
