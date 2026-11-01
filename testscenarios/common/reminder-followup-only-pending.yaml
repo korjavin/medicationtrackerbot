@@ -11,13 +11,13 @@ steps:
   - Wait for the next follow-up (Telegram re-fire after about an hour; push: the next reminder for that slot, if any)
   - Take the last dose
 invariants:
-  - The Telegram follow-up names only the doses still due, never a taken or skipped one
+  - Every follow-up, Telegram or device notification, names only the doses still due, never a taken or skipped one
   - With generic reminder text the follow-up stays nameless
   - A dose snoozed in the app is not listed until its snooze ends
-  - Once nothing is due the chain stops and no follow-up arrives on any channel
+  - Once every dose is taken or skipped, the chain stops and no follow-up arrives on any channel
   - The taken state is the same on every device
 covered_by:
-  web: manual  # after med-lmd6: web/cloud/js/tests/cloud.shim-contract.meds-history.test.js
+  web: manual  # after med-lmd6: web/static/js/tests/cloud.shim-contract.meds-history.test.js
   android: manual  # the device-notification half; the Telegram text is built on web
   ios: manual  # the device-notification half; the Telegram text is built on web
 source: [med-lmd6, med-4j49, med-kbpf]
