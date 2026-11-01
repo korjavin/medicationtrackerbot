@@ -14,6 +14,6 @@ invariants:
   - After the passkey the Emergency Kit offer shows; Done enters the account without a second sign-in
 covered_by:
   web: web/cloud/js/tests/signup.claimed-link.test.js
-  android: manual
+  android: android/qa/scenarios/smoke.mjs#claimAccount
   ios: manual
 source: [med-ta2n]

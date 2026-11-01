@@ -13,5 +13,5 @@ invariants:
   - Merge keeps this device's records and adds the file's; Replace replaces them
 covered_by:
   web: manual  # partial: web/static/js/tests/settings.importexport.test.js and cloud.local-mode.test.js (export and restore separately, no erase in between)
-  android: manual
+  android: android/qa/scenarios/local-to-cloud.mjs
   ios: manual

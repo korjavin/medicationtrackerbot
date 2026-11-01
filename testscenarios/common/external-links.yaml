@@ -10,5 +10,5 @@ invariants:
   - Returning to the app finds it where it was
 covered_by:
   web: manual
-  android: manual
+  android: android/qa/scenarios/external-link.mjs
   ios: manual

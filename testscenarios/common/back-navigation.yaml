@@ -13,5 +13,5 @@ invariants:
   - Only Back on Today leaves the app
 covered_by:
   web: web/static/js/tests/app.navigation.test.js#AppBack.step — one back order
-  android: manual
+  android: android/qa/scenarios/back-stack.mjs
   ios: manual

@@ -15,6 +15,6 @@ invariants:
   - The tap opens the app on that dose, ready to take, also from a cold start and while locked
 covered_by:
   web: manual  # partial: web/cloud/js/tests/sw.reminder-actions.test.js (the tap opens the dose only)
-  android: manual
+  android: android/qa/scenarios/reminders-offline.mjs
   ios: manual
 source: [med-nt9p.55]
