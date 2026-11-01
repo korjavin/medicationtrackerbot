@@ -14,7 +14,7 @@ invariants:
   - After the move the local copy is cleared, and after the reload "Sync is on · N records" shows once with nothing imported a second time
   - A failed import shows the error and keeps the local copy
 covered_by:
-  web: web/cloud/js/tests/cloud-boot.test.js#cloud-boot local → cloud move pickup (med-nt9p.32.18)
+  web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (move-pickup orchestration with a stubbed importAll and move.clear)
   android: manual
   ios: manual
 source: [med-nt9p.32.18]
