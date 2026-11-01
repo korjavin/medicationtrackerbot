@@ -787,21 +787,50 @@ func TestAttestVoiceHangUpFreesSlotAndRefunds(t *testing.T) {
 func TestAttestVoiceUnusedRefundCaps(t *testing.T) {
 	a := &AttestAPI{cfg: AttestConfig{VoiceLifetime: 600, VoiceDaily: 200, VoiceGlobal: 400, VoiceCallMax: 120}}
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	if got := a.takeUnusedRefund("b1", now, 150); got != 150 {
+	if got := a.takeUnusedRefund("b1", now, 120, 150); got != 150 {
 		t.Fatalf("first refund = %d", got)
 	}
-	if got := a.takeUnusedRefund("b1", now, 120); got != 50 {
+	if got := a.takeUnusedRefund("b1", now, 120, 120); got != 50 {
 		t.Fatalf("bucket cap: got %d, want 50", got)
 	}
-	if got := a.takeUnusedRefund("b2", now, 120); got != 0 {
+	if got := a.takeUnusedRefund("b2", now, 120, 120); got != 0 {
 		t.Fatalf("global cap (200 = 400/2 used): got %d, want 0", got)
 	}
-	if got := a.takeUnusedRefund("b1", now.Add(24*time.Hour), 120); got != 120 {
+	if got := a.takeUnusedRefund("b1", now.Add(24*time.Hour), 120, 120); got != 120 {
 		t.Fatalf("next UTC day: got %d", got)
 	}
 	a.cfg.VoiceDaily = 0
-	if got := a.takeUnusedRefund("b3", now.Add(24*time.Hour), 100); got != 80 {
+	if got := a.takeUnusedRefund("b3", now.Add(24*time.Hour), 120, 100); got != 80 {
 		t.Fatalf("no daily cap, global 200 - 120 left: got %d, want 80", got)
+	}
+	// A short grant's session can run to the call max unpaid: a 30 s grant
+	// refunded in full is counted at 30 + 90 server-wide (Codex review).
+	day3 := now.Add(48 * time.Hour)
+	if got := a.takeUnusedRefund("b4", day3, 30, 30); got != 30 || a.abandonFree != 120 {
+		t.Fatalf("short grant: got %d, counted %d; want 30, 120", got, a.abandonFree)
+	}
+	if got := a.takeUnusedRefund("b5", day3, 30, 30); got != 0 || a.abandonFree != 120 {
+		t.Fatalf("short grant past the cap: got %d, counted %d; want 0, 120", got, a.abandonFree)
+	}
+}
+
+// bd med-dngs (Codex review): a call counts as answered from the first byte
+// of the AI's stream, not when the turn returns, so a hang-up mid-answer is
+// charged; a swallowed error answer never counts.
+func TestAnonTurnWriterMarksFirstByte(t *testing.T) {
+	n := 0
+	w := &anonTurnWriter{ResponseWriter: httptest.NewRecorder(), onFirst: func() { n++ }}
+	_, _ = w.Write([]byte("data: a\n\n"))
+	_, _ = w.Write([]byte("data: b\n\n"))
+	if n != 1 {
+		t.Fatalf("onFirst ran %d times, want 1", n)
+	}
+	n = 0
+	w = &anonTurnWriter{ResponseWriter: httptest.NewRecorder(), onFirst: func() { n++ }}
+	w.WriteHeader(http.StatusBadGateway)
+	_, _ = w.Write([]byte(`{"error":"upstream"}`))
+	if n != 0 {
+		t.Fatal("a swallowed error answer counted as answered")
 	}
 }
 

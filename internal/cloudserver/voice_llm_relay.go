@@ -1179,6 +1179,13 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 	maxTokens := clampMaxTokens(payload, a.trial.cfg.Provider)
 	delete(payload, "n")
 	payload["stream"] = json.RawMessage("true")
+	// The call counts as answered from the first byte of the AI's stream, so
+	// a hang-up mid-answer is charged like any other (bd med-dngs).
+	rec.onFirst = func() {
+		call.mu.Lock()
+		call.anon.answered = true
+		call.mu.Unlock()
+	}
 	a.trial.proxyChat(rec, r, "install", call.anon.keyID, payload, false, true, maxTokens)
 	if rec.failed || !rec.wrote {
 		outcome = "upstream_error"
@@ -1186,9 +1193,6 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		return
 	}
 	outcome = "ok"
-	call.mu.Lock()
-	call.anon.answered = true
-	call.mu.Unlock()
 }
 
 // anonTurnWriter passes a 200 stream through and swallows any other answer
@@ -1197,6 +1201,7 @@ type anonTurnWriter struct {
 	http.ResponseWriter
 	wrote, failed bool
 	n             int
+	onFirst       func() // once, before the first passed-through body byte
 }
 
 func (t *anonTurnWriter) WriteHeader(code int) {
@@ -1217,6 +1222,10 @@ func (t *anonTurnWriter) Write(b []byte) (int, error) {
 	}
 	if t.failed {
 		return len(b), nil
+	}
+	if f := t.onFirst; f != nil && len(b) > 0 {
+		t.onFirst = nil
+		f()
 	}
 	n, err := t.ResponseWriter.Write(b)
 	t.n += n

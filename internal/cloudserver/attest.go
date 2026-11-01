@@ -328,29 +328,32 @@ func (a *AttestAPI) rollFreeDayLocked(now time.Time) {
 	}
 }
 
-// takeUnusedRefund is how many of an early-ended attached call's unused
-// seconds it may hand back (bd med-dngs). The ElevenLabs session can outlive
-// the hang-up, so each refund is trust: a bucket gets back at most its daily
-// cap a UTC day (the lifetime budget when there is no daily cap), and the
-// refunds count against the same server-wide half of the global cap as the
-// free abandons — a start/hang-up loop cannot run unbounded sessions.
-func (a *AttestAPI) takeUnusedRefund(bucket string, now time.Time, seconds int) int {
+// takeUnusedRefund is how many of the unused seconds of an early-ended
+// attached call with this grant it may hand back (bd med-dngs). The ElevenLabs
+// session can outlive the hang-up, so each refund is trust: a bucket gets
+// back at most its daily cap a UTC day (the lifetime budget when there is no
+// daily cap), and the refunds count against the same server-wide half of the
+// global cap as the free abandons — a start/hang-up loop cannot run unbounded
+// sessions. Each refund is counted there with the session's unpaid overrun on
+// a short grant (call max − grant), what it can still run unpaid.
+func (a *AttestAPI) takeUnusedRefund(bucket string, now time.Time, grant, seconds int) int {
 	limit := a.cfg.VoiceDaily
 	if limit <= 0 {
 		limit = a.cfg.VoiceLifetime
 	}
+	overrun := max(a.cfg.VoiceCallMax-grant, 0)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.rollFreeDayLocked(now)
 	seconds = min(seconds, limit-a.refunded[bucket])
 	if a.cfg.VoiceGlobal > 0 {
-		seconds = min(seconds, a.cfg.VoiceGlobal/2-a.abandonFree)
+		seconds = min(seconds, a.cfg.VoiceGlobal/2-a.abandonFree-overrun)
 	}
 	if seconds <= 0 {
 		return 0
 	}
 	a.refunded[bucket] += seconds
-	a.abandonFree += seconds
+	a.abandonFree += seconds + overrun
 	return seconds
 }
 
@@ -580,7 +583,7 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		}
 		back := 0
 		if unused := grant - used; unused > 0 {
-			back = a.takeUnusedRefund(bucket, time.Now(), unused)
+			back = a.takeUnusedRefund(bucket, time.Now(), grant, unused)
 			refund(back)
 		}
 		slog.Info("attest voice call ended", "install", keyID, "granted_seconds", grant, "used_seconds", used, "refunded_seconds", back)
