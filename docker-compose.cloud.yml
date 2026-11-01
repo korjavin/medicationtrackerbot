@@ -16,7 +16,7 @@ x-logging: &default-logging
 
 services:
   cloud:
-    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    image: ghcr.io/korjavin/medicationtrackerbot:53341526962fce63dcd62062c6a748dd9aece848
     container_name: medtracker-cloud
     logging: *default-logging
     restart: unless-stopped
