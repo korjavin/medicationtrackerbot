@@ -16,5 +16,5 @@ invariants:
 covered_by:
   web: manual  # partial: web/static/js/tests/cloud.local-mode.test.js (local CRUD with zero sync traffic; no first-run UI or reopen)
   android: manual  # partial: android/qa/scenarios/firstrun.mjs (a fresh install opens local mode) and android/qa/scenarios/local-smoke.mjs (a med survives a relaunch, zero egress; not offline, no edit or delete)
-  ios: manual
+  ios: manual  # partial: ios/UITests/FlowQATests.swift#testLocalFirstRun (first run with no account, the mode kept over a relaunch; online, records seeded, no log, edit or delete)
 source: [med-ta2n]

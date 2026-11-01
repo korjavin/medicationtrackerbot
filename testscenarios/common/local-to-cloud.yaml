@@ -16,5 +16,5 @@ invariants:
 covered_by:
   web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (move-pickup orchestration with a stubbed importAll and move.clear)
   android: manual  # partial: android/qa/scenarios/local-to-cloud-seamless.mjs (Turn on sync into an empty account and the toast; no Merge or Replace, no failed import)
-  ios: manual
+  ios: manual  # partial: ios/UITests/FlowQAStashTests.swift#testMoveLocalSide (the local half: a seeded move stash keeps the records over a relaunch; no passkey, no account)
 source: [med-nt9p.32.18]

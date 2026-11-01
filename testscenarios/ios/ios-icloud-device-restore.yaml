@@ -1,0 +1,15 @@
+id: ios-icloud-device-restore
+title: Restoring the iPhone from an iCloud backup brings the local-mode records back
+platforms: [ios]
+preconditions:
+  - Phone app in local mode with records, including ones logged in the last 24 hours
+  - iCloud Backup on
+steps:
+  - Back up the iPhone to iCloud (iOS Settings → iCloud → iCloud Backup → Back Up Now)
+  - Erase the iPhone, or set up a second one, and restore it from that backup
+  - Open the app once it has reinstalled
+invariants:
+  - The app opens in local mode with every record, including the ones from the last 24 hours
+covered_by:
+  ios: manual
+source: [med-o7zq.11]

@@ -15,5 +15,5 @@ invariants:
 covered_by:
   web: web/cloud/js/tests/signup.claimed-link.test.js
   android: manual  # partial: android/qa/scenarios/smoke.mjs#claimAccount (pending invite, passkey, kit offer, Done; no expired or claimed link)
-  ios: manual
+  ios: manual  # partial: ios/UITests/FlowQACeremonyExitTests.swift#testWebExitBarLeaves (a real invite link reaches the claim page, then leaves it; no passkey, no kit offer)
 source: [med-ta2n]

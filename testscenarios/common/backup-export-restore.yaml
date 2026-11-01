@@ -14,4 +14,4 @@ invariants:
 covered_by:
   web: manual  # partial: web/static/js/tests/settings.importexport.test.js and cloud.local-mode.test.js (export and restore separately, no erase in between)
   android: manual  # partial: android/qa/scenarios/local-to-cloud.mjs (export, then restore into an empty account; no erase, no corrupt file, no Merge)
-  ios: manual
+  ios: manual  # partial: ios/UITests/FlowQABackupTests.swift#testBackupExport and #testRestoreFromFile (export to Files; erase, then restore the fixture, not the exported file; one medication checked, no corrupt file, no Merge or Replace)

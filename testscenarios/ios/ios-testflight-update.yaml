@@ -1,0 +1,16 @@
+id: ios-testflight-update
+title: Updating from TestFlight over an installed build keeps the mode, the lock and every record
+platforms: [ios]
+preconditions:
+  - The previous TestFlight build installed, in local mode with records and App lock on, or signed in to an account
+steps:
+  - In local mode, note the Version at the bottom of Settings
+  - Install the newer build from TestFlight over it, without deleting the app
+  - Open the app
+invariants:
+  - It opens in the same mode (local, or the same account) with no first run and no invite question
+  - With App lock on, the lock screen shows first
+  - Every record is still there
+  - In local mode the Version in Settings is the new build (an account shows the server's build; check TestFlight's installed build instead)
+covered_by:
+  ios: manual
