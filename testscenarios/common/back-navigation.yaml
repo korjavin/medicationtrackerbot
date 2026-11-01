@@ -13,5 +13,5 @@ invariants:
   - Only Back on Today leaves the app
 covered_by:
   web: web/static/js/tests/app.navigation.test.js#AppBack.step — one back order
-  android: android/qa/scenarios/back-stack.mjs
+  android: manual  # partial: android/qa/scenarios/back-stack.mjs (sheet on Today, then the section trail; no sheet over Meds, no restored section)
   ios: manual

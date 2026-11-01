@@ -15,6 +15,6 @@ invariants:
   - A failed import shows the error and keeps the local copy
 covered_by:
   web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (move-pickup orchestration with a stubbed importAll and move.clear)
-  android: android/qa/scenarios/local-to-cloud-seamless.mjs
+  android: manual  # partial: android/qa/scenarios/local-to-cloud-seamless.mjs (Turn on sync into an empty account and the toast; no Merge or Replace, no failed import)
   ios: manual
 source: [med-nt9p.32.18]
