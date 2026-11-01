@@ -1,0 +1,21 @@
+id: voice-photo-camera
+title: During a call, a photo taken with the camera reaches the agent and it describes it
+platforms: [web, android, ios]
+preconditions:
+  - Account mode with the AI voice agent set up (not the anonymous trial)
+  - A voice call is in progress
+steps:
+  - Tap the camera button in the call bar
+  - Take a photo of something on the table
+  - Keep talking
+invariants:
+  - The agent describes what is in the photo on its next answer
+  - The photo goes with that one answer only; later answers do not repeat it
+  - Hanging up while the photo still waits drops it; nothing is sent after the call
+  - A photo too large to shrink is refused with the limit shown, and the agent is not told about it
+  - The anonymous trial call shows no Send photo button
+covered_by:
+  web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing, not the agent describing the photo)
+  android: manual
+  ios: manual
+source: [med-ku8r]

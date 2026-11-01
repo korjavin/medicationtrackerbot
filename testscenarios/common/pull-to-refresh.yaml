@@ -1,0 +1,18 @@
+id: pull-to-refresh
+title: 'Account mode: pull to refresh syncs and the banner shows the real network state'
+platforms: [web, android, ios]
+preconditions:
+  - Account mode with a second device that adds entries
+steps:
+  - Add an entry on the other device
+  - Pull down on Today
+  - Turn on airplane mode, then off again
+  - Switch to a local-mode install and do the same
+invariants:
+  - Pull to refresh runs a sync pull (not a Health import); new entries show a toast, nothing new shows none
+  - The offline banner shows only while offline and goes once the network is back
+  - 'Local mode shows no network state at all: no pull gesture, no offline banner, no network chip'
+covered_by:
+  web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull gesture; not the network banner or chip)
+  android: manual
+  ios: manual

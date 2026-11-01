@@ -1,0 +1,20 @@
+id: reminder-fires-offline
+title: A due medication reminder fires with the app closed and no network; its tap opens the dose
+platforms: [web, android, ios]
+preconditions:
+  - A medication with a reminder due in a few minutes
+  - Notifications enabled
+steps:
+  - Close the app fully
+  - Turn on airplane mode (phone apps)
+  - Wait for the reminder
+  - Tap the notification
+invariants:
+  - On the phone apps the reminder is scheduled on the device and fires with no network
+  - On the web the reminder arrives by push, so it needs a network at delivery time
+  - The tap opens the app on that dose, ready to take, also from a cold start and while locked
+covered_by:
+  web: manual  # partial: web/cloud/js/tests/sw.reminder-actions.test.js (the tap opens the dose only)
+  android: manual
+  ios: manual
+source: [med-nt9p.55]

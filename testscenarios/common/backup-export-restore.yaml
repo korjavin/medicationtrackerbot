@@ -1,0 +1,17 @@
+id: backup-export-restore
+title: 'Export a backup, erase, restore from the file: every record is back'
+platforms: [web, android, ios]
+preconditions:
+  - Records in every section
+steps:
+  - 'Settings → Backup: export a backup file'
+  - Erase the data
+  - Restore from the file
+invariants:
+  - 'Every record is back: medications and doses, BP, weight, food, workouts, sleep, settings'
+  - A wrong or corrupt file is refused and nothing is replaced
+  - Merge keeps this device's records and adds the file's; Replace replaces them
+covered_by:
+  web: manual  # partial: web/static/js/tests/settings.importexport.test.js and cloud.local-mode.test.js (export and restore separately, no erase in between)
+  android: manual
+  ios: manual

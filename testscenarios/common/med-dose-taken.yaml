@@ -1,0 +1,17 @@
+id: med-dose-taken
+title: Add a medication, mark a dose taken, and Today shows it as taken
+platforms: [web, android, ios]
+preconditions:
+  - App open, any mode
+steps:
+  - Meds → Add a medication with a dose due now
+  - Open Today and tap Take on the dose
+invariants:
+  - The due dose shows on Today with Take
+  - After Take the dose leaves Today's Next up at once, without a reload
+  - Meds → Timeline shows it as "Taken HH:MM", and it stays taken after a reload
+covered_by:
+  web: manual  # partial: web/static/js/tests/today.render.test.js (renders prebuilt dose states; no add, take or reload)
+  android: manual
+  ios: manual
+source: [Zulip 11272]

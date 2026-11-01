@@ -1,0 +1,17 @@
+id: back-navigation
+title: Back steps through sections and exits only from the root
+platforms: [web, android, ios]
+preconditions:
+  - App open on Today
+steps:
+  - Open Food, then Meds, then open a sheet in Meds
+  - Press Back repeatedly (system Back or the back chevron)
+invariants:
+  - Back closes the top sheet first; the section stays
+  - With nothing open, Back walks the sections in the order this session visited them (Meds → Food → Today)
+  - A section restored on launch, with no trail, goes back to Today
+  - Only Back on Today leaves the app
+covered_by:
+  web: web/static/js/tests/app.navigation.test.js#AppBack.step — one back order
+  android: manual
+  ios: manual

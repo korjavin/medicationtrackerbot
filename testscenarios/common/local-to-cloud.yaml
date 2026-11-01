@@ -1,0 +1,20 @@
+id: local-to-cloud
+title: Moving local data into an account keeps every record and the local copy is retired
+platforms: [web, android, ios]
+preconditions:
+  - The phone app in local mode with records
+  - An invite to an account
+steps:
+  - Choose Turn on sync ("Your N records move to your account") or open the invite link
+  - Create the passkey and enter the account
+  - If the account already has data, pick Merge or Replace
+invariants:
+  - Into an empty account the records arrive with no question asked
+  - An account with data asks Merge or Replace; Replace needs REPLACE typed to confirm
+  - After the move the local copy is cleared, and after the reload "Sync is on · N records" shows once with nothing imported a second time
+  - A failed import shows the error and keeps the local copy
+covered_by:
+  web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (move-pickup orchestration with a stubbed importAll and move.clear)
+  android: manual
+  ios: manual
+source: [med-nt9p.32.18]

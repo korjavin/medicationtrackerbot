@@ -1,0 +1,20 @@
+id: local-first-run
+title: First run without an invite works fully offline in local mode
+platforms: [web, android, ios]
+preconditions:
+  - A fresh install with no account and no invite
+  - The phone is offline
+steps:
+  - Open the app and go through first run without an invite
+  - Log a blood pressure, a weight and a medication dose
+  - Edit one entry and delete another
+  - Close and reopen the app
+invariants:
+  - First run completes with no network and no account
+  - Every log, edit and delete works and survives the reopen
+  - Nothing is sent to the sync server
+covered_by:
+  web: manual  # partial: web/static/js/tests/cloud.local-mode.test.js (local CRUD with zero sync traffic; no first-run UI or reopen)
+  android: manual
+  ios: manual
+source: [med-ta2n]

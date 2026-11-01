@@ -1,0 +1,18 @@
+id: boot-degraded-reload
+title: Failed boot shows "Some saved data did not load. Reload to fix."; Reload recovers offline
+platforms: [web, android, ios]
+preconditions:
+  - Account mode; a step after unlock fails to load (for example a partly cached update while offline)
+steps:
+  - Open and unlock the app
+  - Tap Reload on the banner
+invariants:
+  - Exactly one banner shows, with "Some saved data did not load. Reload to fix." and a Reload button
+  - This banner replaces an update banner that was already up
+  - An empty state caused by the failure says Reload, not "no data"
+  - Reload loads the current build and works offline
+covered_by:
+  web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (one banner wired to Reload; not the offline reload)
+  android: manual
+  ios: manual
+source: [med-kk1q.4]

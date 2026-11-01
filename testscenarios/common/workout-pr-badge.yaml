@@ -1,0 +1,18 @@
+id: workout-pr-badge
+title: A session PR badge ignores an unconfirmed outlier weight
+platforms: [web, android, ios]
+preconditions:
+  - An exercise with a logged history
+steps:
+  - Log a set with an implausibly heavy weight
+  - Leave the outlier check unconfirmed, then tap "It's right"
+  - Log a normal set heavier than the previous best
+invariants:
+  - The unconfirmed outlier set earns no PR badge
+  - After "It's right" the badge shows
+  - A normal heavier set gets the PR badge
+covered_by:
+  web: web/static/js/tests/features.workout-sessions.test.js#an unconfirmed flagged set earns no PR badge; It's right shows it; a normal heavier set badges
+  android: manual
+  ios: manual
+source: [med-l5yr.5, med-l5yr.6]

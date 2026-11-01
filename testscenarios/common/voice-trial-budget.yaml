@@ -1,0 +1,19 @@
+id: voice-trial-budget
+title: Trial voice budget goes down by the seconds used; a failed start is not charged
+platforms: [web, android, ios]
+preconditions:
+  - Anonymous local-mode user with trial voice time left today
+steps:
+  - Note the voice time left in Settings
+  - Make a short trial call (about 30 s) and hang up
+  - Start a call that fails to connect (for example with the microphone denied)
+  - Check the voice time left again
+invariants:
+  - After the call the time left drops by about the seconds actually talked, not by a whole grant
+  - A start that never connects leaves the time left unchanged
+  - Two short calls in a row never exhaust the day ("Free voice calls paused until tomorrow." appears only once the day budget is really used)
+covered_by:
+  web: manual
+  android: manual
+  ios: manual
+source: [med-dngs]

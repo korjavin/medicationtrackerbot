@@ -1,0 +1,19 @@
+id: notifications-enable
+title: Settings → Notifications → Enable shows the OS prompt and the toggle turns on
+platforms: [web, android, ios]
+preconditions:
+  - Account mode; notifications never asked for on this device
+steps:
+  - Open Settings → Notifications
+  - Tap Enable
+  - Allow in the system prompt
+invariants:
+  - The system permission prompt appears right after the tap; Enable never hangs
+  - After allowing, the control shows as on (Disable)
+  - Refusing points to the system settings and leaves Enable ready to tap again
+  - Once the permission is decided, a later Enable does not prompt again
+covered_by:
+  web: web/static/js/tests/settings.cloud-notifications.test.js
+  android: manual
+  ios: manual
+source: [med-nt9p.65]
