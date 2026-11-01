@@ -1,0 +1,23 @@
+id: reminder-followup-only-pending
+title: After a partial take, the next reminder lists only the doses still due
+platforms: [web, android, ios]
+preconditions:
+  - An account with Telegram linked and detailed reminder text
+  - A slot with 3 or more medications due at the same time
+  - A second device, or the web app, open alongside the one that shows the follow-up
+steps:
+  - Receive the slot's reminder (Telegram and the device notification)
+  - In the app (Today or the log), on a different device than the one that will show the follow-up, mark all but one of the slot's doses taken
+  - Wait for the next follow-up (Telegram re-fire after about an hour; push: the next reminder for that slot, if any)
+  - Take the last dose
+invariants:
+  - The Telegram follow-up names only the doses still due, never a taken or skipped one
+  - With generic reminder text the follow-up stays nameless
+  - A dose snoozed in the app is not listed until its snooze ends
+  - Once nothing is due the chain stops and no follow-up arrives on any channel
+  - The taken state is the same on every device
+covered_by:
+  web: manual  # after med-lmd6: web/cloud/js/tests/cloud.shim-contract.meds-history.test.js
+  android: manual  # the device-notification half; the Telegram text is built on web
+  ios: manual  # the device-notification half; the Telegram text is built on web
+source: [med-lmd6, med-4j49, med-kbpf]
