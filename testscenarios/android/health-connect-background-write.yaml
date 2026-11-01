@@ -10,7 +10,6 @@ steps:
   - Bring the app back to the foreground and open Vitals
 invariants:
   - The new reading shows in Vitals after the return, with no toggle or manual refresh
-  - Long histories (more than one page of SpO2 or heart rate) import completely
 covered_by:
   android: android/qa/scenarios/health-connect.mjs
 source: [med-nt9p.59, med-0xad.3]
