@@ -1,0 +1,21 @@
+id: voice-photo-gallery
+title: During a call, a photo picked from the gallery reaches the agent and it describes it
+platforms: [web, android, ios]
+preconditions:
+  - Account mode with the AI voice agent set up (not the anonymous trial)
+  - A voice call is in progress
+  - The phone gallery holds at least one photo
+steps:
+  - Tap the gallery button in the call bar
+  - Pick a photo
+  - Keep talking
+invariants:
+  - The agent describes the picked photo on its next answer
+  - Up to 3 photos picked before the agent answers go with one answer; a 4th is refused
+  - 'A failed photo answer shows "Couldn''t send the photo: <reason>" until the next action'
+  - Cancelling the picker sends nothing and the call goes on
+covered_by:
+  web: web/static/js/tests/features.elevenlabs-call.test.js#camera and gallery buttons pick through MediaCapture.pickPhoto and send the picked photo
+  android: manual
+  ios: manual
+source: [med-ku8r]

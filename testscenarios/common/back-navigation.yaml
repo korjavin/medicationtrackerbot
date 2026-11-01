@@ -1,0 +1,16 @@
+id: back-navigation
+title: Back steps through sections and exits only from the root
+platforms: [web, android, ios]
+preconditions:
+  - App open on Today
+steps:
+  - Open a section, then open a sheet in it
+  - Press Back repeatedly (system Back or the back chevron)
+invariants:
+  - Back closes the top sheet or dialog first, one at a time
+  - With nothing open, Back from a section returns to Today
+  - Only Back on Today leaves the app
+covered_by:
+  web: web/static/js/tests/features.back-button.test.js
+  android: manual
+  ios: manual

@@ -1,0 +1,19 @@
+id: health-import-permissions
+title: Health import asks for steps, sleep, SpO2 and heart rate and the rows appear in Vitals
+platforms: [web, android, ios]
+preconditions:
+  - Phone app; Health Connect (Android) or Apple Health (iOS) holds steps, sleep, SpO2 and heart rate
+steps:
+  - Open Settings and turn on Health import
+  - Grant every requested kind in the system sheet
+  - Open Vitals
+invariants:
+  - The system sheet asks for steps, sleep, SpO2 and heart rate
+  - After granting, steps, sleep, SpO2 and heart rate rows show in Vitals
+  - If access was denied the app says where to allow it
+  - Where there is no Health store (the web) the toggle flips back with a message
+covered_by:
+  web: web/cloud/js/tests/health-import.test.js#turning it on asks Health for read access, imports, and shows the status
+  android: manual
+  ios: manual
+source: [Zulip 11260]

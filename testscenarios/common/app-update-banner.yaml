@@ -1,0 +1,17 @@
+id: app-update-banner
+title: With a new build waiting, "A new version is available" shows once and Reload lands on it
+platforms: [web, android, ios]
+preconditions:
+  - Account mode; a newer build is deployed than the one running
+steps:
+  - Open the app and wait for the update check
+  - Tap Reload on the banner
+invariants:
+  - '"A new version is available." shows once, never stacked'
+  - When the running build matches the server, no banner shows
+  - Reload opens the new build (the version in Settings changes)
+covered_by:
+  web: web/cloud/js/tests/update-check.test.js#startUpdateCheck
+  android: manual
+  ios: manual
+source: [med-kk1q.6]

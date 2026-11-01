@@ -1,0 +1,17 @@
+id: medication-schedule-edit
+title: Editing a twice-daily schedule mid-day keeps the taken dose and regenerates the rest
+platforms: [web, android, ios]
+preconditions:
+  - A medication at 08:00 and 20:00; the 08:00 dose is taken
+steps:
+  - At 10:00 edit the times to 09:00 and 21:00
+  - Open Meds → Timeline
+invariants:
+  - The taken 08:00 dose stays taken and no 09:00 dose appears today
+  - 21:00 replaces 20:00 today
+  - With 08:00 untaken instead, 09:00 replaces it even though it is already past
+covered_by:
+  web: 'web/static/js/tests/lineage.domain.test.js#08:00/20:00 → 09:00/21:00 at 10:00, 08:00 taken: 08:00 stands, nothing at 09:00, 21:00 replaces 20:00'
+  android: manual
+  ios: manual
+source: [med-wi09.12, '#1352']

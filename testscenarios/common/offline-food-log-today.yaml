@@ -1,0 +1,16 @@
+id: offline-food-log-today
+title: The food log opens on today after any reload, online or offline
+platforms: [web, android, ios]
+preconditions:
+  - Food log with entries on several days
+steps:
+  - Open Food and go back to an earlier day
+  - Reload or reopen the app, once online and once offline
+invariants:
+  - After every reload the food log shows today, never the day browsed before
+  - Moving between days within one visit keeps the chosen day
+covered_by:
+  web: web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page
+  android: manual
+  ios: manual
+source: [med-kk1q.3]

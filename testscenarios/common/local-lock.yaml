@@ -1,0 +1,17 @@
+id: local-lock
+title: The local lock engages on background and unlocks with the device credential
+platforms: [web, android, ios]
+preconditions:
+  - Phone app with the app lock on
+steps:
+  - Send the app to the background
+  - Bring it back
+  - Unlock with Face ID, fingerprint or the device PIN
+invariants:
+  - Coming back from the background shows the lock screen, not the data
+  - The device credential unlocks it
+  - A failed unlock stays locked and offers a retry
+covered_by:
+  web: manual
+  android: manual
+  ios: manual

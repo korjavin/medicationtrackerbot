@@ -1,0 +1,16 @@
+id: meal-kcal-total
+title: Log a meal, and today's calorie total includes it
+platforms: [web, android, ios]
+preconditions:
+  - App open with food tracking on
+steps:
+  - Food → Add a meal with known calories
+  - Look at the day total on Food and on Today
+invariants:
+  - The meal's kcal is in today's total right after saving
+  - A meal logged now counts toward today, not only in the list
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.food-log.test.js#counts a now()-stamped meal in today's stats, not just the list
+  android: manual
+  ios: manual
+source: [Zulip 11272]

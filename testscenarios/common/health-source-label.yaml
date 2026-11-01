@@ -1,0 +1,16 @@
+id: health-source-label
+title: Entries from Health import carry the Health import label
+platforms: [web, android, ios]
+preconditions:
+  - Health import on, with BP, weight and sleep imported from Health Connect or Apple Health
+steps:
+  - Open the BP, Weight and Sleep views
+  - Look at an imported entry and at one typed in by hand
+invariants:
+  - Imported BP, weight and sleep entries show "Health import" as their source
+  - Entries typed in by hand carry no Health import label
+covered_by:
+  web: web/static/js/tests/health.sleep.test.js#Health-only nights name just Health import, as the kit's plain muted hint
+  android: manual
+  ios: manual
+source: [med-w6gx.32]

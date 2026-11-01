@@ -1,0 +1,14 @@
+id: external-links
+title: External links open in the system browser, not inside the app
+platforms: [web, android, ios]
+preconditions:
+  - App open
+steps:
+  - Tap a link to an outside page (for example the privacy policy or a help link)
+invariants:
+  - The page opens in the system browser
+  - Returning to the app finds it where it was
+covered_by:
+  web: manual
+  android: manual
+  ios: manual

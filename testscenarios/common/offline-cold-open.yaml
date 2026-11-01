@@ -1,0 +1,19 @@
+id: offline-cold-open
+title: Opening the app offline in account mode shows every section's data from the phone
+platforms: [web, android, ios]
+preconditions:
+  - Account mode with data in every section, synced to this device
+  - The app is fully closed
+steps:
+  - Turn on airplane mode
+  - Open and unlock the app
+  - 'Visit every section: Today, Meds, Food (log and Food DB), Workouts (plans and equipment), Vitals, Weight, Diary, Settings'
+invariants:
+  - Every section shows its saved data; none shows an empty or error state when it has data
+  - No section waits for the network before rendering
+  - Writes stay enabled offline and sync later
+covered_by:
+  web: manual
+  android: manual
+  ios: manual
+source: [med-kk1q]
