@@ -726,18 +726,23 @@ func (a *VoiceLLMRelayAPI) serveDeviceLeg(r *http.Request, conn *websocket.Conn,
 	// once, no grace, so the bucket's next start is free (bd med-dngs).
 	clean := false
 	defer func() {
-		if clean && call.anon != nil && call.detach(conn, 0) {
+		if clean && call.anon != nil {
+			// Detach and drop under one a.mu (then call.mu, AnonDeviceSocket's
+			// order), so a re-attach can never land between them and be dropped.
 			a.mu.Lock()
 			var end func()
-			if a.calls[call.token] == call {
+			hungUp := call.detach(conn, 0)
+			if hungUp && a.calls[call.token] == call {
 				end = a.dropLocked(call)
 			}
 			a.mu.Unlock()
-			slog.Info("voice llm relay: anon call hung up", "account_id", call.accountID, "call", endpointFingerprint(call.token))
-			if end != nil {
-				end() // store I/O: never under a.mu
+			if hungUp {
+				slog.Info("voice llm relay: anon call hung up", "account_id", call.accountID, "call", endpointFingerprint(call.token))
+				if end != nil {
+					end() // store I/O: never under a.mu
+				}
+				return
 			}
-			return
 		}
 		if call.detach(conn, a.grace) {
 			slog.Info("voice llm relay: device detached", "account_id", call.accountID, "call", endpointFingerprint(call.token))

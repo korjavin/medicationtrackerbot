@@ -95,19 +95,6 @@ func usedUp(c *voiceCall) {
 	c.mu.Unlock()
 }
 
-// dropAttachedUnused reaps token's call as if a leg had attached and dropped
-// with no turn ever answered (bd med-dngs: refunded within the allowance).
-func (e *attestEnv) dropAttachedUnused(token string) {
-	c := e.relay.lookup(token)
-	if c == nil {
-		e.t.Fatal("call not in the relay")
-	}
-	c.mu.Lock()
-	c.anon.attached, c.anon.attachedAt = true, time.Now()
-	c.mu.Unlock()
-	e.reapNow(token)
-}
-
 // waitReaped waits until install k has no call in the relay and the dropped
 // call's refund has settled.
 func (e *attestEnv) waitReaped(k *ecdsa.PrivateKey) {
@@ -778,6 +765,43 @@ func TestAttestVoiceHangUpFreesSlotAndRefunds(t *testing.T) {
 	call(4, websocket.StatusNormalClosure)
 	if d := day(); d != 180 {
 		t.Fatalf("past the allowance: %d s, want 180", d)
+	}
+}
+
+// bd med-dngs (Argus 11345): a hang-up detaches and drops the call under one
+// relay lock, so a re-attach (which holds that lock from lookup to attach)
+// can never land between the two and have its live call dropped. Held lock →
+// the hung-up leg is still attached; released → the call is gone.
+func TestVoiceAnonHangUpDetachesUnderRelayLock(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	srv := httptest.NewServer(e.h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	call, _ := e.relay.MintAnonCall("k-lock", time.Minute, nil)
+	c := e.relay.lookup(call)
+	device, err := dialAnonVoice(ctx, srv, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readVoiceFrame(t, ctx, device) // hello
+	e.relay.mu.Lock()
+	_ = device.Close(websocket.StatusNormalClosure, "")
+	time.Sleep(100 * time.Millisecond) // the leg's read loop has seen the close
+	c.mu.Lock()
+	attached := c.conn != nil
+	c.mu.Unlock()
+	e.relay.mu.Unlock()
+	if !attached {
+		t.Fatal("hang-up detached outside the relay lock")
+	}
+	deadline := time.Now().Add(relayTestDeadline)
+	for e.relay.HasAnonCall("k-lock") {
+		if time.Now().After(deadline) {
+			t.Fatal("hung-up call never dropped")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
