@@ -93,19 +93,25 @@ const (
 // the relay answers their turns itself through the trial proxy — no request
 // frame ever goes to the device. The relay never touches money: the minting
 // side charged the whole grant up front, because the ElevenLabs session the
-// signed URL opened can outlive the leg (see docs/cloud-mode.md, threat model).
+// signed URL opened can outlive the leg (see docs/cloud-mode.md, threat model);
+// the relay only reports how the call ended (anonVoice.end), and the minting
+// side decides what to refund, bounded (bd med-dngs).
 const voiceAnonAttachWindow = 60 * time.Second
 
 type anonVoice struct {
 	keyID string
 	timer *time.Timer
-	// abandon is the minting side's refund hook (bd med-02b0): the relay calls
-	// it exactly once when it drops the call while no leg ever attached. The
-	// relay itself never touches money.
-	abandon func()
+	// end is the minting side's refund hook (bd med-02b0, med-dngs): the relay
+	// calls it exactly once when it drops a call whose grant did not run out —
+	// attached reports whether a leg ever attached, used the seconds the call
+	// is charged (0 when no turn was ever answered, else first attach → drop,
+	// rounded up). The relay itself never touches money.
+	end func(attached bool, used int)
 	// Guarded by the call's mu.
-	exhausted bool
-	attached  bool // a device leg attached at least once; never reset
+	exhausted  bool
+	attached   bool      // a device leg attached at least once; never reset
+	attachedAt time.Time // first attach
+	answered   bool      // at least one turn got the AI's answer
 }
 
 type voiceFrame struct {
@@ -272,6 +278,9 @@ func (c *voiceCall) attachAnon(conn *websocket.Conn) bool {
 	defer c.mu.Unlock()
 	if c.anon.exhausted {
 		return false
+	}
+	if !c.anon.attached {
+		c.anon.attachedAt = c.now()
 	}
 	c.anon.attached = true
 	c.attachLocked(conn)
@@ -478,8 +487,8 @@ func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 	}
 }
 
-// dropLocked removes c from the table and returns the abandon hook to run
-// (outside a.mu) when c is an anonymous call no leg ever attached to. The
+// dropLocked removes c from the table and returns the end hook to run
+// (outside a.mu) when c is an anonymous call whose grant did not run out. The
 // table delete is the "exactly once": a dropped call is never dropped again.
 func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	delete(a.calls, c.token)
@@ -491,18 +500,22 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	}
 	c.anon.timer.Stop()
 	c.mu.Lock()
-	attached := c.anon.attached
+	attached, exhausted := c.anon.attached, c.anon.exhausted
+	used := 0
+	if c.anon.answered {
+		used = int((c.now().Sub(c.anon.attachedAt) + time.Second - 1) / time.Second)
+	}
 	c.mu.Unlock()
-	if attached || c.anon.abandon == nil {
+	if exhausted || c.anon.end == nil {
 		return nil
 	}
 	// The bucket is free in the table from here on, but its refund is not done
 	// yet: a start for the same bucket waits on done before reserving.
 	done := make(chan struct{})
 	a.settling[c.accountID] = done
-	abandon := c.anon.abandon
+	end := c.anon.end
 	return func() {
-		// Deferred: a panicking abandon must still release the bucket's starts.
+		// Deferred: a panicking hook must still release the bucket's starts.
 		defer func() {
 			a.mu.Lock()
 			if a.settling[c.accountID] == done {
@@ -511,12 +524,12 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 			a.mu.Unlock()
 			close(done)
 		}()
-		abandon()
+		end(attached, used)
 	}
 }
 
 // EndPendingAnonCall drops bucket keyID's call if no leg ever attached to it
-// (its abandon hook runs before this returns), so a retry after a failed
+// (its end hook runs before this returns), so a retry after a failed
 // attach mints anew instead of waiting out the attach window (bd med-02b0).
 // True when the bucket still has a call: live, or within a grace after a
 // leg attached — that one still answers call_in_progress. A leg dialing the
@@ -581,10 +594,10 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 
 // MintAnonCall pre-registers an anonymous trial call for trial bucket keyID with a
 // grant of call time. It must be attached within attachWindow; grant after
-// the mint the budget timer ends it (budget_exhausted + close 4429). abandon
-// runs once if the relay drops the call with no leg ever attached (nil: none).
+// the mint the budget timer ends it (budget_exhausted + close 4429). end runs
+// once when the relay drops a call whose grant did not run out (nil: none).
 // ("", false) when the bucket already has a call.
-func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, abandon func()) (string, bool) {
+func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end func(attached bool, used int)) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
 	now := time.Now()
 	a.mu.Lock()
@@ -598,7 +611,7 @@ func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, aband
 		ready:     make(chan struct{}),
 		expires:   now.Add(a.attachWindow), // pending attach ages out like a grace
 		waiters:   make(map[int64]*voiceWaiter),
-		anon:      &anonVoice{keyID: keyID, abandon: abandon},
+		anon:      &anonVoice{keyID: keyID, end: end},
 		done:      make(chan struct{}),
 		now:       a.now,
 	}
@@ -707,8 +720,25 @@ func (a *VoiceLLMRelayAPI) AnonDeviceSocket(w http.ResponseWriter, r *http.Reque
 // the read loop dispatching chunk/end/error frames.
 func (a *VoiceLLMRelayAPI) serveDeviceLeg(r *http.Request, conn *websocket.Conn, call *voiceCall) {
 	// Detach on every exit path (a failed hello included), so even a call that
-	// never got a working leg ages out through the grace + reap.
+	// never got a working leg ages out through the grace + reap. An anonymous
+	// leg the device closed itself (1000, or 1005: a close frame with no
+	// status) is the hang-up: the call ends at
+	// once, no grace, so the bucket's next start is free (bd med-dngs).
+	clean := false
 	defer func() {
+		if clean && call.anon != nil && call.detach(conn, 0) {
+			a.mu.Lock()
+			var end func()
+			if a.calls[call.token] == call {
+				end = a.dropLocked(call)
+			}
+			a.mu.Unlock()
+			slog.Info("voice llm relay: anon call hung up", "account_id", call.accountID, "call", endpointFingerprint(call.token))
+			if end != nil {
+				end() // store I/O: never under a.mu
+			}
+			return
+		}
 		if call.detach(conn, a.grace) {
 			slog.Info("voice llm relay: device detached", "account_id", call.accountID, "call", endpointFingerprint(call.token))
 			time.AfterFunc(a.grace+time.Millisecond, func() { a.reap(call) })
@@ -731,6 +761,9 @@ func (a *VoiceLLMRelayAPI) serveDeviceLeg(r *http.Request, conn *websocket.Conn,
 	for {
 		_, data, err := conn.Read(legCtx)
 		if err != nil {
+			// The responder's stop() is a bare ws.close(): no status (1005).
+			code := websocket.CloseStatus(err)
+			clean = code == websocket.StatusNormalClosure || code == websocket.StatusNoStatusRcvd
 			break
 		}
 		var f voiceFrame
@@ -1153,6 +1186,9 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		return
 	}
 	outcome = "ok"
+	call.mu.Lock()
+	call.anon.answered = true
+	call.mu.Unlock()
 }
 
 // anonTurnWriter passes a 200 stream through and swallows any other answer

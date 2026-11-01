@@ -73,6 +73,23 @@ export default async function localApp(ctx) {
     if (h.foreign === 'reached') throw new Error('connect-src let https://example.com through');
   });
 
+  // bd med-dngs: a voice call's AudioContexts are created seconds after the tap (attested
+  // start, ElevenLabs mint, mic prompt), past the gesture's ~5 s transient activation. A
+  // WebView that requires a gesture for media keeps such a context suspended: the call
+  // connects and is silent. The evaluate's own CDP gesture is waited out first.
+  await ctx.step('an AudioContext made long after the gesture runs', async () => {
+    r.audio = await page.evaluate(async () => {
+      await new Promise((res) => setTimeout(res, 6000));
+      const ac = new AudioContext();
+      const created = ac.state;
+      await Promise.race([ac.resume(), new Promise((res) => setTimeout(res, 2000))]);
+      const resumed = ac.state;
+      await ac.close();
+      return { created, resumed };
+    });
+    if (r.audio.resumed !== 'running') throw new Error(`AudioContext stays ${JSON.stringify(r.audio)}`);
+  });
+
   // The expected 404 above and the refused example.com fetch are this step's own; drop them.
   const own = failed.filter((f) => !/no\/such\/file|example\.com/.test(f));
   // ERR_ABORTED is a cancel, not a failure: the first load's requests cut by the reload, and the

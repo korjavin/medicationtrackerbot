@@ -850,10 +850,9 @@ func TestAttestRejoinVoice(t *testing.T) {
 	if rec.Code != http.StatusOK || out.Granted != attestDefaultVoiceCallMax {
 		t.Fatalf("k1 start: %d %s", rec.Code, rec.Body.String())
 	}
-	c := e.relay.lookup(out.Call)
-	c.mu.Lock()
-	c.anon.attached = true // live: a pending call would be replaced (bd med-02b0)
-	c.mu.Unlock()
+	// Live (a pending call would be replaced, bd med-02b0) and used up (no
+	// refund at the end, bd med-dngs).
+	usedUp(e.relay.lookup(out.Call))
 	wantErr(t, mustRec(e.voiceStart(k2, 1)), http.StatusConflict, "call_in_progress")
 	e.reapNow(out.Call)
 	rec, out = e.voiceStart(k2, 2)
