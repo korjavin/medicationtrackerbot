@@ -1,0 +1,16 @@
+id: ios-health-access-per-kind
+title: 'Apple Health: Watch readings import, and a kind left off is named, not an error'
+platforms: [ios]
+preconditions:
+  - Phone app with an Apple Watch paired; Apple Health holds Watch heart rate, SpO2 and sleep, and BP or weight
+steps:
+  - In Settings turn on Apple Health and grant every kind except Sleep in the Health sheet
+  - Open Vitals, then look at the Apple Health row in Settings
+  - In iOS Settings → Health → Data Access & Devices → Med Tracker turn Sleep on, then return to the app
+invariants:
+  - Heart rate and SpO2 recorded by the Watch show in Vitals
+  - 'With Sleep off and BP or weight imported, the row says "No sleep found: if you track sleep, turn on Sleep for Med Tracker in Settings → Health → Data Access & Devices."'
+  - With every kind off the row says "nothing yet. Check access in Settings → Health → Data Access & Devices."
+  - After Sleep is turned on, returning to the app imports the past nights too, not only new ones
+covered_by:
+  ios: manual
