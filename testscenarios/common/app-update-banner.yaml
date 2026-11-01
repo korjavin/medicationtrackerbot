@@ -7,11 +7,11 @@ steps:
   - Open the app and wait for the update check
   - Tap Reload on the banner
 invariants:
-  - '"A new version is available." shows once, never stacked'
+  - '"A new version is available." shows at most once, however often the app re-checks'
   - When the running build matches the server, no banner shows
   - Reload opens the new build (the version in Settings changes)
 covered_by:
-  web: web/cloud/js/tests/update-check.test.js#startUpdateCheck
+  web: web/cloud/js/tests/update-check.test.js
   android: manual
   ios: manual
 source: [med-kk1q.6]

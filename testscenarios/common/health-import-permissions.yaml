@@ -13,7 +13,7 @@ invariants:
   - If access was denied the app says where to allow it
   - Where there is no Health store (the web) the toggle flips back with a message
 covered_by:
-  web: web/cloud/js/tests/health-import.test.js#turning it on asks Health for read access, imports, and shows the status
+  web: manual  # partial: web/cloud/js/tests/health-import.test.js (the toggle asks for read access and imports; not the Vitals rows)
   android: manual
   ios: manual
 source: [Zulip 11260]

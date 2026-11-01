@@ -14,7 +14,7 @@ invariants:
   - On the web the reminder arrives by push, so it needs a network at delivery time
   - The tap opens the app on that dose, ready to take, also from a cold start and while locked
 covered_by:
-  web: web/cloud/js/tests/sw.reminder-actions.test.js#a cold-start body tap opens the dose deeplink
+  web: manual  # partial: web/cloud/js/tests/sw.reminder-actions.test.js (the tap opens the dose only)
   android: manual
   ios: manual
 source: [med-nt9p.55]

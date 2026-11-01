@@ -10,7 +10,7 @@ invariants:
   - Imported BP, weight and sleep entries show "Health import" as their source
   - Entries typed in by hand carry no Health import label
 covered_by:
-  web: web/static/js/tests/health.sleep.test.js#Health-only nights name just Health import, as the kit's plain muted hint
+  web: manual  # partial: web/static/js/tests/health.sleep.test.js (sleep only, not BP or weight)
   android: manual
   ios: manual
 source: [med-w6gx.32]

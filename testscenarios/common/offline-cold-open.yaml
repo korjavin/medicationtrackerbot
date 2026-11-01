@@ -13,7 +13,7 @@ invariants:
   - No section waits for the network before rendering
   - Writes stay enabled offline and sync later
 covered_by:
-  web: manual
+  web: manual  # partial: web/static/js/tests/food.offline-cached-fetch.test.js and meds.offline-cold-start.test.js (one section each)
   android: manual
   ios: manual
 source: [med-kk1q]

@@ -10,7 +10,7 @@ invariants:
   - The meal's kcal is in today's total right after saving
   - A meal logged now counts toward today, not only in the list
 covered_by:
-  web: web/static/js/tests/cloud.shim-contract.food-log.test.js#counts a now()-stamped meal in today's stats, not just the list
+  web: manual  # partial: web/static/js/tests/cloud.shim-contract.food-log.test.js (the day stats sum; not the totals on screen)
   android: manual
   ios: manual
 source: [Zulip 11272]

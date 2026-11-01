@@ -12,7 +12,7 @@ invariants:
   - An empty state caused by the failure says Reload, not "no data"
   - Reload loads the current build and works offline
 covered_by:
-  web: web/cloud/js/tests/cloud-boot.test.js#a rejected boot import flags the page, logs the specifier and shows one Reload banner wired to reloadToLatest (med-kk1q.4)
+  web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (one banner wired to Reload; not the offline reload)
   android: manual
   ios: manual
 source: [med-kk1q.4]

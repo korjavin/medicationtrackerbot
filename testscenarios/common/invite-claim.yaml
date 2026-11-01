@@ -3,7 +3,7 @@ title: Opening an invite link creates a passkey and lands in the account with th
 platforms: [web, android, ios]
 preconditions:
   - A fresh install or browser with no account
-  - An unclaimed invite link
+  - An unclaimed invite link whose claim fragment carries &kit=1 (without it there is no kit offer)
 steps:
   - Open the invite link
   - Create the passkey with Face ID, fingerprint or the device PIN
@@ -12,9 +12,8 @@ invariants:
   - A pending invite shows the passkey button; an already-claimed link shows the already-claimed screen and no passkey button
   - An expired link says so
   - After the passkey the Emergency Kit offer shows; Done enters the account without a second sign-in
-  - The recovery code never appears in a URL or leaves the device unencrypted
 covered_by:
-  web: 'web/cloud/js/tests/signup.claimed-link.test.js#web, kit flag: registration ends on the kit offer, Done goes on to the app'
+  web: web/cloud/js/tests/signup.claimed-link.test.js
   android: manual
   ios: manual
 source: [med-ta2n]

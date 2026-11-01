@@ -4,13 +4,14 @@ platforms: [web, android, ios]
 preconditions:
   - App open on Today
 steps:
-  - Open a section, then open a sheet in it
+  - Open Food, then Meds, then open a sheet in Meds
   - Press Back repeatedly (system Back or the back chevron)
 invariants:
-  - Back closes the top sheet or dialog first, one at a time
-  - With nothing open, Back from a section returns to Today
+  - Back closes the top sheet first; the section stays
+  - With nothing open, Back walks the sections in the order this session visited them (Meds → Food → Today)
+  - A section restored on launch, with no trail, goes back to Today
   - Only Back on Today leaves the app
 covered_by:
-  web: web/static/js/tests/features.back-button.test.js
+  web: web/static/js/tests/app.navigation.test.js#AppBack.step — one back order
   android: manual
   ios: manual

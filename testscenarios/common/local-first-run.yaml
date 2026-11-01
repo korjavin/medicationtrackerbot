@@ -14,7 +14,7 @@ invariants:
   - Every log, edit and delete works and survives the reopen
   - Nothing is sent to the sync server
 covered_by:
-  web: web/static/js/tests/cloud.local-mode.test.js#logs, reads, edits and deletes BP, weight and a med intake with zero sync traffic
+  web: manual  # partial: web/static/js/tests/cloud.local-mode.test.js (local CRUD with zero sync traffic; no first-run UI or reopen)
   android: manual
   ios: manual
 source: [med-ta2n]

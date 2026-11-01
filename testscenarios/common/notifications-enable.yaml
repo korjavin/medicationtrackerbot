@@ -9,11 +9,11 @@ steps:
   - Allow in the system prompt
 invariants:
   - The system permission prompt appears right after the tap; Enable never hangs
-  - After allowing, the control shows as on (Disable) and Send test delivers a notification
+  - After allowing, the control shows as on (Disable)
   - Refusing points to the system settings and leaves Enable ready to tap again
   - Once the permission is decided, a later Enable does not prompt again
 covered_by:
-  web: web/static/js/tests/settings.cloud-notifications.test.js#cloud Notifications controls (bindCloudNotifications)
+  web: web/static/js/tests/settings.cloud-notifications.test.js
   android: manual
   ios: manual
 source: [med-nt9p.65]

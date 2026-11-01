@@ -11,7 +11,7 @@ invariants:
   - 21:00 replaces 20:00 today
   - With 08:00 untaken instead, 09:00 replaces it even though it is already past
 covered_by:
-  web: 'web/static/js/tests/lineage.domain.test.js#08:00/20:00 → 09:00/21:00 at 10:00, 08:00 taken: 08:00 stands, nothing at 09:00, 21:00 replaces 20:00'
+  web: manual  # partial: web/static/js/tests/lineage.domain.test.js (the domain pairing; not the editor or Timeline)
   android: manual
   ios: manual
 source: [med-wi09.12, '#1352']

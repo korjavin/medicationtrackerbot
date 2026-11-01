@@ -9,9 +9,9 @@ steps:
   - Restore from the file
 invariants:
   - 'Every record is back: medications and doses, BP, weight, food, workouts, sleep, settings'
-  - A corrupt file is refused and nothing is erased
+  - A wrong or corrupt file is refused and nothing is replaced
   - Merge keeps this device's records and adds the file's; Replace replaces them
 covered_by:
-  web: web/static/js/tests/cloud.local-mode.test.js#restores the golden vault fixture, and its local export is what the cloud importer reads
+  web: manual  # partial: web/static/js/tests/settings.importexport.test.js and cloud.local-mode.test.js (export and restore separately, no erase in between)
   android: manual
   ios: manual

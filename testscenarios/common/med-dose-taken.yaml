@@ -11,7 +11,7 @@ invariants:
   - After Take the dose leaves Today's Next up at once, without a reload
   - Meds → Timeline shows it as "Taken HH:MM", and it stays taken after a reload
 covered_by:
-  web: web/static/js/tests/today.render.test.js#Next up lists the due and snoozed rows; taken and upcoming doses are not listed
+  web: manual  # partial: web/static/js/tests/today.render.test.js (renders prebuilt dose states; no add, take or reload)
   android: manual
   ios: manual
 source: [Zulip 11272]

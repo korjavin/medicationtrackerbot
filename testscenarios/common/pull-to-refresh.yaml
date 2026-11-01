@@ -13,6 +13,6 @@ invariants:
   - The offline banner shows only while offline and goes once the network is back
   - 'Local mode shows no network state at all: no pull gesture, no offline banner, no network chip'
 covered_by:
-  web: web/static/js/tests/bootstrap.today-default.test.js#Today pull to refresh (med-y7b4.6)
+  web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull gesture; not the network banner or chip)
   android: manual
   ios: manual

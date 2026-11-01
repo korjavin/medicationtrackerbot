@@ -15,7 +15,7 @@ invariants:
   - A photo too large to shrink is refused with the limit shown, and the agent is not told about it
   - The anonymous trial call shows no Send photo button
 covered_by:
-  web: web/static/js/tests/features.elevenlabs-call.test.js#camera and gallery buttons pick through MediaCapture.pickPhoto and send the picked photo
+  web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing, not the agent describing the photo)
   android: manual
   ios: manual
 source: [med-ku8r]
