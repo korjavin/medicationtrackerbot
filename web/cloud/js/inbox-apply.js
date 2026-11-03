@@ -23,7 +23,7 @@ import { createIntakeDomain, dosesAtInstant } from '../../domain/medintake.js';
 import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
-import { createRemindersDomain } from '../../domain/reminders.js';
+import { createRemindersDomain, doseRefireText } from '../../domain/reminders.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
@@ -278,9 +278,13 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // med-944k) keeps ONE verdict on "actionable": an id confirm() could not
   // resolve is unresolved here (out of date), never a swallowed not_pending,
   // and a stored PENDING prediction the projection no longer lists is null.
+  // nameOf: medId → the projection's med name at this instant, from the last
+  // resolveNamed read — the re-armed re-fire's text (bd med-lmd6).
+  const nameOf = new Map();
   const resolveNamed = async () => {
     const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
     const rows = await dosesAtInstant(intake, slotMs);
+    for (const r of rows) if (r.name) nameOf.set(String(r.medId), r.name);
     const out = new Map();
     for (const medId of named) {
       const exactId = `intake-${medId}-${slotUnix}`;
@@ -370,7 +374,10 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     // A dose the user re-opened in the app after this tap is theirs to act on,
     // not this reminder's chain to re-arm.
     const stillDue = named.filter((medId) => !stale.has(medId) && isOpen(after.get(medId)));
-    if (stillDue.length) rearmRefire(slotMs, stillDue);
+    if (stillDue.length) {
+      const names = stillDue.map((medId) => nameOf.get(String(medId)));
+      rearmRefire(slotMs, stillDue, { text: doseRefireText(names, verbosity) });
+    }
     else cancelRefire(slotMs);
     // Settle every resolved named med from the vault as it now stands, not
     // from this attempt's writes: an at-least-once redelivery after a partial

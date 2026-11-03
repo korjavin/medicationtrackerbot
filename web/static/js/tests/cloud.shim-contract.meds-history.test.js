@@ -158,6 +158,13 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         try {
             await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: [1] });
             expect(fetchMock).not.toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.anything());
+            // ...but narrows it to med 2 at its own fire time (bd med-lmd6);
+            // generic verbosity (the default) names nobody.
+            const slotUnixA = Math.floor(Date.parse(slotIso) / 1000);
+            expect(fetchMock).toHaveBeenCalledWith('/api/telegram/rearm-refire', expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({ callback: `s:${slotUnixA}`, med_ids: '2', keep_fire_at: true, text: '\u{1F48A} Medication time' })
+            }));
 
             // Confirming BOTH meds for the slot leaves nothing PENDING, so the
             // slot re-fire is cancelled.
@@ -167,6 +174,48 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
                 method: 'POST',
                 body: JSON.stringify({ callback: `s:${slotUnix}` })
             }));
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    // bd med-lmd6: an in-app partial take/skip narrows the relay's re-fire to
+    // the doses still due — with their names only at detailed verbosity — and
+    // the last one cancels it.
+    it.each([
+        ['take', 'detailed'], ['take', 'generic'], ['skip', 'detailed'], ['skip', 'generic'], ['confirm-schedule', 'detailed']
+    ])('%s of 4 of 5 slot doses narrows the re-fire to the 5th (%s verbosity), then the 5th cancels it', async (action, verbosity) => {
+        const slotMs = Math.floor((Date.now() - 30 * 60 * 1000) / 60000) * 60000;
+        const slotIso = new Date(slotMs).toISOString();
+        const ids = [1, 2, 3, 4, 5];
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: ids.map((id) => seedMedication({ recordId: id, name: `Med${id}` })),
+                intake: ids.map((id) => seedIntake({ recordId: `intake-${id}`, medication_id: id, scheduled_at: slotIso })),
+                reminderdeliverypref: [{ recordId: 'reminderdeliverypref', clientTs: 1, deleted: false, delivery: 'telegram', verbosity }]
+            }
+        });
+        const { window } = env;
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
+        const refire = (path) => fetchMock.mock.calls.filter(([url]) => url === `/api/telegram/${path}`)
+            .map(([, init]) => JSON.parse(init.body));
+        const act = (medIds) => (action === 'confirm-schedule'
+            ? window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: medIds })
+            : window.apiCall('/api/doses/act', 'POST', { action, occ_ids: medIds.map((id) => `intake-${id}`) }));
+        try {
+            await act([1, 2, 3, 4]);
+            await vi.waitFor(() => expect(refire('rearm-refire')).toEqual([{
+                callback: `s:${slotMs / 1000}`, med_ids: '5', keep_fire_at: true,
+                text: verbosity === 'generic' ? '\u{1F48A} Medication time' : '\u{1F48A} Time to take: Med5'
+            }]));
+            expect(refire('cancel-refire')).toEqual([]);
+
+            await act([5]);
+            await vi.waitFor(() => expect(refire('cancel-refire')).toEqual([
+                expect.objectContaining({ callback: `s:${slotMs / 1000}` })
+            ]));
+            expect(refire('rearm-refire')).toHaveLength(1);
         } finally {
             delete globalThis.fetch;
         }
@@ -984,7 +1033,7 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
             const endUnix = Math.floor((Date.now() + 10 * 60 * 1000) / 1000);
             // Med 2 is still due: the chain keeps its own fire time, naming only med 2.
             await vi.waitFor(() => expect(refire('rearm-refire')).toEqual([
-                { callback: `s:${slotMs / 1000}`, med_ids: '2', keep_fire_at: true }
+                { callback: `s:${slotMs / 1000}`, med_ids: '2', keep_fire_at: true, text: '\u{1F48A} Medication time' }
             ]));
             expect(refire('cancel-refire')).toEqual([]);
 

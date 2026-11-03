@@ -7,7 +7,7 @@ import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
-import { createRemindersDomain, measureReminderStem } from '../../domain/reminders.js';
+import { createRemindersDomain, measureReminderStem, doseRefireText } from '../../domain/reminders.js';
 import { createMedicationsDomain } from '../../domain/medications.js';
 import { createIntakeDomain, dosesAtInstant } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
@@ -251,12 +251,15 @@ export function createApiRouter(ctx, {
   // The relay's hourly re-fire chain for a dose slot (ReplaceSchedule keeps
   // it) after an app write: stopped once nothing in the slot is still due — a
   // snoozed dose is not due (bd med-4j49), its snooze-end reminder restarts
-  // the chain naming every open dose of the slot. narrow (a snooze that left
-  // slot-mates due): the pending re-fire keeps its time but names only them.
-  async function reconcileMedChain(slotMs, narrow) {
+  // the chain naming every open dose of the slot. Otherwise (a take/skip/snooze
+  // that left slot-mates due, bd med-lmd6) the pending re-fire keeps its time
+  // but names only them, in text at the user's Telegram verbosity.
+  async function reconcileMedChain(slotMs) {
     const due = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs })).filter((r) => r.state === 'due');
-    if (!due.length) cancelMedRefire(slotMs);
-    else if (narrow) rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true });
+    if (!due.length) { cancelMedRefire(slotMs); return; }
+    const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
+    const text = doseRefireText(due.map((r) => r.name), verbosity);
+    rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true, text });
   }
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
@@ -992,7 +995,7 @@ export function createApiRouter(ctx, {
       // chain for each acted slot (reconcileMedChain).
       if (['take', 'skip', 'snooze'].includes(args.action)) {
         for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          await reconcileMedChain(slotMs, args.action === 'snooze');
+          await reconcileMedChain(slotMs);
         }
       }
       return res;
@@ -1051,10 +1054,11 @@ export function createApiRouter(ctx, {
         // stop its server-owned re-fire chain for that slot (med-eas.74). Only
         // cancel once NOTHING is left due for the slot — a partial confirm (a
         // subset of the meds sharing a slot) must not silence the slot-wide
-        // re-fire for meds still PENDING at the same instant.
+        // re-fire for meds still PENDING at the same instant; it narrows the
+        // re-fire to them instead (bd med-lmd6).
         if (path === '/api/medications/confirm-schedule' && body && body.scheduled_at) {
           const slotMs = Date.parse(body.scheduled_at);
-          if (Number.isFinite(slotMs)) await reconcileMedChain(slotMs, false);
+          if (Number.isFinite(slotMs)) await reconcileMedChain(slotMs);
           else cancelMedRefire(slotMs);
         }
         scheduleReminderRecompute(ctx, { records, timeZone });

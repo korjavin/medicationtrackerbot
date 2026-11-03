@@ -692,7 +692,11 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // open after the tap — here a confirm that returned without its write
     // landing left it PENDING. Without the re-arm the relay would stay silent
     // about it.
-    it('re-arms the chain, naming the meds still due, when a resolved dose is left over', async () => {
+    // bd med-lmd6: the re-armed message names only the still-due med, and
+    // only at detailed verbosity.
+    it.each([
+        ['detailed', '\u{1F48A} Time to take: B'], ['generic', '\u{1F48A} Medication time']
+    ])('re-arms the chain, naming the meds still due, when a resolved dose is left over (%s)', async (verbosity, text) => {
         const records = slotDoseFixture();
         const now = () => DRAIN_MS;
         const real = domainFor(records, now);
@@ -705,9 +709,9 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         };
         const rearmRefire = vi.fn();
         const cancelRefire = vi.fn();
-        await applyIntakeSlotAction(confirmEvent, { intake: raced, records, now, rearmRefire, cancelRefire });
+        await applyIntakeSlotAction(confirmEvent, { intake: raced, records, now, verbosity, rearmRefire, cancelRefire });
 
-        expect(rearmRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000, ['med-b']);
+        expect(rearmRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000, ['med-b'], { text });
         expect(cancelRefire).not.toHaveBeenCalled();
     });
 

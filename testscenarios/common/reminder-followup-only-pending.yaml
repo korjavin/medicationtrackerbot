@@ -17,7 +17,7 @@ invariants:
   - Once every dose is taken or skipped, the chain stops and no follow-up arrives on any channel
   - The taken state is the same on every device
 covered_by:
-  web: manual  # after med-lmd6: web/static/js/tests/cloud.shim-contract.meds-history.test.js
+  web: web/static/js/tests/cloud.shim-contract.meds-history.test.js
   android: manual  # the device-notification half; the Telegram text is built on web
   ios: manual  # the device-notification half; the Telegram text is built on web
 source: [med-lmd6, med-4j49, med-kbpf]
