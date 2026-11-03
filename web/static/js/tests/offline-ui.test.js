@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loadSyncEnv } from './helpers/sync-harness.js';
 
 describe('Offline UI indicators', () => {
@@ -83,6 +85,51 @@ describe('Offline UI indicators', () => {
       } finally {
         cleanup();
       }
+    });
+
+    // med-duj9: SyncManager runs in every mode, so local mode (nothing syncs)
+    // stays quiet through CSS: the shipped banner carries .wg-cloud-only.
+    describe('local mode (med-duj9)', () => {
+      const STATIC = (p) => fs.readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8');
+      const bannerClass = STATIC('../../index.html').match(/id="offline-banner" class="([^"]*)"/)[1];
+      const css = STATIC('../../css/styles.css');
+      const start = css.indexOf(':root.wg-local-vault .wg-cloud-only,');
+      const localRule = css.slice(start, css.indexOf('}', start) + 1);
+
+      function goOffline(local) {
+        const env = loadSyncEnv();
+        const { window, document } = env;
+        const style = document.createElement('style');
+        style.textContent = localRule;
+        document.head.appendChild(style);
+        if (local) document.documentElement.classList.add('wg-local-vault');
+        const banner = document.getElementById('offline-banner');
+        banner.className = bannerClass;
+        vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
+        window.SyncManager.init(); // registers the online/offline listeners, as bootstrap does in every mode
+        window.dispatchEvent(new window.Event('offline'));
+        return { env, banner, window };
+      }
+
+      it('keeps the banner invisible when the device goes offline', () => {
+        const { env, banner, window } = goOffline(true);
+        try {
+          expect(banner.classList.contains('hidden')).toBe(false);
+          expect(window.getComputedStyle(banner).display).toBe('none');
+        } finally {
+          env.cleanup();
+        }
+      });
+
+      it('still shows the banner in account mode', () => {
+        const { env, banner, window } = goOffline(false);
+        try {
+          expect(banner.classList.contains('hidden')).toBe(false);
+          expect(window.getComputedStyle(banner).display).not.toBe('none');
+        } finally {
+          env.cleanup();
+        }
+      });
     });
   });
 

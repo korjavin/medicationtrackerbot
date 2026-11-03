@@ -11,8 +11,9 @@ steps:
 invariants:
   - Pull to refresh runs a sync pull (not a Health import); new entries show a toast, nothing new shows none
   - The offline banner shows only while offline and goes once the network is back
-  - 'Local mode shows no network state at all: no pull gesture, no offline banner, no network chip'
+  - 'Local mode shows no sync pull gesture, no offline banner, no network chip (Health pull there runs the Health import only)'
+source: [med-duj9]
 covered_by:
-  web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull gesture; not the network banner or chip)
+  web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull gesture), web/static/js/tests/offline-ui.test.js (local-mode banner hidden; not the chip)
   android: manual  # partial: android/qa/scenarios/pull-refresh.mjs (the pull syncs in account mode, no pill in local mode; not the offline banner or chip)
   ios: manual
