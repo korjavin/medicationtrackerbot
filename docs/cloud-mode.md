@@ -355,8 +355,13 @@ Any new importer or derived writer answers each of these:
 ### Health write-back — the local-write seam and the ledger (bd med-8f4s.1)
 
 "Also write my entries" copies BP and weight entries made on this device to
-Health Connect / Apple Health. The Settings switch ships separately; until it
-does, `wg.health.write` is never set and nothing is marked or written.
+Health Connect / Apple Health. The switch is a sub-row of the Settings Health
+row (kit HW0-HW4), device-local `wg.health.write`, shown only while the import
+is on and only when the shell's `shell.ops` lists `health.write`
+(`Health.canWrite()`): an older shell never gets a write op (an Android bridge
+call has no timeout). Turning it on asks one sheet for read and write, then
+reads `health.writeAccess`: nothing granted flips it back with where to allow
+it; one kind granted keeps it on and names the missing kind.
 
 - **The seam is `sync.js` `onLocalWrite(fn)`**, called by `stampAndPut` inside
   the records lock, after the row is stamped and before its IndexedDB put, for
@@ -374,8 +379,11 @@ does, `wg.health.write` is never set and nothing is marked or written.
   the committed clientTs as the version; tombstone or absent → `health.delete`,
   a no-op for an id never written). The entry is cleared only while it still
   holds the version the step started from; a failure keeps it. Every
-  foreground pass drains at most 50 entries of the kinds `health.writeAccess`
-  grants; nothing is ever evicted. Rows with `source` (from Health) are never
+  foreground pass re-reads `health.writeAccess` and drains at most 50 entries
+  of the kinds it grants; nothing is ever evicted. A kind the last read did not
+  grant (or whose write came back `denied`) gets no Health call from the hook
+  either: its ids stay marked until a pass reads it granted. A pass reading
+  nothing granted turns the switch off (the ledger is kept). Rows with `source` (from Health) are never
   marked; an edited imported weight keeps its `source` (not its `source_id`),
   so it stays "from Health".
 - **Off** stops marking and delivery; the ledger is kept and drains when the

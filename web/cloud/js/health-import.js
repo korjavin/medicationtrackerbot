@@ -61,6 +61,9 @@ const WRITE_KINDS = ['bp', 'weight'];
 const WRITE_BATCH = 50;
 const ROW_ID = 'health-import-row';
 const TOGGLE_ID = 'health-import-toggle';
+const WRITE_ROW_ID = 'health-write-row';
+const WRITE_TOGGLE_ID = 'health-write-toggle';
+const KIND_NAMES = { bp: 'blood pressure', weight: 'weight' };
 
 function readJSON(storage, key, fallback) {
     try {
@@ -84,8 +87,8 @@ export function isHealthImportEnabled(storage = globalThis.localStorage) {
     return readJSON(storage, ENABLED_KEY, false) === true;
 }
 
-// "Also write my entries" (bd med-8f4s.1): only ever on with the import on.
-// Nothing sets it until the Settings switch ships, so nothing is written yet.
+// "Also write my entries" (bd med-8f4s.1): only ever on with the import on;
+// set by the Settings write row (startHealthImport).
 export function isHealthWriteEnabled(storage = globalThis.localStorage) {
     return isHealthImportEnabled(storage) && readJSON(storage, WRITE_KEY, false) === true;
 }
@@ -117,7 +120,12 @@ function healthBody(kind, row) {
 // version the step started from, so a later edit survives an earlier success;
 // a failure keeps it (moved to the back) for the next pass. Switch off: no
 // marking, no delivery; the ledger is kept. No eviction, ever.
-// Returns { drain }: one pass over the ledger, at most WRITE_BATCH calls.
+// Nothing reaches Health for a kind the last writeAccess read did not grant:
+// its ids stay marked until a pass reads it granted. No write op at all on a
+// shell whose shell.ops lacks health.write (an Android call has no timeout).
+// Returns { drain, readAccess, supported }: drain is one pass over the
+// ledger, at most WRITE_BATCH calls; readAccess re-reads writeAccess alone
+// (both hand each answer to onAccess); supported resolves canWrite().
 export function startHealthWriteBack({
     health = globalThis.Health,
     storage = globalThis.localStorage,
@@ -125,14 +133,32 @@ export function startHealthWriteBack({
     hook = onLocalWrite,
     settled = localWritesSettled,
     diag = diagLine,
+    onAccess = () => {},
 } = {}) {
     const ledger = () => readJSON(storage, DIRTY_KEY, {});
     const chains = new Map();
+    const supported = Promise.resolve()
+        .then(() => typeof health.canWrite === 'function' && health.canWrite())
+        .then((v) => v === true, () => false);
+    // The last writeAccess answer: granted kinds, null when it could not be read.
+    let access = null;
+    const readAccess = () => (access = supported
+        .then((ok) => (ok ? health.writeAccess(WRITE_KINDS) : { granted: [] }))
+        .then((r) => {
+            const granted = r && Array.isArray(r.granted) ? r.granted : [];
+            onAccess(granted);
+            return granted;
+        }, (e) => {
+            diag(`[health] write access failed ${e && e.message}`);
+            return null;
+        }));
 
     const step = async (kind, id) => {
         const from = ledger()[kind]?.[id];
         if (from === undefined || !isHealthWriteEnabled(storage)) return;
         await settled();
+        const granted = await (access || readAccess());
+        if (!granted || !granted.includes(kind)) return; // kept for the next pass
         try {
             const row = (await records.listRaw(kind)).find((r) => r.recordId === id);
             // Switched off while we waited: keep the entry, send nothing.
@@ -143,6 +169,8 @@ export function startHealthWriteBack({
                 await health.remove({ type: kind, id });
             }
         } catch (e) {
+            // Revoked since the last read: hold the kind back until the next one.
+            if (/denied/.test(e && e.message)) access = Promise.resolve(granted.filter((k) => k !== kind));
             // Kept, moved to the back: a refused id cannot hold up the rest.
             const now = ledger();
             const v = now[kind]?.[id];
@@ -184,17 +212,12 @@ export function startHealthWriteBack({
     });
 
     const drain = async () => {
-        if (!isHealthWriteEnabled(storage)) return;
-        let granted;
-        try {
-            ({ granted } = await health.writeAccess(WRITE_KINDS));
-        } catch (e) {
-            diag(`[health] write access failed ${e && e.message}`);
-            return;
-        }
+        if (!isHealthWriteEnabled(storage)) return null;
+        const granted = await readAccess();
+        if (!granted) return null;
         const l = ledger();
         // Interleave the kinds so one refused kind cannot starve the other.
-        const lists = WRITE_KINDS.filter((k) => (granted || []).includes(k))
+        const lists = WRITE_KINDS.filter((k) => granted.includes(k))
             .map((k) => Object.keys(l[k] || {}).map((id) => [k, id]));
         const picked = [];
         for (let i = 0; picked.length < WRITE_BATCH && lists.some((x) => i < x.length); i++) {
@@ -202,7 +225,7 @@ export function startHealthWriteBack({
         }
         await Promise.all(picked.map(([k, id]) => deliver(k, id)));
     };
-    return { drain };
+    return { drain, readAccess, supported };
 }
 
 // Forget how far this iPhone's Health store was read — the switch-on rescan
@@ -365,11 +388,25 @@ function healthLabel(health) {
     return (health && health.label) || 'Apple Health';
 }
 
+function accessHint(health) {
+    return (health && health.accessHint) || 'Settings → Health → Data Access & Devices';
+}
+
+// The write row's one line (kit HW3/HW4): '' when every kind is granted.
+function writeHintText(health, granted) {
+    const missing = WRITE_KINDS.filter((k) => !granted.includes(k));
+    if (!missing.length) return '';
+    if (missing.length === WRITE_KINDS.length) return `Writing isn't allowed yet. Allow it in ${accessHint(health)}, then turn this on.`;
+    const cap = (t) => t[0].toUpperCase() + t.slice(1);
+    const have = WRITE_KINDS.filter((k) => granted.includes(k)).map((k) => KIND_NAMES[k]).join(' and ');
+    return `Writing ${have} only. ${cap(missing.map((k) => KIND_NAMES[k]).join(' and '))} isn't allowed: allow it in ${accessHint(health)}.`;
+}
+
 export function healthStatusText(storage = globalThis.localStorage, health = globalThis.Health) {
     if (!isHealthImportEnabled(storage)) return 'Import blood pressure, weight, sleep, workouts, steps, heart rate and SpO2';
     const last = readJSON(storage, LAST_KEY, {});
     if (!last.checkedAt) return 'Importing…';
-    const hint = (health && health.accessHint) || 'Settings → Health → Data Access & Devices';
+    const hint = accessHint(health);
     // Health shares each type separately and never says one is off: sleep
     // never returning a sample while BP or weight do points at its switch.
     const seen = last.seen || {};
@@ -396,7 +433,30 @@ export function startHealthImport(ctx, {
     records = recordsPort(ctx, ORIGIN_EXTERNAL),
 } = {}) {
     if (!health || !health.isSupported()) return null;
-    const writeBack = startHealthWriteBack({ health, storage, records });
+    // "Also write my entries" (kit HW0-HW4): shown only while the import is on
+    // and the shell answers health.write; its line only for HW3/HW4.
+    let canWrite = false;
+    let writeHint = '';
+    let writeRow = null;
+    const renderWrite = () => {
+        if (!writeRow) return;
+        const group = doc.getElementById(ROW_ID)?.parentNode;
+        if (canWrite && isHealthImportEnabled(storage) && group) group.appendChild(writeRow.row);
+        else writeRow.row.remove();
+        writeRow.input.checked = isHealthWriteEnabled(storage);
+        writeRow.desc.textContent = writeHint;
+        if (writeHint) writeRow.body.appendChild(writeRow.desc);
+        else writeRow.desc.remove();
+    };
+    // Each writeAccess answer: nothing granted turns the switch off (HW3),
+    // one kind missing keeps it on and names the kind (HW4).
+    const onAccess = (granted) => {
+        if (!isHealthWriteEnabled(storage)) return;
+        writeHint = writeHintText(health, granted);
+        if (!WRITE_KINDS.some((k) => granted.includes(k))) writeJSON(storage, WRITE_KEY, false);
+        renderWrite();
+    };
+    const writeBack = startHealthWriteBack({ health, storage, records, onAccess });
     const drainWrites = () => writeBack.drain().catch((e) => console.error('[health] write pass failed', e));
     let inFlight = null;
     const refresh = () => {
@@ -431,11 +491,13 @@ export function startHealthImport(ctx, {
         registerRefresh();
     }
 
-    mountHealthRow(doc, storage, health, async (on) => {
+    const mounted = mountHealthRow(doc, storage, health, async (on) => {
         if (!on) {
             writeJSON(storage, ENABLED_KEY, false);
             writeJSON(storage, WRITE_KEY, false); // import off → write off
+            writeHint = '';
             refresh();
+            renderWrite();
             return true;
         }
         let available = false;
@@ -455,9 +517,39 @@ export function startHealthImport(ctx, {
         // (known readings are skipped by id).
         writeJSON(storage, ANCHORS_KEY, {});
         refresh();
+        renderWrite();
         importNow();
         return true;
     });
+
+    if (mounted) writeRow = buildSettingRow(doc, {
+        id: WRITE_ROW_ID, icon: 'upload', title: 'Also write my entries', toggleId: WRITE_TOGGLE_ID,
+        aria: `Also write my entries to ${healthLabel(health)}`,
+        onToggle: async (on) => {
+            if (!on) {
+                writeJSON(storage, WRITE_KEY, false);
+                writeHint = '';
+                renderWrite();
+                return true;
+            }
+            try {
+                await health.requestAuthorization(HEALTH_KINDS, { write: WRITE_KINDS });
+            } catch (e) {
+                console.error('[health] write authorization failed', e);
+            }
+            writeJSON(storage, WRITE_KEY, true);
+            // onAccess settles the switch and the line from the answer.
+            if (!(await writeBack.readAccess())) {
+                writeJSON(storage, WRITE_KEY, false);
+                writeHint = writeHintText(health, []);
+                renderWrite();
+            }
+            if (!isHealthWriteEnabled(storage)) return false;
+            drainWrites();
+            return true;
+        },
+    });
+    writeBack.supported.then((ok) => { canWrite = ok; renderWrite(); });
 
     doc.addEventListener('visibilitychange', () => {
         if (doc.visibilityState === 'visible') {
@@ -480,44 +572,42 @@ export function startHealthImport(ctx, {
     return importNow();
 }
 
-// The Settings home row: a kit toggle row in its own .wg-list group.
-// onToggle(on) resolves false to flip the switch back.
-function mountHealthRow(doc, storage, health, onToggle) {
-    const home = doc.querySelector('#settings-view .wg-settings-home');
-    if (!home || doc.getElementById(ROW_ID)) return;
-
-    const group = doc.createElement('div');
-    group.className = 'wg-list';
+// A kit toggle row: lead icon, title, optional desc, switch. onToggle(on)
+// resolves false to flip the switch back.
+function buildSettingRow(doc, { id, icon, title: titleText, desc: descText, toggleId, aria, checked = false, onToggle }) {
     const row = doc.createElement('div');
-    row.id = ROW_ID;
+    row.id = id;
     row.className = 'wg-setting';
 
     const lead = doc.createElement('span');
     lead.className = 'wg-row__lead';
     const ico = doc.createElement('i');
     ico.className = 'wg-ico';
-    ico.dataset.icon = 'health';
+    ico.dataset.icon = icon;
     lead.appendChild(ico);
 
     const body = doc.createElement('span');
     body.className = 'wg-setting__body';
     const title = doc.createElement('span');
     title.className = 'wg-setting__title';
-    title.textContent = healthLabel(health);
+    title.textContent = titleText;
     const desc = doc.createElement('span');
     desc.className = 'wg-setting__desc';
-    desc.textContent = healthStatusText(storage, health);
-    body.append(title, desc);
+    body.appendChild(title);
+    if (descText !== undefined) {
+        desc.textContent = descText;
+        body.appendChild(desc);
+    }
 
     const toggle = doc.createElement('label');
     toggle.className = 'wg-toggle';
     const input = doc.createElement('input');
     input.type = 'checkbox';
-    input.id = TOGGLE_ID;
+    input.id = toggleId;
     input.className = 'wg-toggle__input';
     input.setAttribute('role', 'switch');
-    input.setAttribute('aria-label', `Import from ${healthLabel(health)}`);
-    input.checked = isHealthImportEnabled(storage);
+    input.setAttribute('aria-label', aria);
+    input.checked = checked;
     input.addEventListener('change', async () => {
         const want = input.checked;
         input.disabled = true;
@@ -530,8 +620,23 @@ function mountHealthRow(doc, storage, health, onToggle) {
     toggle.appendChild(input);
 
     row.append(lead, body, toggle);
-    group.appendChild(row);
+    if (globalThis.WGIcons && typeof globalThis.WGIcons.hydrate === 'function') globalThis.WGIcons.hydrate(row);
+    return { row, body, desc, input };
+}
+
+// The Settings home row: a kit toggle row in its own .wg-list group (the
+// write row joins it). False when there is no Settings home or it is mounted.
+function mountHealthRow(doc, storage, health, onToggle) {
+    const home = doc.querySelector('#settings-view .wg-settings-home');
+    if (!home || doc.getElementById(ROW_ID)) return false;
+    const group = doc.createElement('div');
+    group.className = 'wg-list';
+    group.appendChild(buildSettingRow(doc, {
+        id: ROW_ID, icon: 'health', title: healthLabel(health), desc: healthStatusText(storage, health),
+        toggleId: TOGGLE_ID, aria: `Import from ${healthLabel(health)}`,
+        checked: isHealthImportEnabled(storage), onToggle,
+    }).row);
     // Kit S6 slot ③ (bd med-ckm5.6).
     (home.querySelector('[data-settings-slot="health"]') || home).appendChild(group);
-    if (globalThis.WGIcons && typeof globalThis.WGIcons.hydrate === 'function') globalThis.WGIcons.hydrate(group);
+    return true;
 }

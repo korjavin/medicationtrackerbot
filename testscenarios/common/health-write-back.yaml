@@ -17,8 +17,9 @@ invariants:
   - "With import on, the reading Med Tracker wrote never comes back as a second row"
   - "A delete made while Health refused access is delivered after access returns or on the next open"
   - "Switching it off stops updates and leaves the copies already in Health"
+  - "The switch shows only while import is on; refused write access flips it back with where to allow it; one kind allowed keeps it on and names the other"
 covered_by:
-  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path; the switch UI is med-8f4s.1 PR2
+  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW4)
   android: manual  # until med-8f4s.2 QA
   ios: manual  # until med-8f4s.3 QA
 source: [Zulip 14755, Zulip 14798]
