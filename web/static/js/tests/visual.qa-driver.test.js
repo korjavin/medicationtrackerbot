@@ -233,7 +233,7 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         const card = () => window.document.querySelector('#next-workout-card .wg-wn');
         expect(card().querySelector('.wg-eyebrow').textContent).toMatch(/^Today · /);
         expect(card().querySelector('.wg-card__title').textContent).toBe('Pull');
-        expect(card().querySelector('.wg-wn__info .wg-meta').textContent).toBe('3 exercises · Pull-up, Barbell row, Face pull');
+        expect(card().querySelector('.wg-wn__info .wg-meta').textContent).toBe('3 exercises · Pull-up, Lat pulldown, Face pull');
 
         const next = await window.apiCall('/api/workout/sessions/next');
         await window.apiCall(`/api/workout/sessions/${next.session.id}/start`, 'POST');

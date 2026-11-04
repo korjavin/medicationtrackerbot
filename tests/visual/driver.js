@@ -198,7 +198,7 @@
                 target_reps_max: 12, target_weight_kg: null, order_index, exercise_library_id: null, equipment_id: null,
             });
             ['Hip thrust', 'Romanian deadlift'].forEach((name, i) => w.exercises.push(exercise(31 + i, 22, name, i)));
-            ['Pull-up', 'Barbell row', 'Face pull'].forEach((name, i) => w.exercises.push(exercise(33 + i, 21, name, i)));
+            ['Pull-up', 'Lat pulldown', 'Face pull'].forEach((name, i) => w.exercises.push(exercise(33 + i, 21, name, i)));
         }
         if (Array.isArray(w.exercise_logs)) {
             [53, 54].forEach((id, i) => w.exercise_logs.push({
