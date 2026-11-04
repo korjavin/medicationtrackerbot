@@ -9,6 +9,7 @@ steps:
   - Tap Other plan day, read the sheet, tap another day; open it again and pick the first day back
   - Tap Start workout (or Start now), confirm, and come back to Train
   - Finish the workout, then tap Start empty workout under the card
+  - With yesterday's day left unanswered and today's card already shown, Skip yesterday from its Telegram reminder, then start today's workout from the card
 invariants:
   - The app loads without script errors and the Up next card renders (every classic script parses in the shared global scope; no duplicate top-level names)
   - 'The eyebrow is when ("Today · 18:00" or "Fri 06.11 · 18:00"), the title is the plan day, the meta line its exercises, and a rotating plan shows "Day N of M · then <next day>"'
@@ -16,9 +17,10 @@ invariants:
   - Skip names the day ("Skip today" / "Skip Fri"); a set skip shows a "Skipping" tag and only "Undo skip"
   - A running workout shows "In progress · N min" with Finish and Continue; "Start empty workout" is hidden until it ends
   - Start empty workout opens an empty session on its "What's next?" add step
+  - 'A late Skip of yesterday moves today''s untouched day along with the plan: the card shows the next day and Start starts that same day, not the one the card showed before the skip'
   - With no plan the card reads "Log a workout" with Start empty workout and Make a plan
 covered_by:
-  web: web/static/js/tests/features.workout-next-card.test.js
+  web: web/static/js/tests/features.workout-next-card.test.js  # late skip re-points today: cloud.shim-contract.workout-sessions.test.js (med-q6l3)
   android: tests/visual/scenes.json#workout-next-card
   ios: tests/visual/scenes.json#workout-next-card
-source: [med-soo0.2, "#1520", med-soo0.3]
+source: [med-soo0.2, "#1520", med-soo0.3, med-q6l3]

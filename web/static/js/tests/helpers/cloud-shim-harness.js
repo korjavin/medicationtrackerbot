@@ -75,6 +75,14 @@ export function createInMemoryRecordsPort(seed = {}) {
             if (existing) return existing;
             return set(recordType, { ...record, recordType });
         },
+        // Mirrors sync.js recordsPort.putIfUnchanged (bd med-q6l3): writes only
+        // while the raw slot is the live version the caller read. Stored raw,
+        // like put (createStampingRecordsPort adds the clientTs promotion).
+        async putIfUnchanged(recordType, record, expected) {
+            const existing = bucket(recordType).get(record.recordId);
+            if (!existing || existing.deleted || existing.clientTs !== expected.clientTs) return existing;
+            return this.put(recordType, record);
+        },
         // Bodyless, like sync.js recordsPort.del (which writes via writeRecord):
         // a tombstone is { recordId, clientTs, deleted, recordType } — no reader may need a
         // body off it (the reminder horizon reads the day off the slot id, bd

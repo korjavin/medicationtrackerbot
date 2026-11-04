@@ -114,6 +114,30 @@ describe('analysis.fitness', () => {
     expect(resp.warning).toBeUndefined();
   });
 
+  // bd med-q6l3: listPlans mints a pending row per plan ahead of time; an
+  // untouched one is a planned day, not a missed session.
+  it('a never-started pending plan slot is not counted; a started or logged one is', async () => {
+    const analysis = build({
+      workoutsession: [
+        session(1, '2026-07-10T00:00:00Z', 'completed'),
+        session(2, '2026-07-12T00:00:00Z', 'pending'),
+        { ...session(3, '2026-07-13T00:00:00Z', 'pending'), started_at: '2026-07-13T09:00:00Z' },
+        session(4, '2026-07-14T00:00:00Z', 'pending'),
+      ],
+      exerciselog: [{
+        recordId: 'log-1', deleted: false, id: 1, session_id: 4, exercise_name: 'Row',
+        status: 'completed', sets_completed: 3, reps_completed: 8, weight_kg: 40,
+      }],
+    });
+
+    const resp = await analysis.fitness({ from: '2026-07-01', to: '2026-07-17' });
+
+    expect(resp.workouts.total_sessions).toBe(3);
+    expect(resp.workouts.completion_rate).toBeCloseTo(100 / 3, 5);
+    expect(resp.workouts.sessions.map((s) => s.scheduled_date).sort())
+      .toEqual(['2026-07-10', '2026-07-13', '2026-07-14']);
+  });
+
   it('sums multiple food logs for one day with no food names', async () => {
     const analysis = build({
       foodlog: [

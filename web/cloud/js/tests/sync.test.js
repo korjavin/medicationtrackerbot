@@ -2860,6 +2860,70 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect((await getRaw(SLOT)).status).toBe('pending');
   });
 
+  // bd med-q6l3 — moveRotation re-points an untouched pending slot it READ.
+  // A Start (or delete) that lands between that read and the write must keep
+  // the slot: the stale body would otherwise be promoted above it.
+  it('putIfUnchanged rewrites the version it read, promoted one above it', async () => {
+    const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
+    await seed([read]);
+
+    const stored = await recordsPort(ctx).putIfUnchanged('workoutsession', { ...read, variant_id: 2, clientTs: 0 }, read);
+
+    expect(stored).toMatchObject({ variant_id: 2, clientTs: 4 });
+    expect((await getRaw(SLOT)).variant_id).toBe(2);
+  });
+
+  it('putIfUnchanged leaves a slot that moved on since the read (a Start, a tombstone)', async () => {
+    const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
+    const started = { ...read, clientTs: 9000, status: 'in_progress', started_at: '2026-08-31T18:00:00Z' };
+    await seed([started]);
+
+    const kept = await recordsPort(ctx).putIfUnchanged('workoutsession', { ...read, variant_id: 2, clientTs: 0 }, read);
+
+    expect(kept).toMatchObject({ status: 'in_progress', clientTs: 9000, variant_id: 1 });
+    expect(await getRaw(SLOT)).toMatchObject({ status: 'in_progress', started_at: started.started_at });
+
+    await seed([{ recordId: SLOT, recordType: 'workoutsession', clientTs: 9001, deleted: true }]);
+    await recordsPort(ctx).putIfUnchanged('workoutsession', { ...read, variant_id: 2, clientTs: 0 }, read);
+    expect((await getRaw(SLOT)).deleted).toBe(true);
+    expect(posted).toEqual([]);
+  });
+
+  // Argus round 2: the module lock serializes one tab only. Another tab's write
+  // (its own IndexedDB connection) racing the CAS must never be overwritten:
+  // the comparison and the put share one readwrite transaction, so whichever
+  // order IndexedDB picks, the Start survives.
+  it('putIfUnchanged racing another tab\'s Start keeps the Start', async () => {
+    const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
+    const started = { ...read, clientTs: 9000, status: 'in_progress', started_at: '2026-08-31T18:00:00Z' };
+    await seed([read]);
+    await recordsPort(ctx).list('workoutsession'); // bootstrap done before the race
+
+    // The other tab: its own connection, whose Start is queued the moment this
+    // tab reads the slot — the exact gap a read-then-put CAS leaves open.
+    const tabB = await openDb();
+    let otherTab = null;
+    const realGet = IDBObjectStore.prototype.get;
+    const spy = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (key) {
+      const req = realGet.call(this, key);
+      if (key === SLOT && !otherTab) {
+        const tx = tabB.transaction('records', 'readwrite');
+        tx.objectStore('records').put(started);
+        otherTab = new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+      }
+      return req;
+    });
+    try {
+      await recordsPort(ctx).putIfUnchanged('workoutsession', { ...read, variant_id: 2, clientTs: 0 }, read);
+      await otherTab;
+    } finally {
+      spy.mockRestore();
+      tabB.close();
+    }
+
+    expect(await getRaw(SLOT)).toMatchObject({ status: 'in_progress', started_at: started.started_at, clientTs: 9000 });
+  });
+
   // bd med-w0fe — putIfAbsent is not the only reader that must see a tombstone:
   // the reminder horizon has to know the day was deliberately deleted, and
   // listRecords filters tombstones out. listRaw is that view.
