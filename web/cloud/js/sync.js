@@ -384,6 +384,12 @@ onCachedDbDropped(() => {
 
 async function putRecord(record) {
   await withStore('records', 'readwrite', (store) => store.put(record));
+  afterPut(record);
+}
+
+// The in-memory side of a physical write (journal, memo, announce), for writes
+// that put inside their own transaction.
+function afterPut(record) {
   journalWrite(record && record.recordType, record && record.recordId);
   invalidateRecords(record && record.recordType);
   announce({ type: record && record.recordType, id: String(record && record.recordId) });
@@ -1861,14 +1867,14 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
 async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, skewMs, pending }) {
   let stamped = record;
   let wrote = true;
-  await withRecordsLock(async () => {
-    const existing = await getRecord(record.recordId);
+  // Sync: the verdict for the raw row in the slot. Returns the row to store, or
+  // null to keep `existing` (stamped then names the stored winner).
+  const decide = (existing) => {
     const stale = ifMatchTs !== undefined
       && (!existing || existing.deleted || existing.clientTs !== ifMatchTs);
     if ((ifAbsent && existing) || stale) {
       stamped = existing;
-      wrote = false;
-      return;
+      return null;
     }
     stamped = {
       ...record,
@@ -1880,13 +1886,35 @@ async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, skewMs, pe
       const merged = policy(existing, stamped);
       if (merged === existing) {
         stamped = existing;
-        wrote = false;
-        return;
+        return null;
       }
       stamped = { ...merged, clientTs: stamped.clientTs, recordType };
     }
-    await putRecord(stamped);
-    if (pending) await markPending(record.recordId, recordType);
+    return stamped;
+  };
+  await withRecordsLock(async () => {
+    if (ifMatchTs !== undefined) {
+      // Compare-and-swap in ONE readwrite transaction (bd med-q6l3): the module
+      // lock serializes this tab only, and IndexedDB's readwrite transactions
+      // on 'records' are what serialize tabs, so another tab's Start cannot land
+      // between the comparison and the put.
+      const next = await withStore('records', 'readwrite', (store) => new Promise((resolve, reject) => {
+        const req = store.get(record.recordId);
+        req.onsuccess = () => {
+          const row = decide(req.result ?? null);
+          if (row) store.put(row);
+          resolve(row);
+        };
+        req.onerror = () => reject(req.error);
+      }));
+      wrote = Boolean(next);
+      if (wrote) afterPut(next);
+    } else {
+      const row = decide(await getRecord(record.recordId));
+      wrote = Boolean(row);
+      if (wrote) await putRecord(row);
+    }
+    if (wrote && pending) await markPending(record.recordId, recordType);
   });
   return { stamped, wrote };
 }
