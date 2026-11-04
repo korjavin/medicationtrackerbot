@@ -163,9 +163,8 @@ export function startHealthWriteBack({
             const row = (await records.listRaw(kind)).find((r) => r.recordId === id);
             // Switched off, or a newer access read dropped the kind, while we
             // waited: keep the entry, send nothing.
-            if (!isHealthWriteEnabled(storage)) return;
             const latest = await access;
-            if (!latest || !latest.includes(kind)) return;
+            if (!isHealthWriteEnabled(storage) || !latest || !latest.includes(kind)) return;
             if (row && !row.deleted) {
                 if (!row.source) await health.write(healthBody(kind, row));
             } else {
@@ -173,7 +172,7 @@ export function startHealthWriteBack({
             }
         } catch (e) {
             // Revoked since the last read: hold the kind back until the next one.
-            if (/denied/.test(e && e.message)) access = Promise.resolve(granted.filter((k) => k !== kind));
+            if (/denied/.test(e && e.message)) access = access.then((g) => g && g.filter((k) => k !== kind));
             // Kept, moved to the back: a refused id cannot hold up the rest.
             const now = ledger();
             const v = now[kind]?.[id];

@@ -1625,6 +1625,46 @@ describe('Health write-back', () => {
         expect(dirty()).toEqual({ bp: { 'bp-x': 3 } });
     });
 
+    it('switched off while a step waits on a pending access read: nothing is sent, the entry is kept', async () => {
+        let release;
+        let reply;
+        const paused = { ...records, listRaw: async (t) => { await new Promise((r) => { release = r; }); return records.listRaw(t); } };
+        storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-x': 3 } }));
+        const wb = startHealthWriteBack({ health, storage, records: paused });
+        const pass = wb.drain();
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        health.writeAccess.mockImplementation(() => new Promise((r) => { reply = r; }));
+        const read = wb.readAccess();
+        await vi.waitFor(() => expect(reply).toBeTypeOf('function'));
+        release();
+        await new Promise((r) => setTimeout(r, 0));
+        storage.setItem('wg.health.write', 'false');
+        reply({ granted: ['bp', 'weight'] });
+        await read;
+        await pass;
+        expect(calls()).toEqual([]);
+        expect(dirty()).toEqual({ bp: { 'bp-x': 3 } });
+    });
+
+    it('overlapping denied writes of both kinds hold both back until the next access read', async () => {
+        let failBp;
+        health.write = vi.fn((a) => (a.type === 'bp'
+            ? new Promise((_, rej) => { failBp = () => rej(new Error('denied')); })
+            : Promise.reject(new Error('denied'))));
+        startHealthWriteBack({ health, storage, records, diag: () => {} });
+        await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80 });
+        await vi.waitFor(() => expect(failBp).toBeTypeOf('function'));
+        await api('/api/weight', 'POST', { measured_at: '2026-10-01T07:30:00Z', weight: 80 });
+        await vi.waitFor(() => expect(health.write).toHaveBeenCalledTimes(2));
+        failBp();
+        await new Promise((r) => setTimeout(r, 10));
+        await api('/api/weight', 'POST', { measured_at: '2026-10-01T08:30:00Z', weight: 81 });
+        await api('/api/bp', 'POST', { measured_at: '2026-10-01T08:30:00Z', systolic: 121, diastolic: 81 });
+        await new Promise((r) => setTimeout(r, 10));
+        expect(health.write.mock.calls.map(([a]) => a.type)).toEqual(['bp', 'weight']);
+        expect(ledgerSize()).toBe(4);
+    });
+
     // Breakage review (PR1): Android's bridge call has no timeout, so an older
     // shell must never get a write op, whatever is stored.
     it('a shell without health.write in shell.ops gets no write op, even with the switch stored on', async () => {
