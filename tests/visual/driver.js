@@ -354,6 +354,12 @@
             // Writes through the app's own API, e.g. PATCH /api/settings/body.
             // The write stays in the store for later scenes.
             await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.pausePlans) {
+            // PL5 paused (bd med-jqrf.5): Active off on every plan, through the
+            // editor's own update. The write stays; twoPlans replaces the store after.
+            for (const g of await window.apiCall('/api/workout/groups', 'GET')) {
+                if (g.active) await window.apiCall(`/api/workout/groups/update?id=${g.id}`, 'PUT', { ...g, active: false });
+            }
         } else if (step.emptyWorkout) {
             // Ad hoc resumes today's running session, which earlier scenes
             // may have populated. Finish those fixtures through the real API

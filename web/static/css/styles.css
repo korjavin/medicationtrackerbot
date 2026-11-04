@@ -2291,7 +2291,9 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     margin: 0;
 }
 
-.wg-workout-page__time {
+/* Two classes: components.css loads after this file, and its .wg-input
+   width: 100% squeezed the row's "Time" label to "Ti" (med-s8f3). */
+.wg-input.wg-workout-page__time {
     width: auto;
     flex-shrink: 0;
 }
