@@ -3201,8 +3201,26 @@ func TestRearmRefire(t *testing.T) {
 	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil {
 		t.Fatalf("DueScheduledPushes (keep): %v", err)
 	}
-	if len(due) != 1 || !due[0].FireAt.Equal(firstFire) || due[0].TGMedIDs != "9" {
-		t.Fatalf("kept row = %+v, want one row at %v carrying 9", due, firstFire)
+	if len(due) != 1 || !due[0].FireAt.Equal(firstFire) || due[0].TGMedIDs != "9" || due[0].TGText != medRefireText {
+		t.Fatalf("kept row = %+v, want one row at %v carrying 9 and the generic text", due, firstFire)
+	}
+	// med-lmd6: a client-composed text rides onto the retargeted row.
+	body = fmt.Sprintf(`{"callback":%q,"med_ids":"9","keep_fire_at":true,"text":"Time to take: Zinc"}`, fresh)
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
+		t.Fatalf("keep rearm with text status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil {
+		t.Fatalf("DueScheduledPushes (text): %v", err)
+	}
+	if len(due) != 1 || !due[0].FireAt.Equal(firstFire) || due[0].TGMedIDs != "9" || due[0].TGText != "Time to take: Zinc" {
+		t.Fatalf("retargeted row = %+v, want one row at %v carrying 9 and the client text", due, firstFire)
+	}
+	over := fmt.Sprintf(`{"callback":%q,"med_ids":"9","keep_fire_at":true,"text":%q}`, fresh, strings.Repeat("x", maxScheduleTGTextLen+1))
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(over)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("over-long text status = %d, want 400", rec.Code)
+	}
+	if due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour)); err != nil || len(due) != 1 || due[0].TGText != "Time to take: Zinc" {
+		t.Fatalf("over-long text changed the row: %+v, %v", due, err)
 	}
 	other := fmt.Sprintf("s:%d", now.Add(-20*time.Minute).Unix())
 	body = fmt.Sprintf(`{"callback":%q,"med_ids":"9","keep_fire_at":true}`, other)
