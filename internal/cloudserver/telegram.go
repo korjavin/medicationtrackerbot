@@ -1517,6 +1517,11 @@ type rearmRefireRequest struct {
 	// Narrow the pending re-fire to MedIDs at its own fire time; with no
 	// pending chain there is nothing to keep, so nothing is scheduled.
 	KeepFireAt bool `json:"keep_fire_at"`
+	// Text (med-lmd6): the client-composed body for the re-armed row, at the
+	// user's Telegram verbosity (names only at 'detailed') — the same trust
+	// shape as the schedule PUT's tg_text, same cap. Absent/empty (an older
+	// client) keeps medRefireText.
+	Text string `json:"text"`
 }
 
 // RearmRefire schedules ONE re-fire ~1h out for a med slot whose Confirm tap the
@@ -1526,11 +1531,11 @@ type rearmRefireRequest struct {
 // due. Same session + "s:" prefix guard as CancelRefire, so a session can only
 // touch its own med slots.
 //
-// The message body is the generic medRefireText constant, NOT the original
-// reminder text: the row that held it is gone (the tap cancelled it, and
-// MarkPushSent scrubs sent rows), and the relay must never compose text out of
-// account data. The identity comes from the request because the client has it
-// from the sealed event.
+// The message body is the client's req.Text when given, else the generic
+// medRefireText constant, NOT the original reminder text: the row that held it
+// is gone (the tap cancelled it, and MarkPushSent scrubs sent rows), and the
+// relay must never compose text out of account data. The identity comes from
+// the request because the client has it from the sealed event.
 //
 // Past maxMedRefireWindow the chain would have ended anyway, so a late re-arm is
 // a 204 no-op rather than a new nag on a stale slot.
@@ -1541,7 +1546,8 @@ func (t *TelegramAPI) RearmRefire(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req rearmRefireRequest
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<12)
+	// 8 KiB: a full med_ids list plus a capped, JSON-escaped text.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<13)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
@@ -1556,8 +1562,16 @@ func (t *TelegramAPI) RearmRefire(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
 		return
 	}
+	if len(req.Text) > maxScheduleTGTextLen {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_text"})
+		return
+	}
+	text := req.Text
+	if text == "" {
+		text = medRefireText
+	}
 	if req.KeepFireAt {
-		if _, err := t.store.RetargetRelayRefire(r.Context(), sess.AccountID, req.Callback, medRefireText, req.MedIDs); err != nil {
+		if _, err := t.store.RetargetRelayRefire(r.Context(), sess.AccountID, req.Callback, text, req.MedIDs); err != nil {
 			slog.Error("telegram retarget refire", "error", err, "account", sess.AccountID)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -1570,7 +1584,7 @@ func (t *TelegramAPI) RearmRefire(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent) // past the cap: nothing to re-arm
 		return
 	}
-	if err := t.store.RescheduleRelayRefire(r.Context(), sess.AccountID, now.Add(time.Hour), medRefireText, req.Callback, req.MedIDs, 0); err != nil {
+	if err := t.store.RescheduleRelayRefire(r.Context(), sess.AccountID, now.Add(time.Hour), text, req.Callback, req.MedIDs, 0); err != nil {
 		slog.Error("telegram rearm refire", "error", err, "account", sess.AccountID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

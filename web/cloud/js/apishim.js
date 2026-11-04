@@ -7,7 +7,7 @@ import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
-import { createRemindersDomain, measureReminderStem } from '../../domain/reminders.js';
+import { createRemindersDomain, measureReminderStem, doseRefireText } from '../../domain/reminders.js';
 import { createMedicationsDomain } from '../../domain/medications.js';
 import { createIntakeDomain, dosesAtInstant } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
@@ -251,12 +251,26 @@ export function createApiRouter(ctx, {
   // The relay's hourly re-fire chain for a dose slot (ReplaceSchedule keeps
   // it) after an app write: stopped once nothing in the slot is still due — a
   // snoozed dose is not due (bd med-4j49), its snooze-end reminder restarts
-  // the chain naming every open dose of the slot. narrow (a snooze that left
-  // slot-mates due): the pending re-fire keeps its time but names only them.
-  async function reconcileMedChain(slotMs, narrow) {
-    const due = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs })).filter((r) => r.state === 'due');
-    if (!due.length) cancelMedRefire(slotMs);
-    else if (narrow) rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true });
+  // the chain naming every open dose of the slot. Otherwise (a take/skip/snooze
+  // that left slot-mates due, bd med-lmd6) the pending re-fire keeps its time
+  // but names only them, in text at the user's Telegram verbosity. One
+  // occurrences read spans every acted slot, so a bulk write over N slots
+  // reads the evidence once, not N times (breakage F3).
+  async function reconcileMedChains(slotList) {
+    const slots = [...new Set(slotList)].filter(Number.isFinite);
+    if (!slots.length) return;
+    const rows = await intake.occurrences({ fromMs: Math.min(...slots), toMs: Math.max(...slots) });
+    let pref = null;
+    for (const slotMs of slots) {
+      const due = rows.filter((r) => r.state === 'due' && Date.parse(r.plannedAt) === slotMs);
+      if (!due.length) { cancelMedRefire(slotMs); continue; }
+      // Text only for a Telegram channel, as push.js gates tg_text: verbosity
+      // is also the lock-screen choice, and a webpush-only user's names must
+      // never reach the relay. No text → the relay's generic medRefireText.
+      pref = pref || await reminders.getDeliveryPref().catch(() => ({ delivery: 'webpush', verbosity: 'generic' }));
+      const text = pref.delivery === 'telegram' || pref.delivery === 'both' ? doseRefireText(due.map((r) => r.name), pref.verbosity) : undefined;
+      rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true, text });
+    }
   }
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
@@ -989,11 +1003,10 @@ export function createApiRouter(ctx, {
       // would leave the dose with no reminder at all.
       scheduleReminderRecompute(ctx, { records, timeZone }, args.action === 'snooze' ? 0 : undefined);
       // A dose confirmed in the app never taps Telegram: reconcile the relay
-      // chain for each acted slot (reconcileMedChain).
-      if (['take', 'skip', 'snooze'].includes(args.action)) {
-        for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          await reconcileMedChain(slotMs, args.action === 'snooze');
-        }
+      // chain for each acted slot (reconcileMedChains). An undo re-opens a
+      // dose, so it re-widens a chain an earlier take narrowed (bd med-lmd6).
+      if (['take', 'skip', 'snooze', 'undo'].includes(args.action)) {
+        await reconcileMedChains(res.doses.map((d) => Date.parse(d.scheduled_at)));
       }
       return res;
     };
@@ -1051,10 +1064,11 @@ export function createApiRouter(ctx, {
         // stop its server-owned re-fire chain for that slot (med-eas.74). Only
         // cancel once NOTHING is left due for the slot — a partial confirm (a
         // subset of the meds sharing a slot) must not silence the slot-wide
-        // re-fire for meds still PENDING at the same instant.
+        // re-fire for meds still PENDING at the same instant; it narrows the
+        // re-fire to them instead (bd med-lmd6).
         if (path === '/api/medications/confirm-schedule' && body && body.scheduled_at) {
           const slotMs = Date.parse(body.scheduled_at);
-          if (Number.isFinite(slotMs)) await reconcileMedChain(slotMs, false);
+          if (Number.isFinite(slotMs)) await reconcileMedChains([slotMs]);
           else cancelMedRefire(slotMs);
         }
         scheduleReminderRecompute(ctx, { records, timeZone });
@@ -1396,7 +1410,7 @@ export function createApiRouter(ctx, {
       return { session, group_name: 'Ad-hoc Workout', variant_name: '' };
     }
     if (method === 'POST') {
-      const m = /^\/api\/workout\/sessions\/([^/]+)\/(start|snooze|skip|preskip|cancel-preskip|next-variant)$/.exec(path);
+      const m = /^\/api\/workout\/sessions\/([^/]+)\/(start|snooze|skip|preskip|cancel-preskip|next-variant|set-variant)$/.exec(path);
       if (m) {
         const id = Number(m[1]);
         const action = m[2];
@@ -1406,7 +1420,7 @@ export function createApiRouter(ctx, {
         // change (next-variant replaces the slot in place, keeping its recordId
         // and numeric id — bd med-8j12, bd med-qhpu). snooze
         // (the chain re-fires on purpose), cancel-preskip (back to pending) and
-        // next-variant (same slot, new variant) deliberately keep it.
+        // next-variant/set-variant (same slot, new variant) deliberately keep it.
         //
         // startSession may re-key onto TODAY's slot when the tapped session is a
         // future one (med-gmyf), so the stem cancelled here is the tapped day's,
@@ -1424,6 +1438,7 @@ export function createApiRouter(ctx, {
         else if (action === 'skip') await workout.skipSession(id);
         else if (action === 'preskip') await workout.preSkipSession(id);
         else if (action === 'cancel-preskip') await workout.cancelPreSkipSession(id);
+        else if (action === 'set-variant') await workout.setVariant(id, body && body.variant_id);
         else await workout.nextVariant(id);
         if (details) cancelReminderRefire(workoutReminderStem(details.session));
         // start/snooze/skip change the session's status, which the horizon uses

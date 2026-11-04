@@ -462,9 +462,13 @@ export function cancelReminderRefire(stem, { fetchImpl } = {}) {
 // keepFireAt (an in-app snooze of some of the slot's doses, bd med-4j49)
 // narrows the pending re-fire to medIds at its own fire time instead; a relay
 // that predates it re-arms ~1h out.
-export function rearmMedRefire(slotMs, medIds = [], { fetchImpl, keepFireAt = false } = {}) {
+// text (bd med-lmd6) is the client-composed body at the user's Telegram
+// verbosity (domain doseRefireText); omitted, the relay uses its generic
+// "Medication reminder", as does a relay that predates the field.
+export function rearmMedRefire(slotMs, medIds = [], { fetchImpl, keepFireAt = false, text } = {}) {
   const extra = { med_ids: (medIds || []).join(',') };
   if (keepFireAt) extra.keep_fire_at = true;
+  if (text) extra.text = text;
   postRefire('rearm-refire', medStem(slotMs), extra, fetchImpl);
 }
 

@@ -23,7 +23,7 @@ import { createIntakeDomain, dosesAtInstant } from '../../domain/medintake.js';
 import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
-import { createRemindersDomain } from '../../domain/reminders.js';
+import { createRemindersDomain, doseRefireText } from '../../domain/reminders.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
@@ -250,7 +250,7 @@ function intakeReceiptLines({ confirmed, already, skipped, stale, notRecorded },
 // reaches for an ambient fetch. There is no cancel here any more: the relay
 // cancels the chain the instant the Confirm is tapped, and this only puts ONE
 // re-fire back when a named dose is somehow still due afterwards.
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {}, onOutOfDate = () => {} }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', delivery = 'telegram', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {}, onOutOfDate = () => {} }) {
   const slotUnix = event.slot_unix;
   const slotMs = slotUnix * 1000;
   const atMs = event.at_unix * 1000;
@@ -278,9 +278,13 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // med-944k) keeps ONE verdict on "actionable": an id confirm() could not
   // resolve is unresolved here (out of date), never a swallowed not_pending,
   // and a stored PENDING prediction the projection no longer lists is null.
+  // nameOf: medId → the projection's med name at this instant, from the last
+  // resolveNamed read — the re-armed re-fire's text (bd med-lmd6).
+  const nameOf = new Map();
   const resolveNamed = async () => {
     const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
     const rows = await dosesAtInstant(intake, slotMs);
+    for (const r of rows) if (r.name) nameOf.set(String(r.medId), r.name);
     const out = new Map();
     for (const medId of named) {
       const exactId = `intake-${medId}-${slotUnix}`;
@@ -370,7 +374,13 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     // A dose the user re-opened in the app after this tap is theirs to act on,
     // not this reminder's chain to re-arm.
     const stillDue = named.filter((medId) => !stale.has(medId) && isOpen(after.get(medId)));
-    if (stillDue.length) rearmRefire(slotMs, stillDue);
+    if (stillDue.length) {
+      // Text only while a Telegram channel is on (apishim's reconcile gate):
+      // a tap drained after a switch to webpush must not upload names.
+      const names = stillDue.map((medId) => nameOf.get(String(medId)));
+      const telegram = delivery === 'telegram' || delivery === 'both';
+      rearmRefire(slotMs, stillDue, telegram ? { text: doseRefireText(names, verbosity) } : {});
+    }
     else cancelRefire(slotMs);
     // Settle every resolved named med from the vault as it now stands, not
     // from this attempt's writes: an at-least-once redelivery after a partial
@@ -1089,7 +1099,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     const reminders = createRemindersDomain({ records, now });
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
-    const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake: await intakeDomain(), records, now, verbosity, editReply, rearmRefire, cancelRefire, onOutOfDate });
+    const { verbosity, delivery } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic', delivery: 'webpush' }));
+    await applyIntakeSlotAction(event, { intake: await intakeDomain(), records, now, verbosity, delivery, editReply, rearmRefire, cancelRefire, onOutOfDate });
   };
 }

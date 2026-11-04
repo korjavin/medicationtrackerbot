@@ -263,11 +263,11 @@ func AttestConfigFromEnv() (AttestConfig, error) {
 
 // AttestAPI serves /api/attest/*.
 type AttestAPI struct {
-	cfg       AttestConfig
-	store     *cloudstore.Repo
-	trial     *TrialProxyAPI
-	food      *FoodProxyAPI
-	voice     *VoiceLLMRelayAPI // nil until SetVoiceRelay: the voice routes 503
+	cfg   AttestConfig
+	store *cloudstore.Repo
+	trial *TrialProxyAPI
+	food  *FoodProxyAPI
+	voice *VoiceLLMRelayAPI // nil until SetVoiceRelay: the voice routes 503
 	// feedback supplies the age recipient and admin ping of the session
 	// feedback route; nil until SetFeedback: the feedback route 503s.
 	feedback *FeedbackAPI

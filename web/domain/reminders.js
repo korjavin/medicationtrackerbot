@@ -109,6 +109,15 @@ function mutedUntil(status) {
 // medication names leaving the vault picks `generic` verbosity and we send
 // these instead (see docs/cloud-mode.md, bd med-76c.1).
 const GENERIC_DOSE_TEXT = '\u{1F48A} Medication time';
+
+// The Telegram body for a narrowed/re-armed dose chain (bd med-lmd6): the same
+// pick push.js makes for the schedule upload's tg_text — generic carries no
+// names. No names, or an unknown one (a short list would misstate what is
+// due), falls back to the generic text.
+export function doseRefireText(names, verbosity) {
+  return verbosity === 'generic' || !names || !names.length || !names.every(Boolean)
+    ? GENERIC_DOSE_TEXT : doseSlotText(names);
+}
 const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
 const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
 const GENERIC_LOW_STOCK_TEXT = '\u{26A0}\u{FE0F} Some medications are running low';

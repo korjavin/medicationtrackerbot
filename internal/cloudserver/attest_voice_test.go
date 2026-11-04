@@ -484,12 +484,12 @@ func TestAttestVoiceSettle(t *testing.T) {
 	// A provisional refund whose session started but never resolved stands
 	// (the bounded under-charge) and Warns.
 	settle("e3", other, // k spent its 3 never-started refunds on d, d2, d3
-		 func(id string, n int) (int, string) {
-		if n == 1 {
-			return http.StatusNotFound, elNotFound
-		}
-		return http.StatusOK, elConversation(id, "in-progress", 10)
-	}, 0)
+		func(id string, n int) (int, string) {
+			if n == 1 {
+				return http.StatusNotFound, elNotFound
+			}
+			return http.StatusOK, elConversation(id, "in-progress", 10)
+		}, 0)
 	if l := logs.String(); !strings.Contains(l, "conversation=conv_e3 http_status=200 status=in-progress transport_error=false provisional=true") {
 		t.Fatalf("(e3) logs = %q", l)
 	}

@@ -98,6 +98,15 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(() => buildAgentConfig([])).toThrow(/llmURL/);
   });
 
+  it('requires a signed URL on the trial agent only; BYO configs leave auth untouched (bd med-ytmf)', () => {
+    expect(buildAgentConfig([], { llmURL: LLM_URL }).platform_settings).not.toHaveProperty('auth');
+    const trial = buildAgentConfig([], { llmURL: LLM_URL, requireSignedURL: true }).platform_settings;
+    expect(trial.auth).toEqual({ enable_auth: true });
+    expect(trial.overrides.custom_llm_extra_body).toBe(true);
+    const r = run([], { TRIAL_ELEVENLABS_API_KEY: FAKE_KEY, TRIAL_ELEVENLABS_AGENT_ID: 'agent_fake' });
+    expect(r.stdout).toContain('"enable_auth": true');
+  });
+
   it('sets the turn-timeout knobs so slow relay turns are not aborted at ~8 s (bd med-h849.13)', () => {
     const cc = buildAgentConfig([], { llmURL: LLM_URL }).conversation_config;
     expect(cc.agent.prompt.cascade_timeout_seconds).toBe(15);

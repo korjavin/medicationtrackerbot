@@ -1556,9 +1556,12 @@ describe('stock ledger (bd med-wi09.13)', () => {
     const derived = async (e = env) => (await e.window.apiCall('/api/medications'))[0].inventory_count;
     const mirror = async (e = env) => (await e.records.list('medication'))[0].inventory_count;
 
+    // An undo reconciles the relay chain (bd med-lmd6): the refire POSTs need a fetch.
+    beforeEach(() => { globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }); });
     afterEach(() => {
         if (env) env.cleanup();
         env = null;
+        delete globalThis.fetch;
     });
 
     it('an offline dose at 11:00 and an online refill at 12:00 both land: 10 − 1 + 10 = 19', async () => {
