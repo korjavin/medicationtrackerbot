@@ -22,7 +22,7 @@ GitHub-hosted macOS runner via [`.github/workflows/ios.yml`](../.github/workflow
   subdomain; `window.Capacitor` is banned by CLAUDE.md rule 10). See
   [The shell](#the-shell-bd-med-w6gx3).
 - **Product:** free (no in-app purchase), invite-only, iOS 18+, HealthKit
-  read-only in v1.
+  import, plus an opt-in write-back of BP and weight (epic med-8f4s).
 - **No local iOS builds.** Every build comes from
   [`.github/workflows/ios.yml`](../.github/workflows/ios.yml) and goes to
   TestFlight.
