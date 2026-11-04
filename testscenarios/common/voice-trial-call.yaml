@@ -11,8 +11,9 @@ invariants:
   - Agent audio is audible within 5 s of the "listening" state
   - 'After Hang up the slot is free: a new call starts without "previous call in progress"'
   - The trial counter decreases by the seconds actually used; a failed start is not charged
+  - The call connects through the minted signed URL; opening the conversation WebSocket with the agent id alone (no signature) is refused, so only a metered start can run on the operator's ElevenLabs account
 covered_by:
   web: manual
   android: manual
   ios: manual
-source: [med-dngs]
+source: [med-dngs, med-ytmf]
