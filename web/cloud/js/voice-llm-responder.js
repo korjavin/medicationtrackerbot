@@ -36,10 +36,28 @@ export const STATUS_BUDGET = 4429;
 // marker as a user message (elevenlabs-call.js sendUserMessage). The next turn
 // gets the queued photos as image_url parts on its newest marker message, then
 // the queue is cleared. Memory only, this tab only: never stored, never sent
-// over the relay socket. aiclient.chatStream routes that turn to the vision
+// over the relay socket (anonymous trial calls excepted, below). aiclient.chatStream routes that turn to the vision
 // credentials and strips images from later history.
 export const PHOTO_MARKER = '[User sent a photo]';
 const MAX_PENDING_IMAGES = 3;
+
+// Anonymous trial calls (with `mint`, bd med-adje): the server answers their
+// turns itself, so the photo goes over the device leg instead —
+//
+//   device -> server  {"id":n,"type":"image","data":"data:image/..."}
+//   server -> device  {"id":n,"type":"image_queued"}   held; now announce it
+//   server -> device  {"id":n,"type":"image_done"}     its turn was answered
+//   server -> device  {"id":n,"type":"image_error","message":"..."}
+//
+// The serialized frame must fit the leg's read limit (voiceMaxFrameBytes): an
+// oversize frame would close the leg, so it is refused here first. The server
+// holds one photo (a newer one replaces it) and drops it when the call ends.
+export const MAX_IMAGE_FRAME_BYTES = 1 << 20;
+// No image_queued in time: a server without the frame (older deploy) ignores
+// it. A queued photo whose turn never settles is given up after the server's
+// own turn timeout and some slack: no Sending forever.
+const IMAGE_QUEUE_TIMEOUT_MS = 10000;
+const IMAGE_TURN_TIMEOUT_MS = 150000;
 
 // A message's text whether content is a string or OpenAI text parts.
 function textOf(m) {
@@ -113,6 +131,7 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
   // carried the photo. Throws at once (nothing queued) when there is no leg or
   // the queue is full, so the caller doesn't announce a photo that can't ride.
   function setPendingImage(url) {
+    if (mint) return sendLegImage(url);
     if (stopped) throw new Error('the AI relay is not connected');
     if (pendingImages.length >= MAX_PENDING_IMAGES) {
       throw new Error('too many photos waiting, let the agent answer first');
@@ -129,6 +148,55 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
       entry.reject(err || new Error('photo cancelled'));
     };
     return answered;
+  }
+
+  // Anonymous calls: the photo goes to the server, which holds it for the
+  // next turn. Same contract as above plus `answered.queued`, which resolves
+  // once the server holds it — announce the photo only after that.
+  let imageSeq = 0;
+  const legImages = new Map(); // image id -> { resolve, reject, queued, timer }
+
+  function settleLegImage(id, err) {
+    const e = legImages.get(id);
+    if (!e) return;
+    legImages.delete(id);
+    clearTimeout(e.timer);
+    if (err) { e.queueFail(err); e.reject(err); } else e.resolve();
+  }
+
+  function sendLegImage(url) {
+    const sock = ws;
+    if (stopped || !sock || sock.readyState !== WebSocket.OPEN) throw new Error('the AI relay is not connected');
+    const id = ++imageSeq;
+    const frame = JSON.stringify({ id, type: 'image', data: url });
+    if (frame.length > MAX_IMAGE_FRAME_BYTES) {
+      const err = new Error('Photo is too large to send in this call.');
+      err.code = 'photo_too_large';
+      throw err;
+    }
+    const entry = {};
+    const answered = new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; });
+    answered.queued = new Promise((resolve, reject) => { entry.queued = resolve; entry.queueFail = reject; });
+    answered.queued.catch(() => { /* observed by the caller, or moot */ });
+    entry.timer = setTimeout(() => settleLegImage(id, new Error('the server did not take the photo, try again')), IMAGE_QUEUE_TIMEOUT_MS);
+    legImages.set(id, entry);
+    answered.cancel = (err) => settleLegImage(id, err || new Error('photo cancelled'));
+    sock.send(frame);
+    return answered;
+  }
+
+  function onLegImage(f) {
+    const e = legImages.get(f.id);
+    if (!e) return;
+    if (f.type === 'image_queued') {
+      clearTimeout(e.timer);
+      e.timer = setTimeout(() => settleLegImage(f.id, new Error('the agent did not answer, send it again')), IMAGE_TURN_TIMEOUT_MS);
+      e.queued();
+    } else if (f.type === 'image_done') {
+      settleLegImage(f.id);
+    } else {
+      settleLegImage(f.id, new Error(String(f.message || 'the photo was not sent').slice(0, 200)));
+    }
   }
 
   function wsURL() {
@@ -221,6 +289,8 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
       serve(sock, f.id, f.body);
     } else if (f.type === 'cancel' && f.id) {
       turns.get(f.id)?.abort();
+    } else if ((f.type === 'image_queued' || f.type === 'image_done' || f.type === 'image_error') && f.id) {
+      onLegImage(f);
     } else if (f.type === 'budget_exhausted') {
       exhausted();
     }
@@ -307,6 +377,7 @@ export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.
     const images = pendingImages;
     pendingImages = [];
     settleImages(images, new Error('the call ended'));
+    for (const id of [...legImages.keys()]) settleLegImage(id, new Error('the call ended'));
     abortTurns();
     const sock = ws;
     ws = null;

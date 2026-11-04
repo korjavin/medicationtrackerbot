@@ -38,6 +38,18 @@ import (
 //	server -> device  {"type":"budget_exhausted"}              anonymous call's grant ran out;
 //	                                                           the leg is then closed with 4429
 //
+// Anonymous trial calls only — in-call photos (bd med-adje). Their turns are
+// answered here, never on the device, so the photo rides the leg instead:
+//
+//	device -> server  {"id":n,"type":"image","data":"data:image/..."}  hold for the next turn
+//	server -> device  {"id":n,"type":"image_queued"}           held: the tab may now announce it
+//	server -> device  {"id":n,"type":"image_done"}             the marker turn carrying it was answered
+//	server -> device  {"id":n,"type":"image_error","message":"..."}  refused, replaced, or its turn failed
+//
+// The image id is the device's own counter, separate from request ids. The
+// whole frame is bounded by the leg's read limit (voiceMaxFrameBytes): the tab
+// checks the serialized frame before sending, an oversize one closes the leg.
+//
 // ponytail: in-memory call table — a process restart drops every live call;
 // the user hangs up and calls again, same as the fallback sentence says.
 
@@ -52,6 +64,10 @@ const (
 	voiceDeviceWriteLimit = 10 * time.Second
 	voiceMaxBodyBytes     = 2 << 20
 	voiceMaxFrameBytes    = 1 << 20
+	// voicePhotoMarker is the user message the call tab sends through
+	// ElevenLabs for a photo; the turn whose newest user message is it carries
+	// the photo (web/cloud/js/voice-llm-responder.js PHOTO_MARKER).
+	voicePhotoMarker = "[User sent a photo]"
 	voiceFrameQueue       = 64
 
 	// Unknown-token misses per client IP. Real turns arrive from ElevenLabs'
@@ -118,6 +134,15 @@ type anonVoice struct {
 	// in-flight turn's first AI byte after it is refused, never delivered
 	// (Argus 13719), so the snapshot cannot miss an answer.
 	ended bool
+	// image is the one photo held for the next turn (bd med-adje): memory
+	// only, never logged; taken by that turn, dropped on exhaustion and drop.
+	image *anonImage
+}
+
+// anonImage is a held in-call photo: the device's image id and its data: URL.
+type anonImage struct {
+	id  int64
+	url string
 }
 
 type voiceFrame struct {
@@ -508,6 +533,7 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	c.anon.timer.Stop()
 	c.mu.Lock()
 	c.anon.ended = true
+	c.anon.image = nil
 	attached, answered := c.anon.attached, c.anon.answered
 	used := 0
 	if answered {
@@ -636,6 +662,7 @@ func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end f
 func (a *VoiceLLMRelayAPI) exhaustAnon(c *voiceCall) {
 	c.mu.Lock()
 	c.anon.exhausted = true
+	c.anon.image = nil // the tab fails it on the 4429 close
 	conn := c.conn
 	if conn == nil {
 		c.expires = time.Now().Add(a.grace)
@@ -782,6 +809,12 @@ func (a *VoiceLLMRelayAPI) serveDeviceLeg(r *http.Request, conn *websocket.Conn,
 		}
 		var f voiceFrame
 		if json.Unmarshal(data, &f) != nil || f.ID == 0 {
+			continue
+		}
+		if f.Type == "image" {
+			if call.anon != nil {
+				a.holdAnonImage(conn, call, f)
+			}
 			continue
 		}
 		call.dispatch(f)
@@ -1146,6 +1179,7 @@ func (a *VoiceLLMRelayAPI) anonHopOK(r *http.Request) bool {
 func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call *voiceCall, payload map[string]json.RawMessage, lang string, reqBytes int, start time.Time) {
 	rec := &anonTurnWriter{ResponseWriter: w}
 	outcome := "error"
+	var img *anonImage // the held photo this turn carries, if any
 	defer func() {
 		// A limiter refusal is what the operator watches for: Warn, same line.
 		level := slog.LevelInfo
@@ -1154,7 +1188,7 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		}
 		slog.Log(r.Context(), level, "voice llm relay: turn", "account_id", call.accountID, "call", endpointFingerprint(call.token),
 			"request_bytes", reqBytes, "response_bytes", rec.n,
-			"duration_ms", time.Since(start).Milliseconds(), "outcome", outcome)
+			"duration_ms", time.Since(start).Milliseconds(), "outcome", outcome, "photo", img != nil)
 	}()
 	speak := func(text string) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -1189,6 +1223,14 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		speak(voiceRetry(lang))
 		return
 	}
+	// A held photo rides this turn only when its newest user message is the
+	// marker (exactly once: taken here); otherwise it is dropped, like the
+	// account path's (voice-llm-responder.js withImages). Refused turns above
+	// leave it held for the re-sent turn.
+	if img = call.takeAnonImage(); img != nil && !attachAnonImage(payload, img.url) {
+		a.settleAnonImage(call, img, "the agent did not get the photo, send it again")
+		img = nil
+	}
 	extendTrialDeadlines(w)
 	maxTokens := clampMaxTokens(payload, a.trial.cfg.Provider)
 	delete(payload, "n")
@@ -1205,13 +1247,142 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		call.anon.answered = true
 		return true
 	}
-	a.trial.proxyChat(rec, r, "install", call.anon.keyID, payload, false, true, maxTokens)
+	a.trial.proxyChat(rec, r, "install", call.anon.keyID, payload, img != nil, true, maxTokens)
 	if rec.failed || !rec.wrote {
 		outcome = "upstream_error"
+		if img != nil {
+			if r.Context().Err() != nil {
+				// ElevenLabs dropped the turn before any answer: it re-sends
+				// it, so the photo waits for that one.
+				call.requeueAnonImage(img)
+			} else {
+				a.settleAnonImage(call, img, "the agent could not look at the photo, try again")
+			}
+		}
 		speak(voiceRetry(lang))
 		return
 	}
+	if img != nil {
+		a.settleAnonImage(call, img, "")
+	}
 	outcome = "ok"
+}
+
+// holdAnonImage keeps an anonymous call's photo frame for its next turn (bd
+// med-adje), replacing (and failing) one still held, and acknowledges it, so
+// the tab announces the photo only once that turn can find it. The bytes are
+// never logged.
+func (a *VoiceLLMRelayAPI) holdAnonImage(conn *websocket.Conn, call *voiceCall, f voiceFrame) {
+	refuse := func(msg string) {
+		_ = writeDeviceFrame(context.Background(), conn, voiceFrame{ID: f.ID, Type: "image_error", Message: msg})
+	}
+	if !strings.HasPrefix(f.Data, "data:image/") || !strings.Contains(f.Data, ";base64,") {
+		refuse("that is not an image")
+		return
+	}
+	call.mu.Lock()
+	if call.anon.exhausted || call.anon.ended {
+		call.mu.Unlock()
+		refuse("the call ended")
+		return
+	}
+	old := call.anon.image
+	call.anon.image = &anonImage{id: f.ID, url: f.Data}
+	call.mu.Unlock()
+	if old != nil {
+		_ = writeDeviceFrame(context.Background(), conn, voiceFrame{ID: old.id, Type: "image_error", Message: "a newer photo replaced it"})
+	}
+	_ = writeDeviceFrame(context.Background(), conn, voiceFrame{ID: f.ID, Type: "image_queued"})
+}
+
+// takeAnonImage hands the held photo to one turn and forgets it.
+func (c *voiceCall) takeAnonImage() *anonImage {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	img := c.anon.image
+	c.anon.image = nil
+	return img
+}
+
+// requeueAnonImage puts a photo whose turn was dropped back, unless a newer
+// one is held or the call is over.
+func (c *voiceCall) requeueAnonImage(img *anonImage) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.anon.image == nil && !c.anon.ended && !c.anon.exhausted {
+		c.anon.image = img
+	}
+}
+
+// settleAnonImage tells the tab how the photo's turn went (msg "" = answered)
+// on whatever leg is attached now; without one the tab's call is over anyway.
+func (a *VoiceLLMRelayAPI) settleAnonImage(call *voiceCall, img *anonImage, msg string) {
+	call.mu.Lock()
+	conn := call.conn
+	call.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	f := voiceFrame{ID: img.id, Type: "image_done"}
+	if msg != "" {
+		f = voiceFrame{ID: img.id, Type: "image_error", Message: msg}
+	}
+	_ = writeDeviceFrame(context.Background(), conn, f)
+}
+
+// attachAnonImage puts the photo on payload's newest user message as an
+// image_url part when that message is the photo marker; false leaves payload
+// untouched.
+func attachAnonImage(payload map[string]json.RawMessage, url string) bool {
+	var msgs []map[string]json.RawMessage
+	if json.Unmarshal(payload["messages"], &msgs) != nil {
+		return false
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		var role string
+		_ = json.Unmarshal(msgs[i]["role"], &role)
+		if role != "user" {
+			continue
+		}
+		if strings.TrimSpace(messageText(msgs[i]["content"])) != voicePhotoMarker {
+			return false
+		}
+		content, err := json.Marshal([]any{
+			map[string]string{"type": "text", "text": voicePhotoMarker},
+			map[string]any{"type": "image_url", "image_url": map[string]string{"url": url}},
+		})
+		if err != nil {
+			return false
+		}
+		msgs[i]["content"] = content
+		out, err := json.Marshal(msgs)
+		if err != nil {
+			return false
+		}
+		payload["messages"] = out
+		return true
+	}
+	return false
+}
+
+// messageText is a message content's text, a plain string or OpenAI text parts.
+func messageText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(raw, &parts)
+	var b strings.Builder
+	for _, p := range parts {
+		if p.Type == "text" {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 // anonTurnWriter passes a 200 stream through and swallows any other answer

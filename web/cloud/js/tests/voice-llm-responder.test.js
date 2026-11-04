@@ -355,3 +355,78 @@ describe('voice-llm-responder — pending photo (bd med-ku8r)', () => {
     expect(() => responder.setPendingImage(IMG)).toThrow(/not connected/);
   });
 });
+
+// bd med-adje: anonymous trial calls (start via mint) are answered by the
+// server, so the photo goes over the leg and the server says how it went.
+describe('voice-llm-responder — photo on an anonymous call (bd med-adje)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const IMG = 'data:image/jpeg;base64,AAAA';
+  async function anonStarted() {
+    FakeSocket.instances = [];
+    const responder = createVoiceLLMResponder({
+      aiClient: { chatStream: vi.fn() }, url: URL_BASE, mint: async () => ({ call: 'anon' }),
+    });
+    const p = responder.start();
+    await vi.waitFor(() => expect(FakeSocket.instances).toHaveLength(1));
+    const [sock] = FakeSocket.instances;
+    sock.recv({ type: 'hello', call: 'anon' });
+    await p;
+    return { responder, sock };
+  }
+
+  it('sends one image frame, resolves queued on image_queued and answered on image_done', async () => {
+    const { responder, sock } = await anonStarted();
+    const answered = responder.setPendingImage(IMG);
+    expect(sock.sent).toEqual([{ id: 1, type: 'image', data: IMG }]);
+    let queued = false;
+    answered.queued.then(() => { queued = true; });
+    await drain();
+    expect(queued).toBe(false);
+    sock.recv({ id: 1, type: 'image_queued' });
+    await answered.queued;
+    sock.recv({ id: 1, type: 'image_done' });
+    await expect(answered).resolves.toBeUndefined();
+    responder.stop();
+  });
+
+  it('image_error rejects with the server\'s reason; stop() rejects a held one', async () => {
+    const { responder, sock } = await anonStarted();
+    const refused = responder.setPendingImage(IMG);
+    sock.recv({ id: 1, type: 'image_error', message: 'that is not an image' });
+    await expect(refused.queued).rejects.toThrow('that is not an image');
+    await expect(refused).rejects.toThrow('that is not an image');
+
+    const held = responder.setPendingImage(IMG);
+    sock.recv({ id: 2, type: 'image_queued' });
+    await held.queued;
+    responder.stop();
+    await expect(held).rejects.toThrow(/call ended/);
+  });
+
+  it('refuses a frame over the leg\'s read limit before sending anything', async () => {
+    const { responder, sock } = await anonStarted();
+    const big = `data:image/jpeg;base64,${'A'.repeat(1 << 20)}`;
+    expect(() => responder.setPendingImage(big)).toThrow(expect.objectContaining({ code: 'photo_too_large' }));
+    expect(sock.sent).toEqual([]);
+    responder.stop();
+  });
+
+  it('a server that never acknowledges (older deploy) fails the photo instead of Sending forever', async () => {
+    const { responder } = await anonStarted();
+    vi.useFakeTimers();
+    const answered = responder.setPendingImage(IMG);
+    answered.catch(() => {});
+    await vi.advanceTimersByTimeAsync(10000);
+    await expect(answered.queued).rejects.toThrow(/did not take the photo/);
+    responder.stop();
+  });
+});
