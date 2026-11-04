@@ -23,6 +23,9 @@
 
     const CACHE_KEY = 'settings_integrations';
     const CACHE_TAGS = ['settings', 'integrations'];
+    // A Save refused because the saved settings moved since the page loaded.
+    const CONFLICT_RELOADED = 'Your changes weren’t saved: your AI provider settings changed since you opened this page. The form now shows the saved settings; check them and save again.';
+    const CONFLICT_NOT_RELOADED = 'Your changes weren’t saved: your AI provider settings changed since you opened this page. Reopen Settings to try again.';
 
     // UI presets only: provider identity is always derived from the existing URL.
     const AI_PROVIDERS = [
@@ -40,6 +43,9 @@
     const _aiProviderPhotoEdited = new Set(); // module-state: explicit photo edits must survive automatic pin rollback
     let _aiProviderPhotoDraftBase = null; // module-state: public target bound only at explicit photo-key entry, never a key/hash
     let _aiProviderSavedPayload = null; // module-state: masked accepted form snapshot for full page cancellation
+    let _aiProviderLoadedView = null; // module-state: copy of the masked GET view the fields came from; sent back as the Save's ifMatch (bd med-yzag)
+    let _integrationConflict = false; // module-state: a Save was refused as stale; Save stays off until a full apply of the current view
+    let _integrationReadGen = 0; // module-state: bumped by loads, Save, conflict recovery and edits; a GET answering under an older one is dropped
     let _aiProviderMainKeyEdited = false; // module-state: explicit main-key intent prevents automatic mask replacement
     let _aiProviderMainClearBase = null; // module-state: only a deliberate clear at this public base may remove its saved key
     let _keyCheckSeq = 0; // module-state: edits/loads supersede an in-flight Check, never stores credentials
@@ -80,6 +86,7 @@
     function invalidateKeyCheck() {
         _keyCheckSeq += 1;
         _integrationDraftSeq += 1;
+        _integrationReadGen += 1;
         _keyCheckBusy = false;
         _keyCheckResult = null;
         renderKeyCheck();
@@ -378,7 +385,9 @@
     function providerSaveAllowed() {
         // Blank initial inputs are not an intentionally empty saved setup.
         // The accepted masked snapshot is also the page's cancel baseline.
-        return !!_aiProviderSavedPayload && mainProviderSaveAllowed() && !photoSaveIssue() && keyCheckPermission().code !== 'url';
+        // A Save is bound to the loaded view (ifMatch); none, or a refused
+        // Save not yet followed by a full apply, means nothing to save against.
+        return !!_aiProviderSavedPayload && !!_aiProviderLoadedView && !_integrationConflict && mainProviderSaveAllowed() && !photoSaveIssue() && keyCheckPermission().code !== 'url';
     }
 
     function renderPhotoSafety() {
@@ -407,7 +416,8 @@
 
     function restoreProviderDraft() {
         if (!_aiProviderSavedPayload) return;
-        applyPayloadToDOM(_aiProviderSavedPayload);
+        // The fields go back to the loaded view's; that view stays the baseline.
+        applyPayloadToDOM(_aiProviderSavedPayload, { baseline: false });
         document.querySelectorAll('#settings-integrations .wg-secret').forEach((wrap) => {
             wrap.querySelector('input').type = 'password';
             wrap.querySelector('[data-secret-reveal]')?.setAttribute('aria-pressed', 'false');
@@ -431,7 +441,8 @@
         const hint = getInput('integrations-provider-key-hint');
         const needsOtherKey = provider.id === 'other' && !mainProviderSaveAllowed()
             && (!key?.value.trim() || key.value === '***');
-        if (hint) hint.textContent = needsOtherKey ? 'Enter an API key for this provider before saving.' : provider.hint;
+        if (hint) hint.textContent = _integrationConflict ? CONFLICT_NOT_RELOADED
+            : needsOtherKey ? 'Enter an API key for this provider before saving.' : provider.hint;
         const urlHint = getInput('integrations-provider-url-hint');
         if (urlHint) urlHint.textContent = provider.id === 'other' && !normalizeProviderURL(getInput(FIELD_IDS.openai.url)?.value)
             ? 'Enter your provider’s API URL before saving.' : 'Your provider’s OpenAI-compatible API URL.';
@@ -549,7 +560,10 @@
         return out;
     }
 
-    function applyPayloadToDOM(payload, { isRefresh = false, isSave = false } = {}) {
+    // baseline:false is for re-showing the accepted fields (cancel); every
+    // other caller passes a masked view the domain returned, which becomes the
+    // Save baseline together with the fields it fills.
+    function applyPayloadToDOM(payload, { isRefresh = false, isSave = false, baseline = true } = {}) {
         if (_providerReloadPanel) return;
         if (!payload || typeof payload !== 'object') return;
         // DataStore's optimistic commit refreshes Settings again. An identical
@@ -584,6 +598,12 @@
             }
         }
         _aiProviderSavedPayload = maskPayload(readDOMIntoPayload());
+        if (baseline) {
+            // The raw view, not the DOM round-trip: the GET carries groups no
+            // input shows, and the domain compares the whole view.
+            _aiProviderLoadedView = JSON.parse(JSON.stringify(payload));
+            _integrationConflict = false;
+        }
         const main = payload.openai || {};
         _aiProviderDraft = providerForURL(main.url).id;
         _aiProviderLoaded = {
@@ -1242,10 +1262,14 @@
         }
         // Painted before the GET so a failed read still shows the offer.
         if (document.documentElement.classList.contains('wg-local-vault')) mountLocalTelegram();
+        const readGen = ++_integrationReadGen;
         try {
             const payload = await apiCall('/api/settings/integrations', 'GET');
             if (_providerReloadPanel) return null;
             if (!payload) return null;
+            // A newer load, a Save, conflict recovery or an edit came after this
+            // read started: its view is older than what the page holds now.
+            if (readGen !== _integrationReadGen) return null;
             applyPayloadToDOM(payload, { isRefresh: preserveDraft });
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }
@@ -1291,6 +1315,7 @@
         // Save, and Reload preparation cannot start another settings write.
         _integrationSaveBusy = true;
         _integrationDraftSeq += 1;
+        _integrationReadGen += 1;
         renderKeyCheck();
         try { return await persistIntegrations(); }
         finally {
@@ -1307,6 +1332,9 @@
             return;
         }
         const payload = readDOMIntoPayload();
+        // Captured before the first await: the optimistic write below triggers
+        // a Settings refresh, and nothing it brings may become this baseline.
+        const ifMatch = JSON.parse(JSON.stringify(_aiProviderLoadedView));
         const apiOk = typeof apiCall === 'function';
         const dsOk = window.DataStore && typeof window.DataStore.applyOptimistic === 'function';
 
@@ -1317,7 +1345,7 @@
 
         let res = null;
         try {
-            res = apiOk ? await apiCall('/api/settings/integrations', 'PATCH', payload) : null;
+            res = apiOk ? await apiCall('/api/settings/integrations', 'PATCH', { ...payload, ifMatch }) : null;
         } catch (e) {
             if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
             console.error('Failed to save integrations:', e);
@@ -1329,6 +1357,21 @@
             if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
             return;
         }
+        // Any read started before the PATCH answered shows the old settings.
+        _integrationReadGen += 1;
+
+        if (res.conflict) {
+            // The saved settings moved since this page loaded (bd med-yzag):
+            // nothing was written. Save stays off until the current view is
+            // fully applied; the typed values are dropped on purpose.
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+            _integrationReadGen += 1;
+            _integrationConflict = true;
+            try { applyPayloadToDOM(res.current); } catch (e) { console.error('Failed to apply current integrations:', e); }
+            renderProvider();
+            if (typeof safeToast === 'function') safeToast(_integrationConflict ? CONFLICT_NOT_RELOADED : CONFLICT_RELOADED, 'error');
+            return;
+        }
 
         // Reload the masked view from the server so the inputs go back to
         // showing "***" for secrets the user just entered (we no longer
@@ -1338,8 +1381,8 @@
         let fresh = null;
         try {
             fresh = apiOk ? await apiCall('/api/settings/integrations', 'GET') : null;
-        } catch (_) { /* fall through with optimistic payload */ }
-        applyPayloadToDOM(fresh || maskPayload(payload), { isSave: true });
+        } catch (_) { /* fall through with the PATCH's committed view */ }
+        applyPayloadToDOM(fresh || res, { isSave: true });
         _keyCheckSavedBase = mainBase();
         _keyCheckRegistration = 'pending';
         renderKeyCheck();
@@ -1353,9 +1396,9 @@
         // The saved provider may now be a different one, which makes any list
         // already on screen wrong. Drop it; the next click re-fetches.
         resetModelSuggestions();
-        // Commit the masked server view when the reload succeeded, else the
-        // locally-masked payload — never the raw cleartext keys.
-        if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
+        // Commit the masked view when the reload succeeded, else the PATCH's
+        // masked committed view — never the raw cleartext keys.
+        if (handle) { try { await handle.commit(fresh || res); } catch (_) { /* best-effort */ } }
 
         if (!_providerReloadPanel && typeof safeToast === 'function') {
             safeToast('Integrations saved.', 'info');

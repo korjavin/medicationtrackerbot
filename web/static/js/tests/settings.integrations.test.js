@@ -16,6 +16,20 @@ import { createAIClient } from '../../../cloud/js/aiclient.js';
 import { reloadProviderDocument } from '../../../cloud/js/update-check.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
+// One-row-per-type records port for the settings domain: list/put plus the
+// locked update (sync.js recordsPort.update) the integrations PATCH writes through.
+function memoryRecords(memory, writes = []) {
+    const put = async (type, row) => { writes.push(type); memory.set(type, [structuredClone(row)]); return row; };
+    return {
+        async list(type) { return memory.get(type) || []; },
+        put,
+        async update(type, recordId, fn) {
+            const body = fn((memory.get(type) || []).find((r) => r.recordId === recordId) || null);
+            return body ? put(type, { ...body, recordId }) : null;
+        }
+    };
+}
+
 function installApiCacheMap(window, initialCache = {}) {
     const map = new Map();
     for (const [key, value] of Object.entries(initialCache)) {
@@ -64,10 +78,7 @@ describe('Settings → Integrations section', () => {
         async function setup({ empty = false } = {}) {
             const memory = new Map();
             const writes = [];
-            const settings = createSettingsDomain({ records: {
-                async list(type) { return memory.get(type) || []; },
-                async put(type, row) { writes.push(type); memory.set(type, [structuredClone(row)]); }
-            }, now: () => 1, timeZone: () => 'UTC' });
+            const settings = createSettingsDomain({ records: memoryRecords(memory, writes), now: () => 1, timeZone: () => 'UTC' });
             if (!empty) await settings.patchIntegrations({
                 openai: { api_key: 'fixture-main-key', url: 'https://api.openai.com/v1', model: 'fixture-main-model',
                     vision_api_key: 'fixture-photo-key', vision_url: 'https://api.openai.com/v1', vision_model: 'fixture-photo-model' },
@@ -147,6 +158,108 @@ describe('Settings → Integrations section', () => {
             expect(writes).toEqual(['integrations', 'integrations']);
             page.close();
         });
+
+        // bd med-yzag: the Save is bound to the masked view the form loaded.
+        const editAgent = (value) => {
+            const field = env.document.getElementById('integrations-elevenlabs-agent-id');
+            field.value = value;
+            field.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+        };
+        const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+
+        it('PATCH ok but the follow-up GET fails: the committed view applies and an unchanged second Save goes through', async () => {
+            allowConsoleNoise('error', /Failed to load integrations/);
+            const { settings, patches, page, setRead } = await setup();
+            await env.window.SettingsIntegrations.load();
+            editAgent('fixture-agent-2');
+            const results = [];
+            const realCall = env.window.apiCall;
+            env.window.apiCall = vi.fn(async (path, method, body) => {
+                const res = await realCall(path, method, body);
+                if (method === 'PATCH') results.push(res);
+                return res;
+            });
+            setRead(() => { throw new Error('fixture GET down'); });
+            await env.window.SettingsIntegrations.save();
+            expect(results[0].conflict).toBeUndefined();
+            expect(env.document.getElementById('integrations-openai-api-key').value).toBe('***');
+            expect(env.document.getElementById('integrations-elevenlabs-agent-id').value).toBe('fixture-agent-2');
+            expect(JSON.stringify(await env.window.DataStore.getCached('settings_integrations'))).not.toContain('fixture-main-key');
+            await env.window.SettingsIntegrations.save();
+            expect(patches).toHaveLength(2);
+            expect(results[1].conflict).toBeUndefined();
+            expect(patches[1].ifMatch).toEqual(results[0]);
+            expect((await settings.readIntegrationsUnmasked()).openai.api_key).toBe('fixture-main-key');
+            page.close();
+        });
+
+        it('a refused Save whose reload fails keeps Save off with the hint until a later load re-enables it', async () => {
+            const { patches, page, button } = await setup();
+            await env.window.SettingsIntegrations.load();
+            const toasts = [];
+            env.window.safeToast = (msg) => toasts.push(msg);
+            editAgent('fixture-agent-2');
+            const realCall = env.window.apiCall;
+            env.window.apiCall = vi.fn(async (path, method, body) => (method === 'PATCH' ? (patches.push(body), { conflict: true }) : realCall(path, method, body)));
+            await env.window.SettingsIntegrations.save();
+            expect(toasts.at(-1)).toBe('Your changes weren’t saved: your AI provider settings changed since you opened this page. Reopen Settings to try again.');
+            expect(env.document.getElementById('integrations-provider-key-hint').textContent).toBe(toasts.at(-1));
+            expect(button.disabled).toBe(true);
+            await env.window.SettingsIntegrations.save();
+            expect(patches).toHaveLength(1);
+            env.window.apiCall = realCall;
+            await env.window.SettingsIntegrations.load();
+            expect(button.disabled).toBe(false);
+            expect(env.document.getElementById('integrations-provider-key-hint').textContent).toBe('Starts with sk-.');
+            page.close();
+        });
+
+        it('the transmitted baseline is the loaded view, and reads older than recovery or an edit never paint', async () => {
+            allowConsoleNoise('error', /Failed to load integrations/);
+            const { settings, patches, page, setRead } = await setup();
+            await env.window.SettingsIntegrations.load();
+            const viewA = await settings.getIntegrations();
+            // An optimistic-commit refresh during Save brings a different view;
+            // the PATCH still carries A.
+            const stale = { ...viewA, openai: { ...viewA.openai, url: 'https://stale.example/v1' } };
+            const pending = deferred();
+            let reads = 0;
+            setRead(() => (++reads === 1 ? pending.promise : stale));
+            const preConflict = env.window.SettingsIntegrations.load();
+            // Another writer lands B after this page loaded.
+            await settings.patchIntegrations({ openai: { api_key: 'fixture-key-b', url: 'https://b.example/v1', model: 'model-b' } });
+            setRead(() => (++reads === 1 ? pending.promise : (reads === 2 ? stale : settings.getIntegrations())));
+            editAgent('fixture-agent-2');
+            await env.window.SettingsIntegrations.save();
+            expect(patches[0].ifMatch).toEqual(viewA);
+            // Refused against B; the form now shows B.
+            expect(env.document.getElementById('integrations-openai-url').value).toBe('https://b.example/v1');
+            // The read started before the conflict answers late: dropped.
+            pending.resolve(stale);
+            expect(await preConflict).toBeNull();
+            expect(env.document.getElementById('integrations-openai-url').value).toBe('https://b.example/v1');
+            expect(JSON.stringify(await env.window.DataStore.getCached('settings_integrations'))).not.toContain('stale.example');
+
+            // Reverse response order: the older of two loads answers last.
+            const slow = deferred();
+            setRead(() => slow.promise);
+            const older = env.window.SettingsIntegrations.load();
+            setRead(() => settings.getIntegrations());
+            await env.window.SettingsIntegrations.load();
+            slow.resolve(stale);
+            expect(await older).toBeNull();
+            expect(env.document.getElementById('integrations-openai-url').value).toBe('https://b.example/v1');
+
+            // A read returning after a user edit does not overwrite it.
+            const late = deferred();
+            setRead(() => late.promise);
+            const beforeEdit = env.window.SettingsIntegrations.load();
+            editAgent('fixture-typed');
+            late.resolve(stale);
+            expect(await beforeEdit).toBeNull();
+            expect(env.document.getElementById('integrations-elevenlabs-agent-id').value).toBe('fixture-typed');
+            page.close();
+        });
     });
 
     describe('Check key through the direct UI port and real settings/client', () => {
@@ -162,10 +275,7 @@ describe('Settings → Integrations section', () => {
         async function setup(origins = ['https://api.openai.com'], loaded = true) {
             const memory = new Map();
             const writes = [];
-            const settings = createSettingsDomain({ records: {
-                async list(type) { return memory.get(type) || []; },
-                async put(type, row) { writes.push(type); memory.set(type, [structuredClone(row)]); }
-            }, now: () => 1, timeZone: () => 'UTC' });
+            const settings = createSettingsDomain({ records: memoryRecords(memory, writes), now: () => 1, timeZone: () => 'UTC' });
             await settings.patchIntegrations({ openai: { api_key: 'fixture-saved-key', url: 'https://api.openai.com/v1', model: 'gpt-6-luna' } });
             env.window.apiCall = vi.fn(async (path, method, body) => {
                 if (path === '/api/settings/integrations') return method === 'PATCH' ? settings.patchIntegrations(body) : settings.getIntegrations();
@@ -962,7 +1072,8 @@ describe('Settings → Integrations section', () => {
             });
             await env.window.SettingsIntegrations.save();
             expect(patch.openai).toEqual(main);
-            expect(Object.keys(patch)).toEqual(['openai', 'elevenlabs']);
+            // ifMatch: the loaded view the Save is bound to (bd med-yzag).
+            expect(Object.keys(patch)).toEqual(['openai', 'elevenlabs', 'ifMatch']);
             expect(advanced.open).toBe(false);
         });
 
@@ -1138,10 +1249,7 @@ describe('Settings → Integrations section', () => {
 
         async function setup(overrides, load = true) {
             const memory = new Map();
-            const settings = createSettingsDomain({ records: {
-                async list(type) { return memory.get(type) || []; },
-                async put(type, row) { memory.set(type, [structuredClone(row)]); }
-            }, now: () => 1, timeZone: () => 'UTC' });
+            const settings = createSettingsDomain({ records: memoryRecords(memory), now: () => 1, timeZone: () => 'UTC' });
             await settings.patchIntegrations({ openai: { ...main, ...overrides } });
             env.window.apiCall = vi.fn(async (path, method, body) => {
                 if (path !== '/api/settings/integrations') return null;

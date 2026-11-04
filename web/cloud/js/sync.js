@@ -1825,11 +1825,17 @@ export async function isSyncWedged() {
 // also written VERBATIM in this mode — no skew correction — because derived
 // bodies must be byte-identical on every device that derives them (bd med-8j12),
 // and `0 - skewMs` is not.
-export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false } = {}) {
+//
+// `update` is the compare-and-merge mode (bd med-yzag): a SYNCHRONOUS pure
+// fn(existingRawRow | null) → body | null run inside the lock on the very row
+// it replaces, so a row applied between the caller's earlier read and this
+// write is what fn sees. null writes nothing (no put, no pending row) and the
+// call resolves null; a body is stamped and written like put.
+export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false, update = null } = {}) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
   const { stamped, wrote } = await stampAndPut(recordType, record, {
-    ifAbsent, skewMs: meta.clockSkewMs, pending: true,
+    ifAbsent, update, skewMs: meta.clockSkewMs, pending: true,
   });
   // Nothing changed — no op to push, nothing to repaint.
   if (!wrote) return stamped;
@@ -1852,11 +1858,21 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
 // row must both be visible, or neither, when a concurrent bootstrap snapshots
 // what to preserve. The lock is also what makes putIfAbsent atomic: nothing can
 // land a row between the absence check and the put.
-async function stampAndPut(recordType, record, { ifAbsent, skewMs, pending }) {
+async function stampAndPut(recordType, record, { ifAbsent, update, skewMs, pending }) {
   let stamped = record;
   let wrote = true;
   await withRecordsLock(async () => {
     const existing = await getRecord(record.recordId);
+    if (update) {
+      const body = update(existing);
+      if (body && typeof body.then === 'function') throw new Error('records.update: fn must be synchronous');
+      if (!body) {
+        stamped = null;
+        wrote = false;
+        return;
+      }
+      record = { ...body, recordId: record.recordId };
+    }
     if (ifAbsent && existing) {
       stamped = existing;
       wrote = false;
@@ -1914,6 +1930,9 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     // landed first. Callers decide what a losing verdict means for them — a
     // tombstoned slot is a deliberate delete, not something to re-fill.
     putIfAbsent: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush, ifAbsent: true }),
+    // Locked compare-and-merge (see writeRecord's `update`): resolves the
+    // stamped committed row, or null when fn refused.
+    update: (recordType, recordId, fn) => writeRecord(ctx, recordType, { recordId }, origin, { flush, update: fn }),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin, { flush }),
     // { seq, pending } for the relay fence (bd med-wi09.14, reminders.js).
     horizonBasis: async () => {
@@ -1929,8 +1948,8 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
 // repaint notifications — but no account: no bootstrap, no 'pending' rows, no
 // oplog flush, so nothing here ever touches the network.
 export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
-  const write = async (recordType, record, ifAbsent) => {
-    const { stamped, wrote } = await stampAndPut(recordType, record, { ifAbsent, skewMs: 0, pending: false });
+  const write = async (recordType, record, ifAbsent, update = null) => {
+    const { stamped, wrote } = await stampAndPut(recordType, record, { ifAbsent, update, skewMs: 0, pending: false });
     if (wrote) notifyRecordsChanged([recordType], origin);
     return stamped;
   };
@@ -1941,6 +1960,7 @@ export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
     changesSince,
     put: (recordType, record) => write(recordType, record, false),
     putIfAbsent: (recordType, record) => write(recordType, record, true),
+    update: (recordType, recordId, fn) => write(recordType, { recordId }, false, fn),
     del: (recordType, recordId) => write(recordType, { recordId, clientTs: Date.now(), deleted: true }, false),
   };
 }

@@ -75,6 +75,14 @@ export function createInMemoryRecordsPort(seed = {}) {
             if (existing) return existing;
             return set(recordType, { ...record, recordType });
         },
+        // Mirrors sync.js recordsPort.update (bd med-yzag): fn sees the RAW row
+        // (tombstone included) or null and returns the new body or null; null
+        // writes nothing and resolves null, a body resolves the stored row.
+        async update(recordType, recordId, fn) {
+            const body = fn(bucket(recordType).get(recordId) || null);
+            if (!body) return null;
+            return this.put(recordType, { ...body, recordId });
+        },
         // Bodyless, like sync.js recordsPort.del (which writes via writeRecord):
         // a tombstone is { recordId, clientTs, deleted, recordType } — no reader may need a
         // body off it (the reminder horizon reads the day off the slot id, bd
