@@ -1,6 +1,6 @@
 # Mi Band live heart rate over Web Bluetooth — POC (med-byks.1)
 
-> Cancelled 2026-10-31 (Developer, Zulip 10664); the POC code was removed in the med-fka0.1 PR (korjavin/medicationtrackerbot, branch med-fka0.1-remove-web-bluetooth). Kept as research history.
+> Cancelled 2026-10-31 (Developer, Zulip 10664); the POC code was removed in PR #1543. Kept as research history.
 
 **Status:** in-app POC shipped behind the `live_hr` flag (default OFF);
 hardware go/no-go pending owner testing. This doc is the POC writeup the
