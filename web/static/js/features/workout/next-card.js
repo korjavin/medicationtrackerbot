@@ -141,10 +141,7 @@ function _renderNextWorkout(container, data) {
     info.addEventListener('click', open);
     info.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
     const dayName = isAdHoc ? ((session.notes || '').trim() || 'Workout') : data.variant_name;
-    const fullDay = date.toLocaleDateString('en-US', { weekday: 'long' });
-    const line = skipping
-        ? (isToday ? 'Skipped today. Undo to keep it.' : `Skipped when ${fullDay} comes. Undo to keep it.`)
-        : _nextCardExerciseLine(data.exercises_count || 0, data.exercise_names);
+    const line = _nextCardExerciseLine(data.exercises_count || 0, data.exercise_names);
     info.append(_nextCardEl('p', 'wg-card__title', dayName), _nextCardEl('p', 'wg-meta', line));
     card.appendChild(info);
 
@@ -182,11 +179,13 @@ function _renderNextWorkout(container, data) {
     // "Start empty workout" row under the card (WN1); one workout at a time.
     if (inProgress) container.replaceChildren(card);
     else container.replaceChildren(card, _startEmptyWorkoutRow());
-    _attachNextCardGymSwitch(card, foot);
+    // No gym pick while a skip is set: there is nothing to train.
+    if (!skipping) _attachNextCardGymSwitch(card, foot);
 }
 
+// The empty session opens on its inline "What's next?" add step (WA6).
 function _startEmptyWorkout() {
-    return window.startAdHocWorkout({ addSheet: true });
+    return window.startAdHocWorkout();
 }
 
 function _startEmptyWorkoutRow() {

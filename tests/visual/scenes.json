@@ -392,7 +392,7 @@
         { "tab": "workouts" }, { "emptyWorkout": true }, { "click": ".workout-tab[data-tab=\"history\"]" },
         { "click": "#workout-start-empty-row" }
       ],
-      "ready": ["#workout-history-tab.active", "#workout-session-addstep", "#session-add-exercise-name"] },
+      "ready": ["#workout-history-tab.active", "#workout-session-addstep", "#workout-session-addstep-search"] },
     { "name": "today-start-here", "localOnly": true,
       "steps": [{ "startHere": { "drop": ["medications", "bp", "food", "workouts"], "picked": ["medication", "bp", "weight", "food"] } }, { "tab": "today" }],
       "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] },

@@ -1441,26 +1441,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(777);
   });
 
-  // med-soo0.2 (kit WN1 → WA3): "Start empty workout" opens the session with
-  // the add sheet up — the same sheet the session's own Add exercise opens.
-  it('startAdHocWorkout({ addSheet: true }) opens the add sheet after the session modal; plain start does not', async () => {
-    const { window } = env;
-    installApiCache(window, { workout_next: { session: null } });
-    const order = [];
-    window.showWorkoutSessionModal = vi.fn(async () => { order.push('session'); });
-    window.showAddExerciseToSessionModal = vi.fn(async () => { order.push('sheet'); });
-    window.loadNextWorkout = vi.fn();
-    window.apiCall = vi.fn(async (endpoint) => (
-      endpoint === '/api/workout/sessions/adhoc' ? { session: { id: 778, status: 'in_progress' } } : true
-    ));
-
-    await window.startAdHocWorkout({ addSheet: true });
-    expect(order).toEqual(['session', 'sheet']);
-
-    await window.startAdHocWorkout();
-    expect(window.showAddExerciseToSessionModal).toHaveBeenCalledTimes(1);
-  });
-
   it('startAdHocWorkout rolls back workout_next on POST failure', async () => {
     const { window } = env;
     const cache = installApiCache(window, {

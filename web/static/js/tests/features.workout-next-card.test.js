@@ -68,6 +68,20 @@ describe('features/workout/next-card.js — split-file integration', () => {
     return container;
   }
 
+  it('a set skip hides the gym switch even with gyms', async () => {
+    const { window } = env;
+    window.apiCall = vi.fn(async (url) => {
+      if (url === '/api/workout/locations') return [{ id: 1, name: 'Home' }];
+      if (url === '/api/workout/locations/active') return { location_id: 1, location: null };
+      return null;
+    });
+    const container = window.document.getElementById('next-workout-card');
+    window._renderNextWorkout(container, { ...NEXT, session: { ...NEXT.session, status: 'pre_skipped' } });
+    for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(container.querySelector('[data-action="undo-skip"]')).not.toBeNull();
+    expect(container.querySelector('.wg-workouts-gym-switch')).toBeNull();
+  });
+
   it('no gyms: the card has no gym switch', async () => {
     const container = await renderWithGyms(env.window, [], null);
     expect(container.querySelector('.wg-workouts-gym-switch')).toBeNull();
@@ -214,7 +228,7 @@ describe('Up next card (kit WN1-WN6)', () => {
     expect(el.classList.contains('wg-card--accent')).toBe(false);
     expect(el.querySelector('.wg-eyebrow').classList.contains('wg-eyebrow--dot')).toBe(false);
     expect(el.querySelector('.wg-hstack .wg-tag').textContent).toBe('Skipping');
-    expect(el.querySelector('.wg-wn__info .wg-meta').textContent).toBe('Skipped when Friday comes. Undo to keep it.');
+    expect(el.querySelector('.wg-wn__info .wg-meta').textContent).toBe('3 exercises · Bench press, Dips, Cable fly');
     expect(el.querySelector('.wg-wn-day')).toBeNull();
     expect(footLabels(c)).toEqual(['Undo skip']);
     expect(action(c, 'undo-skip').className).toBe('wg-btn');
@@ -301,7 +315,7 @@ describe('Up next card (kit WN1-WN6)', () => {
     expect(window.openWorkoutPlanPage).toHaveBeenCalledWith(null);
   });
 
-  it('Start empty workout (row and no-plan button) starts an ad-hoc session with the add sheet up, offline too', () => {
+  it('Start empty workout (row and no-plan button) starts a plain ad-hoc session, offline too', () => {
     const { window } = env;
     window.SyncManager = { isOnline: false };
     window.startAdHocWorkout = vi.fn();
@@ -309,7 +323,7 @@ describe('Up next card (kit WN1-WN6)', () => {
     expect(row.disabled).toBe(false);
     row.click();
     action(render(null), 'start-empty').click();
-    expect(window.startAdHocWorkout.mock.calls).toEqual([[{ addSheet: true }], [{ addSheet: true }]]);
+    expect(window.startAdHocWorkout.mock.calls).toEqual([[], []]);
   });
 
   it('no legacy status words or labels remain in next-card.js', () => {

@@ -13,7 +13,7 @@ invariants:
   - 'The eyebrow is when ("Today · 18:00" or "Fri 06.11 · 18:00"), the title is the plan day, the meta line its exercises, and a rotating plan shows "Day N of M · then <next day>"'
   - Skip names the day ("Skip today" / "Skip Fri"); a set skip shows a "Skipping" tag and only "Undo skip"
   - A running workout shows "In progress · N min" with Finish and Continue; "Start empty workout" is hidden until it ends
-  - Start empty workout opens an empty session with the add sheet up
+  - Start empty workout opens an empty session on its "What's next?" add step
   - With no plan the card reads "Log a workout" with Start empty workout and Make a plan
 covered_by:
   web: web/static/js/tests/features.workout-next-card.test.js
