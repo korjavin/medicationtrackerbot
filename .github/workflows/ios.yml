@@ -478,9 +478,11 @@ jobs:
           command -v xcodegen >/dev/null || brew install xcodegen
           xcodegen generate
           xcodebuild -version
+          # Ad-hoc signed, as the visual job: HealthKit needs its entitlement
+          # (HealthWriteBackTests, bd med-8f4s.3).
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
             WG_BASE_DOMAIN=qa.test | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
 

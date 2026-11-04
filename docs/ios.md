@@ -503,6 +503,23 @@ privacy-manifest row. The shell side is bd med-8f4s.3.
   `health.authorize` and `health.query` (anchored queries, raw samples) over the
   `wgNative` bridge; `window.Health` on iOS is
   [`native/health.js`](../web/static/js/native/health.js).
+- **Write-back (bd med-8f4s.3):** `health.authorize {types, write}` asks share
+  access for systolic + diastolic (bp) and body mass (weight) in the read
+  sheet; `health.writeAccess` reports a kind once every share type of it is
+  `.sharingAuthorized`. `health.write` saves a weight sample, or a BP
+  correlation with its two members, each carrying
+  `HKMetadataKeySyncIdentifier` (the vault recordId; members `<id>/sys`,
+  `<id>/dia`) and `HKMetadataKeySyncVersion` (the row's `clientTs`), so a
+  rewrite with a higher version replaces it. `health.delete` deletes only this
+  app's objects with those identifiers — an imported row's `*-hk-<uuid>` id
+  matches nothing. The anchored bp/weight queries drop objects from this app
+  that carry a sync identifier, so the write-back is never imported back; an
+  unmarked same-bundle sample still imports. Checked by `HealthWriteBackTests`
+  in the `qa` job. Known gap: on the iOS 26.5 Simulator the share sheet grants
+  the blood-pressure correlation type but leaves systolic/diastolic
+  `notDetermined`, so every BP save fails and `writeAccess` omits `bp`; the
+  test then runs the weight half, checks that a BP write is refused `denied`,
+  and reports `bpSkipped`. BP write-back needs a device check.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
   overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every

@@ -16,7 +16,7 @@ struct WGApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG && targetEnvironment(simulator)
-            if UserDefaults.standard.bool(forKey: "wgQAHealthDiagnostic") || UserDefaults.standard.bool(forKey: "wgQAHealthSeed") {
+            if ["wgQAHealthDiagnostic", "wgQAHealthSeed", "wgQAHealthWriteBack"].contains(where: UserDefaults.standard.bool(forKey:)) {
                 HealthDiagnosticView()
             } else {
                 RootView(shell: shell)
