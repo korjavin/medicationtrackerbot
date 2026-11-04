@@ -384,6 +384,12 @@ onCachedDbDropped(() => {
 
 async function putRecord(record) {
   await withStore('records', 'readwrite', (store) => store.put(record));
+  afterPut(record);
+}
+
+// The in-memory side of a physical write (journal, memo, announce), for writes
+// that put inside their own transaction.
+function afterPut(record) {
   journalWrite(record && record.recordType, record && record.recordId);
   invalidateRecords(record && record.recordType);
   announce({ type: record && record.recordType, id: String(record && record.recordId) });
@@ -697,7 +703,8 @@ export const ORIGIN_EXTERNAL = 'external';
 // on THIS device (both ports: UI, voice, MCP, the Telegram drain, local mode),
 // inside the records lock, after the row is stamped and BEFORE its IndexedDB
 // put, so a mark it makes is never later than the commit. Never for
-// putIfAbsent (imports, derived floors), replaceAllRecords (restore) or
+// putIfAbsent (imports, derived floors), putIfUnchanged (derived rewrites),
+// replaceAllRecords (restore) or
 // applyIncoming (sync apply): those do not go through it. The callback must be
 // synchronous; a throw is swallowed and never fails the write. Readers that
 // must see the committed row wait on localWritesSettled() first.
@@ -1851,11 +1858,17 @@ export async function isSyncWedged() {
 // also written VERBATIM in this mode — no skew correction — because derived
 // bodies must be byte-identical on every device that derives them (bd med-8j12),
 // and `0 - skewMs` is not.
-export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false } = {}) {
+//
+// `ifMatchTs` is the derived REWRITE mode (bd med-q6l3): write only while the
+// raw slot is still the live version the caller read (same clientTs), checked
+// under the same lock as the put. A real write that landed after the read — a
+// Start in another tab, a pulled op, a tombstone — keeps the slot; the stored
+// row comes back either way.
+export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false, ifMatchTs } = {}) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
   const { stamped, wrote } = await stampAndPut(recordType, record, {
-    ifAbsent, skewMs: meta.clockSkewMs, pending: true,
+    ifAbsent, ifMatchTs, skewMs: meta.clockSkewMs, pending: true,
   });
   // Nothing changed — no op to push, nothing to repaint.
   if (!wrote) return stamped;
@@ -1878,15 +1891,17 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
 // row must both be visible, or neither, when a concurrent bootstrap snapshots
 // what to preserve. The lock is also what makes putIfAbsent atomic: nothing can
 // land a row between the absence check and the put.
-async function stampAndPut(recordType, record, { ifAbsent, skewMs, pending }) {
+async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, skewMs, pending }) {
   let stamped = record;
   let wrote = true;
-  await withRecordsLock(async () => {
-    const existing = await getRecord(record.recordId);
-    if (ifAbsent && existing) {
+  // Sync: the verdict for the raw row in the slot. Returns the row to store, or
+  // null to keep `existing` (stamped then names the stored winner).
+  const decide = (existing) => {
+    const stale = ifMatchTs !== undefined
+      && (!existing || existing.deleted || existing.clientTs !== ifMatchTs);
+    if ((ifAbsent && existing) || stale) {
       stamped = existing;
-      wrote = false;
-      return;
+      return null;
     }
     stamped = {
       ...record,
@@ -1898,14 +1913,37 @@ async function stampAndPut(recordType, record, { ifAbsent, skewMs, pending }) {
       const merged = policy(existing, stamped);
       if (merged === existing) {
         stamped = existing;
-        wrote = false;
-        return;
+        return null;
       }
       stamped = { ...merged, clientTs: stamped.clientTs, recordType };
     }
-    if (!ifAbsent) fireLocalWrite(recordType, stamped);
-    await putRecord(stamped);
-    if (pending) await markPending(record.recordId, recordType);
+    // Derived writes (putIfAbsent, putIfUnchanged) are not local entries.
+    if (!ifAbsent && ifMatchTs === undefined) fireLocalWrite(recordType, stamped);
+    return stamped;
+  };
+  await withRecordsLock(async () => {
+    if (ifMatchTs !== undefined) {
+      // Compare-and-swap in ONE readwrite transaction (bd med-q6l3): the module
+      // lock serializes this tab only, and IndexedDB's readwrite transactions
+      // on 'records' are what serialize tabs, so another tab's Start cannot land
+      // between the comparison and the put.
+      const next = await withStore('records', 'readwrite', (store) => new Promise((resolve, reject) => {
+        const req = store.get(record.recordId);
+        req.onsuccess = () => {
+          const row = decide(req.result ?? null);
+          if (row) store.put(row);
+          resolve(row);
+        };
+        req.onerror = () => reject(req.error);
+      }));
+      wrote = Boolean(next);
+      if (wrote) afterPut(next);
+    } else {
+      const row = decide(await getRecord(record.recordId));
+      wrote = Boolean(row);
+      if (wrote) await putRecord(row);
+    }
+    if (wrote && pending) await markPending(record.recordId, recordType);
   });
   return { stamped, wrote };
 }
@@ -1941,6 +1979,9 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     // landed first. Callers decide what a losing verdict means for them — a
     // tombstoned slot is a deliberate delete, not something to re-fill.
     putIfAbsent: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush, ifAbsent: true }),
+    // Derived rewrite (see writeRecord's `ifMatchTs`): lands only on the exact
+    // live version `expected` the caller read.
+    putIfUnchanged: (recordType, record, expected) => writeRecord(ctx, recordType, record, origin, { flush, ifMatchTs: expected.clientTs }),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin, { flush }),
     // { seq, pending } for the relay fence (bd med-wi09.14, reminders.js).
     horizonBasis: async () => {
@@ -1956,8 +1997,8 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
 // repaint notifications — but no account: no bootstrap, no 'pending' rows, no
 // oplog flush, so nothing here ever touches the network.
 export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
-  const write = async (recordType, record, ifAbsent) => {
-    const { stamped, wrote } = await stampAndPut(recordType, record, { ifAbsent, skewMs: 0, pending: false });
+  const write = async (recordType, record, ifAbsent, ifMatchTs) => {
+    const { stamped, wrote } = await stampAndPut(recordType, record, { ifAbsent, ifMatchTs, skewMs: 0, pending: false });
     if (wrote) notifyRecordsChanged([recordType], origin);
     return stamped;
   };
@@ -1968,6 +2009,7 @@ export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
     changesSince,
     put: (recordType, record) => write(recordType, record, false),
     putIfAbsent: (recordType, record) => write(recordType, record, true),
+    putIfUnchanged: (recordType, record, expected) => write(recordType, record, false, expected.clientTs),
     del: (recordType, recordId) => write(recordType, { recordId, clientTs: Date.now(), deleted: true }, false),
   };
 }
