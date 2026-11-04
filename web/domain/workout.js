@@ -2694,6 +2694,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         is_snoozed: isSnoozed,
         snoozed_until: session.snoozed_until || null,
         is_today: localDateStr(new Date(session.scheduled_date).getTime(), timeZone) === todayStr,
+        // The Up next card's "In progress · N min" and an ad-hoc session's
+        // title (med-soo0.2); present only when set.
+        ...(session.started_at ? { started_at: session.started_at } : {}),
+        ...(session.notes ? { notes: session.notes } : {}),
       },
       group_name: group ? group.name : 'Unknown',
       variant_name: variant ? variant.name : 'Unknown',

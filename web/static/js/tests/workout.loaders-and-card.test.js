@@ -34,41 +34,37 @@ describe('workout.js loaders and next-card behavior', () => {
 
       await window.loadNextWorkout();
       expect(window.DataStore.loadSWR).toHaveBeenCalled();
-      expect(nextCard.innerHTML).toContain('In Progress');
-      expect(nextCard.innerHTML).toContain('View');
+      expect(nextCard.innerHTML).toContain('In progress');
+      expect(nextCard.innerHTML).toContain('Continue');
 
       window._renderNextWorkout(nextCard, {
         ...nextData,
         session: { ...nextData.session, status: 'pre_skipped' }
       });
-      expect(nextCard.innerHTML).toContain('To Be Skipped');
-      expect(nextCard.innerHTML).toContain('Cancel Skip');
+      expect(nextCard.innerHTML).toContain('Skipping');
+      expect(nextCard.innerHTML).toContain('Undo skip');
 
       window._renderNextWorkout(nextCard, {
         ...nextData,
         session: { ...nextData.session, status: 'notified' }
       });
-      expect(nextCard.innerHTML).toContain('Ready to Start');
-      expect(nextCard.innerHTML).toContain('>Start<');
+      expect(nextCard.innerHTML).toContain('>Start now<');
 
-      // med-2fc: no session no longer empties the container — the card
-      // survives carrying the Ad hoc action alone, because it is the
-      // only ad-hoc entry point on the Workouts screen.
+      // No session still renders the card (WN6), so the screen keeps its
+      // way to start a workout.
       window._renderNextWorkout(nextCard, null);
-      expect(nextCard.querySelector('.wg-workouts-next-card')).not.toBeNull();
-      expect(nextCard.innerHTML).toContain('Ad hoc');
-      expect(nextCard.innerHTML).not.toContain('>Start<');
-      expect(nextCard.innerHTML).not.toContain('Ready to Start');
+      expect(nextCard.querySelector('.wg-wn')).not.toBeNull();
+      expect(nextCard.innerHTML).toContain('Start empty workout');
+      expect(nextCard.innerHTML).not.toContain('>Start now<');
     } finally {
       cleanup();
     }
   });
 
-  // med-2fc: the ad-hoc CTA used to be static markup in index.html, so an
-  // empty next-workout container was harmless. Now Ad hoc is rendered
-  // only by _renderNextWorkout, and a read failure with nothing cached would
-  // otherwise strip the screen's only way to start a workout.
-  it('loadNextWorkout keeps the Ad hoc card when the read fails with no cache', async () => {
+  // med-2fc: the ad-hoc start is rendered only by _renderNextWorkout, so a
+  // read failure with nothing cached would otherwise strip the screen's only
+  // way to start a workout.
+  it('loadNextWorkout keeps the Start empty workout card when the read fails with no cache', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
@@ -81,8 +77,8 @@ describe('workout.js loaders and next-card behavior', () => {
 
       await window.loadNextWorkout();
 
-      expect(nextCard.querySelector('.wg-workouts-next-card')).not.toBeNull();
-      expect(nextCard.innerHTML).toContain('Ad hoc');
+      expect(nextCard.querySelector('.wg-wn')).not.toBeNull();
+      expect(nextCard.innerHTML).toContain('Start empty workout');
       expect(nextCard.innerHTML).not.toContain('stale');
     } finally {
       cleanup();

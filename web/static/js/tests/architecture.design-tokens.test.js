@@ -1250,10 +1250,8 @@ describe('Architecture – design tokens', () => {
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
             '.workout-variant-desc',
             '.exercise-log-header', '.exercise-log-delete-btn',
-            // Next workout card (Round-2 Task 10, #13a: restyled to Wandergeek tokens)
-            '.wg-workouts-next-card', '.wg-workouts-next-card__kicker',
-            '.wg-workouts-next-card__date', '.wg-workouts-next-card__title',
-            '.wg-workouts-next-card__subtitle', '.wg-workouts-next-card__actions',
+            // Up next card (kit WN1-WN6, med-soo0.2; the rest is kit markup)
+            '.wg-workouts-next', '.wg-wn__info',
             // Food product link
             '.food-product-link',
             // Sync hint

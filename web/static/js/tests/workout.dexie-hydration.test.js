@@ -141,7 +141,7 @@ describe('Workouts cold-start Dexie hydration (Task 3)', () => {
         const container = document.getElementById('next-workout-card');
         // Cached card painted — group name comes from the cached payload.
         expect(container.textContent).toContain('Push');
-        const card = container.querySelector('.wg-workouts-next-card');
+        const card = container.querySelector('.wg-wn');
         expect(card).not.toBeNull();
     });
 
