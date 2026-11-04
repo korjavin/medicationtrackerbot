@@ -145,10 +145,11 @@ export function startHealthWriteBack({
     const readAccess = () => (access = supported
         .then((ok) => (ok ? health.writeAccess(WRITE_KINDS) : { granted: [] }))
         .then((r) => {
-            const granted = r && Array.isArray(r.granted) ? r.granted : [];
-            onAccess(granted);
-            return granted;
-        }, (e) => {
+            // A malformed reply is a failed read, not "nothing granted".
+            if (!r || !Array.isArray(r.granted)) throw new Error('malformed writeAccess reply');
+            onAccess(r.granted);
+            return r.granted;
+        }).catch((e) => {
             diag(`[health] write access failed ${e && e.message}`);
             return null;
         }));
@@ -394,11 +395,16 @@ function accessHint(health) {
     return (health && health.accessHint) || 'Settings → Health → Data Access & Devices';
 }
 
-// The write row's one line (kit HW3/HW4): '' when every kind is granted.
+// HW3: refused at turn-on; the switch goes back off.
+function writeRefusedText(health) {
+    return `Writing isn't allowed yet. Allow it in ${accessHint(health)}, then turn this on.`;
+}
+
+// The write row's line while on (kit HW4/HW5): '' when every kind is granted.
 function writeHintText(health, granted) {
     const missing = WRITE_KINDS.filter((k) => !granted.includes(k));
     if (!missing.length) return '';
-    if (missing.length === WRITE_KINDS.length) return `Writing isn't allowed yet. Allow it in ${accessHint(health)}, then turn this on.`;
+    if (missing.length === WRITE_KINDS.length) return `Writing paused: access was removed. Allow it in ${accessHint(health)}.`;
     const cap = (t) => t[0].toUpperCase() + t.slice(1);
     const have = WRITE_KINDS.filter((k) => granted.includes(k)).map((k) => KIND_NAMES[k]).join(' and ');
     return `Writing ${have} only. ${cap(missing.map((k) => KIND_NAMES[k]).join(' and '))} isn't allowed: allow it in ${accessHint(health)}.`;
@@ -433,10 +439,11 @@ export function startHealthImport(ctx, {
     run = (opts) => runHealthImport(ctx, opts),
     appRefresh = globalThis.AppRefresh,
     records = recordsPort(ctx, ORIGIN_EXTERNAL),
+    toast = (msg, type) => globalThis.safeToast && globalThis.safeToast(msg, type),
 } = {}) {
     if (!health || !health.isSupported()) return null;
-    // "Also write my entries" (kit HW0-HW4): shown only while the import is on
-    // and the shell answers health.write; its line only for HW3/HW4.
+    // "Also write my entries" (kit HW0-HW5): shown only while the import is on
+    // and the shell answers health.write; its line only for HW3/HW4/HW5.
     let canWrite = false;
     let writeHint = '';
     let writeRow = null;
@@ -444,20 +451,19 @@ export function startHealthImport(ctx, {
     let writeEpoch = 0;
     const renderWrite = () => {
         if (!writeRow) return;
-        const group = doc.getElementById(ROW_ID)?.parentNode;
-        if (canWrite && isHealthImportEnabled(storage) && group) group.appendChild(writeRow.row);
+        if (canWrite && isHealthImportEnabled(storage)) group.appendChild(writeRow.row);
         else writeRow.row.remove();
         writeRow.input.checked = isHealthWriteEnabled(storage);
         writeRow.desc.textContent = writeHint;
         if (writeHint) writeRow.body.appendChild(writeRow.desc);
         else writeRow.desc.remove();
     };
-    // Each writeAccess answer: nothing granted turns the switch off (HW3),
-    // one kind missing keeps it on and names the kind (HW4).
+    // Each writeAccess answer sets the line: a kind missing is named (HW4),
+    // nothing granted reads as paused (HW5). A pass never turns the switch
+    // off: it resumes by itself once access returns (Miles 15063, Iris 15065).
     const onAccess = (granted) => {
         if (!isHealthWriteEnabled(storage)) return;
         writeHint = writeHintText(health, granted);
-        if (!WRITE_KINDS.some((k) => granted.includes(k))) writeJSON(storage, WRITE_KEY, false);
         renderWrite();
     };
     const writeBack = startHealthWriteBack({ health, storage, records, onAccess });
@@ -495,7 +501,7 @@ export function startHealthImport(ctx, {
         registerRefresh();
     }
 
-    const mounted = mountHealthRow(doc, storage, health, async (on) => {
+    const group = mountHealthRow(doc, storage, health, async (on) => {
         if (!on) {
             writeJSON(storage, ENABLED_KEY, false);
             writeJSON(storage, WRITE_KEY, false); // import off → write off
@@ -527,7 +533,7 @@ export function startHealthImport(ctx, {
         return true;
     });
 
-    if (mounted) writeRow = buildSettingRow(doc, {
+    if (group) writeRow = buildSettingRow(doc, {
         id: WRITE_ROW_ID, icon: 'upload', title: 'Also write my entries', toggleId: WRITE_TOGGLE_ID,
         aria: `Also write my entries to ${healthLabel(health)}`,
         onToggle: async (on) => {
@@ -538,18 +544,30 @@ export function startHealthImport(ctx, {
                 return true;
             }
             const epoch = writeEpoch;
+            // A failed call is not a refusal: toast it, stay off, no HW3 line.
+            const failed = () => {
+                writeJSON(storage, WRITE_KEY, false);
+                writeHint = '';
+                renderWrite();
+                toast(`Couldn't reach ${healthLabel(health)} · try again`, 'error');
+                return false;
+            };
             try {
                 await health.requestAuthorization(HEALTH_KINDS, { write: WRITE_KINDS });
             } catch (e) {
                 console.error('[health] write authorization failed', e);
+                return epoch === writeEpoch ? failed() : false;
             }
             // Import switched off (and maybe on again) meanwhile: no late opt-in.
             if (epoch !== writeEpoch || !isHealthImportEnabled(storage)) return false;
             writeJSON(storage, WRITE_KEY, true);
-            // onAccess settles the switch and the line from the answer.
-            if (!(await writeBack.readAccess())) {
+            const granted = await writeBack.readAccess();
+            if (epoch !== writeEpoch || !isHealthImportEnabled(storage)) return false;
+            if (!granted) return failed();
+            // Refused at turn-on (HW3): back off with where to allow it.
+            if (!WRITE_KINDS.some((k) => granted.includes(k))) {
                 writeJSON(storage, WRITE_KEY, false);
-                writeHint = writeHintText(health, []);
+                writeHint = writeRefusedText(health);
                 renderWrite();
             }
             if (!isHealthWriteEnabled(storage)) return false;
@@ -633,10 +651,11 @@ function buildSettingRow(doc, { id, icon, title: titleText, desc: descText, togg
 }
 
 // The Settings home row: a kit toggle row in its own .wg-list group (the
-// write row joins it). False when there is no Settings home or it is mounted.
+// write row joins it). Returns the group; null when there is no Settings home
+// or it is mounted already.
 function mountHealthRow(doc, storage, health, onToggle) {
     const home = doc.querySelector('#settings-view .wg-settings-home');
-    if (!home || doc.getElementById(ROW_ID)) return false;
+    if (!home || doc.getElementById(ROW_ID)) return null;
     const group = doc.createElement('div');
     group.className = 'wg-list';
     group.appendChild(buildSettingRow(doc, {
@@ -646,5 +665,5 @@ function mountHealthRow(doc, storage, health, onToggle) {
     }).row);
     // Kit S6 slot ③ (bd med-ckm5.6).
     (home.querySelector('[data-settings-slot="health"]') || home).appendChild(group);
-    return true;
+    return group;
 }

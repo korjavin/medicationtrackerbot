@@ -1728,18 +1728,26 @@ describe('Health write-back', () => {
             await new Promise((r) => setTimeout(r, 0));
             await vi.waitFor(() => expect(el.disabled).toBe(false));
         };
+        let toast;
         const start = async (h = health) => {
             await startHealthImport({}, {
                 health: { ...fakeHealth({}), label: 'Health Connect', accessHint: 'Health Connect → App permissions', ...h },
-                storage, doc: document, records, run: vi.fn(async () => null),
+                storage, doc: document, records, run: vi.fn(async () => null), toast,
             });
             await new Promise((r) => setTimeout(r, 0));
         };
         const home = '<div id="settings-view"><div class="wg-settings-home"><div class="wg-list"></div></div></div>';
+        // jsdom starts 'prerender': come back to the foreground for real.
+        const foreground = () => {
+            const spy = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+            document.dispatchEvent(new window.Event('visibilitychange'));
+            spy.mockRestore();
+        };
 
         beforeEach(() => {
             document.body.innerHTML = home;
             storage.setItem('wg.health.write', 'false');
+            toast = vi.fn();
         });
 
         it('shows only while the import is on and the shell lists health.write (HW0/HW1)', async () => {
@@ -1806,10 +1814,82 @@ describe('Health write-back', () => {
 
             // Blood pressure allowed later: the next foreground pass delivers it and the line goes.
             health.writeAccess.mockResolvedValue({ granted: ['bp', 'weight'] });
-            document.dispatchEvent(new window.Event('visibilitychange'));
+            foreground();
             await idle();
             expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'bp', id: b.id }));
             expect(writeDesc()).toBeNull();
+        });
+
+        it('partly granted the other way round names weight (HW4 reverse)', async () => {
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp'] }));
+            await start();
+            await flip(writeToggle(), true);
+            expect(writeToggle().checked).toBe(true);
+            expect(writeDesc()).toBe("Writing blood pressure only. Weight isn't allowed: allow it in Health Connect → App permissions.");
+        });
+
+        // Miles 15063, Iris 15065: access removed later pauses, never turns it off.
+        it('access removed later: stays on, reads paused, and resumes when access returns (HW5)', async () => {
+            await start();
+            await flip(writeToggle(), true);
+            expect(writeToggle().checked).toBe(true);
+
+            health.writeAccess.mockResolvedValue({ granted: [] });
+            foreground();
+            await vi.waitFor(() => expect(writeDesc()).toBe('Writing paused: access was removed. Allow it in Health Connect → App permissions.'));
+            expect(writeToggle().checked).toBe(true);
+            expect(storage.getItem('wg.health.write')).toBe('true');
+            const b = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80 });
+            await new Promise((r) => setTimeout(r, 10));
+            expect(health.write).not.toHaveBeenCalled();
+            expect(Object.keys(dirty().bp)).toEqual([b.id]);
+
+            health.writeAccess.mockResolvedValue({ granted: ['bp', 'weight'] });
+            foreground();
+            await idle();
+            expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'bp', id: b.id }));
+            expect(writeDesc()).toBeNull();
+            expect(writeToggle().checked).toBe(true);
+        });
+
+        // Breakage review of 29319f450: a failed call is not a refusal.
+        it('a failing sheet or access read at turn-on toasts the error and stays off, no HW3 line', async () => {
+            allowConsoleNoise();
+            let sheetFails = true;
+            const requestAuthorization = vi.fn(async (kinds, opts) => { if (opts && sheetFails) throw new Error('bridge gone'); return true; });
+            await start({ ...health, requestAuthorization });
+            await flip(writeToggle(), true);
+            expect(toast).toHaveBeenCalledWith("Couldn't reach Health Connect · try again", 'error');
+            expect(writeToggle().checked).toBe(false);
+            expect(storage.getItem('wg.health.write')).toBe('false');
+            expect(writeDesc()).toBeNull();
+            expect(health.writeAccess).not.toHaveBeenCalled();
+
+            sheetFails = false;
+            for (const reply of [() => Promise.reject(new Error('timeout')), async () => ({ granted: 'bp' }), async () => null]) {
+                toast.mockClear();
+                health.writeAccess.mockImplementation(reply);
+                await flip(writeToggle(), true);
+                expect(toast).toHaveBeenCalledWith("Couldn't reach Health Connect · try again", 'error');
+                expect(writeToggle().checked).toBe(false);
+                expect(storage.getItem('wg.health.write')).toBe('false');
+                expect(writeDesc()).toBeNull();
+            }
+        });
+
+        it('a malformed access reply on a pass changes nothing', async () => {
+            health.writeAccess = vi.fn(async () => ({ granted: ['weight'] }));
+            await start();
+            await flip(writeToggle(), true);
+            const hw4 = writeDesc();
+            for (const reply of [{ granted: undefined }, null, { granted: 'bp' }]) {
+                health.writeAccess.mockResolvedValue(reply);
+                foreground();
+                await new Promise((r) => setTimeout(r, 10));
+                expect(writeToggle().checked).toBe(true);
+                expect(storage.getItem('wg.health.write')).toBe('true');
+                expect(writeDesc()).toBe(hw4);
+            }
         });
 
         it('import switched off (and on again) while the write sheet is open voids the opt-in', async () => {

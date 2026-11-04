@@ -361,7 +361,8 @@ is on and only when the shell's `shell.ops` lists `health.write`
 (`Health.canWrite()`): an older shell never gets a write op (an Android bridge
 call has no timeout). Turning it on asks one sheet for read and write, then
 reads `health.writeAccess`: nothing granted flips it back with where to allow
-it; one kind granted keeps it on and names the missing kind.
+it; one kind granted keeps it on and names the missing kind. Access lost later
+never turns it off (below).
 
 - **The seam is `sync.js` `onLocalWrite(fn)`**, called by `stampAndPut` inside
   the records lock, after the row is stamped and before its IndexedDB put, for
@@ -383,7 +384,14 @@ it; one kind granted keeps it on and names the missing kind.
   of the kinds it grants; nothing is ever evicted. A kind the last read did not
   grant (or whose write came back `denied`) gets no Health call from the hook
   either: its ids stay marked until a pass reads it granted. A pass reading
-  nothing granted turns the switch off (the ledger is kept). Rows with `source` (from Health) are never
+  nothing granted keeps the switch on with "Writing paused: access was
+  removed" (kit HW5) and resumes by itself once access returns; only a
+  refusal at turn-on flips it back off (HW3); a failed call at turn-on (the
+  sheet or `writeAccess` rejecting, or a malformed reply) is an error toast,
+  the switch stays off. A malformed `writeAccess` reply on a pass counts as a
+  failed read: nothing changes. **Known growth:** while a kind stays refused
+  (HW4/HW5) every entry of it stays in the ledger, about 60 bytes each, with
+  no cap; once allowed it drains at 50 per pass. Rows with `source` (from Health) are never
   marked; an edited imported weight keeps its `source` (not its `source_id`),
   so it stays "from Health".
 - **Off** stops marking and delivery; the ledger is kept and drains when the
