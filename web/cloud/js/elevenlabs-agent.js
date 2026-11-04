@@ -378,7 +378,13 @@ export async function ensureTools(key, onEvent) {
 // https://elevenlabs.io/docs/api-reference/agents/update. Only the trial
 // script passes it ({ 'X-Voice-Relay-Secret': TRIAL_VOICE_RELAY_SECRET }); the
 // relay checks it on anonymous calls only. BYO agents pass nothing.
-export function buildAgentConfig(toolIds, { productName = DEFAULT_PRODUCT_NAME, llmURL, llmHeaders, maxDurationSeconds, silenceEndCallSeconds } = {}) {
+//
+// requireSignedURL (bd med-ytmf) sets platform_settings.auth.enable_auth, so a
+// conversation WebSocket needs a minted signed URL (agent_id alone is refused);
+// without it the agent id, public in every signed URL, opens sessions on the
+// operator's key. Only the trial script passes it; BYO agents keep the default.
+// No allowlist: ElevenLabs allows one auth method per agent.
+export function buildAgentConfig(toolIds, { productName = DEFAULT_PRODUCT_NAME, llmURL, llmHeaders, maxDurationSeconds, silenceEndCallSeconds, requireSignedURL } = {}) {
   if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
@@ -437,7 +443,10 @@ export function buildAgentConfig(toolIds, { productName = DEFAULT_PRODUCT_NAME, 
     },
     // Lets elevenlabs-call.js's startSession({ customLlmExtraBody: { call } })
     // reach the relay as elevenlabs_extra_body — the per-call identity.
-    platform_settings: { overrides: { custom_llm_extra_body: true } },
+    platform_settings: {
+      overrides: { custom_llm_extra_body: true },
+      ...(requireSignedURL ? { auth: { enable_auth: true } } : {}),
+    },
   };
 }
 
