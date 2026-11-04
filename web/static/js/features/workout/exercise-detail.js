@@ -204,7 +204,8 @@
         title.className = 'wg-mono-display wg-workouts-exercise-detail__title';
         title.textContent = name || '';
         header.appendChild(title);
-        root.appendChild(header);
+        // In a pushed page the page bar already has Back and the title.
+        if (!(opts && opts.inPage)) root.appendChild(header);
 
         const headline = opts && opts.headline;
         const effort = opts && opts.effort;
@@ -292,9 +293,10 @@
 
     // open fetches the exercise history, folds it, and mounts the detail view
     // into the Stats sub-tab container (replacing the stats list; the back
-    // button reloads WorkoutStats).
-    async function open(name) {
-        const container = document.getElementById('workout-stats-display');
+    // button reloads WorkoutStats), or into `target`, a pushed page's body
+    // (the PL2 day page), which brings its own Back.
+    async function open(name, target) {
+        const container = target || document.getElementById('workout-stats-display');
         if (!container) return;
 
         let logs = [];
@@ -313,7 +315,7 @@
         const effort = WA && typeof WA.effortInsight === 'function' ? WA.effortInsight(logs, goal) : null;
 
         const root = document.createElement('div');
-        renderDetail(root, name, prs, series, { headline, effort });
+        renderDetail(root, name, prs, series, { headline, effort, inPage: !!target });
         container.replaceChildren(root);
     }
 

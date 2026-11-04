@@ -149,13 +149,42 @@ describe('features/workout/variants.js — Day page', () => {
       expect(el.querySelector('.wg-section__head .wg-meta')).toBeNull();
     });
 
-    it('an exercise tap opens its detail page', async () => {
-      const { window } = env;
+    it('an exercise tap pushes its history page over the day; Back returns to the day', async () => {
+      const { window, document } = env;
       stubApi(window);
-      window.WorkoutExerciseDetail.open = vi.fn();
       const el = await openDay(window);
       el.querySelectorAll('.wg-list button.wg-row')[1].click();
-      expect(window.WorkoutExerciseDetail.open).toHaveBeenCalledWith('Leg press');
+      const pages = () => Array.from(document.querySelectorAll('.wg-page'));
+      await vi.waitFor(() => expect(pages().at(-1).querySelector('.wg-workouts-exercise-detail')).not.toBeNull());
+      const detail = pages().at(-1);
+      expect(detail).not.toBe(el);
+      expect(detail.querySelector('.wg-pagebar__title').textContent).toBe('Leg press');
+      expect(detail.querySelector('.wg-back').textContent).toContain('Quads & Calves');
+      // The page bar has Back; no inline "← Stats".
+      expect(detail.querySelector('.wg-workouts-exercise-detail__back')).toBeNull();
+      expect(document.getElementById('workout-stats-display').querySelector('.wg-workouts-exercise-detail')).toBeNull();
+      detail.querySelector('.wg-back').click();
+      expect(detail.isConnected).toBe(false);
+      expect(el.isConnected).toBe(true);
+    });
+
+    it('Back while a switch is pending, then Start on another day: still one write', async () => {
+      const { window } = env;
+      fakeOptimistic(window);
+      let release;
+      stubApi(window, { over: (url) => (url.includes('set-variant') ? new Promise((r) => { release = r; }) : Promise.resolve(null)) });
+      window.startWorkoutSession = vi.fn(async () => {});
+      window.loadWorkoutGroups = vi.fn();
+      window.loadNextWorkout = vi.fn();
+      const first = await openDay(window, PLAN.days[1]);
+      startBtn(first).click();
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+      first.querySelector('.wg-back').click();
+      const second = await openDay(window, PLAN.days[2]);
+      startBtn(second).click();
+      release({ ok: true });
+      await vi.waitFor(() => expect(window.startWorkoutSession).toHaveBeenCalledTimes(1));
+      expect(setVariantPosts(window).map(([, , b]) => b.variant_id)).toEqual([12]);
     });
 
     it('Start this day posts set-variant once with the plan\'s own session id, then starts it', async () => {

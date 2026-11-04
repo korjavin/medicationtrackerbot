@@ -183,6 +183,8 @@ function _planWithNextDay(prev, planId, dayId) {
     };
 }
 
+let _planDayStartPending = false; // module-state: one Start this day write at a time, across day pages (Back + reopen)
+
 function openWorkoutPlanDayPage(plan, day) {
     if (!plan || !day || !window.WGPage || document.querySelector('.wg-page[data-plan-day-page]')) return null;
     const doc = document;
@@ -219,10 +221,9 @@ function openWorkoutPlanDayPage(plan, day) {
         if (d) openWorkoutDayPage(d, renderWorkoutPlanBody);
     }
 
-    let busy = false; // one set-variant write per page at a time
     async function startPlanDay(btn, fresh) {
-        if (busy) return;
-        busy = true;
+        if (_planDayStartPending) return;
+        _planDayStartPending = true;
         btn.disabled = true;
         try {
             // The plan's OWN next session: set-variant refuses a day of another plan.
@@ -250,7 +251,7 @@ function openWorkoutPlanDayPage(plan, day) {
             page.close();
             await startWorkoutSession(sid);
         } finally {
-            busy = false;
+            _planDayStartPending = false;
             btn.disabled = false;
         }
     }
@@ -271,7 +272,12 @@ function openWorkoutPlanDayPage(plan, day) {
             const row = _planRow(doc, {
                 title: name,
                 meta: target,
-                onClick: () => window.WorkoutExerciseDetail && window.WorkoutExerciseDetail.open(name),
+                onClick: () => {
+                    // The exercise's history page, pushed over this one.
+                    const detail = _planEl(doc, 'div');
+                    window.WGPage.push({ title: name, back: day.name || 'Day', body: detail });
+                    window.WorkoutExerciseDetail.open(name, detail);
+                },
             });
             // Targets paint first; each "last" lands on its own read.
             reads.push(Promise.resolve(apiCall(`/api/workout/exercises/history?name=${encodeURIComponent(name)}&limit=1`))
