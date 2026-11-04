@@ -28,7 +28,7 @@ describe('features/workout/groups.js — split-file integration', () => {
   it('exposes the WorkoutGroups public-API namespace + WorkoutEdit accessors', () => {
     const { window } = env;
     expect(window.WorkoutGroups).toBeTypeOf('object');
-    for (const k of ['load', 'save', 'openAdd', 'openEdit', 'close', 'addDay', 'addFlatExercise', 'share', 'printOpen', 'scanOpen', 'deleteOpen']) {
+    for (const k of ['load', 'save', 'openAdd', 'openEdit', 'close', 'addDay', 'addFlatExercise', 'share', 'scan', 'openShareSheet', 'deleteOpen']) {
       expect(window.WorkoutGroups[k]).toBeTypeOf('function');
     }
     expect(window.WorkoutEdit).toBeTypeOf('object');
@@ -127,7 +127,7 @@ describe('features/workout/groups.js — split-file integration', () => {
       document.getElementById('workout-exercise-reps-min').value = String(repsMin);
     }
 
-    it('the Plans tab lists kit rows with no action strip; a tap opens the Plan page', async () => {
+    it('the Plans tab lists kit rows (More: Edit, Share or print); a tap opens the Plan page', async () => {
       const { window, document } = env;
       backend(window, { groups: [PLAN], variants: VARIANTS, exercises: EXERCISES });
       const container = document.getElementById('workout-groups-list');
@@ -136,6 +136,7 @@ describe('features/workout/groups.js — split-file integration', () => {
       const rows = container.querySelectorAll('.wg-workout-plan-row');
       expect(rows).toHaveLength(2);
       expect(container.querySelectorAll('button[aria-label="Print plan"], button[aria-label="Scan filled sheet"]')).toHaveLength(0);
+      expect(Array.from(rows[0].querySelectorAll('.wg-menu__item')).map((b) => b.textContent)).toEqual(['Edit', 'Share or print']);
       expect(rows[0].textContent).toContain('Rotating');
       expect(rows[1].textContent).toContain('Inactive');
 
@@ -401,46 +402,92 @@ describe('features/workout/groups.js — split-file integration', () => {
       expect(window.WorkoutEdit.planDraft).toBeNull();
     });
 
-    it('a saved plan carries Share / Print / Scan / Delete rows on its page', async () => {
+    it('a saved plan\'s page ends with Delete only; its day rows read the count only (PL3)', async () => {
       const { window, document } = env;
-      await openSaved(window);
-      expect(document.getElementById('workout-group-tools').hidden).toBe(false);
-
-      const printSpy = vi.fn();
-      window.WorkoutGroups.print = printSpy;
-      document.getElementById('workout-group-print-btn').click();
-      expect(printSpy).toHaveBeenCalledTimes(1);
-      expect(printSpy.mock.calls[0][0].id).toBe(5);
-
-      const scanSpy = vi.fn();
-      window.WorkoutScan.scan = scanSpy;
-      window.renderWorkoutPlanBody();
-      expect(document.getElementById('workout-group-scan-btn').hidden).toBe(false);
-      document.getElementById('workout-group-scan-btn').click();
-      expect(scanSpy).toHaveBeenCalledTimes(1);
-      expect(scanSpy.mock.calls[0][0].id).toBe(5);
-
-      const shareSpy = vi.fn();
-      window.WorkoutShare.share = shareSpy;
-      document.getElementById('workout-group-share-btn').click();
-      expect(shareSpy).toHaveBeenCalledTimes(1);
-      expect(shareSpy.mock.calls[0][0].id).toBe(5);
-
-      // Without the WorkoutScan seam the Scan row is hidden.
-      const kept = window.WorkoutScan;
-      delete window.WorkoutScan;
-      try {
-        window.renderWorkoutPlanBody();
-        expect(document.getElementById('workout-group-scan-btn').hidden).toBe(true);
-      } finally {
-        window.WorkoutScan = kept;
-      }
+      await openSaved(window, { variants: [{ ...VARIANTS[0], description: 'Chest and shoulders' }, VARIANTS[1]] });
+      const tools = document.getElementById('workout-group-tools');
+      expect(tools.hidden).toBe(false);
+      expect(Array.from(tools.querySelectorAll('button')).map((b) => b.id)).toEqual(['workout-group-delete-btn']);
+      expect(topPage(document).textContent).not.toMatch(/Share plan|Print a sheet|Print plan sheet|Scan a filled sheet|Scan filled sheet/);
+      const metas = Array.from(document.querySelectorAll('#workout-variants-list .wg-workout-day-row .wg-row__meta')).map((m) => m.textContent);
+      expect(metas).toEqual(['2 exercises', '1 exercise']);
 
       window.safeConfirm = vi.fn(async () => true);
       const writes = window.apiCall.mock.calls;
       document.getElementById('workout-group-delete-btn').click();
       await vi.waitFor(() => expect(writes.some(([u, m]) => m === 'DELETE' && u.startsWith('/api/workout/groups/delete'))).toBe(true));
       expect(window.WorkoutEdit.planDraft).toBeNull();
+    });
+
+    // PL6: the Plans row's More menu opens "Share or print"; each row closes
+    // the sheet and runs the existing flow for that plan.
+    it('Share or print (PL6) lists Share / Print / Scan and runs each flow with the plan', async () => {
+      const { window, document } = env;
+      backend(window, { groups: [PLAN], variants: VARIANTS, exercises: EXERCISES });
+      const container = document.getElementById('workout-groups-list');
+      window._renderWorkoutGroups(container, [PLAN]);
+      const row = container.querySelector('.wg-workout-plan-row');
+      const item = Array.from(row.querySelectorAll('.wg-menu__item')).find((b) => b.textContent === 'Share or print');
+      expect(item).toBeTruthy();
+
+      const printSpy = vi.fn();
+      const scanSpy = vi.fn();
+      const shareSpy = vi.fn();
+      window.WorkoutGroups.print = printSpy;
+      window.WorkoutScan.scan = scanSpy;
+      window.WorkoutShare.share = shareSpy;
+
+      const open = () => {
+        item.click();
+        const sheet = document.getElementById('workout-plan-share-sheet');
+        expect(sheet.classList.contains('hidden')).toBe(false);
+        return sheet;
+      };
+      const rowOf = (sheet, id) => sheet.querySelector(`[data-plan-share="${id}"]`);
+
+      let sheet = open();
+      expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('PPL');
+      expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('Share or print');
+      expect(Array.from(sheet.querySelectorAll('.wg-row')).map((r) => [r.querySelector('.wg-row__title').textContent, r.querySelector('.wg-row__meta').textContent])).toEqual([
+        ['Share plan', 'Link or QR · expires in 30 days'],
+        ['Print a sheet', 'Days, exercises and weights on paper'],
+        ['Scan a filled sheet', 'Log a workout from the paper'],
+      ]);
+      expect(rowOf(sheet, 'share').classList.contains('wg-cloud-only')).toBe(true);
+      expect(rowOf(sheet, 'scan').hidden).toBe(false);
+
+      rowOf(sheet, 'print').click();
+      expect(sheet.classList.contains('hidden')).toBe(true);
+      expect(printSpy).toHaveBeenCalledTimes(1);
+      expect(printSpy.mock.calls[0][0]).toBe(PLAN);
+
+      sheet = open();
+      rowOf(sheet, 'scan').click();
+      expect(sheet.classList.contains('hidden')).toBe(true);
+      expect(scanSpy).toHaveBeenCalledTimes(1);
+      expect(scanSpy.mock.calls[0][0].id).toBe(5);
+
+      sheet = open();
+      rowOf(sheet, 'share').click();
+      expect(sheet.classList.contains('hidden')).toBe(true);
+      expect(shareSpy).toHaveBeenCalledTimes(1);
+      expect(shareSpy.mock.calls[0][0].id).toBe(5);
+
+      // A partial plan entry (the .2 card) resolves to the cached group.
+      window.WorkoutEdit.cachedGroups = [PLAN];
+      window.openPlanShareSheet({ id: 5, name: 'PPL' });
+      rowOf(document.getElementById('workout-plan-share-sheet'), 'print').click();
+      expect(printSpy.mock.calls[1][0]).toBe(PLAN);
+
+      // Without the WorkoutScan seam the Scan row is hidden.
+      const kept = window.WorkoutScan;
+      delete window.WorkoutScan;
+      try {
+        sheet = open();
+        expect(rowOf(sheet, 'scan').hidden).toBe(true);
+      } finally {
+        window.WorkoutScan = kept;
+      }
     });
   });
 });

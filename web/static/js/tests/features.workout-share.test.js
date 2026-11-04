@@ -108,23 +108,22 @@ describe('features/workout/share.js — Share icon + modal (med-uo64.2)', () => 
     env = null;
   });
 
-  it('a saved plan\'s page lists Share first in its tools rows; it calls WorkoutShare.share with that plan', async () => {
+  it('the Share or print sheet (PL6) lists Share first; it calls WorkoutShare.share with that plan', async () => {
     const { window, document } = env;
-    window.apiCall = vi.fn(async (url) => (url.startsWith('/api/workout/variants?') ? [] : null));
     window.WorkoutEdit.cachedGroups = [GROUP];
-    await window.openWorkoutPlanPage(5);
-
-    // The Plans tab row carries no action strip any more (med-xso6.22).
     window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [GROUP]);
-    expect(document.querySelectorAll('#workout-groups-list button[aria-label="Share plan"]')).toHaveLength(0);
+    const item = Array.from(document.querySelectorAll('#workout-groups-list .wg-menu__item'))
+      .find((b) => b.textContent === 'Share or print');
+    item.click();
 
-    const tools = document.getElementById('workout-group-tools');
-    expect(tools.hidden).toBe(false);
-    expect(tools.querySelector('button').id).toBe('workout-group-share-btn');
+    const sheet = document.getElementById('workout-plan-share-sheet');
+    const first = sheet.querySelector('.wg-list > .wg-row');
+    expect(first.dataset.planShare).toBe('share');
+    expect(first.classList.contains('wg-cloud-only')).toBe(true);
 
     const shareSpy = vi.fn();
     window.WorkoutShare.share = shareSpy;
-    document.getElementById('workout-group-share-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    first.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 
     expect(shareSpy).toHaveBeenCalledTimes(1);
     expect(shareSpy.mock.calls[0][0].id).toBe(5);
@@ -351,7 +350,7 @@ describe('features/workout/share.js — import receive path (med-uo64.3)', () =>
 
     await window.WorkoutShare.receive('workout-plan:1:7');
 
-    expect(toastSpy).toHaveBeenCalledWith("That's a printed sheet code — use Scan filled sheet.", 'info');
+    expect(toastSpy).toHaveBeenCalledWith("That's a printed sheet code — use Scan a filled sheet.", 'info');
     expect(window.safeConfirm).not.toHaveBeenCalled();
     expect(window.apiCall).not.toHaveBeenCalled();
   });

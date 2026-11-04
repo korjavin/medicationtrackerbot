@@ -135,11 +135,11 @@ function _workoutIcon(doc, name, extraClass) {
     return ico;
 }
 
-// One plan = one tappable kit row; a tap opens the Plan page, where Share /
-// Print / Scan / Delete live (no per-row action strip).
+// One plan = one tappable kit row; a tap opens the Plan page (editor, Delete
+// at its end). Its More menu / swipe carry "Share or print" (PL6) until the
+// plan card (med-jqrf.2) puts that button on the card.
 function _buildWorkoutGroupRow(doc, group) {
-    const row = doc.createElement('button');
-    row.type = 'button';
+    const row = doc.createElement('div');
     row.className = 'wg-row wg-workout-plan-row';
     row.dataset.groupId = String(group.id || '');
 
@@ -173,10 +173,14 @@ function _buildWorkoutGroupRow(doc, group) {
     if (!group.active) {
         row.appendChild(window.WGChip.create({ text: 'Inactive', state: 'stale', small: true }));
     }
-    row.appendChild(_workoutIcon(doc, 'chev-r', 'wg-row__chev'));
-
-    row.addEventListener('click', () => { openWorkoutPlanPage(group.id); });
-    return row;
+    const shareOrPrint = { label: 'Share or print', icon: 'qr', onClick: () => openPlanShareSheet(group) };
+    return window.WGRowActions.attach(row, {
+        label: group.name || 'Plan',
+        tapEdits: true,
+        onEdit: () => openWorkoutPlanPage(group.id),
+        extra: [shareOrPrint],
+        swipe: [shareOrPrint],
+    });
 }
 
 // ====================================
@@ -414,8 +418,6 @@ function renderWorkoutPlanBody() {
     }
     const tools = document.getElementById('workout-group-tools');
     if (tools) tools.hidden = draft.groupId == null;
-    const scan = document.getElementById('workout-group-scan-btn');
-    if (scan) scan.hidden = !(window.WorkoutScan && typeof window.WorkoutScan.scan === 'function');
 }
 
 function _renderPlanDays(draft) {
@@ -706,31 +708,95 @@ async function saveWorkoutGroup() {
     loadWorkoutGroups();
 }
 
-function _openPlanGroup() {
-    const draft = window.WorkoutEdit.planDraft;
-    if (!draft || draft.groupId == null) return null;
-    return (window.WorkoutEdit.cachedGroups || []).find((g) => g.id === draft.groupId) || draft.group;
-}
-
-// Plan page bottom rows (saved plans only). Share / Scan open static modals,
-// raised above the page first.
-function shareOpenWorkoutPlan() {
-    const group = _openPlanGroup();
+// The Share or print sheet's flows (PL6). Share / Scan open static modals,
+// raised above whatever is open first.
+function openWorkoutPlanShare(group) {
     if (!group) return;
     _raiseWorkoutModal('workout-share-modal');
     window.WorkoutShare.share(group);
 }
 
-function printOpenWorkoutPlan() {
-    const group = _openPlanGroup();
-    if (group) window.WorkoutGroups.print(group);
-}
-
-function scanOpenWorkoutPlan() {
-    const group = _openPlanGroup();
+function openWorkoutPlanScan(group) {
     if (!group || !window.WorkoutScan || typeof window.WorkoutScan.scan !== 'function') return;
     _raiseWorkoutModal('workout-scan-modal');
     window.WorkoutScan.scan(group);
+}
+
+const PLAN_SHARE_SHEET_ID = 'workout-plan-share-sheet';
+
+function _closePlanShareSheet() {
+    const mm = window.ModalManager;
+    if (mm && typeof mm.close === 'function') mm.close(PLAN_SHARE_SHEET_ID);
+    else {
+        const node = document.getElementById(PLAN_SHARE_SHEET_ID);
+        if (node) node.classList.add('hidden');
+    }
+}
+
+function _planShareRow(doc, id, icon, title, meta, onClick) {
+    const row = doc.createElement('button');
+    row.type = 'button';
+    row.className = 'wg-row';
+    row.dataset.planShare = id;
+    const lead = doc.createElement('span');
+    lead.className = 'wg-row__lead';
+    lead.appendChild(_workoutIcon(doc, icon));
+    const body = doc.createElement('span');
+    body.className = 'wg-row__body';
+    const t = doc.createElement('span');
+    t.className = 'wg-row__title';
+    t.textContent = title;
+    const m = doc.createElement('span');
+    m.className = 'wg-row__meta';
+    m.textContent = meta;
+    body.append(t, m);
+    row.append(lead, body, _workoutIcon(doc, 'chev-r', 'wg-row__chev'));
+    // A tap closes the sheet first; the flow's own modal opens above.
+    row.addEventListener('click', () => { _closePlanShareSheet(); onClick(); });
+    return row;
+}
+
+// PL6 "Share or print": the plan's three outward actions in one sheet (the
+// WN7 sheet chrome). `group` may be a partial plan entry; the full cached
+// group is used when there is one, since share/print/scan read its fields.
+function openPlanShareSheet(group) {
+    if (!group || group.id == null) return;
+    const full = (window.WorkoutEdit.cachedGroups || []).find((g) => g.id === group.id) || group;
+    const doc = document;
+    let sheet = doc.getElementById(PLAN_SHARE_SHEET_ID);
+    if (!sheet) {
+        sheet = doc.createElement('mt-modal');
+        sheet.id = PLAN_SHARE_SHEET_ID;
+        sheet.className = 'hidden wg-modal wg-sheet';
+        sheet.setAttribute('aria-label', 'Share or print');
+        doc.body.appendChild(sheet);
+    }
+    const head = window.WGSheet.header({
+        eyebrow: full.name || 'Plan',
+        title: 'Share or print',
+        actions: [{ label: 'Close', icon: 'x' }],
+    });
+    head.buttons[0].addEventListener('click', _closePlanShareSheet);
+    const list = doc.createElement('div');
+    list.className = 'wg-list';
+    const share = _planShareRow(doc, 'share', 'qr', 'Share plan', 'Link or QR · expires in 30 days', () => openWorkoutPlanShare(full));
+    share.classList.add('wg-cloud-only');
+    const scan = _planShareRow(doc, 'scan', 'camera', 'Scan a filled sheet', 'Log a workout from the paper', () => openWorkoutPlanScan(full));
+    scan.hidden = !(window.WorkoutScan && typeof window.WorkoutScan.scan === 'function');
+    list.append(
+        share,
+        _planShareRow(doc, 'print', 'print', 'Print a sheet', 'Days, exercises and weights on paper', () => window.WorkoutGroups.print(full)),
+        scan,
+    );
+    const body = doc.createElement('div');
+    body.className = 'wg-sheet__body';
+    body.appendChild(list);
+    const grab = doc.createElement('div');
+    grab.className = 'wg-sheet__grab';
+    sheet.replaceChildren(grab, head.el, body);
+    const mm = window.ModalManager;
+    if (mm && typeof mm.open === 'function') mm.open(PLAN_SHARE_SHEET_ID);
+    else sheet.classList.remove('hidden');
 }
 
 async function deleteOpenWorkoutPlan() {
@@ -1373,9 +1439,9 @@ window.WorkoutGroups = {
     addDay: addWorkoutPlanDay,
     addFlatExercise: addWorkoutFlatExercise,
     render: renderWorkoutPlanBody,
-    share: shareOpenWorkoutPlan,
-    printOpen: printOpenWorkoutPlan,
-    scanOpen: scanOpenWorkoutPlan,
+    share: openWorkoutPlanShare,
+    scan: openWorkoutPlanScan,
+    openShareSheet: openPlanShareSheet,
     deleteOpen: deleteOpenWorkoutPlan,
     chooseNotification: chooseWorkoutNotification,
     print: printWorkoutPlan,
