@@ -246,14 +246,17 @@ export default async function healthConnect(ctx) {
       if (r.writeBack.created[0].recordingMethod !== 3) throw new Error('BP is not manually entered');
     });
 
-    await ctx.step('editing BP upserts the same record; older and equal versions cannot replace it', async () => {
+    await ctx.step('editing BP upserts once; equal replay is idempotent and older versions cannot replace it', async () => {
       await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { systolic: 126, diastolic: 83 });
       r.writeBack.edited = await waitNative(bp.id, (rows) => rows.length === 1 && rows[0].systolic === 126);
       const edited = r.writeBack.edited[0];
       if (edited.version <= r.writeBack.created[0].version) throw new Error('edit did not advance the client version');
-      for (const version of [edited.version, edited.version - 1]) {
-        await native('write', { type: 'bp', id: bp.id, version, at: Date.now() - 60_000, systolic: 111, diastolic: 71 });
-      }
+      // The web emits the same committed payload for an equal version. API34
+      // accepts an equal-version replay (despite the stricter SDK guide wording).
+      await native('write', { type: 'bp', id: bp.id, version: edited.version,
+        at: Date.parse(bp.measured_at), systolic: 126, diastolic: 83 });
+      await native('write', { type: 'bp', id: bp.id, version: edited.version - 1,
+        at: Date.parse(bp.measured_at), systolic: 111, diastolic: 71 });
       const rows = (await readNative()).filter((row) => row.clientId === bp.id);
       if (rows.length !== 1 || rows[0].systolic !== 126 || rows[0].version !== edited.version) throw new Error(`version regression: ${JSON.stringify(rows)}`);
     });

@@ -558,7 +558,8 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?}`
   inserts a manually entered BP/weight with `clientRecordId = id` (vault id)
   and `clientRecordVersion = version` (committed clientTs). Health Connect
-  upserts only a higher version; equal/older versions do not replace it.
+  upserts a higher version and ignores an older one. Android 14 also accepts
+  equal-version replays, so each committed version carries the same values.
   `health.delete {type, id}` deletes by our package's client identity only;
   an unknown id is a successful no-op. A Health Connect UUID from an imported
   reading is never used as a deletion target. Both write/delete reject

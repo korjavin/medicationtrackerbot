@@ -164,8 +164,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         requireWrite(kind)
         val record = writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
             args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"))
-        // Health Connect upserts only a higher clientRecordVersion; equal or
-        // older versions leave the existing record alone (write-data docs).
+        // Older clientRecordVersions cannot replace a newer record. Android 14
+        // accepts equal-version replays: a committed version must keep its payload.
         client.insertRecords(listOf(record))
         return true
     }
