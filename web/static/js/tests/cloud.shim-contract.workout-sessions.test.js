@@ -198,6 +198,103 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(details.session.variant_id).toBe(variants[1].id);
     });
 
+    // med-soo0.1: "Other plan day" picks any day, not just the circular next.
+    it('set-variant jumps the cursor to the picked day and replaces the slot in place', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push', 'Pull', 'Legs']);
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: first.session.id, exercise_id: 1, exercise_name: 'Bench', source: 'schedule',
+            target_sets: 3, target_reps_min: 8, status: 'completed'
+        });
+        await window.apiCall(`/api/workout/sessions/${first.session.id}/snooze`, 'POST', { minutes: 60 });
+        fetchMock.mockClear();
+
+        await window.apiCall(`/api/workout/sessions/${first.session.id}/set-variant`, 'POST', { variant_id: variants[2].id });
+
+        const next = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(next.session.id).toBe(first.session.id);
+        expect(next.variant_id).toBe(variants[2].id);
+        expect(next.variant_name).toBe('Legs');
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');
+        expect(details.session.status).toBe('pending');
+        expect(details.session.snoozed_until).toBeFalsy();
+        expect(details.logs).toEqual([]);
+        // Same reminder handling as next-variant: no cancel, the chain stays.
+        expect(fetchMock.mock.calls.filter(([url]) => url === '/api/telegram/cancel-refire')).toEqual([]);
+        // The cursor really moved: a skip now advances from Legs (circular) to Push.
+        await window.apiCall(`/api/workout/sessions/${first.session.id}/skip`, 'POST');
+        expect((await window.apiCallDirect('/api/workout/sessions/next')).variant_id).toBe(variants[0].id);
+    });
+
+    it('set-variant on a fresh plan\'s current day (no rotation row yet) leaves snooze and logs alone', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: first.session.id, exercise_id: 1, exercise_name: 'Bench', source: 'schedule',
+            target_sets: 3, target_reps_min: 8, status: 'completed'
+        });
+        await window.apiCall(`/api/workout/sessions/${first.session.id}/snooze`, 'POST', { minutes: 60 });
+        const before = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');
+
+        await window.apiCall(`/api/workout/sessions/${first.session.id}/set-variant`, 'POST', { variant_id: variants[0].id });
+
+        const after = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');
+        expect(after.session.snoozed_until).toBe(before.session.snoozed_until);
+        expect(after.session.snoozed_until).toBeTruthy();
+        expect(after.logs).toHaveLength(1);
+    });
+
+    it('set-variant rejects another group\'s day, a flat group and an active session', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
+        const other = await makeRotatingGroup(window, ['Legs'], '23:58');
+        const flat = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Flat', is_rotating: false, days_of_week: EVERY_DAY, scheduled_time: '23:57'
+        });
+        const flatVariant = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: flat.id, name: 'Full body' });
+        const flatNext = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(flatNext.group_id).toBe(flat.id);
+        expect(flatNext.plan).toBeNull();
+
+        await expect(window.apiCall(`/api/workout/sessions/${flatNext.session.id}/set-variant`, 'POST', { variant_id: flatVariant.id }))
+            .rejects.toThrow(/rotation/);
+        await window.apiCall(`/api/workout/sessions/${flatNext.session.id}/skip`, 'POST');
+        const legsSlot = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(legsSlot.group_id).toBe(other.group.id);
+        await expect(window.apiCall(`/api/workout/sessions/${legsSlot.session.id}/set-variant`, 'POST', { variant_id: variants[1].id }))
+            .rejects.toThrow(/belong/);
+        await window.apiCall(`/api/workout/sessions/${legsSlot.session.id}/start`, 'POST');
+        await expect(window.apiCall(`/api/workout/sessions/${legsSlot.session.id}/set-variant`, 'POST', { variant_id: other.variants[0].id }))
+            .rejects.toThrow(/active or completed/);
+    });
+
+    it('getNext carries the plan position, the day list and the first exercise names', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push', 'Pull', 'Legs']);
+        for (const [i, name] of ['Bench', 'Dips', 'Fly', 'Pushdown'].entries()) {
+            await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: name, target_sets: 3, target_reps_min: 8, order_index: i
+            });
+        }
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(first.exercise_names).toEqual(['Bench', 'Dips', 'Fly']);
+        expect(first.plan).toMatchObject({ position: 1, total: 3, next_variant_name: 'Pull' });
+        expect(first.plan.days.map((d) => [d.name, d.exercises_count, d.last_completed_date, d.is_current])).toEqual([
+            ['Push', 4, null, true], ['Pull', 0, null, false], ['Legs', 0, null, false]
+        ]);
+        // Legacy fields untouched — the old card still renders.
+        expect(first).toMatchObject({ variant_name: 'Push', exercises_count: 4, is_rotating: true });
+
+        await window.apiCall(`/api/workout/sessions/status?id=${first.session.id}`, 'PUT', { status: 'completed' });
+        const next = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(next.plan).toMatchObject({ position: 2, total: 3, next_variant_name: 'Legs' });
+        expect(next.plan.days[0].last_completed_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(next.plan.days[1].is_current).toBe(true);
+        expect(next.exercise_names).toEqual([]);
+    });
+
     it('preskip/cancel-preskip round-trip the session status without touching rotation', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
@@ -2353,6 +2450,33 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
         expect(next.variant_id).toBe(2);
         expect(next.variant_name).toBe('Push');
         expect(next.exercises_count).toBe(1);
+    });
+
+    it('setVariant re-points the untouched future pending at the floor; the cursor and slot stay now()', async () => {
+        const records = seed({
+            sessions: [session(WEDNESDAY, 'pending', { id: 901 }), session(FRIDAY, 'pending')],
+            currentVariantId: 2
+        });
+
+        await domainOver(records).setVariant(901, 1);
+
+        expect((await records.list('workoutrotation'))[0]).toMatchObject({ current_variant_id: 1, clientTs: NOW });
+        const wed = (await records.list('workoutsession')).find((s) => s.id === 901);
+        expect(wed).toMatchObject({ variant_id: 1, clientTs: NOW });
+        // Friday was on variant 1 already: the sweep leaves it alone.
+        expect(await storedFriday(records)).toMatchObject({ variant_id: 1, clientTs: 0 });
+
+        await domainOver(records).setVariant(901, 2);
+        expect(await storedFriday(records)).toMatchObject({ variant_id: 2, clientTs: 0 });
+    });
+
+    it('setVariant on the current day writes nothing', async () => {
+        const records = seed({ sessions: [session(WEDNESDAY, 'pending', { id: 901 })] });
+        const put = vi.spyOn(records, 'put');
+
+        await domainOver(records).setVariant(901, 1);
+
+        expect(put).not.toHaveBeenCalled();
     });
 
     it('re-points on a skip-driven advance too', async () => {

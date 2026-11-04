@@ -1613,7 +1613,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let currentIndex = variants.findIndex((v) => v.id === state.current_variant_id);
     if (currentIndex === -1) currentIndex = 0;
     const nextVariantId = variants[(currentIndex + 1) % variants.length].id;
+    await moveRotation(groupId, nextVariantId);
+    return nextVariantId;
+  }
 
+  // moveRotation puts the group's cursor on variantId (a user action: now())
+  // and re-points the untouched future pendings at the derived floor. Shared by
+  // advanceRotation (circular next) and setVariant (a picked plan day).
+  async function moveRotation(groupId, nextVariantId) {
     const nowMs = now();
     await records.put(WORKOUT_RECORD_TYPES.ROTATION, {
       recordId: rotationRecordId(groupId),
@@ -1663,7 +1670,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if ((await countSessionExerciseLogs(s.id)) > 0) continue;
       await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: 0 });
     }
-    return nextVariantId;
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
@@ -2291,6 +2297,32 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // snooze, notes, exercise_snapshot), matching the body the re-materialization
   // used to hand back.
   async function nextVariant(id) {
+    const { session, group } = await swappableSlot(id);
+    await replaceSlotVariant(session, group, () => advanceRotation(group.id));
+  }
+
+  // setVariant is nextVariant with a picked plan day instead of the circular
+  // next (the "Other plan day" sheet, WN7): same guards, same cascade, same
+  // in-place slot replacement; the cursor jumps to variantId.
+  async function setVariant(id, variantId) {
+    const { session, group } = await swappableSlot(id);
+    const vid = Number(variantId);
+    const variant = Number.isInteger(vid) && vid > 0
+      ? await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, vid)
+      : null;
+    if (!variant || variant.group_id !== group.id) {
+      throw invalidRequest('variant does not belong to the session\'s group', 'invalid_request');
+    }
+    // Already on it (slot and the EFFECTIVE cursor agree — a fresh plan has no
+    // rotation row yet and getNext falls back to the first day): nothing to write.
+    if (session.variant_id === vid && (await resolveVariantId(group)) === vid) return;
+    await replaceSlotVariant(session, group, async () => {
+      await moveRotation(group.id, vid);
+      return vid;
+    });
+  }
+
+  async function swappableSlot(id) {
     const session = await findSession(id);
     if (!session) throw invalidRequest('session not found', 'not_found');
     if (session.status === 'in_progress' || session.status === 'completed' || session.status === 'skipped') {
@@ -2299,7 +2331,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, session.group_id);
     if (!group) throw invalidRequest('workout group not found', 'not_found');
     if (!group.is_rotating) throw invalidRequest('workout group does not use rotation', 'invalid_request');
+    return { session, group };
+  }
 
+  // moveCursor advances/moves the rotation and returns the slot's new variant.
+  async function replaceSlotVariant(session, group, moveCursor) {
+    const id = session.id;
     // Cascade the session's exercise logs, matching Go's DeleteSession
     // (repo.go:1029) — FK cascade is disabled, and they were planned against the
     // variant being swapped out, so leaving them would show the old workout's
@@ -2312,7 +2349,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // lands after it and wins, so the order is safe either way. The doubled
     // local write costs no extra oplog op — 'pending' is keyed by recordId, so
     // the flush sends the final body once.
-    const nextVariantId = await advanceRotation(group.id);
+    const nextVariantId = await moveCursor();
     await records.put(WORKOUT_RECORD_TYPES.SESSION, {
       ...session,
       variant_id: nextVariantId,
@@ -2664,6 +2701,44 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       variant_id: session.variant_id,
       group_id: session.group_id,
       is_rotating: !!(group && group.is_rotating),
+      ...(await nextCardPlan(group, session.variant_id, exercises)),
+    };
+  }
+
+  // nextCardPlan adds what the Up next card renders beyond the legacy fields
+  // (med-soo0.1): the first three planned exercise names and, for a rotating
+  // group, where the shown day sits in the plan plus every day for the
+  // "Other plan day" sheet (WN7). Days come in listVariants order.
+  async function nextCardPlan(group, variantId, exercises) {
+    const exercise_names = exercises.slice(0, 3).map((e) => e.exercise_name);
+    if (!group || !group.is_rotating) return { plan: null, exercise_names };
+
+    const days = await listVariants(group.id);
+    const countByVariant = new Map();
+    for (const e of await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE)) {
+      countByVariant.set(e.variant_id, (countByVariant.get(e.variant_id) || 0) + 1);
+    }
+    const lastDone = new Map();
+    for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
+      if (s.status !== 'completed') continue;
+      const d = localDateStr(new Date(s.completed_at || s.scheduled_date).getTime(), timeZone);
+      if (!(lastDone.get(s.variant_id) >= d)) lastDone.set(s.variant_id, d);
+    }
+    const idx = days.findIndex((v) => v.id === variantId);
+    return {
+      plan: {
+        position: idx >= 0 ? idx + 1 : null,
+        total: days.length,
+        next_variant_name: idx >= 0 ? days[(idx + 1) % days.length].name : null,
+        days: days.map((v) => ({
+          id: v.id,
+          name: v.name,
+          exercises_count: countByVariant.get(v.id) || 0,
+          last_completed_date: lastDone.get(v.id) || null,
+          is_current: v.id === variantId,
+        })),
+      },
+      exercise_names,
     };
   }
 
@@ -2790,6 +2865,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
             dateStr,
             scheduledTime: group.scheduled_time,
             exercisesCount: exercises.length,
+            exercises,
+            group,
             status,
             isRotating: !!group.is_rotating,
           };
@@ -2872,6 +2949,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       variant_id: best.variantId,
       group_id: best.groupId,
       is_rotating: best.isRotating,
+      ...(await nextCardPlan(best.group, best.variantId, best.exercises)),
     };
   }
 
@@ -4028,6 +4106,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     setSessionStatus,
     setSessionLocation,
     nextVariant,
+    setVariant,
     createLog,
     updateLog,
     deleteLog,

@@ -1410,7 +1410,7 @@ export function createApiRouter(ctx, {
       return { session, group_name: 'Ad-hoc Workout', variant_name: '' };
     }
     if (method === 'POST') {
-      const m = /^\/api\/workout\/sessions\/([^/]+)\/(start|snooze|skip|preskip|cancel-preskip|next-variant)$/.exec(path);
+      const m = /^\/api\/workout\/sessions\/([^/]+)\/(start|snooze|skip|preskip|cancel-preskip|next-variant|set-variant)$/.exec(path);
       if (m) {
         const id = Number(m[1]);
         const action = m[2];
@@ -1420,7 +1420,7 @@ export function createApiRouter(ctx, {
         // change (next-variant replaces the slot in place, keeping its recordId
         // and numeric id — bd med-8j12, bd med-qhpu). snooze
         // (the chain re-fires on purpose), cancel-preskip (back to pending) and
-        // next-variant (same slot, new variant) deliberately keep it.
+        // next-variant/set-variant (same slot, new variant) deliberately keep it.
         //
         // startSession may re-key onto TODAY's slot when the tapped session is a
         // future one (med-gmyf), so the stem cancelled here is the tapped day's,
@@ -1438,6 +1438,7 @@ export function createApiRouter(ctx, {
         else if (action === 'skip') await workout.skipSession(id);
         else if (action === 'preskip') await workout.preSkipSession(id);
         else if (action === 'cancel-preskip') await workout.cancelPreSkipSession(id);
+        else if (action === 'set-variant') await workout.setVariant(id, body && body.variant_id);
         else await workout.nextVariant(id);
         if (details) cancelReminderRefire(workoutReminderStem(details.session));
         // start/snooze/skip change the session's status, which the horizon uses
