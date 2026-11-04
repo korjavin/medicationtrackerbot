@@ -1101,12 +1101,50 @@ describe('Apple Health import', () => {
             expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(null);
         });
 
-        it('the first settled version of a night wins; a fuller one later is not applied', async () => {
+        // bd med-y1gh: trackers write a partial session first, the whole night later.
+        it('the first settled version wins; a fuller one later replaces it', async () => {
             const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
             expect(await at.importSamples('sleep', night.slice(0, 1), window)).toMatchObject({ added: 1 });
-            expect(await at.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
             expect(records.rows.get(DAY_ID)).toMatchObject({ clientTs: 0, total_minutes: 120 });
+            expect(await at.importSamples('sleep', night, window)).toMatchObject({ added: 1, skip: { exists: 0 } });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ clientTs: W0, total_minutes: 470, user_modified: false });
+            // A tie keeps the row, clientTs included; so does a thinner copy.
+            const later = createHealthImportDomain({ records, now: () => W0 + H, timeZone: 'UTC' });
+            expect(await later.importSamples('sleep', night, window)).toMatchObject({ added: 0, skip: { exists: 1 } });
+            expect(await later.importSamples('sleep', night.slice(0, 1), window)).toMatchObject({ added: 0, skip: { exists: 1 } });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ clientTs: W0, total_minutes: 470 });
+        });
+
+        it('Developer\'s night: a short session then the full one ends as the union, in both orders', async () => {
+            const T = (hm) => Date.parse(`2026-10-02T${hm}:00Z`);
+            const short = slp(30, T('02:41'), T('05:33'), 1, 'com.tracker', 'UTC');
+            const full = slp(31, T('02:45'), T('09:52'), 1, 'com.tracker', 'UTC');
+            const window = { from: T('02:41') - 48 * H, to: T('09:52') + 48 * H };
+            for (const first of [short, full]) {
+                const recs = memRecords();
+                const at = createHealthImportDomain({ records: recs, now: () => W0, timeZone: 'UTC' });
+                expect(await at.importSamples('sleep', [first], window)).toMatchObject({ added: 1 });
+                expect(await at.importSamples('sleep', [short, full], window)).toMatchObject({ added: 1 });
+                expect(recs.rows.get(DAY_ID)).toMatchObject({ total_minutes: 431, clientTs: W0 });
+            }
+        });
+
+        it('a day stuck short before the fix heals once on the next run, with no anchor reset', async () => {
+            // The anchors moved past the full night long ago; the vault holds its first 2h.
+            const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
+            await at.importSamples('sleep', night.slice(0, 1), { from: N0 - 48 * H, to: N0 + 60 * H });
+            storage.setItem('wg.health.anchors', JSON.stringify({ sleep: String(night.length), bp: '0' }));
+            const o = opts({ sleep: night });
+            expect(await runHealthImport({}, o)).toEqual({ added: 1 });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 470 });
+            expect(o.health.calls.find((c) => c.type === 'sleep')).toMatchObject({ from: W0 + 24 * H - 30 * 24 * H - 48 * H });
+            expect(JSON.parse(storage.getItem('wg.health.anchors'))).toMatchObject({ sleep: '6', bp: '0', sleepHeal: 1 });
+            expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(null);
+            // Once only: the next run reads no window.
+            const again = opts({ sleep: night });
+            expect(await runHealthImport({}, again)).toEqual({ added: 0 });
+            expect(again.health.calls.filter((c) => c.type === 'sleep' && Number.isFinite(c.from))).toEqual([]);
         });
 
         it('two sources\' copies of a night end as one row for the day', async () => {
@@ -1123,9 +1161,16 @@ describe('Apple Health import', () => {
             const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
             await at.importSamples('sleep', night, window);
-            await records.put('sleep', { ...records.rows.get(DAY_ID), clientTs: W0, notes: 'woke up twice' });
+            await records.put('sleep', { ...records.rows.get(DAY_ID), clientTs: W0, notes: 'woke up twice', user_modified: true });
             expect(await at.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
             expect(records.rows.get(DAY_ID)).toMatchObject({ notes: 'woke up twice', total_minutes: 470 });
+            // An edited day is never replaced, even by a fuller version.
+            const edited = memRecords();
+            const e = createHealthImportDomain({ records: edited, now: () => W0, timeZone: 'UTC' });
+            await e.importSamples('sleep', night.slice(0, 1), window);
+            await edited.put('sleep', { ...edited.rows.get(DAY_ID), clientTs: W0, user_modified: true });
+            expect(await e.importSamples('sleep', night, window)).toMatchObject({ added: 0, skip: { exists: 1 } });
+            expect(edited.rows.get(DAY_ID)).toMatchObject({ total_minutes: 120, user_modified: true });
             await records.del('sleep', DAY_ID);
             expect(await at.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
             expect(records.rows.get(DAY_ID).deleted).toBe(true);

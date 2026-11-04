@@ -1,0 +1,20 @@
+id: health-sleep-fuller-later
+title: Later fuller sleep data in Health replaces the imported sleep day
+platforms: [web, android, ios]
+preconditions:
+  - Health import on
+  - A tracker app that writes a short sleep session first and the full night hours later
+steps:
+  - Sleep; let the tracker sync its short session (e.g. 02:41-05:33) and open the app
+  - Later the tracker syncs the full session (e.g. 02:45-09:52); open the app again
+  - Open Today and the Vitals sleep view for that night
+  - Delete another imported sleep day in the app, then open the app again
+invariants:
+  - The sleep day shows the union of the sessions (here 7h11), not the short first one
+  - A sleep day already stuck short from before the fix heals on the next import without a rescan
+  - A sleep day deleted in the app stays deleted
+covered_by:
+  web: web/cloud/js/tests/health-import.test.js
+  android: manual
+  ios: manual
+source: [med-y1gh]

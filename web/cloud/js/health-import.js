@@ -48,6 +48,12 @@ const SLEEP_PAD_MS = 48 * 3600 * 1000;
 // the pending night; it is dropped only past this age.
 // ponytail: fixed 7-day cap, a night whose access stays revoked longer is lost.
 const SLEEP_PENDING_CAP_MS = 7 * 24 * 3600 * 1000;
+// One-time heal (bd med-y1gh): a device that already read sleep re-reads the
+// last 30 days by window once, so a day stuck on a short first night (before a
+// fuller one replaced it) heals. anchors.sleepHeal marks it done; a reset
+// anchor re-reads the whole history anyway. 30 days = Android's first read.
+// ponytail: a day stuck longer ago needs the switch-off/on rescan.
+const SLEEP_HEAL_MS = 30 * 24 * 3600 * 1000;
 const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
@@ -282,7 +288,10 @@ export async function runHealthImport(ctx, {
                     writeJSON(storage, SLEEP_PENDING_KEY, Math.min(...pending));
                 }
             };
-            const since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
+            let since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
+            if (kind === 'sleep' && anchors.sleepHeal !== 1 && anchors.sleep) {
+                since = Math.min(Number.isFinite(since) ? since : Infinity, now() - SLEEP_HEAL_MS);
+            }
             if (Number.isFinite(since)) {
                 const res = await health.query({ type: 'sleep', from: since - SLEEP_PAD_MS, to: now() });
                 await take(res);
@@ -321,6 +330,13 @@ export async function runHealthImport(ctx, {
                 if (!res || !res.more) break;
             }
             if (kind === 'sleep') {
+                // Marked only once the sleep read went through (a failure retries
+                // the heal), and once there is a sleep anchor: a first read
+                // without one covered the history itself.
+                if (anchors.sleep && anchors.sleepHeal !== 1) {
+                    anchors.sleepHeal = 1;
+                    writeJSON(storage, ANCHORS_KEY, anchors);
+                }
                 writeJSON(storage, SLEEP_PENDING_KEY, pending.length ? Math.min(...pending) : null);
             }
         } catch (e) {
