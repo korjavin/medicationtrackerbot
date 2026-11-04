@@ -28,10 +28,10 @@ describe('features/workout/next-card.js — split-file integration', () => {
     expect(window.WorkoutNextCard.nextVariant).toBeTypeOf('function');
   });
 
-  it('workoutSlotTag reads AD-HOC for ad-hoc sessions and the plan name otherwise', () => {
+  it('workoutSlotTag reads Off plan for ad-hoc sessions and the plan name otherwise', () => {
     const { window, document } = env;
     const adhoc = window.workoutSlotTag(document, { group_id: -1 }, 'Ad-hoc', 'x');
-    expect(adhoc.textContent).toBe('AD-HOC');
+    expect(adhoc.textContent).toBe('Off plan');
     expect(adhoc.classList.contains('wg-workouts-slot-tag--adhoc')).toBe(true);
     expect(adhoc.classList.contains('x')).toBe(true);
     const plan = window.workoutSlotTag(document, { group_id: 3 }, 'Plan 3 — Daily Split');

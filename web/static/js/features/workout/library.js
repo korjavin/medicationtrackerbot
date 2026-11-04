@@ -155,7 +155,7 @@ function _renderExerciseLibrary(container, items) {
 }
 
 // A library row is tagged by the exercise's TARGET MUSCLE GROUP (a since-removed
-// variant-name classifier used to label most of the library "AD-HOC").
+// variant-name classifier used to label most of the library as ad hoc).
 // Resolution order: the user's stored override, else the
 // static catalog's body_part for this name (async — the catalog is a lazily
 // fetched asset), else an em dash.

@@ -104,7 +104,7 @@
     // empty here, so the import's replace confirm never shows (importexport.js
     // skips it when hasUserContent() === false).
     async function seed() {
-        const vault = shiftDates(withHealthSources(withPileUp(await getJSON('/qa/vault-v1.json'))), new Date());
+        const vault = withTimelineBand(shiftDates(withTimeline(withHealthSources(withPileUp(await getJSON('/qa/vault-v1.json')))), new Date()));
         // The fixture is Europe/Berlin; a different device zone would raise the
         // timezone confirm over every screenshot (bootstrap.js maybeUpdateTimezone).
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -147,6 +147,66 @@
         mark(d.bp && d.bp.readings, 1, 'apple_health');
         mark(d.weight && d.weight.logs, 1, 'apple_health');
         mark(d.vitals && d.vitals.sleep, 0, 'miband');
+        return vault;
+    }
+
+    // Train → Timeline (bd med-soo0.4, kit WN2): the golden fixture has one
+    // session, so the Timeline would show a single week. Add an off-plan
+    // Telegram-style "Morning run", a skipped plan day and six older weekly
+    // sessions, all older than the fixture's session 50 (the row the
+    // workout-session-* scenes open first), so the shots carry several
+    // weeks, an Off plan row, a dashed dot and "Show 4 earlier weeks".
+    // Visual seed only; tests/fixtures/vault-v1.json stays the vault-format pin.
+    function withTimeline(vault) {
+        const w = vault && vault.data && vault.data.workouts;
+        if (!w || !Array.isArray(w.sessions)) return vault;
+        const session = (id, day, extra) => ({
+            id, user_id: 1, group_id: 10, variant_id: 20, scheduled_date: `${day}T00:00:00+02:00`,
+            scheduled_time: '18:00', status: 'completed', started_at: `${day}T16:04:00Z`,
+            completed_at: `${day}T16:56:00Z`, snoozed_until: null, snooze_count: 0,
+            notification_message_id: null, notes: '', ...extra,
+        });
+        w.sessions.push(
+            session(51, '2026-07-05', { group_id: -1, variant_id: -1, started_at: '2026-07-05T06:10:00Z',
+                completed_at: '2026-07-05T06:44:00Z', notes: 'Morning run', scheduled_time: '08:10' }),
+            // A Finish that never landed: Unfinished chip + Finish (WN6).
+            session(59, '2026-07-04', { group_id: -1, variant_id: -1, status: 'in_progress', started_at: '2026-07-04T08:15:00Z',
+                completed_at: null, scheduled_time: '10:15' }),
+            session(52, '2026-07-03', { variant_id: 21, status: 'skipped', started_at: null, completed_at: null }),
+            session(53, '2026-06-30', { variant_id: 21 }),
+            session(54, '2026-06-24'),
+            session(55, '2026-06-17', { variant_id: 21 }),
+            session(56, '2026-06-10'),
+            session(57, '2026-06-03', { variant_id: 21 }),
+            session(58, '2026-05-27'),
+        );
+        if (Array.isArray(w.exercise_logs)) {
+            [53, 54].forEach((id, i) => w.exercise_logs.push({
+                session_id: id, exercise_id: 30, exercise_name: 'Bench Press', sets_completed: 3,
+                reps_completed: 10, weight_kg: 55 + i * 2.5, status: 'completed', notes: '',
+                logged_at: `${id === 53 ? '2026-06-30' : '2026-06-24'}T16:50:00Z`, source: 'schedule',
+            }));
+            ['Goblet squat', 'Plank'].forEach((name, i) => w.exercise_logs.push({
+                session_id: 59, exercise_id: 0, exercise_name: name, sets_completed: 3,
+                reps_completed: i ? 1 : 10, weight_kg: i ? 0 : 16, status: 'completed', notes: '',
+                logged_at: `2026-07-04T08:${30 + i * 10}:00Z`, source: 'schedule',
+            }));
+        }
+        return vault;
+    }
+
+    // A band walk four days back. Band rows key on epoch ms, which shiftDates
+    // leaves alone (the fixture's own run is a year old, past listMiBand's
+    // 90 days), so this one is stamped from the real clock after the shift.
+    function withTimelineBand(vault) {
+        const w = vault && vault.data && vault.data.workouts;
+        if (!w || !Array.isArray(w.miband)) return vault;
+        const start = Math.floor((Date.now() - 4 * 86400000) / 60000) * 60000;
+        w.miband.push({
+            activity_type: 6, activity_name: 'walking', source_start_ms: start, source_end_ms: start + 3900000,
+            tz_offset: -new Date().getTimezoneOffset() * 60, duration_sec: 3900, distance_m: 5400, steps: 7100,
+            calories: 260, heart_rate_avg: 104, spo2_avg: 97, pause_ms: 0, source: 'device', gps: [],
+        });
         return vault;
     }
 
