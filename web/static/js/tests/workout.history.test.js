@@ -404,9 +404,11 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         window.showWorkoutSessionModal = vi.fn();
         window.apiCall = vi.fn(async () => true);
         window._renderWorkoutHistory(container, [makeSession({ session: {
-            id: 304, status: 'in_progress', scheduled_date: yesterday.toISOString().slice(0, 10),
+            id: 304, group_id: -1, status: 'in_progress', scheduled_date: yesterday.toISOString().slice(0, 10),
             started_at: yesterday.toISOString(), completed_at: null, duration_minutes: undefined
         } })], [], 'UTC');
+        // An off-plan Unfinished row carries Finish, not the Off plan tag (WN6).
+        expect(container.querySelector('.wg-workouts-history-row__tag')).toBeNull();
 
         container.querySelector('.wg-workouts-history-row__finish').click();
         await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__confirm')).not.toBeNull());

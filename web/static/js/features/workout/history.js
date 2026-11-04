@@ -446,7 +446,8 @@ function _buildSessionCard(s, dayKey, userTz) {
     body.appendChild(meta);
     card.appendChild(body);
 
-    if (isAdHoc) card.appendChild(_tlEl('span', 'wg-tag wg-workouts-history-row__tag', 'Off plan'));
+    // An Unfinished row carries Finish instead (WN6): the tag would wrap its meta.
+    if (isAdHoc && !unfinished) card.appendChild(_tlEl('span', 'wg-tag wg-workouts-history-row__tag', 'Off plan'));
 
     const actions = _tlEl('span', 'wg-row__trail wg-workouts-history-row__actions');
     if (unfinished) {
