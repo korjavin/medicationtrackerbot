@@ -2974,8 +2974,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // { flags: log -> weight-sanity flags, prs: Map log -> previous heaviest kg }
   // where `prs` holds the logs that first beat their resolved exercise's
   // running heaviest CONFIRMED weight (flagged outliers never count), at most
-  // one per exercise per session: a second log of the same lift in one session
-  // still raises the running max but is not a second record.
+  // one per exercise per session: the session's heaviest log, with the
+  // pre-session max as its previous kg.
   function weightPRFold(oldest, resolve) {
     const byKey = new Map();
     for (const log of oldest) {
@@ -2988,7 +2988,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       flagLogs(logs, isUnweightedExercise(k)).forEach((f, i) => flags.set(logs[i], f));
     }
     const heaviest = new Map();
-    const credited = new Set();
+    const credited = new Map();
     const prs = new Map();
     for (const log of oldest) {
       const key = resolve(log.exercise_name).key;
@@ -2996,10 +2996,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       const max = logWorkTotals(log, flags.get(log)).max_weight_kg;
       if (max <= previousKg) continue;
       heaviest.set(key, max);
+      // The session's record is its heaviest log, measured from the pre-session max.
       const seen = `${log.session_id}:${key}`;
-      if (credited.has(seen)) continue;
-      credited.add(seen);
-      prs.set(log, previousKg);
+      const first = credited.get(seen);
+      if (first) {
+        prs.delete(first.log);
+        prs.set(log, first.previousKg);
+        first.log = log;
+      } else {
+        credited.set(seen, { log, previousKg });
+        prs.set(log, previousKg);
+      }
     }
     return { flags, prs };
   }

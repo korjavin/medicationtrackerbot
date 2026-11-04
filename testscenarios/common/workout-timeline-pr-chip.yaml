@@ -1,0 +1,17 @@
+id: workout-timeline-pr-chip
+title: A Timeline row's PR chip counts each exercise once and matches the Stats records
+platforms: [web, android, ios]
+preconditions:
+  - An exercise with a logged history
+steps:
+  - Complete a session where one lift is logged twice, the second time heavier
+  - Open the Train Timeline and the Stats records list
+invariants:
+  - The row shows "1 PR", not "2 PRs"
+  - The Stats record shows the heavier weight, measured from the best before that session
+  - A session with no new record shows no chip, and an unconfirmed outlier weight never creates one
+covered_by:
+  web: web/static/js/tests/workout.history.test.js#two logs of one lift beating the max inside one session count as one PR
+  android: manual
+  ios: manual
+source: [med-soo0.5]

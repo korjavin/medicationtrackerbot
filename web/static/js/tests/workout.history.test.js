@@ -502,6 +502,9 @@ describe('listSessions pr_count (cloud shim)', () => {
             await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
             const rows = await window.apiCallDirect('/api/workout/sessions');
             expect(rows.find((r) => r.session.id === session.id).pr_count).toBe(1);
+            const stats = await window.apiCallDirect('/api/workout/stats');
+            expect(stats.totals.pr_count).toBe(1);
+            expect(stats.prs).toEqual([expect.objectContaining({ weight_kg: 45, previous_kg: 0 })]);
         } finally {
             env.cleanup();
         }
