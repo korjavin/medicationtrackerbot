@@ -2499,7 +2499,7 @@ export const CATALOG = [
     "path": "/api/workout/sessions",
     "risk": "read",
     "description": "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped. Returned sessions span every group; filter client-side on the returned group_id field if needed.",
-    "response_summary": "JSON array of session views: {session: {id, group_id, variant_id, scheduled_date, scheduled_time, status, started_at, completed_at, snooze_count}, group_name, variant_name, exercises_count, exercises_completed, total_volume}.",
+    "response_summary": "JSON array of session views: {session: {id, group_id, variant_id, scheduled_date, scheduled_time, status, started_at, completed_at, snooze_count}, group_name, variant_name, exercises_count, exercises_completed, total_volume, pr_count (new heaviest-weight records set in that session)}.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -2511,7 +2511,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\n    \"session\": {\"id\": 42, \"group_id\": 1, \"variant_id\": 5, \"scheduled_date\": \"2026-04-29T00:00:00Z\", \"scheduled_time\": \"07:30\", \"status\": \"completed\", \"started_at\": \"2026-04-29T07:32:00Z\", \"completed_at\": \"2026-04-29T08:20:00Z\", \"snooze_count\": 0},\n    \"group_name\": \"Home Workout\",\n    \"variant_name\": \"Push Day\",\n    \"exercises_count\": 5,\n    \"exercises_completed\": 5,\n    \"total_volume\": 4820.0\n  }\n]"
+    "response_example": "[\n  {\n    \"session\": {\"id\": 42, \"group_id\": 1, \"variant_id\": 5, \"scheduled_date\": \"2026-04-29T00:00:00Z\", \"scheduled_time\": \"07:30\", \"status\": \"completed\", \"started_at\": \"2026-04-29T07:32:00Z\", \"completed_at\": \"2026-04-29T08:20:00Z\", \"snooze_count\": 0},\n    \"group_name\": \"Home Workout\",\n    \"variant_name\": \"Push Day\",\n    \"exercises_count\": 5,\n    \"exercises_completed\": 5,\n    \"total_volume\": 4820.0,\n    \"pr_count\": 1\n  }\n]"
   },
   {
     "id": "workouts.sessions.logs.create",

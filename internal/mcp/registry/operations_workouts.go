@@ -75,7 +75,7 @@ output(result)`,
   }
 }`),
 			Description:     "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped. Returned sessions span every group; filter client-side on the returned group_id field if needed.",
-			ResponseSummary: "JSON array of session views: {session: {id, group_id, variant_id, scheduled_date, scheduled_time, status, started_at, completed_at, snooze_count}, group_name, variant_name, exercises_count, exercises_completed, total_volume}.",
+			ResponseSummary: "JSON array of session views: {session: {id, group_id, variant_id, scheduled_date, scheduled_time, status, started_at, completed_at, snooze_count}, group_name, variant_name, exercises_count, exercises_completed, total_volume, pr_count (new heaviest-weight records set in that session)}.",
 			ResponseExample: `[
   {
     "session": {"id": 42, "group_id": 1, "variant_id": 5, "scheduled_date": "2026-04-29T00:00:00Z", "scheduled_time": "07:30", "status": "completed", "started_at": "2026-04-29T07:32:00Z", "completed_at": "2026-04-29T08:20:00Z", "snooze_count": 0},
@@ -83,7 +83,8 @@ output(result)`,
     "variant_name": "Push Day",
     "exercises_count": 5,
     "exercises_completed": 5,
-    "total_volume": 4820.0
+    "total_volume": 4820.0,
+    "pr_count": 1
   }
 ]`,
 			Example: `result = api.call("workouts.sessions.list", params={"limit": 10})
