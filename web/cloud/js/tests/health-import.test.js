@@ -1147,6 +1147,20 @@ describe('Apple Health import', () => {
             expect(again.health.calls.filter((c) => c.type === 'sleep' && Number.isFinite(c.from))).toEqual([]);
         });
 
+        it('a denied (empty) first heal read keeps the heal and a recent pending night for later', async () => {
+            const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
+            await at.importSamples('sleep', night.slice(0, 1), { from: N0 - 48 * H, to: N0 + 60 * H });
+            storage.setItem('wg.health.anchors', JSON.stringify({ sleep: String(night.length) }));
+            storage.setItem('wg.health.sleepPending', JSON.stringify(N0));
+            expect(await runHealthImport({}, opts({ sleep: [] }))).toEqual({ added: 0 });
+            expect(JSON.parse(storage.getItem('wg.health.anchors')).sleepHeal).toBeUndefined();
+            expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(N0);
+            // Access restored: the heal runs then.
+            expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 1 });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 470 });
+            expect(JSON.parse(storage.getItem('wg.health.anchors')).sleepHeal).toBe(1);
+        });
+
         it('two sources\' copies of a night end as one row for the day', async () => {
             const copy = night.map((s, i) => ({ ...s, uuid: uid(20 + i), source: 'com.other.app' }));
             copy[4] = { ...copy[4], end: copy[4].end - 60 * 60_000 }; // the other app saw an hour less

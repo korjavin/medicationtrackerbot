@@ -288,14 +288,16 @@ export async function runHealthImport(ctx, {
                     writeJSON(storage, SLEEP_PENDING_KEY, Math.min(...pending));
                 }
             };
-            let since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
-            if (kind === 'sleep' && anchors.sleepHeal !== 1 && anchors.sleep) {
-                since = Math.min(Number.isFinite(since) ? since : Infinity, now() - SLEEP_HEAL_MS);
-            }
-            if (Number.isFinite(since)) {
-                const res = await health.query({ type: 'sleep', from: since - SLEEP_PAD_MS, to: now() });
+            const since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
+            const heal = kind === 'sleep' && anchors.sleepHeal !== 1 && Boolean(anchors.sleep);
+            let healed = false;
+            if (Number.isFinite(since) || heal) {
+                const from = Math.min(Number.isFinite(since) ? since : Infinity, heal ? now() - SLEEP_HEAL_MS : Infinity);
+                const res = await health.query({ type: 'sleep', from: from - SLEEP_PAD_MS, to: now() });
                 await take(res);
-                if (!(res && Array.isArray(res.samples) && res.samples.length) && since > now() - SLEEP_PENDING_CAP_MS) {
+                // Empty is also what a denied read answers: keep both retries.
+                healed = Boolean(res && Array.isArray(res.samples) && res.samples.length);
+                if (!healed && Number.isFinite(since) && since > now() - SLEEP_PENDING_CAP_MS) {
                     pending.push(since);
                 }
             }
@@ -330,10 +332,11 @@ export async function runHealthImport(ctx, {
                 if (!res || !res.more) break;
             }
             if (kind === 'sleep') {
-                // Marked only once the sleep read went through (a failure retries
-                // the heal), and once there is a sleep anchor: a first read
-                // without one covered the history itself.
-                if (anchors.sleep && anchors.sleepHeal !== 1) {
+                // Marked once the heal read returned samples (a failure or a
+                // denied, empty read retries it), or once a first read without
+                // a sleep anchor, which covered the history itself, set one.
+                // ponytail: a device with no sleep in 30 days re-asks each run, one empty query.
+                if (anchors.sleep && anchors.sleepHeal !== 1 && (healed || !heal)) {
                     anchors.sleepHeal = 1;
                     writeJSON(storage, ANCHORS_KEY, anchors);
                 }
