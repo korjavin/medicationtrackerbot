@@ -907,6 +907,47 @@ func TestAttestVoiceBudgets(t *testing.T) {
 	}
 }
 
+// bd med-v1uz.3: a voice-day 429 while the bucket has a pending settlement
+// carries retry_in_seconds (the earliest pending deadline); without one the
+// body is unchanged (TestAttestVoiceBudgets).
+func TestAttestVoiceDayRetryHint(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.attest.cfg.VoiceDaily = 120
+	e.attest.settlePoll, e.attest.settleFor = time.Hour, time.Hour
+	k := attestKey(t)
+	e.enrolled(k, "tok-hint")
+	e.convAnswers(func(id string, n int) (int, string) { return http.StatusOK, elConversation(id, "processing", 20) })
+	_, out := e.voiceStart(k, 1)
+	e.reapNow(out.Call) // dropped, still processing: its settlement stays pending
+	rec, _ := e.voiceStart(k, 2)
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	secs, _ := body["retry_in_seconds"].(float64)
+	if rec.Code != http.StatusTooManyRequests || body["scope"] != cloudstore.AttestScopeVoiceDay || body["resets_at"] == "" || secs < 3000 || secs > 3600 {
+		t.Fatalf("voice-day with a pending settlement: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Argus 13813: a settlement the pre-check just finalised (done, full grant
+	// used) lingers in the list but no refund is coming: no hint.
+	k2 := attestKey(t)
+	e.enrolled(k2, "tok-hint2")
+	e.convAnswers(func(id string, n int) (int, string) {
+		if n == 1 {
+			return http.StatusOK, elConversation(id, "processing", 120)
+		}
+		return http.StatusOK, elConversation(id, "done", 120)
+	})
+	_, out = e.voiceStart(k2, 1)
+	e.reapNow(out.Call)
+	rec, _ = e.voiceStart(k2, 2)
+	body = nil
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if _, has := body["retry_in_seconds"]; rec.Code != http.StatusTooManyRequests || body["scope"] != cloudstore.AttestScopeVoiceDay || has {
+		t.Fatalf("voice-day after a full-grant settlement: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAttestVoiceBudgetTimer(t *testing.T) {
 	e := newAttestEnv(t, 50, 0, 0)
 	e.voiceOn()
