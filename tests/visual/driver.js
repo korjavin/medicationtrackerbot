@@ -98,6 +98,12 @@
             await settle();
             if (!lostReady(def).length || attempt >= 1) break;
         }
+        // A sheet's enter animation (opacity 0 → 1) still running when the
+        // runner shoots leaves only the dim (PL6 on Android, bd med-jqrf.5).
+        if (typeof document.getAnimations === 'function') {
+            await Promise.race([Promise.all(document.getAnimations()
+                .filter((a) => !(a.effect && a.effect.getTiming().iterations === Infinity)).map((a) => a.finished.catch(() => {}))), sleep(3000)]);
+        }
         publish(report(def));
         watch(def);
     }
