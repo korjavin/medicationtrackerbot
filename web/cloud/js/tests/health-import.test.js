@@ -1859,7 +1859,7 @@ describe('Health write-back', () => {
             const requestAuthorization = vi.fn(async (kinds, opts) => { if (opts && sheetFails) throw new Error('bridge gone'); return true; });
             await start({ ...health, requestAuthorization });
             await flip(writeToggle(), true);
-            expect(toast).toHaveBeenCalledWith("Couldn't reach Health Connect · try again", 'error');
+            expect(toast).toHaveBeenCalledWith("Couldn't reach Health Connect — try again.", 'error');
             expect(writeToggle().checked).toBe(false);
             expect(storage.getItem('wg.health.write')).toBe('false');
             expect(writeDesc()).toBeNull();
@@ -1870,7 +1870,7 @@ describe('Health write-back', () => {
                 toast.mockClear();
                 health.writeAccess.mockImplementation(reply);
                 await flip(writeToggle(), true);
-                expect(toast).toHaveBeenCalledWith("Couldn't reach Health Connect · try again", 'error');
+                expect(toast).toHaveBeenCalledWith("Couldn't reach Health Connect — try again.", 'error');
                 expect(writeToggle().checked).toBe(false);
                 expect(storage.getItem('wg.health.write')).toBe('false');
                 expect(writeDesc()).toBeNull();

@@ -549,7 +549,7 @@ export function startHealthImport(ctx, {
                 writeJSON(storage, WRITE_KEY, false);
                 writeHint = '';
                 renderWrite();
-                toast(`Couldn't reach ${healthLabel(health)} · try again`, 'error');
+                toast(`Couldn't reach ${healthLabel(health)} — try again.`, 'error');
                 return false;
             };
             try {
