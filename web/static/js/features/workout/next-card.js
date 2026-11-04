@@ -151,8 +151,7 @@ function _renderNextWorkout(container, data) {
         const row = _nextCardEl('div', 'wg-hstack wg-wn-day');
         const then = plan.total > 1 && plan.next_variant_name ? ` · then ${plan.next_variant_name}` : '';
         row.append(_nextCardEl('span', 'wg-meta', `Day ${plan.position} of ${plan.total}${then}`), _nextCardEl('span', 'wg-spacer'));
-        // med-soo0.3 registers WorkoutNextCard.otherPlanDay (the WN7 sheet);
-        // until then the button is absent.
+        // WorkoutNextCard.otherPlanDay opens the WN7 sheet (below).
         const pick = window.WorkoutNextCard && window.WorkoutNextCard.otherPlanDay;
         if (typeof pick === 'function') {
             row.appendChild(_nextCardBtn('Other plan day', 'wg-btn--sm', 'other-plan-day', () => pick(data)));
@@ -291,8 +290,126 @@ async function nextWorkoutVariant(sessionId) {
     }
 }
 
+// ====================================
+// OTHER PLAN DAY SHEET (kit WN7, med-soo0.3)
+// ====================================
+
+const PLAN_DAY_SHEET_ID = 'workout-plan-day-sheet';
+
+function _closePlanDaySheet() {
+    const mm = window.ModalManager;
+    if (mm && typeof mm.close === 'function') mm.close(PLAN_DAY_SHEET_ID);
+    else {
+        const node = document.getElementById(PLAN_DAY_SHEET_ID);
+        if (node) node.classList.add('hidden');
+    }
+}
+
+// "3 exercises · last Mon 26.10" / "… · never". Dates are local YYYY-MM-DD.
+function _planDayMeta(day) {
+    const n = day.exercises_count || 0;
+    const head = `${n} exercise${n === 1 ? '' : 's'}`;
+    const p = String(day.last_completed_date || '').split('-').map(Number);
+    if (p.length !== 3 || p.some((x) => !x)) return `${head} · never`;
+    const d = new Date(p[0], p[1] - 1, p[2]);
+    const wd = d.toLocaleDateString('en-US', { weekday: 'short' });
+    return `${head} · last ${wd} ${_nextCardPad(d.getDate())}.${_nextCardPad(d.getMonth() + 1)}`;
+}
+
+// The card payload with `day` as the shown plan day (the optimistic state).
+// The picked day's exercise names are not in plan.days; the commit's reload
+// brings them.
+function _withPlanDay(data, day) {
+    const days = data.plan.days;
+    const idx = days.findIndex((d) => d.id === day.id);
+    return {
+        ...data,
+        variant_id: day.id,
+        variant_name: day.name,
+        exercises_count: day.exercises_count || 0,
+        exercise_names: [],
+        plan: {
+            ...data.plan,
+            position: idx + 1,
+            next_variant_name: days[(idx + 1) % days.length].name,
+            days: days.map((d) => ({ ...d, is_current: d.id === day.id })),
+        },
+    };
+}
+
+async function _pickPlanDay(data, day) {
+    _closePlanDaySheet();
+    if (day.is_current) return;
+    const id = data.session.id;
+    const picked = _withPlanDay(data, day);
+    const container = document.getElementById('next-workout-card');
+    const handle = await window.DataStore.applyOptimistic('workout_next', (prev) => (
+        prev && prev.session && prev.session.id === id ? picked : prev
+    ), ['workout']);
+    if (container) _renderNextWorkout(container, picked);
+    let ok = false;
+    try {
+        ok = (await apiCall(`/api/workout/sessions/${id}/set-variant`, 'POST', { variant_id: day.id },
+            { suppressWriteAlert: true })) != null;
+    } catch (error) {
+        console.error('Error setting plan day:', error);
+    }
+    if (!ok) {
+        await handle.rollback();
+        if (container) _renderNextWorkout(container, data);
+        safeToast("Couldn't switch the day. Please try again.", 'error');
+        return;
+    }
+    await handle.commit(null);
+    await invalidateWorkoutCache();
+    loadNextWorkout();
+}
+
+// Every plan day in plan order; a tap picks it and closes. No Save, no
+// confirm: picking again undoes it. Built from the cached payload, no read.
+function openOtherPlanDaySheet(data) {
+    const plan = data && data.plan;
+    if (!plan || !Array.isArray(plan.days) || !plan.days.length) return;
+    let sheet = document.getElementById(PLAN_DAY_SHEET_ID);
+    if (!sheet) {
+        sheet = document.createElement('mt-modal');
+        sheet.id = PLAN_DAY_SHEET_ID;
+        sheet.className = 'hidden wg-modal wg-sheet';
+        sheet.setAttribute('aria-label', 'Other plan day');
+        document.body.appendChild(sheet);
+    }
+    const head = window.WGSheet.header({
+        eyebrow: `${data.group_name || 'Plan'} · ${plan.total} days`,
+        title: 'Which day today?',
+        actions: [{ label: 'Close', icon: 'x' }],
+    });
+    head.buttons[0].addEventListener('click', _closePlanDaySheet);
+    const list = _nextCardEl('div', 'wg-list');
+    for (const day of plan.days) {
+        const row = _nextCardEl('button', 'wg-row');
+        row.type = 'button';
+        row.dataset.variantId = String(day.id);
+        const body = _nextCardEl('span', 'wg-row__body');
+        body.append(_nextCardEl('span', 'wg-row__title', day.name), _nextCardEl('span', 'wg-row__meta', _planDayMeta(day)));
+        row.appendChild(body);
+        if (day.is_current) {
+            row.setAttribute('aria-current', 'true');
+            row.appendChild(_nextCardEl('span', 'wg-tag', 'Today'));
+        }
+        row.addEventListener('click', () => _pickPlanDay(data, day));
+        list.appendChild(row);
+    }
+    const sbody = _nextCardEl('div', 'wg-sheet__body');
+    sbody.append(list, _nextCardEl('p', 'wg-hint', 'The plan continues from the day you pick.'));
+    sheet.replaceChildren(_nextCardEl('div', 'wg-sheet__grab'), head.el, sbody);
+    const mm = window.ModalManager;
+    if (mm && typeof mm.open === 'function') mm.open(PLAN_DAY_SHEET_ID);
+    else sheet.classList.remove('hidden');
+}
+
 window.WorkoutNextCard = {
     load: loadNextWorkout,
     openEdit: openNextWorkoutEditModal,
-    nextVariant: nextWorkoutVariant
+    nextVariant: nextWorkoutVariant,
+    otherPlanDay: openOtherPlanDaySheet
 };

@@ -180,6 +180,16 @@
             session(57, '2026-06-03', { variant_id: 21 }),
             session(58, '2026-05-27'),
         );
+        // The WN7 "Other plan day" sheet (med-soo0.3): a third, never-done
+        // day with a long name, so the shot shows a wrapped row and "never".
+        if (Array.isArray(w.variants) && Array.isArray(w.exercises)) {
+            w.variants.push({ id: 22, group_id: 10, name: 'Glutes, Hamstrings & Core Stability', rotation_order: 2,
+                description: '', created_at: '2026-06-01T08:00:00Z' });
+            ['Hip thrust', 'Romanian deadlift'].forEach((name, i) => w.exercises.push({
+                id: 31 + i, variant_id: 22, exercise_name: name, target_sets: 3, target_reps_min: 8,
+                target_reps_max: 12, target_weight_kg: null, order_index: i, exercise_library_id: null, equipment_id: null,
+            }));
+        }
         if (Array.isArray(w.exercise_logs)) {
             [53, 54].forEach((id, i) => w.exercise_logs.push({
                 session_id: id, exercise_id: 30, exercise_name: 'Bench Press', sets_completed: 3,
