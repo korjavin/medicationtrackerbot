@@ -54,6 +54,11 @@
             tag: 'workout',
             description: 'Workout groups + variants.'
         },
+        workout_plans: {
+            key: 'workout_plans',
+            tag: 'workout',
+            description: 'Plans tab read (GET /api/workout/plans): every plan with its days, next slot and last-done.'
+        },
         workout_stats: {
             key: 'workout_stats',
             tag: 'workout',

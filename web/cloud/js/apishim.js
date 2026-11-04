@@ -1219,6 +1219,7 @@ export function createApiRouter(ctx, {
     // POST /api/vitals/import or sent to the cloud bot is parsed + sealed to the
     // inbox, then the vitals_import applier writes vault records at drain time.
     if (path === '/api/workout/groups' && method === 'GET') return workout.listGroups();
+    if (path === '/api/workout/plans' && method === 'GET') return workout.listPlans();
     if (path === '/api/workout/groups/create' && method === 'POST') {
       const res = await workout.createGroup(body);
       scheduleReminderRecompute(ctx, { records, timeZone });

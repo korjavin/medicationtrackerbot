@@ -297,6 +297,79 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(next.exercise_names).toEqual([]);
     });
 
+    // med-jqrf.1: the Plans tab read. Each active plan gets its own floored
+    // next slot; getNext keeps answering exactly what it answered before.
+    it('GET /api/workout/plans: per-plan next slot, days with last-done, flat exercises, paused last', async () => {
+        const { window } = env;
+        const { group: ppl, variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
+        for (const [i, name] of ['Bench', 'Dips'].entries()) {
+            await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: name, target_sets: 3, target_reps_min: 8, order_index: i
+            });
+        }
+        const flat = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Morning mobility', is_rotating: false, days_of_week: EVERY_DAY, scheduled_time: '00:00'
+        });
+        const mob = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: flat.id, name: 'Mobility' });
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: mob.id, exercise_name: 'Hip circles', target_sets: 2, target_reps_min: 10, order_index: 1
+        });
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: mob.id, exercise_name: 'Cat-cow', target_sets: 2, target_reps_min: 8, target_reps_max: 12,
+            target_weight_kg: 0, order_index: 0
+        });
+        const paused = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Old plan', is_rotating: false, days_of_week: EVERY_DAY, scheduled_time: '07:00'
+        });
+        await window.apiCall(`/api/workout/groups/update?id=${paused.id}`, 'PUT', {
+            name: 'Old plan', is_rotating: false, days_of_week: EVERY_DAY, scheduled_time: '07:00', active: false
+        });
+        // A finished Push three days ago, 47 minutes long.
+        const doneAt = Date.now() - 3 * 86400000;
+        await env.records.put('workoutsession', {
+            recordId: 'ws-test-done', clientTs: 1, deleted: false, id: 990001, user_id: 1,
+            group_id: ppl.id, variant_id: variants[0].id, scheduled_date: new Date(doneAt).toISOString(),
+            scheduled_time: '23:59', status: 'completed',
+            started_at: new Date(doneAt - 47 * 60000).toISOString(), completed_at: new Date(doneAt).toISOString()
+        });
+
+        const nextBefore = await window.apiCallDirect('/api/workout/sessions/next');
+        const res = await window.apiCallDirect('/api/workout/plans');
+        await window.apiCallDirect('/api/workout/plans');
+        const nextAfter = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(nextAfter).toEqual(nextBefore);
+        expect(nextBefore.group_id).toBe(flat.id); // 00:00 today beats 23:59 today
+
+        expect(res.plans.map((p) => p.name)).toEqual(['Morning mobility', 'Push/Pull/Legs', 'Old plan']);
+        const [mobility, rot, old] = res.plans;
+        // The Timeline's slot and the second plan's own slot, both materialized
+        // once: repeated reads add no session rows.
+        expect(mobility.next).toMatchObject({ time: '00:00', variant_id: mob.id, session_id: nextBefore.session.id });
+        expect(rot.next).toMatchObject({ time: '23:59', variant_id: variants[0].id });
+        expect(rot.next.date).toBe(mobility.next.date);
+        const sessions = await window.apiCall('/api/workout/sessions?limit=10');
+        expect(sessions.map((s) => s.session.id).sort()).toEqual(
+            [990001, mobility.next.session_id, rot.next.session_id].sort()
+        );
+
+        expect(rot.days.map((d) => [d.name, d.exercises_count, d.last_duration_min, d.is_next])).toEqual([
+            ['Push', 2, 47, true], ['Pull', 0, null, false]
+        ]);
+        expect(rot.days[0].last_completed_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(rot.days[1].last_completed_date).toBeNull();
+        expect(rot.exercises).toEqual([]);
+        expect(mobility.exercises).toEqual([
+            { id: expect.any(Number), exercise_name: 'Cat-cow', target_sets: 2, target_reps_min: 8, target_reps_max: 12, target_weight_kg: 0 },
+            { id: expect.any(Number), exercise_name: 'Hip circles', target_sets: 2, target_reps_min: 10 }
+        ]);
+        expect(old).toMatchObject({ active: false, next: null });
+        expect(res.active_session_id).toBeNull();
+
+        await window.apiCall(`/api/workout/sessions/status?id=${rot.next.session_id}`, 'PUT', { status: 'in_progress' });
+        const running = await window.apiCallDirect('/api/workout/plans');
+        expect(running.active_session_id).toBe(rot.next.session_id);
+    });
+
     it('preskip/cancel-preskip round-trip the session status without touching rotation', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
