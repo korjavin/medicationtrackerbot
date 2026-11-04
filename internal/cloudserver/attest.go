@@ -285,6 +285,10 @@ type AttestAPI struct {
 	// settlements[bucket] are the bucket's anonymous calls still being settled
 	// (bd med-v1uz), under mu.
 	settlements map[string][]*voiceSettlement
+	// provisional[bucket] is the bucket's one pending settlement holding a
+	// provisional refund, under mu (Archie 13648: a second 404 waits for it to
+	// settle, so never-attached starts cannot stockpile free signed URLs).
+	provisional map[string]*voiceSettlement
 	// Settlement polling; overridable in tests.
 	settlePoll time.Duration // first 2 min: this interval, then twice it
 	settleFor  time.Duration // 0 = attestSettleSlack + the per-call max after the mint
@@ -345,8 +349,10 @@ type voiceSettlement struct {
 // done/failed → final refund grant − call_duration_secs, clamped to [0,
 // grant] (a provisional refund is charged back by the seconds that ran);
 // 404/initiated → provisional full refund (no session ran yet, so a
-// never-connected start never costs a 4429); anything else → nothing yet.
-// At the deadline a provisional refund still on 404/initiated is final;
+// never-connected start never costs a 4429), at most one outstanding per
+// bucket (takeProvisional; a later 404 stays charged until it frees up);
+// anything else → nothing yet. At the deadline a refund still on
+// 404/initiated is final (a waiting one is refunded in full then);
 // anything else unresolved stands and Warns (fail closed). ponytail: in
 // memory — a restart loses pending settlements (provisional refunds stand
 // unverified, unrefunded charges stand); persist a pending-settlements table
@@ -395,13 +401,37 @@ func (a *AttestAPI) pollLocked(ctx context.Context, s *voiceSettlement) {
 				return
 			}
 			s.final = true
+			a.releaseProvisional(s)
 			slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", status, "granted_seconds", s.grant, "refunded_seconds", refund, "charged_back_seconds", back)
 			return
 		}
 		s.final = a.settleRefund(s, refund, status)
-	case s.notStarted && !s.provisional:
+	case s.notStarted && !s.provisional && a.takeProvisional(s):
 		s.provisional = a.settleRefund(s, s.grant, "provisional")
+		if !s.provisional {
+			a.releaseProvisional(s)
+		}
 	}
+}
+
+// takeProvisional claims the bucket's one provisional-refund slot for s;
+// false while another pending settlement holds it (re-tried on every poll).
+func (a *AttestAPI) takeProvisional(s *voiceSettlement) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if h := a.provisional[s.bucket]; h != nil && h != s {
+		return false
+	}
+	a.provisional[s.bucket] = s
+	return true
+}
+
+func (a *AttestAPI) releaseProvisional(s *voiceSettlement) {
+	a.mu.Lock()
+	if a.provisional[s.bucket] == s {
+		delete(a.provisional, s.bucket)
+	}
+	a.mu.Unlock()
 }
 
 func (a *AttestAPI) settleRefund(s *voiceSettlement, seconds int, outcome string) bool {
@@ -425,6 +455,9 @@ func (a *AttestAPI) runSettlement(s *voiceSettlement) {
 				list = append(list[:i], list[i+1:]...)
 				break
 			}
+		}
+		if a.provisional[s.bucket] == s {
+			delete(a.provisional, s.bucket)
 		}
 		if len(list) == 0 {
 			delete(a.settlements, s.bucket)
@@ -460,6 +493,11 @@ func (a *AttestAPI) runSettlement(s *voiceSettlement) {
 	s.final = true
 	if s.provisional && s.notStarted {
 		slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", "never_started", "granted_seconds", s.grant, "refunded_seconds", s.grant)
+		return
+	}
+	// a 404 that waited behind another provisional refund (Archie 13648): the
+	// URL has expired unused, so the whole grant comes back now.
+	if s.notStarted && !s.provisional && a.settleRefund(s, s.grant, "never_started") {
 		return
 	}
 	slog.Warn("attest voice settle failed", "install", s.keyID, "conversation", s.conversation,
@@ -498,7 +536,7 @@ func (a *AttestAPI) settlePending(bucket string) {
 // per-subject burst limiter and the shared upstream proxy; food supplies the
 // operator FastFoodDB proxy (bd med-o7zq.19).
 func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyAPI, cfg AttestConfig) *AttestAPI {
-	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlements: map[string][]*voiceSettlement{}, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
+	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlements: map[string][]*voiceSettlement{}, provisional: map[string]*voiceSettlement{}, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
 	if cfg.AndroidConfigured {
 		a.android = playintegrity.New(cfg.Android)
 	}

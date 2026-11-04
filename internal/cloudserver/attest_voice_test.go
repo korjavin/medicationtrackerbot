@@ -631,6 +631,89 @@ func TestAttestVoiceSettleRetriesFailedStoreWrite(t *testing.T) {
 	e.reapNow(out.Call)
 }
 
+// Archie 13648: start, drop, start, drop… with every signed URL unused keeps
+// only one provisional refund outstanding per bucket; the rest stay charged,
+// so stockpiled URLs are bounded by the daily/lifetime budget.
+func TestAttestVoiceProvisionalOnePerBucket(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.attest.settleFor = 10 * time.Second
+	k := attestKey(t)
+	e.enrolled(k, "tok-stockpile")
+	e.convAnswers(func(string, int) (int, string) { return http.StatusNotFound, elNotFound })
+	for i := uint32(1); i <= 4; i++ {
+		if rec, _ := e.voiceStart(k, i); rec.Code != http.StatusOK {
+			t.Fatalf("start %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	// calls 1-3 dropped: call 1 provisionally refunded, 2 and 3 charged; 4 live.
+	time.Sleep(50 * time.Millisecond) // background re-polls of 2 and 3 stay blocked
+	if n := strings.Count(logs.String(), "outcome=provisional"); n != 1 {
+		t.Fatalf("%d provisional refunds, want 1: %q", n, logs.String())
+	}
+	if used := e.voiceUsed(k); used != 360 {
+		t.Fatalf("used %d, want 360", used)
+	}
+	if rec, _ := e.voiceStart(k, 5); rec.Code != http.StatusOK {
+		t.Fatalf("start 5 within the lifetime: %d", rec.Code)
+	}
+	if rec, _ := e.voiceStart(k, 6); rec.Code == http.StatusOK {
+		t.Fatalf("start 6 past the lifetime: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Archie 13648 (2): a 404 that waited behind another provisional refund is
+// refunded in full at its deadline; a failed write there leaves it charged.
+func TestAttestVoiceWaitingNotStartedDeadline(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	repo, db := setupStoreWithDB(t)
+	e.store, e.attest.store = repo, repo
+	k := attestKey(t)
+	e.enrolled(k, "tok-wait")
+	id := attestKeyID(t, k)
+	e.convAnswers(func(string, int) (int, string) { return http.StatusNotFound, elNotFound })
+	counter := uint32(0)
+	settle := func(name string, window time.Duration) *voiceSettlement {
+		t.Helper()
+		counter++
+		now := time.Now().UTC()
+		grant, _, _, _, err := e.store.ReserveAttestVoice(context.Background(), id, counter, now, 1000, 0, 0, 120, attestVoiceFloorSeconds)
+		if err != nil || grant != 120 {
+			t.Fatalf("reserve %s: %d %v", name, grant, err)
+		}
+		e.attest.settleFor = window
+		return e.attest.settleVoice(id, id, "conv_"+name, now, grant)
+	}
+	holder := settle("w1", 2*time.Second) // provisional, pending long
+	<-settle("w2", 100*time.Millisecond).done
+	if l := logs.String(); !strings.Contains(l, "conversation=conv_w2 outcome=never_started granted_seconds=120 refunded_seconds=120") ||
+		strings.Contains(l, "conversation=conv_w2 outcome=provisional") {
+		t.Fatalf("(w2) logs = %q", l)
+	}
+	if used := e.voiceUsed(k); used != 0 {
+		t.Fatalf("after w2's deadline: used %d, want 0", used)
+	}
+	if _, err := db.ExecContext(context.Background(), `CREATE TRIGGER fail_voice BEFORE UPDATE OF voice_seconds ON attest_buckets BEGIN SELECT RAISE(ABORT, 'transient write failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	<-settle("w3", 100*time.Millisecond).done
+	if _, err := db.ExecContext(context.Background(), `DROP TRIGGER fail_voice`); err != nil {
+		t.Fatal(err)
+	}
+	if l := logs.String(); !strings.Contains(l, "attest voice settle failed") || !strings.Contains(l, "conversation=conv_w3") {
+		t.Fatalf("(w3) logs = %q", l)
+	}
+	if used := e.voiceUsed(k); used != 120 {
+		t.Fatalf("after w3's failed write: used %d, want 120 (charge stands)", used)
+	}
+	<-holder.done
+}
+
 // bd med-v1uz acceptance (f): one settlement per call — the end hook twice,
 // then the relay's own drop, refund once.
 func TestAttestVoiceSettlesOnce(t *testing.T) {
