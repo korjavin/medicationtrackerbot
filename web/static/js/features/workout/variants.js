@@ -183,8 +183,6 @@ function _planWithNextDay(prev, planId, dayId) {
     };
 }
 
-let _planDayStartPending = false; // module-state: one Start this day write at a time, across day pages (Back + reopen)
-
 function openWorkoutPlanDayPage(plan, day) {
     if (!plan || !day || !window.WGPage || document.querySelector('.wg-page[data-plan-day-page]')) return null;
     const doc = document;
@@ -221,9 +219,10 @@ function openWorkoutPlanDayPage(plan, day) {
         if (d) openWorkoutDayPage(d, renderWorkoutPlanBody);
     }
 
-    async function startPlanDay(btn, fresh) {
-        if (_planDayStartPending) return;
-        _planDayStartPending = true;
+    // One plan-day switch at a time across every day page AND the Timeline's
+    // WN7 sheet (next-card.js runPlanDaySwitch).
+    const startPlanDay = (btn, fresh) => runPlanDaySwitch(() => switchAndStart(btn, fresh));
+    async function switchAndStart(btn, fresh) {
         btn.disabled = true;
         try {
             // The plan's OWN next session: set-variant refuses a day of another plan.
@@ -251,7 +250,6 @@ function openWorkoutPlanDayPage(plan, day) {
             page.close();
             await startWorkoutSession(sid);
         } finally {
-            _planDayStartPending = false;
             btn.disabled = false;
         }
     }

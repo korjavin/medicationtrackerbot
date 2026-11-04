@@ -187,6 +187,47 @@ describe('features/workout/variants.js — Day page', () => {
       expect(setVariantPosts(window).map(([, , b]) => b.variant_id)).toEqual([12]);
     });
 
+    it('a pending Start this day keeps the Timeline\'s "Other plan day" from switching too, and the other way round', async () => {
+      const { window, document } = env;
+      fakeOptimistic(window);
+      let release;
+      stubApi(window, { over: (url) => (url.includes('set-variant') ? new Promise((r) => { release = r; }) : Promise.resolve(null)) });
+      window.startWorkoutSession = vi.fn(async () => {});
+      window.loadWorkoutGroups = vi.fn();
+      window.loadNextWorkout = vi.fn();
+      const wn7 = {
+        session: { id: 900, status: 'notified', scheduled_date: '2026-11-05', scheduled_time: '18:00', is_today: false },
+        group_name: 'Bench 100', variant_name: 'Chest & Triceps', variant_id: 11, group_id: 1, is_rotating: true, exercises_count: 3,
+        plan: { position: 1, total: 3, next_variant_name: 'Back & Biceps', days: PLAN.days.slice(0, 3).map((d) => ({ ...d, is_current: d.id === 11 })) },
+      };
+      const sheetOpen = () => {
+        const s = document.getElementById('workout-plan-day-sheet');
+        return !!s && !s.classList.contains('hidden');
+      };
+
+      // PL2 first: Back, then the Timeline's sheet does not open.
+      const el = await openDay(window, PLAN.days[1]);
+      startBtn(el).click();
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+      el.querySelector('.wg-back').click();
+      window.WorkoutNextCard.otherPlanDay(wn7);
+      expect(sheetOpen()).toBe(false);
+      release({ ok: true });
+      await vi.waitFor(() => expect(window.startWorkoutSession).toHaveBeenCalledTimes(1));
+      expect(setVariantPosts(window).map(([, , b]) => b.variant_id)).toEqual([12]);
+
+      // WN7 first: a pick in flight, then Start this day sends nothing.
+      release = null;
+      window.WorkoutNextCard.otherPlanDay(wn7);
+      document.querySelectorAll('#workout-plan-day-sheet .wg-row')[2].click();
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+      const again = await openDay(window, PLAN.days[1]);
+      startBtn(again).click();
+      await Promise.resolve();
+      expect(setVariantPosts(window).map(([, , b]) => b.variant_id)).toEqual([12, 13]);
+      release({ ok: true });
+    });
+
     it('Start this day posts set-variant once with the plan\'s own session id, then starts it', async () => {
       const { window } = env;
       const handle = fakeOptimistic(window);

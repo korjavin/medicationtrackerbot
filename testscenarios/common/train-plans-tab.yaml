@@ -12,7 +12,7 @@ steps:
   - Add a second active plan that doesn't rotate, and open Plans again
   - Pause every plan and open Plans again
   - Tap a day that isn't next; tap an exercise, then go back; tap Edit, then go back
-  - Tap Start this day, go back at once, open another day and tap Start this day there
+  - Tap Start this day, go back at once, open another day and tap Start this day there; repeat, then open the Timeline's Other plan day instead
   - Open that day again and tap Start this day, then confirm; finish the workout
   - Open the day marked Next; then start any workout and open a day while it runs
   - With two active plans, set the device to a timezone a day ahead of the account's saved timezone (late evening there) and open Plans
@@ -27,7 +27,7 @@ invariants:
   - 'A day opens its page: back "Plans", crumb "{plan} · day {k} of {n}", the day name as title, Edit in the bar (not a sun); the full description; "Exercises · {n}" with "last done {Weekday DD.MM} · {m} min" (left out for a day never done); one row per exercise as "{sets} × {reps} · {kg} kg · last {sets} × {reps} · {kg} kg" ("last …" left out when never logged); an exercise tap opens its history page over the day, and Back returns to the day'
   - Edit opens the plan editor on that day's Day page; Back returns to Plans
   - '"Start this day" makes that day the plan''s next workout, then asks to start it and opens the session; afterwards the Plans tab and the Timeline card show that day as next. On the day already next the button reads "Start workout" and starts it directly. While a workout runs the page has no start button. If the switch fails the day stays as it was, a "Couldn''t switch the day" toast shows, and nothing starts'
-  - 'Only one switch runs at a time: going Back while it is pending and tapping Start on another day sends no second switch'
+  - 'Only one switch runs at a time: going Back while it is pending and tapping Start on another day, or picking a day in the Timeline''s Other plan day sheet, sends no second switch (and a pending Timeline pick blocks Start this day the same way)'
   - With two active plans, Start this day on a day of the second plan switches that plan's own next workout, never the other plan's
 covered_by:
   web: web/static/js/tests/workout.groups.test.js  # day page: features.workout-variants.test.js (PL2 day page), visual.qa-driver.test.js (PL2 scenes)
