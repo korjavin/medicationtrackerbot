@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
+import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 // "YYYY-MM-DD" (UTC) `days` from today, and the Monday of today's week
 // shifted by `weeks` — the renders below run with userTz 'UTC'.
@@ -451,5 +452,61 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
         expect(window.apiCall).toHaveBeenCalledWith(
             '/api/workout/sessions/status?id=303', 'PUT', { status: 'completed' }, expect.anything());
+    });
+});
+
+// med-soo0.5: listSessions stamps pr_count per session from one oldest-first
+// fold (the stats pr_count rule), so the Timeline chip never disagrees with
+// the Stats total.
+describe('listSessions pr_count (cloud shim)', () => {
+    it('counts a new heaviest confirmed weight per session; a flagged outlier never counts', async () => {
+        const env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        try {
+            const { window } = env;
+            const ids = [];
+            // 20, 20, 20, then a 255 slip (flagged), then 45 and 50 kg.
+            for (const [daysAgo, kg] of [[9, 20], [8, 20], [7, 20], [6, 255], [5, 45], [4, 50]]) {
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: 999, exercise_name: 'Back Squat',
+                    source: 'library', status: 'completed', sets: [{ weight_kg: kg, reps: 8 }],
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                const backdated = new Date(Date.now() - daysAgo * 86400000).toISOString();
+                for (const rec of await env.records.list('workoutsession')) {
+                    if (rec.id === session.id) await env.records.put('workoutsession', { ...rec, scheduled_date: backdated });
+                }
+                ids.push(session.id);
+            }
+            const rows = await window.apiCallDirect('/api/workout/sessions');
+            const byId = new Map(rows.map((r) => [r.session.id, r.pr_count]));
+            expect(ids.map((id) => byId.get(id))).toEqual([1, 0, 0, 0, 1, 1]);
+            const stats = await window.apiCallDirect('/api/workout/stats');
+            expect(stats.totals.pr_count).toBe(rows.reduce((n, r) => n + r.pr_count, 0));
+        } finally {
+            env.cleanup();
+        }
+    });
+
+    it('two logs of one lift beating the max inside one session count as one PR', async () => {
+        const env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        try {
+            const { window } = env;
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            for (const [kg, id, name] of [[40, 998, 'Bench Press'], [45, 999, 'bench press']]) {
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: id, exercise_name: name,
+                    source: 'library', status: 'completed', sets: [{ weight_kg: kg, reps: 8 }],
+                });
+            }
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+            const rows = await window.apiCallDirect('/api/workout/sessions');
+            expect(rows.find((r) => r.session.id === session.id).pr_count).toBe(1);
+            const stats = await window.apiCallDirect('/api/workout/stats');
+            expect(stats.totals.pr_count).toBe(1);
+            expect(stats.prs).toEqual([expect.objectContaining({ weight_kg: 45, previous_kg: 0 })]);
+        } finally {
+            env.cleanup();
+        }
     });
 });

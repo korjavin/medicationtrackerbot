@@ -46,6 +46,35 @@ describe('features/workout/history.js — split-file integration', () => {
     expect(container.textContent).toContain('No workout history yet');
   });
 
+  it('shows a "{n} PRs" / "1 PR" chip on rows with pr_count and none otherwise', async () => {
+    const { window, document } = env;
+    const row = (id, pr_count) => ({
+      group_name: 'Upper', variant_name: 'Push', exercises_completed: 2, exercises_count: 2, pr_count,
+      session: { id, group_id: 1, status: 'completed', started_at: `2026-07-2${id - 600}T10:00:00Z`, scheduled_date: `2026-07-2${id - 600}` },
+    });
+    // Unfinished rows already carry the Unfinished chip + Finish: no PR chip.
+    const unfinished = row(604, 3);
+    unfinished.session.status = 'in_progress';
+    window.apiCall = vi.fn(async (url) => {
+      if (url.includes('/api/workout/sessions')) return [row(601, 2), row(602, 1), row(603, 0), unfinished];
+      if (url.includes('/api/workout/miband')) return [];
+      if (url.includes('/api/settings')) return { timezone: '' };
+      return null;
+    });
+
+    await window.loadWorkoutHistoryTab();
+
+    const chipText = (id) => {
+      const chip = document.querySelector(`[data-session-id="${id}"] .wg-workouts-history-row__pr`);
+      return chip && chip.textContent;
+    };
+    expect(chipText(601)).toBe('2 PRs');
+    expect(chipText(602)).toBe('1 PR');
+    expect(chipText(603)).toBeNull();
+    expect(document.querySelector('[data-session-id="604"] .wg-workouts-history-row__unfinished')).not.toBeNull();
+    expect(chipText(604)).toBeNull();
+  });
+
   it('renders an ad-hoc session notes label as the row name (e.g. /workout walk)', async () => {
     const { window, document } = env;
     window.apiCall = vi.fn(async (url) => {
