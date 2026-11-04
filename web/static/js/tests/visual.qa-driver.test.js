@@ -239,8 +239,25 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         ]);
         expect(page.querySelector('[data-action="start-plan-day"]').textContent).toBe('Start this day');
 
+        // PL2 → the first exercise's history page, pushed over the day.
+        expect(await load('workouts-plan-day-exercise')).toMatchObject({ ok: true, failed: [] });
+        const pages = window.document.querySelectorAll('.wg-page');
+        expect(pages[pages.length - 1].querySelector('.wg-pagebar__title').textContent).toBe('Back squat');
+        expect(pages[pages.length - 1].querySelector('.wg-workouts-exercise-detail__header')).toBeNull();
+
         expect(await load('workouts-plan-day-started')).toMatchObject({ ok: true, failed: [] });
         expect(window.WorkoutSessionsState.data).toMatchObject({ group_id: 10, variant_id: 29, status: 'in_progress' });
+    }, 30000);
+
+    it('the PL5 paused scene turns every plan off: the empty state over the Paused list', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('workouts-plans-paused')).toMatchObject({ ok: true, failed: [] });
+        expect((await window.apiCall('/api/workout/groups')).filter((g) => g.active)).toEqual([]);
+        const list = window.document.getElementById('workout-groups-list');
+        expect(list.querySelector('.wg-plan-card')).toBeNull();
+        expect(Array.from(list.querySelectorAll('.wg-plan-paused .wg-row__title')).map((t) => t.textContent).sort())
+            .toEqual(['Push/Pull', 'Summer cut']);
     }, 30000);
 
     it('the Up next scenes (WN1, WN5) open on today\'s plan day with named exercises, a clean week and a running clock', async () => {

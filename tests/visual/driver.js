@@ -98,6 +98,12 @@
             await settle();
             if (!lostReady(def).length || attempt >= 1) break;
         }
+        // A sheet's enter animation (opacity 0 → 1) still running when the
+        // runner shoots leaves only the dim (PL6 on Android, bd med-jqrf.5).
+        if (typeof document.getAnimations === 'function') {
+            await Promise.race([Promise.all(document.getAnimations()
+                .filter((a) => !(a.effect && a.effect.getTiming().iterations === Infinity)).map((a) => a.finished.catch(() => {}))), sleep(3000)]);
+        }
         publish(report(def));
         watch(def);
     }
@@ -354,6 +360,12 @@
             // Writes through the app's own API, e.g. PATCH /api/settings/body.
             // The write stays in the store for later scenes.
             await window.apiCall(step.api.path, step.api.method || 'GET', step.api.body);
+        } else if (step.pausePlans) {
+            // PL5 paused (bd med-jqrf.5): Active off on every plan, through the
+            // editor's own update. The write stays; twoPlans replaces the store after.
+            for (const g of await window.apiCall('/api/workout/groups', 'GET')) {
+                if (g.active) await window.apiCall(`/api/workout/groups/update?id=${g.id}`, 'PUT', { ...g, active: false });
+            }
         } else if (step.emptyWorkout) {
             // Ad hoc resumes today's running session, which earlier scenes
             // may have populated. Finish those fixtures through the real API
