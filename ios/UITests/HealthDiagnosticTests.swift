@@ -7,8 +7,16 @@ final class HealthDiagnosticTests: XCTestCase {
     }
 
     static func run(seed: Bool, in test: XCTestCase) throws {
+        let json = try run(seed ? "-wgQAHealthSeed" : "-wgQAHealthDiagnostic", in: test)
+        if seed { XCTAssertGreaterThan(json["sampleCount"] as? Int ?? 0, 0, "Health store has no seeded Steps sample") }
+    }
+
+    /// Launches HealthDiagnosticView in `mode`, accepts the Health sheet, and
+    /// returns its JSON report after asserting `ok`.
+    @discardableResult
+    static func run(_ mode: String, in test: XCTestCase) throws -> [String: Any] {
         let app = XCUIApplication()
-        app.launchArguments = [seed ? "-wgQAHealthSeed" : "-wgQAHealthDiagnostic", "YES"]
+        app.launchArguments = [mode, "YES"]
         app.launch()
         defer { app.terminate() }
         let result = app.staticTexts["health-diagnostic-result"]
@@ -39,11 +47,21 @@ final class HealthDiagnosticTests: XCTestCase {
         test.add(report)
         guard result.label != "pending" else {
             XCTFail("Native HealthKit authorization did not complete; see permission screenshot")
-            return
+            return [:]
         }
         let data = try XCTUnwrap(result.label.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
-        if seed { XCTAssertGreaterThan(json["sampleCount"] as? Int ?? 0, 0, "Health store has no seeded Steps sample") }
+        return json
+    }
+}
+
+/// The Health write-back through Health.handle (bd med-8f4s.3): write, replace,
+/// own-id import filter, an imported row's id deletes nothing, delete leaves
+/// nothing. Runs in the qa job (HealthDiagnosticView's write-back mode).
+@MainActor
+final class HealthWriteBackTests: XCTestCase {
+    func testWriteReplaceFilterDelete() throws {
+        try HealthDiagnosticTests.run("-wgQAHealthWriteBack", in: self)
     }
 }
