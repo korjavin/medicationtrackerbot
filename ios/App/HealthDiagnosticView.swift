@@ -102,6 +102,24 @@ struct HealthDiagnosticView: View {
             check("authorize", try await Health.handle("health.authorize", ["types": both, "write": both]) as? Bool == true)
             let granted = (try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any])?["granted"] as? [String] ?? []
             let statuses = [Health.systolic, Health.diastolic, Health.bodyMass].map { store.authorizationStatus(for: $0).rawValue }
+            if !granted.contains("bp") {
+                // Probe (temporary, bd med-8f4s.3): BP share status after the
+                // combined sheet, a raw unmarked correlation save, and the
+                // statuses after a bp-only share request.
+                var probe: [String] = ["corr \(store.authorizationStatus(for: bpType).rawValue)"]
+                let t = Date().addingTimeInterval(-7200), mmHg = HKUnit.millimeterOfMercury()
+                let c = HKCorrelation(type: bpType, start: t, end: t, objects: [
+                    HKQuantitySample(type: Health.systolic, quantity: HKQuantity(unit: mmHg, doubleValue: 101), start: t, end: t),
+                    HKQuantitySample(type: Health.diastolic, quantity: HKQuantity(unit: mmHg, doubleValue: 61), start: t, end: t),
+                ])
+                do { try await store.save(c); probe.append("raw save ok"); try? await store.delete([c]) }
+                catch { probe.append("raw save \((error as NSError).code) \(error.localizedDescription)") }
+                do {
+                    try await store.requestAuthorization(toShare: [Health.systolic, Health.diastolic], read: [])
+                    probe.append("bp-only " + [Health.systolic, Health.diastolic].map { "\(store.authorizationStatus(for: $0).rawValue)" }.joined(separator: "/"))
+                } catch { probe.append("bp-only \((error as NSError).code) \(error.localizedDescription)") }
+                result["probe"] = probe
+            }
             check("writeAccess", Set(granted) == Set(both), "\(granted) status sys/dia/kg \(statuses)")
             let run = UUID().uuidString
             let bp = "bp-qa-\(run)", weight = "weight-qa-\(run)"
