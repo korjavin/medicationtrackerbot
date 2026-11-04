@@ -1273,90 +1273,30 @@ svg.chart-svg {
     padding: var(--space-sm);
 }
 
-/* Workouts — "Next workout" card.
-   Round-2 Task 10 (defect 13a): restyled from the legacy purple/teal
-   gradient card (with white-on-gradient text, yellow accent stripe, and
-   emoji-prefixed pill buttons) to Wandergeek tokens. Surface mirrors
-   the Today "Next up" card + Meds History next-intake pane — elevated
-   teal on the stage, hairline border, --wg-radius-card. The kicker label
-   uses the muted-uppercase small caption; the title is display typeface;
-   the subtitle is secondary UI text. Primary action (Start /
-   View / Cancel Skip) is the kit .wg-btn--primary; secondary actions
-   (Ad hoc / Skip / Finish / Next Day) are plain .wg-btn (med-xso6.36).
-   med-2fc added the leftmost Ad hoc, which is the screen's
-   only ad-hoc entry point and the sole content of the card when nothing
-   is scheduled. No gradients, no accent stripe, no emoji. */
-
-.wg-workouts-next-card {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-    padding: var(--space-md) var(--space-lg);
+/* Workouts — Up next card (kit WN1/WN3–WN6, med-soo0.2): kit .wg-card /
+   .wg-eyebrow / .wg-card__foot / .wg-row markup; only the info block and the
+   card+row stack are local. */
+.wg-workouts-next {
     margin-bottom: var(--space-lg);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    box-sizing: border-box;
 }
 
-.wg-workouts-next-card__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-sm);
-}
-
-.wg-workouts-next-card__kicker {
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: 600;
-}
-
-.wg-workouts-next-card__date {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-2);
-}
-
-.wg-workouts-next-card__info {
+.wg-wn__info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-wn__info[role="button"] {
     cursor: pointer;
 }
 
-.wg-workouts-next-card__title {
+.wg-wn__info > p {
     margin: 0;
-    font-family: var(--wg-font-display);
-    font-size: var(--font-size-lg);
-    line-height: 1.2;
-    color: var(--wg-fg-1);
 }
 
-.wg-workouts-next-card__subtitle {
-    margin: 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-}
-
-/* med-x5t5: the actions row must stay on ONE row at 360px (worst case 4
-   buttons). nowrap + min-width: 0 keep the row from wrapping or pushing
-   the page sideways; the tighter token horizontal padding (with the
-   shortened 'Ad hoc' / 'Start' labels) lets all four fit unclipped. */
-.wg-workouts-next-card__actions {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: var(--space-sm);
-}
-
-.wg-workouts-next-card__actions > .wg-btn {
-    flex: 1 1 auto;
-    min-width: 0;
-    padding: 0 var(--space-sm);
+.wg-wn__info .wg-card__title {
+    overflow-wrap: anywhere;
 }
 
 /* ==================== Sync Status Styles ==================== */

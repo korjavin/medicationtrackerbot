@@ -78,6 +78,8 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const next = await window.apiCallDirect('/api/workout/sessions/next');
         expect(next.session.id).toBe(first.session.id);
         expect(next.session.status).toBe('in_progress');
+        // The Up next card's "In progress · N min" reads started_at.
+        expect(Date.parse(next.session.started_at)).not.toBeNaN();
     });
 
     it('P1 resolves the earliest expired-snooze session ahead of a fresh P2 scan', async () => {

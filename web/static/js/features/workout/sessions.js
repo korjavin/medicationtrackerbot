@@ -3127,7 +3127,9 @@ async function saveWorkoutSessionDetails(opts) {
 // SESSION LIFECYCLE — ad-hoc / start / skip / complete
 // ====================================
 
-async function startAdHocWorkout() {
+// opts.addSheet (the Up next card's "Start empty workout", kit WN1 → WA3):
+// open the add-exercise sheet once the session modal is up.
+async function startAdHocWorkout(opts = {}) {
     // Optimistic cache projection: clear `workout_next` so the rest-day card
     // doesn't keep rendering "Start ad-hoc" while the POST is in flight; the
     // server response replaces the cache with the actual new session.
@@ -3142,6 +3144,7 @@ async function startAdHocWorkout() {
         if (result && result.session) {
             // Immediately open the session modal to start logging exercises
             await showWorkoutSessionModal(result.session.id);
+            if (opts && opts.addSheet) await showAddExerciseToSessionModal();
 
             if (nextHandle) await nextHandle.commit({ session: result.session });
             await invalidateWorkoutCache();

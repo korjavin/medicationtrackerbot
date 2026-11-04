@@ -5,9 +5,10 @@
 //
 //   1. #workouts-view opts into the shared .wg-screen-stage backdrop so
 //      the view sits directly on the deep-teal palette.
-//   2. The ad-hoc Start affordance is the leftmost action of the
-//      next-workout card (med-2fc) — it has no static markup at all, so
-//      it can never come back as a hero block or a floating strip.
+//   2. The ad-hoc start is the "Start empty workout" row under the Up next
+//      card (med-soo0.2, kit WN1; it was the card's leftmost action, med-2fc)
+//      — it has no static markup at all, so it can never come back as a
+//      hero block or a floating strip.
 //   3. The Add exercise affordance is the top-right `.wg-workouts-exercises-
 //      header__add` pill, not a sticky bottom CTA.
 //   4. The workouts group / exercise / variant / miband modals all carry
@@ -90,7 +91,7 @@ describe('Workouts round-2 design parity', () => {
             expect(document.querySelector('.wg-title-hero')).toBeNull();
         });
 
-        it('Ad hoc is the leftmost action of the next-workout card, secondary to Start', () => {
+        it('"Start empty workout" is the row under the Up next card; the card keeps Start workout as its only primary', () => {
             const { window, document } = env;
             const container = document.getElementById('next-workout-card');
             window._renderNextWorkout(container, {
@@ -106,18 +107,17 @@ describe('Workouts round-2 design parity', () => {
                 is_rotating: false
             });
 
-            const actions = container.querySelectorAll(
-                '.wg-workouts-next-card__actions > .wg-btn'
-            );
-            const labels = Array.from(actions).map(
-                (btn) => btn.textContent
-            );
-            expect(labels).toEqual(['Ad hoc', 'Start', 'Skip']);
+            const card = container.querySelector('.wg-wn');
+            const labels = Array.from(card.querySelectorAll('.wg-btn')).map((btn) => btn.textContent);
+            expect(labels).toEqual(['Skip today', 'Start workout']);
+            expect(card.querySelectorAll('.wg-btn--primary').length).toBe(1);
 
-            // Ad-hoc is the secondary variant so the scheduled start stays the
-            // visual primary.
-            expect(actions[0].classList.contains('wg-btn--primary')).toBe(false);
-            expect(actions[1].classList.contains('wg-btn--primary')).toBe(true);
+            // The empty-workout start is a kit row under the card (WN1), not
+            // one of its actions.
+            const row = container.querySelector('#workout-start-empty-row');
+            expect(row.classList.contains('wg-row')).toBe(true);
+            expect(card.contains(row)).toBe(false);
+            expect(row.parentElement.previousElementSibling).toBe(card);
         });
     });
 
