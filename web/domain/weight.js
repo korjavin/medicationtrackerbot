@@ -145,8 +145,12 @@ export function createWeightDomain({ records, now, timeZone }) {
     // A derived row must be the same body on every device that derives it
     // (equal clientTs 0 never reconciles under LWW), so it stores no trend;
     // readers fill it in from the chain (withTrends).
-    const all = derived ? [] : withTrends((await records.list(RECORD_TYPE))
-      .filter((r) => r.recordId !== replacesId));
+    const listed = derived ? [] : await records.list(RECORD_TYPE);
+    const all = withTrends(listed.filter((r) => r.recordId !== replacesId));
+    // An edit of an imported reading stays "from Health" (bd med-8f4s.1): the
+    // source is copied, the source_id is not, so the edited row is never
+    // re-minted into the Health slot on a vault restore and never written back.
+    const replaced = replacesId && !input.source ? listed.find((r) => r.recordId === replacesId) : null;
     const previous = all
       .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at))[0];
     const previousTrend = previous && hasTrend(previous) ? previous.weight_trend : null;
@@ -162,6 +166,7 @@ export function createWeightDomain({ records, now, timeZone }) {
       muscle_mass: input.muscle_mass ?? null,
       notes: input.notes || '',
       ...(input.source ? { source: input.source, source_id: input.source_id || '' } : {}),
+      ...(replaced && replaced.source ? { source: replaced.source } : {}),
     };
     if (derived) return toResponse(await records.putIfAbsent(RECORD_TYPE, record));
     await records.put(RECORD_TYPE, record);

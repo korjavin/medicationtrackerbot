@@ -8,15 +8,24 @@
  * semantics (a tombstone occupies the slot), through the real domain layer
  * (web/domain/healthimport.js → bp.js / weight.js).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import 'fake-indexeddb/auto';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../sync.js', () => ({
+// The real write path (stampAndPut, its onLocalWrite seam, localRecordsPort,
+// pullOnOpen) for the write-back suite; only the account port and the flush
+// are stubbed for the import suites.
+vi.mock('../sync.js', async (importOriginal) => ({
+    ...(await importOriginal()),
     recordsPort: vi.fn(),
-    ORIGIN_EXTERNAL: 'external',
     flushConfirmed: vi.fn(async () => true),
 }));
 
-import { runHealthImport, startHealthImport, healthStatusText, resetHealthAnchors } from '../health-import.js';
+import { runHealthImport, startHealthImport, healthStatusText, resetHealthAnchors, startHealthWriteBack } from '../health-import.js';
+import { localRecordsPort, onLocalWrite, pullOnOpen, ORIGIN_EXTERNAL } from '../sync.js';
+import { dropCachedDb, openDb } from '../localdb.js';
+import { createApiRouter } from '../apishim.js';
+import { applyTGCommand, TG_COMMAND } from '../inbox-apply.js';
+import { deriveDataKeys, encryptRecord, generateDEK, toBase64 } from '../crypto.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
@@ -145,6 +154,31 @@ describe('Apple Health import', () => {
         expect(restored.rows.has(`weight-hk-${U2}`)).toBe(true);
         storage.setItem('wg.health.anchors', '{}');
         expect(await runHealthImport({}, { health: fakeHealth(data), storage, records: restored, flush })).toEqual({ added: 0 });
+    });
+
+    // bd med-8f4s.1: an edited Health weight keeps its source (the write-back
+    // skips it, the UI keeps its label) but not its source_id, so a restore
+    // mints it a normal id instead of folding it into the Health slot.
+    it('an edited Health weight stays from Health through re-edits, and restores under a normal id', async () => {
+        await runHealthImport({}, { health: fakeHealth({ weight: [kgSample(U2, T0, 70)] }), storage, records, flush });
+        const weight = createWeightDomain({ records, now: () => T0 + 60_000, timeZone: 'UTC' });
+        const edited = await weight.create({ measured_at: T0, weight: 71 }, { replacesId: `weight-hk-${U2}` });
+        const row = records.rows.get(edited.id);
+        expect(row.source).toBe('apple_health');
+        expect(row).not.toHaveProperty('source_id');
+        const again = await createWeightDomain({ records, now: () => T0 + 120_000, timeZone: 'UTC' })
+            .create({ measured_at: T0, weight: 72 }, { replacesId: edited.id });
+        expect(records.rows.get(again.id).source).toBe('apple_health');
+        // A manual edit stays manual.
+        const manual = await weight.create({ measured_at: T0 + 1000, weight: 80 });
+        const manualEdit = await weight.create({ measured_at: T0 + 1000, weight: 81 }, { replacesId: manual.id });
+        expect(records.rows.get(manualEdit.id)).not.toHaveProperty('source');
+
+        const restored = vaultToRecords(recordsToVault([records.rows.get(again.id)], { now: T0 }), { now: T0 })
+            .filter((r) => r.recordType === 'weight');
+        expect(restored).toHaveLength(1);
+        expect(restored[0].recordId).not.toMatch(/-hk-/);
+        expect(restored[0].source).toBe('apple_health');
     });
 
     it('a deleted Health reading stays deleted across a backup, restore and full rescan', async () => {
@@ -1364,5 +1398,244 @@ describe('Apple Health import', () => {
             expect(lines).toContain('[health] spo2 returned=2 samples=2 written=0 skip{invalid:2} anchor=moved');
             expect(records.rows.has('spo2sample-2026-10-10')).toBe(false);
         });
+    });
+});
+
+// bd med-8f4s.1: "Also write my entries" — the ledger and its executor over
+// the real write path (sync.js stampAndPut → onLocalWrite, on-device store).
+describe('Health write-back', () => {
+    let storage;
+    let health;
+    let records;
+    let api;
+
+    const writeHealth = () => ({
+        isSupported: () => true,
+        writeAccess: vi.fn(async () => ({ granted: ['bp', 'weight'] })),
+        write: vi.fn(async () => true),
+        remove: vi.fn(async () => true),
+    });
+    const dirty = () => JSON.parse(storage.getItem('wg.health.dirty') || '{}');
+    const ledgerSize = () => Object.values(dirty()).reduce((n, m) => n + Object.keys(m).length, 0);
+    const calls = () => [
+        ...health.write.mock.calls.map(([a]) => ({ op: 'write', ...a })),
+        ...health.remove.mock.calls.map(([a]) => ({ op: 'remove', ...a })),
+    ];
+    const raw = async (type, id) => (await records.listRaw(type)).find((r) => r.recordId === id);
+    const idle = () => vi.waitFor(() => expect(ledgerSize()).toBe(0));
+
+    beforeEach(async () => {
+        dropCachedDb();
+        await new Promise((resolve, reject) => {
+            const req = indexedDB.deleteDatabase('medtracker-cloud');
+            req.onsuccess = resolve;
+            req.onerror = () => reject(req.error);
+        });
+        storage = memStorage();
+        storage.setItem('wg.health.enabled', 'true');
+        storage.setItem('wg.health.write', 'true');
+        health = writeHealth();
+        records = localRecordsPort(ORIGIN_EXTERNAL);
+        api = createApiRouter({}, {
+            records, origin: ORIGIN_EXTERNAL, timeZone: 'UTC',
+            effects: {
+                scheduleReminderRecompute: () => {}, cancelReminderRefire: async () => {},
+                cancelMedRefire: async () => {}, rearmMedRefire: async () => {}, sendTestPush: async () => {},
+            },
+        });
+    });
+
+    afterEach(() => {
+        onLocalWrite(null);
+        vi.unstubAllGlobals();
+    });
+
+    it('an entry, its edit and its delete reach Health under the vault id and the stored clientTs', async () => {
+        startHealthWriteBack({ health, storage, records });
+        const created = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 128, diastolic: 84, pulse: 66 });
+        await idle();
+        const v1 = (await raw('bp', created.id)).clientTs;
+        expect(calls()).toEqual([{ op: 'write', type: 'bp', id: created.id, version: v1, at: Date.parse('2026-10-01T07:30:00Z'), systolic: 128, diastolic: 84 }]);
+
+        await api(`/api/bp/${created.id}`, 'PUT', { systolic: 130 });
+        await idle();
+        const v2 = (await raw('bp', created.id)).clientTs;
+        expect(v2).toBeGreaterThan(v1);
+        expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ id: created.id, version: v2, systolic: 130 }));
+
+        await api(`/api/bp/${created.id}`, 'DELETE');
+        await idle();
+        expect(health.remove).toHaveBeenCalledWith({ type: 'bp', id: created.id });
+    });
+
+    it('a plain Telegram /bp drain is written, and a re-drain re-upserts the same record', async () => {
+        startHealthWriteBack({ health, storage, records });
+        const now = Date.now;
+        const deps = { bp: createBPDomain({ records, now, timeZone: 'UTC' }), weight: createWeightDomain({ records, now, timeZone: 'UTC' }), records, now, editReply: async () => {} };
+        const event = { kind: TG_COMMAND, text: '/bp 128 84', at_unix: 1_790_000_000, reply_message_id: 1 };
+        await applyTGCommand(event, 7, deps);
+        await idle();
+        await applyTGCommand(event, 7, deps);
+        await idle();
+        expect(new Set(health.write.mock.calls.map(([a]) => a.id))).toEqual(new Set(['tg-7']));
+        expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'bp', id: 'tg-7', version: (await raw('bp', 'tg-7')).clientTs, systolic: 128, diastolic: 84 }));
+    });
+
+    it('create then immediate delete ends with a remove', async () => {
+        startHealthWriteBack({ health, storage, records });
+        const created = await api('/api/weight', 'POST', { measured_at: '2026-10-01T07:30:00Z', weight: 80 });
+        await api(`/api/weight/${created.id}`, 'DELETE');
+        await idle();
+        expect(calls().at(-1)).toEqual({ op: 'remove', type: 'weight', id: created.id });
+    });
+
+    it('a delete queued behind a blocked write survives a restart and is delivered next pass', async () => {
+        health.write = vi.fn(() => new Promise(() => {})); // the shell never answers
+        startHealthWriteBack({ health, storage, records });
+        const created = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80 });
+        await vi.waitFor(() => expect(health.write).toHaveBeenCalled());
+        await api(`/api/bp/${created.id}`, 'DELETE');
+        const tomb = await raw('bp', created.id);
+        expect(dirty().bp).toEqual({ [created.id]: tomb.clientTs });
+
+        // The page dies; a new one over the same storage and vault.
+        const next = writeHealth();
+        await startHealthWriteBack({ health: next, storage, records }).drain();
+        expect(next.remove).toHaveBeenCalledWith({ type: 'bp', id: created.id });
+        expect(next.write).not.toHaveBeenCalled();
+        expect(ledgerSize()).toBe(0);
+    });
+
+    it('a failed remove stays in the ledger and is retried on the next pass', async () => {
+        health.remove = vi.fn().mockRejectedValueOnce(new Error('denied')).mockResolvedValue(true);
+        const wb = startHealthWriteBack({ health, storage, records, diag: () => {} });
+        storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-gone': 5 } }));
+        await wb.drain();
+        expect(dirty()).toEqual({ bp: { 'bp-gone': 5 } });
+        await wb.drain();
+        expect(health.remove).toHaveBeenCalledTimes(2);
+        expect(ledgerSize()).toBe(0);
+    });
+
+    it('120 dirty ids (absent from the vault) drain over three passes, none dropped', async () => {
+        const ids = Array.from({ length: 120 }, (_, i) => `weight-${i}`);
+        storage.setItem('wg.health.dirty', JSON.stringify({ weight: Object.fromEntries(ids.map((id) => [id, 1])) }));
+        const wb = startHealthWriteBack({ health, storage, records });
+        const counts = [];
+        for (let i = 0; i < 3; i++) {
+            await wb.drain();
+            counts.push(health.remove.mock.calls.length);
+        }
+        expect(counts).toEqual([50, 100, 120]);
+        expect(new Set(health.remove.mock.calls.map(([a]) => a.id))).toEqual(new Set(ids));
+        expect(ledgerSize()).toBe(0);
+    });
+
+    it('a reading that came from Health is never written, nor is its edit', async () => {
+        startHealthWriteBack({ health, storage, records });
+        await records.put('bp', { recordId: `bp-hk-${U1}`, clientTs: 0, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', systolic: 120, diastolic: 80, source: 'apple_health', source_id: U1 });
+        await api(`/api/bp/bp-hk-${U1}`, 'PUT', { systolic: 125 });
+        const imported = await records.put('weight', { recordId: `weight-hk-${U2}`, clientTs: 0, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', weight: 80, source: 'apple_health', source_id: U2 });
+        await api(`/api/weight?replaces=${imported.recordId}`, 'POST', { measured_at: '2026-10-01T07:30:00Z', weight: 81 });
+        await new Promise((r) => setTimeout(r, 10));
+        expect(health.write).not.toHaveBeenCalled();
+        expect(ledgerSize()).toBe(0);
+    });
+
+    // Archie 14798: the boundary is the operation, not the row's device of origin.
+    it('a row that arrived by sync is not mirrored until it is edited on this phone', async () => {
+        const accountId = 'acct-wb';
+        const ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+        const db = await openDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction('sync_meta', 'readwrite');
+            tx.objectStore('sync_meta').put(5, 'localLastSeq');
+            tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+        const body = { recordId: 'bp-other', clientTs: 9000, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', systolic: 140, diastolic: 90 };
+        const { nonce, ct } = await encryptRecord({ kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-other', seq: 6, plaintext: new TextEncoder().encode(JSON.stringify(body)) });
+        let ops = [{ seq: 6, record_type_tag: 'bp:bp-other', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) }];
+        vi.stubGlobal('fetch', vi.fn(async (url) => {
+            const u = String(url);
+            if (u === '/api/sync/snapshot') return new Response(null, { status: 204 });
+            if (u.startsWith('/api/sync/ops?')) {
+                const out = ops;
+                ops = [];
+                return new Response(JSON.stringify({ ops: out, next: false }), { status: 200 });
+            }
+            throw new Error(`unexpected fetch: ${u}`);
+        }));
+        startHealthWriteBack({ health, storage, records });
+        await pullOnOpen(ctx);
+        expect((await raw('bp', 'bp-other')).systolic).toBe(140);
+        expect(ledgerSize()).toBe(0);
+
+        await api('/api/bp/bp-other', 'PUT', { systolic: 138 });
+        await idle();
+        expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ id: 'bp-other', systolic: 138 }));
+    });
+
+    it('a kind without write access waits in the ledger while the other is delivered', async () => {
+        health.writeAccess = vi.fn(async () => ({ granted: ['weight'] }));
+        health.write = vi.fn(async (a) => { if (a.type === 'bp') throw new Error('denied'); return true; });
+        const wb = startHealthWriteBack({ health, storage, records, diag: () => {} });
+        const b = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80 });
+        const w = await api('/api/weight', 'POST', { measured_at: '2026-10-01T07:30:00Z', weight: 80 });
+        await vi.waitFor(() => expect(dirty().weight).toEqual({}));
+        await wb.drain();
+        expect(Object.keys(dirty().bp)).toEqual([b.id]);
+        expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: w.id, kg: 80 }));
+    });
+
+    it('switched off: nothing is marked or sent, the ledger is kept and drains when on again', async () => {
+        storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-old': 3 } }));
+        storage.setItem('wg.health.write', 'false');
+        const wb = startHealthWriteBack({ health, storage, records });
+        await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80 });
+        await wb.drain();
+        expect(calls()).toEqual([]);
+        expect(dirty()).toEqual({ bp: { 'bp-old': 3 } });
+
+        storage.setItem('wg.health.write', 'true');
+        await wb.drain();
+        expect(calls()).toEqual([{ op: 'remove', type: 'bp', id: 'bp-old' }]);
+        expect(ledgerSize()).toBe(0);
+    });
+
+    it('switched off while a step waits for the commit: nothing is sent and the entry is kept', async () => {
+        let release;
+        const settled = () => new Promise((r) => { release = r; });
+        storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-x': 3 } }));
+        const pass = startHealthWriteBack({ health, storage, records, settled }).drain();
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        storage.setItem('wg.health.write', 'false');
+        release();
+        await pass;
+        expect(calls()).toEqual([]);
+        expect(dirty()).toEqual({ bp: { 'bp-x': 3 } });
+    });
+
+    it('with no write switch stored (this release), nothing is marked or sent', async () => {
+        storage = memStorage();
+        storage.setItem('wg.health.enabled', 'true');
+        const wb = startHealthWriteBack({ health, storage, records });
+        await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80 });
+        await wb.drain();
+        expect(calls()).toEqual([]);
+        expect(health.writeAccess).not.toHaveBeenCalled();
+        expect(storage.getItem('wg.health.dirty')).toBeNull();
+    });
+
+    it('turning the import off turns the write-back off', async () => {
+        document.body.innerHTML = '<div id="settings-view"><div class="wg-settings-home"><div class="wg-list"></div></div></div>';
+        await startHealthImport({}, { health: { ...fakeHealth({}), ...health }, storage, doc: document, records, run: vi.fn(async () => null) });
+        const toggle = document.getElementById('health-import-toggle');
+        toggle.checked = false;
+        toggle.dispatchEvent(new window.Event('change'));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.getItem('wg.health.write')).toBe('false');
     });
 });

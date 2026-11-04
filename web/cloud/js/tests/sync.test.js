@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL, onLocalWrite, localRecordsPort } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 import { mergeSleep } from '../../../domain/healthsource.js';
 
@@ -2966,6 +2966,104 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect(raw.status).toBe('completed');
     expect(raw.clientTs).toBe(9000);
     expect(raw.id).toBe(42);
+  });
+});
+
+// bd med-8f4s.1 — the local-write seam the Health write-back hangs off: every
+// put/del made on this device, with the stamped row, before its IndexedDB put;
+// never an import floor, a restore or a sync apply.
+describe('onLocalWrite reports local writes only (med-8f4s.1)', () => {
+  const accountId = 'acct-8f4s';
+  let ctx;
+  let pulledOps;
+  let calls;
+
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('sync_meta', 'readwrite');
+      tx.objectStore('sync_meta').put(5, 'localLastSeq');
+      tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    pulledOps = [];
+    let assignNext = 6;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) {
+        return new Response(JSON.stringify({ ops: pulledOps.splice(0), next: false }), { status: 200 });
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map(() => assignNext++) }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+    calls = [];
+    onLocalWrite((type, row) => calls.push({ type, row, changes: getRecordsChangeCount() }));
+  });
+
+  afterEach(async () => {
+    onLocalWrite(null);
+    await flushConfirmed(ctx).catch(() => {});
+    vi.unstubAllGlobals();
+  });
+
+  it('fires once per put and del with the stored stamp, before the put', async () => {
+    const port = recordsPort(ctx);
+    const before = getRecordsChangeCount();
+    const stored = await port.put('bp', { recordId: 'bp-1', clientTs: 1000, deleted: false, systolic: 120 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].type).toBe('bp');
+    expect(calls[0].row).toEqual(stored);
+    expect(calls[0].changes).toBe(before); // the store had not changed yet
+    await port.del('bp', 'bp-1');
+    expect(calls).toHaveLength(2);
+    const raw = (await port.listRaw('bp')).find((r) => r.recordId === 'bp-1');
+    expect(calls[1].row).toEqual(raw);
+    expect(raw.deleted).toBe(true);
+    expect(raw.clientTs).toBeGreaterThan(stored.clientTs);
+  });
+
+  it('never fires for putIfAbsent, putIfUnchanged, replaceAllRecords or an incoming sync op', async () => {
+    const floored = await recordsPort(ctx).putIfAbsent('bp', { recordId: 'bp-hk-1', clientTs: 0, deleted: false, systolic: 120 });
+    await recordsPort(ctx).putIfUnchanged('bp', { ...floored, systolic: 121 }, floored);
+    expect((await recordsPort(ctx).list('bp'))[0].systolic).toBe(121);
+    await replaceAllRecords([{ recordId: 'bp-2', recordType: 'bp', clientTs: 1, deleted: false, systolic: 118 }]);
+    const body = { recordId: 'bp-3', clientTs: 9000, deleted: false, systolic: 130 };
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-3', seq: 6,
+      plaintext: new TextEncoder().encode(JSON.stringify(body)),
+    });
+    pulledOps.push({ seq: 6, record_type_tag: 'bp:bp-3', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+    await pullOnOpen(ctx);
+    expect((await recordsPort(ctx).list('bp')).map((r) => r.recordId)).toContain('bp-3');
+    expect(calls).toEqual([]);
+  });
+
+  it('a throwing hook does not fail the write', async () => {
+    onLocalWrite(() => { throw new Error('boom'); });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await recordsPort(ctx).put('weight', { recordId: 'weight-1', clientTs: 1000, deleted: false, weight: 80 });
+    expect((await recordsPort(ctx).list('weight')).map((r) => r.recordId)).toEqual(['weight-1']);
+    err.mockRestore();
+  });
+
+  it('localRecordsPort fires it too, and not for its putIfAbsent', async () => {
+    const port = localRecordsPort();
+    await port.putIfAbsent('weight', { recordId: 'weight-hk-1', clientTs: 0, deleted: false, weight: 80 });
+    const stored = await port.put('weight', { recordId: 'weight-2', clientTs: 1000, deleted: false, weight: 81 });
+    expect(calls.map((c) => c.row)).toEqual([stored]);
   });
 });
 

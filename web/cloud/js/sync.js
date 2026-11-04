@@ -698,6 +698,33 @@ const RECORD_TAGS = {
 export const ORIGIN_UI = 'ui';
 export const ORIGIN_EXTERNAL = 'external';
 
+// The local-write seam (bd med-8f4s.1, Health write-back). One callback per
+// page, called as fn(recordType, stamped) by stampAndPut for every put/del made
+// on THIS device (both ports: UI, voice, MCP, the Telegram drain, local mode),
+// inside the records lock, after the row is stamped and BEFORE its IndexedDB
+// put, so a mark it makes is never later than the commit. Never for
+// putIfAbsent (imports, derived floors), putIfUnchanged (derived rewrites),
+// replaceAllRecords (restore) or
+// applyIncoming (sync apply): those do not go through it. The callback must be
+// synchronous; a throw is swallowed and never fails the write. Readers that
+// must see the committed row wait on localWritesSettled() first.
+let localWriteHook = null;
+export function onLocalWrite(fn) {
+  localWriteHook = typeof fn === 'function' ? fn : null;
+}
+function fireLocalWrite(recordType, stamped) {
+  if (!localWriteHook) return;
+  try {
+    localWriteHook(recordType, stamped);
+  } catch (e) {
+    console.error('[sync] local write hook failed', e);
+  }
+}
+// Resolves once every write queued on the records lock so far has committed.
+export function localWritesSettled() {
+  return withRecordsLock(() => {});
+}
+
 // Fire-and-forget: a repaint must never fail a durable write. Runs in the page
 // (window.DataStore); a no-op in the service worker and in node tests that do
 // not stub a DataStore.
@@ -1906,6 +1933,8 @@ async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, update, sk
       }
       stamped = { ...merged, clientTs: stamped.clientTs, recordType };
     }
+    // Derived writes (putIfAbsent, putIfUnchanged) are not local entries.
+    if (!ifAbsent && ifMatchTs === undefined) fireLocalWrite(recordType, stamped);
     return stamped;
   };
   await withRecordsLock(async () => {

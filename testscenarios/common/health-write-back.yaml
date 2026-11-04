@@ -1,0 +1,24 @@
+id: health-write-back
+title: Entries made in the app are written to Health, edited in place and removed, never twice
+platforms: [web, android, ios]
+preconditions:
+  - Phone app with Health import on; Health Connect (Android) or Apple Health (iOS)
+  - "Also write my entries" switched on and write access allowed for blood pressure and weight
+steps:
+  - Enter a blood pressure reading by hand
+  - Open the Health app, then edit the reading in Med Tracker, then delete it
+  - Edit a blood pressure reading and a weight that were imported from Health
+  - Enter a reading while Health refuses write access, delete it, then allow access again and reopen the app
+  - Switch "Also write my entries" off and enter another reading
+invariants:
+  - "A hand-entered reading shows in the Health app within seconds, as written by Med Tracker"
+  - "Editing it changes the same Health record; deleting it removes it"
+  - "A reading imported from Health and edited in the app (blood pressure and weight) is unchanged in Health"
+  - "With import on, the reading Med Tracker wrote never comes back as a second row"
+  - "A delete made while Health refused access is delivered after access returns or on the next open"
+  - "Switching it off stops updates and leaves the copies already in Health"
+covered_by:
+  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path; the switch UI is med-8f4s.1 PR2
+  android: manual  # until med-8f4s.2 QA
+  ios: manual  # until med-8f4s.3 QA
+source: [Zulip 14755, Zulip 14798]

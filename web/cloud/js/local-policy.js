@@ -161,6 +161,7 @@ export function startLocalHealthImport({ ctx, records, win }) {
     health,
     storage: win.localStorage,
     doc: win.document,
+    records,
     run: (opts) => {
       if (stopped) return Promise.resolve(null);
       const pass = runHealthImport(ctx, { ...opts, records, flush: async () => {} });
