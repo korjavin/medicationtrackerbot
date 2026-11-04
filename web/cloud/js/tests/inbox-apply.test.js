@@ -1124,6 +1124,26 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
 
+    // bd med-lmd6: the applier carries the delivery pref, so a tap drained
+    // after a switch to webpush (detailed lock screen) re-arms with no text —
+    // no med name reaches the relay; a Telegram channel gets the names.
+    it.each([
+        ['webpush', undefined], ['both', '\u{1F48A} Time to take: Metformin']
+    ])('a re-arm from the applier carries names only with a Telegram channel (%s)', async (delivery, text) => {
+        const records = fakeRecords({
+            ...seed(),
+            reminderdeliverypref: [{ recordId: 'reminderdeliverypref', clientTs: 1, deleted: false, delivery, verbosity: 'detailed' }],
+        });
+        // med-b's confirm write never lands, so it is still due after the tap.
+        const put = records.put;
+        records.put = async (type, record) => (type === 'intake' && String(record.recordId).startsWith('intake-med-b-') ? record : put(type, record));
+        const rearmRefire = vi.fn();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire, cancelRefire: vi.fn(), editReply: vi.fn(async () => {}) });
+        await apply(confirmEvent);
+
+        expect(rearmRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000, ['med-b'], text ? { text } : {});
+    });
+
     // bd med-wi09.12 N3: the drain stamps the account's zone on the confirm —
     // the stamp is that day's evidence zone — never the draining device's.
     it('stamps the pinned zone on a drained confirm, not the device zone', async () => {

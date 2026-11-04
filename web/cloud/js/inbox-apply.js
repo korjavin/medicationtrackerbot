@@ -250,7 +250,7 @@ function intakeReceiptLines({ confirmed, already, skipped, stale, notRecorded },
 // reaches for an ambient fetch. There is no cancel here any more: the relay
 // cancels the chain the instant the Confirm is tapped, and this only puts ONE
 // re-fire back when a named dose is somehow still due afterwards.
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {}, onOutOfDate = () => {} }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', delivery = 'telegram', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {}, onOutOfDate = () => {} }) {
   const slotUnix = event.slot_unix;
   const slotMs = slotUnix * 1000;
   const atMs = event.at_unix * 1000;
@@ -375,8 +375,11 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     // not this reminder's chain to re-arm.
     const stillDue = named.filter((medId) => !stale.has(medId) && isOpen(after.get(medId)));
     if (stillDue.length) {
+      // Text only while a Telegram channel is on (apishim's reconcile gate):
+      // a tap drained after a switch to webpush must not upload names.
       const names = stillDue.map((medId) => nameOf.get(String(medId)));
-      rearmRefire(slotMs, stillDue, { text: doseRefireText(names, verbosity) });
+      const telegram = delivery === 'telegram' || delivery === 'both';
+      rearmRefire(slotMs, stillDue, telegram ? { text: doseRefireText(names, verbosity) } : {});
     }
     else cancelRefire(slotMs);
     // Settle every resolved named med from the vault as it now stands, not
@@ -1096,7 +1099,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     const reminders = createRemindersDomain({ records, now });
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
-    const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake: await intakeDomain(), records, now, verbosity, editReply, rearmRefire, cancelRefire, onOutOfDate });
+    const { verbosity, delivery } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic', delivery: 'webpush' }));
+    await applyIntakeSlotAction(event, { intake: await intakeDomain(), records, now, verbosity, delivery, editReply, rearmRefire, cancelRefire, onOutOfDate });
   };
 }
