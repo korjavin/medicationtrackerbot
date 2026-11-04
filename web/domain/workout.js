@@ -2717,46 +2717,61 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const exercise_names = exercises.slice(0, 3).map((e) => e.exercise_name);
     if (!group || !group.is_rotating) return { plan: null, exercise_names };
 
-    const days = await listVariants(group.id);
-    const countByVariant = new Map();
-    for (const e of await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE)) {
-      countByVariant.set(e.variant_id, (countByVariant.get(e.variant_id) || 0) + 1);
-    }
-    const lastDone = new Map();
-    for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
-      if (s.status !== 'completed') continue;
-      const d = localDateStr(new Date(s.completed_at || s.scheduled_date).getTime(), timeZone);
-      if (!(lastDone.get(s.variant_id) >= d)) lastDone.set(s.variant_id, d);
-    }
+    const days = await planDays(group.id);
     const idx = days.findIndex((v) => v.id === variantId);
     return {
       plan: {
         position: idx >= 0 ? idx + 1 : null,
         total: days.length,
         next_variant_name: idx >= 0 ? days[(idx + 1) % days.length].name : null,
-        days: days.map((v) => ({
-          id: v.id,
-          name: v.name,
-          exercises_count: countByVariant.get(v.id) || 0,
-          last_completed_date: lastDone.get(v.id) || null,
-          is_current: v.id === variantId,
+        days: days.map((d) => ({
+          id: d.id,
+          name: d.name,
+          exercises_count: d.exercises_count,
+          last_completed_date: d.last_completed_date,
+          is_current: d.id === variantId,
         })),
       },
       exercise_names,
     };
   }
 
+  // planDays is every day of a group in listVariants order with its exercise
+  // count and its newest completed session (local date + minutes). Shared by
+  // nextCardPlan (WN7) and listPlans (PL1/PL2) so both read one formatter.
+  async function planDays(groupId) {
+    const days = await listVariants(groupId);
+    const countByVariant = new Map();
+    for (const e of await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE)) {
+      countByVariant.set(e.variant_id, (countByVariant.get(e.variant_id) || 0) + 1);
+    }
+    const lastDone = new Map(); // variant_id -> { ms, session }
+    for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
+      if (s.status !== 'completed') continue;
+      const ms = new Date(s.completed_at || s.scheduled_date).getTime();
+      const prev = lastDone.get(s.variant_id);
+      if (!prev || ms > prev.ms) lastDone.set(s.variant_id, { ms, session: s });
+    }
+    return days.map((v) => {
+      const last = lastDone.get(v.id);
+      const startMs = last && last.session.started_at ? new Date(last.session.started_at).getTime() : NaN;
+      const endMs = last && last.session.completed_at ? new Date(last.session.completed_at).getTime() : NaN;
+      const day = {
+        id: v.id,
+        name: v.name,
+        exercises_count: countByVariant.get(v.id) || 0,
+        last_completed_date: last ? localDateStr(last.ms, timeZone) : null,
+        last_duration_min: endMs >= startMs ? Math.round((endMs - startMs) / 60000) : null,
+      };
+      if (v.description) day.description = v.description;
+      return day;
+    });
+  }
+
   // getNext ports GetNext (next.go:60), the 3-priority scheduling engine:
   // P0 active session today, P1 earliest expired snooze, P2 a two-week scan
   // across active groups lazily materializing the pending session. Returns
   // null when nothing is upcoming (mirrors the Go (nil, nil)).
-  //
-  // Simplification vs. the Go source: resolveVariantId's result and the
-  // scheduled_time parse don't vary per day within one group, so this port
-  // hoists both above the 14-day loop instead of re-deriving (and
-  // `continue`-ing past) them on every matching weekday — same observable
-  // outcome (a group with no variants, or an unparseable scheduled_time,
-  // never produces a candidate), fewer lookups.
   async function getNext() {
     return resolveNext(new Set());
   }
@@ -2804,139 +2819,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       return buildSessionResponse(earliest, todayStr, true);
     }
 
-    // PRIORITY 2: earliest upcoming occurrence across the next two weeks.
-    const groups = await listGroups({ activeOnly: true });
+    // PRIORITY 2: earliest upcoming occurrence across the next two weeks; ties
+    // go to the first group in listGroups (name) order.
     let best = null;
-    let bestMs = null;
-
-    for (const group of groups) {
-      let daysOfWeek;
-      try {
-        daysOfWeek = JSON.parse(group.days_of_week);
-      } catch {
-        continue;
-      }
-      if (!Array.isArray(daysOfWeek)) continue;
-
-      const variantId = await resolveVariantId(group);
-      if (!variantId) continue;
-
-      const hhmm = parseHHMM(group.scheduled_time);
-      if (!hhmm) continue;
-
-      for (let daysAhead = 0; daysAhead < 14; daysAhead++) {
-        const parts = addLocalDays(nowMs, timeZone, daysAhead);
-        const weekday = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
-        if (!daysOfWeek.includes(weekday)) continue;
-
-        const scheduledMs = localWallToUtcMs(
-          Date.UTC(parts.year, parts.month - 1, parts.day, hhmm.hour, hhmm.minute),
-          timeZone,
-        );
-        // No past-occurrence skip (Go's next.go:120 had one): today's slot stays
-        // a candidate after its time passes. The Go scheduler flipped
-        // pending->notified at fire time so P0 caught the day; cloud has no
-        // scheduler, so skipping here dropped a workout the user never
-        // completed or skipped. Completed/skipped days are still filtered below,
-        // and a future daysAhead can never be in the past.
-
-        if (best === null || scheduledMs < bestMs) {
-          const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, variantId);
-          if (!variant) continue;
-
-          const exercises = await listExercises(variantId);
-          const dateStr = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
-          const existingRecordId = sessionRecordId(group.id, dateStr);
-          if (suppressed.has(existingRecordId)) continue;
-          const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
-            .find((s) => s.recordId === existingRecordId) || null;
-
-          let status = 'pending';
-          let sessionId = null;
-          if (existing) {
-            if (existing.status === 'completed' || existing.status === 'skipped') continue;
-            status = existing.status;
-            sessionId = existing.id;
-          }
-
-          best = {
-            sessionId,
-            groupId: group.id,
-            groupName: group.name,
-            variantId,
-            variantName: variant.name,
-            scheduledMs,
-            dateStr,
-            scheduledTime: group.scheduled_time,
-            exercisesCount: exercises.length,
-            exercises,
-            group,
-            status,
-            isRotating: !!group.is_rotating,
-          };
-          bestMs = scheduledMs;
-        }
-        break;
-      }
+    for (const group of await listGroups({ activeOnly: true })) {
+      const occ = await nextOccurrence(group, suppressed, nowMs);
+      if (occ && (best === null || occ.scheduledMs < best.scheduledMs)) best = occ;
     }
 
     if (!best) return null;
-
-    if (!best.sessionId) {
-      const recordId = sessionRecordId(best.groupId, best.dateStr);
-      const record = {
-        recordId,
-        // DERIVED state, so it takes the LOWEST possible LWW precedence — not
-        // now() (same rule as medintake.js's dose materialization, bd med-d4w).
-        // getNext is a READ that writes: every device re-derives this row from
-        // the group's schedule, into the same deterministic recordId. A device
-        // whose mirror predates today's workout (a second browser left open
-        // since last week) sees no slot for today and re-creates it as PENDING.
-        // Stamped with now() that stale re-creation is the NEWEST write, so LWW
-        // erases the real COMPLETED session — the finished workout vanishes from
-        // history, its exercise logs orphan onto a session id that no longer
-        // exists, and the reminder un-suppresses (bd med-9a87). A floor clientTs
-        // makes materialization lose every merge against a real write, which is
-        // exactly its standing: it only ever needs to win against nothing at all.
-        // The floor alone was not enough — writeRecord promoted it to
-        // `existing.clientTs + 1` over any raw row already at the recordId — so
-        // this goes in through putIfAbsent below (bd med-qhpu).
-        clientTs: 0,
-        deleted: false,
-        // Derived from the slot, not now()/Math.random(): at the clientTs floor
-        // two differing bodies never displace each other, so they must not
-        // differ in the first place (bd med-8j12).
-        id: derivedNumericId(recordId),
-        user_id: CLOUD_USER_ID,
-        group_id: best.groupId,
-        variant_id: best.variantId,
-        scheduled_date: scheduledDateRFC(best.dateStr, timeZone),
-        scheduled_time: best.scheduledTime,
-        status: 'pending',
-        started_at: null,
-        completed_at: null,
-        snoozed_until: null,
-        snooze_count: 0,
-        notification_message_id: null,
-        notes: '',
-      };
-      // put-if-absent, not put: the RAW slot decides. Two ways it can already be
-      // taken, and neither is ours to overwrite:
-      //   - a TOMBSTONE. Only a deliberate deleteSession leaves one now that
-      //     nextVariant replaces the slot instead of deleting it, so the day was
-      //     removed on purpose and must stay removed.
-      //   - a REAL ROW that landed between the live-only scan above and this
-      //     write (applyIncoming pulling the completed session in). It is the
-      //     truth; the placeholder is not.
-      // Either way, drop the day and let the scan surface the next occurrence.
-      const stored = await records.putIfAbsent(WORKOUT_RECORD_TYPES.SESSION, record);
-      if (stored.deleted || stored.status === 'completed' || stored.status === 'skipped') {
-        suppressed.add(recordId);
-        return resolveNext(suppressed);
-      }
-      best.sessionId = stored.id;
-      best.status = stored.status;
-    }
+    if (!(await ensureScheduledSession(best, suppressed))) return resolveNext(suppressed);
 
     return {
       session: {
@@ -2955,6 +2847,203 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       is_rotating: best.isRotating,
       ...(await nextCardPlan(best.group, best.variantId, best.exercises)),
     };
+  }
+
+  // nextOccurrence is one active group's first open slot in the next two
+  // weeks at its scheduled_time, on the day its rotation cursor points to
+  // (resolveVariantId), skipping slots that are completed, skipped or in
+  // `suppressed`. sessionId is the existing live row's id, or null when the
+  // slot is not materialized yet. Null when the group has no slot (bad
+  // days_of_week / scheduled_time, no variant, every day taken). A pure read.
+  //
+  // Simplification vs. the Go source: resolveVariantId's result and the
+  // scheduled_time parse don't vary per day within one group, so this port
+  // hoists both above the 14-day loop — same observable outcome (a group with
+  // no variants, or an unparseable scheduled_time, never produces a slot).
+  async function nextOccurrence(group, suppressed, nowMs) {
+    let daysOfWeek;
+    try {
+      daysOfWeek = JSON.parse(group.days_of_week);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(daysOfWeek)) return null;
+
+    const variantId = await resolveVariantId(group);
+    if (!variantId) return null;
+
+    const hhmm = parseHHMM(group.scheduled_time);
+    if (!hhmm) return null;
+
+    const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, variantId);
+    if (!variant) return null;
+
+    for (let daysAhead = 0; daysAhead < 14; daysAhead++) {
+      const parts = addLocalDays(nowMs, timeZone, daysAhead);
+      const weekday = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+      if (!daysOfWeek.includes(weekday)) continue;
+
+      const scheduledMs = localWallToUtcMs(
+        Date.UTC(parts.year, parts.month - 1, parts.day, hhmm.hour, hhmm.minute),
+        timeZone,
+      );
+      // No past-occurrence skip (Go's next.go:120 had one): today's slot stays
+      // a candidate after its time passes. The Go scheduler flipped
+      // pending->notified at fire time so P0 caught the day; cloud has no
+      // scheduler, so skipping here dropped a workout the user never
+      // completed or skipped. Completed/skipped days are still filtered below,
+      // and a future daysAhead can never be in the past.
+
+      const dateStr = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+      const existingRecordId = sessionRecordId(group.id, dateStr);
+      if (suppressed.has(existingRecordId)) continue;
+      const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
+        .find((s) => s.recordId === existingRecordId) || null;
+
+      let status = 'pending';
+      let sessionId = null;
+      if (existing) {
+        if (existing.status === 'completed' || existing.status === 'skipped') continue;
+        status = existing.status;
+        sessionId = existing.id;
+      }
+
+      const exercises = await listExercises(variantId);
+      return {
+        sessionId,
+        groupId: group.id,
+        groupName: group.name,
+        variantId,
+        variantName: variant.name,
+        scheduledMs,
+        dateStr,
+        scheduledTime: group.scheduled_time,
+        exercisesCount: exercises.length,
+        exercises,
+        group,
+        status,
+        isRotating: !!group.is_rotating,
+      };
+    }
+    return null;
+  }
+
+  // ensureScheduledSession materializes an occurrence's slot when nextOccurrence
+  // found no live row (sessionId null), filling occ.sessionId/status in place.
+  // Returns false — and adds the slot to `suppressed` — when the raw slot is
+  // already spoken for (see resolveNext above); the caller re-scans.
+  async function ensureScheduledSession(occ, suppressed) {
+    if (occ.sessionId) return true;
+    const recordId = sessionRecordId(occ.groupId, occ.dateStr);
+    const record = {
+      recordId,
+      // DERIVED state, so it takes the LOWEST possible LWW precedence — not
+      // now() (same rule as medintake.js's dose materialization, bd med-d4w).
+      // getNext is a READ that writes: every device re-derives this row from
+      // the group's schedule, into the same deterministic recordId. A device
+      // whose mirror predates today's workout (a second browser left open
+      // since last week) sees no slot for today and re-creates it as PENDING.
+      // Stamped with now() that stale re-creation is the NEWEST write, so LWW
+      // erases the real COMPLETED session — the finished workout vanishes from
+      // history, its exercise logs orphan onto a session id that no longer
+      // exists, and the reminder un-suppresses (bd med-9a87). A floor clientTs
+      // makes materialization lose every merge against a real write, which is
+      // exactly its standing: it only ever needs to win against nothing at all.
+      // The floor alone was not enough — writeRecord promoted it to
+      // `existing.clientTs + 1` over any raw row already at the recordId — so
+      // this goes in through putIfAbsent below (bd med-qhpu).
+      clientTs: 0,
+      deleted: false,
+      // Derived from the slot, not now()/Math.random(): at the clientTs floor
+      // two differing bodies never displace each other, so they must not
+      // differ in the first place (bd med-8j12).
+      id: derivedNumericId(recordId),
+      user_id: CLOUD_USER_ID,
+      group_id: occ.groupId,
+      variant_id: occ.variantId,
+      scheduled_date: scheduledDateRFC(occ.dateStr, timeZone),
+      scheduled_time: occ.scheduledTime,
+      status: 'pending',
+      started_at: null,
+      completed_at: null,
+      snoozed_until: null,
+      snooze_count: 0,
+      notification_message_id: null,
+      notes: '',
+    };
+    // put-if-absent, not put: the RAW slot decides. Two ways it can already be
+    // taken, and neither is ours to overwrite:
+    //   - a TOMBSTONE. Only a deliberate deleteSession leaves one now that
+    //     nextVariant replaces the slot instead of deleting it, so the day was
+    //     removed on purpose and must stay removed.
+    //   - a REAL ROW that landed between the live-only scan above and this
+    //     write (applyIncoming pulling the completed session in). It is the
+    //     truth; the placeholder is not.
+    // Either way, drop the day and let the scan surface the next occurrence.
+    const stored = await records.putIfAbsent(WORKOUT_RECORD_TYPES.SESSION, record);
+    if (stored.deleted || stored.status === 'completed' || stored.status === 'skipped') {
+      suppressed.add(recordId);
+      return false;
+    }
+    occ.sessionId = stored.id;
+    occ.status = stored.status;
+    return true;
+  }
+
+  // listPlans is the Plans tab read (med-jqrf.1, PL1/PL2/PL4): every group with
+  // its days, an active group's own next slot (materialized like getNext's, so
+  // "Start this day" has a session to set-variant on even for a plan that is
+  // not the Timeline's), a flat group's exercises, and the in-progress session
+  // id. Active plans come first by next slot, then the rest by name.
+  async function listPlans() {
+    const nowMs = now();
+    const suppressed = new Set();
+    const plans = [];
+    for (const group of await listGroups()) {
+      let occ = null;
+      if (group.active) {
+        for (;;) {
+          occ = await nextOccurrence(group, suppressed, nowMs);
+          if (!occ || (await ensureScheduledSession(occ, suppressed))) break;
+        }
+      }
+      const next = occ
+        ? { date: occ.dateStr, time: occ.scheduledTime, variant_id: occ.variantId, session_id: occ.sessionId }
+        : null;
+      const days = (await planDays(group.id)).map((d) => ({ ...d, is_next: !!next && d.id === next.variant_id }));
+      const plan = {
+        id: group.id,
+        name: group.name,
+        active: group.active,
+        is_rotating: group.is_rotating,
+        days_of_week: group.days_of_week,
+        scheduled_time: group.scheduled_time,
+        training_goal: group.training_goal,
+        next,
+        days,
+        exercises: [],
+      };
+      if (group.description) plan.description = group.description;
+      if (!group.is_rotating && days.length > 0) {
+        plan.exercises = (await listExercises(days[0].id)).map((e) => {
+          const ex = {
+            id: e.id,
+            exercise_name: e.exercise_name,
+            target_sets: e.target_sets,
+            target_reps_min: e.target_reps_min,
+          };
+          if (hasValue(e.target_reps_max)) ex.target_reps_max = e.target_reps_max;
+          if (hasValue(e.target_weight_kg)) ex.target_weight_kg = e.target_weight_kg;
+          return ex;
+        });
+      }
+      plans.push({ plan, nextMs: occ ? occ.scheduledMs : null });
+    }
+    // listGroups is name-sorted and the sort is stable, so ties keep name order.
+    plans.sort((a, b) => (a.nextMs === null) - (b.nextMs === null) || (a.nextMs || 0) - (b.nextMs || 0)
+      || (a.plan.active === b.plan.active ? 0 : a.plan.active ? -1 : 1));
+    const inProgress = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).find((s) => s.status === 'in_progress');
+    return { plans: plans.map((p) => p.plan), active_session_id: inProgress ? inProgress.id : null };
   }
 
   // -- Session views + stats --
@@ -4117,6 +4206,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   return {
     createGroup,
     listGroups,
+    listPlans,
     updateGroup,
     deleteGroup,
     createVariant,

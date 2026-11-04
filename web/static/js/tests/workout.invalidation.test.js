@@ -45,12 +45,13 @@ describe('workout invalidation: tag + legacy cache + push-modal flows', () => {
 
         // Seed the api_cache as if a prior fetch had populated each workout
         // key. Tag registration happens eagerly when workout.js loads, so
-        // invalidateTags(['workout']) should reach all four entries even
+        // invalidateTags(['workout']) should reach every entry even
         // without a prior loadSWR call from the workouts tab.
         await window.DataStore.setCached('workout_next', { stale: 'next' });
         await window.DataStore.setCached('workout_history', { stale: 'history' });
         await window.DataStore.setCached('workout_groups', [{ id: 1, name: 'Stale' }]);
         await window.DataStore.setCached('workout_stats', { stale: 'stats' });
+        await window.DataStore.setCached('workout_plans', { plans: [], active_session_id: null });
 
         await window.invalidateWorkoutCache();
 
@@ -58,6 +59,8 @@ describe('workout invalidation: tag + legacy cache + push-modal flows', () => {
         expect(await window.DataStore.getCached('workout_history')).toBeNull();
         expect(await window.DataStore.getCached('workout_groups')).toBeNull();
         expect(await window.DataStore.getCached('workout_stats')).toBeNull();
+        // The Plans tab read (med-jqrf.1) rides the same 'workout' tag.
+        expect(await window.DataStore.getCached('workout_plans')).toBeNull();
         expect(window.MedTrackerDB.WorkoutStore.clearCache).toHaveBeenCalledTimes(1);
     });
 
