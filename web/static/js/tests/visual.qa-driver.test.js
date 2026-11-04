@@ -220,6 +220,29 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         });
     }, 30000);
 
+    it('the PL2 scenes open day 7 of the two-plan seed with targets and last, then start it', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        // twoPlans replaces the store once, then reloads (a jsdom no-op that never settles).
+        window.history.replaceState({}, '', '/?qa=workouts-plan-day');
+        window.eval(DRIVER_SRC);
+        await vi.waitFor(() => expect(window.sessionStorage.getItem('wg-qa-two-plans')).toBe('1'), { timeout: 10000 });
+
+        expect(await load('workouts-plan-day')).toMatchObject({ ok: true, failed: [] });
+        const page = window.document.querySelector('.wg-page[data-plan-day-page="29"]');
+        expect(page.querySelector('.wg-pagebar__crumb').textContent).toBe('Push/Pull · day 7 of 7');
+        expect(page.querySelector('.wg-pl__desc').textContent).toBe('Quad-focused leg day with strength emphasis, plus calves.');
+        expect(page.querySelector('.wg-section__head .wg-eyebrow').textContent).toBe('Exercises · 3');
+        expect(page.querySelector('.wg-section__head .wg-meta').textContent).toMatch(/^last done \w{3} \d{2}\.\d{2} · 47 min$/);
+        expect(Array.from(page.querySelectorAll('.wg-list .wg-row__meta')).map((m) => m.textContent)).toEqual([
+            '4 × 5 · 100 kg · last 4 × 5 · 97.5 kg', '3 × 10 · 160 kg · last 3 × 10 · 150 kg', '4 × 12 · 60 kg · last 4 × 12 · 60 kg',
+        ]);
+        expect(page.querySelector('[data-action="start-plan-day"]').textContent).toBe('Start this day');
+
+        expect(await load('workouts-plan-day-started')).toMatchObject({ ok: true, failed: [] });
+        expect(window.WorkoutSessionsState.data).toMatchObject({ group_id: 10, variant_id: 29, status: 'in_progress' });
+    }, 30000);
+
     it('the Up next scenes (WN1, WN5) open on today\'s plan day with named exercises, a clean week and a running clock', async () => {
         const { window } = env;
         expect(await load('today')).toBeNull();

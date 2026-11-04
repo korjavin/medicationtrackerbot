@@ -99,8 +99,8 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(metas(days)[6]).toBe('3 exercises · last Mon 02.11');
         expect(Array.from(days.querySelectorAll('.wg-tag')).map((t) => t.closest('.wg-row').querySelector('.wg-row__title').textContent)).toEqual(['Chest & Triceps']);
         expect(card.querySelector('.wg-tl-more')).toBeNull();
-        // Until the day page (med-jqrf.3) exists, day rows are read-only.
-        expect(days.querySelector('button')).toBeNull();
+        // Day rows open the day page (PL2, med-jqrf.3).
+        expect(days.querySelectorAll('button.wg-row')).toHaveLength(7);
         expect(Array.from(card.querySelectorAll('.wg-card__foot .wg-btn')).map((b) => b.textContent)).toEqual(['Share or print', 'Edit plan']);
         // No sun anywhere on the tab, and none in the Train app bar.
         expect(c.querySelector('.wg-btn--primary')).toBeNull();

@@ -11,7 +11,7 @@
 //       longTitle?,                         // icon-only back (aria-label = back) so a long title fits;
 //                                           // 44px side columns, so no `primary` (the kit never pairs them)
 //       body,                               // Node placed in the scrolling .wg-content
-//       primary?: { label: 'Save'|'Done', onClick },
+//       primary?: { label: 'Save'|'Done', onClick, ghost? },  // ghost: a non-sun bar action (PL2 "Edit")
 //       onBack?,   // Back chevron / Esc / popstate; return false (or a promise
 //                  // of false) to keep the page open (e.g. unsaved draft)
 //       onClose?,  // after the page is gone, however it closed
@@ -71,7 +71,7 @@
         if (o.primary) {
             primaryBtn = doc.createElement('button');
             primaryBtn.type = 'button';
-            primaryBtn.className = 'wg-btn wg-btn--primary wg-btn--sm';
+            primaryBtn.className = o.primary.ghost ? 'wg-btn wg-btn--ghost wg-btn--sm' : 'wg-btn wg-btn--primary wg-btn--sm';
             primaryBtn.textContent = o.primary.label || 'Save';
             primaryBtn.addEventListener('click', () => {
                 if (typeof o.primary.onClick === 'function') o.primary.onClick();

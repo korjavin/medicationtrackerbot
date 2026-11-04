@@ -297,7 +297,7 @@ async function nextWorkoutVariant(sessionId) {
 const PLAN_DAY_SHEET_ID = 'workout-plan-day-sheet';
 // One pick in flight at a time: a later pick's success must not be undone by
 // an earlier pick's failure rolling the card back over it.
-let _planDayPickPending = false; // module-state: one set-variant write in flight (WN7)
+let _planDayPickPending = false; // module-state: one set-variant write in flight (WN7 and PL2 Start this day, variants.js)
 
 function _closePlanDaySheet() {
     const mm = window.ModalManager;
@@ -329,15 +329,23 @@ function _withPlanDay(data, day) {
     };
 }
 
-async function _pickPlanDay(data, day) {
-    _closePlanDaySheet();
-    if (day.is_current || _planDayPickPending) return;
+// One plan-day switch (set-variant) at a time, from WN7 here or PL2's Start
+// this day (variants.js). Runs fn unless one is pending; false = skipped.
+async function runPlanDaySwitch(fn) {
+    if (_planDayPickPending) return false;
     _planDayPickPending = true;
     try {
-        await _writePlanDay(data, day);
+        await fn();
     } finally {
         _planDayPickPending = false;
     }
+    return true;
+}
+
+async function _pickPlanDay(data, day) {
+    _closePlanDaySheet();
+    if (day.is_current) return;
+    await runPlanDaySwitch(() => _writePlanDay(data, day));
 }
 
 async function _writePlanDay(data, day) {
