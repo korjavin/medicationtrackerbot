@@ -16,7 +16,7 @@
 // Losing them only costs a re-scan, which the deterministic recordIds absorb.
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.
-import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed } from './sync.js';
+import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled } from './sync.js';
 import { createHealthImportDomain } from '../../domain/healthimport.js';
 import { diagLine } from './passkey-diag.js';
 
@@ -52,6 +52,13 @@ const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
 const MAX_PAGES = 40;
+// Write-back (bd med-8f4s.1): the device-local switch and the per-id ledger of
+// what Health still owes, { bp: { recordId: clientTs }, weight: { … } }.
+const WRITE_KEY = 'wg.health.write';
+const DIRTY_KEY = 'wg.health.dirty';
+const WRITE_KINDS = ['bp', 'weight'];
+// ponytail: 50 Health calls per pass; the rest waits for the next pass.
+const WRITE_BATCH = 50;
 const ROW_ID = 'health-import-row';
 const TOGGLE_ID = 'health-import-toggle';
 
@@ -65,11 +72,135 @@ function readJSON(storage, key, fallback) {
 }
 
 function writeJSON(storage, key, value) {
-    try { storage.setItem(key, JSON.stringify(value)); } catch { /* private mode / quota: next run re-scans */ }
+    try {
+        storage.setItem(key, JSON.stringify(value));
+        return true;
+    } catch {
+        return false; // private mode / quota: next run re-scans
+    }
 }
 
 export function isHealthImportEnabled(storage = globalThis.localStorage) {
     return readJSON(storage, ENABLED_KEY, false) === true;
+}
+
+// "Also write my entries" (bd med-8f4s.1): only ever on with the import on.
+// Nothing sets it until the Settings switch ships, so nothing is written yet.
+export function isHealthWriteEnabled(storage = globalThis.localStorage) {
+    return isHealthImportEnabled(storage) && readJSON(storage, WRITE_KEY, false) === true;
+}
+
+// The one eligibility rule for marking a local write: the boundary of what is
+// mirrored is the operation (Archie 14798). Any put or delete made on this
+// device of a bp/weight row without `source`, switch on: a new entry, an edit
+// of a row synced in from another device, an old entry first edited after
+// opt-in. Passive sync apply never reaches the seam. A tombstone carries no
+// source, so it is always marked (its remove is a no-op for an id never written).
+function writeBackEligible(recordType, row, storage) {
+    if (!WRITE_KINDS.includes(recordType) || !isHealthWriteEnabled(storage)) return false;
+    return row.deleted || !row.source;
+}
+
+function healthBody(kind, row) {
+    const base = { type: kind, id: row.recordId, version: row.clientTs, at: Date.parse(row.measured_at) };
+    return kind === 'bp'
+        ? { ...base, systolic: row.systolic, diastolic: row.diastolic }
+        : { ...base, kg: row.weight };
+}
+
+// Health write-back (bd med-8f4s.1). sync.js onLocalWrite reports every bp /
+// weight put or delete made on this device; with the switch on, the hook marks
+// the id in the ledger (synchronously, before the vault commit), then kicks
+// that id's chain. A chain step waits for the commit, reads the raw row and
+// makes Health match it: live → write, tombstone or absent → remove (a no-op
+// where nothing was written). The entry is cleared only if it still holds the
+// version the step started from, so a later edit survives an earlier success;
+// a failure keeps it (moved to the back) for the next pass. Switch off: no
+// marking, no delivery; the ledger is kept. No eviction, ever.
+// Returns { drain }: one pass over the ledger, at most WRITE_BATCH calls.
+export function startHealthWriteBack({
+    health = globalThis.Health,
+    storage = globalThis.localStorage,
+    records,
+    hook = onLocalWrite,
+    settled = localWritesSettled,
+    diag = diagLine,
+} = {}) {
+    const ledger = () => readJSON(storage, DIRTY_KEY, {});
+    const chains = new Map();
+
+    const step = async (kind, id) => {
+        const from = ledger()[kind]?.[id];
+        if (from === undefined || !isHealthWriteEnabled(storage)) return;
+        await settled();
+        try {
+            const row = (await records.listRaw(kind)).find((r) => r.recordId === id);
+            if (row && !row.deleted) {
+                if (!row.source) await health.write(healthBody(kind, row));
+            } else {
+                await health.remove({ type: kind, id });
+            }
+        } catch (e) {
+            // Kept, moved to the back: a refused id cannot hold up the rest.
+            const now = ledger();
+            const v = now[kind]?.[id];
+            if (v !== undefined) {
+                delete now[kind][id];
+                now[kind][id] = v;
+                writeJSON(storage, DIRTY_KEY, now);
+            }
+            throw e;
+        }
+        const now = ledger();
+        if (now[kind]?.[id] === from) {
+            delete now[kind][id];
+            writeJSON(storage, DIRTY_KEY, now);
+        }
+    };
+    const deliver = (kind, id) => {
+        const next = (chains.get(id) || Promise.resolve())
+            .then(() => step(kind, id))
+            .then(() => true, (e) => {
+                diag(`[health] write ${kind} failed ${e && e.message}`);
+                return false;
+            });
+        chains.set(id, next);
+        next.then(() => { if (chains.get(id) === next) chains.delete(id); });
+        return next;
+    };
+
+    // Synchronous, inside the records lock: no awaits, no Health calls here.
+    hook((recordType, row) => {
+        if (!writeBackEligible(recordType, row, storage)) return;
+        const l = ledger();
+        l[recordType] = { ...l[recordType], [row.recordId]: row.clientTs };
+        if (!writeJSON(storage, DIRTY_KEY, l)) {
+            diag('[health] ledger write failed');
+            return;
+        }
+        queueMicrotask(() => deliver(recordType, row.recordId));
+    });
+
+    const drain = async () => {
+        if (!isHealthWriteEnabled(storage)) return;
+        let granted;
+        try {
+            ({ granted } = await health.writeAccess(WRITE_KINDS));
+        } catch (e) {
+            diag(`[health] write access failed ${e && e.message}`);
+            return;
+        }
+        const l = ledger();
+        // Interleave the kinds so one refused kind cannot starve the other.
+        const lists = WRITE_KINDS.filter((k) => (granted || []).includes(k))
+            .map((k) => Object.keys(l[k] || {}).map((id) => [k, id]));
+        const picked = [];
+        for (let i = 0; picked.length < WRITE_BATCH && lists.some((x) => i < x.length); i++) {
+            for (const x of lists) if (i < x.length && picked.length < WRITE_BATCH) picked.push(x[i]);
+        }
+        await Promise.all(picked.map(([k, id]) => deliver(k, id)));
+    };
+    return { drain };
 }
 
 // Forget how far this iPhone's Health store was read — the switch-on rescan
@@ -260,8 +391,11 @@ export function startHealthImport(ctx, {
     },
     run = (opts) => runHealthImport(ctx, opts),
     appRefresh = globalThis.AppRefresh,
+    records = recordsPort(ctx, ORIGIN_EXTERNAL),
 } = {}) {
     if (!health || !health.isSupported()) return null;
+    const writeBack = startHealthWriteBack({ health, storage, records });
+    const drainWrites = () => writeBack.drain().catch((e) => console.error('[health] write pass failed', e));
     let inFlight = null;
     const refresh = () => {
         const desc = doc.getElementById(ROW_ID)?.querySelector('.wg-setting__desc');
@@ -298,6 +432,7 @@ export function startHealthImport(ctx, {
     mountHealthRow(doc, storage, health, async (on) => {
         if (!on) {
             writeJSON(storage, ENABLED_KEY, false);
+            writeJSON(storage, WRITE_KEY, false); // import off → write off
             refresh();
             return true;
         }
@@ -323,8 +458,12 @@ export function startHealthImport(ctx, {
     });
 
     doc.addEventListener('visibilitychange', () => {
-        if (doc.visibilityState === 'visible') importNow();
+        if (doc.visibilityState === 'visible') {
+            importNow();
+            drainWrites();
+        }
     });
+    drainWrites();
     // Switched on by a build that read fewer kinds (bp/weight before
     // med-w6gx.7): ask once for the new ones before importing. Health shows
     // its sheet only for types it has not asked about yet.

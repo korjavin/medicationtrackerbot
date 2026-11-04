@@ -48,6 +48,29 @@
 //   web then forgets it was asked, so a later shell that knows it shows the
 //   sheet (health-import.js).
 //
+// Write-back (bd med-8f4s.1; shells: Android med-8f4s.2, iOS med-8f4s.3). Only
+// bp and weight, only rows made on this device (web/cloud/js/health-import.js
+// keeps the per-id ledger). A shell answers these only once it lists them in
+// shell.ops; an older shell rejects them "unsupported: <op>", and the page
+// offers the write switch only when shell.ops lists health.write.
+//   requestAuthorization(types, { write: ['bp', 'weight'] }) → health.authorize
+//     { types, write }: one sheet asking read for `types` and write (share)
+//     for `write`. Without `write` it is the read-only sheet above.
+//   writeAccess(types) → health.writeAccess { types } → Promise<{ granted:
+//     ['bp', 'weight'] }>: the kinds the store lets this app write now
+//     (HealthKit authorizationStatus(for:) on every share type of the kind;
+//     Health Connect getGrantedPermissions on the WRITE_* pair). Read after
+//     authorize and on each write pass.
+//   write(args) → health.write { type: 'bp', id, version, at, systolic,
+//     diastolic } | { type: 'weight', id, version, at, kg } → Promise<true>.
+//     id = the vault recordId, the Health key (Health Connect clientRecordId,
+//     HealthKit HKMetadataKeySyncIdentifier); version = the committed
+//     clientTs (clientRecordVersion / HKMetadataKeySyncVersion); at = measured
+//     ms. The same id again replaces the record. Rejects "denied" (no write
+//     access for the kind) or "unsupported".
+//   remove({ type, id }) → health.delete { type, id } → Promise<true>:
+//     deletes the record written under `id`; an id never written is a no-op.
+//
 // Where it lands: web/domain/healthimport.js → vitals.js importSamples
 // (daystats / hrsample / spo2sample, the rows the Vitals cards read).
 //
@@ -60,8 +83,14 @@
         throw new Error('native/health.js: native/index.js must load first');
     }
 
+    var unsupported = function (op) {
+        return function () { return Promise.reject(new Error('unsupported: ' + op)); };
+    };
     foundation.registerImpl('Health', 'web', {
         isSupported: function () { return false; },
+        writeAccess: unsupported('health.writeAccess'),
+        write: unsupported('health.write'),
+        remove: unsupported('health.delete'),
     });
     // The Android shell (bd med-nt9p.8) answers the same ops with the same
     // impl, from Health Connect (android/.../HealthConnect.kt). `label` and
@@ -73,11 +102,22 @@
         label: android ? 'Health Connect' : 'Apple Health',
         accessHint: android ? 'Health Connect → App permissions' : 'Settings → Health → Data Access & Devices',
         isSupported: function () { return true; },
-        requestAuthorization: function (types) {
-            return foundation.call('health.authorize', { types: types });
+        requestAuthorization: function (types, opts) {
+            var args = { types: types };
+            if (opts && opts.write) args.write = opts.write;
+            return foundation.call('health.authorize', args);
         },
         query: function (args) {
             return foundation.call('health.query', args);
+        },
+        writeAccess: function (types) {
+            return foundation.call('health.writeAccess', { types: types });
+        },
+        write: function (args) {
+            return foundation.call('health.write', args);
+        },
+        remove: function (args) {
+            return foundation.call('health.delete', args);
         },
     };
     foundation.registerImpl('Health', 'ios', shell);
