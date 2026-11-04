@@ -907,6 +907,28 @@ func TestAttestVoiceBudgets(t *testing.T) {
 	}
 }
 
+// bd med-v1uz.3: a voice-day 429 while the bucket has a pending settlement
+// carries retry_in_seconds (the earliest pending deadline); without one the
+// body is unchanged (TestAttestVoiceBudgets).
+func TestAttestVoiceDayRetryHint(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.attest.cfg.VoiceDaily = 120
+	e.attest.settlePoll, e.attest.settleFor = time.Hour, time.Hour
+	k := attestKey(t)
+	e.enrolled(k, "tok-hint")
+	e.convAnswers(func(id string, n int) (int, string) { return http.StatusOK, elConversation(id, "processing", 20) })
+	_, out := e.voiceStart(k, 1)
+	e.reapNow(out.Call) // dropped, still processing: its settlement stays pending
+	rec, _ := e.voiceStart(k, 2)
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	secs, _ := body["retry_in_seconds"].(float64)
+	if rec.Code != http.StatusTooManyRequests || body["scope"] != cloudstore.AttestScopeVoiceDay || body["resets_at"] == "" || secs < 3000 || secs > 3600 {
+		t.Fatalf("voice-day with a pending settlement: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAttestVoiceBudgetTimer(t *testing.T) {
 	e := newAttestEnv(t, 50, 0, 0)
 	e.voiceOn()

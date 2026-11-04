@@ -961,7 +961,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'On-device mode: free trial voice calls, if you turn them on',
-      detail: 'If you turn on the free trial in on-device mode, voice calls run on the operator\'s ElevenLabs account: your voice audio and its transcript go to it, and the agent\'s answers are written by the operator\'s AI provider account through our server, which receives each turn and the health data the agent reads from this phone to answer you. You get a limited number of free minutes of calls on this phone, with a daily limit (the operator sets both); each call is counted at its full length limit when it starts, and the time it did not use comes back after it ends, once ElevenLabs reports how long it ran. Our server keeps no call content — only how many seconds of calls this phone\'s anonymous trial has used. With the trial off, the app calls neither our server nor ElevenLabs.',
+      detail: 'If you turn on the free trial in on-device mode, voice calls run on the operator\'s ElevenLabs account: your voice audio and its transcript go to it, and the agent\'s answers are written by the operator\'s AI provider account through our server, which receives each turn and the health data the agent reads from this phone to answer you. You get a limited number of free minutes of calls on this phone, with a daily limit (the operator sets both); each call reserves its full time limit when it starts, and the time you don\'t use comes back after the call ends, once ElevenLabs reports how long it ran. Our server keeps no call content — only how many seconds of calls this phone\'s anonymous trial has used. With the trial off, the app calls neither our server nor ElevenLabs.',
     },
   },
   {
