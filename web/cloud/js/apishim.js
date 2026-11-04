@@ -253,13 +253,24 @@ export function createApiRouter(ctx, {
   // snoozed dose is not due (bd med-4j49), its snooze-end reminder restarts
   // the chain naming every open dose of the slot. Otherwise (a take/skip/snooze
   // that left slot-mates due, bd med-lmd6) the pending re-fire keeps its time
-  // but names only them, in text at the user's Telegram verbosity.
-  async function reconcileMedChain(slotMs) {
-    const due = (await intake.occurrences({ fromMs: slotMs, toMs: slotMs })).filter((r) => r.state === 'due');
-    if (!due.length) { cancelMedRefire(slotMs); return; }
-    const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    const text = doseRefireText(due.map((r) => r.name), verbosity);
-    rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true, text });
+  // but names only them, in text at the user's Telegram verbosity. One
+  // occurrences read spans every acted slot, so a bulk write over N slots
+  // reads the evidence once, not N times (breakage F3).
+  async function reconcileMedChains(slotList) {
+    const slots = [...new Set(slotList)].filter(Number.isFinite);
+    if (!slots.length) return;
+    const rows = await intake.occurrences({ fromMs: Math.min(...slots), toMs: Math.max(...slots) });
+    let pref = null;
+    for (const slotMs of slots) {
+      const due = rows.filter((r) => r.state === 'due' && Date.parse(r.plannedAt) === slotMs);
+      if (!due.length) { cancelMedRefire(slotMs); continue; }
+      // Text only for a Telegram channel, as push.js gates tg_text: verbosity
+      // is also the lock-screen choice, and a webpush-only user's names must
+      // never reach the relay. No text → the relay's generic medRefireText.
+      pref = pref || await reminders.getDeliveryPref().catch(() => ({ delivery: 'webpush', verbosity: 'generic' }));
+      const text = pref.delivery === 'telegram' || pref.delivery === 'both' ? doseRefireText(due.map((r) => r.name), pref.verbosity) : undefined;
+      rearmMedRefire(slotMs, due.map((r) => r.medId), { keepFireAt: true, text });
+    }
   }
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
@@ -992,11 +1003,10 @@ export function createApiRouter(ctx, {
       // would leave the dose with no reminder at all.
       scheduleReminderRecompute(ctx, { records, timeZone }, args.action === 'snooze' ? 0 : undefined);
       // A dose confirmed in the app never taps Telegram: reconcile the relay
-      // chain for each acted slot (reconcileMedChain).
-      if (['take', 'skip', 'snooze'].includes(args.action)) {
-        for (const slotMs of new Set(res.doses.map((d) => Date.parse(d.scheduled_at)))) {
-          await reconcileMedChain(slotMs);
-        }
+      // chain for each acted slot (reconcileMedChains). An undo re-opens a
+      // dose, so it re-widens a chain an earlier take narrowed (bd med-lmd6).
+      if (['take', 'skip', 'snooze', 'undo'].includes(args.action)) {
+        await reconcileMedChains(res.doses.map((d) => Date.parse(d.scheduled_at)));
       }
       return res;
     };
@@ -1058,7 +1068,7 @@ export function createApiRouter(ctx, {
         // re-fire to them instead (bd med-lmd6).
         if (path === '/api/medications/confirm-schedule' && body && body.scheduled_at) {
           const slotMs = Date.parse(body.scheduled_at);
-          if (Number.isFinite(slotMs)) await reconcileMedChain(slotMs);
+          if (Number.isFinite(slotMs)) await reconcileMedChains([slotMs]);
           else cancelMedRefire(slotMs);
         }
         scheduleReminderRecompute(ctx, { records, timeZone });
