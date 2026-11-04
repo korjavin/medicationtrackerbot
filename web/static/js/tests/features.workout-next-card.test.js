@@ -232,6 +232,16 @@ describe('Up next card (kit WN1-WN6)', () => {
     expect(sheetOpen()).toBe(false);
   });
 
+  it('WN7: a future slot tags its day Next and asks "Which day next?"', () => {
+    action(render(rotating({ session: { scheduled_date: '2026-11-06', is_today: false } })), 'other-plan-day').click();
+    expect(sheet().querySelector('.wg-sheethead__title').textContent).toBe('Which day next?');
+    expect(sheetRows().map((r) => (r.querySelector('.wg-tag') || {}).textContent || null)).toEqual(['Next', null, null]);
+    sheet().querySelector('.wg-sheethead [aria-label="Close"]').click();
+    action(render(rotating()), 'other-plan-day').click();
+    expect(sheet().querySelector('.wg-sheethead__title').textContent).toBe('Which day today?');
+    expect(sheetRows()[0].querySelector('.wg-tag').textContent).toBe('Today');
+  });
+
   it('WN7: a tap posts set-variant once, closes the sheet, and the card shows the picked day', async () => {
     const { window } = env;
     let release;

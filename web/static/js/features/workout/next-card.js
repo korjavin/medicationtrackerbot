@@ -386,6 +386,8 @@ async function _writePlanDay(data, day) {
 function openOtherPlanDaySheet(data) {
     const plan = data && data.plan;
     if (_planDayPickPending || !plan || !Array.isArray(plan.days) || !plan.days.length) return;
+    // A future slot (WN3) says "next", not "today" (Iris).
+    const isToday = !!(data.session && data.session.is_today === true);
     let sheet = document.getElementById(PLAN_DAY_SHEET_ID);
     if (!sheet) {
         sheet = document.createElement('mt-modal');
@@ -396,7 +398,7 @@ function openOtherPlanDaySheet(data) {
     }
     const head = window.WGSheet.header({
         eyebrow: `${data.group_name || 'Plan'} · ${plan.total} days`,
-        title: 'Which day today?',
+        title: isToday ? 'Which day today?' : 'Which day next?',
         actions: [{ label: 'Close', icon: 'x' }],
     });
     head.buttons[0].addEventListener('click', _closePlanDaySheet);
@@ -410,7 +412,7 @@ function openOtherPlanDaySheet(data) {
         row.appendChild(body);
         if (day.is_current) {
             row.setAttribute('aria-current', 'true');
-            row.appendChild(_nextCardEl('span', 'wg-tag', 'Today'));
+            row.appendChild(_nextCardEl('span', 'wg-tag', isToday ? 'Today' : 'Next'));
         }
         row.addEventListener('click', () => _pickPlanDay(data, day));
         list.appendChild(row);
