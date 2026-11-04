@@ -2313,9 +2313,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!variant || variant.group_id !== group.id) {
       throw invalidRequest('variant does not belong to the session\'s group', 'invalid_request');
     }
-    // Already on it (slot and cursor agree): nothing to write.
-    const state = await getRotationState(group.id);
-    if (session.variant_id === vid && state && state.current_variant_id === vid) return;
+    // Already on it (slot and the EFFECTIVE cursor agree — a fresh plan has no
+    // rotation row yet and getNext falls back to the first day): nothing to write.
+    if (session.variant_id === vid && (await resolveVariantId(group)) === vid) return;
     await replaceSlotVariant(session, group, async () => {
       await moveRotation(group.id, vid);
       return vid;

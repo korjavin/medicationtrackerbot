@@ -227,6 +227,25 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect((await window.apiCallDirect('/api/workout/sessions/next')).variant_id).toBe(variants[0].id);
     });
 
+    it('set-variant on a fresh plan\'s current day (no rotation row yet) leaves snooze and logs alone', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: first.session.id, exercise_id: 1, exercise_name: 'Bench', source: 'schedule',
+            target_sets: 3, target_reps_min: 8, status: 'completed'
+        });
+        await window.apiCall(`/api/workout/sessions/${first.session.id}/snooze`, 'POST', { minutes: 60 });
+        const before = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');
+
+        await window.apiCall(`/api/workout/sessions/${first.session.id}/set-variant`, 'POST', { variant_id: variants[0].id });
+
+        const after = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');
+        expect(after.session.snoozed_until).toBe(before.session.snoozed_until);
+        expect(after.session.snoozed_until).toBeTruthy();
+        expect(after.logs).toHaveLength(1);
+    });
+
     it('set-variant rejects another group\'s day, a flat group and an active session', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
