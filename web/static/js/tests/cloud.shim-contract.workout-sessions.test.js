@@ -370,6 +370,29 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(running.active_session_id).toBe(rot.next.session_id);
     });
 
+    // med-jqrf.2 (Iris): an active plan with no next slot ("Nothing
+    // scheduled") sorts after every plan that has one, whatever its name,
+    // and before the paused ones.
+    it('GET /api/workout/plans: an active plan with no next slot sorts after the scheduled ones', async () => {
+        const { window } = env;
+        const create = (name, days_of_week) => window.apiCall('/api/workout/groups/create', 'POST', {
+            name, is_rotating: false, days_of_week, scheduled_time: '07:00'
+        });
+        const unscheduled = await create('Aaa no days', '[]');
+        await window.apiCall('/api/workout/variants/create', 'POST', { group_id: unscheduled.id, name: 'Day' });
+        const daily = await create('Zzz daily', EVERY_DAY);
+        await window.apiCall('/api/workout/variants/create', 'POST', { group_id: daily.id, name: 'Day' });
+        const paused = await create('Aab paused', EVERY_DAY);
+        await window.apiCall(`/api/workout/groups/update?id=${paused.id}`, 'PUT', {
+            name: 'Aab paused', is_rotating: false, days_of_week: EVERY_DAY, scheduled_time: '07:00', active: false
+        });
+
+        const res = await window.apiCallDirect('/api/workout/plans');
+        expect(res.plans.map((p) => [p.name, p.active, p.next === null])).toEqual([
+            ['Zzz daily', true, false], ['Aaa no days', true, true], ['Aab paused', false, true]
+        ]);
+    });
+
     it('preskip/cancel-preskip round-trip the session status without touching rotation', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
