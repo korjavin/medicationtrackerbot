@@ -51,8 +51,10 @@
 // Write-back (bd med-8f4s.1; shells: Android med-8f4s.2, iOS med-8f4s.3). Only
 // bp and weight, only rows made on this device (web/cloud/js/health-import.js
 // keeps the per-id ledger). A shell answers these only once it lists them in
-// shell.ops; an older shell rejects them "unsupported: <op>", and the page
-// offers the write switch only when shell.ops lists health.write.
+// shell.ops; an older shell rejects them "unsupported: <op>" (or, on Android,
+// never answers: foundation.call has no timeout), so the page sends none of
+// them unless canWrite() is true.
+//   canWrite() → Promise<boolean>: shell.ops lists health.write (web: false).
 //   requestAuthorization(types, { write: ['bp', 'weight'] }) → health.authorize
 //     { types, write }: one sheet asking read for `types` and write (share)
 //     for `write`. Without `write` it is the read-only sheet above.
@@ -88,6 +90,7 @@
     };
     foundation.registerImpl('Health', 'web', {
         isSupported: function () { return false; },
+        canWrite: function () { return Promise.resolve(false); },
         writeAccess: unsupported('health.writeAccess'),
         write: unsupported('health.write'),
         remove: unsupported('health.delete'),
@@ -109,6 +112,9 @@
         },
         query: function (args) {
             return foundation.call('health.query', args);
+        },
+        canWrite: function () {
+            return foundation.has('health.write');
         },
         writeAccess: function (types) {
             return foundation.call('health.writeAccess', { types: types });

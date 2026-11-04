@@ -95,6 +95,19 @@ describe('native/health.js', () => {
         ]);
     });
 
+    // An old shell must never get the write ops (Android's call has no timeout).
+    it('canWrite: false on the web, else whether shell.ops lists health.write', async () => {
+        await expect(load().Health.canWrite()).resolves.toBe(false);
+        for (const [ops, want] of [[['health.query'], false], [['health.query', 'health.write'], true]]) {
+            dom.window.close();
+            dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
+            const w = dom.window;
+            w.webkit = { messageHandlers: { wgNative: { postMessage: (m) => Promise.resolve(m.op === 'shell.ops' ? ops : null) } } };
+            for (const f of ['index.js', 'health.js']) w.eval(fs.readFileSync(path.join(NATIVE, f), 'utf8'));
+            await expect(w.Health.canWrite()).resolves.toBe(want);
+        }
+    });
+
     it('web: has no query surface, so nothing can reach HealthKit', () => {
         const w = load();
         expect(w.Health.query).toBeUndefined();
