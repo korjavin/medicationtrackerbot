@@ -308,17 +308,6 @@ function _closePlanDaySheet() {
     }
 }
 
-// "3 exercises · last Mon 26.10" / "… · never". Dates are local YYYY-MM-DD.
-function _planDayMeta(day) {
-    const n = day.exercises_count || 0;
-    const head = `${n} exercise${n === 1 ? '' : 's'}`;
-    const p = String(day.last_completed_date || '').split('-').map(Number);
-    if (p.length !== 3 || p.some((x) => !x)) return `${head} · never`;
-    const d = new Date(p[0], p[1] - 1, p[2]);
-    const wd = d.toLocaleDateString('en-US', { weekday: 'short' });
-    return `${head} · last ${wd} ${_nextCardPad(d.getDate())}.${_nextCardPad(d.getMonth() + 1)}`;
-}
-
 // The card payload with `day` as the shown plan day (the optimistic state).
 // The picked day's exercise names are not in plan.days; the commit's reload
 // brings them.
@@ -408,7 +397,7 @@ function openOtherPlanDaySheet(data) {
         row.type = 'button';
         row.dataset.variantId = String(day.id);
         const body = _nextCardEl('span', 'wg-row__body');
-        body.append(_nextCardEl('span', 'wg-row__title wg-plan-day__title', day.name), _nextCardEl('span', 'wg-row__meta', _planDayMeta(day)));
+        body.append(_nextCardEl('span', 'wg-row__title wg-plan-day__title', day.name), _nextCardEl('span', 'wg-row__meta', workoutPlanDayMeta(day)));
         row.appendChild(body);
         if (day.is_current) {
             row.setAttribute('aria-current', 'true');

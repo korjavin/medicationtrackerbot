@@ -166,7 +166,10 @@ describe('workout.js loaders and next-card behavior', () => {
     try {
       expect(window.WorkoutEdit.planDraft).toBeNull();
 
-      document.getElementById('add-workout-group-btn').click();
+      // PL5's Make a plan (med-jqrf.2; the app-bar sun is gone).
+      expect(document.getElementById('add-workout-group-btn')).toBeNull();
+      window._renderWorkoutGroups(document.getElementById('workout-groups-list'), { plans: [] });
+      document.querySelector('#workout-groups-list .wg-empty .wg-btn--primary').click();
       await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).not.toBeNull());
 
       const monday = document.querySelector('[data-workout-page="plan"] .wg-picks > .wg-pick[data-day="1"]');

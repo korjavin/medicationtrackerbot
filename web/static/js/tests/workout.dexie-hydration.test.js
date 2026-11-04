@@ -150,11 +150,14 @@ describe('Workouts cold-start Dexie hydration (Task 3)', () => {
         setAuthCache(window);
         const cachedAt = Date.now() - 90 * 60 * 1000; // 90 min ago
         installApiCacheMap(window, {
-            workout_groups: {
-                data: [
-                    { id: 1, name: 'Morning Routine', variants: [] },
-                    { id: 2, name: 'Evening Routine', variants: [] }
-                ],
+            workout_plans: {
+                data: {
+                    plans: [
+                        { id: 1, name: 'Morning Routine', active: true, days: [], exercises: [] },
+                        { id: 2, name: 'Evening Routine', active: true, days: [], exercises: [] }
+                    ],
+                    active_session_id: null
+                },
                 timestamp: cachedAt
             }
         });

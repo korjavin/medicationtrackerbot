@@ -1,0 +1,24 @@
+id: train-plans-tab
+title: Plans opens on the current plan with every day, Share or print and Edit plan
+platforms: [web, android, ios]
+preconditions:
+  - Local or cloud user with one active rotating plan and one paused plan
+steps:
+  - Open Train, then the Plans sub-tab
+  - Read the plan card, then tap Share or print and close the sheet
+  - Tap Edit plan, then go back; tap the paused plan, then go back
+  - Tap New plan, then go back; tap Import plan, then close it
+  - Add a second active plan that doesn't rotate, and open Plans again
+  - Pause every plan and open Plans again
+invariants:
+  - 'One active plan: the card''s eyebrow reads "Current plan", the line under the name reads "{days} at {HH:MM} · {Goal} · {n}-day rotation" (a run of three or more days as "Mon–Sat", all seven as "Every day"), and every day is listed in plan order with "{n} exercises · last {Weekday DD.MM}" (or "never") and a "Next" tag on the day the Timeline offers next'
+  - The card ends with Share or print (the Share / Print / Scan sheet) and Edit plan (the plan editor); there is no sun on the tab and no Add plan in the app bar
+  - 'Paused plans sit under a "Paused" heading as "{n} days · last used DD.MM" with a Paused chip; a tap opens the editor'
+  - The list ends with New plan (an empty editor) and Import plan (the paste / scan import)
+  - 'Two active plans: one card each, soonest first, eyebrows "Next · today/tomorrow/{Weekday} HH:MM"; a plan that doesn''t rotate lists its exercises as "{sets} × {reps}"; a rotation longer than four days shows four and "All {n} days", which shows the rest in place'
+  - 'No active plan: "No plan yet" with Make a plan (the only sun) and Import plan; paused plans are listed under it, and the New plan / Import plan rows are not shown'
+covered_by:
+  web: web/static/js/tests/workout.groups.test.js
+  android: tests/visual/scenes.json#workouts-plans
+  ios: tests/visual/scenes.json#workouts-plans
+source: [med-jqrf.2]

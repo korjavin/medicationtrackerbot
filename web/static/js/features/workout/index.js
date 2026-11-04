@@ -73,9 +73,6 @@ function switchWorkoutTab(tab) {
     if (!activated) return;
 
     if (typeof setActiveWorkoutsSubTab === 'function') setActiveWorkoutsSubTab(tab);
-    // "Add plan" is the Plans screen's app-bar primary.
-    const addPlan = document.getElementById('add-workout-group-btn');
-    if (addPlan) addPlan.hidden = tab !== 'groups';
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     // A visit opens the Timeline short again (three weeks).
@@ -113,7 +110,6 @@ function loadWorkouts() {
 
         // med-2fc: no static ad-hoc Start button any more — the next-workout
         // card renders its own `Ad hoc` action and wires it directly.
-        bindClick('add-workout-group-btn', () => openWorkoutPlanPage(null));
         bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
 
         // Sheet scan-back review (bd med-qj4.9). Guarded: scan.js loads after
