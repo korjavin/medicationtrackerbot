@@ -1610,6 +1610,21 @@ describe('Health write-back', () => {
         expect(Object.keys(dirty().bp)).toHaveLength(2);
     });
 
+    it('a newer access read dropping a kind while a step reads the row stops that step', async () => {
+        let release;
+        const paused = { ...records, listRaw: async (t) => { await new Promise((r) => { release = r; }); return records.listRaw(t); } };
+        storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-x': 3 } }));
+        const wb = startHealthWriteBack({ health, storage, records: paused });
+        const pass = wb.drain();
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        health.writeAccess.mockResolvedValue({ granted: ['weight'] });
+        await wb.readAccess();
+        release();
+        await pass;
+        expect(calls()).toEqual([]);
+        expect(dirty()).toEqual({ bp: { 'bp-x': 3 } });
+    });
+
     // Breakage review (PR1): Android's bridge call has no timeout, so an older
     // shell must never get a write op, whatever is stored.
     it('a shell without health.write in shell.ops gets no write op, even with the switch stored on', async () => {
@@ -1755,6 +1770,23 @@ describe('Health write-back', () => {
             await idle();
             expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'bp', id: b.id }));
             expect(writeDesc()).toBeNull();
+        });
+
+        it('import switched off (and on again) while the write sheet is open voids the opt-in', async () => {
+            let answer;
+            const requestAuthorization = vi.fn((kinds, opts) => (opts ? new Promise((r) => { answer = r; }) : Promise.resolve(true)));
+            await start({ ...health, requestAuthorization });
+            writeToggle().checked = true;
+            writeToggle().dispatchEvent(new window.Event('change'));
+            await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+            const importToggle = document.getElementById('health-import-toggle');
+            await flip(importToggle, false);
+            await flip(importToggle, true);
+            answer(true);
+            await vi.waitFor(() => expect(writeToggle().disabled).toBe(false));
+            expect(storage.getItem('wg.health.write')).toBe('false');
+            expect(writeToggle().checked).toBe(false);
+            expect(health.writeAccess).not.toHaveBeenCalled();
         });
 
         it('turning the import off turns writing off and hides the row', async () => {

@@ -161,8 +161,11 @@ export function startHealthWriteBack({
         if (!granted || !granted.includes(kind)) return; // kept for the next pass
         try {
             const row = (await records.listRaw(kind)).find((r) => r.recordId === id);
-            // Switched off while we waited: keep the entry, send nothing.
+            // Switched off, or a newer access read dropped the kind, while we
+            // waited: keep the entry, send nothing.
             if (!isHealthWriteEnabled(storage)) return;
+            const latest = await access;
+            if (!latest || !latest.includes(kind)) return;
             if (row && !row.deleted) {
                 if (!row.source) await health.write(healthBody(kind, row));
             } else {
@@ -438,6 +441,8 @@ export function startHealthImport(ctx, {
     let canWrite = false;
     let writeHint = '';
     let writeRow = null;
+    // Bumped by import off: a write opt-in still waiting on its sheet is void.
+    let writeEpoch = 0;
     const renderWrite = () => {
         if (!writeRow) return;
         const group = doc.getElementById(ROW_ID)?.parentNode;
@@ -495,6 +500,7 @@ export function startHealthImport(ctx, {
         if (!on) {
             writeJSON(storage, ENABLED_KEY, false);
             writeJSON(storage, WRITE_KEY, false); // import off → write off
+            writeEpoch++;
             writeHint = '';
             refresh();
             renderWrite();
@@ -532,11 +538,14 @@ export function startHealthImport(ctx, {
                 renderWrite();
                 return true;
             }
+            const epoch = writeEpoch;
             try {
                 await health.requestAuthorization(HEALTH_KINDS, { write: WRITE_KINDS });
             } catch (e) {
                 console.error('[health] write authorization failed', e);
             }
+            // Import switched off (and maybe on again) meanwhile: no late opt-in.
+            if (epoch !== writeEpoch || !isHealthImportEnabled(storage)) return false;
             writeJSON(storage, WRITE_KEY, true);
             // onAccess settles the switch and the line from the answer.
             if (!(await writeBack.readAccess())) {
