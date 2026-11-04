@@ -1304,6 +1304,7 @@ svg.chart-svg {
 .wg-row__title.wg-plan-day__title {
     display: block;
     -webkit-line-clamp: none;
+    -webkit-box-orient: initial;
     overflow: visible;
 }
 
