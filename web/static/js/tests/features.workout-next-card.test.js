@@ -222,7 +222,7 @@ describe('Up next card (kit WN1-WN6)', () => {
     const rows = sheetRows();
     expect(rows.map((r) => r.querySelector('.wg-row__title').textContent)).toEqual(['Chest & Triceps', 'Back & Biceps', 'Glutes, Hamstrings & Core']);
     expect(rows.map((r) => r.querySelector('.wg-row__meta').textContent)).toEqual([
-      '3 exercises · last Mon 26.10', '1 exercise · last Tue 27.10', '4 exercises · never',
+      '3 exercises · last Mon 26.10', '1 exercise · last Tue 27.10', '4 exercises · not done yet',
     ]);
     expect(rows.map((r) => (r.querySelector('.wg-tag') || {}).textContent || null)).toEqual(['Today', null, null]);
     // Names wrap in full: the sheet's title modifier lifts the row's two-line clamp.

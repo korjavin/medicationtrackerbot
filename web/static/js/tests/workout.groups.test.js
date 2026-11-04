@@ -173,6 +173,11 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(c.querySelector('.wg-plan-tail')).toBeNull();
     });
 
+    it('a day never done reads "not done yet"', () => {
+        const plan = makePlan({ days: [day(11, 'Push', { is_next: true }), day(12, 'Pull', { last_completed_date: '2026-10-27' })] });
+        expect(metas(render([plan]).querySelector('.wg-pl__days'))).toEqual(['3 exercises · not done yet', '3 exercises · last Tue 27.10']);
+    });
+
     it('a paused plan never done reads "never used"', () => {
         const c = render([{ ...PAUSED, days: [day(31, 'A')] }]);
         expect(metas(c.querySelector('.wg-plan-paused'))).toEqual(['1 day · never used']);

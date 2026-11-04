@@ -140,13 +140,13 @@ function _planDDMM(d) {
     return `${_planPad(d.getDate())}.${_planPad(d.getMonth() + 1)}`;
 }
 
-// "3 exercises · last Mon 26.10" / "… · never". Shared by the Plans tab day
+// "3 exercises · last Mon 26.10" / "… · not done yet". Shared by the Plans tab day
 // rows and the Timeline's "Other plan day" sheet (next-card.js).
 function workoutPlanDayMeta(day) {
     const n = day.exercises_count || 0;
     const head = `${n} exercise${n === 1 ? '' : 's'}`;
     const d = _planLocalDate(day.last_completed_date);
-    if (!d) return `${head} · never`;
+    if (!d) return `${head} · not done yet`;
     return `${head} · last ${d.toLocaleDateString('en-US', { weekday: 'short' })} ${_planDDMM(d)}`;
 }
 
