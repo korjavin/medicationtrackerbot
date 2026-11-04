@@ -2968,6 +2968,38 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     });
   }
 
+  // sessionPRCounts (med-soo0.5) → Map session id -> number of exercises whose
+  // heaviest confirmed weight was first beaten in that session. One oldest-first
+  // fold over the whole history, the same rule as getStats' pr_count (resolved
+  // movement chain, logWorkTotals with the weight-sanity flags so an
+  // unconfirmed outlier never counts) minus its 30-day window.
+  async function sessionPRCounts() {
+    const all = await completedLogsNewestFirst();
+    const resolve = buildExerciseResolver(all.libraryRows, all.logs);
+    const oldest = [...all.logs].reverse();
+    const byKey = new Map();
+    for (const log of oldest) {
+      const k = resolve(log.exercise_name).key;
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(log);
+    }
+    const flags = new Map();
+    for (const [k, logs] of byKey) {
+      flagLogs(logs, isUnweightedExercise(k)).forEach((f, i) => flags.set(logs[i], f));
+    }
+    const heaviest = new Map();
+    const counts = new Map();
+    for (const log of oldest) {
+      const key = resolve(log.exercise_name).key;
+      const max = logWorkTotals(log, flags.get(log)).max_weight_kg;
+      if (max > (heaviest.get(key) || 0)) {
+        heaviest.set(key, max);
+        counts.set(log.session_id, (counts.get(log.session_id) || 0) + 1);
+      }
+    }
+    return counts;
+  }
+
   // listSessions ports ListSessions (sessions.go:34): recent sessions newest
   // first, enriched with group/variant names, per-session exercise counts,
   // completed count, and total volume. Ad-hoc sessions (group_id == -1) are
@@ -2979,6 +3011,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const lim = limit || 30;
     const sessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).slice(0, lim);
     const allLogs = await activeRecords(WORKOUT_RECORD_TYPES.LOG);
+    const prCounts = await sessionPRCounts();
 
     const views = [];
     for (const session of sessions) {
@@ -3031,6 +3064,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         exercises_count: session.group_id === ADHOC_ID ? logs.length : exercises.length,
         exercises_completed: completed,
         total_volume: totalVolume,
+        pr_count: prCounts.get(session.id) || 0,
       });
     }
     return views;

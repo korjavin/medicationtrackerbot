@@ -436,6 +436,11 @@ function _buildSessionCard(s, dayKey, userTz) {
             _tlMetaPart(meta, 'wg-workouts-history-row__gym', `@ ${session.location_name}`);
         }
     }
+    if (s.pr_count > 0) {
+        const chip = window.WGChip.create({ text: `${s.pr_count} PR${s.pr_count === 1 ? '' : 's'}`, state: 'ok', small: true });
+        chip.classList.add('wg-workouts-history-row__pr');
+        meta.appendChild(chip);
+    }
     if (unfinished) {
         const chip = window.WGChip.create({ text: 'Unfinished', state: 'pending', small: true });
         chip.classList.add('wg-workouts-history-row__unfinished');
