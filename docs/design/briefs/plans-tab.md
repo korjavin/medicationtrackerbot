@@ -16,7 +16,7 @@ PL1 the plan card with every day, PL2 a read-only day page with Start this day, 
 2. "Start this day" on the day page (uses med-soo0.1's set-variant)? **Yes.**
 3. Descriptions only on the day page, not in rows? **Yes.**
 4. Add plan → New plan / Import plan rows at the end; no sun on the tab when a plan exists? **Yes.**
-5. "Rotate through days" → "Take days in turn"? **Yes.**
+5. "Rotate through days" → "Take days in turn"? **No** (Developer 2026-11-04: keep "Rotate through days").
 
 ## Data notes for Archie
 Per-day last-done date for every active plan (soo0.1 adds it to getNext for the current plan only); per-exercise last performance on the day page (exists for the session's "last" ghost values). Web only, WebView everywhere.
