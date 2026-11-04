@@ -111,10 +111,8 @@ describe('features/workout/share.js — Share icon + modal (med-uo64.2)', () => 
   it('the Share or print sheet (PL6) lists Share first; it calls WorkoutShare.share with that plan', async () => {
     const { window, document } = env;
     window.WorkoutEdit.cachedGroups = [GROUP];
-    window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [GROUP]);
-    const item = Array.from(document.querySelectorAll('#workout-groups-list .wg-menu__item'))
-      .find((b) => b.textContent === 'Share or print');
-    item.click();
+    window._renderWorkoutGroups(document.getElementById('workout-groups-list'), { plans: [{ ...GROUP, active: true, days: [], exercises: [] }] });
+    document.querySelector('#workout-groups-list .wg-plan-card [data-action="share-or-print"]').click();
 
     const sheet = document.getElementById('workout-plan-share-sheet');
     const first = sheet.querySelector('.wg-list > .wg-row');
@@ -426,13 +424,14 @@ describe('features/workout/share.js — import receive path (med-uo64.3)', () =>
     expect(video.classList.contains('hidden')).toBe(true);
   });
 
-  it('Import plan button opens the modal and clears the field; back closes it and stops the camera', async () => {
+  it('the Plans tab Import plan row opens the modal and clears the field; back closes it and stops the camera', async () => {
     const { window, document } = env;
     const modal = importModal(document);
     expect(modal.classList.contains('hidden')).toBe(true);
+    window._renderWorkoutGroups(document.getElementById('workout-groups-list'), { plans: [{ id: 5, name: 'PPL', active: true, days: [], exercises: [] }] });
 
     document.getElementById('workout-share-import-input').value = 'stale';
-    document.getElementById('import-workout-plan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    document.querySelector('#workout-groups-list [data-action="import-plan"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     expect(modal.classList.contains('hidden')).toBe(false);
     expect(document.getElementById('workout-share-import-input').value).toBe('');
 

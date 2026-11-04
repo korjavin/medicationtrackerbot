@@ -4668,6 +4668,22 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-md);
 }
 
+/* Plans tab plan card (kit screens-plans PL1/PL4, med-jqrf.2): the title +
+   schedule line stack, and the day list running edge to edge in the card. */
+.wg-pl__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-s1);
+}
+
+.wg-pl__head > p {
+    margin: 0;
+}
+
+.wg-pl__days {
+    margin: 0 calc(-1 * var(--wg-card-pad));
+}
+
 /* Scan / share / import sheet body (kit .wg-sheet + .wg-sheethead since
    med-xso6.36). */
 .wg-workouts-group-modal__body {

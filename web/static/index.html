@@ -160,8 +160,6 @@
         <div id="workouts-view" class="view wg-screen-stage">
             <header class="wg-appbar">
                 <div class="wg-appbar__titles"><h1 class="wg-appbar__title">Train</h1></div>
-                <!-- Plans screen primary (med-xso6.22); shown only on the Plans sub-tab. -->
-                <button id="add-workout-group-btn" type="button" class="wg-btn wg-btn--primary wg-btn--sm" hidden><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add plan</button>
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
             <!-- Train sub-tabs: kit .wg-seg--scroll (five options; med-xso6.10). -->
@@ -188,13 +186,11 @@
 
             <!-- Groups Management View -->
             <div id="workout-groups-tab" class="workout-tab-content">
-                <!-- Stale-data chip (Task 6 of local-first read resilience).
-                     Mounted by loadWorkoutGroups() from the api_cache
-                     'workout_groups' timestamp; hidden until populated. -->
+                <!-- Plans tab (med-jqrf.2): plan cards, Paused list, New plan /
+                     Import plan rows; rendered by loadWorkoutGroups(). -->
                 <div id="workout-groups-list" class="wg-workouts-groups">
                     Loading plans...
                 </div>
-                <button id="import-workout-plan-btn" type="button" class="wg-btn wg-btn--ghost wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Import plan</button>
             </div>
 
             <!-- Exercises Library View.

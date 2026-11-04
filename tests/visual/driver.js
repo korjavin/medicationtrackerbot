@@ -122,7 +122,40 @@
     }
 
     function seedVault(fixture) {
-        return withTimelineNow(shiftDates(withTimeline(withHealthSources(withPileUp(fixture))), new Date()));
+        return withTimelineNow(shiftDates(withPausedPlan(withTimeline(withHealthSources(withPileUp(fixture)))), new Date()));
+    }
+
+    // Plans tab PL1 (bd med-jqrf.2): a paused plan, so workouts-plans shows the
+    // Paused list under the current plan. Paused plans have no next slot and
+    // no reminders, and its days carry no exercises or sessions, so no other
+    // screen shows it. Visual seed only.
+    function withPausedPlan(vault) {
+        const w = vault && vault.data && vault.data.workouts;
+        if (!w || !Array.isArray(w.groups) || !Array.isArray(w.variants)) return vault;
+        w.groups.push({ ...w.groups[0], id: 11, name: 'Summer cut', description: '', is_rotating: true, active: false });
+        ['Upper', 'Lower', 'Conditioning'].forEach((name, i) => w.variants.push({
+            id: 23 + i, group_id: 11, name, rotation_order: i, description: '', created_at: '2026-06-01T08:00:00Z',
+        }));
+        return vault;
+    }
+
+    // Plans tab PL4 (bd med-jqrf.2): a second active plan that doesn't rotate
+    // (every day at 07:30, three exercises), and the seeded plan grown to
+    // seven days so its card folds after four with "All 7 days".
+    function withTwoPlans(vault) {
+        const w = vault.data.workouts;
+        const base = w.groups.find((g) => g.id === 10);
+        w.groups.push({ ...base, id: 12, name: 'Morning mobility', description: '', is_rotating: false, active: true,
+            days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '07:30' });
+        w.variants.push({ id: 30, group_id: 12, name: 'Morning mobility', rotation_order: 0, description: '', created_at: '2026-06-01T08:00:00Z' });
+        ['Upper Mix', 'Bench Technique & Shoulders', 'Upper Back & Grip', 'Quads & Calves'].forEach((name, i) => w.variants.push({
+            id: 26 + i, group_id: 10, name, rotation_order: 3 + i, description: '', created_at: '2026-06-01T08:00:00Z',
+        }));
+        [['Hip flexor stretch', 2, 30], ['Cat–cow', 2, 10], ['Dead hang', 3, 30]].forEach(([name, sets, reps], i) => w.exercises.push({
+            id: 60 + i, variant_id: 30, exercise_name: name, target_sets: sets, target_reps_min: reps,
+            target_reps_max: null, target_weight_kg: null, order_index: i, exercise_library_id: null, equipment_id: null,
+        }));
+        return vault;
     }
 
     // MT4 · pile-up (bd med-ry7b.4): the golden fixture has one dose a day,
@@ -672,6 +705,22 @@
                 for (const k of step.startHere.drop || []) delete vault.data[k];
                 await window.CloudVault.importAll(vault);
                 await window.apiCall('/api/firstrun/complete', 'POST', { picked: step.startHere.picked });
+                try { window.sessionStorage.setItem(KEY, '1'); } catch (_) { /* no storage */ }
+                window.location.reload();
+                await new Promise(() => {}); // the next load runs the scene
+            }
+        } else if (step.twoPlans) {
+            // PL4: replace the store once with the seeded vault plus a second
+            // active plan (withTwoPlans), then reload. Destructive like noPlan:
+            // the scene runs after every scene that reads the seeded plan.
+            const KEY = 'wg-qa-two-plans';
+            let done = false;
+            try { done = window.sessionStorage.getItem(KEY) === '1'; } catch (_) { /* no storage */ }
+            if (!done) {
+                const vault = withTwoPlans(seedVault(await getJSON('/qa/vault-v1.json')));
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (tz && vault.data && vault.data.settings) vault.data.settings.timezone = tz;
+                await window.CloudVault.importAll(vault);
                 try { window.sessionStorage.setItem(KEY, '1'); } catch (_) { /* no storage */ }
                 window.location.reload();
                 await new Promise(() => {}); // the next load runs the scene

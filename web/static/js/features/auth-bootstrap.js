@@ -407,6 +407,8 @@ window.AuthBootstrap = (function () {
             { key: 'workout_next', tags: ['workout'] },
             { key: 'workout_history', tags: ['workout'] },
             { key: 'workout_groups', tags: ['workout'] },
+            // Plans tab (med-jqrf.2): paints from this before its fresh read.
+            { key: 'workout_plans', tags: ['workout'] },
             { key: 'workout_stats', tags: ['workout'] },
             { key: 'exercise_library', tags: ['exercise_library'] },
             // Vitals/Health Overview — TZ-qualified key (e.g. health_overview_Europe/Berlin).

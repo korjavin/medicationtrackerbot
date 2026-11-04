@@ -890,8 +890,6 @@ window.addEventListener('pagehide', stopImportScan);
     if (nativeBtn) nativeBtn.addEventListener('click', () => { nativeSharePlan(); });
     const cancelBtn = document.getElementById('workout-share-cancel-btn');
     if (cancelBtn) cancelBtn.addEventListener('click', () => { closeWorkoutShareModal(); });
-    const importBtn = document.getElementById('import-workout-plan-btn');
-    if (importBtn) importBtn.addEventListener('click', () => { openImportWorkoutPlanModal(); });
     const importGymBtn = document.getElementById('import-workout-location-btn');
     if (importGymBtn) importGymBtn.addEventListener('click', () => { openImportWorkoutPlanModal(); });
     const importSubmitBtn = document.getElementById('workout-share-import-submit-btn');

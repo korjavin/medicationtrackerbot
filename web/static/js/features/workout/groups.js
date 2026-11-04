@@ -1,10 +1,11 @@
 // ====================================
-// WORKOUT PLANS — list + Plan page
+// WORKOUT PLANS — Plans tab + Plan page
 // ====================================
 //
 // Owns:
-//   - cached workout-groups list (window.WorkoutEdit.cachedGroups)
-//   - the Plans list (one tappable row per plan)
+//   - cached workout-groups list (window.WorkoutEdit.cachedGroups, the editor's)
+//   - the Plans tab (med-jqrf.2, kit PL1/PL4/PL5): a card per active plan with
+//     its days, a Paused list, New plan / Import plan rows
 //   - the plan editor root (med-xso6.22, kit screens-workouts P1): Plan → Day
 //     → Exercise are nested WGPages. The Day page (variants.js) and the
 //     Exercise page (exercises.js) stage their edits into the draft held here
@@ -18,7 +19,8 @@
     // Closure-private editor state — module-level mutable globals are
     // forbidden in the extracted files (architecture.no-module-state).
     let _editingGroupId = null;
-    // Hydrated by loadWorkoutGroups + the SWR onFresh path.
+    // The editor's group list: filled by openWorkoutPlanPage's
+    // /api/workout/groups read, emptied by every Plans-tab load.
     let _cachedGroups = [];
     // The open plan editor's draft, null while no Plan page is open:
     //   { groupId, group, page, days: [Day], removedDays: [id], daysReordered }
@@ -49,35 +51,36 @@
     });
 })();
 
+// The Plans tab (med-jqrf.2, kit screens-plans PL1/PL4/PL5) renders from one
+// cached read, GET /api/workout/plans (workout_plans). The editor keeps its own
+// /api/workout/groups read: the tab no longer fills cachedGroups, so it is
+// emptied here and the editor's open re-reads fresh groups instead of a list a
+// save has since changed.
 async function loadWorkoutGroups() {
     const container = document.getElementById('workout-groups-list');
+    window.WorkoutEdit.cachedGroups = [];
     await window.DataStore.loadSWR({
-        key: 'workout_groups',
+        key: 'workout_plans',
         tags: ['workout'],
         // apiCallDirect throws on offline/5xx so a post-mutation refresh
         // failure routes through onError, which renders an explicit "no
-        // cached data" empty state. The legacy apiCall path returned null
-        // on offline; with no `allowNullFresh` and no cached value (just
-        // cleared by invalidateWorkoutCache), loadSWR would skip BOTH
-        // onFresh and onError, leaving the pre-mutation DOM visible after
-        // a successful save followed by a failed refresh.
+        // cached data" empty state (the cache was just cleared by
+        // invalidateWorkoutCache, so a null fresh would skip both callbacks).
+        // Like workout_next, the cached payload paints first and the fresh
+        // read replaces it, so a "next" cached before midnight is re-resolved.
         fetcher: async () => {
             if (!window.apiCallDirect) throw new Error('apiCallDirect not available');
-            const res = await window.apiCallDirect('/api/workout/groups');
-            return Array.isArray(res) ? res : [];
+            const res = await window.apiCallDirect('/api/workout/plans');
+            return res && Array.isArray(res.plans) ? res : { plans: [] };
         },
         onCached: async (cached) => {
             _renderWorkoutGroups(container, cached);
         },
-        onFresh: async (groups) => {
-            window.WorkoutEdit.cachedGroups = groups || [];
-            if (groups && window.MedTrackerDB?.WorkoutStore) {
-                await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
-            }
-            _renderWorkoutGroups(container, groups);
+        onFresh: async (fresh) => {
+            _renderWorkoutGroups(container, fresh);
         },
         onError: async (error, cached) => {
-            console.error('Error loading workout groups:', error);
+            console.error('Error loading workout plans:', error);
             if (!cached) {
                 container.replaceChildren(createOfflineEmptyState({ reason: error }));
             }
@@ -85,34 +88,241 @@ async function loadWorkoutGroups() {
     });
 }
 
+function _planEl(doc, tag, className, text) {
+    const el = doc.createElement(tag);
+    if (className) el.className = className;
+    if (text != null) el.textContent = text;
+    return el;
+}
 
-function _renderWorkoutGroups(container, groups) {
+function _planBtn(doc, className, icon, label, onClick) {
+    const b = _planEl(doc, 'button', className);
+    b.type = 'button';
+    b.append(_workoutIcon(doc, icon, 'wg-ico--sm', 14), doc.createTextNode(label));
+    b.addEventListener('click', onClick);
+    return b;
+}
+
+// A kit row: title + meta, an optional lead icon and trailing tag/chip. With
+// onClick it is a button with a chevron, else a plain read-only div.
+function _planRow(doc, { title, titleClass, meta, lead, trail, onClick }) {
+    const row = _planEl(doc, onClick ? 'button' : 'div', 'wg-row');
+    if (lead) {
+        const l = _planEl(doc, 'span', 'wg-row__lead');
+        l.appendChild(_workoutIcon(doc, lead));
+        row.appendChild(l);
+    }
+    const body = _planEl(doc, 'span', 'wg-row__body');
+    body.appendChild(_planEl(doc, 'span', titleClass ? `wg-row__title ${titleClass}` : 'wg-row__title', title));
+    if (meta) body.appendChild(_planEl(doc, 'span', 'wg-row__meta', meta));
+    row.appendChild(body);
+    if (trail) row.appendChild(trail);
+    if (onClick) {
+        row.type = 'button';
+        row.appendChild(_workoutIcon(doc, 'chev-r', 'wg-row__chev'));
+        row.addEventListener('click', onClick);
+    }
+    return row;
+}
+
+function _planPad(n) {
+    return String(n).padStart(2, '0');
+}
+
+// Local YYYY-MM-DD → Date at local midnight, or null.
+function _planLocalDate(str) {
+    const p = String(str || '').split('-').map(Number);
+    if (p.length !== 3 || p.some((x) => !x)) return null;
+    return new Date(p[0], p[1] - 1, p[2]);
+}
+
+function _planDDMM(d) {
+    return `${_planPad(d.getDate())}.${_planPad(d.getMonth() + 1)}`;
+}
+
+// "3 exercises · last Mon 26.10" / "… · not done yet". Shared by the Plans tab day
+// rows and the Timeline's "Other plan day" sheet (next-card.js).
+function workoutPlanDayMeta(day) {
+    const n = day.exercises_count || 0;
+    const head = `${n} exercise${n === 1 ? '' : 's'}`;
+    const d = _planLocalDate(day.last_completed_date);
+    if (!d) return `${head} · not done yet`;
+    return `${head} · last ${d.toLocaleDateString('en-US', { weekday: 'short' })} ${_planDDMM(d)}`;
+}
+
+const WORKOUT_GOAL_LABELS = { strength: 'Strength', hypertrophy: 'Muscle', endurance: 'Endurance', general: 'General' };
+
+// "Mon–Sat at 18:00 · Muscle · 7-day rotation" (rotating) /
+// "Every day at 07:30 · 3 exercises" (flat).
+function _planScheduleLine(plan) {
+    const days = _workoutGroupDaysText(plan);
+    const parts = [];
+    if (days) parts.push(plan.scheduled_time ? `${days} at ${plan.scheduled_time}` : days);
+    if (plan.is_rotating) {
+        if (WORKOUT_GOAL_LABELS[plan.training_goal]) parts.push(WORKOUT_GOAL_LABELS[plan.training_goal]);
+        parts.push(`${(plan.days || []).length}-day rotation`);
+    } else {
+        const n = (plan.exercises || []).length;
+        parts.push(`${n} exercise${n === 1 ? '' : 's'}`);
+    }
+    return parts.join(' · ');
+}
+
+// "Next · today 18:00" / "Next · tomorrow 07:30" / "Next · Thu 18:00". The
+// domain counts days_away in the workout timezone (never the device's
+// calendar); the weekday of a calendar date is zone-free.
+function _planNextEyebrow(next) {
+    const d = next && _planLocalDate(next.date);
+    if (!d) return 'Nothing scheduled';
+    const away = next.days_away;
+    const when = away === 0 ? 'today' : away === 1 ? 'tomorrow' : d.toLocaleDateString('en-US', { weekday: 'short' });
+    return `Next · ${when}${next.time ? ` ${next.time}` : ''}`;
+}
+
+// "3 × 8–12 · 60 kg", the editor's exercise-row wording.
+function _planExerciseMeta(ex) {
+    const reps = ex.target_reps_max && ex.target_reps_max !== ex.target_reps_min
+        ? `${ex.target_reps_min}–${ex.target_reps_max}`
+        : `${ex.target_reps_min}`;
+    return `${ex.target_sets} × ${reps}${ex.target_weight_kg ? ` · ${ex.target_weight_kg} kg` : ''}`;
+}
+
+// One day row. A tap reads the day (PL2) once its page exists (med-jqrf.3
+// declares openWorkoutPlanDayPage); until then the row is read-only.
+function _planDayRow(doc, plan, day) {
+    const open = typeof openWorkoutPlanDayPage === 'function'
+        ? () => openWorkoutPlanDayPage(plan, day)
+        : null;
+    const row = _planRow(doc, {
+        title: day.name || 'Day',
+        titleClass: 'wg-plan-day__title', // wraps in full, like the WN7 sheet
+        meta: workoutPlanDayMeta(day),
+        trail: day.is_next ? _planEl(doc, 'span', 'wg-tag', 'Next') : null,
+        onClick: open,
+    });
+    row.dataset.variantId = String(day.id);
+    return row;
+}
+
+// One active plan (PL1 / PL4). `folds`: more than one plan is active, so a
+// rotation longer than four days shows four and an "All n days" row.
+function _buildPlanCard(doc, plan, { eyebrow, folds }) {
+    const card = _planEl(doc, 'section', 'wg-card wg-vstack wg-plan-card');
+    card.setAttribute('aria-label', plan.name || 'Plan');
+    card.dataset.groupId = String(plan.id);
+    const top = _planEl(doc, 'div', 'wg-hstack');
+    top.appendChild(_planEl(doc, 'span', 'wg-eyebrow', eyebrow));
+    const head = _planEl(doc, 'div', 'wg-vstack wg-pl__head');
+    head.append(_planEl(doc, 'p', 'wg-card__title', plan.name || 'Plan'), _planEl(doc, 'p', 'wg-meta', _planScheduleLine(plan)));
+    card.append(top, head);
+
+    const list = _planEl(doc, 'div', 'wg-list wg-pl__days');
+    if (plan.is_rotating) {
+        const days = plan.days || [];
+        const shown = folds && days.length > 4 ? 4 : days.length;
+        days.slice(0, shown).forEach((day) => list.appendChild(_planDayRow(doc, plan, day)));
+        card.appendChild(list);
+        if (shown < days.length) {
+            const more = _planBtn(doc, 'wg-tl-more', 'chev-d', `All ${days.length} days`, () => {
+                days.slice(shown).forEach((day) => list.appendChild(_planDayRow(doc, plan, day)));
+                more.remove();
+            });
+            card.appendChild(more);
+        }
+    } else {
+        (plan.exercises || []).forEach((ex) => {
+            list.appendChild(_planRow(doc, { title: ex.exercise_name || 'Exercise', meta: _planExerciseMeta(ex) }));
+        });
+        if (list.children.length) card.appendChild(list);
+    }
+
+    const foot = _planEl(doc, 'div', 'wg-card__foot');
+    foot.append(
+        _planBtn(doc, 'wg-btn wg-btn--ghost', 'qr', 'Share or print', () => openPlanShareSheet(plan)),
+        _planBtn(doc, 'wg-btn', 'edit', 'Edit plan', () => openWorkoutPlanPage(plan.id)),
+    );
+    foot.firstChild.dataset.action = 'share-or-print';
+    foot.lastChild.dataset.action = 'edit-plan';
+    card.appendChild(foot);
+    return card;
+}
+
+// "3 days · last used 14.08" (a flat plan counts its exercises).
+function _pausedPlanMeta(plan) {
+    const n = plan.is_rotating ? (plan.days || []).length : (plan.exercises || []).length;
+    const head = `${n} ${plan.is_rotating ? 'day' : 'exercise'}${n === 1 ? '' : 's'}`;
+    const last = (plan.days || []).map((d) => d.last_completed_date || '').sort().pop();
+    const d = _planLocalDate(last);
+    return d ? `${head} · last used ${_planDDMM(d)}` : `${head} · never used`;
+}
+
+function _buildPausedSection(doc, paused) {
+    const section = _planEl(doc, 'section', 'wg-section wg-plan-paused');
+    const head = _planEl(doc, 'div', 'wg-section__head');
+    head.appendChild(_planEl(doc, 'span', 'wg-eyebrow', 'Paused'));
+    const list = _planEl(doc, 'div', 'wg-list');
+    paused.forEach((plan) => {
+        const row = _planRow(doc, {
+            title: plan.name || 'Plan',
+            meta: _pausedPlanMeta(plan),
+            trail: window.WGChip.create({ text: 'Paused', state: 'stale', small: true }),
+            onClick: () => openWorkoutPlanPage(plan.id),
+        });
+        row.dataset.groupId = String(plan.id);
+        list.appendChild(row);
+    });
+    section.append(head, list);
+    return section;
+}
+
+function _renderWorkoutGroups(container, payload) {
     if (!container) return;
     const doc = container.ownerDocument;
     if (!doc || typeof doc.createElement !== 'function') return;
-    window.WorkoutEdit.cachedGroups = groups || [];
-
     container.classList.add('wg-workouts-groups');
 
-    if (!groups || groups.length === 0) {
-        container.replaceChildren(createEmptyState({
+    const plans = (payload && Array.isArray(payload.plans)) ? payload.plans : [];
+    const active = plans.filter((p) => p.active);
+    const paused = plans.filter((p) => !p.active);
+    const nodes = [];
+
+    if (active.length === 0) {
+        // PL5: the empty state's sun is the tab's only action.
+        nodes.push(createEmptyState({
             icon: 'dumbbell',
-            title: 'No plans yet',
-            body: 'Add a plan to schedule your workouts, or import one someone shared.',
+            title: 'No plan yet',
+            body: 'A plan is your workout days in order. The Timeline then tells you which one is next.',
+            actions: [
+                { label: 'Make a plan', icon: 'plus', variant: 'primary', onClick: () => openWorkoutPlanPage(null) },
+                { label: 'Import plan', icon: 'qr', onClick: () => openImportWorkoutPlanModal() },
+            ],
         }));
+        if (paused.length) nodes.push(_buildPausedSection(doc, paused));
+        container.replaceChildren(...nodes);
         return;
     }
 
-    const list = doc.createElement('div');
-    list.className = 'wg-list';
-    groups.forEach((group) => {
-        list.appendChild(_buildWorkoutGroupRow(doc, group));
+    // Payload order is already by next workout (listPlans).
+    const folds = active.length > 1;
+    active.forEach((plan) => {
+        nodes.push(_buildPlanCard(doc, plan, { eyebrow: folds ? _planNextEyebrow(plan.next) : 'Current plan', folds }));
     });
-    container.replaceChildren(list);
+    if (paused.length) nodes.push(_buildPausedSection(doc, paused));
+
+    const tail = _planEl(doc, 'div', 'wg-list wg-plan-tail');
+    tail.append(
+        _planRow(doc, { title: 'New plan', meta: 'Days, exercises, schedule', lead: 'plus', onClick: () => openWorkoutPlanPage(null) }),
+        _planRow(doc, { title: 'Import plan', meta: 'From a shared link or QR code', lead: 'qr', onClick: () => openImportWorkoutPlanModal() }),
+    );
+    tail.firstChild.dataset.action = 'new-plan';
+    tail.lastChild.dataset.action = 'import-plan';
+    nodes.push(tail);
+    container.replaceChildren(...nodes);
 }
 
-// "Mon, Wed, Fri" from the group's JSON-string days_of_week. Shared by the
-// Plans row and the printable plan sheet so the paper and the screen can
+// "Mon, Wed, Fri" from the group's JSON-string days_of_week, Monday first; a
+// run of three or more days reads "Mon–Sat", all seven "Every day". Shared by
+// the Plans tab and the printable plan sheet so the paper and the screen can
 // never disagree about when a plan repeats.
 function _workoutGroupDaysText(group) {
     let daysArray = [];
@@ -122,65 +332,31 @@ function _workoutGroupDaysText(group) {
         daysArray = [];
     }
     const daysMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return (Array.isArray(daysArray) ? daysArray : [])
-        .map((d) => daysMap[d]).filter(Boolean).join(', ');
+    // Monday-first positions 0..6 (Sun = 6).
+    const pos = Array.from(new Set((Array.isArray(daysArray) ? daysArray : [])
+        .map(Number)
+        .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+        .map((d) => (d + 6) % 7))).sort((a, b) => a - b);
+    if (pos.length === 7) return 'Every day';
+    const name = (p) => daysMap[(p + 1) % 7];
+    const out = [];
+    for (let i = 0; i < pos.length;) {
+        let j = i;
+        while (j + 1 < pos.length && pos[j + 1] === pos[j] + 1) j += 1;
+        if (j - i >= 2) out.push(`${name(pos[i])}–${name(pos[j])}`);
+        else for (let k = i; k <= j; k += 1) out.push(name(pos[k]));
+        i = j + 1;
+    }
+    return out.join(', ');
 }
 
-function _workoutIcon(doc, name, extraClass) {
+function _workoutIcon(doc, name, extraClass, size) {
     const ico = doc.createElement('i');
     ico.className = extraClass ? `wg-ico ${extraClass}` : 'wg-ico';
     if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        ico.appendChild(window.WGIcons.iconSvg(name, { size: 18 }));
+        ico.appendChild(window.WGIcons.iconSvg(name, { size: size || 18 }));
     }
     return ico;
-}
-
-// One plan = one tappable kit row; a tap opens the Plan page (editor, Delete
-// at its end). Its More menu / swipe carry "Share or print" (PL6) until the
-// plan card (med-jqrf.2) puts that button on the card.
-function _buildWorkoutGroupRow(doc, group) {
-    const row = doc.createElement('div');
-    row.className = 'wg-row wg-workout-plan-row';
-    row.dataset.groupId = String(group.id || '');
-
-    const body = doc.createElement('span');
-    body.className = 'wg-row__body';
-    const title = doc.createElement('span');
-    title.className = 'wg-row__title';
-    title.textContent = group.name || 'Plan';
-    body.appendChild(title);
-
-    const metaParts = [];
-    const daysText = _workoutGroupDaysText(group);
-    if (daysText) metaParts.push(daysText);
-    if (group.scheduled_time) metaParts.push(group.scheduled_time);
-    if (Number.isFinite(Number(group.exercises_count)) && group.exercises_count !== null) {
-        const n = Number(group.exercises_count);
-        metaParts.push(`${n} exercise${n === 1 ? '' : 's'}`);
-    }
-    const meta = doc.createElement('span');
-    meta.className = 'wg-row__meta';
-    meta.textContent = metaParts.join(' · ');
-    if (group.is_rotating) {
-        const rot = doc.createElement('span');
-        rot.className = 'wg-tag';
-        rot.textContent = 'Rotating';
-        meta.appendChild(rot);
-    }
-    if (metaParts.length || group.is_rotating) body.appendChild(meta);
-    row.appendChild(body);
-
-    if (!group.active) {
-        row.appendChild(window.WGChip.create({ text: 'Inactive', state: 'stale', small: true }));
-    }
-    const shareOrPrint = { label: 'Share or print', icon: 'qr', onClick: () => openPlanShareSheet(group) };
-    return window.WGRowActions.attach(row, {
-        label: group.name || 'Plan',
-        tapEdits: true,
-        onEdit: () => openWorkoutPlanPage(group.id),
-        extra: [shareOrPrint],
-        swipe: [shareOrPrint],
-    });
 }
 
 // ====================================

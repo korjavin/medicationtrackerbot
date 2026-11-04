@@ -12,7 +12,7 @@ steps:
 invariants:
   - The app loads without script errors and the Up next card renders (every classic script parses in the shared global scope; no duplicate top-level names)
   - 'The eyebrow is when ("Today · 18:00" or "Fri 06.11 · 18:00"), the title is the plan day, the meta line its exercises, and a rotating plan shows "Day N of M · then <next day>"'
-  - 'Other plan day (rotating plans only; hidden while skipping or running) opens "Which day today?" ("Which day next?" for a future slot): every day in plan order, each with "{n} exercises · last {Weekday DD.MM}" (or "never"), the current day tagged "Today" ("Next" for a future slot); a tap writes once, closes, and the card shows the picked day; a failed write puts the old day back'
+  - 'Other plan day (rotating plans only; hidden while skipping or running) opens "Which day today?" ("Which day next?" for a future slot): every day in plan order, each with "{n} exercises · last {Weekday DD.MM}" (or "{n} exercises · not done yet"), the current day tagged "Today" ("Next" for a future slot); a tap writes once, closes, and the card shows the picked day; a failed write puts the old day back'
   - Skip names the day ("Skip today" / "Skip Fri"); a set skip shows a "Skipping" tag and only "Undo skip"
   - A running workout shows "In progress · N min" with Finish and Continue; "Start empty workout" is hidden until it ends
   - Start empty workout opens an empty session on its "What's next?" add step

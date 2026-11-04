@@ -127,22 +127,22 @@ describe('features/workout/groups.js — split-file integration', () => {
       document.getElementById('workout-exercise-reps-min').value = String(repsMin);
     }
 
-    it('the Plans tab lists kit rows (More: Edit, Share or print); a tap opens the Plan page', async () => {
+    // The Plans tab's entry for PLAN (GET /api/workout/plans, med-jqrf.2).
+    const PLAN_ENTRY = { ...PLAN, next: null, days: [], exercises: [] };
+
+    it('the Plans tab card (PL1): Edit plan opens the Plan page from a fresh groups read', async () => {
       const { window, document } = env;
       backend(window, { groups: [PLAN], variants: VARIANTS, exercises: EXERCISES });
       const container = document.getElementById('workout-groups-list');
-      window._renderWorkoutGroups(container, [PLAN, { ...PLAN, id: 6, name: 'Full body', active: false, is_rotating: false }]);
+      window._renderWorkoutGroups(container, { plans: [PLAN_ENTRY, { ...PLAN_ENTRY, id: 6, name: 'Full body', active: false, is_rotating: false }] });
 
-      const rows = container.querySelectorAll('.wg-workout-plan-row');
-      expect(rows).toHaveLength(2);
-      expect(container.querySelectorAll('button[aria-label="Print plan"], button[aria-label="Scan filled sheet"]')).toHaveLength(0);
-      expect(Array.from(rows[0].querySelectorAll('.wg-menu__item')).map((b) => b.textContent)).toEqual(['Edit', 'Share or print']);
-      expect(rows[0].textContent).toContain('Rotating');
-      expect(rows[1].textContent).toContain('Inactive');
+      expect(container.querySelectorAll('.wg-plan-card')).toHaveLength(1);
+      expect(container.querySelectorAll('.wg-plan-paused .wg-row')).toHaveLength(1);
+      expect(container.querySelectorAll('.wg-swipe__more, .wg-menu__item')).toHaveLength(0);
 
-      window.WorkoutEdit.cachedGroups = [PLAN];
-      rows[0].click();
+      container.querySelector('.wg-plan-card [data-action="edit-plan"]').click();
       await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).not.toBeNull());
+      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/groups');
       expect(topPage(document).querySelector('.wg-pagebar__title').textContent).toBe('PPL');
       expect(topPage(document).querySelector('.wg-pagebar__crumb').textContent).toBe('Edit plan');
     });
@@ -152,11 +152,20 @@ describe('features/workout/groups.js — split-file integration', () => {
     it('the Plans tab offline in account mode lists the vault plans', async () => {
       const { window, document } = env;
       Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
-      window.apiCallDirect = vi.fn(async (url) => (url === '/api/workout/groups' ? [PLAN] : null));
+      window.apiCallDirect = vi.fn(async (url) => (url === '/api/workout/plans' ? { plans: [PLAN_ENTRY], active_session_id: null } : null));
       await window.loadWorkoutGroups();
       const container = document.getElementById('workout-groups-list');
-      await vi.waitFor(() => expect(container.querySelectorAll('.wg-workout-plan-row')).toHaveLength(1));
+      await vi.waitFor(() => expect(container.querySelectorAll('.wg-plan-card')).toHaveLength(1));
       expect(container.textContent).not.toContain('No cached data yet');
+    });
+
+    it('New plan (the tail row) opens a fresh Plan page', async () => {
+      const { window, document } = env;
+      backend(window);
+      window._renderWorkoutGroups(document.getElementById('workout-groups-list'), { plans: [PLAN_ENTRY] });
+      document.querySelector('#workout-groups-list [data-action="new-plan"]').click();
+      await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).not.toBeNull());
+      expect(topPage(document).querySelector('.wg-pagebar__title').textContent).toBe('New plan');
     });
 
     it('Add plan opens a fresh Plan page: Repeats on picks, flat exercise list, no tools rows', async () => {
@@ -425,10 +434,9 @@ describe('features/workout/groups.js — split-file integration', () => {
       const { window, document } = env;
       backend(window, { groups: [PLAN], variants: VARIANTS, exercises: EXERCISES });
       const container = document.getElementById('workout-groups-list');
-      window._renderWorkoutGroups(container, [PLAN]);
-      const row = container.querySelector('.wg-workout-plan-row');
-      const item = Array.from(row.querySelectorAll('.wg-menu__item')).find((b) => b.textContent === 'Share or print');
-      expect(item).toBeTruthy();
+      window._renderWorkoutGroups(container, { plans: [PLAN_ENTRY] });
+      const item = container.querySelector('.wg-plan-card [data-action="share-or-print"]');
+      expect(item.textContent).toBe('Share or print');
 
       const printSpy = vi.fn();
       const scanSpy = vi.fn();
@@ -459,7 +467,7 @@ describe('features/workout/groups.js — split-file integration', () => {
       rowOf(sheet, 'print').click();
       expect(sheet.classList.contains('hidden')).toBe(true);
       expect(printSpy).toHaveBeenCalledTimes(1);
-      expect(printSpy.mock.calls[0][0]).toBe(PLAN);
+      expect(printSpy.mock.calls[0][0]).toBe(PLAN_ENTRY);
 
       sheet = open();
       rowOf(sheet, 'scan').click();

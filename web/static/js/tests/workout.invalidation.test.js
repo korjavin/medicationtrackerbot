@@ -179,7 +179,7 @@ describe('workout invalidation: tag + legacy cache + push-modal flows', () => {
         // invalidateWorkoutCache wipes both api_cache and the legacy
         // WorkoutStore. With no cached value, loadWorkoutGroups must drive
         // its onError branch (not silently no-op) when the refresh fails.
-        await window.DataStore.setCached('workout_groups', [{ id: 1, name: 'Pre-save' }]);
+        await window.DataStore.setCached('workout_plans', { plans: [{ id: 1, name: 'Pre-save', active: true, days: [], exercises: [] }] });
         await window.invalidateWorkoutCache();
 
         window.apiCallDirect = vi.fn(async () => { throw new Error('offline'); });
