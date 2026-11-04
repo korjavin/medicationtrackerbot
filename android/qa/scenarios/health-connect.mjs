@@ -238,7 +238,9 @@ export default async function healthConnect(ctx) {
 
     let bp;
     await ctx.step('hand-entered BP reaches Health Connect once under the vault id', async () => {
-      bp = await api('/api/bp', 'POST', { systolic: 121, diastolic: 81, measured_at: new Date().toISOString(), notes: 'write-back QA' });
+      // The emulator's WebView clock can run a fraction ahead of the Health
+      // service. A measured reading in the recent past avoids future-time rejection.
+      bp = await api('/api/bp', 'POST', { systolic: 121, diastolic: 81, measured_at: new Date(Date.now() - 60_000).toISOString(), notes: 'write-back QA' });
       r.writeBack.bp = bp;
       r.writeBack.created = await waitNative(bp.id, (rows) => rows.length === 1 && rows[0].systolic === 121);
       if (r.writeBack.created[0].recordingMethod !== 3) throw new Error('BP is not manually entered');
@@ -250,7 +252,7 @@ export default async function healthConnect(ctx) {
       const edited = r.writeBack.edited[0];
       if (edited.version <= r.writeBack.created[0].version) throw new Error('edit did not advance the client version');
       for (const version of [edited.version, edited.version - 1]) {
-        await native('write', { type: 'bp', id: bp.id, version, at: Date.now(), systolic: 111, diastolic: 71 });
+        await native('write', { type: 'bp', id: bp.id, version, at: Date.now() - 60_000, systolic: 111, diastolic: 71 });
       }
       const rows = (await readNative()).filter((row) => row.clientId === bp.id);
       if (rows.length !== 1 || rows[0].systolic !== 126 || rows[0].version !== edited.version) throw new Error(`version regression: ${JSON.stringify(rows)}`);
@@ -283,7 +285,7 @@ export default async function healthConnect(ctx) {
     });
 
     await ctx.step('weight uses its vault identity and disappears on delete', async () => {
-      const weight = await api('/api/weight', 'POST', { weight: 72.25, measured_at: new Date().toISOString(), notes: 'write-back QA' });
+      const weight = await api('/api/weight', 'POST', { weight: 72.25, measured_at: new Date(Date.now() - 60_000).toISOString(), notes: 'write-back QA' });
       r.writeBack.weight = await waitNative(weight.id, (rows) => rows.length === 1 && rows[0].kg === 72.25);
       await api(`/api/weight/${encodeURIComponent(weight.id)}`, 'DELETE');
       await waitNative(weight.id, (rows) => rows.length === 0);
