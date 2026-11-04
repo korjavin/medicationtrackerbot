@@ -345,6 +345,25 @@ func (r *Repo) RefundAttestVoice(ctx context.Context, keyID string, reservedAt t
 	})
 }
 
+// ChargeAttestVoice is RefundAttestVoice's inverse (bd med-v1uz): it takes
+// back seconds of a provisional refund on the reservation's lifetime and
+// reservedAt's UTC-day rows. No cap check — going over a cap only refuses the
+// next start. The day row exists from the reservation; an erased bucket is a
+// no-op.
+func (r *Repo) ChargeAttestVoice(ctx context.Context, keyID string, reservedAt time.Time, seconds int) error {
+	if seconds <= 0 {
+		return nil
+	}
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE attest_buckets SET voice_seconds = voice_seconds + ? WHERE bucket_id = `+bucketOf, seconds, keyID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE attest_voice_usage SET seconds = seconds + ? WHERE day = ? AND key_id = `+bucketOf,
+			seconds, reservedAt.UTC().Format("2006-01-02"), keyID)
+		return err
+	})
+}
+
 // AttestVoiceUsed is the lifetime voice seconds of the install's bucket
 // (reservations minus refunds).
 func (r *Repo) AttestVoiceUsed(ctx context.Context, keyID string) (int, error) {

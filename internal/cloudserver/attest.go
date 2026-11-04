@@ -282,61 +282,196 @@ type AttestAPI struct {
 	// instance runs); a multi-instance deploy needs a DB-level lease instead.
 	grantMu    sync.Mutex
 	challenges map[string]time.Time
-	// Settlement polling of an anonymous call (settleVoice); overridable in tests.
+	// settlements[bucket] are the bucket's anonymous calls still being settled
+	// (bd med-v1uz), under mu.
+	settlements map[string][]*voiceSettlement
+	// Settlement polling; overridable in tests.
 	settlePoll time.Duration // first 2 min: this interval, then twice it
 	settleFor  time.Duration // 0 = attestSettleSlack + the per-call max after the mint
 	mux        *http.ServeMux
 }
 
-// attestSettleSlack: a signed URL can still open a session 15 min after the
-// mint (https://elevenlabs.io/docs/eleven-agents/customization/authentication),
-// plus 2 min for ElevenLabs to finish processing the call.
-const attestSettleSlack = 17 * time.Minute
+const (
+	// attestSettleSlack: a signed URL can still open a session 15 min after
+	// the mint (https://elevenlabs.io/docs/eleven-agents/customization/authentication),
+	// plus 2 min for ElevenLabs to finish processing the call.
+	attestSettleSlack = 17 * time.Minute
+	// attestSettleSyncTimeout bounds a synchronous poll on a request path
+	// (the end hook's first poll, voiceStart's pre-check).
+	attestSettleSyncTimeout = 3 * time.Second
+	// attestSettlePrecheckMax bounds voiceStart's pre-check GETs.
+	attestSettlePrecheckMax = 3
+)
 
-// settleVoice settles one anonymous call by ElevenLabs' own meter (bd
-// med-v1uz): it polls GET conversations/{id} until the status is done or
-// failed and refunds grant − call_duration_secs (clamped to [0, grant]) to
-// the lifetime and reservedAt's UTC-day counters. Until the deadline (mint +
-// 15 min signed-URL validity + per-call max + 2 min): a 404 or "initiated"
-// at the deadline means no session ever ran — the full grant is refunded;
-// anything else (still running, transport error, other status) refunds
-// nothing and Warns. Fail closed is the bound. Runs once per call (the end
-// hook's sync.Once), off the relay's drop path. ponytail: in memory — a
-// restart loses pending settlements and their charges stand; persist a
-// pending-settlements table if deploys get frequent.
-func (a *AttestAPI) settleVoice(keyID, conversation string, reservedAt time.Time, grant int) {
+// voiceSettlement is one anonymous call settled by ElevenLabs' own meter (bd
+// med-v1uz). mu serializes its polls (the background loop, voiceStart's
+// pre-check). At most one final settlement and one charge-back.
+type voiceSettlement struct {
+	keyID, bucket, conversation string
+	reservedAt, deadline        time.Time
+	grant                       int
+	done                        chan struct{} // closed when settled or past the deadline
+
+	mu          sync.Mutex
+	final       bool // settled: nothing more will change
+	provisional bool // the whole grant was refunded on a 404 / initiated answer
+	notStarted  bool // the last answer was 404 / initiated
+	lastCode    int
+	lastStatus  string
+	lastErr     bool
+}
+
+// settleVoice starts the settlement of one dropped anonymous call: the first
+// poll runs synchronously (attestSettleSyncTimeout; the relay's settling wait
+// makes the bucket's next start see its refund), then, unless that settled
+// it, the call is re-polled in the background until mint + 15 min signed-URL
+// validity + the per-call max + 2 min. Outcomes per poll (pollLocked):
+// done/failed → final refund grant − call_duration_secs, clamped to [0,
+// grant] (a provisional refund is charged back by the seconds that ran);
+// 404/initiated → provisional full refund (no session ran yet, so a
+// never-connected start never costs a 4429); anything else → nothing yet.
+// At the deadline a provisional refund still on 404/initiated is final;
+// anything else unresolved stands and Warns (fail closed). ponytail: in
+// memory — a restart loses pending settlements (provisional refunds stand
+// unverified, unrefunded charges stand); persist a pending-settlements table
+// if deploys get frequent.
+func (a *AttestAPI) settleVoice(keyID, bucket, conversation string, reservedAt time.Time, grant int) *voiceSettlement {
 	window := a.settleFor
 	if window == 0 {
 		window = attestSettleSlack + time.Duration(a.cfg.VoiceCallMax)*time.Second
 	}
-	deadline, started := reservedAt.Add(window), time.Now()
-	refund := func(seconds int, outcome string) {
-		if err := a.store.RefundAttestVoice(context.Background(), keyID, reservedAt, seconds); err != nil {
-			slog.Error("attest voice refund failed", "install", keyID, "conversation", conversation, "seconds", seconds, "error", err)
-			return
-		}
-		slog.Info("attest voice settle", "install", keyID, "conversation", conversation, "outcome", outcome, "granted_seconds", grant, "refunded_seconds", seconds)
+	s := &voiceSettlement{keyID: keyID, bucket: bucket, conversation: conversation, reservedAt: reservedAt,
+		deadline: reservedAt.Add(window), grant: grant, done: make(chan struct{})}
+	ctx, cancel := context.WithTimeout(context.Background(), attestSettleSyncTimeout)
+	s.mu.Lock()
+	a.pollLocked(ctx, s)
+	final := s.final
+	s.mu.Unlock()
+	cancel()
+	if final {
+		close(s.done)
+		return s
 	}
-	for {
-		status, secs, code, err := a.trial.elevenLabsConversation(context.Background(), conversation)
-		if err == nil && code == http.StatusOK && (status == "done" || status == "failed") {
-			refund(min(max(grant-secs, 0), grant), status)
-			return
-		}
-		now := time.Now()
-		if !now.Before(deadline) {
-			if err == nil && (code == http.StatusNotFound || (code == http.StatusOK && status == "initiated")) {
-				refund(grant, "never_started")
+	a.mu.Lock()
+	a.settlements[bucket] = append(a.settlements[bucket], s)
+	a.mu.Unlock()
+	go a.runSettlement(s)
+	return s
+}
+
+// pollLocked asks ElevenLabs once and applies the answer (s.mu held).
+func (a *AttestAPI) pollLocked(ctx context.Context, s *voiceSettlement) {
+	if s.final {
+		return
+	}
+	status, secs, code, err := a.trial.elevenLabsConversation(ctx, s.conversation)
+	s.lastCode, s.lastStatus, s.lastErr = code, status, err != nil
+	s.notStarted = err == nil && (code == http.StatusNotFound || (code == http.StatusOK && status == "initiated"))
+	switch {
+	case err == nil && code == http.StatusOK && (status == "done" || status == "failed"):
+		refund := min(max(s.grant-secs, 0), s.grant)
+		s.final = true
+		if s.provisional {
+			back := s.grant - refund
+			if err := a.store.ChargeAttestVoice(context.Background(), s.keyID, s.reservedAt, back); err != nil {
+				slog.Error("attest voice charge-back failed", "install", s.keyID, "conversation", s.conversation, "seconds", back, "error", err)
 				return
 			}
-			slog.Warn("attest voice settle failed", "install", keyID, "conversation", conversation, "http_status", code, "status", status, "transport_error", err != nil)
+			slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", status, "granted_seconds", s.grant, "refunded_seconds", refund, "charged_back_seconds", back)
 			return
+		}
+		a.settleRefund(s, refund, status)
+	case s.notStarted && !s.provisional:
+		s.provisional = a.settleRefund(s, s.grant, "provisional")
+	}
+}
+
+func (a *AttestAPI) settleRefund(s *voiceSettlement, seconds int, outcome string) bool {
+	if err := a.store.RefundAttestVoice(context.Background(), s.keyID, s.reservedAt, seconds); err != nil {
+		slog.Error("attest voice refund failed", "install", s.keyID, "conversation", s.conversation, "seconds", seconds, "error", err)
+		return false
+	}
+	slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", outcome, "granted_seconds", s.grant, "refunded_seconds", seconds)
+	return true
+}
+
+// runSettlement re-polls s in the background until it settles or its
+// deadline passes, then drops it from the bucket's pending list.
+func (a *AttestAPI) runSettlement(s *voiceSettlement) {
+	defer close(s.done)
+	defer func() {
+		a.mu.Lock()
+		list := a.settlements[s.bucket]
+		for i, p := range list {
+			if p == s {
+				list = append(list[:i], list[i+1:]...)
+				break
+			}
+		}
+		if len(list) == 0 {
+			delete(a.settlements, s.bucket)
+		} else {
+			a.settlements[s.bucket] = list
+		}
+		a.mu.Unlock()
+	}()
+	started := time.Now()
+	for {
+		now := time.Now()
+		if !now.Before(s.deadline) {
+			break
 		}
 		wait := a.settlePoll
 		if now.Sub(started) >= 4*a.settlePoll {
 			wait *= 2
 		}
-		time.Sleep(min(wait, deadline.Sub(now)))
+		time.Sleep(min(wait, s.deadline.Sub(now)))
+		s.mu.Lock()
+		a.pollLocked(context.Background(), s)
+		final := s.final
+		s.mu.Unlock()
+		if final {
+			return
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.final {
+		return
+	}
+	s.final = true
+	if s.provisional && s.notStarted {
+		slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", "never_started", "granted_seconds", s.grant, "refunded_seconds", s.grant)
+		return
+	}
+	slog.Warn("attest voice settle failed", "install", s.keyID, "conversation", s.conversation,
+		"http_status", s.lastCode, "status", s.lastStatus, "transport_error", s.lastErr, "provisional", s.provisional)
+}
+
+// settlePending is voiceStart's pre-check (bd med-v1uz, Miles 13572): one
+// synchronous poll of up to attestSettlePrecheckMax of the bucket's pending
+// settlements within attestSettleSyncTimeout, so a hang-up whose conversation
+// was still processing at drop is refunded before the budget check. One
+// whose background poll is running right now is skipped.
+func (a *AttestAPI) settlePending(bucket string) {
+	a.mu.Lock()
+	pending := append([]*voiceSettlement(nil), a.settlements[bucket]...)
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), attestSettleSyncTimeout)
+	defer cancel()
+	polled := 0
+	for _, s := range pending {
+		if polled == attestSettlePrecheckMax {
+			return
+		}
+		if !s.mu.TryLock() {
+			continue
+		}
+		if !s.final {
+			polled++
+			a.pollLocked(ctx, s)
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -344,7 +479,7 @@ func (a *AttestAPI) settleVoice(keyID, conversation string, reservedAt time.Time
 // per-subject burst limiter and the shared upstream proxy; food supplies the
 // operator FastFoodDB proxy (bd med-o7zq.19).
 func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyAPI, cfg AttestConfig) *AttestAPI {
-	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
+	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlements: map[string][]*voiceSettlement{}, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
 	if cfg.AndroidConfigured {
 		a.android = playintegrity.New(cfg.Android)
 	}
@@ -502,15 +637,19 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keyID, bucket := q.keyID, q.install.BucketID
+	// Settlement polls and the ElevenLabs mint are short upstream calls: lift
+	// the unauth deadline.
+	extendTrialDeadlines(w)
 	// One call per bucket: two installs of one device share the minutes. A
-	// call no leg ever attached to is ended (its settlement starts) first, so
-	// the retry after a failed attach mints anew (bd med-02b0).
+	// call no leg ever attached to is ended first (its settlement's first
+	// poll lands a provisional refund before this returns), so the retry
+	// after a failed attach mints anew (bd med-02b0).
 	if a.voice.EndPendingAnonCall(bucket) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
 		return
 	}
-	// The ElevenLabs mint is a short upstream call: lift the unauth deadline.
-	extendTrialDeadlines(w)
+	// Refunds still pending land before the budget check (Miles 13572).
+	a.settlePending(bucket)
 	now := time.Now().UTC()
 	grant, scope, remaining, dayRemaining, err := a.store.ReserveAttestVoice(r.Context(), keyID, q.counter, now,
 		a.cfg.VoiceLifetime, a.cfg.VoiceDaily, a.cfg.VoiceGlobal, a.cfg.VoiceCallMax, attestVoiceFloorSeconds)
@@ -549,15 +688,15 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("attest voice mint without conversation id", "install", keyID)
 	}
 	// Whatever ended the call (hang-up, a dropped leg reaped after the grace,
-	// never attached, budget exhausted), ElevenLabs' own meter settles it:
-	// the hook returns at once and settleVoice polls in the background (bd
-	// med-v1uz). attached/used are the relay's view, logged only.
+	// never attached, budget exhausted), ElevenLabs' own meter settles it (bd
+	// med-v1uz): the hook's first poll is synchronous, the rest background.
+	// attached/used are the relay's view, logged only.
 	var once sync.Once
 	end := func(attached bool, used int) {
 		once.Do(func() {
 			slog.Info("attest voice call ended", "install", keyID, "conversation", conversation, "granted_seconds", grant, "attached", attached, "leg_seconds", used)
 			if conversation != "" {
-				go a.settleVoice(keyID, conversation, now, grant)
+				a.settleVoice(keyID, bucket, conversation, now, grant)
 			}
 		})
 	}
