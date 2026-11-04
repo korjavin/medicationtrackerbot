@@ -78,7 +78,8 @@ function switchWorkoutTab(tab) {
     if (addPlan) addPlan.hidden = tab !== 'groups';
 
     if (tab === 'groups') { loadWorkoutGroups(); }
-    else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
+    // A visit opens the Timeline short again (three weeks).
+    else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab({ resetWeeks: true }); }
     else if (tab === 'exercises') { loadExerciseLibrary(); }
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
     else if (tab === 'equipment') { loadWorkoutEquipment(); }

@@ -72,14 +72,15 @@ describe('features/workout/history.js — split-file integration', () => {
 
     await window.loadWorkoutHistoryTab();
 
-    const nameEl = document
-      .getElementById('workout-history-display')
-      .querySelector('.wg-workouts-history-row__name');
+    const display = document.getElementById('workout-history-display');
+    const nameEl = display.querySelector('.wg-workouts-history-row__name');
     expect(nameEl).toBeTruthy();
     expect(nameEl.textContent).toBe('walk');
+    expect(display.querySelector('.wg-workouts-history-row__tag').textContent).toBe('Off plan');
+    expect(display.textContent).not.toContain('AD-HOC');
   });
 
-  it('falls back to the group name for a bare ad-hoc session (no notes)', async () => {
+  it('names a bare ad-hoc session (no notes, no exercises) "Workout"', async () => {
     const { window, document } = env;
     window.apiCall = vi.fn(async (url) => {
       if (url.includes('/api/workout/sessions')) {
@@ -108,10 +109,10 @@ describe('features/workout/history.js — split-file integration', () => {
       .getElementById('workout-history-display')
       .querySelector('.wg-workouts-history-row__name');
     expect(nameEl).toBeTruthy();
-    expect(nameEl.textContent).toBe('Ad-hoc Workout');
+    expect(nameEl.textContent).toBe('Workout');
   });
 
-  it('badges a planned session with its plan name and names the row by variant, not AD-HOC', async () => {
+  it('names a planned session by its plan day, with no Off plan tag', async () => {
     const { window, document } = env;
     window.apiCall = vi.fn(async (url) => {
       if (url.includes('/api/workout/sessions')) {
@@ -138,7 +139,7 @@ describe('features/workout/history.js — split-file integration', () => {
     await window.loadWorkoutHistoryTab();
 
     const row = document.getElementById('workout-history-display');
-    expect(row.querySelector('.wg-workouts-history-row__slot').textContent).toBe('Plan 3 — Daily Split');
+    expect(row.querySelector('.wg-workouts-history-row__tag')).toBeNull();
     expect(row.querySelector('.wg-workouts-history-row__name').textContent).toBe('Upper Back & Grip');
   });
 
@@ -232,7 +233,7 @@ describe('features/workout/history.js — late Finish of an Unfinished row (clou
     window._renderWorkoutHistory(container, await window.apiCall('/api/workout/sessions?limit=50'), [], 'UTC');
 
     const row = container.querySelector('.wg-workouts-history-row');
-    expect(row.querySelector('.wg-tag--unfinished')).not.toBeNull();
+    expect(row.querySelector('.wg-workouts-history-row__unfinished')).not.toBeNull();
     row.click();
     await vi.waitFor(() => expect(document.getElementById('workout-session-finish-btn')).not.toBeNull());
     document.getElementById('workout-session-finish-btn').click();
@@ -245,6 +246,6 @@ describe('features/workout/history.js — late Finish of an Unfinished row (clou
     expect(session.completed_at).toBe(`${day}T10:45:00.000Z`);
 
     window._renderWorkoutHistory(container, await window.apiCall('/api/workout/sessions?limit=50'), [], 'UTC');
-    expect(container.querySelector('.wg-workouts-history-row__duration').textContent).toBe('45m');
+    expect(container.querySelector('.wg-workouts-history-row__duration').textContent).toBe('45 min');
   });
 });

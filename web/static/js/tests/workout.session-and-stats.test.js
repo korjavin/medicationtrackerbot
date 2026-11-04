@@ -212,7 +212,7 @@ describe('workout.js session and stats flows', () => {
           exercises_count: 5
         }
       ]);
-      expect(historyContainer.innerHTML).toContain('Leg Day');
+      expect(historyContainer.querySelector('[data-session-id="2"] .wg-workouts-history-row__name').textContent).toBe('B');
       expect(historyContainer.innerHTML).toMatch(/5,400\s*kg/);
 
       window._renderWorkoutStats(statsContainer, null);
@@ -297,14 +297,15 @@ describe('workout.js session and stats flows', () => {
 
       window._renderWorkoutHistory(historyContainer, sessions, miband, 'UTC');
 
-      // History rewrite groups rows by day inside a .wg-workouts-history__list;
-      // flatten back out in render order to assert the sort.
+      // The Timeline groups rows by week; flatten back out in render order
+      // to assert the sort.
       const items = Array.from(historyContainer.querySelectorAll('.wg-workouts-history-row'));
+      const name = (row) => row.querySelector('.wg-workouts-history-row__name').textContent;
 
-      expect(items[0].textContent).toContain('Evening Main');
-      // Mi Band card renders the activity label in the slot tag (uppercase).
-      expect(items[1].textContent).toContain('CYCLING');
-      expect(items[2].textContent).toContain('Morning Workouts');
+      expect(items[0].dataset.sessionId).toBe('1');
+      // A Mi Band row is titled by its activity.
+      expect(name(items[1])).toBe('Cycling');
+      expect(name(items[2])).toBe('Swings');
 
     } finally {
       cleanup();
