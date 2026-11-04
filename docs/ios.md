@@ -22,7 +22,7 @@ GitHub-hosted macOS runner via [`.github/workflows/ios.yml`](../.github/workflow
   subdomain; `window.Capacitor` is banned by CLAUDE.md rule 10). See
   [The shell](#the-shell-bd-med-w6gx3).
 - **Product:** free (no in-app purchase), invite-only, iOS 18+, HealthKit
-  read-only in v1.
+  import, plus an opt-in write-back of BP and weight (epic med-8f4s).
 - **No local iOS builds.** Every build comes from
   [`.github/workflows/ios.yml`](../.github/workflows/ios.yml) and goes to
   TestFlight.
@@ -254,7 +254,7 @@ Store Connect (ASC) by the owner from this section.
   | `NSCameraUsageDescription` | barcode scan, meal photos, invite QR |
   | `NSMicrophoneUsageDescription` | voice assistant, voice notes in feedback |
   | `NSHealthShareUsageDescription` | Apple Health read import |
-  | `NSHealthUpdateUsageDescription` | demanded by upload validation; says the app never writes |
+  | `NSHealthUpdateUsageDescription` | the opt-in "Also write my entries" write-back of BP + weight (bd med-8f4s); upload validation demands it of any HealthKit app |
   | `NSFaceIDUsageDescription` | local mode's optional lock (`LocalAuthentication`) |
 
   Local notifications need no Info.plist string (iOS asks at runtime). Photo
@@ -269,7 +269,8 @@ Store Connect (ASC) by the owner from this section.
 ### Privacy label (ASC → App Privacy)
 
 Derived from [`web/cloud/js/privacy-manifest.js`](../web/cloud/js/privacy-manifest.js)
-plus HealthKit (read-only, into the vault) and local notifications (no data
+plus HealthKit (the import into the vault, and the opt-in `health-write-back`
+copies into Apple Health on the phone) and local notifications (no data
 leaves the device). Conservative: the vault is end-to-end encrypted, but
 several opt-in features send a request's plaintext through the operator's
 server or to its AI/voice providers, so the types they carry are declared.
@@ -291,7 +292,8 @@ server or to its AI/voice providers, so the types they carry are declared.
 - **Not declared:** contact info (no email, name or phone is ever asked),
   location, contacts, browsing history, purchases, diagnostics. Sync IPs and
   timings (`sync-metadata`) are server operations metadata, not used for any
-  of Apple's purposes.
+  of Apple's purposes. `health-write-back` hands BP and weight to HealthKit on
+  the phone, not to us: nothing is collected.
 
 A new manifest entry that carries a new kind of data means a new row here and
 in `PrivacyInfo.xcprivacy`.
@@ -421,11 +423,13 @@ Each link works once. If a link fails, contact us at the details in Contact
 Information and we will send a new one the same day.
 
 Native features:
-- Apple Health (read-only): Settings > Apple Health. Blood pressure, weight,
+- Apple Health: Settings > Apple Health. Blood pressure, weight,
   sleep and workouts are imported into the encrypted vault. The import only
   finds data that is already in this device's Health app, so add a blood
-  pressure or weight sample in Health first if it is empty. The app never
-  writes to Health and never uses Health data for advertising.
+  pressure or weight sample in Health first if it is empty. The app writes to
+  Health only if you switch on "Also write my entries" (blood pressure and
+  weight entries you add or change on this iPhone), and never uses Health data
+  for advertising.
 - Reminders: Settings > Notifications > Enable, then "Send test". Medication
   reminders are scheduled on the device as local notifications.
 - Camera: food barcode scanning and meal photos (Food), scanning an invite QR.
@@ -489,9 +493,11 @@ by a killed app is swept at the next launch). A page script sends `window.print(
 
 ## Apple Health import (bd med-w6gx.6)
 
-Read-only: Health → the page → the encrypted vault, like a hand-entered reading;
-the app never writes to Health and nothing new leaves the device (no privacy
-manifest entry: there is no egress).
+Import: Health → the page → the encrypted vault, like a hand-entered reading.
+The opt-in write-back (epic med-8f4s, switch "Also write my entries", off by
+default) copies BP and weight entries added or changed on this iPhone into
+Apple Health: plaintext out of the vault, disclosed as the `health-write-back`
+privacy-manifest row. The shell side is bd med-8f4s.3.
 
 - **Native:** [`ios/App/Health.swift`](../ios/App/Health.swift) answers
   `health.authorize` and `health.query` (anchored queries, raw samples) over the
@@ -645,8 +651,9 @@ and weight only asks once, at the next open, for the new types.
 - **Signing:** an earlier automatic-signing run enabled the *HealthKit*
   capability on the App ID. Signing is now manual, so the App Store profile in
   `IOS_APPSTORE_PROFILE_BASE64` must be generated (or re-saved) after that, or
-  the archive fails on the HealthKit entitlement. Upload validation demands `NSHealthUpdateUsageDescription` even
-  for a read-only app, so `project.yml` carries one saying the app never writes.
+  the archive fails on the HealthKit entitlement. Upload validation demands `NSHealthUpdateUsageDescription` of any
+  HealthKit app; `project.yml`'s string describes the opt-in write-back
+  (bd med-8f4s.4).
 
 ### Device check (TestFlight)
 

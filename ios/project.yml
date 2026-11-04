@@ -78,7 +78,8 @@ targets:
           # med-ta2n.11; the AASA applinks component /i/* is server-side). The
           # base only: account subdomains never become universal links.
           - "applinks:$(WG_BASE_DOMAIN)"
-        # Apple Health, read-only (bd med-w6gx.6, ios/App/Health.swift).
+        # Apple Health: import (bd med-w6gx.6, ios/App/Health.swift) and the
+        # opt-in write-back of BP + weight (bd med-8f4s.3).
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
         # App Attest for local mode's anonymous trial AI (bd med-o7zq.16,
@@ -131,9 +132,9 @@ targets:
         # Voice calls and voice notes in feedback (getUserMedia audio).
         NSMicrophoneUsageDescription: Talk to the voice assistant and record voice notes in feedback.
         NSHealthShareUsageDescription: Import your blood pressure, weight, sleep, workouts, steps, heart rate and blood oxygen from Apple Health into your encrypted vault.
-        # Read-only, but App Store upload validation rejects a HealthKit app
-        # without the update string too (seen on the med-w6gx.6 dispatch).
-        NSHealthUpdateUsageDescription: Med Tracker only reads from Apple Health and never writes to it.
+        # The opt-in write-back (bd med-8f4s, copy med-8f4s.4); App Store upload
+        # validation also demands this string of any HealthKit app.
+        NSHealthUpdateUsageDescription: 'Only if you switch on "Also write my entries": copy the blood pressure and weight entries you add or change on this iPhone to Apple Health, where apps you allow can read them. Turning it off stops updates and keeps the copies there.'
         # Local mode's optional lock (bd med-o7zq.8, App/LocalLock.swift).
         NSFaceIDUsageDescription: Unlock Med Tracker when you turn on its lock.
         # Service Workers only run on app-bound domains (max 10); the wildcard
