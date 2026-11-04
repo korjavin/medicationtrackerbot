@@ -263,11 +263,11 @@ func AttestConfigFromEnv() (AttestConfig, error) {
 
 // AttestAPI serves /api/attest/*.
 type AttestAPI struct {
-	cfg       AttestConfig
-	store     *cloudstore.Repo
-	trial     *TrialProxyAPI
-	food      *FoodProxyAPI
-	voice     *VoiceLLMRelayAPI // nil until SetVoiceRelay: the voice routes 503
+	cfg   AttestConfig
+	store *cloudstore.Repo
+	trial *TrialProxyAPI
+	food  *FoodProxyAPI
+	voice *VoiceLLMRelayAPI // nil until SetVoiceRelay: the voice routes 503
 	// feedback supplies the age recipient and admin ping of the session
 	// feedback route; nil until SetFeedback: the feedback route 503s.
 	feedback *FeedbackAPI
@@ -282,86 +282,333 @@ type AttestAPI struct {
 	// instance runs); a multi-instance deploy needs a DB-level lease instead.
 	grantMu    sync.Mutex
 	challenges map[string]time.Time
-	// Free never-attached voice starts per bucket on abandonDay (UTC), under mu
-	// (bd med-02b0). ponytail: in memory, a restart resets it — acceptable at
-	// deploy frequency; persist it if deploys get frequent.
-	abandonDay string
-	abandons   map[string]int
-	// refunded is the unused seconds handed back per bucket on abandonDay to
-	// calls that attached and ended early (bd med-dngs), under mu.
-	refunded map[string]int
-	// abandonFree is the ElevenLabs time the day's free refunds may have let
-	// run, server-wide; capped at cfg.VoiceGlobal / 2 (Argus 8452, Miles 8461).
-	abandonFree int
-	mux         *http.ServeMux
+	// settlements[bucket] are the bucket's anonymous calls still being settled
+	// (bd med-v1uz), under mu.
+	settlements map[string][]*voiceSettlement
+	// provisional[bucket] is the bucket's one pending settlement holding a
+	// provisional refund, under mu (Archie 13648: a second 404 waits for it to
+	// settle, so never-attached starts cannot stockpile free signed URLs).
+	provisional map[string]*voiceSettlement
+	// neverStarts counts each bucket's never-started refunds on neverDay
+	// (UTC), both doors (provisional, deadline), under mu (Archie 13776: a
+	// stripped-id session is invisible to the lookup, so the refunds a 404
+	// buys are capped per day). ponytail: in memory, a restart resets it —
+	// acceptable at deploy frequency; persist it if deploys get frequent.
+	neverDay    string
+	neverStarts map[string]int
+	now         func() time.Time // the day clock; overridable in tests, under mu
+	// Settlement polling; overridable in tests.
+	settlePoll time.Duration // first 2 min: this interval, then twice it
+	settleFor  time.Duration // 0 = attestSettleSlack + the per-call max after the mint
+	mux        *http.ServeMux
 }
 
-// attestVoiceFreeAbandons is how many never-attached starts a bucket gets
-// refunded per UTC day; later ones are charged (docs/cloud-mode.md, Metering).
-const attestVoiceFreeAbandons = 3
+const (
+	// attestSettleSlack: a signed URL can still open a session 15 min after
+	// the mint (https://elevenlabs.io/docs/eleven-agents/customization/authentication),
+	// plus 2 min for ElevenLabs to finish processing the call.
+	attestSettleSlack = 17 * time.Minute
+	// attestSettleSyncTimeout bounds a synchronous poll on a request path
+	// (the end hook's first poll, voiceStart's pre-check).
+	attestSettleSyncTimeout = 3 * time.Second
+	// attestSettlePrecheckMax bounds voiceStart's pre-check GETs.
+	attestSettlePrecheckMax = 3
+)
 
-// takeFreeAbandon counts one never-attached start of bucket on now's UTC day
-// and reports whether it is still free: within the bucket's 3, and within
-// the server-wide daily cap. The refund gives the global budget (the SUM of
-// the daily rows) back too, so the free sessions are capped separately; each
-// costs max(grant, call max), what its ElevenLabs session can have run.
-func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) bool {
-	cost := max(grant, a.cfg.VoiceCallMax)
+// settleLock is a mutex whose Lock can give up at a deadline (a 1-buffered
+// channel): voiceStart's pre-check waits for an in-flight background poll
+// within its 3 s instead of skipping it (Argus 13626).
+type settleLock chan struct{}
+
+func (l settleLock) Lock()   { l <- struct{}{} }
+func (l settleLock) Unlock() { <-l }
+func (l settleLock) LockCtx(ctx context.Context) bool {
+	select {
+	case l <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// voiceSettlement is one anonymous call settled by ElevenLabs' own meter (bd
+// med-v1uz). mu serializes its polls (the background loop, voiceStart's
+// pre-check). At most one final settlement and one charge-back.
+type voiceSettlement struct {
+	keyID, bucket, conversation string
+	reservedAt, deadline        time.Time
+	grant                       int
+	// answered: the relay saw at least one turn answered, so a session ran
+	// whatever the lookup says; a 404/initiated then is never refunded
+	// (Archie 13671: relay evidence beats a 404).
+	answered bool
+	countDay string        // the UTC day its provisional refund was counted on (under AttestAPI.mu)
+	done     chan struct{} // closed when settled or past the deadline
+
+	mu          settleLock
+	final       bool // settled: nothing more will change
+	provisional bool // the whole grant was refunded on a 404 / initiated answer
+	notStarted  bool // the last answer was 404 / initiated
+	lastCode    int
+	lastStatus  string
+	lastErr     bool
+}
+
+// settleVoice starts the settlement of one dropped anonymous call: the first
+// poll runs synchronously (attestSettleSyncTimeout; the relay's settling wait
+// makes the bucket's next start see its refund), then, unless that settled
+// it, the call is re-polled in the background until mint + 15 min signed-URL
+// validity + the per-call max + 2 min. Outcomes per poll (pollLocked):
+// done/failed → final refund grant − call_duration_secs, clamped to [0,
+// grant] (a provisional refund is charged back by the seconds that ran);
+// 404/initiated → provisional full refund (no session ran yet, so a
+// never-connected start never costs a 4429), at most one outstanding per
+// bucket (takeProvisional; a later 404 stays charged until it frees up), and
+// never for a call the relay saw answered (that 404 Warns at the deadline,
+// session_invisible, the charge stands);
+// anything else → nothing yet. At the deadline a refund still on
+// 404/initiated is final (a waiting one is refunded in full then);
+// anything else unresolved stands and Warns (fail closed). ponytail: in
+// memory — a restart loses pending settlements (provisional refunds stand
+// unverified, unrefunded charges stand); persist a pending-settlements table
+// if deploys get frequent.
+func (a *AttestAPI) settleVoice(keyID, bucket, conversation string, reservedAt time.Time, grant int, answered bool) *voiceSettlement {
+	window := a.settleFor
+	if window == 0 {
+		window = attestSettleSlack + time.Duration(a.cfg.VoiceCallMax)*time.Second
+	}
+	s := &voiceSettlement{keyID: keyID, bucket: bucket, conversation: conversation, reservedAt: reservedAt,
+		deadline: reservedAt.Add(window), grant: grant, answered: answered, done: make(chan struct{}), mu: make(settleLock, 1)}
+	ctx, cancel := context.WithTimeout(context.Background(), attestSettleSyncTimeout)
+	s.mu.Lock()
+	a.pollLocked(ctx, s)
+	final := s.final
+	s.mu.Unlock()
+	cancel()
+	if final {
+		close(s.done)
+		return s
+	}
+	a.mu.Lock()
+	a.settlements[bucket] = append(a.settlements[bucket], s)
+	a.mu.Unlock()
+	go a.runSettlement(s)
+	return s
+}
+
+// pollLocked asks ElevenLabs once and applies the answer (s.mu held).
+func (a *AttestAPI) pollLocked(ctx context.Context, s *voiceSettlement) {
+	if s.final {
+		return
+	}
+	status, secs, code, err := a.trial.elevenLabsConversation(ctx, s.conversation)
+	s.lastCode, s.lastStatus, s.lastErr = code, status, err != nil
+	s.notStarted = err == nil && (code == http.StatusNotFound || (code == http.StatusOK && status == "initiated"))
+	switch {
+	case err == nil && code == http.StatusOK && (status == "done" || status == "failed"):
+		// final only once the store write landed: a failed write stays pending
+		// and the next poll retries it (Argus 13626).
+		refund := min(max(s.grant-secs, 0), s.grant)
+		if s.provisional {
+			back := s.grant - refund
+			if err := a.store.ChargeAttestVoice(context.Background(), s.keyID, s.reservedAt, back); err != nil {
+				slog.Error("attest voice charge-back failed", "install", s.keyID, "conversation", s.conversation, "seconds", back, "error", err)
+				return
+			}
+			s.final = true
+			a.releaseProvisional(s, true)
+			slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", status, "granted_seconds", s.grant, "refunded_seconds", refund, "charged_back_seconds", back)
+			return
+		}
+		s.final = a.settleRefund(s, refund, status)
+	case s.notStarted && !s.provisional && !s.answered && a.takeProvisional(s):
+		s.provisional = a.settleRefund(s, s.grant, "provisional")
+		if !s.provisional {
+			a.releaseProvisional(s, false)
+		}
+	}
+}
+
+// attestVoiceFreeNeverStarted is how many never-started refunds (either
+// door) a bucket gets per UTC day; later 404s stay charged (Archie 13776).
+const attestVoiceFreeNeverStarted = 3
+
+// takeNeverStarted counts one never-started refund of bucket today; false
+// when the day's count is spent. The day it counted on is returned so a
+// failed refund write can give it back.
+func (a *AttestAPI) takeNeverStarted(bucket string) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.rollFreeDayLocked(now)
-	if a.abandons[bucket] >= attestVoiceFreeAbandons {
+	return a.takeNeverStartedLocked(bucket)
+}
+
+func (a *AttestAPI) takeNeverStartedLocked(bucket string) (string, bool) {
+	day := a.now().UTC().Format("2006-01-02")
+	if a.neverDay != day {
+		a.neverDay, a.neverStarts = day, map[string]int{}
+	}
+	if a.neverStarts[bucket] >= attestVoiceFreeNeverStarted {
+		return day, false
+	}
+	a.neverStarts[bucket]++
+	return day, true
+}
+
+func (a *AttestAPI) untakeNeverStarted(bucket, day string) {
+	a.mu.Lock()
+	if a.neverDay == day && a.neverStarts[bucket] > 0 {
+		a.neverStarts[bucket]--
+	}
+	a.mu.Unlock()
+}
+
+// takeProvisional claims the bucket's one provisional-refund slot for s,
+// spending one of the day's never-started refunds; false while another
+// pending settlement holds the slot or the count is spent (re-tried on
+// every poll; the settlement stays charged meanwhile).
+func (a *AttestAPI) takeProvisional(s *voiceSettlement) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if h := a.provisional[s.bucket]; h != nil && h != s {
 		return false
 	}
-	// The free-session allowance is half the global daily cap (Miles 8461).
-	if a.cfg.VoiceGlobal > 0 && a.abandonFree+cost > a.cfg.VoiceGlobal/2 {
+	day, ok := a.takeNeverStartedLocked(s.bucket)
+	if !ok {
 		return false
 	}
-	a.abandons[bucket]++
-	a.abandonFree += cost
+	s.countDay = day
+	a.provisional[s.bucket] = s
 	return true
 }
 
-func (a *AttestAPI) rollFreeDayLocked(now time.Time) {
-	if day := now.UTC().Format("2006-01-02"); a.abandonDay != day {
-		a.abandonDay, a.abandons, a.refunded, a.abandonFree = day, map[string]int{}, map[string]int{}, 0
+// releaseProvisional frees the slot; refunded=false (the provisional write
+// failed) also gives the day's count back.
+func (a *AttestAPI) releaseProvisional(s *voiceSettlement, refunded bool) {
+	a.mu.Lock()
+	if a.provisional[s.bucket] == s {
+		delete(a.provisional, s.bucket)
 	}
+	if !refunded && a.neverDay == s.countDay && a.neverStarts[s.bucket] > 0 {
+		a.neverStarts[s.bucket]--
+	}
+	a.mu.Unlock()
 }
 
-// takeUnusedRefund is how many of the unused seconds of an early-ended
-// attached call with this grant it may hand back (bd med-dngs). The ElevenLabs
-// session can outlive the hang-up, so each refund is trust: a bucket gets
-// back at most its daily cap a UTC day (the lifetime budget when there is no
-// daily cap), and the refunds count against the same server-wide half of the
-// global cap as the free abandons — a start/hang-up loop cannot run unbounded
-// sessions. Each refund is counted there with the session's unpaid overrun on
-// a short grant (call max − grant), what it can still run unpaid.
-func (a *AttestAPI) takeUnusedRefund(bucket string, now time.Time, grant, seconds int) int {
-	limit := a.cfg.VoiceDaily
-	if limit <= 0 {
-		limit = a.cfg.VoiceLifetime
+func (a *AttestAPI) settleRefund(s *voiceSettlement, seconds int, outcome string) bool {
+	if err := a.store.RefundAttestVoice(context.Background(), s.keyID, s.reservedAt, seconds); err != nil {
+		slog.Error("attest voice refund failed", "install", s.keyID, "conversation", s.conversation, "seconds", seconds, "error", err)
+		return false
 	}
-	overrun := max(a.cfg.VoiceCallMax-grant, 0)
+	slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", outcome, "granted_seconds", s.grant, "refunded_seconds", seconds)
+	return true
+}
+
+// runSettlement re-polls s in the background until it settles or its
+// deadline passes, then drops it from the bucket's pending list.
+func (a *AttestAPI) runSettlement(s *voiceSettlement) {
+	defer close(s.done)
+	defer func() {
+		a.mu.Lock()
+		list := a.settlements[s.bucket]
+		for i, p := range list {
+			if p == s {
+				list = append(list[:i], list[i+1:]...)
+				break
+			}
+		}
+		if a.provisional[s.bucket] == s {
+			delete(a.provisional, s.bucket)
+		}
+		if len(list) == 0 {
+			delete(a.settlements, s.bucket)
+		} else {
+			a.settlements[s.bucket] = list
+		}
+		a.mu.Unlock()
+	}()
+	started := time.Now()
+	for {
+		now := time.Now()
+		if !now.Before(s.deadline) {
+			break
+		}
+		wait := a.settlePoll
+		if now.Sub(started) >= 4*a.settlePoll {
+			wait *= 2
+		}
+		time.Sleep(min(wait, s.deadline.Sub(now)))
+		s.mu.Lock()
+		a.pollLocked(context.Background(), s)
+		final := s.final
+		s.mu.Unlock()
+		if final {
+			return
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.final {
+		return
+	}
+	s.final = true
+	if s.provisional && s.notStarted {
+		slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", "never_started", "granted_seconds", s.grant, "refunded_seconds", s.grant)
+		return
+	}
+	// a 404 that waited behind another provisional refund (Archie 13648): the
+	// URL has expired unused, so the whole grant comes back now.
+	// Never for an answered call: its session ran but the lookup cannot see it.
+	// It spends one of the day's never-started refunds (Archie 13776).
+	capped := false
+	if s.notStarted && !s.provisional && !s.answered {
+		day, ok := a.takeNeverStarted(s.bucket)
+		switch {
+		case !ok:
+			capped = true
+		case a.settleRefund(s, s.grant, "never_started"):
+			return
+		default:
+			a.untakeNeverStarted(s.bucket, day)
+		}
+	}
+	slog.Warn("attest voice settle failed", "install", s.keyID, "conversation", s.conversation,
+		"http_status", s.lastCode, "status", s.lastStatus, "transport_error", s.lastErr, "provisional", s.provisional,
+		"session_invisible", s.answered && s.notStarted, "never_started_capped", capped)
+}
+
+// settlePending is voiceStart's pre-check (bd med-v1uz, Miles 13572): one
+// synchronous poll of up to attestSettlePrecheckMax of the bucket's pending
+// settlements within attestSettleSyncTimeout, so a hang-up whose conversation
+// was still processing at drop is refunded before the budget check. One
+// whose background poll is in flight is waited for (within the same 3 s),
+// then not polled again if that poll settled it.
+func (a *AttestAPI) settlePending(bucket string) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.rollFreeDayLocked(now)
-	seconds = min(seconds, limit-a.refunded[bucket])
-	if a.cfg.VoiceGlobal > 0 {
-		seconds = min(seconds, a.cfg.VoiceGlobal/2-a.abandonFree-overrun)
+	pending := append([]*voiceSettlement(nil), a.settlements[bucket]...)
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), attestSettleSyncTimeout)
+	defer cancel()
+	polled := 0
+	for _, s := range pending {
+		if polled == attestSettlePrecheckMax {
+			return
+		}
+		if !s.mu.LockCtx(ctx) {
+			return
+		}
+		if !s.final {
+			polled++
+			a.pollLocked(ctx, s)
+		}
+		s.mu.Unlock()
 	}
-	if seconds <= 0 {
-		return 0
-	}
-	a.refunded[bucket] += seconds
-	a.abandonFree += seconds + overrun
-	return seconds
 }
 
 // NewAttestAPI builds the routes; trial supplies the provider config, the
 // per-subject burst limiter and the shared upstream proxy; food supplies the
 // operator FastFoodDB proxy (bd med-o7zq.19).
 func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyAPI, cfg AttestConfig) *AttestAPI {
-	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, mux: http.NewServeMux()}
+	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlements: map[string][]*voiceSettlement{}, provisional: map[string]*voiceSettlement{}, neverStarts: map[string]int{}, now: time.Now, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
 	if cfg.AndroidConfigured {
 		a.android = playintegrity.New(cfg.Android)
 	}
@@ -507,12 +754,9 @@ func (a *AttestAPI) voiceLimits(resp map[string]any) {
 // assertion binds the URI like the food routes). One transaction CHARGES the
 // whole grant; then the signed URL is minted with the operator key (never
 // logged) and the call is pre-registered in the relay. The charge is refunded
-// when no signed URL reached the client (mint failure, lost relay race), and
-// for a call no device leg ever attached to (bounded per bucket per day, see
-// takeFreeAbandon). Once a leg attached, the ElevenLabs session can run to the
-// agent's own max_duration_seconds whatever the leg does, so an early hang-up
-// or a dropped leg gets its unused seconds back only within the bounded
-// allowance of takeUnusedRefund (bd med-dngs).
+// at once when no signed URL reached the client (mint failure, lost relay
+// race); otherwise, when the relay drops the call for any reason, settleVoice
+// refunds what ElevenLabs says the conversation did not run (bd med-v1uz).
 func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	if !a.voiceConfigured(w) {
 		return
@@ -522,15 +766,19 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keyID, bucket := q.keyID, q.install.BucketID
+	// Settlement polls and the ElevenLabs mint are short upstream calls: lift
+	// the unauth deadline.
+	extendTrialDeadlines(w)
 	// One call per bucket: two installs of one device share the minutes. A
-	// call no leg ever attached to is ended (and refunded, bounded) first, so
-	// the retry after a failed attach mints anew (bd med-02b0).
+	// call no leg ever attached to is ended first (its settlement's first
+	// poll lands a provisional refund before this returns), so the retry
+	// after a failed attach mints anew (bd med-02b0).
 	if a.voice.EndPendingAnonCall(bucket) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
 		return
 	}
-	// The ElevenLabs mint is a short upstream call: lift the unauth deadline.
-	extendTrialDeadlines(w)
+	// Refunds still pending land before the budget check (Miles 13572).
+	a.settlePending(bucket)
 	now := time.Now().UTC()
 	grant, scope, remaining, dayRemaining, err := a.store.ReserveAttestVoice(r.Context(), keyID, q.counter, now,
 		a.cfg.VoiceLifetime, a.cfg.VoiceDaily, a.cfg.VoiceGlobal, a.cfg.VoiceCallMax, attestVoiceFloorSeconds)
@@ -558,35 +806,29 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 			slog.Error("attest voice refund failed", "install", keyID, "seconds", seconds, "error", err)
 		}
 	}
-	signedURL, err := a.trial.mintTrialSignedURL(r.Context(), "install", keyID, true)
+	signedURL, conversation, err := a.trial.mintTrialSignedURL(r.Context(), "install", keyID, true)
 	if err != nil {
 		refund(grant)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
-	// A call that never attaches costs nothing — up to attestVoiceFreeAbandons
-	// a bucket per UTC day and the server-wide daily cap, so devices cannot run
-	// unbounded free ElevenLabs sessions from signed URLs they never attach
-	// to (bd med-02b0).
-	// A call that attached and ended before its grant ran out (hang-up,
-	// dropped leg) is charged what it used — nothing when no turn was ever
-	// answered — and gets the rest back, bounded by takeUnusedRefund (bd
-	// med-dngs).
-	end := func(attached bool, used int) {
-		if !attached {
-			refunded := a.takeFreeAbandon(bucket, time.Now(), grant)
-			if refunded {
-				refund(grant)
+	if conversation == "" {
+		// Nothing to settle against: the charge stands (fail closed).
+		slog.Warn("attest voice mint without conversation id", "install", keyID)
+	}
+	// Whatever ended the call (hang-up, a dropped leg reaped after the grace,
+	// never attached, budget exhausted), ElevenLabs' own meter settles it (bd
+	// med-v1uz): the hook's first poll is synchronous, the rest background.
+	// attached/used are the relay's view, logged only; answered bars a refund
+	// on a 404 (Archie 13671).
+	var once sync.Once
+	end := func(attached, answered bool, used int) {
+		once.Do(func() {
+			slog.Info("attest voice call ended", "install", keyID, "conversation", conversation, "granted_seconds", grant, "attached", attached, "answered", answered, "leg_seconds", used)
+			if conversation != "" {
+				a.settleVoice(keyID, bucket, conversation, now, grant, answered)
 			}
-			slog.Info("attest voice start abandoned", "install", keyID, "seconds", grant, "refunded", refunded)
-			return
-		}
-		back := 0
-		if unused := grant - used; unused > 0 {
-			back = a.takeUnusedRefund(bucket, time.Now(), grant, unused)
-			refund(back)
-		}
-		slog.Info("attest voice call ended", "install", keyID, "granted_seconds", grant, "used_seconds", used, "refunded_seconds", back)
+		})
 	}
 	call, ok := a.voice.MintAnonCall(bucket, time.Duration(grant)*time.Second, end)
 	if !ok {

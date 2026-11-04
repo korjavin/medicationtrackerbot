@@ -43,8 +43,9 @@ type TrialProxyAPI struct {
 	// only exercise the proxy's upstream behavior.
 	budget trialBudgetStore
 	client *http.Client
-	// elevenLabsSignedURLBase is overridable in tests.
-	elevenLabsSignedURLBase string
+	// elevenLabsSignedURLBase / elevenLabsConversationsBase are overridable in tests.
+	elevenLabsSignedURLBase     string
+	elevenLabsConversationsBase string
 }
 
 // trialBudgetStore is the one method the daily budgets need.
@@ -62,7 +63,8 @@ func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig)
 		limiter:                 newRateLimiter(cfg.RatePerMinute, time.Minute),
 		streamLimiter:           newRateLimiter(trialStreamRatePerMin, time.Minute),
 		client:                  &http.Client{Timeout: trialUpstreamTimout},
-		elevenLabsSignedURLBase: "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
+		elevenLabsSignedURLBase:     "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
+		elevenLabsConversationsBase: "https://api.elevenlabs.io/v1/convai/conversations/",
 	}
 	// The session store is the cloudstore repo in production, which also owns
 	// the persisted counters. Tests pass narrower fakes and simply run unmetered.
@@ -141,7 +143,7 @@ func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Reque
 	if !a.rateLimit(w, a.limiter, account.ID) {
 		return
 	}
-	signedURL, err := a.mintTrialSignedURL(r.Context(), "account", account.ID, false)
+	signedURL, _, err := a.mintTrialSignedURL(r.Context(), "account", account.ID, false)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
@@ -164,7 +166,18 @@ var errTrialMint = errors.New("trial elevenlabs mint failed")
 // without it one URL can open sessions for its whole validity window. The
 // anonymous start needs that (one charged start = one session); the account
 // route keeps its request unchanged.
-func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject string, singleUse bool) (string, error) {
+//
+// conversationID is that conversation's id ("" without singleUse). ElevenLabs
+// documents only {"signed_url"} as the answer; with the flag the id rides in
+// the signed URL's own query string as conversation_id ("conv_", 33 chars),
+// next to conversation_signature — verified with one operator-key mint on
+// 2026-11-04 (bd med-v1uz, Spark 13627): 200, top-level keys ["signed_url"]
+// only. GET conversations/{that id} before any session opens answers 404
+// {status: document_not_found}, which settleVoice counts as "no session
+// ran". A
+// top-level conversation_id field is read first in case the vendor promotes
+// it. The id alone is loggable.
+func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject string, singleUse bool) (signedURL, conversationID string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	u := a.elevenLabsSignedURLBase + "?agent_id=" + url.QueryEscape(a.cfg.ElevenLabsAgentID)
@@ -175,28 +188,69 @@ func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject 
 	if err != nil {
 		// SECURITY INVARIANT: err embeds the URL — log a fixed string only.
 		slog.Warn("trial elevenlabs mint bad upstream url", logKey, subject)
-		return "", errTrialMint
+		return "", "", errTrialMint
 	}
 	req.Header.Set("xi-api-key", a.cfg.ElevenLabsAPIKey)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
 		slog.Warn("trial elevenlabs mint upstream failed", logKey, subject)
-		return "", errTrialMint
+		return "", "", errTrialMint
 	}
 	defer resp.Body.Close()
 	slog.Info("trial elevenlabs mint", logKey, subject, "status", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
-		return "", errTrialMint
+		return "", "", errTrialMint
 	}
 	var payload struct {
-		SignedURL string `json:"signed_url"`
+		SignedURL      string `json:"signed_url"`
+		ConversationID string `json:"conversation_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&payload); err != nil || payload.SignedURL == "" {
-		return "", errTrialMint
+		return "", "", errTrialMint
 	}
-	return payload.SignedURL, nil
+	if singleUse {
+		conversationID = payload.ConversationID
+		if u, err := url.Parse(payload.SignedURL); conversationID == "" && err == nil {
+			conversationID = u.Query().Get("conversation_id")
+		}
+	}
+	return payload.SignedURL, conversationID, nil
+}
+
+// elevenLabsConversation is GET /v1/convai/conversations/{id} on the operator
+// key (https://elevenlabs.io/docs/api-reference/conversations/get): code is
+// the HTTP status; on 200, status (initiated, in-progress, processing, done,
+// failed) and metadata.call_duration_secs. err is a transport or decode
+// failure. Never logs the key; the caller logs the id.
+func (a *TrialProxyAPI) elevenLabsConversation(ctx context.Context, id string) (status string, seconds, code int, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.elevenLabsConversationsBase+url.PathEscape(id), nil)
+	if err != nil {
+		return "", 0, 0, errTrialMint
+	}
+	req.Header.Set("xi-api-key", a.cfg.ElevenLabsAPIKey)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", 0, 0, errTrialMint // fixed error: the transport error embeds the URL
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", 0, resp.StatusCode, nil
+	}
+	var payload struct {
+		Status   string `json:"status"`
+		Metadata struct {
+			CallDurationSecs int `json:"call_duration_secs"`
+		} `json:"metadata"`
+	}
+	// The answer carries the transcript: bounded, decoded, never kept or logged.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&payload); err != nil {
+		return "", 0, resp.StatusCode, err
+	}
+	return payload.Status, payload.Metadata.CallDurationSecs, resp.StatusCode, nil
 }
 
 // upstreamRejectsSchema reports whether the upstream error body complains

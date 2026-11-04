@@ -94,24 +94,30 @@ const (
 // frame ever goes to the device. The relay never touches money: the minting
 // side charged the whole grant up front, because the ElevenLabs session the
 // signed URL opened can outlive the leg (see docs/cloud-mode.md, threat model);
-// the relay only reports how the call ended (anonVoice.end), and the minting
-// side decides what to refund, bounded (bd med-dngs).
+// the relay only reports that the call ended (anonVoice.end), and the minting
+// side settles it by ElevenLabs' own meter (bd med-v1uz).
 const voiceAnonAttachWindow = 60 * time.Second
 
 type anonVoice struct {
 	keyID string
 	timer *time.Timer
-	// end is the minting side's refund hook (bd med-02b0, med-dngs): the relay
-	// calls it exactly once when it drops a call whose grant did not run out —
-	// attached reports whether a leg ever attached, used the seconds the call
-	// is charged (0 when no turn was ever answered, else first attach → drop,
-	// rounded up). The relay itself never touches money.
-	end func(attached bool, used int)
+	// end is the minting side's settlement hook (bd med-v1uz): the relay calls
+	// it exactly once when it drops the call, for any reason. attached reports
+	// whether a leg ever attached, answered whether any turn got the AI's
+	// answer (a session ran, whatever ElevenLabs' lookup says — Archie 13671),
+	// used the leg's seconds (0 when no turn was ever answered, else first
+	// attach → drop, rounded up, log-only). The charge is ElevenLabs' meter;
+	// the relay itself never touches money.
+	end func(attached, answered bool, used int)
 	// Guarded by the call's mu.
 	exhausted  bool
 	attached   bool      // a device leg attached at least once; never reset
 	attachedAt time.Time // first attach
 	answered   bool      // at least one turn got the AI's answer
+	// ended: dropped, its answered snapshot taken for settlement; an
+	// in-flight turn's first AI byte after it is refused, never delivered
+	// (Argus 13719), so the snapshot cannot miss an answer.
+	ended bool
 }
 
 type voiceFrame struct {
@@ -144,9 +150,9 @@ type VoiceLLMRelayAPI struct {
 
 	mu    sync.Mutex
 	calls map[string]*voiceCall
-	// settling[subject] is closed once a dropped never-attached call's abandon
-	// hook (its refund) has finished, so the bucket's next start reserves
-	// against the settled balance (EndPendingAnonCall waits on it).
+	// settling[subject] is closed once a dropped call's end hook (its
+	// settlement's first poll and refund) has finished, so the bucket's next
+	// start reserves against the settled balance (EndPendingAnonCall waits on it).
 	settling map[string]chan struct{}
 }
 
@@ -488,8 +494,9 @@ func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 }
 
 // dropLocked removes c from the table and returns the end hook to run
-// (outside a.mu) when c is an anonymous call whose grant did not run out. The
-// table delete is the "exactly once": a dropped call is never dropped again.
+// (outside a.mu) when c is an anonymous call, whatever ended it (bd
+// med-v1uz: the minting side settles every call). The table delete is the
+// "exactly once": a dropped call is never dropped again.
 func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	delete(a.calls, c.token)
 	if c.anon == nil {
@@ -500,17 +507,19 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	}
 	c.anon.timer.Stop()
 	c.mu.Lock()
-	attached, exhausted := c.anon.attached, c.anon.exhausted
+	c.anon.ended = true
+	attached, answered := c.anon.attached, c.anon.answered
 	used := 0
-	if c.anon.answered {
+	if answered {
 		used = int((c.now().Sub(c.anon.attachedAt) + time.Second - 1) / time.Second)
 	}
 	c.mu.Unlock()
-	if exhausted || c.anon.end == nil {
+	if c.anon.end == nil {
 		return nil
 	}
-	// The bucket is free in the table from here on, but its refund is not done
-	// yet: a start for the same bucket waits on done before reserving.
+	// The bucket is free in the table from here on, but its settlement's first
+	// poll (and any refund it lands) is not done yet: a start for the same
+	// bucket waits on done before reserving.
 	done := make(chan struct{})
 	a.settling[c.accountID] = done
 	end := c.anon.end
@@ -524,7 +533,7 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 			a.mu.Unlock()
 			close(done)
 		}()
-		end(attached, used)
+		end(attached, answered, used)
 	}
 }
 
@@ -595,9 +604,9 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 // MintAnonCall pre-registers an anonymous trial call for trial bucket keyID with a
 // grant of call time. It must be attached within attachWindow; grant after
 // the mint the budget timer ends it (budget_exhausted + close 4429). end runs
-// once when the relay drops a call whose grant did not run out (nil: none).
+// once when the relay drops the call (nil: none).
 // ("", false) when the bucket already has a call.
-func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end func(attached bool, used int)) (string, bool) {
+func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end func(attached, answered bool, used int)) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
 	now := time.Now()
 	a.mu.Lock()
@@ -623,7 +632,7 @@ func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end f
 }
 
 // exhaustAnon ends an anonymous call whose grant ran out: later turns speak
-// the minutes-used-up sentence until the call is reaped (no refund).
+// the minutes-used-up sentence until the call is reaped (then settled like any other).
 func (a *VoiceLLMRelayAPI) exhaustAnon(c *voiceCall) {
 	c.mu.Lock()
 	c.anon.exhausted = true
@@ -1185,11 +1194,16 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 	delete(payload, "n")
 	payload["stream"] = json.RawMessage("true")
 	// The call counts as answered from the first byte of the AI's stream, so
-	// a hang-up mid-answer is charged like any other (bd med-dngs).
-	rec.onFirst = func() {
+	// a hang-up mid-answer is charged like any other (bd med-dngs). A call
+	// already dropped refuses it: the settlement saw answered=false.
+	rec.onFirst = func() bool {
 		call.mu.Lock()
+		defer call.mu.Unlock()
+		if call.anon.ended {
+			return false
+		}
 		call.anon.answered = true
-		call.mu.Unlock()
+		return true
 	}
 	a.trial.proxyChat(rec, r, "install", call.anon.keyID, payload, false, true, maxTokens)
 	if rec.failed || !rec.wrote {
@@ -1206,7 +1220,11 @@ type anonTurnWriter struct {
 	http.ResponseWriter
 	wrote, failed bool
 	n             int
-	onFirst       func() // once, before the first passed-through body byte
+	// onFirst runs once, before the first passed-through body byte; false
+	// refuses the answer (swallowed like an error answer, so the caller
+	// speaks instead). The 200 header waits for that byte.
+	onFirst func() bool
+	header  bool // the 200 header reached the client
 }
 
 func (t *anonTurnWriter) WriteHeader(code int) {
@@ -1216,9 +1234,7 @@ func (t *anonTurnWriter) WriteHeader(code int) {
 	t.wrote = true
 	if code != http.StatusOK {
 		t.failed = true
-		return
 	}
-	t.ResponseWriter.WriteHeader(code)
 }
 
 func (t *anonTurnWriter) Write(b []byte) (int, error) {
@@ -1230,11 +1246,26 @@ func (t *anonTurnWriter) Write(b []byte) (int, error) {
 	}
 	if f := t.onFirst; f != nil && len(b) > 0 {
 		t.onFirst = nil
-		f()
+		if !f() {
+			t.failed = true
+			return len(b), nil
+		}
+	}
+	if !t.header {
+		t.header = true
+		t.ResponseWriter.WriteHeader(http.StatusOK)
 	}
 	n, err := t.ResponseWriter.Write(b)
 	t.n += n
 	return n, err
+}
+
+// FlushError keeps a flush from sending the deferred 200 before onFirst ran.
+func (t *anonTurnWriter) FlushError() error {
+	if !t.header {
+		return nil
+	}
+	return http.NewResponseController(t.ResponseWriter).Flush()
 }
 
 func (t *anonTurnWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter }
