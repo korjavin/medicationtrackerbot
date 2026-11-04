@@ -3,6 +3,7 @@ title: Plans opens on the current plan with every day, Share or print and Edit p
 platforms: [web, android, ios]
 preconditions:
   - Local or cloud user with one active rotating plan and one paused plan
+  - For the timezone step, the account's saved workout timezone differs from the device's (e.g. saved America/New_York, device UTC)
 steps:
   - Open Train, then the Plans sub-tab
   - Read the plan card, then tap Share or print and close the sheet
