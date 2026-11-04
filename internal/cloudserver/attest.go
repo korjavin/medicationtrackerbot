@@ -330,7 +330,11 @@ type voiceSettlement struct {
 	keyID, bucket, conversation string
 	reservedAt, deadline        time.Time
 	grant                       int
-	done                        chan struct{} // closed when settled or past the deadline
+	// answered: the relay saw at least one turn answered, so a session ran
+	// whatever the lookup says; a 404/initiated then is never refunded
+	// (Archie 13671: relay evidence beats a 404).
+	answered bool
+	done     chan struct{} // closed when settled or past the deadline
 
 	mu          settleLock
 	final       bool // settled: nothing more will change
@@ -350,20 +354,22 @@ type voiceSettlement struct {
 // grant] (a provisional refund is charged back by the seconds that ran);
 // 404/initiated → provisional full refund (no session ran yet, so a
 // never-connected start never costs a 4429), at most one outstanding per
-// bucket (takeProvisional; a later 404 stays charged until it frees up);
+// bucket (takeProvisional; a later 404 stays charged until it frees up), and
+// never for a call the relay saw answered (that 404 Warns at the deadline,
+// session_invisible, the charge stands);
 // anything else → nothing yet. At the deadline a refund still on
 // 404/initiated is final (a waiting one is refunded in full then);
 // anything else unresolved stands and Warns (fail closed). ponytail: in
 // memory — a restart loses pending settlements (provisional refunds stand
 // unverified, unrefunded charges stand); persist a pending-settlements table
 // if deploys get frequent.
-func (a *AttestAPI) settleVoice(keyID, bucket, conversation string, reservedAt time.Time, grant int) *voiceSettlement {
+func (a *AttestAPI) settleVoice(keyID, bucket, conversation string, reservedAt time.Time, grant int, answered bool) *voiceSettlement {
 	window := a.settleFor
 	if window == 0 {
 		window = attestSettleSlack + time.Duration(a.cfg.VoiceCallMax)*time.Second
 	}
 	s := &voiceSettlement{keyID: keyID, bucket: bucket, conversation: conversation, reservedAt: reservedAt,
-		deadline: reservedAt.Add(window), grant: grant, done: make(chan struct{}), mu: make(settleLock, 1)}
+		deadline: reservedAt.Add(window), grant: grant, answered: answered, done: make(chan struct{}), mu: make(settleLock, 1)}
 	ctx, cancel := context.WithTimeout(context.Background(), attestSettleSyncTimeout)
 	s.mu.Lock()
 	a.pollLocked(ctx, s)
@@ -406,7 +412,7 @@ func (a *AttestAPI) pollLocked(ctx context.Context, s *voiceSettlement) {
 			return
 		}
 		s.final = a.settleRefund(s, refund, status)
-	case s.notStarted && !s.provisional && a.takeProvisional(s):
+	case s.notStarted && !s.provisional && !s.answered && a.takeProvisional(s):
 		s.provisional = a.settleRefund(s, s.grant, "provisional")
 		if !s.provisional {
 			a.releaseProvisional(s)
@@ -497,11 +503,13 @@ func (a *AttestAPI) runSettlement(s *voiceSettlement) {
 	}
 	// a 404 that waited behind another provisional refund (Archie 13648): the
 	// URL has expired unused, so the whole grant comes back now.
-	if s.notStarted && !s.provisional && a.settleRefund(s, s.grant, "never_started") {
+	// Never for an answered call: its session ran but the lookup cannot see it.
+	if s.notStarted && !s.provisional && !s.answered && a.settleRefund(s, s.grant, "never_started") {
 		return
 	}
 	slog.Warn("attest voice settle failed", "install", s.keyID, "conversation", s.conversation,
-		"http_status", s.lastCode, "status", s.lastStatus, "transport_error", s.lastErr, "provisional", s.provisional)
+		"http_status", s.lastCode, "status", s.lastStatus, "transport_error", s.lastErr, "provisional", s.provisional,
+		"session_invisible", s.answered && s.notStarted)
 }
 
 // settlePending is voiceStart's pre-check (bd med-v1uz, Miles 13572): one
@@ -747,13 +755,14 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	// Whatever ended the call (hang-up, a dropped leg reaped after the grace,
 	// never attached, budget exhausted), ElevenLabs' own meter settles it (bd
 	// med-v1uz): the hook's first poll is synchronous, the rest background.
-	// attached/used are the relay's view, logged only.
+	// attached/used are the relay's view, logged only; answered bars a refund
+	// on a 404 (Archie 13671).
 	var once sync.Once
-	end := func(attached bool, used int) {
+	end := func(attached, answered bool, used int) {
 		once.Do(func() {
-			slog.Info("attest voice call ended", "install", keyID, "conversation", conversation, "granted_seconds", grant, "attached", attached, "leg_seconds", used)
+			slog.Info("attest voice call ended", "install", keyID, "conversation", conversation, "granted_seconds", grant, "attached", attached, "answered", answered, "leg_seconds", used)
 			if conversation != "" {
-				a.settleVoice(keyID, bucket, conversation, now, grant)
+				a.settleVoice(keyID, bucket, conversation, now, grant, answered)
 			}
 		})
 	}

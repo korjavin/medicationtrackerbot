@@ -103,10 +103,12 @@ type anonVoice struct {
 	timer *time.Timer
 	// end is the minting side's settlement hook (bd med-v1uz): the relay calls
 	// it exactly once when it drops the call, for any reason. attached reports
-	// whether a leg ever attached, used the leg's seconds (0 when no turn was
-	// ever answered, else first attach → drop, rounded up) — log-only, the
-	// charge is ElevenLabs' meter. The relay itself never touches money.
-	end func(attached bool, used int)
+	// whether a leg ever attached, answered whether any turn got the AI's
+	// answer (a session ran, whatever ElevenLabs' lookup says — Archie 13671),
+	// used the leg's seconds (0 when no turn was ever answered, else first
+	// attach → drop, rounded up, log-only). The charge is ElevenLabs' meter;
+	// the relay itself never touches money.
+	end func(attached, answered bool, used int)
 	// Guarded by the call's mu.
 	exhausted  bool
 	attached   bool      // a device leg attached at least once; never reset
@@ -501,9 +503,9 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	}
 	c.anon.timer.Stop()
 	c.mu.Lock()
-	attached := c.anon.attached
+	attached, answered := c.anon.attached, c.anon.answered
 	used := 0
-	if c.anon.answered {
+	if answered {
 		used = int((c.now().Sub(c.anon.attachedAt) + time.Second - 1) / time.Second)
 	}
 	c.mu.Unlock()
@@ -526,7 +528,7 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 			a.mu.Unlock()
 			close(done)
 		}()
-		end(attached, used)
+		end(attached, answered, used)
 	}
 }
 
@@ -599,7 +601,7 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 // the mint the budget timer ends it (budget_exhausted + close 4429). end runs
 // once when the relay drops the call (nil: none).
 // ("", false) when the bucket already has a call.
-func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end func(attached bool, used int)) (string, bool) {
+func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end func(attached, answered bool, used int)) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
 	now := time.Now()
 	a.mu.Lock()

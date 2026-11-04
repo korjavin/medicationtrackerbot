@@ -416,7 +416,7 @@ func TestAttestVoiceSettle(t *testing.T) {
 		e.convAnswers(answer)
 		grant, at := reserve(k, 0)
 		before, _ := usage(k)
-		<-e.attest.settleVoice(attestKeyID(t, k), attestKeyID(t, k), "conv_"+name, at, grant).done
+		<-e.attest.settleVoice(attestKeyID(t, k), attestKeyID(t, k), "conv_"+name, at, grant, false).done
 		if life, day := usage(k); life != before-grant+wantLife || day != life {
 			t.Fatalf("%s: life %d day %d, want charged %d", name, life, day, wantLife)
 		}
@@ -432,7 +432,7 @@ func TestAttestVoiceSettle(t *testing.T) {
 	if g, _ := reserve(other, 140); g != 0 {
 		t.Fatalf("global before the refund granted %d", g)
 	}
-	<-e.attest.settleVoice(attestKeyID(t, k), attestKeyID(t, k), "conv_a", at, grant).done
+	<-e.attest.settleVoice(attestKeyID(t, k), attestKeyID(t, k), "conv_a", at, grant, false).done
 	if life, day := usage(k); life != 20 || day != 20 {
 		t.Fatalf("(a) life %d day %d, want 20/20", life, day)
 	}
@@ -656,11 +656,17 @@ func TestAttestVoiceProvisionalOnePerBucket(t *testing.T) {
 	if used := e.voiceUsed(k); used != 360 {
 		t.Fatalf("used %d, want 360", used)
 	}
-	if rec, _ := e.voiceStart(k, 5); rec.Code != http.StatusOK {
-		t.Fatalf("start 5 within the lifetime: %d", rec.Code)
+	// The bound: 1 free URL + lifetime/grant charged ones (600/120 = 5).
+	for i := uint32(5); i <= 6; i++ {
+		if rec, _ := e.voiceStart(k, i); rec.Code != http.StatusOK {
+			t.Fatalf("start %d within the lifetime: %d %s", i, rec.Code, rec.Body.String())
+		}
 	}
-	if rec, _ := e.voiceStart(k, 6); rec.Code == http.StatusOK {
-		t.Fatalf("start 6 past the lifetime: %d %s", rec.Code, rec.Body.String())
+	if rec, _ := e.voiceStart(k, 7); rec.Code == http.StatusOK {
+		t.Fatalf("start 7 past 1 free + 5 charged URLs: %d %s", rec.Code, rec.Body.String())
+	}
+	if n := strings.Count(logs.String(), "outcome=provisional"); n != 1 {
+		t.Fatalf("%d provisional refunds after 7 starts, want 1", n)
 	}
 }
 
@@ -678,19 +684,22 @@ func TestAttestVoiceWaitingNotStartedDeadline(t *testing.T) {
 	id := attestKeyID(t, k)
 	e.convAnswers(func(string, int) (int, string) { return http.StatusNotFound, elNotFound })
 	counter := uint32(0)
-	settle := func(name string, window time.Duration) *voiceSettlement {
+	reserve := func() time.Time {
 		t.Helper()
 		counter++
 		now := time.Now().UTC()
 		grant, _, _, _, err := e.store.ReserveAttestVoice(context.Background(), id, counter, now, 1000, 0, 0, 120, attestVoiceFloorSeconds)
 		if err != nil || grant != 120 {
-			t.Fatalf("reserve %s: %d %v", name, grant, err)
+			t.Fatalf("reserve %d: %d %v", counter, grant, err)
 		}
-		e.attest.settleFor = window
-		return e.attest.settleVoice(id, id, "conv_"+name, now, grant)
+		return now
 	}
-	holder := settle("w1", 2*time.Second) // provisional, pending long
-	<-settle("w2", 100*time.Millisecond).done
+	settle := func(name string, at time.Time, window time.Duration, answered bool) *voiceSettlement {
+		e.attest.settleFor = window
+		return e.attest.settleVoice(id, id, "conv_"+name, at, 120, answered)
+	}
+	holder := settle("w1", reserve(), 2*time.Second, false) // provisional, pending long
+	<-settle("w2", reserve(), 100*time.Millisecond, false).done
 	if l := logs.String(); !strings.Contains(l, "conversation=conv_w2 outcome=never_started granted_seconds=120 refunded_seconds=120") ||
 		strings.Contains(l, "conversation=conv_w2 outcome=provisional") {
 		t.Fatalf("(w2) logs = %q", l)
@@ -698,10 +707,11 @@ func TestAttestVoiceWaitingNotStartedDeadline(t *testing.T) {
 	if used := e.voiceUsed(k); used != 0 {
 		t.Fatalf("after w2's deadline: used %d, want 0", used)
 	}
+	at := reserve()
 	if _, err := db.ExecContext(context.Background(), `CREATE TRIGGER fail_voice BEFORE UPDATE OF voice_seconds ON attest_buckets BEGIN SELECT RAISE(ABORT, 'transient write failure'); END`); err != nil {
 		t.Fatal(err)
 	}
-	<-settle("w3", 100*time.Millisecond).done
+	<-settle("w3", at, 100*time.Millisecond, false).done
 	if _, err := db.ExecContext(context.Background(), `DROP TRIGGER fail_voice`); err != nil {
 		t.Fatal(err)
 	}
@@ -712,6 +722,18 @@ func TestAttestVoiceWaitingNotStartedDeadline(t *testing.T) {
 		t.Fatalf("after w3's failed write: used %d, want 120 (charge stands)", used)
 	}
 	<-holder.done
+
+	// Archie 13671: relay evidence beats a 404. A call the relay saw answered
+	// whose lookup stays 404 is never refunded, even with the provisional slot
+	// free: Warn session_invisible, the charge stands.
+	<-settle("w4", reserve(), 100*time.Millisecond, true).done
+	if l := logs.String(); strings.Contains(l, "conversation=conv_w4 outcome=") ||
+		!strings.Contains(l, "conversation=conv_w4 http_status=404") || !strings.Contains(l, "session_invisible=true") {
+		t.Fatalf("(w4) logs = %q", l)
+	}
+	if used := e.voiceUsed(k); used != 240 {
+		t.Fatalf("after w4: used %d, want 240 (w3 + w4 charged)", used)
+	}
 }
 
 // bd med-v1uz acceptance (f): one settlement per call — the end hook twice,
@@ -727,8 +749,8 @@ func TestAttestVoiceSettlesOnce(t *testing.T) {
 		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
 	}
 	c := e.relay.lookup(out.Call)
-	c.anon.end(true, 5)
-	c.anon.end(true, 5)
+	c.anon.end(true, true, 5)
+	c.anon.end(true, true, 5)
 	e.reapNow(out.Call) // pending: the relay drops it and runs the hook again
 	e.waitVoiceUsed(k, 20)
 	time.Sleep(50 * time.Millisecond)
@@ -909,7 +931,7 @@ func TestVoiceAnonAbandonHook(t *testing.T) {
 
 	var pending, attached atomic.Int32
 	e.relay.attachWindow = 10 * time.Millisecond
-	call, _ := e.relay.MintAnonCall("k-pending", time.Minute, func(att bool, _ int) {
+	call, _ := e.relay.MintAnonCall("k-pending", time.Minute, func(att, _ bool, _ int) {
 		if !att {
 			pending.Add(1)
 		}
@@ -929,7 +951,7 @@ func TestVoiceAnonAbandonHook(t *testing.T) {
 
 	e.relay.attachWindow = time.Minute
 	e.relay.grace = time.Hour // a hang-up must not wait for it
-	call, _ = e.relay.MintAnonCall("k-attached", time.Minute, func(att bool, used int) {
+	call, _ = e.relay.MintAnonCall("k-attached", time.Minute, func(att, _ bool, used int) {
 		if att && used == 0 {
 			attached.Add(1)
 		}
@@ -953,7 +975,7 @@ func TestVoiceAnonAbandonHook(t *testing.T) {
 
 	// bd med-v1uz: an exhausted call runs the hook too (it is settled like any other).
 	var exhausted atomic.Int32
-	call, _ = e.relay.MintAnonCall("k-exhausted", time.Minute, func(bool, int) { exhausted.Add(1) })
+	call, _ = e.relay.MintAnonCall("k-exhausted", time.Minute, func(bool, bool, int) { exhausted.Add(1) })
 	c = e.relay.lookup(call)
 	c.anon.timer.Stop()
 	e.relay.exhaustAnon(c)
@@ -970,7 +992,7 @@ func TestVoiceAnonAbandonSettlesBeforeNextStart(t *testing.T) {
 	relay := NewVoiceLLMRelayAPI(nil, "s")
 	relay.attachWindow = 5 * time.Millisecond
 	entered, release := make(chan struct{}), make(chan struct{})
-	relay.MintAnonCall("k-settle", time.Minute, func(bool, int) { close(entered); <-release })
+	relay.MintAnonCall("k-settle", time.Minute, func(bool, bool, int) { close(entered); <-release })
 	select {
 	case <-entered: // the reaper dropped the call and is inside the hook
 	case <-time.After(relayTestDeadline):
