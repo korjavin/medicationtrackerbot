@@ -6,11 +6,13 @@ preconditions:
 steps:
   - Open the Train tab (Timeline sub-tab)
   - Read the Up next card, then tap Skip and confirm; then Undo skip
+  - Tap Other plan day, read the sheet, tap another day; open it again and pick the first day back
   - Tap Start workout (or Start now), confirm, and come back to Train
   - Finish the workout, then tap Start empty workout under the card
 invariants:
   - The app loads without script errors and the Up next card renders (every classic script parses in the shared global scope; no duplicate top-level names)
   - 'The eyebrow is when ("Today · 18:00" or "Fri 06.11 · 18:00"), the title is the plan day, the meta line its exercises, and a rotating plan shows "Day N of M · then <next day>"'
+  - 'Other plan day (rotating plans only; hidden while skipping or running) opens "Which day today?" ("Which day next?" for a future slot): every day in plan order, each with "{n} exercises · last {Weekday DD.MM}" (or "never"), the current day tagged "Today" ("Next" for a future slot); a tap writes once, closes, and the card shows the picked day; a failed write puts the old day back'
   - Skip names the day ("Skip today" / "Skip Fri"); a set skip shows a "Skipping" tag and only "Undo skip"
   - A running workout shows "In progress · N min" with Finish and Continue; "Start empty workout" is hidden until it ends
   - Start empty workout opens an empty session on its "What's next?" add step
@@ -19,4 +21,4 @@ covered_by:
   web: web/static/js/tests/features.workout-next-card.test.js
   android: tests/visual/scenes.json#workout-next-card
   ios: tests/visual/scenes.json#workout-next-card
-source: [med-soo0.2, "#1520"]
+source: [med-soo0.2, "#1520", med-soo0.3]

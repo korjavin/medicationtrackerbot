@@ -203,15 +203,121 @@ describe('Up next card (kit WN1-WN6)', () => {
     expect(card(c).querySelector('.wg-wn-day')).toBeNull();
   });
 
-  it('"Other plan day" appears only once the WN7 sheet registers, and never while skipping or running', () => {
-    expect(action(render(today()), 'other-plan-day')).toBeNull();
-    const pick = vi.fn();
-    env.window.WorkoutNextCard.otherPlanDay = pick;
-    const data = today();
-    action(render(data), 'other-plan-day').click();
-    expect(pick).toHaveBeenCalledWith(data);
-    expect(action(render(today({ session: { status: 'pre_skipped' } })), 'other-plan-day')).toBeNull();
-    expect(action(render(today({ session: { status: 'in_progress' } })), 'other-plan-day')).toBeNull();
+  // WN7 "Other plan day" sheet (med-soo0.3).
+  const DAYS = [
+    { id: 7, name: 'Chest & Triceps', exercises_count: 3, last_completed_date: '2026-10-26', is_current: true },
+    { id: 8, name: 'Back & Biceps', exercises_count: 1, last_completed_date: '2026-10-27', is_current: false },
+    { id: 9, name: 'Glutes, Hamstrings & Core', exercises_count: 4, last_completed_date: null, is_current: false },
+  ];
+  const rotating = (overrides = {}) => today({ plan: { position: 1, total: 3, next_variant_name: 'Back & Biceps', days: DAYS }, ...overrides });
+  const sheet = () => env.document.getElementById('workout-plan-day-sheet');
+  const sheetOpen = () => !!sheet() && !sheet().classList.contains('hidden');
+  const sheetRows = () => Array.from(sheet().querySelectorAll('.wg-list > .wg-row'));
+
+  it('WN7: the sheet lists every plan day in order, marks the current one Today, and shows count + last date', () => {
+    action(render(rotating()), 'other-plan-day').click();
+    expect(sheetOpen()).toBe(true);
+    expect(sheet().querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('Bench 100 · 3 days');
+    expect(sheet().querySelector('.wg-sheethead__title').textContent).toBe('Which day today?');
+    const rows = sheetRows();
+    expect(rows.map((r) => r.querySelector('.wg-row__title').textContent)).toEqual(['Chest & Triceps', 'Back & Biceps', 'Glutes, Hamstrings & Core']);
+    expect(rows.map((r) => r.querySelector('.wg-row__meta').textContent)).toEqual([
+      '3 exercises · last Mon 26.10', '1 exercise · last Tue 27.10', '4 exercises · never',
+    ]);
+    expect(rows.map((r) => (r.querySelector('.wg-tag') || {}).textContent || null)).toEqual(['Today', null, null]);
+    // Names wrap in full: the sheet's title modifier lifts the row's two-line clamp.
+    expect(rows.every((r) => r.querySelector('.wg-row__title').classList.contains('wg-plan-day__title'))).toBe(true);
+    expect(sheet().querySelector('.wg-sheet__body .wg-hint').textContent).toBe('The plan continues from the day you pick.');
+    sheet().querySelector('.wg-sheethead [aria-label="Close"]').click();
+    expect(sheetOpen()).toBe(false);
+  });
+
+  it('WN7: a future slot tags its day Next and asks "Which day next?"', () => {
+    action(render(rotating({ session: { scheduled_date: '2026-11-06', is_today: false } })), 'other-plan-day').click();
+    expect(sheet().querySelector('.wg-sheethead__title').textContent).toBe('Which day next?');
+    expect(sheetRows().map((r) => (r.querySelector('.wg-tag') || {}).textContent || null)).toEqual(['Next', null, null]);
+    sheet().querySelector('.wg-sheethead [aria-label="Close"]').click();
+    action(render(rotating()), 'other-plan-day').click();
+    expect(sheet().querySelector('.wg-sheethead__title').textContent).toBe('Which day today?');
+    expect(sheetRows()[0].querySelector('.wg-tag').textContent).toBe('Today');
+  });
+
+  it('WN7: a tap posts set-variant once, closes the sheet, and the card shows the picked day', async () => {
+    const { window } = env;
+    let release;
+    window.apiCall = vi.fn((url) => (url.includes('set-variant') ? new Promise((r) => { release = r; }) : Promise.resolve(null)));
+    const c = render(rotating());
+    action(c, 'other-plan-day').click();
+    sheetRows()[2].click();
+    expect(sheetOpen()).toBe(false);
+    await vi.waitFor(() => expect(card(c).querySelector('.wg-card__title').textContent).toBe('Glutes, Hamstrings & Core'));
+    expect(card(c).querySelector('.wg-wn-day .wg-meta').textContent).toBe('Day 3 of 3 · then Chest & Triceps');
+    expect(card(c).querySelector('.wg-wn__info .wg-meta').textContent).toBe('4 exercises');
+    const posts = window.apiCall.mock.calls.filter(([u]) => u.includes('set-variant'));
+    expect(posts).toEqual([['/api/workout/sessions/42/set-variant', 'POST', { variant_id: 9 }, { suppressWriteAlert: true }]]);
+    release(true);
+    await flush();
+  });
+
+  it('WN7: tapping the current day closes without a write', async () => {
+    const c = render(rotating());
+    action(c, 'other-plan-day').click();
+    sheetRows()[0].click();
+    await flush();
+    expect(sheetOpen()).toBe(false);
+    expect(env.window.apiCall.mock.calls.some(([u]) => u.includes('set-variant'))).toBe(false);
+  });
+
+  it('WN7: a failed write rolls the card back to the previous day', async () => {
+    const { window } = env;
+    window.safeToast = vi.fn();
+    window.apiCall = vi.fn(async (url) => { if (url.includes('set-variant')) throw new Error('boom'); return null; });
+    const c = render(rotating());
+    action(c, 'other-plan-day').click();
+    sheetRows()[1].click();
+    await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalled());
+    await flush();
+    expect(card(c).querySelector('.wg-card__title').textContent).toBe('Chest & Triceps');
+    expect(card(c).querySelector('.wg-wn-day .wg-meta').textContent).toBe('Day 1 of 3 · then Back & Biceps');
+  });
+
+  // Argus: pick B, then C, C succeeds, B fails would roll back over C. One
+  // pick runs at a time, so C cannot start until B settles.
+  it('WN7: a second pick waits for the first; a failed first pick then a successful second ends on the second', async () => {
+    const { window } = env;
+    window.safeToast = vi.fn();
+    let failB;
+    window.apiCall = vi.fn((url, _m, body) => {
+      if (!url.includes('set-variant')) return Promise.resolve(null);
+      if (body.variant_id === 8) return new Promise((_r, reject) => { failB = () => reject(new Error('boom')); });
+      return Promise.resolve(true);
+    });
+    // The commit's reload reads the server's view: C saved.
+    window.apiCallDirect = vi.fn(async () => rotating({ variant_id: 9, variant_name: 'Glutes, Hamstrings & Core' }));
+    const data = rotating();
+    const c = render(data);
+    action(c, 'other-plan-day').click();
+    sheetRows()[1].click(); // B, in flight
+    await vi.waitFor(() => expect(failB).toBeTypeOf('function'));
+    expect(action(c, 'other-plan-day').disabled).toBe(true);
+    window.WorkoutNextCard.otherPlanDay(data); // C attempt while B is pending
+    expect(sheetOpen()).toBe(false);
+    failB();
+    await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalled());
+    expect(card(c).querySelector('.wg-card__title').textContent).toBe('Chest & Triceps');
+    action(c, 'other-plan-day').click();
+    sheetRows()[2].click(); // C
+    await vi.waitFor(() => expect(card(c).querySelector('.wg-card__title').textContent).toBe('Glutes, Hamstrings & Core'));
+    await flush();
+    expect(window.apiCall.mock.calls.filter(([u]) => u.includes('set-variant')).map(([, , b]) => b.variant_id)).toEqual([8, 9]);
+    expect(card(c).querySelector('.wg-card__title').textContent).toBe('Glutes, Hamstrings & Core');
+  });
+
+  it('WN7: "Other plan day" is not reachable for flat plans, while skipping, or while a workout runs', () => {
+    expect(action(render(rotating()), 'other-plan-day')).not.toBeNull();
+    expect(action(render(today({ is_rotating: false, plan: null })), 'other-plan-day')).toBeNull();
+    expect(action(render(rotating({ session: { status: 'pre_skipped' } })), 'other-plan-day')).toBeNull();
+    expect(action(render(rotating({ session: { status: 'in_progress' } })), 'other-plan-day')).toBeNull();
   });
 
   it('snoozed: "Snoozed to HH:MM" from snoozed_until', () => {

@@ -204,6 +204,22 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         }
     }, 30000);
 
+    it('the WN7 scenes open the plan-day sheet on the seeded plan, then pick another day', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('workout-plan-day-sheet')).toMatchObject({ ok: true, failed: [] });
+        const sheet = window.document.getElementById('workout-plan-day-sheet');
+        const titles = () => Array.from(sheet.querySelectorAll('.wg-row__title')).map((t) => t.textContent);
+        expect(titles()).toEqual(['Push', 'Pull', 'Glutes, Hamstrings & Core Stability with Single-Leg Balance Work and a Loaded Carry Finisher']);
+        const current = sheet.querySelector('.wg-row[aria-current] .wg-row__title').textContent;
+        expect(await load('workout-plan-day-picked')).toMatchObject({ ok: true, failed: [] });
+        await vi.waitFor(async () => {
+            const next = await window.apiCall('/api/workout/sessions/next');
+            expect(next.variant_name).not.toBe(current);
+            expect(window.document.querySelector('#next-workout-card .wg-card__title').textContent).toBe(next.variant_name);
+        });
+    }, 30000);
+
     it('tags the API-key input without changing its product ID and maps both runner lookups to it', async () => {
         const { window } = env;
         expect(await load('today')).toBeNull();

@@ -398,6 +398,19 @@
         { "click": "#workout-start-empty-row" }
       ],
       "ready": ["#workout-history-tab.active", "#workout-session-addstep", "#workout-session-addstep-search"] },
+    { "name": "workout-plan-day-sheet",
+      "steps": [
+        { "tab": "workouts" }, { "emptyWorkout": true }, { "click": ".workout-tab[data-tab=\"history\"]" },
+        { "click": "#next-workout-card [data-action=\"other-plan-day\"]" }
+      ],
+      "ready": ["#workout-plan-day-sheet .wg-row[aria-current]", "#workout-plan-day-sheet .wg-hint"] },
+    { "name": "workout-plan-day-picked",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" },
+        { "click": "#next-workout-card [data-action=\"other-plan-day\"]" },
+        { "click": "#workout-plan-day-sheet .wg-row:not([aria-current])" }
+      ],
+      "ready": ["#next-workout-card .wg-wn [data-action=\"other-plan-day\"]"] },
     { "name": "today-start-here", "localOnly": true,
       "steps": [{ "startHere": { "drop": ["medications", "bp", "food", "workouts"], "picked": ["medication", "bp", "weight", "food"] } }, { "tab": "today" }],
       "ready": ["#today-content [data-section=\"start-here\"] [data-action=\"start-here-medication\"]"] },

@@ -1299,6 +1299,15 @@ svg.chart-svg {
     overflow-wrap: anywhere;
 }
 
+/* WN7 plan-day sheet: day names wrap in full, never clamped (med-soo0.3).
+   Two classes: components.css loads after this file. */
+.wg-row__title.wg-plan-day__title {
+    display: block;
+    -webkit-line-clamp: none;
+    -webkit-box-orient: initial;
+    overflow: visible;
+}
+
 /* ==================== Sync Status Styles ==================== */
 
 /* Sync Status Bar (med-a9n5.8: bar rules deleted with the Sync card;
