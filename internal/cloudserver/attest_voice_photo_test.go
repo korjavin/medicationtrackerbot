@@ -125,6 +125,55 @@ func TestAttestVoicePhotoAttachOnce(t *testing.T) {
 	wantImageFrame(t, ctx, device, "image_error", 5)
 }
 
+// A 200 stream is not an answer by itself (Argus 14493): a stream that breaks
+// before answering fails the photo, and ElevenLabs dropping the turn after the
+// upstream headers but before any byte reached it keeps the photo held.
+func TestAttestVoicePhotoStreamOutcome(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	call, device := e.photoCall(t, ctx)
+	c := e.relay.lookup(call)
+
+	// Upstream answers 200, then only an in-band error event.
+	e.upstreamStream.Store(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"error\":{\"message\":\"overloaded\"}}\n\n"))
+	})
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: 1, Type: "image", Data: testPhotoURL})
+	wantImageFrame(t, ctx, device, "image_queued", 1)
+	e.photoTurn(call, voicePhotoMarker)
+	wantImageFrame(t, ctx, device, "image_error", 1)
+
+	// Upstream sends its 200 headers, then ElevenLabs hangs up the turn.
+	headers := make(chan struct{})
+	e.upstreamStream.Store(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		close(headers)
+		<-r.Context().Done()
+	})
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: 2, Type: "image", Data: testPhotoURL})
+	wantImageFrame(t, ctx, device, "image_queued", 2)
+	turnCtx, hangUp := context.WithCancel(ctx)
+	req := httptest.NewRequestWithContext(turnCtx, http.MethodPost, voiceLLMCompletionsPath, strings.NewReader(
+		`{"model":"m","stream":true,"messages":[{"role":"user","content":"`+voicePhotoMarker+`"}],"elevenlabs_extra_body":{"call":"`+call+`"}}`))
+	req.Host = "localhost"
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		e.h.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+	<-headers
+	hangUp()
+	<-served
+	img := c.takeAnonImage()
+	if img == nil || img.id != 2 {
+		t.Fatalf("pre-answer hang-up lost the photo: %+v", img)
+	}
+}
+
 // The photo frame is bounded by the leg's read limit: a frame that fits is
 // held, an oversize one closes the leg before anything is held.
 func TestAttestVoicePhotoFrameCap(t *testing.T) {

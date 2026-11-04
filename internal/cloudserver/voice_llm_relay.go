@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -1248,22 +1249,24 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		return true
 	}
 	a.trial.proxyChat(rec, r, "install", call.anon.keyID, payload, img != nil, true, maxTokens)
+	if img != nil {
+		switch {
+		case r.Context().Err() != nil && rec.n == 0:
+			// ElevenLabs dropped the turn before any answer reached it (a 200
+			// header alone is not one): it re-sends it, so the photo waits.
+			call.requeueAnonImage(img)
+		case rec.failed || rec.n == 0 || rec.broken || r.Context().Err() != nil:
+			// No answer, a stream that broke (its in-band error chunk), or
+			// one cut off mid-way: the photo was not answered.
+			a.settleAnonImage(call, img, "the agent could not look at the photo, try again")
+		default:
+			a.settleAnonImage(call, img, "")
+		}
+	}
 	if rec.failed || !rec.wrote {
 		outcome = "upstream_error"
-		if img != nil {
-			if r.Context().Err() != nil {
-				// ElevenLabs dropped the turn before any answer: it re-sends
-				// it, so the photo waits for that one.
-				call.requeueAnonImage(img)
-			} else {
-				a.settleAnonImage(call, img, "the agent could not look at the photo, try again")
-			}
-		}
 		speak(voiceRetry(lang))
 		return
-	}
-	if img != nil {
-		a.settleAnonImage(call, img, "")
 	}
 	outcome = "ok"
 }
@@ -1391,6 +1394,9 @@ type anonTurnWriter struct {
 	http.ResponseWriter
 	wrote, failed bool
 	n             int
+	// broken: the stream relay wrote its in-band upstream-error chunk
+	// (finishStream), so the 200 stream carried no complete answer.
+	broken bool
 	// onFirst runs once, before the first passed-through body byte; false
 	// refuses the answer (swallowed like an error answer, so the caller
 	// speaks instead). The 200 header waits for that byte.
@@ -1414,6 +1420,9 @@ func (t *anonTurnWriter) Write(b []byte) (int, error) {
 	}
 	if t.failed {
 		return len(b), nil
+	}
+	if bytes.Contains(b, sseUpstreamError) {
+		t.broken = true
 	}
 	if f := t.onFirst; f != nil && len(b) > 0 {
 		t.onFirst = nil
