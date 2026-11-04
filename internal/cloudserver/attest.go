@@ -282,86 +282,69 @@ type AttestAPI struct {
 	// instance runs); a multi-instance deploy needs a DB-level lease instead.
 	grantMu    sync.Mutex
 	challenges map[string]time.Time
-	// Free never-attached voice starts per bucket on abandonDay (UTC), under mu
-	// (bd med-02b0). ponytail: in memory, a restart resets it — acceptable at
-	// deploy frequency; persist it if deploys get frequent.
-	abandonDay string
-	abandons   map[string]int
-	// refunded is the unused seconds handed back per bucket on abandonDay to
-	// calls that attached and ended early (bd med-dngs), under mu.
-	refunded map[string]int
-	// abandonFree is the ElevenLabs time the day's free refunds may have let
-	// run, server-wide; capped at cfg.VoiceGlobal / 2 (Argus 8452, Miles 8461).
-	abandonFree int
-	mux         *http.ServeMux
+	// Settlement polling of an anonymous call (settleVoice); overridable in tests.
+	settlePoll time.Duration // first 2 min: this interval, then twice it
+	settleFor  time.Duration // 0 = attestSettleSlack + the per-call max after the mint
+	mux        *http.ServeMux
 }
 
-// attestVoiceFreeAbandons is how many never-attached starts a bucket gets
-// refunded per UTC day; later ones are charged (docs/cloud-mode.md, Metering).
-const attestVoiceFreeAbandons = 3
+// attestSettleSlack: a signed URL can still open a session 15 min after the
+// mint (https://elevenlabs.io/docs/eleven-agents/customization/authentication),
+// plus 2 min for ElevenLabs to finish processing the call.
+const attestSettleSlack = 17 * time.Minute
 
-// takeFreeAbandon counts one never-attached start of bucket on now's UTC day
-// and reports whether it is still free: within the bucket's 3, and within
-// the server-wide daily cap. The refund gives the global budget (the SUM of
-// the daily rows) back too, so the free sessions are capped separately; each
-// costs max(grant, call max), what its ElevenLabs session can have run.
-func (a *AttestAPI) takeFreeAbandon(bucket string, now time.Time, grant int) bool {
-	cost := max(grant, a.cfg.VoiceCallMax)
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.rollFreeDayLocked(now)
-	if a.abandons[bucket] >= attestVoiceFreeAbandons {
-		return false
+// settleVoice settles one anonymous call by ElevenLabs' own meter (bd
+// med-v1uz): it polls GET conversations/{id} until the status is done or
+// failed and refunds grant − call_duration_secs (clamped to [0, grant]) to
+// the lifetime and reservedAt's UTC-day counters. Until the deadline (mint +
+// 15 min signed-URL validity + per-call max + 2 min): a 404 or "initiated"
+// at the deadline means no session ever ran — the full grant is refunded;
+// anything else (still running, transport error, other status) refunds
+// nothing and Warns. Fail closed is the bound. Runs once per call (the end
+// hook's sync.Once), off the relay's drop path. ponytail: in memory — a
+// restart loses pending settlements and their charges stand; persist a
+// pending-settlements table if deploys get frequent.
+func (a *AttestAPI) settleVoice(keyID, conversation string, reservedAt time.Time, grant int) {
+	window := a.settleFor
+	if window == 0 {
+		window = attestSettleSlack + time.Duration(a.cfg.VoiceCallMax)*time.Second
 	}
-	// The free-session allowance is half the global daily cap (Miles 8461).
-	if a.cfg.VoiceGlobal > 0 && a.abandonFree+cost > a.cfg.VoiceGlobal/2 {
-		return false
+	deadline, started := reservedAt.Add(window), time.Now()
+	refund := func(seconds int, outcome string) {
+		if err := a.store.RefundAttestVoice(context.Background(), keyID, reservedAt, seconds); err != nil {
+			slog.Error("attest voice refund failed", "install", keyID, "conversation", conversation, "seconds", seconds, "error", err)
+			return
+		}
+		slog.Info("attest voice settle", "install", keyID, "conversation", conversation, "outcome", outcome, "granted_seconds", grant, "refunded_seconds", seconds)
 	}
-	a.abandons[bucket]++
-	a.abandonFree += cost
-	return true
-}
-
-func (a *AttestAPI) rollFreeDayLocked(now time.Time) {
-	if day := now.UTC().Format("2006-01-02"); a.abandonDay != day {
-		a.abandonDay, a.abandons, a.refunded, a.abandonFree = day, map[string]int{}, map[string]int{}, 0
+	for {
+		status, secs, code, err := a.trial.elevenLabsConversation(context.Background(), conversation)
+		if err == nil && code == http.StatusOK && (status == "done" || status == "failed") {
+			refund(min(max(grant-secs, 0), grant), status)
+			return
+		}
+		now := time.Now()
+		if !now.Before(deadline) {
+			if err == nil && (code == http.StatusNotFound || (code == http.StatusOK && status == "initiated")) {
+				refund(grant, "never_started")
+				return
+			}
+			slog.Warn("attest voice settle failed", "install", keyID, "conversation", conversation, "http_status", code, "status", status, "transport_error", err != nil)
+			return
+		}
+		wait := a.settlePoll
+		if now.Sub(started) >= 4*a.settlePoll {
+			wait *= 2
+		}
+		time.Sleep(min(wait, deadline.Sub(now)))
 	}
-}
-
-// takeUnusedRefund is how many of the unused seconds of an early-ended
-// attached call with this grant it may hand back (bd med-dngs). The ElevenLabs
-// session can outlive the hang-up, so each refund is trust: a bucket gets
-// back at most its daily cap a UTC day (the lifetime budget when there is no
-// daily cap), and the refunds count against the same server-wide half of the
-// global cap as the free abandons — a start/hang-up loop cannot run unbounded
-// sessions. Each refund is counted there with the session's unpaid overrun on
-// a short grant (call max − grant), what it can still run unpaid.
-func (a *AttestAPI) takeUnusedRefund(bucket string, now time.Time, grant, seconds int) int {
-	limit := a.cfg.VoiceDaily
-	if limit <= 0 {
-		limit = a.cfg.VoiceLifetime
-	}
-	overrun := max(a.cfg.VoiceCallMax-grant, 0)
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.rollFreeDayLocked(now)
-	seconds = min(seconds, limit-a.refunded[bucket])
-	if a.cfg.VoiceGlobal > 0 {
-		seconds = min(seconds, a.cfg.VoiceGlobal/2-a.abandonFree-overrun)
-	}
-	if seconds <= 0 {
-		return 0
-	}
-	a.refunded[bucket] += seconds
-	a.abandonFree += seconds + overrun
-	return seconds
 }
 
 // NewAttestAPI builds the routes; trial supplies the provider config, the
 // per-subject burst limiter and the shared upstream proxy; food supplies the
 // operator FastFoodDB proxy (bd med-o7zq.19).
 func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyAPI, cfg AttestConfig) *AttestAPI {
-	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, mux: http.NewServeMux()}
+	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
 	if cfg.AndroidConfigured {
 		a.android = playintegrity.New(cfg.Android)
 	}
@@ -507,12 +490,9 @@ func (a *AttestAPI) voiceLimits(resp map[string]any) {
 // assertion binds the URI like the food routes). One transaction CHARGES the
 // whole grant; then the signed URL is minted with the operator key (never
 // logged) and the call is pre-registered in the relay. The charge is refunded
-// when no signed URL reached the client (mint failure, lost relay race), and
-// for a call no device leg ever attached to (bounded per bucket per day, see
-// takeFreeAbandon). Once a leg attached, the ElevenLabs session can run to the
-// agent's own max_duration_seconds whatever the leg does, so an early hang-up
-// or a dropped leg gets its unused seconds back only within the bounded
-// allowance of takeUnusedRefund (bd med-dngs).
+// at once when no signed URL reached the client (mint failure, lost relay
+// race); otherwise, when the relay drops the call for any reason, settleVoice
+// refunds what ElevenLabs says the conversation did not run (bd med-v1uz).
 func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	if !a.voiceConfigured(w) {
 		return
@@ -523,7 +503,7 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	}
 	keyID, bucket := q.keyID, q.install.BucketID
 	// One call per bucket: two installs of one device share the minutes. A
-	// call no leg ever attached to is ended (and refunded, bounded) first, so
+	// call no leg ever attached to is ended (its settlement starts) first, so
 	// the retry after a failed attach mints anew (bd med-02b0).
 	if a.voice.EndPendingAnonCall(bucket) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
@@ -558,35 +538,28 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 			slog.Error("attest voice refund failed", "install", keyID, "seconds", seconds, "error", err)
 		}
 	}
-	signedURL, err := a.trial.mintTrialSignedURL(r.Context(), "install", keyID, true)
+	signedURL, conversation, err := a.trial.mintTrialSignedURL(r.Context(), "install", keyID, true)
 	if err != nil {
 		refund(grant)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
-	// A call that never attaches costs nothing — up to attestVoiceFreeAbandons
-	// a bucket per UTC day and the server-wide daily cap, so devices cannot run
-	// unbounded free ElevenLabs sessions from signed URLs they never attach
-	// to (bd med-02b0).
-	// A call that attached and ended before its grant ran out (hang-up,
-	// dropped leg) is charged what it used — nothing when no turn was ever
-	// answered — and gets the rest back, bounded by takeUnusedRefund (bd
-	// med-dngs).
+	if conversation == "" {
+		// Nothing to settle against: the charge stands (fail closed).
+		slog.Warn("attest voice mint without conversation id", "install", keyID)
+	}
+	// Whatever ended the call (hang-up, a dropped leg reaped after the grace,
+	// never attached, budget exhausted), ElevenLabs' own meter settles it:
+	// the hook returns at once and settleVoice polls in the background (bd
+	// med-v1uz). attached/used are the relay's view, logged only.
+	var once sync.Once
 	end := func(attached bool, used int) {
-		if !attached {
-			refunded := a.takeFreeAbandon(bucket, time.Now(), grant)
-			if refunded {
-				refund(grant)
+		once.Do(func() {
+			slog.Info("attest voice call ended", "install", keyID, "conversation", conversation, "granted_seconds", grant, "attached", attached, "leg_seconds", used)
+			if conversation != "" {
+				go a.settleVoice(keyID, conversation, now, grant)
 			}
-			slog.Info("attest voice start abandoned", "install", keyID, "seconds", grant, "refunded", refunded)
-			return
-		}
-		back := 0
-		if unused := grant - used; unused > 0 {
-			back = a.takeUnusedRefund(bucket, time.Now(), grant, unused)
-			refund(back)
-		}
-		slog.Info("attest voice call ended", "install", keyID, "granted_seconds", grant, "used_seconds", used, "refunded_seconds", back)
+		})
 	}
 	call, ok := a.voice.MintAnonCall(bucket, time.Duration(grant)*time.Second, end)
 	if !ok {

@@ -94,18 +94,18 @@ const (
 // frame ever goes to the device. The relay never touches money: the minting
 // side charged the whole grant up front, because the ElevenLabs session the
 // signed URL opened can outlive the leg (see docs/cloud-mode.md, threat model);
-// the relay only reports how the call ended (anonVoice.end), and the minting
-// side decides what to refund, bounded (bd med-dngs).
+// the relay only reports that the call ended (anonVoice.end), and the minting
+// side settles it by ElevenLabs' own meter (bd med-v1uz).
 const voiceAnonAttachWindow = 60 * time.Second
 
 type anonVoice struct {
 	keyID string
 	timer *time.Timer
-	// end is the minting side's refund hook (bd med-02b0, med-dngs): the relay
-	// calls it exactly once when it drops a call whose grant did not run out —
-	// attached reports whether a leg ever attached, used the seconds the call
-	// is charged (0 when no turn was ever answered, else first attach → drop,
-	// rounded up). The relay itself never touches money.
+	// end is the minting side's settlement hook (bd med-v1uz): the relay calls
+	// it exactly once when it drops the call, for any reason. attached reports
+	// whether a leg ever attached, used the leg's seconds (0 when no turn was
+	// ever answered, else first attach → drop, rounded up) — log-only, the
+	// charge is ElevenLabs' meter. The relay itself never touches money.
 	end func(attached bool, used int)
 	// Guarded by the call's mu.
 	exhausted  bool
@@ -144,10 +144,6 @@ type VoiceLLMRelayAPI struct {
 
 	mu    sync.Mutex
 	calls map[string]*voiceCall
-	// settling[subject] is closed once a dropped never-attached call's abandon
-	// hook (its refund) has finished, so the bucket's next start reserves
-	// against the settled balance (EndPendingAnonCall waits on it).
-	settling map[string]chan struct{}
 }
 
 // NewVoiceLLMRelayAPI builds the voice LLM relay handlers.
@@ -165,7 +161,6 @@ func NewVoiceLLMRelayAPI(store mcpRelayStore, sessionSecret string) *VoiceLLMRel
 		callLifetime:  voiceCallLifetime,
 		now:           time.Now,
 		calls:         make(map[string]*voiceCall),
-		settling:      make(map[string]chan struct{}),
 	}
 }
 
@@ -488,8 +483,9 @@ func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 }
 
 // dropLocked removes c from the table and returns the end hook to run
-// (outside a.mu) when c is an anonymous call whose grant did not run out. The
-// table delete is the "exactly once": a dropped call is never dropped again.
+// (outside a.mu) when c is an anonymous call, whatever ended it (bd
+// med-v1uz: the minting side settles every call). The table delete is the
+// "exactly once": a dropped call is never dropped again.
 func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	delete(a.calls, c.token)
 	if c.anon == nil {
@@ -500,32 +496,17 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	}
 	c.anon.timer.Stop()
 	c.mu.Lock()
-	attached, exhausted := c.anon.attached, c.anon.exhausted
+	attached := c.anon.attached
 	used := 0
 	if c.anon.answered {
 		used = int((c.now().Sub(c.anon.attachedAt) + time.Second - 1) / time.Second)
 	}
 	c.mu.Unlock()
-	if exhausted || c.anon.end == nil {
+	if c.anon.end == nil {
 		return nil
 	}
-	// The bucket is free in the table from here on, but its refund is not done
-	// yet: a start for the same bucket waits on done before reserving.
-	done := make(chan struct{})
-	a.settling[c.accountID] = done
 	end := c.anon.end
-	return func() {
-		// Deferred: a panicking hook must still release the bucket's starts.
-		defer func() {
-			a.mu.Lock()
-			if a.settling[c.accountID] == done {
-				delete(a.settling, c.accountID)
-			}
-			a.mu.Unlock()
-			close(done)
-		}()
-		end(attached, used)
-	}
+	return func() { end(attached, used) }
 }
 
 // EndPendingAnonCall drops bucket keyID's call if no leg ever attached to it
@@ -538,8 +519,6 @@ func (a *VoiceLLMRelayAPI) EndPendingAnonCall(keyID string) bool {
 	subject := cloudstore.AttestSubject(keyID)
 	a.mu.Lock()
 	var abandons []func()
-	// A drop by someone else (the reaper, a concurrent retry) still settling.
-	pending := a.settling[subject]
 	for _, c := range a.calls {
 		if c.accountID != subject || c.anon == nil {
 			continue
@@ -557,9 +536,6 @@ func (a *VoiceLLMRelayAPI) EndPendingAnonCall(keyID string) bool {
 	a.mu.Unlock()
 	for _, f := range abandons {
 		f()
-	}
-	if pending != nil {
-		<-pending
 	}
 	return busy
 }
@@ -595,7 +571,7 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 // MintAnonCall pre-registers an anonymous trial call for trial bucket keyID with a
 // grant of call time. It must be attached within attachWindow; grant after
 // the mint the budget timer ends it (budget_exhausted + close 4429). end runs
-// once when the relay drops a call whose grant did not run out (nil: none).
+// once when the relay drops the call (nil: none).
 // ("", false) when the bucket already has a call.
 func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end func(attached bool, used int)) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
@@ -623,7 +599,7 @@ func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, end f
 }
 
 // exhaustAnon ends an anonymous call whose grant ran out: later turns speak
-// the minutes-used-up sentence until the call is reaped (no refund).
+// the minutes-used-up sentence until the call is reaped (then settled like any other).
 func (a *VoiceLLMRelayAPI) exhaustAnon(c *voiceCall) {
 	c.mu.Lock()
 	c.anon.exhausted = true

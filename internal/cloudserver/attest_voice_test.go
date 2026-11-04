@@ -95,8 +95,7 @@ func usedUp(c *voiceCall) {
 	c.mu.Unlock()
 }
 
-// waitReaped waits until install k has no call in the relay and the dropped
-// call's refund has settled.
+// waitReaped waits until install k has no call in the relay.
 func (e *attestEnv) waitReaped(k *ecdsa.PrivateKey) {
 	deadline := time.Now().Add(relayTestDeadline)
 	for e.relay.HasAnonCall(attestKeyID(e.t, k)) {
@@ -105,8 +104,23 @@ func (e *attestEnv) waitReaped(k *ecdsa.PrivateKey) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	e.relay.EndPendingAnonCall(attestKeyID(e.t, k)) // waits on a settling refund
 }
+
+// waitVoiceUsed waits until install k's lifetime voice seconds are want (the
+// settlement runs in the background, bd med-v1uz).
+func (e *attestEnv) waitVoiceUsed(k *ecdsa.PrivateKey, want int) {
+	e.t.Helper()
+	deadline := time.Now().Add(relayTestDeadline)
+	for e.voiceUsed(k) != want {
+		if time.Now().After(deadline) {
+			e.t.Fatalf("voice used = %d, want %d", e.voiceUsed(k), want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// convAnswers sets the fake conversations endpoint's answer.
+func (e *attestEnv) convAnswers(f func(id string, n int) (int, string)) { e.convAnswer.Store(f) }
 
 func dialAnonVoice(ctx context.Context, srv *httptest.Server, call string) (*websocket.Conn, error) {
 	return dialAnonVoiceFrom(ctx, srv, call, localAppOrigin)
@@ -259,19 +273,17 @@ func TestAttestVoiceStartAndHangUp(t *testing.T) {
 	}
 
 	// Hang up early (bd med-dngs): the call ends at once — no grace, the next
-	// start is not call_in_progress — and is charged what it used (turns were
-	// answered: at least a second), the rest refunded.
+	// start is not call_in_progress — and is charged what ElevenLabs says the
+	// conversation ran (bd med-v1uz), the rest refunded.
+	e.convAnswers(func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "done", 3) })
 	_ = device.Close(websocket.StatusNormalClosure, "")
 	e.waitReaped(k)
-	if used := e.voiceUsed(k); used < 1 || used > 5 {
-		t.Fatalf("after hang-up = %d, want the seconds used", used)
-	}
+	e.waitVoiceUsed(k, 3)
 	if e.relay.lookup(out.Call) != nil {
 		t.Fatal("hung-up call still resolves")
 	}
-	before := e.voiceUsed(k)
 	rec, out = e.voiceStart(k, 4)
-	if rec.Code != http.StatusOK || out.Granted != 120 || out.Remaining != 600-before-120 {
+	if rec.Code != http.StatusOK || out.Granted != 120 || out.Remaining != 600-3-120 {
 		t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -332,11 +344,9 @@ func TestAttestVoiceHopSecret(t *testing.T) {
 }
 
 // The attach-then-hang-up re-mint loop: every start is charged its whole
-// grant up front; a hang-up with no answered turn gets it back only within the
-// bucket's refund allowance (bd med-dngs: the lifetime budget here, no daily
-// cap), so the starts an install can get add up to at most twice its budget
-// (each ElevenLabs session is then capped by the agent's max_duration_seconds,
-// which is kept at or below the per-call grant).
+// grant up front, and a hang-up whose ElevenLabs session kept talking past the
+// grant gets nothing back (bd med-v1uz: the refund is what ElevenLabs did not
+// run), so the starts add up to the budget and no more.
 func TestAttestVoiceRemintLoopStaysInBudget(t *testing.T) {
 	e := newAttestEnv(t, 50, 0, 0)
 	e.voiceOn()
@@ -368,10 +378,141 @@ func TestAttestVoiceRemintLoopStaysInBudget(t *testing.T) {
 		_ = device.Close(websocket.StatusNormalClosure, "")
 		e.waitReaped(k)
 	}
-	// 4 refunded in full (480 of the 500 allowance), the 5th gets the last 20
-	// back, then 120 × 3 + 40 charged: 9 starts, 1000 s granted, 500 charged.
-	if starts != 9 || granted != 1000 || e.voiceUsed(k) != 500 {
-		t.Fatalf("loop: %d starts, %d s granted, %d s charged; want 9 / 1000 / 500", starts, granted, e.voiceUsed(k))
+	// Every session ran past its grant (the fake's default): 4 × 120, the
+	// 20 s tail under the floor.
+	if starts != 4 || granted != 480 || e.voiceUsed(k) != 480 {
+		t.Fatalf("loop: %d starts, %d s granted, %d s charged; want 4 / 480 / 480", starts, granted, e.voiceUsed(k))
+	}
+}
+
+// bd med-v1uz acceptance (a)-(e): settleVoice refunds grant − the seconds
+// ElevenLabs reports, on the reservation's lifetime and UTC-day rows.
+func TestAttestVoiceSettle(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	ctx := context.Background()
+	counter := uint32(100)
+	reserve := func(k *ecdsa.PrivateKey, global int) (int, time.Time) {
+		t.Helper()
+		counter++
+		now := time.Now().UTC()
+		grant, _, _, _, err := e.store.ReserveAttestVoice(ctx, attestKeyID(t, k), counter, now, 600, 0, global, 120, attestVoiceFloorSeconds)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return grant, now
+	}
+	usage := func(k *ecdsa.PrivateKey) (int, int) {
+		life, day, err := e.store.AttestVoiceUsage(ctx, attestKeyID(t, k), time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return life, day
+	}
+	settle := func(name string, k *ecdsa.PrivateKey, answer func(id string, n int) (int, string), wantLife int) {
+		t.Helper()
+		e.convAnswers(answer)
+		grant, at := reserve(k, 0)
+		before, _ := usage(k)
+		e.attest.settleVoice(attestKeyID(t, k), "conv_"+name, at, grant)
+		if life, day := usage(k); life != before-grant+wantLife || day != life {
+			t.Fatalf("%s: life %d day %d, want charged %d", name, life, day, wantLife)
+		}
+	}
+	k, other := attestKey(t), attestKey(t)
+	e.enrolled(k, "tok-settle")
+	e.enrolled(other, "tok-settle-2")
+
+	// (a) 20 s call on a 120 s grant: 100 back on both rows, and the global SUM
+	// (other's start sees it: 140 global, 120 of it held until the refund).
+	e.convAnswers(func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "done", 20) })
+	grant, at := reserve(k, 0)
+	if g, _ := reserve(other, 140); g != 0 {
+		t.Fatalf("global before the refund granted %d", g)
+	}
+	e.attest.settleVoice(attestKeyID(t, k), "conv_a", at, grant)
+	if life, day := usage(k); life != 20 || day != 20 {
+		t.Fatalf("(a) life %d day %d, want 20/20", life, day)
+	}
+	if g, _ := reserve(other, 140); g != 120 {
+		t.Fatalf("(a) global after the refund granted %d, want 120", g)
+	}
+	if l := logs.String(); !strings.Contains(l, "attest voice settle") || !strings.Contains(l, "conversation=conv_a") || !strings.Contains(l, "refunded_seconds=100") {
+		t.Fatalf("(a) logs = %q", l)
+	}
+
+	// (b) in-progress first, done on the second poll: settles once.
+	hits := e.convHits.Load()
+	settle("b", k, func(id string, n int) (int, string) {
+		if n == 1 {
+			return http.StatusOK, elConversation(id, "in-progress", 5)
+		}
+		return http.StatusOK, elConversation(id, "done", 30)
+	}, 30)
+	if n := e.convHits.Load() - hits; n != 2 {
+		t.Fatalf("(b) polled %d times, want 2", n)
+	}
+	// failed counts as final too.
+	settle("b2", k, func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "failed", 7) }, 7)
+
+	// (c) ran the whole grant or longer: nothing back.
+	settle("c", k, func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "done", 120) }, 120)
+
+	// (d) 404 (or still initiated) through the deadline: no session ever ran, full refund.
+	settle("d", k, func(string, int) (int, string) { return http.StatusNotFound, `{"detail":"not found"}` }, 0)
+	settle("d2", k, func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "initiated", 0) }, 0)
+
+	// (e) 500, or still running, through the deadline: no refund + Warn.
+	settle("e", k, func(string, int) (int, string) { return http.StatusInternalServerError, "" }, 120)
+	settle("e2", k, func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "in-progress", 60) }, 120)
+	if l := logs.String(); !strings.Contains(l, "attest voice settle failed") || !strings.Contains(l, "conversation=conv_e") || strings.Contains(l, "xi-trial") {
+		t.Fatalf("(e) logs = %q", l)
+	}
+}
+
+// bd med-v1uz acceptance (f): one settlement per call — the end hook twice,
+// then the relay's own drop, refund once.
+func TestAttestVoiceSettlesOnce(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.convAnswers(func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "done", 20) })
+	k := attestKey(t)
+	e.enrolled(k, "tok-once")
+	rec, out := e.voiceStart(k, 1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
+	}
+	c := e.relay.lookup(out.Call)
+	c.anon.end(true, 5)
+	c.anon.end(true, 5)
+	e.reapNow(out.Call) // pending: the relay drops it and runs the hook again
+	e.waitVoiceUsed(k, 20)
+	time.Sleep(50 * time.Millisecond)
+	if used, hits := e.voiceUsed(k), e.convHits.Load(); used != 20 || hits != 1 {
+		t.Fatalf("used %d after %d polls, want 20 after 1", used, hits)
+	}
+}
+
+// bd med-v1uz acceptance (g): the anonymous mint returns the conversation id
+// from the signed URL's query (the live-measured location) or a top-level
+// field; the account mint asks for none.
+func TestMintTrialSignedURLConversationID(t *testing.T) {
+	body := `{"signed_url":"wss://api.elevenlabs.io/v1/convai/conversation?agent_id=agent_trial&conversation_signature=sig&conversation_id=conv_q1"}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+	t.Cleanup(srv.Close)
+	a := NewTrialProxyAPI(nil, "s", TrialConfig{RatePerMinute: 1, ElevenLabsAPIKey: "xi", ElevenLabsAgentID: "agent_trial"})
+	a.elevenLabsSignedURLBase = srv.URL
+	if u, id, err := a.mintTrialSignedURL(context.Background(), "install", "k", true); err != nil || id != "conv_q1" || !strings.Contains(u, "conversation_signature=sig") {
+		t.Fatalf("query id: %q %q %v", u, id, err)
+	}
+	if _, id, err := a.mintTrialSignedURL(context.Background(), "account", "a", false); err != nil || id != "" {
+		t.Fatalf("account mint id = %q %v", id, err)
+	}
+	body = `{"signed_url":"wss://x/conversation?conversation_signature=sig","conversation_id":"conv_top"}`
+	if _, id, _ := a.mintTrialSignedURL(context.Background(), "install", "k", true); id != "conv_top" {
+		t.Fatalf("top-level id = %q", id)
 	}
 }
 
@@ -558,75 +699,32 @@ func TestVoiceAnonAbandonHook(t *testing.T) {
 	readVoiceFrame(t, ctx, device) // hello
 	_ = device.Close(websocket.StatusNormalClosure, "")
 	deadline = time.Now().Add(relayTestDeadline)
-	for e.relay.HasAnonCall("k-attached") {
+	for attached.Load() != 1 {
 		if time.Now().After(deadline) {
-			t.Fatal("never reaped")
+			t.Fatalf("hung-up end hook ran %d times as attached/unused, want 1", attached.Load())
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	e.relay.EndPendingAnonCall("k-attached") // waits for the hook to finish
-	if n := attached.Load(); n != 1 {
-		t.Fatalf("hung-up end hook ran %d times as attached/unused, want 1", n)
+	if e.relay.HasAnonCall("k-attached") {
+		t.Fatal("hung-up call still in the table")
+	}
+
+	// bd med-v1uz: an exhausted call runs the hook too (it is settled like any other).
+	var exhausted atomic.Int32
+	call, _ = e.relay.MintAnonCall("k-exhausted", time.Minute, func(bool, int) { exhausted.Add(1) })
+	c = e.relay.lookup(call)
+	c.anon.timer.Stop()
+	e.relay.exhaustAnon(c)
+	e.reapNow(call)
+	if n := exhausted.Load(); n != 1 {
+		t.Fatalf("exhausted call's end hook ran %d times, want 1", n)
 	}
 }
 
-// bd med-02b0 (Argus 8447): while the reaper's abandon (the refund) is still
-// running, the bucket's next start waits for it instead of reserving against
-// the old charge.
-func TestVoiceAnonAbandonSettlesBeforeNextStart(t *testing.T) {
-	relay := NewVoiceLLMRelayAPI(nil, "s")
-	relay.attachWindow = 5 * time.Millisecond
-	entered, release := make(chan struct{}), make(chan struct{})
-	relay.MintAnonCall("k-settle", time.Minute, func(bool, int) { close(entered); <-release })
-	select {
-	case <-entered: // the reaper dropped the call and is inside the refund
-	case <-time.After(relayTestDeadline):
-		t.Fatal("never reaped")
-	}
-	if relay.HasAnonCall("k-settle") {
-		t.Fatal("call still in the table")
-	}
-	returned := make(chan bool)
-	go func() { returned <- relay.EndPendingAnonCall("k-settle") }()
-	select {
-	case <-returned:
-		t.Fatal("next start went on before the refund settled")
-	case <-time.After(50 * time.Millisecond):
-	}
-	close(release)
-	select {
-	case busy := <-returned:
-		if busy {
-			t.Fatal("bucket reported busy")
-		}
-	case <-time.After(relayTestDeadline):
-		t.Fatal("next start never resumed")
-	}
-	if relay.EndPendingAnonCall("k-other") {
-		t.Fatal("unrelated bucket busy")
-	}
-}
-
-// Argus 8452: free refunds are capped server-wide too (they give the global
-// SUM back), each counted at max(grant, call max), and the cap resets daily.
-func TestAttestVoiceFreeAbandonGlobalCap(t *testing.T) {
-	a := &AttestAPI{cfg: AttestConfig{VoiceGlobal: 240, VoiceCallMax: 120}} // free cap 120 (half)
-	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
-	if !a.takeFreeAbandon("b1", now, 30) { // counted at the 120 call max
-		t.Fatal("within the cap: not free")
-	}
-	if a.takeFreeAbandon("b2", now, 120) {
-		t.Fatal("past the server-wide cap: still free")
-	}
-	if !a.takeFreeAbandon("b3", now.Add(24*time.Hour), 120) {
-		t.Fatal("cap did not reset on the next UTC day")
-	}
-}
-
-// bd med-02b0, end to end: a start no leg attaches to is refunded (daily and
-// lifetime), a retry during a pending call replaces it instead of 409, a
-// live or in-grace call still 409s, and only 3 abandonments a bucket per UTC
-// day are free.
+// bd med-02b0 / med-v1uz, end to end: a start no leg attaches to is refunded
+// in full (daily and lifetime) once its settlement deadline passes with
+// ElevenLabs answering 404, however many a day; a retry during a pending call
+// replaces it instead of 409; a live or in-grace call still 409s.
 func TestAttestVoiceNeverAttachedRefund(t *testing.T) {
 	logs := &syncBuf{}
 	captureSlog(t, slog.NewTextHandler(logs, nil))
@@ -655,35 +753,51 @@ func TestAttestVoiceNeverAttachedRefund(t *testing.T) {
 		return out
 	}
 
-	// 1st free abandonment: reaped after the attach window, fully refunded.
+	// The signed URLs are never used: ElevenLabs knows no such conversation.
+	e.convAnswers(func(string, int) (int, string) { return http.StatusNotFound, `{"detail":"not found"}` })
+	e.attest.settleFor = time.Second
+	waitUsage := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(relayTestDeadline)
+		for life, day := usage(); life != want || day != want; life, day = usage() {
+			if time.Now().After(deadline) {
+				t.Fatalf("usage %d/%d s, want %d", life, day, want)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	// Reaped after the attach window: charged until the settlement deadline,
+	// then refunded in full.
 	e.relay.attachWindow = 20 * time.Millisecond
 	start(1)
 	e.waitReaped(k)
-	if life, day := usage(); life != 0 || day != 0 {
-		t.Fatalf("never-attached call kept %d/%d s", life, day)
-	}
-	if l := logs.String(); !strings.Contains(l, "attest voice start abandoned") || !strings.Contains(l, "refunded=true") || !strings.Contains(l, "seconds=120") {
+	waitUsage(0)
+	if l := logs.String(); !strings.Contains(l, "attest voice call ended") || !strings.Contains(l, "attached=false") ||
+		!strings.Contains(l, "outcome=never_started") || !strings.Contains(l, "refunded_seconds=120") {
 		t.Fatalf("logs = %q", l)
 	}
 	e.relay.attachWindow = time.Minute
 
-	// 2nd: an instant retry replaces the pending call (refunded), no 409.
+	// An instant retry replaces the pending call, no 409; the replaced call's
+	// refund lands at its deadline, not before the retry reserves.
 	first := start(2)
 	second := start(3)
 	if second.Call == first.Call || e.relay.lookup(first.Call) != nil {
 		t.Fatal("the pending call was not replaced")
 	}
-	if life, day := usage(); life != 120 || day != 120 || second.DailyRemaining != 180 {
-		t.Fatalf("after replace: %d/%d s, daily left %d", life, day, second.DailyRemaining)
+	if second.DailyRemaining != 60 {
+		t.Fatalf("after replace: daily left %d, want 60", second.DailyRemaining)
 	}
 	stale, err := dialAnonVoice(ctx, srv, first.Call)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantCloseCode(t, ctx, stale, voiceStatusUnknownCall)
+	waitUsage(120)
 
 	// Live, then in grace after a lost leg (no close frame — a hang-up ends
-	// the call at once, bd med-dngs): 409; a call that used its grant is
+	// the call at once, bd med-dngs): 409; a session that ran its grant is
 	// charged.
 	device, err := dialAnonVoice(ctx, srv, second.Call)
 	if err != nil {
@@ -691,34 +805,29 @@ func TestAttestVoiceNeverAttachedRefund(t *testing.T) {
 	}
 	readVoiceFrame(t, ctx, device) // hello
 	wantErr(t, mustRec(e.voiceStart(k, 4)), http.StatusConflict, "call_in_progress")
-	usedUp(e.relay.lookup(second.Call))
 	device.CloseNow()
 	waitLegDetached(t, e.relay.lookup(second.Call))
 	wantErr(t, mustRec(e.voiceStart(k, 5)), http.StatusConflict, "call_in_progress")
+	e.convAnswers(func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "done", 120) })
 	e.reapNow(second.Call)
-	if life, _ := usage(); life != 120 {
-		t.Fatalf("attached call refunded: %d", life)
-	}
+	time.Sleep(50 * time.Millisecond)
+	waitUsage(120)
 
-	// 3rd free (replaced by start 7), then the 4th (replaced by start 8) is
-	// charged: 120 (attached) + 120 (4th) + 120 (start 8, pending).
+	// No per-day cap on never-started refunds (med-02b0's 3 a day is gone).
+	e.convAnswers(func(string, int) (int, string) { return http.StatusNotFound, `{"detail":"not found"}` })
 	e.attest.cfg.VoiceDaily = 0
 	start(6)
 	start(7)
-	start(8)
-	if life, _ := usage(); life != 360 {
-		t.Fatalf("after the 4th abandonment: %d s, want 360", life)
-	}
-	if !strings.Contains(logs.String(), "refunded=false") {
-		t.Fatal("4th abandonment not logged as unrefunded")
-	}
+	last := start(8)
+	e.reapNow(last.Call)
+	waitUsage(120)
 }
 
 // bd med-dngs (owner device test, Play build 1092): the app's hang-up is a
 // bare ws.close() — a close frame with no status (1005). It must end the call
-// at once (no "call_in_progress" on the next start) and, with no turn ever
-// answered (the agent was never heard), refund the whole grant; refunds stop
-// at the bucket's daily cap, so a start/hang-up loop is bounded.
+// at once (no "call_in_progress" on the next start); with ElevenLabs reporting
+// no connected seconds the whole grant comes back, however many times (bd
+// med-v1uz: the old per-day refund allowance is gone).
 func TestAttestVoiceHangUpFreesSlotAndRefunds(t *testing.T) {
 	e := newAttestEnv(t, 50, 0, 0)
 	e.voiceOn()
@@ -751,20 +860,23 @@ func TestAttestVoiceHangUpFreesSlotAndRefunds(t *testing.T) {
 		_ = device.Close(status, "")
 		e.waitReaped(k)
 	}
-	// Bare close, then a normal one: both free the slot and refund in full.
+	e.convAnswers(func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "done", 0) })
+	waitDay := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(relayTestDeadline)
+		for day() != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("day = %d s, want %d", day(), want)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	// Bare close, then normal ones: all free the slot and refund in full.
 	call(1, websocket.StatusNoStatusRcvd)
-	call(2, websocket.StatusNormalClosure)
-	if d := day(); d != 0 {
-		t.Fatalf("unanswered hung-up calls charged %d s, want 0", d)
-	}
-	// 240 of the 300 refund allowance used: the third gets 60 back, then none.
-	call(3, websocket.StatusNormalClosure)
-	if d := day(); d != 60 {
-		t.Fatalf("after the allowance: %d s, want 60", d)
-	}
-	call(4, websocket.StatusNormalClosure)
-	if d := day(); d != 180 {
-		t.Fatalf("past the allowance: %d s, want 180", d)
+	waitDay(0)
+	for counter := uint32(2); counter <= 4; counter++ {
+		call(counter, websocket.StatusNormalClosure)
+		waitDay(0)
 	}
 }
 
@@ -802,39 +914,6 @@ func TestVoiceAnonHangUpDetachesUnderRelayLock(t *testing.T) {
 			t.Fatal("hung-up call never dropped")
 		}
 		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// bd med-dngs: refunds of unused seconds are capped per bucket per UTC day
-// (the daily cap, or the lifetime budget without one) and share the
-// server-wide half of the global cap with the free abandons.
-func TestAttestVoiceUnusedRefundCaps(t *testing.T) {
-	a := &AttestAPI{cfg: AttestConfig{VoiceLifetime: 600, VoiceDaily: 200, VoiceGlobal: 400, VoiceCallMax: 120}}
-	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	if got := a.takeUnusedRefund("b1", now, 120, 150); got != 150 {
-		t.Fatalf("first refund = %d", got)
-	}
-	if got := a.takeUnusedRefund("b1", now, 120, 120); got != 50 {
-		t.Fatalf("bucket cap: got %d, want 50", got)
-	}
-	if got := a.takeUnusedRefund("b2", now, 120, 120); got != 0 {
-		t.Fatalf("global cap (200 = 400/2 used): got %d, want 0", got)
-	}
-	if got := a.takeUnusedRefund("b1", now.Add(24*time.Hour), 120, 120); got != 120 {
-		t.Fatalf("next UTC day: got %d", got)
-	}
-	a.cfg.VoiceDaily = 0
-	if got := a.takeUnusedRefund("b3", now.Add(24*time.Hour), 120, 100); got != 80 {
-		t.Fatalf("no daily cap, global 200 - 120 left: got %d, want 80", got)
-	}
-	// A short grant's session can run to the call max unpaid: a 30 s grant
-	// refunded in full is counted at 30 + 90 server-wide (Codex review).
-	day3 := now.Add(48 * time.Hour)
-	if got := a.takeUnusedRefund("b4", day3, 30, 30); got != 30 || a.abandonFree != 120 {
-		t.Fatalf("short grant: got %d, counted %d; want 30, 120", got, a.abandonFree)
-	}
-	if got := a.takeUnusedRefund("b5", day3, 30, 30); got != 0 || a.abandonFree != 120 {
-		t.Fatalf("short grant past the cap: got %d, counted %d; want 0, 120", got, a.abandonFree)
 	}
 }
 

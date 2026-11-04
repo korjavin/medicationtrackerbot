@@ -189,6 +189,20 @@ type attestEnv struct {
 	mintFail  atomic.Bool
 	mintCalls atomic.Int32
 	mintQuery atomic.Value // last get_signed_url query string
+	// convAnswer answers the fake GET /v1/convai/conversations/{id} (n = the
+	// 1-based poll of that id); default: done, 10000 s (no refund).
+	convAnswer atomic.Value // func(id string, n int) (int, string)
+	convHits   atomic.Int32
+}
+
+// elConversation is ElevenLabs' documented GET conversations/{id} 200 answer
+// (https://elevenlabs.io/docs/api-reference/conversations/get, response
+// example, trimmed of fields the settlement ignores) with id, status and
+// metadata.call_duration_secs substituted.
+func elConversation(id, status string, secs int) string {
+	return `{"agent_id":"agent_trial","status":"` + status + `","metadata":{"start_time_unix_secs":1714423232,"call_duration_secs":` +
+		strconv.Itoa(secs) + `,"cost_fiat":1.1},"conversation_id":"` + id + `","has_audio":true,"has_user_audio":true,"has_response_audio":true,` +
+		`"transcript":[{"role":"user","time_in_call_secs":10,"message":"Hello, how are you?"}],"agent_name":"My agent","environment":"production","tag_ids":[]}`
 }
 
 // newAttestEnv wires the attest API over a fake OpenAI upstream; trialCfg, if
@@ -214,15 +228,38 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 		_, _ = w.Write([]byte(`{"model":"trial-model","choices":[{"message":{"content":"ok"}}]}`))
 	}))
 	t.Cleanup(up.Close)
-	// Fake ElevenLabs get_signed_url (the shape trial_proxy_test.go's fake answers).
+	// Fake ElevenLabs. get_signed_url with include_conversation_id=true: the
+	// answer is {"signed_url"} only and the id rides in the URL's query (the
+	// live-measured shape, see mintTrialSignedURL). conversations/{id}: see
+	// elConversation.
+	var convPolls sync.Map // id → *atomic.Int32
 	el := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		e.mintCalls.Add(1)
+		if id, ok := strings.CutPrefix(r.URL.Path, "/conversations/"); ok {
+			e.convHits.Add(1)
+			if r.Header.Get("xi-api-key") != "xi-trial" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			n, _ := convPolls.LoadOrStore(id, new(atomic.Int32))
+			code, body := http.StatusOK, elConversation(id, "done", 10000)
+			if f, ok := e.convAnswer.Load().(func(string, int) (int, string)); ok {
+				code, body = f(id, int(n.(*atomic.Int32).Add(1)))
+			}
+			w.WriteHeader(code)
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		n := e.mintCalls.Add(1)
 		e.mintQuery.Store(r.URL.RawQuery)
 		if e.mintFail.Load() || r.Header.Get("xi-api-key") != "xi-trial" {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		_, _ = w.Write([]byte(`{"signed_url":"wss://api.elevenlabs.io/v1/convai/conversation?conversation_signature=sig"}`))
+		q := "agent_id=agent_trial&conversation_signature=sig"
+		if r.URL.Query().Get("include_conversation_id") == "true" {
+			q += "&conversation_id=conv_test" + strconv.Itoa(int(n))
+		}
+		_, _ = w.Write([]byte(`{"signed_url":"wss://api.elevenlabs.io/v1/convai/conversation?` + q + `"}`))
 	}))
 	t.Cleanup(el.Close)
 	tc := TrialConfig{
@@ -235,6 +272,7 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 	}
 	trial := NewTrialProxyAPI(e.store, "test-session-secret-at-least-32-bytes-long", tc)
 	trial.elevenLabsSignedURLBase = el.URL
+	trial.elevenLabsConversationsBase = el.URL + "/conversations/"
 	e.trial = trial
 	foodUp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.foodHits.Add(1)
@@ -249,6 +287,7 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 	}}
 	mux := http.NewServeMux()
 	e.attest = NewAttestAPI(e.store, trial, e.food, cfg)
+	e.attest.settlePoll, e.attest.settleFor = 5*time.Millisecond, 200*time.Millisecond
 	e.relay = NewVoiceLLMRelayAPI(e.store, "test-session-secret-at-least-32-bytes-long")
 	e.attest.SetVoiceRelay(e.relay)
 	e.attest.RegisterRoutes(mux)
