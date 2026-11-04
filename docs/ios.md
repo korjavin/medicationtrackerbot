@@ -515,7 +515,11 @@ privacy-manifest row. The shell side is bd med-8f4s.3.
   matches nothing. The anchored bp/weight queries drop objects from this app
   that carry a sync identifier, so the write-back is never imported back; an
   unmarked same-bundle sample still imports. Checked by `HealthWriteBackTests`
-  in the `qa` job.
+  in the `qa` job. Known gap: on the iOS 26.5 Simulator the share sheet grants
+  the blood-pressure correlation type but leaves systolic/diastolic
+  `notDetermined`, so every BP save fails and `writeAccess` omits `bp`; the
+  test then runs the weight half, checks that a BP write is refused `denied`,
+  and reports `bpSkipped`. BP write-back needs a device check.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
   overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every
