@@ -114,10 +114,17 @@ struct HealthDiagnosticView: View {
                 ])
                 do { try await store.save(c); probe.append("raw save ok"); try? await store.delete([c]) }
                 catch { probe.append("raw save \((error as NSError).code) \(error.localizedDescription)") }
-                do {
-                    try await store.requestAuthorization(toShare: [Health.systolic, Health.diastolic], read: [])
-                    probe.append("bp-only " + [Health.systolic, Health.diastolic].map { "\(store.authorizationStatus(for: $0).rawValue)" }.joined(separator: "/"))
-                } catch { probe.append("bp-only \((error as NSError).code) \(error.localizedDescription)") }
+                let lone = HKQuantitySample(type: Health.systolic, quantity: HKQuantity(unit: mmHg, doubleValue: 102), start: t, end: t)
+                do { try await store.save(lone); probe.append("lone sys save ok"); try? await store.delete([lone]) }
+                catch { probe.append("lone sys save \((error as NSError).code)") }
+                let trio: [HKObjectType] = [Health.systolic, Health.diastolic, bpType]
+                try? await Task.sleep(for: .seconds(3))
+                probe.append("after 3s " + trio.map { "\(store.authorizationStatus(for: $0).rawValue)" }.joined(separator: "/"))
+                do { try await store.save(c); probe.append("raw save 2 ok"); try? await store.delete([c]) }
+                catch { probe.append("raw save 2 \((error as NSError).code)") }
+                if let status = try? await store.statusForAuthorizationRequest(toShare: [Health.systolic, Health.diastolic], read: []) {
+                    probe.append("request status \(status.rawValue)")
+                }
                 result["probe"] = probe
             }
             check("writeAccess", Set(granted) == Set(both), "\(granted) status sys/dia/kg \(statuses)")
