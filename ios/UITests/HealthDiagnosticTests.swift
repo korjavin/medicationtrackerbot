@@ -25,15 +25,21 @@ final class HealthDiagnosticTests: XCTestCase {
         let deadline = Date().addingTimeInterval(45)
         while result.label == "pending", Date() < deadline {
             for host in [app, springboard] {
+                // One action per pass, then let the sheet settle: toggles read
+                // right after "Turn On All" still say "0", and tapping them
+                // would switch rows back off (bd med-8f4s.3: write rows).
                 let all = host.staticTexts["Turn On All"].firstMatch
-                if all.exists && all.isHittable { all.tap() }
-                for toggle in host.switches.allElementsBoundByIndex {
-                    if toggle.isHittable && toggle.value as? String == "0" { toggle.tap() }
+                if all.exists && all.isHittable {
+                    all.tap()
+                    break
                 }
-                for title in ["Allow"] {
-                    let button = host.buttons[title].firstMatch
-                    if button.exists && button.isEnabled && button.isHittable { button.tap() }
+                let off = host.switches.allElementsBoundByIndex.filter { $0.isHittable && $0.value as? String == "0" }
+                if !off.isEmpty {
+                    off.forEach { $0.tap() }
+                    break
                 }
+                let button = host.buttons["Allow"].firstMatch
+                if button.exists && button.isEnabled && button.isHittable { button.tap() }
             }
             Thread.sleep(forTimeInterval: 0.5)
         }

@@ -101,7 +101,8 @@ struct HealthDiagnosticView: View {
             let both = ["bp", "weight"]
             check("authorize", try await Health.handle("health.authorize", ["types": both, "write": both]) as? Bool == true)
             let granted = (try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any])?["granted"] as? [String] ?? []
-            check("writeAccess", Set(granted) == Set(both), granted)
+            let statuses = [Health.systolic, Health.diastolic, Health.bodyMass].map { store.authorizationStatus(for: $0).rawValue }
+            check("writeAccess", Set(granted) == Set(both), "\(granted) status sys/dia/kg \(statuses)")
             let run = UUID().uuidString
             let bp = "bp-qa-\(run)", weight = "weight-qa-\(run)"
             let at = ((Date().timeIntervalSince1970 - 3600) * 1000).rounded()
