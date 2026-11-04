@@ -605,13 +605,25 @@ func (a *AttestAPI) settlePending(bucket string) {
 }
 
 // pendingRefundWait is the whole seconds until the bucket's earliest pending
-// settlement deadline (0 = none pending). A settled call leaves the list, so
-// membership means not final.
+// settlement deadline (0 = none pending). A final settlement lingers in the
+// list until its runSettlement wakes, so each is checked under its own lock
+// (taken after a.mu is released: pollLocked takes them the other way round);
+// one mid-poll counts as pending.
 func (a *AttestAPI) pendingRefundWait(bucket string, now time.Time) int {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	list := append([]*voiceSettlement(nil), a.settlements[bucket]...)
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
 	wait := time.Duration(0)
-	for _, s := range a.settlements[bucket] {
+	for _, s := range list {
+		if s.mu.LockCtx(ctx) {
+			final := s.final
+			s.mu.Unlock()
+			if final {
+				continue
+			}
+		}
 		if d := s.deadline.Sub(now); d > 0 && (wait == 0 || d < wait) {
 			wait = d
 		}

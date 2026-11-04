@@ -927,6 +927,25 @@ func TestAttestVoiceDayRetryHint(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests || body["scope"] != cloudstore.AttestScopeVoiceDay || body["resets_at"] == "" || secs < 3000 || secs > 3600 {
 		t.Fatalf("voice-day with a pending settlement: %d %s", rec.Code, rec.Body.String())
 	}
+
+	// Argus 13813: a settlement the pre-check just finalised (done, full grant
+	// used) lingers in the list but no refund is coming: no hint.
+	k2 := attestKey(t)
+	e.enrolled(k2, "tok-hint2")
+	e.convAnswers(func(id string, n int) (int, string) {
+		if n == 1 {
+			return http.StatusOK, elConversation(id, "processing", 120)
+		}
+		return http.StatusOK, elConversation(id, "done", 120)
+	})
+	_, out = e.voiceStart(k2, 1)
+	e.reapNow(out.Call)
+	rec, _ = e.voiceStart(k2, 2)
+	body = nil
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if _, has := body["retry_in_seconds"]; rec.Code != http.StatusTooManyRequests || body["scope"] != cloudstore.AttestScopeVoiceDay || has {
+		t.Fatalf("voice-day after a full-grant settlement: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestAttestVoiceBudgetTimer(t *testing.T) {
