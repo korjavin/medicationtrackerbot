@@ -52,11 +52,12 @@
     // freeze outright (Playwright clock.setFixedTime style) if that shows up.
     function pinClock([hour, minute]) {
         const Real = window.Date;
-        if (Real.wgQAPinned) return; // the jsdom suite re-evaluates the driver
+        // The jsdom suite re-evaluates the driver: keep its clock, drop a clockAdvance.
+        if (Real.wgQAPinned) { Real.wgQAShift = 0; return; }
         const d = new Real();
         const pin = new Real(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0).getTime();
         const t0 = window.performance.now();
-        const now = () => pin + Math.floor(window.performance.now() - t0);
+        const now = () => pin + QADate.wgQAShift + Math.floor(window.performance.now() - t0);
         function QADate(...args) {
             if (!new.target) return new Real(now()).toString();
             return Reflect.construct(Real, args.length ? args : [now()], new.target);
@@ -66,6 +67,7 @@
         QADate.parse = Real.parse;
         QADate.UTC = Real.UTC;
         QADate.wgQAPinned = true;
+        QADate.wgQAShift = 0; // a scene's clockAdvance step, this load only
         window.Date = QADate;
     }
 
@@ -104,7 +106,7 @@
     // empty here, so the import's replace confirm never shows (importexport.js
     // skips it when hasUserContent() === false).
     async function seed() {
-        const vault = withTimelineBand(shiftDates(withTimeline(withHealthSources(withPileUp(await getJSON('/qa/vault-v1.json')))), new Date()));
+        const vault = seedVault(await getJSON('/qa/vault-v1.json'));
         // The fixture is Europe/Berlin; a different device zone would raise the
         // timezone confirm over every screenshot (bootstrap.js maybeUpdateTimezone).
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -117,6 +119,10 @@
         input.dispatchEvent(new window.Event('change'));
         await window.SettingsImportExport.import();
         if (!(await window.CloudVault.hasUserContent())) throw new Error('seed import failed');
+    }
+
+    function seedVault(fixture) {
+        return withTimelineNow(shiftDates(withTimeline(withHealthSources(withPileUp(fixture))), new Date()));
     }
 
     // MT4 · pile-up (bd med-ry7b.4): the golden fixture has one dose a day,
@@ -182,14 +188,17 @@
         );
         // The WN7 "Other plan day" sheet (med-soo0.3): a third, never-done
         // day with a long name, so the shot shows a wrapped row and "never".
-        // Idempotent: the jsdom suite reuses one parsed fixture across seeds.
-        if (Array.isArray(w.variants) && Array.isArray(w.exercises) && !w.variants.some((v) => v.id === 22)) {
+        // Pull (the day the card opens on, WN1) gets real exercises, so the
+        // card reads "3 exercises · Pull-up, …", not "0 exercises".
+        if (Array.isArray(w.variants) && Array.isArray(w.exercises)) {
             w.variants.push({ id: 22, group_id: 10, name: 'Glutes, Hamstrings & Core Stability with Single-Leg Balance Work and a Loaded Carry Finisher', rotation_order: 2,
                 description: '', created_at: '2026-06-01T08:00:00Z' });
-            ['Hip thrust', 'Romanian deadlift'].forEach((name, i) => w.exercises.push({
-                id: 31 + i, variant_id: 22, exercise_name: name, target_sets: 3, target_reps_min: 8,
-                target_reps_max: 12, target_weight_kg: null, order_index: i, exercise_library_id: null, equipment_id: null,
-            }));
+            const exercise = (id, variant_id, exercise_name, order_index) => ({
+                id, variant_id, exercise_name, target_sets: 3, target_reps_min: 8,
+                target_reps_max: 12, target_weight_kg: null, order_index, exercise_library_id: null, equipment_id: null,
+            });
+            ['Hip thrust', 'Romanian deadlift'].forEach((name, i) => w.exercises.push(exercise(31 + i, 22, name, i)));
+            ['Pull-up', 'Barbell row', 'Face pull'].forEach((name, i) => w.exercises.push(exercise(33 + i, 21, name, i)));
         }
         if (Array.isArray(w.exercise_logs)) {
             [53, 54].forEach((id, i) => w.exercise_logs.push({
@@ -206,11 +215,18 @@
         return vault;
     }
 
-    // A band walk four days back. Band rows key on epoch ms, which shiftDates
-    // leaves alone (the fixture's own run is a year old, past listMiBand's
-    // 90 days), so this one is stamped from the real clock after the shift.
-    function withTimelineBand(vault) {
+    // Stamped from the (pinned) clock after the shift. The plan trains today,
+    // in two days and in four (the fixture's Mon/Wed/Fri only holds on those
+    // days), so the Up next card opens on "Today" (WN1) whatever day the run
+    // is. A band walk four days back: band rows key on epoch ms, which
+    // shiftDates leaves alone (the fixture's own run is a year old, past
+    // listMiBand's 90 days).
+    function withTimelineNow(vault) {
         const w = vault && vault.data && vault.data.workouts;
+        const day = new Date().getDay();
+        if (w && Array.isArray(w.groups)) {
+            w.groups.forEach((g) => { g.days_of_week = JSON.stringify([day, (day + 2) % 7, (day + 4) % 7].sort()); });
+        }
         if (!w || !Array.isArray(w.miband)) return vault;
         const start = Math.floor((Date.now() - 4 * 86400000) / 60000) * 60000;
         w.miband.push({
@@ -288,6 +304,25 @@
                 await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
                 finished.add(session.id);
             }
+        } else if (step.dropScratchWorkouts) {
+            // The weightCheck / exerciseIdentity scenes log ~60 ad-hoc
+            // sessions today; the Timeline's week head then read "63
+            // workouts". Delete today's finished off-plan sessions, so the
+            // Up next shots (WN1…) show the seeded weeks. The fixture has
+            // none today, so a rerun deletes nothing.
+            const today = new Date();
+            const ymd = [today.getFullYear(), today.getMonth() + 1, today.getDate()].map((n) => String(n).padStart(2, '0')).join('-');
+            const rows = await window.apiCall('/api/workout/sessions?limit=500') || [];
+            for (const { session: s } of rows) {
+                if (s && s.group_id === -1 && s.status === 'completed' && String(s.scheduled_date).slice(0, 10) === ymd) {
+                    await window.apiCall(`/api/workout/sessions/delete?id=${s.id}`, 'DELETE');
+                }
+            }
+        } else if (step.clockAdvance) {
+            // Moves this load's pinned clock on by that many minutes: every
+            // load reads 23:00, so a session started in an earlier scene would
+            // read "In progress · 0 min" (WN5).
+            if (window.Date.wgQAPinned) window.Date.wgQAShift = step.clockAdvance * 60000;
         } else if (step.weightCheck) {
             // Kit WS1–WS3 (bd med-l5yr.5): completed sessions of one exercise
             // at the `earlier` weights (three sets each), then one holding
@@ -641,6 +676,28 @@
                 window.location.reload();
                 await new Promise(() => {}); // the next load runs the scene
             }
+        } else if (step.noPlan) {
+            // WN6 (bd med-soo0.6): someone with no plan who logs workouts.
+            // Replace the store once with the seeded vault minus every plan
+            // (groups, days, their sessions), keeping the off-plan sessions
+            // and the band walk, then reload. Destructive: runs last, like startHere.
+            const KEY = 'wg-qa-no-plan';
+            let done = false;
+            try { done = window.sessionStorage.getItem(KEY) === '1'; } catch (_) { /* no storage */ }
+            if (!done) {
+                const vault = seedVault(await getJSON('/qa/vault-v1.json'));
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (tz && vault.data && vault.data.settings) vault.data.settings.timezone = tz;
+                const w = vault.data.workouts;
+                Object.assign(w, { groups: [], variants: [], exercises: [], rotations: [] });
+                w.sessions = w.sessions.filter((x) => x.group_id === -1);
+                const kept = new Set(w.sessions.map((x) => x.id));
+                w.exercise_logs = w.exercise_logs.filter((l) => kept.has(l.session_id));
+                await window.CloudVault.importAll(vault);
+                try { window.sessionStorage.setItem(KEY, '1'); } catch (_) { /* no storage */ }
+                window.location.reload();
+                await new Promise(() => {}); // the next load runs the scene
+            }
         } else if (step.pull) {
             // Pull to refresh (bd med-y7b4.6, kit PR2 / PR3). No QA pass has the
             // Health import, and a real pull would sync: "busy" pulls over a
@@ -919,11 +976,13 @@
     }
 
     async function getJSON(url) {
+        // A copy every time: the seeds push into the fixture, and the injected
+        // files (and the jsdom suite's parsed fixture) outlive one seed.
         const files = window.__wgQAFiles; // injected (cloud pass): the cloud serves no /qa/*
-        if (files && files[url]) return files[url];
+        if (files && files[url]) return JSON.parse(JSON.stringify(files[url]));
         const res = await window.fetch(url);
         if (!res.ok) throw new Error(`${url}: ${res.status}`);
-        return res.json();
+        return JSON.parse(JSON.stringify(await res.json()));
     }
 
     function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }

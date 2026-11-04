@@ -220,6 +220,35 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         });
     }, 30000);
 
+    it('the Up next scenes (WN1, WN5) open on today\'s plan day with named exercises, a clean week and a running clock', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        // An earlier scene's scratch ad-hoc session today (weightCheck / exerciseIdentity).
+        const scratch = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall(`/api/workout/sessions/status?id=${scratch.id}`, 'PUT', { status: 'completed' });
+
+        expect(await load('workout-next-card')).toMatchObject({ ok: true, failed: [] });
+        const ids = (await window.apiCall('/api/workout/sessions?limit=500')).map((v) => v.session.id);
+        expect(ids).not.toContain(scratch.id);
+        const card = () => window.document.querySelector('#next-workout-card .wg-wn');
+        expect(card().querySelector('.wg-eyebrow').textContent).toMatch(/^Today · /);
+        expect(card().querySelector('.wg-card__title').textContent).toBe('Pull');
+        expect(card().querySelector('.wg-wn__info .wg-meta').textContent).toBe('3 exercises · Pull-up, Barbell row, Face pull');
+
+        const next = await window.apiCall('/api/workout/sessions/next');
+        await window.apiCall(`/api/workout/sessions/${next.session.id}/start`, 'POST');
+        expect(await load('workout-next-card-running')).toMatchObject({ ok: true, failed: [] });
+        // The domain stamps started_at from node's real clock here (the page's is
+        // pinned), so check the card reads the advanced page clock.
+        expect(window.Date.wgQAShift).toBe(25 * 60000);
+        const started = Date.parse((await window.apiCall('/api/workout/sessions/next')).session.started_at);
+        const mins = Math.max(0, Math.floor((window.Date.now() - started) / 60000));
+        expect(card().querySelector('.wg-eyebrow').textContent).toMatch(new RegExp(`^In progress · (${mins - 1}|${mins}) min$`));
+        // The advance is this load's only.
+        expect(await load('workouts-plans')).toMatchObject({ ok: true });
+        expect(window.Date.wgQAShift).toBe(0);
+    }, 30000);
+
     it('tags the API-key input without changing its product ID and maps both runner lookups to it', async () => {
         const { window } = env;
         expect(await load('today')).toBeNull();
