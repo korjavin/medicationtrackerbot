@@ -56,9 +56,12 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(next.session.status).toBe('pending');
         expect(next.session.is_today).toBe(true);
 
-        const sessions = await window.apiCall('/api/workout/sessions?limit=10');
-        expect(sessions).toHaveLength(1);
-        expect(sessions[0].session.id).toBe(next.session.id);
+        // Materialized: the row is stored and a re-read returns the same slot.
+        // Untouched, it is a planned day, so the session list hides it (med-q6l3).
+        const stored = await window.apiCall(`/api/workout/sessions/details?id=${next.session.id}`);
+        expect(stored.session.status).toBe('pending');
+        expect((await window.apiCallDirect('/api/workout/sessions/next')).session.id).toBe(next.session.id);
+        expect(await window.apiCall('/api/workout/sessions?limit=10')).toEqual([]);
     });
 
     it('P0 prioritizes an active-today session over a P2 candidate', async () => {
@@ -347,10 +350,13 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(mobility.next).toMatchObject({ time: '00:00', variant_id: mob.id, session_id: nextBefore.session.id, days_away: 0 });
         expect(rot.next).toMatchObject({ time: '23:59', variant_id: variants[0].id });
         expect(rot.next.date).toBe(mobility.next.date);
+        expect(mobility.next.session_id).not.toBe(rot.next.session_id);
+        const again = await window.apiCallDirect('/api/workout/plans');
+        expect(again.plans.map((p) => p.next && p.next.session_id))
+            .toEqual(res.plans.map((p) => p.next && p.next.session_id));
+        // The minted slots are planned days, not sessions: only the done one lists (med-q6l3).
         const sessions = await window.apiCall('/api/workout/sessions?limit=10');
-        expect(sessions.map((s) => s.session.id).sort()).toEqual(
-            [990001, mobility.next.session_id, rot.next.session_id].sort()
-        );
+        expect(sessions.map((s) => s.session.id)).toEqual([990001]);
 
         expect(rot.days.map((d) => [d.name, d.exercises_count, d.last_duration_min, d.is_next])).toEqual([
             ['Push', 2, 47, true], ['Pull', 0, null, false]
@@ -1960,8 +1966,9 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         await window.apiCall('/api/workout/exercises/create', 'POST', {
             variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, order_index: 0
         });
-        // Materialize but leave the session pending (no completion → no snapshot).
+        // Materialize and start, but don't complete (no completion → no snapshot).
         const first = await window.apiCallDirect('/api/workout/sessions/next');
+        await window.apiCall(`/api/workout/sessions/status?id=${first.session.id}`, 'PUT', { status: 'in_progress' });
         const sessions = await window.apiCall('/api/workout/sessions?limit=10');
         const view = sessions.find((s) => s.session.id === first.session.id);
         expect(view.session.exercise_snapshot).toBeUndefined();
@@ -2644,6 +2651,64 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
         const monday = (await records.list('workoutsession')).find((s) => s.recordId === 'session-1-2026-08-24');
         expect(monday.variant_id).toBe(1);
         expect(monday.clientTs).toBe(0);
+    });
+
+    // bd med-q6l3: today's row minted early off the old cursor, then a late
+    // Skip on a past day advances it. The row must follow, or Start starts the
+    // old variant while the card shows the new one.
+    it("re-points today's untouched pending row on a late past-day skip, at the floor", async () => {
+        const records = seed({
+            sessions: [session('2026-08-24', 'pending', { id: 902 }), session(WEDNESDAY, 'pending', { id: 901 })]
+        });
+
+        await domainOver(records).skipSession(902);
+
+        const wed = (await records.list('workoutsession')).find((s) => s.id === 901);
+        expect(wed).toMatchObject({ variant_id: 2, clientTs: 0, status: 'pending' });
+        const next = await domainOver(records).getNext();
+        expect(next.session.id).toBe(901);
+        expect(next.variant_id).toBe(2);
+    });
+
+    it("leaves today's started row alone on a late past-day skip", async () => {
+        const records = seed({
+            sessions: [
+                session('2026-08-24', 'pending', { id: 902 }),
+                session(WEDNESDAY, 'in_progress', { id: 901, started_at: new Date(NOW).toISOString() })
+            ]
+        });
+
+        await domainOver(records).skipSession(902);
+
+        expect((await records.list('workoutsession')).find((s) => s.id === 901).variant_id).toBe(1);
+    });
+
+    // bd med-q6l3: the same minted slots are planned days, not sessions — the
+    // list (workouts.sessions.list, Timeline source) hides them until touched.
+    it('listSessions hides never-started pending slots and keeps started, logged and acted-on rows', async () => {
+        const records = seed({
+            sessions: [
+                session('2026-08-24', 'completed', { id: 902 }),
+                session('2026-08-25', 'pending', { id: 903, recordId: 'session-1-2026-08-25' }),
+                session(WEDNESDAY, 'pending', { id: 901 }),
+                session(FRIDAY, 'pending', { id: 900, started_at: new Date(NOW).toISOString() }),
+                session('2026-08-30', 'pending', { id: 904, recordId: 'session-1-2026-08-30' }),
+                session('2026-08-31', 'notified', { id: 905, recordId: 'session-1-2026-08-31' })
+            ],
+            logs: [{
+                recordId: 'log-99', clientTs: NOW, deleted: false, id: 99, session_id: 904,
+                exercise_id: 5, exercise_name: 'Row', status: 'completed', sets_completed: 3,
+                reps_completed: 8, weight_kg: 40, logged_at: new Date(NOW).toISOString()
+            }]
+        });
+        const domain = domainOver(records);
+
+        const ids = (await domain.listSessions(30)).map((v) => v.session.id).sort();
+        expect(ids).toEqual([900, 902, 904, 905]);
+        // The limit counts listed rows only.
+        expect(await domain.listSessions(4)).toHaveLength(4);
+        // getNext still finds the hidden slot.
+        expect((await domain.getNext()).session.id).toBe(901);
     });
 });
 

@@ -1618,7 +1618,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   }
 
   // moveRotation puts the group's cursor on variantId (a user action: now())
-  // and re-points the untouched future pendings at the derived floor. Shared by
+  // and re-points the untouched pendings from today on at the derived floor. Shared by
   // advanceRotation (circular next) and setVariant (a picked plan day).
   async function moveRotation(groupId, nextVariantId) {
     const nowMs = now();
@@ -1636,8 +1636,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // the record disagree, and everything that reads the record instead of the
     // card — startSession, completeSession's exercise_snapshot, listSessions,
     // the session modal's plan prefill — uses the stale variant (bd med-my8f).
-    // Re-point the sessions it is safe to move and only those: same group, still
-    // in the future, never acted on (pending/notified, no started_at/completed_at),
+    // Re-point the sessions it is safe to move and only those: same group, today
+    // or later, never acted on (pending/notified, no started_at/completed_at),
     // no per-session plan copy, no logs. A started, customized or logged session
     // keeps its variant — swapping it under an existing exercise_snapshot or logs
     // is exactly the corruption that reverted the first attempt at this fix.
@@ -1666,7 +1666,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // Date prefix as a STRING, never via UTC parts: scheduled_date is local
       // midnight stamped with the minting device's offset, so re-rendering it in
       // another zone shifts the day (same rule reminders.js documents).
-      if (String(s.scheduled_date).slice(0, 10) <= todayStr) continue;
+      // Today's untouched row moves too (bd med-q6l3): minted early off the old
+      // cursor, then a late Skip on yesterday advances it, and the card says Pull
+      // while Start would start the row's Push. The status/started_at guards above
+      // already keep a started or acted-on today's row in place.
+      if (String(s.scheduled_date).slice(0, 10) < todayStr) continue;
       if ((await countSessionExerciseLogs(s.id)) > 0) continue;
       await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: 0 });
     }
@@ -3135,8 +3139,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // than a variant.
   async function listSessions(limit) {
     const lim = limit || 30;
-    const sessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).slice(0, lim);
     const allLogs = await activeRecords(WORKOUT_RECORD_TYPES.LOG);
+    // A never-started pending row is a planned slot, not a session: getNext and
+    // listPlans mint one per plan ahead of time (rule-12 floor), so listing it
+    // would show untouched plan days in workouts.sessions.list and count them
+    // as missed in the fitness report (bd med-q6l3). Hidden only while nothing
+    // happened on it: started, or carrying a log (logs.create needs no Start),
+    // it lists again. Readers of planned slots (getNext, listPlans, reminders)
+    // read the records directly, not this.
+    const loggedIds = new Set(allLogs.map((l) => l.session_id));
+    const sessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
+      .filter((s) => s.status !== 'pending' || s.started_at || loggedIds.has(s.id))
+      .slice(0, lim);
     const prCounts = await sessionPRCounts();
 
     const views = [];
