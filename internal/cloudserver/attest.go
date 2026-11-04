@@ -303,6 +303,22 @@ const (
 	attestSettlePrecheckMax = 3
 )
 
+// settleLock is a mutex whose Lock can give up at a deadline (a 1-buffered
+// channel): voiceStart's pre-check waits for an in-flight background poll
+// within its 3 s instead of skipping it (Argus 13626).
+type settleLock chan struct{}
+
+func (l settleLock) Lock()   { l <- struct{}{} }
+func (l settleLock) Unlock() { <-l }
+func (l settleLock) LockCtx(ctx context.Context) bool {
+	select {
+	case l <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // voiceSettlement is one anonymous call settled by ElevenLabs' own meter (bd
 // med-v1uz). mu serializes its polls (the background loop, voiceStart's
 // pre-check). At most one final settlement and one charge-back.
@@ -312,7 +328,7 @@ type voiceSettlement struct {
 	grant                       int
 	done                        chan struct{} // closed when settled or past the deadline
 
-	mu          sync.Mutex
+	mu          settleLock
 	final       bool // settled: nothing more will change
 	provisional bool // the whole grant was refunded on a 404 / initiated answer
 	notStarted  bool // the last answer was 404 / initiated
@@ -341,7 +357,7 @@ func (a *AttestAPI) settleVoice(keyID, bucket, conversation string, reservedAt t
 		window = attestSettleSlack + time.Duration(a.cfg.VoiceCallMax)*time.Second
 	}
 	s := &voiceSettlement{keyID: keyID, bucket: bucket, conversation: conversation, reservedAt: reservedAt,
-		deadline: reservedAt.Add(window), grant: grant, done: make(chan struct{})}
+		deadline: reservedAt.Add(window), grant: grant, done: make(chan struct{}), mu: make(settleLock, 1)}
 	ctx, cancel := context.WithTimeout(context.Background(), attestSettleSyncTimeout)
 	s.mu.Lock()
 	a.pollLocked(ctx, s)
@@ -369,18 +385,20 @@ func (a *AttestAPI) pollLocked(ctx context.Context, s *voiceSettlement) {
 	s.notStarted = err == nil && (code == http.StatusNotFound || (code == http.StatusOK && status == "initiated"))
 	switch {
 	case err == nil && code == http.StatusOK && (status == "done" || status == "failed"):
+		// final only once the store write landed: a failed write stays pending
+		// and the next poll retries it (Argus 13626).
 		refund := min(max(s.grant-secs, 0), s.grant)
-		s.final = true
 		if s.provisional {
 			back := s.grant - refund
 			if err := a.store.ChargeAttestVoice(context.Background(), s.keyID, s.reservedAt, back); err != nil {
 				slog.Error("attest voice charge-back failed", "install", s.keyID, "conversation", s.conversation, "seconds", back, "error", err)
 				return
 			}
+			s.final = true
 			slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", status, "granted_seconds", s.grant, "refunded_seconds", refund, "charged_back_seconds", back)
 			return
 		}
-		a.settleRefund(s, refund, status)
+		s.final = a.settleRefund(s, refund, status)
 	case s.notStarted && !s.provisional:
 		s.provisional = a.settleRefund(s, s.grant, "provisional")
 	}
@@ -452,7 +470,8 @@ func (a *AttestAPI) runSettlement(s *voiceSettlement) {
 // synchronous poll of up to attestSettlePrecheckMax of the bucket's pending
 // settlements within attestSettleSyncTimeout, so a hang-up whose conversation
 // was still processing at drop is refunded before the budget check. One
-// whose background poll is running right now is skipped.
+// whose background poll is in flight is waited for (within the same 3 s),
+// then not polled again if that poll settled it.
 func (a *AttestAPI) settlePending(bucket string) {
 	a.mu.Lock()
 	pending := append([]*voiceSettlement(nil), a.settlements[bucket]...)
@@ -464,8 +483,8 @@ func (a *AttestAPI) settlePending(bucket string) {
 		if polled == attestSettlePrecheckMax {
 			return
 		}
-		if !s.mu.TryLock() {
-			continue
+		if !s.mu.LockCtx(ctx) {
+			return
 		}
 		if !s.final {
 			polled++

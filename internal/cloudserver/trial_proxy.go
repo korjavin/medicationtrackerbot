@@ -169,10 +169,14 @@ var errTrialMint = errors.New("trial elevenlabs mint failed")
 //
 // conversationID is that conversation's id ("" without singleUse). ElevenLabs
 // documents only {"signed_url"} as the answer; with the flag the id rides in
-// the signed URL's own query string as conversation_id (measured against the
-// live API, langwatch/langwatch services/aigateway/adapters/providers/
-// realtime.go, 2026-08-16). A top-level conversation_id field is read first
-// in case the vendor promotes it. The id alone is loggable.
+// the signed URL's own query string as conversation_id ("conv_", 33 chars),
+// next to conversation_signature — verified with one operator-key mint on
+// 2026-11-04 (bd med-v1uz, Spark 13627): 200, top-level keys ["signed_url"]
+// only. GET conversations/{that id} before any session opens answers 404
+// {status: document_not_found}, which settleVoice counts as "no session
+// ran". A
+// top-level conversation_id field is read first in case the vendor promotes
+// it. The id alone is loggable.
 func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject string, singleUse bool) (signedURL, conversationID string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

@@ -462,7 +462,7 @@ func TestAttestVoiceSettle(t *testing.T) {
 
 	// (d) 404 (or still initiated) through the deadline: no session ever ran,
 	// full refund — provisional at the first poll, final at the deadline.
-	settle("d", k, func(string, int) (int, string) { return http.StatusNotFound, `{"detail":"not found"}` }, 0)
+	settle("d", k, func(string, int) (int, string) { return http.StatusNotFound, elNotFound }, 0)
 	settle("d2", k, func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "initiated", 0) }, 0)
 	if l := logs.String(); !strings.Contains(l, "conversation=conv_d outcome=provisional") || !strings.Contains(l, "conversation=conv_d outcome=never_started") {
 		t.Fatalf("(d) logs = %q", l)
@@ -470,7 +470,7 @@ func TestAttestVoiceSettle(t *testing.T) {
 	// A provisionally refunded URL used later: the seconds that ran are charged back once.
 	settle("d3", k, func(id string, n int) (int, string) {
 		if n == 1 {
-			return http.StatusNotFound, `{"detail":"not found"}`
+			return http.StatusNotFound, elNotFound
 		}
 		return http.StatusOK, elConversation(id, "done", 50)
 	}, 50)
@@ -485,7 +485,7 @@ func TestAttestVoiceSettle(t *testing.T) {
 	// (the bounded under-charge) and Warns.
 	settle("e3", k, func(id string, n int) (int, string) {
 		if n == 1 {
-			return http.StatusNotFound, `{"detail":"not found"}`
+			return http.StatusNotFound, elNotFound
 		}
 		return http.StatusOK, elConversation(id, "in-progress", 10)
 	}, 0)
@@ -508,7 +508,7 @@ func TestAttestVoiceNeverAttachedAtCap(t *testing.T) {
 		if id == "conv_test1" && n > 2 { // 404 at the drop and the pre-check, then used
 			return http.StatusOK, elConversation(id, "done", 50)
 		}
-		return http.StatusNotFound, `{"detail":"not found"}`
+		return http.StatusNotFound, elNotFound
 	})
 	if rec, _ := e.voiceStart(k, 1); rec.Code != http.StatusOK {
 		t.Fatalf("start 1: %d %s", rec.Code, rec.Body.String())
@@ -562,6 +562,71 @@ func TestAttestVoicePrecheckSettlesBeforeReserve(t *testing.T) {
 	rec, out := e.voiceStart(k, 2)
 	if rec.Code != http.StatusOK || out.Granted != 100 {
 		t.Fatalf("start after the pre-check: %d %s", rec.Code, rec.Body.String())
+	}
+	e.reapNow(out.Call)
+}
+
+// Argus 13626 (1): the pre-check waits for a background poll already in
+// flight (within its 3 s) instead of skipping it, so its done/20 s refund
+// lands before the budget check.
+func TestAttestVoicePrecheckWaitsForInflightPoll(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.attest.cfg.VoiceLifetime = 120
+	e.attest.settlePoll = time.Hour
+	k := attestKey(t)
+	e.enrolled(k, "tok-inflight")
+	entered, release := make(chan struct{}), make(chan struct{})
+	e.convAnswers(func(id string, n int) (int, string) {
+		if n == 1 {
+			return http.StatusOK, elConversation(id, "processing", 20)
+		}
+		close(entered)
+		<-release
+		return http.StatusOK, elConversation(id, "done", 20)
+	})
+	_, out := e.voiceStart(k, 1)
+	e.reapNow(out.Call)
+	e.attest.mu.Lock()
+	s := e.attest.settlements[attestKeyID(t, k)][0]
+	e.attest.mu.Unlock()
+	finished := make(chan struct{})
+	go func() { s.mu.Lock(); e.attest.pollLocked(context.Background(), s); s.mu.Unlock(); close(finished) }()
+	<-entered
+	time.AfterFunc(100*time.Millisecond, func() { close(release) })
+	rec, out2 := e.voiceStart(k, 2)
+	<-finished
+	if rec.Code != http.StatusOK || out2.Granted != 100 {
+		t.Fatalf("next start while the done/20 s refund was in flight: %d %s", rec.Code, rec.Body.String())
+	}
+	e.reapNow(out2.Call)
+}
+
+// Argus 13626 (2): a store write that fails on a final answer leaves the
+// settlement pending, and the next poll retries it.
+func TestAttestVoiceSettleRetriesFailedStoreWrite(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	repo, db := setupStoreWithDB(t)
+	e.store, e.attest.store = repo, repo
+	k := attestKey(t)
+	e.enrolled(k, "tok-db")
+	e.convAnswers(func(id string, _ int) (int, string) { return http.StatusOK, elConversation(id, "done", 20) })
+	_, out := e.voiceStart(k, 1)
+	if _, err := db.ExecContext(context.Background(), `CREATE TRIGGER fail_voice BEFORE UPDATE OF voice_seconds ON attest_buckets BEGIN SELECT RAISE(ABORT, 'transient write failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	s := &voiceSettlement{keyID: attestKeyID(t, k), conversation: "conv_db", grant: 120, reservedAt: time.Now()}
+	e.attest.pollLocked(context.Background(), s)
+	if s.final {
+		t.Fatal("final after a failed refund write")
+	}
+	if _, err := db.ExecContext(context.Background(), `DROP TRIGGER fail_voice`); err != nil {
+		t.Fatal(err)
+	}
+	e.attest.pollLocked(context.Background(), s)
+	if used := e.voiceUsed(k); used != 20 || !s.final {
+		t.Fatalf("after the store recovered: charged %d, final %v; want 20, true", used, s.final)
 	}
 	e.reapNow(out.Call)
 }
@@ -891,7 +956,7 @@ func TestAttestVoiceNeverAttachedRefund(t *testing.T) {
 		if id == "conv_test3" {
 			return http.StatusOK, elConversation(id, "done", 120)
 		}
-		return http.StatusNotFound, `{"detail":"not found"}`
+		return http.StatusNotFound, elNotFound
 	})
 	e.attest.settleFor = time.Second
 	waitUsage := func(want int) {

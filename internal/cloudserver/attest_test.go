@@ -195,6 +195,11 @@ type attestEnv struct {
 	convHits   atomic.Int32
 }
 
+// elNotFound is ElevenLabs' 404 body for GET conversations/{id} before any
+// session opened on the signed URL (operator-key check, bd med-v1uz, Spark
+// 13627: status document_not_found).
+const elNotFound = `{"detail":{"status":"document_not_found"}}`
+
 // elConversation is ElevenLabs' documented GET conversations/{id} 200 answer
 // (https://elevenlabs.io/docs/api-reference/conversations/get, response
 // example, trimmed of fields the settlement ignores) with id, status and
@@ -229,9 +234,9 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 	}))
 	t.Cleanup(up.Close)
 	// Fake ElevenLabs. get_signed_url with include_conversation_id=true: the
-	// answer is {"signed_url"} only and the id rides in the URL's query (the
-	// live-measured shape, see mintTrialSignedURL). conversations/{id}: see
-	// elConversation.
+	// answer is {"signed_url"} only and the id rides in the URL's query next
+	// to conversation_signature (operator-key check, Spark 13627; see
+	// mintTrialSignedURL). conversations/{id}: elConversation / elNotFound.
 	var convPolls sync.Map // id → *atomic.Int32
 	el := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := strings.CutPrefix(r.URL.Path, "/conversations/"); ok {
