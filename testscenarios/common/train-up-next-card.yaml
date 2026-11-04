@@ -1,0 +1,22 @@
+id: train-up-next-card
+title: Train opens on an Up next card that says when, what, and starts it
+platforms: [web, android, ios]
+preconditions:
+  - Local or cloud user with a rotating workout plan scheduled on some weekdays
+steps:
+  - Open the Train tab (Timeline sub-tab)
+  - Read the Up next card, then tap Skip and confirm; then Undo skip
+  - Tap Start workout (or Start now), confirm, and come back to Train
+  - Finish the workout, then tap Start empty workout under the card
+invariants:
+  - The app loads without script errors and the Up next card renders (every classic script parses in the shared global scope; no duplicate top-level names)
+  - 'The eyebrow is when ("Today · 18:00" or "Fri 06.11 · 18:00"), the title is the plan day, the meta line its exercises, and a rotating plan shows "Day N of M · then <next day>"'
+  - Skip names the day ("Skip today" / "Skip Fri"); a set skip shows a "Skipping" tag and only "Undo skip"
+  - A running workout shows "In progress · N min" with Finish and Continue; "Start empty workout" is hidden until it ends
+  - Start empty workout opens an empty session with the add sheet up
+  - With no plan the card reads "Log a workout" with Start empty workout and Make a plan
+covered_by:
+  web: web/static/js/tests/features.workout-next-card.test.js
+  android: tests/visual/scenes.json#workout-next-card
+  ios: tests/visual/scenes.json#workout-next-card
+source: [med-soo0.2, "#1520"]
