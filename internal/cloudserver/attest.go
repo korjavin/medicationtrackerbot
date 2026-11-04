@@ -289,6 +289,14 @@ type AttestAPI struct {
 	// provisional refund, under mu (Archie 13648: a second 404 waits for it to
 	// settle, so never-attached starts cannot stockpile free signed URLs).
 	provisional map[string]*voiceSettlement
+	// neverStarts counts each bucket's never-started refunds on neverDay
+	// (UTC), both doors (provisional, deadline), under mu (Archie 13776: a
+	// stripped-id session is invisible to the lookup, so the refunds a 404
+	// buys are capped per day). ponytail: in memory, a restart resets it —
+	// acceptable at deploy frequency; persist it if deploys get frequent.
+	neverDay    string
+	neverStarts map[string]int
+	now         func() time.Time // the day clock; overridable in tests, under mu
 	// Settlement polling; overridable in tests.
 	settlePoll time.Duration // first 2 min: this interval, then twice it
 	settleFor  time.Duration // 0 = attestSettleSlack + the per-call max after the mint
@@ -334,6 +342,7 @@ type voiceSettlement struct {
 	// whatever the lookup says; a 404/initiated then is never refunded
 	// (Archie 13671: relay evidence beats a 404).
 	answered bool
+	countDay string        // the UTC day its provisional refund was counted on (under AttestAPI.mu)
 	done     chan struct{} // closed when settled or past the deadline
 
 	mu          settleLock
@@ -407,7 +416,7 @@ func (a *AttestAPI) pollLocked(ctx context.Context, s *voiceSettlement) {
 				return
 			}
 			s.final = true
-			a.releaseProvisional(s)
+			a.releaseProvisional(s, true)
 			slog.Info("attest voice settle", "install", s.keyID, "conversation", s.conversation, "outcome", status, "granted_seconds", s.grant, "refunded_seconds", refund, "charged_back_seconds", back)
 			return
 		}
@@ -415,27 +424,72 @@ func (a *AttestAPI) pollLocked(ctx context.Context, s *voiceSettlement) {
 	case s.notStarted && !s.provisional && !s.answered && a.takeProvisional(s):
 		s.provisional = a.settleRefund(s, s.grant, "provisional")
 		if !s.provisional {
-			a.releaseProvisional(s)
+			a.releaseProvisional(s, false)
 		}
 	}
 }
 
-// takeProvisional claims the bucket's one provisional-refund slot for s;
-// false while another pending settlement holds it (re-tried on every poll).
+// attestVoiceFreeNeverStarted is how many never-started refunds (either
+// door) a bucket gets per UTC day; later 404s stay charged (Archie 13776).
+const attestVoiceFreeNeverStarted = 3
+
+// takeNeverStarted counts one never-started refund of bucket today; false
+// when the day's count is spent. The day it counted on is returned so a
+// failed refund write can give it back.
+func (a *AttestAPI) takeNeverStarted(bucket string) (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.takeNeverStartedLocked(bucket)
+}
+
+func (a *AttestAPI) takeNeverStartedLocked(bucket string) (string, bool) {
+	day := a.now().UTC().Format("2006-01-02")
+	if a.neverDay != day {
+		a.neverDay, a.neverStarts = day, map[string]int{}
+	}
+	if a.neverStarts[bucket] >= attestVoiceFreeNeverStarted {
+		return day, false
+	}
+	a.neverStarts[bucket]++
+	return day, true
+}
+
+func (a *AttestAPI) untakeNeverStarted(bucket, day string) {
+	a.mu.Lock()
+	if a.neverDay == day && a.neverStarts[bucket] > 0 {
+		a.neverStarts[bucket]--
+	}
+	a.mu.Unlock()
+}
+
+// takeProvisional claims the bucket's one provisional-refund slot for s,
+// spending one of the day's never-started refunds; false while another
+// pending settlement holds the slot or the count is spent (re-tried on
+// every poll; the settlement stays charged meanwhile).
 func (a *AttestAPI) takeProvisional(s *voiceSettlement) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if h := a.provisional[s.bucket]; h != nil && h != s {
 		return false
 	}
+	day, ok := a.takeNeverStartedLocked(s.bucket)
+	if !ok {
+		return false
+	}
+	s.countDay = day
 	a.provisional[s.bucket] = s
 	return true
 }
 
-func (a *AttestAPI) releaseProvisional(s *voiceSettlement) {
+// releaseProvisional frees the slot; refunded=false (the provisional write
+// failed) also gives the day's count back.
+func (a *AttestAPI) releaseProvisional(s *voiceSettlement, refunded bool) {
 	a.mu.Lock()
 	if a.provisional[s.bucket] == s {
 		delete(a.provisional, s.bucket)
+	}
+	if !refunded && a.neverDay == s.countDay && a.neverStarts[s.bucket] > 0 {
+		a.neverStarts[s.bucket]--
 	}
 	a.mu.Unlock()
 }
@@ -504,12 +558,22 @@ func (a *AttestAPI) runSettlement(s *voiceSettlement) {
 	// a 404 that waited behind another provisional refund (Archie 13648): the
 	// URL has expired unused, so the whole grant comes back now.
 	// Never for an answered call: its session ran but the lookup cannot see it.
-	if s.notStarted && !s.provisional && !s.answered && a.settleRefund(s, s.grant, "never_started") {
-		return
+	// It spends one of the day's never-started refunds (Archie 13776).
+	capped := false
+	if s.notStarted && !s.provisional && !s.answered {
+		day, ok := a.takeNeverStarted(s.bucket)
+		switch {
+		case !ok:
+			capped = true
+		case a.settleRefund(s, s.grant, "never_started"):
+			return
+		default:
+			a.untakeNeverStarted(s.bucket, day)
+		}
 	}
 	slog.Warn("attest voice settle failed", "install", s.keyID, "conversation", s.conversation,
 		"http_status", s.lastCode, "status", s.lastStatus, "transport_error", s.lastErr, "provisional", s.provisional,
-		"session_invisible", s.answered && s.notStarted)
+		"session_invisible", s.answered && s.notStarted, "never_started_capped", capped)
 }
 
 // settlePending is voiceStart's pre-check (bd med-v1uz, Miles 13572): one
@@ -544,7 +608,7 @@ func (a *AttestAPI) settlePending(bucket string) {
 // per-subject burst limiter and the shared upstream proxy; food supplies the
 // operator FastFoodDB proxy (bd med-o7zq.19).
 func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyAPI, cfg AttestConfig) *AttestAPI {
-	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlements: map[string][]*voiceSettlement{}, provisional: map[string]*voiceSettlement{}, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
+	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, settlements: map[string][]*voiceSettlement{}, provisional: map[string]*voiceSettlement{}, neverStarts: map[string]int{}, now: time.Now, settlePoll: 30 * time.Second, mux: http.NewServeMux()}
 	if cfg.AndroidConfigured {
 		a.android = playintegrity.New(cfg.Android)
 	}

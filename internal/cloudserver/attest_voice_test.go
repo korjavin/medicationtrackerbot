@@ -483,7 +483,8 @@ func TestAttestVoiceSettle(t *testing.T) {
 	}
 	// A provisional refund whose session started but never resolved stands
 	// (the bounded under-charge) and Warns.
-	settle("e3", k, func(id string, n int) (int, string) {
+	settle("e3", other, // k spent its 3 never-started refunds on d, d2, d3
+		 func(id string, n int) (int, string) {
 		if n == 1 {
 			return http.StatusNotFound, elNotFound
 		}
@@ -733,6 +734,68 @@ func TestAttestVoiceWaitingNotStartedDeadline(t *testing.T) {
 	}
 	if used := e.voiceUsed(k); used != 240 {
 		t.Fatalf("after w4: used %d, want 240 (w3 + w4 charged)", used)
+	}
+}
+
+// Archie 13776: three never-started refunds per bucket per UTC day, one
+// count shared by the provisional and the deadline door; the 4th 404 stays
+// charged and Warns never_started_capped; a new UTC day refunds again.
+func TestAttestVoiceNeverStartedDailyCount(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.convAnswers(func(string, int) (int, string) { return http.StatusNotFound, elNotFound })
+	counter := uint32(0)
+	settle := func(k *ecdsa.PrivateKey, name string, window time.Duration) *voiceSettlement {
+		t.Helper()
+		id := attestKeyID(t, k)
+		counter++
+		now := time.Now().UTC()
+		grant, _, _, _, err := e.store.ReserveAttestVoice(context.Background(), id, counter, now, 10000, 0, 0, 120, attestVoiceFloorSeconds)
+		if err != nil || grant != 120 {
+			t.Fatalf("reserve %s: %d %v", name, grant, err)
+		}
+		e.attest.settleFor = window
+		return e.attest.settleVoice(id, id, "conv_"+name, now, grant, false)
+	}
+	short := 50 * time.Millisecond
+
+	// 4 never-attached 404 starts across deadlines: 3 refunds, the 4th charged.
+	k := attestKey(t)
+	e.enrolled(k, "tok-count")
+	for _, n := range []string{"n1", "n2", "n3", "n4"} {
+		<-settle(k, n, short).done
+	}
+	if used := e.voiceUsed(k); used != 120 {
+		t.Fatalf("after 4 never-started: used %d, want 120", used)
+	}
+	if l := logs.String(); strings.Count(l, "outcome=provisional") != 3 || !strings.Contains(l, "conversation=conv_n4 http_status=404") || !strings.Contains(l, "never_started_capped=true") {
+		t.Fatalf("logs = %q", l)
+	}
+
+	// Shared across doors: 2 provisional + 1 deadline refund spend the count.
+	k2 := attestKey(t)
+	e.enrolled(k2, "tok-count-2")
+	<-settle(k2, "m1", short).done          // provisional 1
+	holder := settle(k2, "m2", time.Second) // provisional 2, holds the slot
+	<-settle(k2, "m3", short).done          // deadline door: the 3rd
+	<-settle(k2, "m4", short).done          // spent
+	if l := logs.String(); !strings.Contains(l, "conversation=conv_m3 outcome=never_started") || !strings.Contains(l, "conversation=conv_m4 http_status=404") {
+		t.Fatalf("doors logs = %q", l)
+	}
+	<-holder.done
+	if used := e.voiceUsed(k2); used != 120 {
+		t.Fatalf("after doors: used %d, want 120 (m4 charged)", used)
+	}
+
+	// UTC rollover: tomorrow the bucket has 3 again.
+	e.attest.mu.Lock()
+	e.attest.now = func() time.Time { return time.Now().Add(24 * time.Hour) }
+	e.attest.mu.Unlock()
+	<-settle(k, "n5", short).done
+	if used := e.voiceUsed(k); used != 120 {
+		t.Fatalf("after the rollover: used %d, want 120 (n5 refunded)", used)
 	}
 }
 
@@ -1125,13 +1188,19 @@ func TestAttestVoiceNeverAttachedRefund(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	waitUsage(120)
 
-	// No per-day cap on never-started refunds (med-02b0's 3 a day is gone).
+	// Three never-started refunds per bucket per UTC day (Archie 13776):
+	// starts 1 and 2 spent two, 6 is the third; 7 and 8 stay charged, and
+	// at their deadlines Warn never_started_capped.
 	e.attest.cfg.VoiceDaily = 0
 	start(6)
 	start(7)
 	last := start(8)
 	e.reapNow(last.Call)
-	waitUsage(120)
+	time.Sleep(1500 * time.Millisecond) // past every settlement's deadline
+	waitUsage(360)
+	if n := strings.Count(logs.String(), "never_started_capped=true"); n != 2 {
+		t.Fatalf("%d capped Warns, want 2: %q", n, logs.String())
+	}
 }
 
 // bd med-dngs (owner device test, Play build 1092): the app's hang-up is a
