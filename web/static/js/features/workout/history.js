@@ -22,11 +22,10 @@ const MIBAND_ACTIVITY_META = {
 const TIMELINE_FIRST_WEEKS = 3;
 const TIMELINE_PAGE_WEEKS = 4;
 const TIMELINE_WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-let _timelineWeeksShown = TIMELINE_FIRST_WEEKS;
-let _timelineLast = null;
+let _timelineState = { weeksShown: TIMELINE_FIRST_WEEKS, last: null }; // module-state: Timeline paging (weeks open + last render args)
 
 async function loadWorkoutHistoryTab(opts) {
-    if (opts && opts.resetWeeks) _timelineWeeksShown = TIMELINE_FIRST_WEEKS;
+    if (opts && opts.resetWeeks) _timelineState.weeksShown = TIMELINE_FIRST_WEEKS;
     const container = document.getElementById('workout-history-display');
     // Read the cached settings_bundle to get the user's saved timezone so that
     // skipped-session sort timestamps are interpreted in the same timezone the backend
@@ -116,7 +115,7 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
     // navigated away or, in tests, after jsdom teardown). No-op is the correct
     // behavior and prevents an unhandled `document is undefined` TypeError.
     if (typeof document === 'undefined' || !container) return;
-    _timelineLast = { container, sessions, mibandWorkouts, userTz };
+    _timelineState.last = { container, sessions, mibandWorkouts, userTz };
 
     // Manual strength sessions. A past-day in_progress session is a Finish
     // that never landed (med-laj4): the next-workout card only surfaces
@@ -166,16 +165,16 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
     }
 
     const weeks = _groupTimelineWeeks(items, todayKey);
-    weeks.slice(0, _timelineWeeksShown).forEach((week) => {
+    weeks.slice(0, _timelineState.weeksShown).forEach((week) => {
         container.appendChild(_buildTimelineWeek(week, todayKey, userTz));
     });
-    if (weeks.length > _timelineWeeksShown) {
+    if (weeks.length > _timelineState.weeksShown) {
         const more = _tlEl('button', 'wg-tl-more wg-workouts-history__more');
         more.type = 'button';
         more.append(_tlIcon('chev-d', 'wg-ico--sm'), `Show ${TIMELINE_PAGE_WEEKS} earlier weeks`);
         more.addEventListener('click', () => {
-            _timelineWeeksShown += TIMELINE_PAGE_WEEKS;
-            const last = _timelineLast;
+            _timelineState.weeksShown += TIMELINE_PAGE_WEEKS;
+            const last = _timelineState.last;
             if (last) _renderWorkoutHistory(last.container, last.sessions, last.mibandWorkouts, last.userTz);
         });
         container.appendChild(more);
