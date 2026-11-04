@@ -32,10 +32,15 @@ class PermissionsRationaleActivity : Activity() {
             wgText(R.style.Widget_Wg_Text_Title, "Health Connect access"),
             wgText(
                 R.style.Widget_Wg_Text_Lede,
+                // bd med-8f4s.4: copy approved with the write-back; true with the switch off and on.
                 "When you switch on the Health Connect import in Settings, Med Tracker reads your blood " +
-                    "pressure and weight readings, only while the app is open. They are added to your " +
-                    "end-to-end encrypted vault, the same as readings you enter by hand. Med Tracker never " +
-                    "writes to Health Connect. You can turn access off at any time in Health Connect → App permissions.",
+                    "pressure, weight, sleep, workouts, steps, heart rate and blood oxygen, only while the app " +
+                    "is open, into your end-to-end encrypted vault. Med Tracker writes to Health Connect only " +
+                    "if you also switch on \"Also write my entries\". The blood pressure and weight entries you " +
+                    "add or change on this phone are then copied to Health Connect, where apps you allow can " +
+                    "read them. It never writes back what it imported. Turning it off stops copying and " +
+                    "updates; copies already in Health Connect stay until you delete them there. You can turn " +
+                    "access off at any time in Health Connect → App permissions.",
             ),
             *listOfNotNull(privacy).toTypedArray(),
         ).apply { setPadding(dp(24), dp(24), dp(24), dp(24)) }

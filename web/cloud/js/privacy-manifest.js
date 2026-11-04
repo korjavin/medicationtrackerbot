@@ -835,6 +835,33 @@ export const PRIVACY_MANIFEST = [
       detail: 'Asking for an invite — from the app\'s "Request an invite" form or by answering "yes" to the Telegram bot — sends the operator your email address and note (or your Telegram name, @username and id) in the clear, and the admin sees them in Telegram to approve or decline. If an emailed request is approved, the invite link is sent to that address through the operator\'s mail relay, so the relay and your mail provider see the email. Nothing from your records is sent. The request is deleted after 90 days. Your IP address is used only in memory, to limit how often requests can be sent, and is never stored.',
     },
   },
+  {
+    // bd med-8f4s.4 (epic med-8f4s): the Health write-back. Both modes, so no
+    // `mode`. Evidence points at today's read-only Health files; the shell
+    // beads med-8f4s.2/.3 move it to their write code when it lands.
+    id: 'health-write-back',
+    feature: 'Also write my entries (Apple Health / Health Connect)',
+    boundary: 'carve-out',
+    data: 'Blood pressure and weight entries you add or change in the app on this phone (typed in, given by voice or an AI app, or sent by Telegram and picked up by this phone). The plaintext values, their time and the entry\'s id are handed to the phone\'s Health store, and the id lets an edit replace its copy. Syncing an entry from another device does not by itself copy it, and readings imported from Apple Health / Health Connect are never written back',
+    destination: 'The phone\'s Health store (Apple Health on iPhone, Health Connect on Android). Every app you allowed there to read blood pressure or weight can read them. The store and those apps handle the copies under their own security and privacy settings, and the store\'s own sync or backup can copy them further',
+    operatorVisibility: 'none',
+    retention: 'Until you delete them in Apple Health / Health Connect. Deleting them there does not necessarily delete copies that other apps or backups already hold. While the switch is on and write access is allowed, changes you make on this phone update or remove the copies; if access is unavailable, changes may wait and are retried when access returns and you reopen the app. Switching it off stops future copying and updates, and leaves the copies there',
+    activation: 'opt-in',
+    activationNote: 'the "Also write my entries" switch under the Health import in Settings (iPhone and Android apps only), off by default; the phone also asks you for write access',
+    byo: 'n/a',
+    evidence: [
+      'web/cloud/js/health-import.js:1',
+      'ios/App/Health.swift:72',
+      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:142',
+    ],
+    code: { go: [], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'leaves',
+      title: 'Your entries copied to Apple Health / Health Connect, if you switch it on',
+      detail: 'If you switch on "Also write my entries", the blood pressure and weight entries you add or change on this phone are copied to Apple Health or Health Connect. That includes entries you type, give by voice or through an AI app, or send by Telegram and this phone picks up. The copies are outside your vault and no longer protected by its encryption: the Health store, and any app you allowed there to read them, handle them under their own security and privacy settings. Syncing an entry from another device does not by itself copy it, and readings imported from Health are never written back. While the switch is on and write access is allowed, your changes here update or remove the copies. If access is unavailable, changes may wait and are retried when access returns and you reopen the app. Turning it off stops future copying and updates. Copies already there stay until you delete them in the Health app or Health Connect, and deleting them there does not necessarily remove copies that other apps or backups already hold.',
+    },
+  },
 
   // ==========================================================================
   // On-device mode (bd med-o7zq.3; Android bd med-nt9p.32): the "Only on this

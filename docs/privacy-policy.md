@@ -1,6 +1,6 @@
 # {{NAME}} — Privacy Policy
 
-Effective 2026-10-25. This policy covers the {{NAME}} web app at
+Effective 2026-11-04. This policy covers the {{NAME}} web app at
 `{{HOST}}` and the {{NAME}} iPhone and Android apps (shown as
 "Med Tracker" on your home screen), which open the same web app. "We" is the
 operator of that service. The policy is written by category: what kind of data
@@ -215,10 +215,28 @@ how many free trials one phone can get after erasing.
 
 If you switch them on, the app **reads** the listed measurements (blood
 pressure, weight, heart rate, sleep, workouts, steps and blood oxygen) and
-stores them in your vault like a reading you typed in. It never writes back. Health data is
-never used for advertising or sold, and leaves your vault only through the
-optional features in section 3, when you use them. You can withdraw access at
-any time in the Health app or Health Connect.
+stores them in your vault like a reading you typed in.
+
+The app **writes** to Apple Health or Health Connect only if you also switch on
+**Also write my entries** (off by default, in the iPhone and Android apps
+only). It then copies the blood pressure and weight entries you add or change
+on that phone to the phone's Health store, including entries recorded there by
+voice, through an AI app or from Telegram. Syncing an entry from another device
+does not by itself copy it, and readings imported from Health are never written
+back. These copies are outside your vault and no longer protected by its
+encryption: Apple Health or Health Connect, and every app you allowed to read
+blood pressure or weight there, handle them under their own security and
+privacy settings. While the switch is on and write access is allowed, changes
+you make on that phone update or remove the copies. If access is unavailable,
+changes may wait and are retried when access returns and you reopen the app.
+Turning the switch off stops future copying and updates, and leaves the copies
+already there. To delete
+them, remove Med Tracker's data in the Health app or in Health Connect. That
+does not necessarily delete copies that other apps or backups already hold.
+
+Health data is never used for advertising or sold, and leaves your vault only
+through the optional features in section 3 and this switch, when you use them.
+You can withdraw access at any time in the Health app or Health Connect.
 
 ## 6. Reminders
 
