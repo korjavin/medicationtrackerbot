@@ -82,7 +82,7 @@ if (!apply) {
   console.log('\n--- agent PATCH body (tool ids resolved at apply time) ---');
   const previewURL = llmURL || '<TRIAL_VOICE_LLM_URL>';
   const previewHeaders = llmHeaders(relaySecret && '<TRIAL_VOICE_RELAY_SECRET>');
-  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { productName, llmURL: previewURL, llmHeaders: previewHeaders, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }), null, 2));
+  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { productName, llmURL: previewURL, llmHeaders: previewHeaders, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS, requireSignedURL: true }), null, 2));
   console.log('\nDry run — nothing was sent. Re-run with --apply to push this.');
   process.exit(0);
 }
@@ -129,7 +129,7 @@ try {
     console.error(`Resolved only ${toolIds.length}/${TOOL_SPECS.length} tool ids — refusing to wire a partial agent.`);
     process.exit(1);
   }
-  const config = buildAgentConfig(toolIds, { productName, llmURL, llmHeaders: llmHeaders(relaySecret), maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS });
+  const config = buildAgentConfig(toolIds, { productName, llmURL, llmHeaders: llmHeaders(relaySecret), maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS, requireSignedURL: true });
   try {
     await patchAgent(apiKey, agentId, config);
   } catch (err) {
