@@ -526,7 +526,7 @@ privacy-manifest row; the rationale screen
 (`PermissionsRationaleActivity.kt`) states both. Health
 Connect is part of the Android 14 framework, so there is no provider app to
 install. [`HealthConnect.kt`](../android/app/src/main/java/com/example/medtracker/HealthConnect.kt)
-answers the same `health.authorize {types}` / `health.query {type, anchor,
+answers the same `health.authorize {types, write?}` / `health.query {type, anchor,
 limit}` (and `{type: 'sleep', from, to}`) ops as `ios/App/Health.swift` with
 the same sample shapes (`bp` `{uuid, start, systolic, diastolic}`, `weight`
 `{uuid, start, kg}`, `sleep` `{uuid, start, end, value, source, tz?}`,
@@ -549,6 +549,26 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   permission dialog on Android 14) and answers `true` whenever Health Connect
   exists, `false` when it doesn't (work profile, no service); like HealthKit, a
   denied type just returns no samples.
+- **Opt-in write-back (med-8f4s.2):** `WRITE_BLOOD_PRESSURE` and
+  `WRITE_WEIGHT` join that Play declaration before the containing Play upload
+  (owner task med-0xad.8). `health.authorize {types, write: ['bp', 'weight']}`
+  asks for reads and writes in one sheet; omitting `write` stays read-only.
+  `health.writeAccess {types}` reports the actual granted write kinds, including
+  partial grants; a store/access error rejects rather than pretending access
+  was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?}`
+  inserts a manually entered BP/weight with `clientRecordId = id` (vault id)
+  and `clientRecordVersion = version` (committed clientTs). Health Connect
+  upserts a higher version and ignores an older one. Android 14 also accepts
+  equal-version replays, so each committed version carries the same values.
+  `health.delete {type, id}` deletes by our package's client identity only;
+  an unknown id is a successful no-op. A Health Connect UUID from an imported
+  reading is never used as a deletion target. Both write/delete reject
+  `denied` without the kind's write permission. All three ops run in both modes,
+  only while the page is open.
+- **No echo imports:** scan and changes pages exclude records only when their
+  origin is this package **and** they carry a clientRecordId. Records from other
+  apps and our debug writer's records without that marker still import. Raw
+  `returned`, anchor and `more` are preserved even when a page emits no samples.
 - **Upgrade from the .8 build:** it answered `authorize` for sleep/workout
   without asking, and the page recorded all four kinds as asked
   (`wg.health.asked`), so the web re-ask never fires. The shell keeps its own
@@ -600,13 +620,21 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   anchor, so it shows `scan` on every run.
 - **QA:** android-qa `health-connect` writes a BP (plus steps, a heart-rate
   series and an SpO2 reading) through the debug-only `QaHealthWrite` activity
-  (src/debug, the `WRITE_*` permissions in the debug manifest only), switches
+  (src/debug; its steps/HR/SpO2 write permissions are debug-only), switches
   the import on, checks the bridge answers steps/hr/spo2 and the Vitals cards
   fill (screenshot `vitals-cards`), then — in a process Playwright never
   attached to — goes Home, writes a second one and returns, and asserts the
   shell logged a `health bp changes` read and the reading is in Vitals.
   Playwright must be detached for that: its focus emulation keeps an attached
   page "visible", so the WebView never fires `visibilitychange`.
+  It then enables write-back (screenshot `health-write-hw1`) and checks the real
+  page's BP create/edit/delete and weight create/delete against Health Connect
+  through the debug-only `QaHealthRead` activity. The reader bypasses our import
+  filter; it proves one client identity, version conflict handling, no echo on
+  scan/changes, idempotent delete, preservation of an imported store UUID and
+  truthful partial write access after revocation. Release APKs contain neither
+  reader nor writer. Real-phone permission/retry checks stay in
+  `testscenarios/common/health-write-back.yaml`.
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health
   Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
   `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy

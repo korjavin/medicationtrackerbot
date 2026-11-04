@@ -17,11 +17,14 @@ import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ChangesTokenRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import androidx.health.connect.client.units.Mass
+import androidx.health.connect.client.units.Pressure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,11 +48,14 @@ import kotlin.math.abs
 import kotlin.reflect.KClass
 
 /**
- * window.Health on Android (bd med-nt9p.8, .9): Health Connect, READ-ONLY —
+ * window.Health on Android (bd med-nt9p.8, .9, med-8f4s.2): Health Connect —
  * the twin of ios/App/Health.swift, answering the same ops with the same
  * sample shapes; web/domain/healthimport.js maps them into the vault.
  *
- *   health.authorize {types}               → Boolean (false: no Health Connect on this device)
+ *   health.authorize {types, write?}       → Boolean (false: no Health Connect on this device)
+ *   health.writeAccess {types}            → {granted: ["bp", "weight"]}, real write grants only
+ *   health.write {type, id, version, at, systolic?, diastolic?, kg?} → true
+ *   health.delete {type, id}              → true (only our clientRecordId, never a store UUID)
  *   health.query {type, anchor?, limit?}   → {samples, anchor, returned, more}
  *   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
  *   health.query {type: "steps", from, to?} → {samples: [{day, steps, tz}], returned, more: false}
@@ -75,7 +81,10 @@ import kotlin.reflect.KClass
  * READ_HEALTH_DATA_HISTORY, asked for with the read types where the device
  * offers it (bd med-0xad.3); without it the reads answer what is readable.
  * An unknown type: authorize ignores it, query rejects. Reads happen only when the page asks,
- * i.e. while the app is in the foreground — never in the background.
+ * i.e. while the app is in the foreground — never in the background. Opt-in
+ * BP/weight writes use the vault id and committed version for upsert. Our
+ * package's records with a clientRecordId are excluded from import; records
+ * without one (including QaHealthWrite's external-app stand-in) still import.
  */
 class HealthConnect(private val activity: Activity, private val diag: (String) -> Unit = {}) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -117,6 +126,9 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     private suspend fun dispatch(op: String, args: JSONObject): Any = when (op) {
         "health.authorize" -> authorize(args)
         "health.query" -> query(args)
+        "health.writeAccess" -> writeAccess(args)
+        "health.write" -> write(args)
+        "health.delete" -> delete(args)
         else -> throw IllegalArgumentException("unsupported: $op")
     }
 
@@ -125,20 +137,61 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         if (!available()) return false
         val types = args.optJSONArray("types") ?: JSONArray()
         val kinds = (0 until types.length()).map { types.optString(it) }.filter { it in KINDS }
-        if (kinds.isNotEmpty()) ask(kinds)
+        val write = args.optJSONArray("write") ?: JSONArray()
+        val writes = (0 until write.length()).map { write.optString(it) }.filter { it in WRITABLE }
+        if (kinds.isNotEmpty() || writes.isNotEmpty()) ask(kinds, writes)
+        return true
+    }
+
+    private suspend fun writeAccess(args: JSONObject): JSONObject {
+        // An unavailable/updating store is an error, not an empty grant state:
+        // the page keeps its pending ledger and shows the store error.
+        check(available()) { "Health Connect unavailable" }
+        val types = args.optJSONArray("types") ?: JSONArray()
+        val kinds = (0 until types.length()).map { types.optString(it) }
+        return JSONObject().put("granted", JSONArray(writableKinds(kinds, client.permissionController.getGrantedPermissions())))
+    }
+
+    private suspend fun requireWrite(kind: String) {
+        val type = WRITABLE[kind] ?: throw IllegalArgumentException("unknown write type: $kind")
+        if (!available() || HealthPermission.getWritePermission(type) !in client.permissionController.getGrantedPermissions()) {
+            throw SecurityException("denied")
+        }
+    }
+
+    private suspend fun write(args: JSONObject): Boolean {
+        val kind = args.getString("type")
+        requireWrite(kind)
+        val record = writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
+            args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"))
+        // Older clientRecordVersions cannot replace a newer record. Android 14
+        // accepts equal-version replays: a committed version must keep its payload.
+        client.insertRecords(listOf(record))
+        return true
+    }
+
+    private suspend fun delete(args: JSONObject): Boolean {
+        val kind = args.getString("type")
+        requireWrite(kind)
+        val id = args.getString("id").also { require(it.isNotBlank()) { "missing id" } }
+        // The client-ID overload is scoped by Health Connect to this package.
+        // Never pass an imported Health UUID in recordIdsList: a vault delete
+        // must not erase another app's reading. Unknown client ids are no-ops.
+        client.deleteRecords(WRITABLE.getValue(kind), recordIdsList = emptyList(), clientRecordIdsList = listOf(id))
         return true
     }
 
     private fun asked(): Set<String> = prefs.getStringSet(ASKED, null).orEmpty()
 
-    /** Requests the read permissions of `kinds` not granted yet (one dialog), and remembers they were asked. */
-    private suspend fun ask(kinds: Collection<String>) {
+    /** Requests missing reads and optional writes together; existing callers remain read-only. */
+    private suspend fun ask(kinds: Collection<String>, writes: Collection<String> = emptyList()) {
         prefs.edit().putStringSet(ASKED, asked() + kinds).apply()
         val history = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY.takeIf {
             client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) ==
                 HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
         }
-        val perms = (kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) } + listOfNotNull(history)).toSet() -
+        val perms = (kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) } +
+            writes.map { HealthPermission.getWritePermission(WRITABLE.getValue(it)) } + listOfNotNull(history)).toSet() -
             client.permissionController.getGrantedPermissions()
         if (perms.isEmpty()) return
         suspendCancellableCoroutine { cont ->
@@ -253,7 +306,10 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             "workout" -> JSONArray().apply {
                 records.filterIsInstance<ExerciseSessionRecord>().forEach { put(workout(it, granted)) }
             }.let { page(it, anchor, returned, more) }
-            else -> JSONArray().apply { records.forEach { r -> samples(r).forEach { put(it) } } }
+            else -> JSONArray().apply { records.filterNot {
+                isOwnWrite(it.metadata.dataOrigin.packageName, it.metadata.clientRecordId, activity.packageName)
+            }
+                .forEach { r -> samples(r).forEach { put(it) } } }
                 .let { page(it, anchor, returned, more) }
         } }
     }
@@ -379,6 +435,36 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     }
 
     internal companion object {
+        val WRITABLE: Map<String, KClass<out Record>> = mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class)
+
+        fun writableKinds(kinds: Collection<String>, granted: Set<String>): List<String> = kinds.distinct().filter {
+            WRITABLE[it]?.let { type -> HealthPermission.getWritePermission(type) in granted } == true
+        }
+
+        fun isOwnWrite(originPackage: String, clientRecordId: String?, packageName: String): Boolean =
+            originPackage == packageName && clientRecordId != null
+
+        fun writeRecord(kind: String, id: String, version: Long, at: Long,
+                        systolic: Double = Double.NaN, diastolic: Double = Double.NaN, kg: Double = Double.NaN): Record {
+            require(id.isNotBlank()) { "missing id" }
+            require(version >= 0) { "invalid version" }
+            val time = Instant.ofEpochMilli(at)
+            val offset = ZoneId.systemDefault().rules.getOffset(time)
+            val metadata = Metadata.manualEntry(clientRecordId = id, clientRecordVersion = version)
+            return when (kind) {
+                "bp" -> {
+                    require(systolic.isFinite() && diastolic.isFinite()) { "invalid blood pressure" }
+                    BloodPressureRecord(time = time, zoneOffset = offset, metadata = metadata,
+                        systolic = Pressure.millimetersOfMercury(systolic), diastolic = Pressure.millimetersOfMercury(diastolic))
+                }
+                "weight" -> {
+                    require(kg.isFinite()) { "invalid weight" }
+                    WeightRecord(time = time, zoneOffset = offset, metadata = metadata, weight = Mass.kilograms(kg))
+                }
+                else -> throw IllegalArgumentException("unknown write type: $kind")
+            }
+        }
+
         /** Each kind's record types; the first is the one queried, the rest are a workout's totals. */
         val KINDS: Map<String, List<KClass<out Record>>> = mapOf(
             "bp" to listOf(BloodPressureRecord::class),

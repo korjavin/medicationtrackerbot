@@ -837,8 +837,7 @@ export const PRIVACY_MANIFEST = [
   },
   {
     // bd med-8f4s.4 (epic med-8f4s): the Health write-back. Both modes, so no
-    // `mode`. iOS evidence is the write/delete code (med-8f4s.3); Android's
-    // still points at the read-only file until med-8f4s.2 moves it.
+    // `mode`. Both shells' evidence points at their native write/delete code.
     id: 'health-write-back',
     feature: 'Also write my entries (Apple Health / Health Connect)',
     boundary: 'carve-out',
@@ -853,7 +852,8 @@ export const PRIVACY_MANIFEST = [
       'web/cloud/js/health-import.js:1',
       'ios/App/Health.swift:132',
       'ios/App/Health.swift:165',
-      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:142',
+      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:162',
+      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:173',
     ],
     code: { go: [], hosts: [] },
     docSignal: null,
