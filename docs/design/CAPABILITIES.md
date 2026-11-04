@@ -287,7 +287,7 @@ The shipped screen has six collapsible groups, with a Feedback card above them:
 0. **Send feedback** [NEW] (`cloud/js/feedback-ui.js`): a card at the top that opens a modal. The modal has text, "Attach image", "Record voice", and Send.
 1. **Preferences**:
    - **Notifications** [NEW, cloud]: Web Push Enable, Send test push, delivery (push / Telegram / both), Telegram detail level.
-   - **Features**: **13 toggles** (handoff: 4). BP, Weight, Workouts, Meds, Food, Health Data, Journey, Weekly Digest, Experiments, Traits, AI Story, ED-safe mode, Live HR. Below them, a **"Re-run onboarding"** button [NEW].
+   - **Features**: **12 toggles** (handoff: 4). BP, Weight, Workouts, Meds, Food, Health Data, Journey, Weekly Digest, Experiments, Traits, AI Story, ED-safe mode. Below them, a **"Re-run onboarding"** button [NEW].
    - **Reminders** [H]: BP and Weight.
    - **Units** [H]: kg/lb.
 2. **Targets**:
@@ -606,7 +606,6 @@ The handoff's `AppHeader` (title + date) was never adopted, so no screen has a t
 ### G. Discoverability
 - **Journey** is reachable only through the Goal Line card.
 - **Mi Band import** sits in Settings → Backup, with no link from Vitals.
-- **Live HR** is behind an experimental flag and styled like a debug tool.
 - **CSV export** for BP and Weight is not in the UI.
 - **Scheduled ad-hoc workouts** can be created only through MCP.
 
