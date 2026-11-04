@@ -135,6 +135,8 @@ export function startHealthWriteBack({
         await settled();
         try {
             const row = (await records.listRaw(kind)).find((r) => r.recordId === id);
+            // Switched off while we waited: keep the entry, send nothing.
+            if (!isHealthWriteEnabled(storage)) return;
             if (row && !row.deleted) {
                 if (!row.source) await health.write(healthBody(kind, row));
             } else {

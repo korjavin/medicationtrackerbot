@@ -1605,6 +1605,19 @@ describe('Health write-back', () => {
         expect(ledgerSize()).toBe(0);
     });
 
+    it('switched off while a step waits for the commit: nothing is sent and the entry is kept', async () => {
+        let release;
+        const settled = () => new Promise((r) => { release = r; });
+        storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-x': 3 } }));
+        const pass = startHealthWriteBack({ health, storage, records, settled }).drain();
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        storage.setItem('wg.health.write', 'false');
+        release();
+        await pass;
+        expect(calls()).toEqual([]);
+        expect(dirty()).toEqual({ bp: { 'bp-x': 3 } });
+    });
+
     it('with no write switch stored (this release), nothing is marked or sent', async () => {
         storage = memStorage();
         storage.setItem('wg.health.enabled', 'true');
