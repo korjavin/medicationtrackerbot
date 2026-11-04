@@ -187,6 +187,24 @@ describe('features/workout/variants.js — Day page', () => {
       expect(setVariantPosts(window).map(([, , b]) => b.variant_id)).toEqual([12]);
     });
 
+    it('a page opened before another switch settled re-reads "next" at tap time', async () => {
+      const { window } = env;
+      fakeOptimistic(window);
+      const plans = { plans: [PLAN], active_session_id: null };
+      stubApi(window, { plans, over: (url) => Promise.resolve(url.includes('set-variant') ? { ok: true } : null) });
+      window.startWorkoutSession = vi.fn(async () => {});
+      window.loadWorkoutGroups = vi.fn();
+      window.loadNextWorkout = vi.fn();
+      const el = await openDay(window, PLAN.days[0]);
+      await vi.waitFor(() => expect(startBtn(el).textContent).toBe('Start workout'));
+      // Meanwhile another switch (WN7, or a day page left with Back) made day 12 next.
+      const moved = { ...PLAN, next: { ...PLAN.next, variant_id: 12 }, days: PLAN.days.map((d) => ({ ...d, is_next: d.id === 12 })) };
+      plans.plans = [moved];
+      startBtn(el).click();
+      await vi.waitFor(() => expect(window.startWorkoutSession).toHaveBeenCalledWith(900));
+      expect(setVariantPosts(window).map(([, , b]) => b.variant_id)).toEqual([11]);
+    });
+
     it('a pending Start this day keeps the Timeline\'s "Other plan day" from switching too, and the other way round', async () => {
       const { window, document } = env;
       fakeOptimistic(window);

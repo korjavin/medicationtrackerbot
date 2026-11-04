@@ -183,6 +183,14 @@ function _planWithNextDay(prev, planId, dayId) {
     };
 }
 
+// This plan and day as the /api/workout/plans read has them now (it is the
+// truth for "next"); the row's copy when the read failed.
+async function _planDayNow(plan, day) {
+    const res = await Promise.resolve(apiCall('/api/workout/plans')).catch(() => null);
+    const p = (res && Array.isArray(res.plans) && res.plans.find((x) => x.id === plan.id)) || plan;
+    return { res, plan: p, day: (p.days || []).find((d) => d.id === day.id) || day };
+}
+
 function openWorkoutPlanDayPage(plan, day) {
     if (!plan || !day || !window.WGPage || document.querySelector('.wg-page[data-plan-day-page]')) return null;
     const doc = document;
@@ -221,10 +229,14 @@ function openWorkoutPlanDayPage(plan, day) {
 
     // One plan-day switch at a time across every day page AND the Timeline's
     // WN7 sheet (next-card.js runPlanDaySwitch).
-    const startPlanDay = (btn, fresh) => runPlanDaySwitch(() => switchAndStart(btn, fresh));
-    async function switchAndStart(btn, fresh) {
+    const startPlanDay = (btn) => runPlanDaySwitch(() => switchAndStart(btn));
+    async function switchAndStart(btn) {
         btn.disabled = true;
         try {
+            // Re-read at tap time: another switch may have moved "next" since
+            // the page opened.
+            const fresh = await _planDayNow(plan, day);
+            if (!(fresh.plan.next && fresh.plan.next.session_id)) return;
             // The plan's OWN next session: set-variant refuses a day of another plan.
             const sid = fresh.plan.next.session_id;
             if (!fresh.day.is_next) {
@@ -255,9 +267,9 @@ function openWorkoutPlanDayPage(plan, day) {
     }
 
     (async () => {
-        const [exercises, plans] = await Promise.all([
+        const [exercises, fresh] = await Promise.all([
             Promise.resolve(apiCall(`/api/workout/exercises?variant_id=${day.id}`)).catch(() => null),
-            Promise.resolve(apiCall('/api/workout/plans')).catch(() => null),
+            _planDayNow(plan, day),
         ]);
         if (!page.el.isConnected) return;
         const rows = (Array.isArray(exercises) ? exercises : [])
@@ -287,16 +299,12 @@ function openWorkoutPlanDayPage(plan, day) {
         }) : [workoutEmptyRow('No exercises yet.')]));
         Promise.all(reads).then(() => list.removeAttribute('aria-busy'));
 
-        // The fresh read is the truth for "next" and the running session; the
-        // row's copy is the fallback.
-        const freshPlan = (plans && Array.isArray(plans.plans) && plans.plans.find((p) => p.id === plan.id)) || plan;
-        const fresh = { plan: freshPlan, day: (freshPlan.days || []).find((d) => d.id === day.id) || day };
-        if ((plans && plans.active_session_id) || !(freshPlan.next && freshPlan.next.session_id)) return;
+        if ((fresh.res && fresh.res.active_session_id) || !(fresh.plan.next && fresh.plan.next.session_id)) return;
         const foot = _planEl(doc, 'footer', 'wg-pagefoot');
         const btn = _planEl(doc, 'button', 'wg-btn wg-btn--primary wg-btn--block', fresh.day.is_next ? 'Start workout' : 'Start this day');
         btn.type = 'button';
         btn.dataset.action = 'start-plan-day';
-        btn.addEventListener('click', () => startPlanDay(btn, fresh));
+        btn.addEventListener('click', () => startPlanDay(btn));
         foot.appendChild(btn);
         page.el.appendChild(foot);
     })();
