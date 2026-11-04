@@ -518,7 +518,12 @@ Reminders stay local notifications (above).
 ### Health Connect import (bd med-nt9p.8, med-nt9p.9)
 
 The twin of the Apple Health import ([ios.md](ios.md)): Health Connect → the
-page → the encrypted vault, like a hand-entered reading. READ-ONLY; Health
+page → the encrypted vault, like a hand-entered reading. The opt-in
+write-back (epic med-8f4s, "Also write my entries", off by default; shell
+side bd med-8f4s.2) copies BP and weight entries added or changed on this
+phone into Health Connect, disclosed as the `health-write-back`
+privacy-manifest row; the rationale screen
+(`PermissionsRationaleActivity.kt`) states both. Health
 Connect is part of the Android 14 framework, so there is no provider app to
 install. [`HealthConnect.kt`](../android/app/src/main/java/com/example/medtracker/HealthConnect.kt)
 answers the same `health.authorize {types}` / `health.query {type, anchor,
