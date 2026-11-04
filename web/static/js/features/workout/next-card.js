@@ -46,8 +46,14 @@ async function loadNextWorkout() {
     });
 }
 
-const _pad2 = (n) => String(n).padStart(2, '0');
-const _hhmm = (d) => `${_pad2(d.getHours())}:${_pad2(d.getMinutes())}`;
+// Classic scripts share one global scope (meds.js owns _pad2): prefixed names.
+function _nextCardPad(n) {
+    return String(n).padStart(2, '0');
+}
+
+function _nextCardHHMM(d) {
+    return `${_nextCardPad(d.getHours())}:${_nextCardPad(d.getMinutes())}`;
+}
 
 function _nextCardEl(tag, className, text) {
     const el = document.createElement(tag);
@@ -97,7 +103,7 @@ function _renderNextWorkout(container, data) {
     const parts = (session.scheduled_date || '').split('T')[0].split('-').map(Number);
     const date = parts.length === 3 ? new Date(parts[0], parts[1] - 1, parts[2]) : new Date();
     const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
-    const when = isToday ? 'Today' : `${weekday} ${_pad2(date.getDate())}.${_pad2(date.getMonth() + 1)}`;
+    const when = isToday ? 'Today' : `${weekday} ${_nextCardPad(date.getDate())}.${_nextCardPad(date.getMonth() + 1)}`;
 
     let eyebrowText = `${when} · ${session.scheduled_time}`;
     if (inProgress) {
@@ -107,7 +113,7 @@ function _renderNextWorkout(container, data) {
             : `In progress · ${Math.max(0, Math.floor((Date.now() - started) / 60000))} min`;
     } else if (session.is_snoozed) {
         const until = new Date(session.snoozed_until || '');
-        eyebrowText = Number.isNaN(until.getTime()) ? 'Snoozed' : `Snoozed to ${_hhmm(until)}`;
+        eyebrowText = Number.isNaN(until.getTime()) ? 'Snoozed' : `Snoozed to ${_nextCardHHMM(until)}`;
     }
 
     const card = _nextCardEl('section', `wg-card${skipping ? '' : ' wg-card--accent'} wg-vstack wg-wn`);
