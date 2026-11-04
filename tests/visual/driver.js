@@ -182,8 +182,9 @@
         );
         // The WN7 "Other plan day" sheet (med-soo0.3): a third, never-done
         // day with a long name, so the shot shows a wrapped row and "never".
-        if (Array.isArray(w.variants) && Array.isArray(w.exercises)) {
-            w.variants.push({ id: 22, group_id: 10, name: 'Glutes, Hamstrings & Core Stability', rotation_order: 2,
+        // Idempotent: the jsdom suite reuses one parsed fixture across seeds.
+        if (Array.isArray(w.variants) && Array.isArray(w.exercises) && !w.variants.some((v) => v.id === 22)) {
+            w.variants.push({ id: 22, group_id: 10, name: 'Glutes, Hamstrings & Core Stability with Single-Leg Balance Work and a Loaded Carry Finisher', rotation_order: 2,
                 description: '', created_at: '2026-06-01T08:00:00Z' });
             ['Hip thrust', 'Romanian deadlift'].forEach((name, i) => w.exercises.push({
                 id: 31 + i, variant_id: 22, exercise_name: name, target_sets: 3, target_reps_min: 8,

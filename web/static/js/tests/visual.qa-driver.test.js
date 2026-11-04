@@ -210,7 +210,7 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(await load('workout-plan-day-sheet')).toMatchObject({ ok: true, failed: [] });
         const sheet = window.document.getElementById('workout-plan-day-sheet');
         const titles = () => Array.from(sheet.querySelectorAll('.wg-row__title')).map((t) => t.textContent);
-        expect(titles()).toEqual(['Push', 'Pull', 'Glutes, Hamstrings & Core Stability']);
+        expect(titles()).toEqual(['Push', 'Pull', 'Glutes, Hamstrings & Core Stability with Single-Leg Balance Work and a Loaded Carry Finisher']);
         const current = sheet.querySelector('.wg-row[aria-current] .wg-row__title').textContent;
         expect(await load('workout-plan-day-picked')).toMatchObject({ ok: true, failed: [] });
         await vi.waitFor(async () => {

@@ -225,6 +225,8 @@ describe('Up next card (kit WN1-WN6)', () => {
       '3 exercises · last Mon 26.10', '1 exercise · last Tue 27.10', '4 exercises · never',
     ]);
     expect(rows.map((r) => (r.querySelector('.wg-tag') || {}).textContent || null)).toEqual(['Today', null, null]);
+    // Names wrap in full: the sheet's title modifier lifts the row's two-line clamp.
+    expect(rows.every((r) => r.querySelector('.wg-row__title').classList.contains('wg-plan-day__title'))).toBe(true);
     expect(sheet().querySelector('.wg-sheet__body .wg-hint').textContent).toBe('The plan continues from the day you pick.');
     sheet().querySelector('.wg-sheethead [aria-label="Close"]').click();
     expect(sheetOpen()).toBe(false);
@@ -267,6 +269,38 @@ describe('Up next card (kit WN1-WN6)', () => {
     await flush();
     expect(card(c).querySelector('.wg-card__title').textContent).toBe('Chest & Triceps');
     expect(card(c).querySelector('.wg-wn-day .wg-meta').textContent).toBe('Day 1 of 3 · then Back & Biceps');
+  });
+
+  // Argus: pick B, then C, C succeeds, B fails would roll back over C. One
+  // pick runs at a time, so C cannot start until B settles.
+  it('WN7: a second pick waits for the first; a failed first pick then a successful second ends on the second', async () => {
+    const { window } = env;
+    window.safeToast = vi.fn();
+    let failB;
+    window.apiCall = vi.fn((url, _m, body) => {
+      if (!url.includes('set-variant')) return Promise.resolve(null);
+      if (body.variant_id === 8) return new Promise((_r, reject) => { failB = () => reject(new Error('boom')); });
+      return Promise.resolve(true);
+    });
+    // The commit's reload reads the server's view: C saved.
+    window.apiCallDirect = vi.fn(async () => rotating({ variant_id: 9, variant_name: 'Glutes, Hamstrings & Core' }));
+    const data = rotating();
+    const c = render(data);
+    action(c, 'other-plan-day').click();
+    sheetRows()[1].click(); // B, in flight
+    await vi.waitFor(() => expect(failB).toBeTypeOf('function'));
+    expect(action(c, 'other-plan-day').disabled).toBe(true);
+    window.WorkoutNextCard.otherPlanDay(data); // C attempt while B is pending
+    expect(sheetOpen()).toBe(false);
+    failB();
+    await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalled());
+    expect(card(c).querySelector('.wg-card__title').textContent).toBe('Chest & Triceps');
+    action(c, 'other-plan-day').click();
+    sheetRows()[2].click(); // C
+    await vi.waitFor(() => expect(card(c).querySelector('.wg-card__title').textContent).toBe('Glutes, Hamstrings & Core'));
+    await flush();
+    expect(window.apiCall.mock.calls.filter(([u]) => u.includes('set-variant')).map(([, , b]) => b.variant_id)).toEqual([8, 9]);
+    expect(card(c).querySelector('.wg-card__title').textContent).toBe('Glutes, Hamstrings & Core');
   });
 
   it('WN7: "Other plan day" is not reachable for flat plans, while skipping, or while a workout runs', () => {

@@ -295,6 +295,9 @@ async function nextWorkoutVariant(sessionId) {
 // ====================================
 
 const PLAN_DAY_SHEET_ID = 'workout-plan-day-sheet';
+// One pick in flight at a time: a later pick's success must not be undone by
+// an earlier pick's failure rolling the card back over it.
+let _planDayPickPending = false; // module-state: one set-variant write in flight (WN7)
 
 function _closePlanDaySheet() {
     const mm = window.ModalManager;
@@ -339,14 +342,27 @@ function _withPlanDay(data, day) {
 
 async function _pickPlanDay(data, day) {
     _closePlanDaySheet();
-    if (day.is_current) return;
+    if (day.is_current || _planDayPickPending) return;
+    _planDayPickPending = true;
+    try {
+        await _writePlanDay(data, day);
+    } finally {
+        _planDayPickPending = false;
+    }
+}
+
+async function _writePlanDay(data, day) {
     const id = data.session.id;
     const picked = _withPlanDay(data, day);
     const container = document.getElementById('next-workout-card');
     const handle = await window.DataStore.applyOptimistic('workout_next', (prev) => (
         prev && prev.session && prev.session.id === id ? picked : prev
     ), ['workout']);
-    if (container) _renderNextWorkout(container, picked);
+    if (container) {
+        _renderNextWorkout(container, picked);
+        const btn = container.querySelector('[data-action="other-plan-day"]');
+        if (btn) btn.disabled = true;
+    }
     let ok = false;
     try {
         ok = (await apiCall(`/api/workout/sessions/${id}/set-variant`, 'POST', { variant_id: day.id },
@@ -369,7 +385,7 @@ async function _pickPlanDay(data, day) {
 // confirm: picking again undoes it. Built from the cached payload, no read.
 function openOtherPlanDaySheet(data) {
     const plan = data && data.plan;
-    if (!plan || !Array.isArray(plan.days) || !plan.days.length) return;
+    if (_planDayPickPending || !plan || !Array.isArray(plan.days) || !plan.days.length) return;
     let sheet = document.getElementById(PLAN_DAY_SHEET_ID);
     if (!sheet) {
         sheet = document.createElement('mt-modal');
@@ -390,7 +406,7 @@ function openOtherPlanDaySheet(data) {
         row.type = 'button';
         row.dataset.variantId = String(day.id);
         const body = _nextCardEl('span', 'wg-row__body');
-        body.append(_nextCardEl('span', 'wg-row__title', day.name), _nextCardEl('span', 'wg-row__meta', _planDayMeta(day)));
+        body.append(_nextCardEl('span', 'wg-row__title wg-plan-day__title', day.name), _nextCardEl('span', 'wg-row__meta', _planDayMeta(day)));
         row.appendChild(body);
         if (day.is_current) {
             row.setAttribute('aria-current', 'true');
