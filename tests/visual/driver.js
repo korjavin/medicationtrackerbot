@@ -169,6 +169,9 @@
         w.sessions.push(
             session(51, '2026-07-05', { group_id: -1, variant_id: -1, started_at: '2026-07-05T06:10:00Z',
                 completed_at: '2026-07-05T06:44:00Z', notes: 'Morning run', scheduled_time: '08:10' }),
+            // A Finish that never landed: Unfinished chip + Finish (WN6).
+            session(59, '2026-07-04', { group_id: -1, variant_id: -1, status: 'in_progress', started_at: '2026-07-04T08:15:00Z',
+                completed_at: null, scheduled_time: '10:15' }),
             session(52, '2026-07-03', { variant_id: 21, status: 'skipped', started_at: null, completed_at: null }),
             session(53, '2026-06-30', { variant_id: 21 }),
             session(54, '2026-06-24'),
@@ -182,6 +185,11 @@
                 session_id: id, exercise_id: 30, exercise_name: 'Bench Press', sets_completed: 3,
                 reps_completed: 10, weight_kg: 55 + i * 2.5, status: 'completed', notes: '',
                 logged_at: `${id === 53 ? '2026-06-30' : '2026-06-24'}T16:50:00Z`, source: 'schedule',
+            }));
+            ['Goblet squat', 'Plank'].forEach((name, i) => w.exercise_logs.push({
+                session_id: 59, exercise_id: 0, exercise_name: name, sets_completed: 3,
+                reps_completed: i ? 1 : 10, weight_kg: i ? 0 : 16, status: 'completed', notes: '',
+                logged_at: `2026-07-04T08:${30 + i * 10}:00Z`, source: 'schedule',
             }));
         }
         return vault;

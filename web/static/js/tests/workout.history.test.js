@@ -71,7 +71,7 @@ describe('Workouts history (Phase 7, Task 4)', () => {
     function timelineFixture() {
         const at = (day) => `${day}T10:00:00.000Z`;
         const sessions = [
-            makeSession({ variant_name: 'Upper Back & Grip', session: { id: 1, scheduled_date: weekDay(0, 0), started_at: at(weekDay(0, 0)) } }),
+            makeSession({ variant_name: 'Upper Back & Grip', session: { id: 1, scheduled_date: weekDay(0, 0), started_at: `${weekDay(0, 0)}T16:04:00.000Z` } }),
             makeSession({ variant_name: 'Pull', total_volume: 0, session: {
                 id: 2, status: 'skipped', scheduled_date: weekDay(-1, 0), scheduled_time: '18:00',
                 started_at: null, completed_at: null, duration_minutes: undefined } }),
@@ -124,7 +124,7 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(rows.map((r) => r.querySelector('.wg-workouts-history-row__name').textContent)).toEqual(['Running', 'Morning run', 'Pull']);
         expect(rows[0].querySelector('.wg-workouts-history-row__tag').textContent).toBe('Band');
         const bandParts = Array.from(rows[0].querySelectorAll('.wg-workouts-history-row__part')).map((p) => p.textContent);
-        expect(bandParts[0]).toMatch(/^Thu 10:00/);
+        expect(bandParts[0]).toBe('Thu 10:00');
         expect(bandParts.slice(1)).toEqual(['30 min', '5.4 km']);
         expect(rows[1].querySelector('.wg-workouts-history-row__tag').textContent).toBe('Off plan');
         expect(rows[1].querySelector('.wg-row__lead--ok')).not.toBeNull();
@@ -138,6 +138,8 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         const planRow = container.querySelector('[data-session-id="1"]');
         expect(planRow.querySelector('.wg-workouts-history-row__tag')).toBeNull();
         expect(planRow.querySelector('.wg-workouts-history-row__name').textContent).toBe('Upper Back & Grip');
+        // 24h clock, as the kit and the card read.
+        expect(planRow.querySelector('.wg-workouts-history-row__time').textContent).toBe('Mon 16:04');
     });
 
     it('"Show 4 earlier weeks" adds four weeks per tap from the rows already read; a visit starts short again', async () => {

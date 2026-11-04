@@ -332,11 +332,12 @@ function _formatTimelineDuration(minutes) {
 }
 
 function _timelineClock(ms, userTz) {
-    const opts = { hour: '2-digit', minute: '2-digit' };
+    // 24h "18:04" as the kit and the card read, like meds.js _tlClock.
+    const opts = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
     try {
-        return new Date(ms).toLocaleTimeString([], { ...opts, timeZone: userTz || undefined });
+        return new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: userTz || undefined }).format(new Date(ms));
     } catch (_) {
-        return new Date(ms).toLocaleTimeString([], opts);
+        return new Intl.DateTimeFormat('en-GB', opts).format(new Date(ms));
     }
 }
 
