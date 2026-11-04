@@ -1,5 +1,5 @@
 id: train-plans-tab
-title: Plans opens on the current plan with every day, Share or print and Edit plan
+title: Plans opens on the current plan with every day; a day reads its exercises and starts
 platforms: [web, android, ios]
 preconditions:
   - Local or cloud user with one active rotating plan and one paused plan
@@ -11,6 +11,9 @@ steps:
   - Tap New plan, then go back; tap Import plan, then close it
   - Add a second active plan that doesn't rotate, and open Plans again
   - Pause every plan and open Plans again
+  - Tap a day that isn't next; tap an exercise, then go back; tap Edit, then go back
+  - Open that day again and tap Start this day, then confirm; finish the workout
+  - Open the day marked Next; then start any workout and open a day while it runs
   - With two active plans, set the device to a timezone a day ahead of the account's saved timezone (late evening there) and open Plans
 invariants:
   - 'One active plan: the card''s eyebrow reads "Current plan", the line under the name reads "{days} at {HH:MM} · {Goal} · {n}-day rotation" (a run of three or more days as "Mon–Sat", all seven as "Every day"), and every day is listed in plan order with "{n} exercises · last {Weekday DD.MM}" (or "{n} exercises · not done yet") and a "Next" tag on the day the Timeline offers next'
@@ -20,8 +23,12 @@ invariants:
   - 'Two active plans: one card each, soonest first, eyebrows "Next · today/tomorrow/{Weekday} HH:MM"; a plan that doesn''t rotate lists its exercises as "{sets} × {reps}"; a rotation longer than four days shows four and "All {n} days", which shows the rest in place'
   - 'The "today" / "tomorrow" in a "Next · …" eyebrow follows the saved workout timezone, not the device clock: a slot that is tomorrow in the saved zone reads "tomorrow" even where the device calendar already shows that date'
   - 'No active plan: "No plan yet" with Make a plan (the only sun) and Import plan; paused plans are listed under it, and the New plan / Import plan rows are not shown'
+  - 'A day opens its page: back "Plans", crumb "{plan} · day {k} of {n}", the day name as title, Edit in the bar (not a sun); the full description; "Exercises · {n}" with "last done {Weekday DD.MM} · {m} min" (left out for a day never done); one row per exercise as "{sets} × {reps} · {kg} kg · last {sets} × {reps} · {kg} kg" ("last …" left out when never logged); an exercise tap opens its history page'
+  - Edit opens the plan editor on that day's Day page; Back returns to Plans
+  - '"Start this day" makes that day the plan''s next workout, then asks to start it and opens the session; afterwards the Plans tab and the Timeline card show that day as next. On the day already next the button reads "Start workout" and starts it directly. While a workout runs the page has no start button. If the switch fails the day stays as it was, a "Couldn''t switch the day" toast shows, and nothing starts'
+  - With two active plans, Start this day on a day of the second plan switches that plan's own next workout, never the other plan's
 covered_by:
-  web: web/static/js/tests/workout.groups.test.js
-  android: tests/visual/scenes.json#workouts-plans
-  ios: tests/visual/scenes.json#workouts-plans
-source: [med-jqrf.2, "#1528"]
+  web: web/static/js/tests/workout.groups.test.js  # day page: features.workout-variants.test.js (PL2 day page), visual.qa-driver.test.js (PL2 scenes)
+  android: tests/visual/scenes.json#workouts-plans  # day page: #workouts-plan-day, #workouts-plan-day-started
+  ios: tests/visual/scenes.json#workouts-plans  # day page: #workouts-plan-day, #workouts-plan-day-started
+source: [med-jqrf.2, "#1528", med-jqrf.3]

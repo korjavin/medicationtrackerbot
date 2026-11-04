@@ -187,8 +187,7 @@ function _planExerciseMeta(ex) {
     return `${ex.target_sets} × ${reps}${ex.target_weight_kg ? ` · ${ex.target_weight_kg} kg` : ''}`;
 }
 
-// One day row. A tap reads the day (PL2) once its page exists (med-jqrf.3
-// declares openWorkoutPlanDayPage); until then the row is read-only.
+// One day row. A tap reads the day (PL2, variants.js openWorkoutPlanDayPage).
 function _planDayRow(doc, plan, day) {
     const open = typeof openWorkoutPlanDayPage === 'function'
         ? () => openWorkoutPlanDayPage(plan, day)

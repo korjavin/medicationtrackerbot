@@ -155,6 +155,36 @@
             id: 60 + i, variant_id: 30, exercise_name: name, target_sets: sets, target_reps_min: reps,
             target_reps_max: null, target_weight_kg: null, order_index: i, exercise_library_id: null, equipment_id: null,
         }));
+        // PL2 (bd med-jqrf.3): "Quads & Calves" (id 29, day 7, never next) as on
+        // the kit page: a description, three exercises, done six days ago in
+        // 47 min with per-set logs, so its day page shows every target and
+        // "last". Stamped from the (pinned) clock: the fixture is already shifted.
+        // The sun hides while a session runs: finish WN6's unfinished one here.
+        w.sessions.filter((s) => s.status === 'in_progress').forEach((s) => {
+            s.status = 'completed';
+            s.completed_at = new Date(Date.parse(s.started_at) + 30 * 60000).toISOString();
+        });
+        const quads = w.variants.find((v) => v.id === 29);
+        quads.description = 'Quad-focused leg day with strength emphasis, plus calves.';
+        const lifts = [['Back squat', 4, 5, 100, 97.5], ['Leg press', 3, 10, 160, 150], ['Standing calf raise', 4, 12, 60, 60]];
+        lifts.forEach(([name, sets, reps, kg], i) => w.exercises.push({
+            id: 63 + i, variant_id: 29, exercise_name: name, target_sets: sets, target_reps_min: reps,
+            target_reps_max: null, target_weight_kg: kg, order_index: i, exercise_library_id: null, equipment_id: null,
+        }));
+        const at = new Date();
+        at.setDate(at.getDate() - 6);
+        at.setHours(18, 4, 0, 0);
+        w.sessions.push({
+            id: 70, user_id: 1, group_id: 10, variant_id: 29,
+            scheduled_date: new Date(at.getFullYear(), at.getMonth(), at.getDate()).toISOString(), scheduled_time: '18:00',
+            status: 'completed', started_at: at.toISOString(), completed_at: new Date(at.getTime() + 47 * 60000).toISOString(),
+            snoozed_until: null, snooze_count: 0, notification_message_id: null, notes: '',
+        });
+        lifts.forEach(([name, sets, reps, , last], i) => w.exercise_logs.push({
+            session_id: 70, exercise_id: 63 + i, exercise_name: name, sets_completed: sets, reps_completed: reps,
+            weight_kg: last, status: 'completed', notes: '', logged_at: new Date(at.getTime() + (10 + i * 12) * 60000).toISOString(),
+            source: 'schedule', sets: Array.from({ length: sets }, () => ({ weight_kg: last, reps })),
+        }));
         return vault;
     }
 

@@ -141,6 +141,164 @@ function addExerciseToWorkoutDay() {
     return showAddExercisePage(t.work, _renderDayPageRows, name);
 }
 
+// ====================================
+// DAY PAGE · read (med-jqrf.3, kit screens-plans PL2)
+// ====================================
+//
+// Opened from a Plans-tab day row. Read-only, no editor state: the full
+// description, each exercise with its target and last time, Edit (opens the
+// editor on this day) and the page's one sun, "Start this day".
+
+// "last 4 × 5 · 97.5 kg" from the newest history row: its set count, the
+// first set's reps, the heaviest weight. Warm-ups don't count. '' = never.
+function _planDayLastText(rows) {
+    const row = Array.isArray(rows) ? rows[0] : null;
+    const all = row && Array.isArray(row.sets) ? row.sets : [];
+    const sets = all.filter((s) => s && s.set_type !== 'warmup');
+    if (!sets.length) return '';
+    const kg = Math.max(...sets.map((s) => Number(s.weight_kg) || 0));
+    return `last ${sets.length} × ${Number(sets[0].reps) || 0}${kg > 0 ? ` · ${kg} kg` : ''}`;
+}
+
+// "last done Wed 28.10 · 47 min"; null parts are left out.
+function _planDayDoneText(day) {
+    const d = _planLocalDate(day.last_completed_date);
+    const parts = [];
+    if (d) parts.push(`last done ${d.toLocaleDateString('en-US', { weekday: 'short' })} ${_planDDMM(d)}`);
+    if (day.last_duration_min) parts.push(`${day.last_duration_min} min`);
+    return parts.join(' · ');
+}
+
+// workout_plans with this plan's next day moved to `dayId` (the optimistic
+// state of set-variant).
+function _planWithNextDay(prev, planId, dayId) {
+    if (!prev || !Array.isArray(prev.plans)) return prev;
+    return {
+        ...prev,
+        plans: prev.plans.map((p) => (p.id !== planId ? p : {
+            ...p,
+            next: p.next ? { ...p.next, variant_id: dayId } : p.next,
+            days: (p.days || []).map((d) => ({ ...d, is_next: d.id === dayId })),
+        })),
+    };
+}
+
+function openWorkoutPlanDayPage(plan, day) {
+    if (!plan || !day || !window.WGPage || document.querySelector('.wg-page[data-plan-day-page]')) return null;
+    const doc = document;
+    const days = plan.days || [];
+    const k = days.findIndex((d) => d.id === day.id) + 1;
+    const body = _planEl(doc, 'div', 'wg-vstack');
+    if (day.description) body.appendChild(_planEl(doc, 'p', 'wg-pl__desc', day.description));
+    const section = _planEl(doc, 'section', 'wg-section');
+    const head = _planEl(doc, 'div', 'wg-section__head');
+    const count = _planEl(doc, 'span', 'wg-eyebrow', 'Exercises');
+    head.appendChild(count);
+    const done = _planDayDoneText(day);
+    if (done) head.appendChild(_planEl(doc, 'span', 'wg-meta', done));
+    const list = _planEl(doc, 'div', 'wg-list');
+    list.setAttribute('aria-busy', 'true'); // until every row's "last" has landed
+    section.append(head, list);
+    body.appendChild(section);
+
+    const page = window.WGPage.push({
+        title: day.name || 'Day',
+        crumb: `${plan.name || 'Plan'} · day ${k} of ${days.length}`,
+        back: 'Plans',
+        body,
+        primary: { label: 'Edit', ghost: true, onClick: () => editPlanDay() },
+    });
+    page.el.dataset.planDayPage = String(day.id);
+
+    // Edit: leave the read page for the editor, opened on this day.
+    async function editPlanDay() {
+        page.close();
+        if (!(await openWorkoutPlanPage(plan.id))) return;
+        const draft = window.WorkoutEdit.planDraft;
+        const d = draft && draft.days.find((x) => x.id === day.id);
+        if (d) openWorkoutDayPage(d, renderWorkoutPlanBody);
+    }
+
+    let busy = false; // one set-variant write per page at a time
+    async function startPlanDay(btn, fresh) {
+        if (busy) return;
+        busy = true;
+        btn.disabled = true;
+        try {
+            // The plan's OWN next session: set-variant refuses a day of another plan.
+            const sid = fresh.plan.next.session_id;
+            if (!fresh.day.is_next) {
+                const handle = await window.DataStore.applyOptimistic('workout_plans',
+                    (prev) => _planWithNextDay(prev, fresh.plan.id, fresh.day.id), ['workout']);
+                let ok = false;
+                try {
+                    ok = (await apiCall(`/api/workout/sessions/${sid}/set-variant`, 'POST', { variant_id: fresh.day.id },
+                        { suppressWriteAlert: true })) != null;
+                } catch (error) {
+                    console.error('Error setting plan day:', error);
+                }
+                if (!ok) {
+                    await handle.rollback();
+                    safeToast("Couldn't switch the day. Please try again.", 'error');
+                    return;
+                }
+                await handle.commit(null);
+                await invalidateWorkoutCache();
+                loadWorkoutGroups();
+                loadNextWorkout();
+            }
+            page.close();
+            await startWorkoutSession(sid);
+        } finally {
+            busy = false;
+            btn.disabled = false;
+        }
+    }
+
+    (async () => {
+        const [exercises, plans] = await Promise.all([
+            Promise.resolve(apiCall(`/api/workout/exercises?variant_id=${day.id}`)).catch(() => null),
+            Promise.resolve(apiCall('/api/workout/plans')).catch(() => null),
+        ]);
+        if (!page.el.isConnected) return;
+        const rows = (Array.isArray(exercises) ? exercises : [])
+            .slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+        count.textContent = `Exercises · ${rows.length}`;
+        const reads = [];
+        list.replaceChildren(...(rows.length ? rows.map((ex) => {
+            const name = ex.exercise_name || 'Exercise';
+            const target = _planExerciseMeta(ex);
+            const row = _planRow(doc, {
+                title: name,
+                meta: target,
+                onClick: () => window.WorkoutExerciseDetail && window.WorkoutExerciseDetail.open(name),
+            });
+            // Targets paint first; each "last" lands on its own read.
+            reads.push(Promise.resolve(apiCall(`/api/workout/exercises/history?name=${encodeURIComponent(name)}&limit=1`))
+                .then((hist) => {
+                    const last = _planDayLastText(hist);
+                    if (last) row.querySelector('.wg-row__meta').textContent = `${target} · ${last}`;
+                }, () => {}));
+            return row;
+        }) : [workoutEmptyRow('No exercises yet.')]));
+        Promise.all(reads).then(() => list.removeAttribute('aria-busy'));
+
+        // The fresh read is the truth for "next" and the running session; the
+        // row's copy is the fallback.
+        const freshPlan = (plans && Array.isArray(plans.plans) && plans.plans.find((p) => p.id === plan.id)) || plan;
+        const fresh = { plan: freshPlan, day: (freshPlan.days || []).find((d) => d.id === day.id) || day };
+        if ((plans && plans.active_session_id) || !(freshPlan.next && freshPlan.next.session_id)) return;
+        const foot = _planEl(doc, 'footer', 'wg-pagefoot');
+        const btn = _planEl(doc, 'button', 'wg-btn wg-btn--primary wg-btn--block', fresh.day.is_next ? 'Start workout' : 'Start this day');
+        btn.type = 'button';
+        btn.dataset.action = 'start-plan-day';
+        btn.addEventListener('click', () => startPlanDay(btn, fresh));
+        foot.appendChild(btn);
+        page.el.appendChild(foot);
+    })();
+    return page;
+}
+
 window.WorkoutVariants = {
     openAdd: () => openWorkoutDayPage(null, renderWorkoutPlanBody),
     openEdit: openWorkoutDayPage,

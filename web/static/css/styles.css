@@ -4680,6 +4680,13 @@ body:has(.wg-callbar--dock) .wg-toasts {
     margin: 0;
 }
 
+/* PL2 day page: the day's full description above its exercises. */
+.wg-pl__desc {
+    margin: 0;
+    color: var(--wg-fg-2);
+    font: var(--wg-fs-sm)/1.45 var(--wg-font-ui);
+}
+
 .wg-pl__days {
     margin: 0 calc(-1 * var(--wg-card-pad));
 }
