@@ -1825,11 +1825,17 @@ export async function isSyncWedged() {
 // also written VERBATIM in this mode — no skew correction — because derived
 // bodies must be byte-identical on every device that derives them (bd med-8j12),
 // and `0 - skewMs` is not.
-export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false } = {}) {
+//
+// `ifMatchTs` is the derived REWRITE mode (bd med-q6l3): write only while the
+// raw slot is still the live version the caller read (same clientTs), checked
+// under the same lock as the put. A real write that landed after the read — a
+// Start in another tab, a pulled op, a tombstone — keeps the slot; the stored
+// row comes back either way.
+export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false, ifMatchTs } = {}) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
   const { stamped, wrote } = await stampAndPut(recordType, record, {
-    ifAbsent, skewMs: meta.clockSkewMs, pending: true,
+    ifAbsent, ifMatchTs, skewMs: meta.clockSkewMs, pending: true,
   });
   // Nothing changed — no op to push, nothing to repaint.
   if (!wrote) return stamped;
@@ -1852,12 +1858,14 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
 // row must both be visible, or neither, when a concurrent bootstrap snapshots
 // what to preserve. The lock is also what makes putIfAbsent atomic: nothing can
 // land a row between the absence check and the put.
-async function stampAndPut(recordType, record, { ifAbsent, skewMs, pending }) {
+async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, skewMs, pending }) {
   let stamped = record;
   let wrote = true;
   await withRecordsLock(async () => {
     const existing = await getRecord(record.recordId);
-    if (ifAbsent && existing) {
+    const stale = ifMatchTs !== undefined
+      && (!existing || existing.deleted || existing.clientTs !== ifMatchTs);
+    if ((ifAbsent && existing) || stale) {
       stamped = existing;
       wrote = false;
       return;
@@ -1914,6 +1922,9 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     // landed first. Callers decide what a losing verdict means for them — a
     // tombstoned slot is a deliberate delete, not something to re-fill.
     putIfAbsent: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush, ifAbsent: true }),
+    // Derived rewrite (see writeRecord's `ifMatchTs`): lands only on the exact
+    // live version `expected` the caller read.
+    putIfUnchanged: (recordType, record, expected) => writeRecord(ctx, recordType, record, origin, { flush, ifMatchTs: expected.clientTs }),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin, { flush }),
     // { seq, pending } for the relay fence (bd med-wi09.14, reminders.js).
     horizonBasis: async () => {
@@ -1929,8 +1940,8 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
 // repaint notifications — but no account: no bootstrap, no 'pending' rows, no
 // oplog flush, so nothing here ever touches the network.
 export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
-  const write = async (recordType, record, ifAbsent) => {
-    const { stamped, wrote } = await stampAndPut(recordType, record, { ifAbsent, skewMs: 0, pending: false });
+  const write = async (recordType, record, ifAbsent, ifMatchTs) => {
+    const { stamped, wrote } = await stampAndPut(recordType, record, { ifAbsent, ifMatchTs, skewMs: 0, pending: false });
     if (wrote) notifyRecordsChanged([recordType], origin);
     return stamped;
   };
@@ -1941,6 +1952,7 @@ export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
     changesSince,
     put: (recordType, record) => write(recordType, record, false),
     putIfAbsent: (recordType, record) => write(recordType, record, true),
+    putIfUnchanged: (recordType, record, expected) => write(recordType, record, false, expected.clientTs),
     del: (recordType, recordId) => write(recordType, { recordId, clientTs: Date.now(), deleted: true }, false),
   };
 }

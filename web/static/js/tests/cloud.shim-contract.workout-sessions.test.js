@@ -6,7 +6,7 @@
 // contract bugs in the JS domain layer, not test bugs; the original
 // (network-mocked) workout.*.test.js files keep running unshimmed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createInMemoryRecordsPort, createStampingRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
 
@@ -2668,6 +2668,43 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
         const next = await domainOver(records).getNext();
         expect(next.session.id).toBe(901);
         expect(next.variant_id).toBe(2);
+    });
+
+    // Argus P1: a Start landing between moveRotation's read and its write (a
+    // second tab, a pulled op) must survive; through the stamping port a plain
+    // floored put would be promoted over it and wipe started_at.
+    it("a Start that lands mid-sweep keeps today's row: the re-point is compare-and-swap", async () => {
+        const base = seed();
+        const records = createStampingRecordsPort({
+            workoutgroup: await base.list('workoutgroup'),
+            workoutvariant: await base.list('workoutvariant'),
+            workoutexercise: await base.list('workoutexercise'),
+            workoutrotation: await base.list('workoutrotation'),
+            workoutsession: [session('2026-08-24', 'pending', { id: 902 }), session(WEDNESDAY, 'pending', { id: 901 })]
+        });
+        const started = {
+            ...session(WEDNESDAY, 'in_progress', { id: 901 }), started_at: new Date(NOW).toISOString(), clientTs: NOW
+        };
+        let armed = false;
+        const put = records.put;
+        records.put = async (type, rec) => {
+            if (type === 'workoutrotation') armed = true;
+            return put(type, rec);
+        };
+        const list = records.list;
+        records.list = async (type) => {
+            const rows = await list(type);
+            if (armed && type === 'workoutsession') {
+                armed = false;
+                await put('workoutsession', started);
+            }
+            return rows;
+        };
+
+        await domainOver(records).skipSession(902);
+
+        const wed = (await list('workoutsession')).find((s) => s.id === 901);
+        expect(wed).toMatchObject({ status: 'in_progress', started_at: started.started_at, variant_id: 1, clientTs: NOW });
     });
 
     it("leaves today's started row alone on a late past-day skip", async () => {

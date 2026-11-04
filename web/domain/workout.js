@@ -1672,7 +1672,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // already keep a started or acted-on today's row in place.
       if (String(s.scheduled_date).slice(0, 10) < todayStr) continue;
       if ((await countSessionExerciseLogs(s.id)) > 0) continue;
-      await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: 0 });
+      // Compare-and-swap on the version read above (bd med-q6l3): a Start,
+      // Finish or delete that landed since (another tab, a pulled op) keeps the
+      // slot, instead of this stale body being promoted over it.
+      await records.putIfUnchanged(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: 0 }, s);
     }
   }
 
