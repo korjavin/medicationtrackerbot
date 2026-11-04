@@ -1,0 +1,21 @@
+id: ai-provider-stale-save
+title: A stale AI provider Save never pairs a key with another provider's URL
+platforms: [web, android, ios]
+preconditions:
+  - A saved AI provider with an API key (provider A)
+  - Settings → AI provider is open on this device, showing A
+steps:
+  - On another device (or after a sync), save a different provider B with its own key
+  - Back on this device, without reopening Settings, change the model and tap Save
+invariants:
+  - 'The Save is refused: a toast says your changes were not saved and the form now shows the saved settings'
+  - The form now shows B; Save works again and saves against B
+  - AI requests keep going to B's URL with B's key, for text and for food photos (own photo key or inherited)
+  - A key rotated at the same URL on the other device is kept; the Save goes through with this page's other fields
+  - When the saved settings cannot be reloaded, Save stays disabled and the hint under the provider row says to reopen Settings
+  - 'Scope: covers saves from the current app version on one tab; an older app version or a second tab on the same device is not protected'
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.settings.test.js
+  android: web/static/js/tests/cloud.shim-contract.settings.test.js
+  ios: web/static/js/tests/cloud.shim-contract.settings.test.js
+source: [med-tew4, med-yzag]

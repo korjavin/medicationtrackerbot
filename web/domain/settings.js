@@ -259,8 +259,46 @@ function findSingleton(all, recordId) {
   return all.find((r) => r.recordId === recordId && !r.deleted);
 }
 
+// Raw integrations row (or null) → every group defaulted. Pure, so the GET
+// and patchIntegrations' locked update read a row the same way.
+function integrationsOf(rec) {
+  const out = {};
+  for (const group of Object.keys(DEFAULT_INTEGRATIONS)) {
+    out[group] = { ...DEFAULT_INTEGRATIONS[group], ...(rec && rec[group]) };
+  }
+  return out;
+}
+
+// Defaulted groups → the masked view the GET returns (see getIntegrations).
+function maskIntegrations(stored) {
+  const out = {};
+  for (const group of Object.keys(stored)) {
+    out[group] = {};
+    for (const field of Object.keys(stored[group])) {
+      const value = stored[group][field];
+      out[group][field] = INTEGRATIONS_SECRET_FIELDS[group].has(field)
+        ? (value ? SECRET_MASK : '')
+        : value;
+    }
+  }
+  return out;
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Key/value equality of parsed plain data, independent of property order.
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length
+    && keys.every((k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual(a[k], b[k]));
+}
+
 // createSettingsDomain builds the Settings domain API over the injected ports:
-//   records  — { list(type), put(type, record), del(type, id) }
+//   records  — { list(type), put(type, record), del(type, id), update(type, id, fn) }
 //   now()    — current time in ms epoch
 //   timeZone — IANA zone string used until the user overrides it via setTimezone
 export function createSettingsDomain({ records, now, timeZone }) {
@@ -504,30 +542,14 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // rather than undefined.
   async function getStoredIntegrations() {
     const all = await records.list(INTEGRATIONS_RECORD_TYPE);
-    const rec = findSingleton(all, INTEGRATIONS_RECORD_ID);
-    const out = {};
-    for (const group of Object.keys(DEFAULT_INTEGRATIONS)) {
-      out[group] = { ...DEFAULT_INTEGRATIONS[group], ...(rec && rec[group]) };
-    }
-    return out;
+    return integrationsOf(findSingleton(all, INTEGRATIONS_RECORD_ID));
   }
 
   // getIntegrations mirrors handleGetIntegrations: secret fields are masked
   // to SECRET_MASK when set, '' when unset, so the caller can tell
   // "configured" apart from "not configured" without ever reading the key.
   async function getIntegrations() {
-    const stored = await getStoredIntegrations();
-    const out = {};
-    for (const group of Object.keys(stored)) {
-      out[group] = {};
-      for (const field of Object.keys(stored[group])) {
-        const value = stored[group][field];
-        out[group][field] = INTEGRATIONS_SECRET_FIELDS[group].has(field)
-          ? (value ? SECRET_MASK : '')
-          : value;
-      }
-    }
-    return out;
+    return maskIntegrations(await getStoredIntegrations());
   }
 
   // patchIntegrations mirrors handleUpdateIntegrations: groups omitted from
@@ -535,22 +557,36 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // own property are untouched (server's *string nil case), an explicit ''
   // clears, SECRET_MASK on a secret field preserves the existing value
   // (resolveSecretPatch), and any other string overwrites.
+  //
+  // patch.ifMatch (bd med-yzag) is the masked view the form was loaded from.
+  // The merge runs inside records.update on the raw row it replaces and is
+  // refused unless that row's masked view still equals ifMatch. Equal views
+  // mean every public field and every secret's set-ness are what the user
+  // saw, so *** keeps a key stored with the URL on screen: the CURRENT saved
+  // pair (a same-endpoint key rotation elsewhere passes). A refusal writes
+  // nothing and answers { conflict: true, current: <masked view> }. No
+  // ifMatch (older UI bundles) merges unconditionally, as before.
   async function patchIntegrations(patch) {
-    const stored = await getStoredIntegrations();
-    for (const group of Object.keys(DEFAULT_INTEGRATIONS)) {
-      const groupPatch = patch && typeof patch[group] === 'object' ? patch[group] : null;
-      if (!groupPatch) continue;
-      for (const field of Object.keys(DEFAULT_INTEGRATIONS[group])) {
-        if (!Object.prototype.hasOwnProperty.call(groupPatch, field)) continue;
-        const incoming = groupPatch[field];
-        if (INTEGRATIONS_SECRET_FIELDS[group].has(field) && incoming === SECRET_MASK) continue;
-        stored[group][field] = typeof incoming === 'string' ? incoming : '';
+    const checked = !!patch && Object.prototype.hasOwnProperty.call(patch, 'ifMatch');
+    let seen = null;
+    const committed = await records.update(INTEGRATIONS_RECORD_TYPE, INTEGRATIONS_RECORD_ID, (existing) => {
+      const stored = integrationsOf(existing && !existing.deleted ? existing : null);
+      seen = maskIntegrations(stored);
+      if (checked && !(isPlainObject(patch.ifMatch) && deepEqual(patch.ifMatch, seen))) return null;
+      for (const group of Object.keys(DEFAULT_INTEGRATIONS)) {
+        const groupPatch = patch && typeof patch[group] === 'object' ? patch[group] : null;
+        if (!groupPatch) continue;
+        for (const field of Object.keys(DEFAULT_INTEGRATIONS[group])) {
+          if (!Object.prototype.hasOwnProperty.call(groupPatch, field)) continue;
+          const incoming = groupPatch[field];
+          if (INTEGRATIONS_SECRET_FIELDS[group].has(field) && incoming === SECRET_MASK) continue;
+          stored[group][field] = typeof incoming === 'string' ? incoming : '';
+        }
       }
-    }
-    await records.put(INTEGRATIONS_RECORD_TYPE, {
-      recordId: INTEGRATIONS_RECORD_ID, clientTs: now(), deleted: false, ...stored,
+      return { recordId: INTEGRATIONS_RECORD_ID, clientTs: now(), deleted: false, ...stored };
     });
-    return getIntegrations();
+    if (!committed) return { conflict: true, current: seen };
+    return maskIntegrations(integrationsOf(committed));
   }
 
   // getVoiceProvisioning / setVoiceProvisioning persist the app-provisioned

@@ -11,6 +11,8 @@ import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-
 import { allowConsoleNoise } from './helpers/setup.js';
 import { userContentCount } from '../../../domain/vault.js';
 import { installApiShim } from '../../../cloud/js/apishim.js';
+import { createSettingsDomain } from '../../../domain/settings.js';
+import { createAIClient } from '../../../cloud/js/aiclient.js';
 
 describe('cloud shim contract — settings flows (features/settings.js over web/domain/settings.js)', () => {
     let env;
@@ -562,13 +564,13 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
 
     it('Integrations round-trip: entering a key, saving, then reloading shows the masked value', async () => {
         const { window, document } = env;
+        // A custom food URL stored before the UI was removed (med-bpp9) must
+        // survive a save from the form that no longer has the field.
+        await window.apiCall('/api/settings/integrations', 'PATCH', { food: { url: 'https://usda.example/v1' } });
         await window.SettingsIntegrations.load();
 
         document.getElementById('integrations-openai-api-key').value = 'sk-test-dummy-key';
         document.getElementById('integrations-openai-url').value = 'https://api.openai.example/v1';
-        // A custom food URL stored before the UI was removed (med-bpp9) must
-        // survive a save from the form that no longer has the field.
-        await window.apiCall('/api/settings/integrations', 'PATCH', { food: { url: 'https://usda.example/v1' } });
 
         await window.SettingsIntegrations.save();
 
@@ -585,5 +587,104 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(document.getElementById('integrations-openai-api-key').value).toBe('***');
         expect(document.getElementById('integrations-openai-url').value).toBe('https://api.openai.example/v1');
         expect((await window.apiCall('/api/settings/integrations', 'GET')).food.url).toBe('https://usda.example/v1');
+    });
+
+    // bd med-yzag: a Save from a page loaded with provider A must never pair
+    // A's URL with a key B wrote meanwhile (other device, pull, snapshot).
+    // Fixture credentials only.
+    describe('a masked Save is bound to the view the page loaded (med-yzag)', () => {
+        const A = { api_key: 'fixture-key-a', url: 'https://api.openai.com/v1', model: 'model-a', vision_api_key: 'fixture-photo-a', vision_url: 'https://photos-a.example/v1', vision_model: 'photo-a' };
+
+        // B lands straight in the store, as a pull or snapshot would.
+        async function landB(openai) {
+            const [row] = await env.records.list('integrations');
+            await env.records.put('integrations', { ...row, clientTs: row.clientTs + 1, openai: { ...row.openai, ...openai } });
+        }
+
+        // What the AI client would send: URL + Authorization per scope.
+        async function sentPairs() {
+            const settingsDomain = createSettingsDomain({ records: env.records, now: Date.now, timeZone: 'UTC' });
+            const client = createAIClient({ settingsDomain, documentPolicy: { origins: '[]', origin: 'https://account.example' } });
+            const calls = [];
+            const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+                calls.push({ url: String(url), auth: init.headers.Authorization });
+                return new Response(JSON.stringify({ data: [{ id: 'm' }] }), { status: 200 });
+            });
+            await client.listModels({ scope: 'text', refresh: true });
+            await client.listModels({ scope: 'vision', refresh: true });
+            spy.mockRestore();
+            return calls;
+        }
+
+        async function loadA(page) {
+            await env.window.apiCall('/api/settings/integrations', 'PATCH', { openai: A });
+            await env.window.SettingsIntegrations.load();
+            return page;
+        }
+
+        it.each([
+            ['an explicit photo key', { api_key: 'fixture-key-b', url: 'https://b.example/v1', vision_api_key: 'fixture-photo-b', vision_url: 'https://photos-b.example/v1' },
+                [{ url: 'https://b.example/v1/models', auth: 'Bearer fixture-key-b' }, { url: 'https://photos-b.example/v1/models', auth: 'Bearer fixture-photo-b' }]],
+            ['an inherited photo key', { api_key: 'fixture-key-b', url: 'https://b.example/v1', vision_api_key: '', vision_url: '' },
+                [{ url: 'https://b.example/v1/models', auth: 'Bearer fixture-key-b' }, { url: 'https://b.example/v1/models', auth: 'Bearer fixture-key-b' }]],
+        ])('B changed the endpoint (%s): the stale Save is refused, B keeps its own pairs, the form moves to B', async (_, b, pairs) => {
+            const { window, document } = env;
+            const page = await loadA(window.SettingsView.openSettingsPage('integrations'));
+            const cachedA = await window.MedTrackerDB.ApiCache.get('settings_integrations');
+            await landB(b);
+            const toasts = [];
+            window.safeToast = (msg) => toasts.push(msg);
+            const model = document.getElementById('integrations-openai-model');
+            model.value = 'model-edited';
+            model.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+            await window.SettingsIntegrations.save();
+
+            expect(toasts).toEqual(['Your changes weren’t saved: your AI provider settings changed since you opened this page. The form now shows the saved settings; check them and save again.']);
+            expect(await sentPairs()).toEqual(pairs);
+            expect((await env.records.list('integrations'))[0].openai.model).toBe('model-a');
+            // The optimistic cache row rolled back to what it held before Save.
+            expect(await window.MedTrackerDB.ApiCache.get('settings_integrations')).toEqual(cachedA);
+            // Recovery fully applied B: B is the new baseline, so an unchanged
+            // Save from it now goes through.
+            expect(document.getElementById('integrations-openai-url').value).toBe('https://b.example/v1');
+            expect(document.getElementById('integrations-openai-model').value).toBe('model-a');
+            expect(page.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            await window.SettingsIntegrations.save();
+            expect(toasts.at(-1)).toBe('Integrations saved.');
+            expect(await sentPairs()).toEqual(pairs);
+            page.close();
+        });
+
+        it('B rotated the key at the same endpoint: the Save proceeds and keeps B\'s key with the form\'s public fields', async () => {
+            const { window, document } = env;
+            const page = await loadA(window.SettingsView.openSettingsPage('integrations'));
+            await landB({ api_key: 'fixture-key-rotated' });
+            const model = document.getElementById('integrations-openai-model');
+            model.value = 'model-edited';
+            model.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+            await window.SettingsIntegrations.save();
+
+            const [row] = await env.records.list('integrations');
+            expect(row.openai).toMatchObject({ api_key: 'fixture-key-rotated', url: A.url, model: 'model-edited' });
+            page.close();
+        });
+
+        it('no ifMatch (an older UI bundle) keeps the unconditional merge; a non-object ifMatch is refused', async () => {
+            const { window } = env;
+            await window.apiCall('/api/settings/integrations', 'PATCH', { openai: A });
+            await landB({ api_key: 'fixture-key-b', url: 'https://b.example/v1' });
+            const res = await window.apiCall('/api/settings/integrations', 'PATCH', { openai: { api_key: '***', url: 'https://c.example/v1' } });
+            expect(res.openai).toMatchObject({ api_key: '***', url: 'https://c.example/v1' });
+            expect((await env.records.list('integrations'))[0].openai).toMatchObject({ api_key: 'fixture-key-b', url: 'https://c.example/v1' });
+
+            for (const ifMatch of [null, 'view', [], 7]) {
+                const refused = await window.apiCall('/api/settings/integrations', 'PATCH', { openai: { url: 'https://d.example/v1' }, ifMatch });
+                expect(refused.conflict).toBe(true);
+                expect(JSON.stringify(refused)).not.toContain('fixture-');
+            }
+            expect((await env.records.list('integrations'))[0].openai.url).toBe('https://c.example/v1');
+        });
     });
 });

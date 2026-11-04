@@ -561,6 +561,24 @@ describe('localRecordsPort contract (med-o7zq.2)', () => {
         expect(edit.clientTs).toBe(first.clientTs + 1);
         expect(await pendingRows()).toEqual([]);
     });
+
+    it('update runs fn on the raw row under the lock: null writes nothing, a body is stamped above it (med-yzag)', async () => {
+        const port = localRecordsPort();
+        const first = await port.put('integrations', { recordId: 'integrations', clientTs: Date.now() + 60_000, deleted: false, v: 1 });
+        let seen = null;
+        const [, committed] = await Promise.all([
+            port.put('integrations', { recordId: 'integrations', clientTs: 1, deleted: false, v: 2 }),
+            port.update('integrations', 'integrations', (existing) => {
+                seen = existing;
+                return { recordId: 'integrations', clientTs: 1, deleted: false, v: existing.v + 1 };
+            }),
+        ]);
+        expect(seen.v).toBe(2);
+        expect(committed).toMatchObject({ v: 3, recordType: 'integrations', clientTs: first.clientTs + 2 });
+        expect(await port.update('integrations', 'integrations', () => null)).toBeNull();
+        expect(await port.listRaw('integrations')).toEqual([committed]);
+        expect(await pendingRows()).toEqual([]);
+    });
 });
 
 // bd med-o7zq.3 — local mode's side-effect and egress policy: nothing leaves the

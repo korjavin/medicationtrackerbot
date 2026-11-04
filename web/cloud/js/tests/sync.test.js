@@ -4125,3 +4125,116 @@ describe('tzfloor rows converge on the earliest floor (med-wi09.19)', () => {
     expect(kept.clientTs).toBeGreaterThan(0);
   });
 });
+
+// bd med-yzag — records.update is the locked compare-and-merge the masked
+// integrations PATCH writes through: fn runs on the raw row INSIDE
+// withRecordsLock, so the row it checks is the row it replaces.
+describe('records.update: locked compare-and-merge on the raw row (med-yzag)', () => {
+  const accountId = 'acct-yzag';
+  const ID = 'integrations';
+  // Fixture credentials only.
+  const rowA = { recordId: ID, recordType: 'integrations', clientTs: 5000, deleted: false,
+    openai: { api_key: 'fixture-key-a', url: 'https://a.example/v1', model: 'm' } };
+  const rowB = { ...rowA, openai: { api_key: 'fixture-key-b', url: 'https://b.example/v1', model: 'm' } };
+
+  const seed = async (records) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta'], 'readwrite');
+        for (const r of records) tx.objectStore('records').put(r);
+        for (const [k, v] of Object.entries({ localLastSeq: 5, lastSnapshotSeq: 0 })) tx.objectStore('sync_meta').put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const readStore = async (name, key) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction(name, 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = key === undefined ? tx.objectStore(name).getAll() : tx.objectStore(name).get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  let ctx;
+  let posted;
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    posted = [];
+    let assignNext = 6;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        posted.push(...ops.map((o) => o.record_type_tag));
+        return new Response(JSON.stringify({ assigned: ops.map(() => assignNext++) }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  });
+  afterEach(async () => {
+    await flushConfirmed(ctx).catch(() => {});
+    vi.unstubAllGlobals();
+  });
+
+  it('fn sees a row that landed after the caller read, and resolves the stamped committed row', async () => {
+    await seed([rowA]);
+    const port = recordsPort(ctx);
+    expect((await port.list('integrations'))[0].openai.url).toBe('https://a.example/v1');
+    let seen = null;
+    // Both queue on the records lock; the put lands first.
+    const [, committed] = await Promise.all([
+      port.put('integrations', { ...rowB, clientTs: 6000 }),
+      port.update('integrations', ID, (existing) => {
+        seen = existing;
+        return { recordId: ID, clientTs: 1, deleted: false, openai: { ...existing.openai, model: 'edited' } };
+      }),
+    ]);
+    expect(seen.openai.url).toBe('https://b.example/v1');
+    // Stamped like put: above the row it replaced.
+    expect(committed.clientTs).toBe(6001);
+    expect(committed.recordType).toBe('integrations');
+    expect(committed.openai).toEqual({ api_key: 'fixture-key-b', url: 'https://b.example/v1', model: 'edited' });
+    expect(await readStore('records', ID)).toEqual(committed);
+  });
+
+  it('fn returning null writes nothing: no put, no pending row, no oplog op', async () => {
+    await seed([rowA]);
+    expect(await recordsPort(ctx).update('integrations', ID, () => null)).toBeNull();
+    expect(await readStore('records', ID)).toEqual(rowA);
+    expect(await readStore('pending')).toEqual([]);
+    await flushConfirmed(ctx);
+    expect(posted).toEqual([]);
+  });
+
+  it('a snapshot re-laying the row at the SAME clientTs with a different body makes the next masked save conflict', async () => {
+    const { createSettingsDomain } = await import('../../../domain/settings.js');
+    await seed([rowA]);
+    const settings = createSettingsDomain({ records: recordsPort(ctx), now: () => 7000, timeZone: 'UTC' });
+    const viewA = await settings.getIntegrations();
+    await replaceAllRecords([rowB]);
+    const res = await settings.patchIntegrations({ openai: { api_key: '***', url: 'https://a.example/v1', model: 'm' }, ifMatch: viewA });
+    expect(res.conflict).toBe(true);
+    expect(res.current.openai.url).toBe('https://b.example/v1');
+    expect(JSON.stringify(res)).not.toContain('fixture-');
+    expect(await readStore('records', ID)).toEqual(rowB);
+    expect((await settings.readIntegrationsUnmasked()).openai).toMatchObject({ api_key: 'fixture-key-b', url: 'https://b.example/v1' });
+  });
+});

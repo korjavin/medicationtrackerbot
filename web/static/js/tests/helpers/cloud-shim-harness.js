@@ -75,6 +75,14 @@ export function createInMemoryRecordsPort(seed = {}) {
             if (existing) return existing;
             return set(recordType, { ...record, recordType });
         },
+        // Mirrors sync.js recordsPort.update (bd med-yzag): fn sees the RAW row
+        // (tombstone included) or null and returns the new body or null; null
+        // writes nothing and resolves null, a body resolves the stored row.
+        async update(recordType, recordId, fn) {
+            const body = fn(bucket(recordType).get(recordId) || null);
+            if (!body) return null;
+            return this.put(recordType, { ...body, recordId });
+        },
         // Mirrors sync.js recordsPort.putIfUnchanged (bd med-q6l3): writes only
         // while the raw slot is the live version the caller read. Stored raw,
         // like put (createStampingRecordsPort adds the clientTs promotion).
