@@ -487,4 +487,23 @@ describe('listSessions pr_count (cloud shim)', () => {
             env.cleanup();
         }
     });
+
+    it('two logs of one lift beating the max inside one session count as one PR', async () => {
+        const env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        try {
+            const { window } = env;
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            for (const [kg, id, name] of [[40, 998, 'Bench Press'], [45, 999, 'bench press']]) {
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: id, exercise_name: name,
+                    source: 'library', status: 'completed', sets: [{ weight_kg: kg, reps: 8 }],
+                });
+            }
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+            const rows = await window.apiCallDirect('/api/workout/sessions');
+            expect(rows.find((r) => r.session.id === session.id).pr_count).toBe(1);
+        } finally {
+            env.cleanup();
+        }
+    });
 });

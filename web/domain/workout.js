@@ -2968,15 +2968,15 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     });
   }
 
-  // sessionPRCounts (med-soo0.5) → Map session id -> number of exercises whose
-  // heaviest confirmed weight was first beaten in that session. One oldest-first
-  // fold over the whole history, the same rule as getStats' pr_count (resolved
-  // movement chain, logWorkTotals with the weight-sanity flags so an
-  // unconfirmed outlier never counts) minus its 30-day window.
-  async function sessionPRCounts() {
-    const all = await completedLogsNewestFirst();
-    const resolve = buildExerciseResolver(all.libraryRows, all.logs);
-    const oldest = [...all.logs].reverse();
+  // weightPRFold (med-soo0.5) is THE weight-PR rule, shared by getStats and
+  // listSessions so the Stats total is the sum of the per-session chips by
+  // construction. Over completed logs oldest-first it returns
+  // { flags: log -> weight-sanity flags, prs: Map log -> previous heaviest kg }
+  // where `prs` holds the logs that first beat their resolved exercise's
+  // running heaviest CONFIRMED weight (flagged outliers never count), at most
+  // one per exercise per session: a second log of the same lift in one session
+  // still raises the running max but is not a second record.
+  function weightPRFold(oldest, resolve) {
     const byKey = new Map();
     for (const log of oldest) {
       const k = resolve(log.exercise_name).key;
@@ -2988,14 +2988,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       flagLogs(logs, isUnweightedExercise(k)).forEach((f, i) => flags.set(logs[i], f));
     }
     const heaviest = new Map();
-    const counts = new Map();
+    const credited = new Set();
+    const prs = new Map();
     for (const log of oldest) {
       const key = resolve(log.exercise_name).key;
+      const previousKg = heaviest.get(key) || 0;
       const max = logWorkTotals(log, flags.get(log)).max_weight_kg;
-      if (max > (heaviest.get(key) || 0)) {
-        heaviest.set(key, max);
-        counts.set(log.session_id, (counts.get(log.session_id) || 0) + 1);
-      }
+      if (max <= previousKg) continue;
+      heaviest.set(key, max);
+      const seen = `${log.session_id}:${key}`;
+      if (credited.has(seen)) continue;
+      credited.add(seen);
+      prs.set(log, previousKg);
+    }
+    return { flags, prs };
+  }
+
+  async function sessionPRCounts() {
+    const all = await completedLogsNewestFirst();
+    const resolve = buildExerciseResolver(all.libraryRows, all.logs);
+    const counts = new Map();
+    for (const log of weightPRFold([...all.logs].reverse(), resolve).prs.keys()) {
+      counts.set(log.session_id, (counts.get(log.session_id) || 0) + 1);
     }
     return counts;
   }
@@ -3377,7 +3391,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const resolve = buildExerciseResolver(libraryRows, completedLogs.map((c) => c.log).reverse());
 
     const agg = new Map();
-    const heaviestSoFar = new Map(); // resolved key -> heaviest working set seen
     let rangeVolume = 0;
     let rangeHardSets = 0;
     let rangeEasySets = 0;
@@ -3390,18 +3403,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const prRecords = [];
 
     // Unconfirmed weight-sanity flags (a 255 kg slip among 50 kg sessions)
-    // count for coverage only — never a PR, max, volume or hard set. One
-    // pre-pass per resolved exercise (med-l5yr.5), same order as history.
-    const byKey = new Map();
-    for (const { log } of completedLogs) {
-      const k = resolve(log.exercise_name).key;
-      if (!byKey.has(k)) byKey.set(k, []);
-      byKey.get(k).push(log);
-    }
-    const sanityFlags = new Map();
-    for (const [k, logs] of byKey) {
-      flagLogs(logs, isUnweightedExercise(k)).forEach((f, i) => sanityFlags.set(logs[i], f));
-    }
+    // count for coverage only — never a PR, max, volume or hard set. The PR
+    // chain is the shared weightPRFold (med-soo0.5).
+    const { flags: sanityFlags, prs: weightPRs } = weightPRFold(completedLogs.map((c) => c.log), resolve);
 
     for (const { log, schedMs, meta } of completedLogs) {
       // PR check runs before any window test: "beat every earlier set" spans
@@ -3409,18 +3413,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // A zero-weight (bodyweight) log can never set a weight PR.
       const ex = resolve(log.exercise_name);
       const work = logWorkTotals(log, sanityFlags.get(log));
-      const previousKg = heaviestSoFar.get(ex.key) || 0;
-      if (work.max_weight_kg > previousKg) {
-        heaviestSoFar.set(ex.key, work.max_weight_kg);
-        if (schedMs >= since30) {
-          prCount++;
-          prRecords.push({
-            exercise_name: ex.name,
-            date: meta.day,
-            weight_kg: work.max_weight_kg,
-            previous_kg: previousKg,
-          });
-        }
+      if (weightPRs.has(log) && schedMs >= since30) {
+        prCount++;
+        prRecords.push({
+          exercise_name: ex.name,
+          date: meta.day,
+          weight_kg: work.max_weight_kg,
+          previous_kg: weightPRs.get(log),
+        });
       }
 
       if (Number.isFinite(schedMs)) {
