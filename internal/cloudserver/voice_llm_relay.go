@@ -114,6 +114,10 @@ type anonVoice struct {
 	attached   bool      // a device leg attached at least once; never reset
 	attachedAt time.Time // first attach
 	answered   bool      // at least one turn got the AI's answer
+	// ended: dropped, its answered snapshot taken for settlement; an
+	// in-flight turn's first AI byte after it is refused, never delivered
+	// (Argus 13719), so the snapshot cannot miss an answer.
+	ended bool
 }
 
 type voiceFrame struct {
@@ -503,6 +507,7 @@ func (a *VoiceLLMRelayAPI) dropLocked(c *voiceCall) func() {
 	}
 	c.anon.timer.Stop()
 	c.mu.Lock()
+	c.anon.ended = true
 	attached, answered := c.anon.attached, c.anon.answered
 	used := 0
 	if answered {
@@ -1189,11 +1194,16 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 	delete(payload, "n")
 	payload["stream"] = json.RawMessage("true")
 	// The call counts as answered from the first byte of the AI's stream, so
-	// a hang-up mid-answer is charged like any other (bd med-dngs).
-	rec.onFirst = func() {
+	// a hang-up mid-answer is charged like any other (bd med-dngs). A call
+	// already dropped refuses it: the settlement saw answered=false.
+	rec.onFirst = func() bool {
 		call.mu.Lock()
+		defer call.mu.Unlock()
+		if call.anon.ended {
+			return false
+		}
 		call.anon.answered = true
-		call.mu.Unlock()
+		return true
 	}
 	a.trial.proxyChat(rec, r, "install", call.anon.keyID, payload, false, true, maxTokens)
 	if rec.failed || !rec.wrote {
@@ -1210,7 +1220,11 @@ type anonTurnWriter struct {
 	http.ResponseWriter
 	wrote, failed bool
 	n             int
-	onFirst       func() // once, before the first passed-through body byte
+	// onFirst runs once, before the first passed-through body byte; false
+	// refuses the answer (swallowed like an error answer, so the caller
+	// speaks instead). The 200 header waits for that byte.
+	onFirst func() bool
+	header  bool // the 200 header reached the client
 }
 
 func (t *anonTurnWriter) WriteHeader(code int) {
@@ -1220,9 +1234,7 @@ func (t *anonTurnWriter) WriteHeader(code int) {
 	t.wrote = true
 	if code != http.StatusOK {
 		t.failed = true
-		return
 	}
-	t.ResponseWriter.WriteHeader(code)
 }
 
 func (t *anonTurnWriter) Write(b []byte) (int, error) {
@@ -1234,11 +1246,26 @@ func (t *anonTurnWriter) Write(b []byte) (int, error) {
 	}
 	if f := t.onFirst; f != nil && len(b) > 0 {
 		t.onFirst = nil
-		f()
+		if !f() {
+			t.failed = true
+			return len(b), nil
+		}
+	}
+	if !t.header {
+		t.header = true
+		t.ResponseWriter.WriteHeader(http.StatusOK)
 	}
 	n, err := t.ResponseWriter.Write(b)
 	t.n += n
 	return n, err
+}
+
+// FlushError keeps a flush from sending the deferred 200 before onFirst ran.
+func (t *anonTurnWriter) FlushError() error {
+	if !t.header {
+		return nil
+	}
+	return http.NewResponseController(t.ResponseWriter).Flush()
 }
 
 func (t *anonTurnWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter }

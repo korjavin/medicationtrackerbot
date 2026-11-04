@@ -1233,18 +1233,76 @@ func TestVoiceAnonHangUpDetachesUnderRelayLock(t *testing.T) {
 // charged; a swallowed error answer never counts.
 func TestAnonTurnWriterMarksFirstByte(t *testing.T) {
 	n := 0
-	w := &anonTurnWriter{ResponseWriter: httptest.NewRecorder(), onFirst: func() { n++ }}
+	w := &anonTurnWriter{ResponseWriter: httptest.NewRecorder(), onFirst: func() bool { n++; return true }}
 	_, _ = w.Write([]byte("data: a\n\n"))
 	_, _ = w.Write([]byte("data: b\n\n"))
 	if n != 1 {
 		t.Fatalf("onFirst ran %d times, want 1", n)
 	}
 	n = 0
-	w = &anonTurnWriter{ResponseWriter: httptest.NewRecorder(), onFirst: func() { n++ }}
+	w = &anonTurnWriter{ResponseWriter: httptest.NewRecorder(), onFirst: func() bool { n++; return true }}
 	w.WriteHeader(http.StatusBadGateway)
 	_, _ = w.Write([]byte(`{"error":"upstream"}`))
 	if n != 0 {
 		t.Fatal("a swallowed error answer counted as answered")
+	}
+	// A refused first byte (the call already dropped) reaches nothing.
+	out := httptest.NewRecorder()
+	w = &anonTurnWriter{ResponseWriter: out, onFirst: func() bool { return false }}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("data: a\n\n"))
+	_ = http.NewResponseController(w).Flush()
+	if !w.failed || out.Body.Len() != 0 || out.Flushed {
+		t.Fatalf("refused answer leaked: failed %v body %q flushed %v", w.failed, out.Body.String(), out.Flushed)
+	}
+}
+
+// Argus 13719: a turn in flight when the call drops cannot deliver its AI
+// answer after the settlement's answered snapshot, so a 404 refund never
+// covers an answer that reached ElevenLabs.
+func TestAttestVoiceAnswerAfterDropRefused(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.attest.settleFor = 100 * time.Millisecond
+	e.convAnswers(func(string, int) (int, string) { return http.StatusNotFound, elNotFound })
+	entered, release := make(chan struct{}), make(chan struct{})
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"spoken answer\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer up.Close()
+	e.trial.cfg.OpenAIURL = up.URL
+	k := attestKey(t)
+	e.enrolled(k, "tok-late-answer")
+	_, out := e.voiceStart(k, 1)
+	c := e.relay.lookup(out.Call)
+	srv := httptest.NewServer(e.h)
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	device, err := dialAnonVoice(ctx, srv, out.Call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readVoiceFrame(t, ctx, device)
+	turnDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { turnDone <- e.voiceTurn(out.Call) }()
+	<-entered
+	_ = device.Close(websocket.StatusNormalClosure, "")
+	e.waitReaped(k)
+	e.waitVoiceUsed(k, 0) // never answered at the drop: provisional refund
+	close(release)
+	turn := <-turnDone
+	if strings.Contains(turn.Body.String(), "spoken answer") {
+		t.Fatalf("late answer delivered after the drop: %s", turn.Body.String())
+	}
+	c.mu.Lock()
+	answered := c.anon.answered
+	c.mu.Unlock()
+	if answered {
+		t.Fatal("a refused late answer marked the call answered")
 	}
 }
 
