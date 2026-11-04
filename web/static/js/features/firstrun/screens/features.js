@@ -10,7 +10,7 @@
 // 2026-10-20): picking it drives the W3 Today hints and keeps `health` on,
 // since the notes live in Vitals (bd med-ta2n.21). Deliberately not
 // rows: `gamification` (not a tracking section), `weekly_digest` (bot-only
-// Telegram summary), `live_hr` (an experimental Vitals sub-feature).
+// Telegram summary).
 //
 // Write path: Continue/Skip persist an EXPLICIT boolean for all six flags,
 // not just the picks (med-t05.1). web/domain/settings.js DEFAULT_FEATURES is

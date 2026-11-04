@@ -37,7 +37,6 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
                 ]],
                 ['Journey', ['gamification-feature-toggle', 'weekly-digest-feature-toggle']],
                 ['Safety', ['gam-mode-ed-safe-toggle']],
-                ['Labs', ['live-hr-feature-toggle']],
             ]);
             for (const s of sections) expect(s.querySelector(':scope > .wg-list')).not.toBeNull();
         } finally {
@@ -55,9 +54,9 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
             const extras = doc.querySelector('[data-settings-page="journey-extras"]');
             expect(Array.from(extras.querySelectorAll('mt-setting-toggle')).map((t) => t.getAttribute('input-id')))
                 .toEqual(['gam-mode-experiments-toggle', 'gam-mode-traits-toggle', 'gam-mode-narration-toggle']);
-            // 13 toggles across the two pages.
+            // 12 toggles across the two pages.
             const all = doc.querySelectorAll('[data-settings-page="features"] mt-setting-toggle, [data-settings-page="journey-extras"] mt-setting-toggle');
-            expect(all.length).toBe(13);
+            expect(all.length).toBe(12);
         } finally {
             cleanup();
         }
@@ -254,7 +253,6 @@ describe('Feature toggle round-trip via window.toggleFeatureSetting (Phase 9, Ta
                 'health-feature-toggle',
                 'gamification-feature-toggle',
                 'weekly-digest-feature-toggle',
-                'live-hr-feature-toggle',
             ];
             for (const id of ids) {
                 const input = document.getElementById(id);

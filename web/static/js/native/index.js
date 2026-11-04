@@ -1,6 +1,6 @@
 // Device-capability abstraction layer.
 //
-// Exposes window globals — MediaCapture, Barcode, Bluetooth, LocalNotifications,
+// Exposes window globals — MediaCapture, Barcode, LocalNotifications,
 // Health, Attest, Clipboard, NativePush and NativeBack — as the seam between feature code (web/static/js/features/*) and
 // device APIs. Each global
 // is initially populated with stubs that throw NotImplementedError so a caller
@@ -176,7 +176,6 @@
 
     window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio', 'openSettings']);
     window.Barcode = makeStub('Barcode', ['scan', 'supportsLiveScan']);
-    window.Bluetooth = makeStub('Bluetooth', ['isSupported', 'requestHeartRateDevice', 'subscribeHeartRate', 'unsubscribe']);
     window.LocalNotifications = makeStub('LocalNotifications', ['isSupported']);
     window.Health = makeStub('Health', ['isSupported']);
     window.Attest = makeStub('Attest', ['isSupported']);
@@ -190,7 +189,6 @@
     // so tests and impls can reach registerImpl without another window global.
     window.MediaCapture.__native = foundation;
     window.Barcode.__native = foundation;
-    window.Bluetooth.__native = foundation;
     window.LocalNotifications.__native = foundation;
     window.Health.__native = foundation;
     window.Attest.__native = foundation;

@@ -131,12 +131,12 @@ describe('firstrun W1 module picker', () => {
     });
 
     // PORTED_SET (web/cloud/js/apishim.js) has no gamification; weekly_digest
-    // is Telegram-only; live_hr is a Vitals sub-feature.
-    it('has no rows for gamification, weekly_digest or live_hr', () => {
+    // is Telegram-only.
+    it('has no rows for gamification or weekly_digest', () => {
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch() });
         try {
             window.WGFirstRun.mount();
-            for (const key of ['gamification', 'weekly_digest', 'live_hr']) expect(row(document, key)).toBeNull();
+            for (const key of ['gamification', 'weekly_digest']) expect(row(document, key)).toBeNull();
         } finally { cleanup(); }
     });
 

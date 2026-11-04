@@ -69,7 +69,7 @@ describe('Architecture – native platform abstractions guard', () => {
             throw new Error(
                 'Device-capability globals (navigator.mediaDevices / getUserMedia / BarcodeDetector / navigator.bluetooth / requestDevice) ' +
                 'may only be used inside web/static/js/native/.\n' +
-                'Call window.MediaCapture / window.Barcode / window.Bluetooth instead (CLAUDE.md rule 10):\n\n' +
+                'Call window.MediaCapture / window.Barcode instead (CLAUDE.md rule 10):\n\n' +
                 violations.map(v => `  • ${v}`).join('\n')
             );
         }
@@ -89,7 +89,7 @@ describe('Architecture – native platform abstractions guard', () => {
 
     it('every capability the foundation stubs has a registered web impl', () => {
         const foundation = read(path.join(NATIVE_DIR, 'index.js'));
-        for (const capability of ['MediaCapture', 'Barcode', 'Bluetooth']) {
+        for (const capability of ['MediaCapture', 'Barcode']) {
             expect(foundation).toContain(`window.${capability} = makeStub('${capability}'`);
             const impls = collectJsFiles(path.join(REPO_ROOT, NATIVE_DIR, 'web'))
                 .map(f => fs.readFileSync(f, 'utf8'))

@@ -109,26 +109,21 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.weekly_digest).toBe(true);
     });
 
-    it('live_hr defaults off and round-trips through the shim (ported flag, no nav tab — med-byks.1)', async () => {
+    // The cancelled live_hr flag may still sit in an old vault's features record:
+    // it loads without error, never reads as enabled, and can't be toggled.
+    it('a stored live_hr: true is inert: other flags load, toggle rejects it as unknown', async () => {
         const { window } = env;
-        window.rebuildCanonicalBottomNav = vi.fn();
-
-        // Same shape as weekly_digest: default off, in PORTED_SET, no nav tab
-        // or /api route — the flag just persists + reads back so the Settings
-        // toggle gates the experimental Vitals live-HR card.
-        const boot0 = await window.apiCall('/api/bootstrap');
-        window.SettingsState.applyBootstrapFeatures(boot0.features);
-        expect(window.featureSettings.live_hr).toBe(false);
-
-        await window.toggleFeatureSetting('live_hr', true);
-
-        expect(window.featureSettings.live_hr).toBe(true);
+        await env.records.put('features', {
+            recordId: 'features', clientTs: Date.now(), deleted: false, flags: { bp: false, live_hr: true },
+        });
 
         const flags = await window.apiCall('/api/settings/features', 'GET');
-        expect(flags.live_hr).toBe(true);
+        expect(flags.bp).toBe(false);
+        expect(flags.weight).toBe(true);
+        expect(flags.live_hr).toBe(false);
 
-        const boot = await window.apiCall('/api/bootstrap');
-        expect(boot.features.live_hr).toBe(true);
+        const settingsDomain = createSettingsDomain({ records: env.records, now: Date.now, timeZone: 'UTC' });
+        await expect(settingsDomain.setFeature('live_hr', true)).rejects.toMatchObject({ code: 'unknown_feature' });
     });
 
     // med-8tur.1: the Goal Line route carries the flag map into the read-model —

@@ -161,7 +161,6 @@ register themselves at script-load time and replace the stub.
 |---|---|---|
 | `window.MediaCapture` | Camera + photo picker | `getUserMedia` + `<input type=file>` |
 | `window.Barcode` | Barcode scanning | `BarcodeDetector` (Chrome) / ZXing fallback |
-| `window.Bluetooth` | Web Bluetooth heart rate (HR slice) | `navigator.bluetooth` GATT + 0x2A37 parse (med-byks.1) |
 | `window.LocalNotifications` | Device-scheduled notifications (`isSupported`; ios: `permission`, `requestPermission`, `schedule` replace-all, `test`) | web: unsupported; ios: the app shell (`native/local-notifications.js`; reminders hand-off, [docs/ios.md](ios.md#reminders-as-local-notifications-bd-med-w6gx5)) |
 | `window.Health` | Apple Health read (`isSupported`; ios adds `requestAuthorization`, `query` — see `native/health.js`) | web: unsupported; ios: the app shell (`native/health.js`) |
 | `window.Attest` | App Attest + DeviceCheck for local mode's anonymous trial (AI and food database) (`isSupported`; ios adds `status`, `enroll`, `assert` — see `native/attest.js`; callers: `web/cloud/js/local-trial.js` for `enroll`/`assert`, `web/cloud/js/local-policy.js` `attestStatus` for `isSupported`/`status`) | web: unsupported; ios: the app shell, local mode only (`native/attest.js`, `ios/App/Attest.swift`) |
@@ -201,7 +200,6 @@ as a method so feature code never re-derives it:
 |---|---|---|
 | `MediaCapture` | `openCameraStream({facingMode})` | `Promise<MediaStream>` via `getUserMedia` — the file's only `getUserMedia` call site (`takePhoto` reuses it) |
 | `Barcode` | `supportsLiveScan()` | `!!window.BarcodeDetector`, probed at call time |
-| `Bluetooth` | `isSupported()` | `!!navigator.bluetooth`, probed at call time — false on Safari/iOS/Firefox, where feature UI hides itself |
 
 `features/food/scanner.js` is the reference consumer: it asks
 `Barcode.supportsLiveScan()` whether the frame loop is viable and

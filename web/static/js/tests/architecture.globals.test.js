@@ -202,7 +202,6 @@ const ALLOWED_GLOBALS = new Set([
     // throw NotImplementedError; the native/web/* impls replace them.
     'window.MediaCapture',              // native/index.js — camera + photo picker abstraction (takePhoto, pickPhoto, openCameraStream, recordAudio); web impl wraps getUserMedia + <input type=file>
     'window.Barcode',                   // native/index.js — barcode scanner abstraction (scan, supportsLiveScan); web impl uses window.BarcodeDetector with a ZXing fallback
-    'window.Bluetooth',                 // native/index.js — Web Bluetooth abstraction, HR slice (isSupported, requestHeartRateDevice, subscribeHeartRate, unsubscribe); web impl owns the only navigator.bluetooth call site (med-byks.1, pulling med-byks.3 forward)
     'window.LocalNotifications',        // native/index.js — device-scheduled notifications (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-w6gx.4) drives UNUserNotificationCenter over the wgNative bridge
     'window.Health',                    // native/index.js — Apple Health read access (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-w6gx.4) reaches HealthKit over the wgNative bridge
     'window.Attest',                    // native/index.js — App Attest + DeviceCheck for local mode's anonymous trial AI (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-o7zq.16) reaches ios/App/Attest.swift over the wgNative bridge; callers: web/cloud/js/local-trial.js (enroll/assert) and web/cloud/js/local-policy.js attestStatus (isSupported/status)
@@ -210,7 +209,6 @@ const ALLOWED_GLOBALS = new Set([
     'window.NativeBack',                // native/index.js — the app shells' system Back (bd med-y7b4.3), a native/ capability like the others (registerImpl writes window[capability]): onStep(fn) hears the shell's 'wg:native-back' document event and cancels it when fn (AppBack.step) returns true; setState(canStep) sends the 'back.state' op when shell.ops lists it; web impl is a no-op. Caller: features/app-back.js
     'window.NativePush',              // native/index.js — APNs/FCM wake channel of the app shells (bd med-erq1.3): isSupported; ios/android impl adds token() (the shell's push.token op → {platform, token} | null) and onWake(fn) (the shell's 'wg:native-push' document event → kind); web impl reports unsupported. Callers: web/cloud/js/cloud-boot.js (register + wake), web/cloud/js/push.js (token POST/DELETE), features/settings.js (Wake-ups line)
     'window.InviteSheet',               // features/invite.js — F1 "Have an invite?" sheet (bd med-ta2n.6): open() (also on the wg:invite-open document event from the W1 footer / W5 page) and parse(raw, base?) → {claimUrl, sub} | null, the web twin of the shells' AccountURL.parseInvite; P3 (med-ta2n.7) reuses parse
-    'window.LiveHR',                // features/live-hr.js — experimental live-HR card on the Vitals screen (med-byks.1 POC): refresh() re-evaluates flag + Bluetooth support; talks to window.Bluetooth only, persists nothing
 ]);
 
 /**

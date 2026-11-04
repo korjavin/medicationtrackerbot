@@ -15,7 +15,7 @@ import { JSDOM } from 'jsdom';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NATIVE = path.resolve(__dirname, '../native');
-const FILES = ['index.js', 'web/media-capture.js', 'web/barcode.js', 'web/bluetooth.js', 'local-notifications.js', 'health.js']
+const FILES = ['index.js', 'web/media-capture.js', 'web/barcode.js', 'local-notifications.js', 'health.js']
     .map((f) => path.join(NATIVE, f));
 
 let dom;
@@ -43,7 +43,7 @@ describe('native/local-notifications.js', () => {
         expect(native.platform).toBe('web');
         expect(w.LocalNotifications.isSupported()).toBe(false);
         expect(w.LocalNotifications).toBe(native.getImpl('LocalNotifications', 'web'));
-        for (const cap of ['MediaCapture', 'Barcode', 'Bluetooth']) {
+        for (const cap of ['MediaCapture', 'Barcode']) {
             expect(w[cap]).toBe(native.getImpl(cap, 'web'));
         }
     });
@@ -107,7 +107,7 @@ describe('native/ android platform', () => {
         // The same impl objects as ios, not copies.
         expect(w.LocalNotifications).toBe(native.getImpl('LocalNotifications', 'ios'));
         expect(w.Health).toBe(native.getImpl('Health', 'ios'));
-        for (const cap of ['MediaCapture', 'Barcode', 'Bluetooth']) {
+        for (const cap of ['MediaCapture', 'Barcode']) {
             expect(w[cap]).toBe(native.getImpl(cap, 'web'));
         }
     });
