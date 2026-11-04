@@ -129,10 +129,8 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
     });
 
     it('PL4: two active plans in payload order with "Next · …" eyebrows; a flat plan lists exercises; a long rotation folds', () => {
-        vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(new Date(2026, 10, 4, 12, 0));
         const bench = makePlan();
-        const c = render([{ ...MOBILITY, next: { ...MOBILITY.next, date: '2026-11-04' } }, { ...bench, next: { ...bench.next, date: '2026-11-12' } }]);
+        const c = render([{ ...MOBILITY, next: { ...MOBILITY.next, date: '2026-11-04', days_away: 0 } }, { ...bench, next: { ...bench.next, date: '2026-11-12', days_away: 8 } }]);
         const cards = c.querySelectorAll('.wg-plan-card');
         expect(Array.from(cards).map((x) => x.querySelector('.wg-card__title').textContent)).toEqual(['Morning mobility', 'Bench 100']);
         expect(cards[0].querySelector('.wg-eyebrow').textContent).toBe('Next · today 07:30');
@@ -150,10 +148,13 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(cards[1].querySelector('.wg-tl-more')).toBeNull();
     });
 
-    it('PL4: "tomorrow" for the next day', () => {
+    // Argus P2: "today / tomorrow" is the domain's days_away (workout
+    // timezone), not the device calendar: a device already on 11-04 still
+    // reads a 11-04 slot as "tomorrow" when the workout zone is a day behind.
+    it('PL4: "tomorrow" comes from next.days_away, not the device calendar', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(new Date(2026, 10, 4, 23, 0));
-        const c = render([MOBILITY, makePlan()]);
+        vi.setSystemTime(new Date(2026, 10, 4, 0, 30));
+        const c = render([{ ...MOBILITY, next: { ...MOBILITY.next, date: '2026-11-04', days_away: 1 } }, makePlan()]);
         expect(c.querySelector('.wg-plan-card .wg-eyebrow').textContent).toBe('Next · tomorrow 07:30');
     });
 

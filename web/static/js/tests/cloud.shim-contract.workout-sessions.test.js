@@ -344,7 +344,7 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const [mobility, rot, old] = res.plans;
         // The Timeline's slot and the second plan's own slot, both materialized
         // once: repeated reads add no session rows.
-        expect(mobility.next).toMatchObject({ time: '00:00', variant_id: mob.id, session_id: nextBefore.session.id });
+        expect(mobility.next).toMatchObject({ time: '00:00', variant_id: mob.id, session_id: nextBefore.session.id, days_away: 0 });
         expect(rot.next).toMatchObject({ time: '23:59', variant_id: variants[0].id });
         expect(rot.next.date).toBe(mobility.next.date);
         const sessions = await window.apiCall('/api/workout/sessions?limit=10');
@@ -2727,5 +2727,39 @@ describe('bd med-egzd: late Finish backdates completed_at to the session day', (
         const next = await domain.getNext();
         expect(next.session.scheduled_date.startsWith(TODAY)).toBe(true);
         expect(next.variant_id).toBe(2);
+    });
+});
+
+// med-jqrf.2 (Argus P2): the Plans tab's "today / tomorrow" comes from the
+// domain, counted in the workout timezone, never from the device's calendar.
+describe('listPlans next.days_away is counted in the workout timezone', () => {
+    // 2026-11-04 00:30 UTC is still 2026-11-03 19:30 in New York.
+    const NOW = Date.UTC(2026, 10, 4, 0, 30);
+
+    function seed() {
+        return createInMemoryRecordsPort({
+            workoutgroup: [{
+                recordId: 'group-1', clientTs: NOW, deleted: false, id: 1, user_id: 1, name: 'Morning mobility',
+                is_rotating: false, days_of_week: '[3]', scheduled_time: '07:30', // Wednesdays only
+                notification_advance_minutes: 0, active: true,
+                created_at: new Date(NOW).toISOString(), updated_at: new Date(NOW).toISOString()
+            }],
+            workoutvariant: [{
+                recordId: 'variant-1', clientTs: NOW, deleted: false, id: 1, group_id: 1, name: 'Mobility',
+                rotation_order: 0, created_at: new Date(NOW).toISOString()
+            }],
+        });
+    }
+
+    it('a 2026-11-04 07:30 slot is tomorrow in New York even where the device calendar already says 2026-11-04', async () => {
+        const domain = createWorkoutDomain({ records: seed(), now: () => NOW, timeZone: 'America/New_York' });
+        const [plan] = (await domain.listPlans()).plans;
+        expect(plan.next).toMatchObject({ date: '2026-11-04', time: '07:30', days_away: 1 });
+    });
+
+    it('the same instant in UTC: the 07:30 slot is later today', async () => {
+        const domain = createWorkoutDomain({ records: seed(), now: () => NOW, timeZone: 'UTC' });
+        const [plan] = (await domain.listPlans()).plans;
+        expect(plan.next).toMatchObject({ date: '2026-11-04', days_away: 0 });
     });
 });

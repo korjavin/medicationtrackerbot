@@ -168,14 +168,14 @@ function _planScheduleLine(plan) {
     return parts.join(' · ');
 }
 
-// "Next · today 18:00" / "Next · tomorrow 07:30" / "Next · Thu 18:00".
+// "Next · today 18:00" / "Next · tomorrow 07:30" / "Next · Thu 18:00". The
+// domain counts days_away in the workout timezone (never the device's
+// calendar); the weekday of a calendar date is zone-free.
 function _planNextEyebrow(next) {
     const d = next && _planLocalDate(next.date);
     if (!d) return 'Nothing scheduled';
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const diff = Math.round((d - today) / 86400000);
-    const when = diff === 0 ? 'today' : diff === 1 ? 'tomorrow' : d.toLocaleDateString('en-US', { weekday: 'short' });
+    const away = next.days_away;
+    const when = away === 0 ? 'today' : away === 1 ? 'tomorrow' : d.toLocaleDateString('en-US', { weekday: 'short' });
     return `Next · ${when}${next.time ? ` ${next.time}` : ''}`;
 }
 

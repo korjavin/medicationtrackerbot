@@ -2997,6 +2997,15 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // id. Active plans come first by next slot, then the rest by name.
   async function listPlans() {
     const nowMs = now();
+    // days_away: calendar days from today to the slot, both in the workout
+    // timezone (like getNext's is_today), so the tab never compares the
+    // slot's date with the device's own calendar (med-jqrf.2).
+    const today = localDateParts(nowMs, timeZone);
+    const todayDay = Date.UTC(today.year, today.month - 1, today.day) / 86400000;
+    const daysAway = (dateStr) => {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return Date.UTC(y, m - 1, d) / 86400000 - todayDay;
+    };
     const suppressed = new Set();
     const plans = [];
     for (const group of await listGroups()) {
@@ -3008,7 +3017,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         }
       }
       const next = occ
-        ? { date: occ.dateStr, time: occ.scheduledTime, variant_id: occ.variantId, session_id: occ.sessionId }
+        ? {
+          date: occ.dateStr, time: occ.scheduledTime, variant_id: occ.variantId, session_id: occ.sessionId,
+          days_away: daysAway(occ.dateStr),
+        }
         : null;
       const days = (await planDays(group.id)).map((d) => ({ ...d, is_next: !!next && d.id === next.variant_id }));
       const plan = {
