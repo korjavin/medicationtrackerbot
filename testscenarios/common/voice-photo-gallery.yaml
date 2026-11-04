@@ -2,7 +2,7 @@ id: voice-photo-gallery
 title: During a call, a photo picked from the gallery reaches the agent and it describes it
 platforms: [web, android, ios]
 preconditions:
-  - Account mode with the AI voice agent set up (not the anonymous trial)
+  - Account mode with the AI voice agent set up, or (iPhone and Android) the anonymous on-device trial with call time left
   - A voice call is in progress
   - The phone gallery holds at least one photo
 steps:
@@ -15,8 +15,9 @@ invariants:
   - While a photo is sending, both photo buttons are disabled and read "Sending…" until the agent answers; then they are ready again
   - 'A failed photo answer shows "Couldn''t send the photo: <reason>" until the next action'
   - Cancelling the picker sends nothing and the call goes on
+  - On the anonymous trial call (iPhone and Android) the picked photo reaches the agent too, and it describes a detail you never said; the camera and gallery buttons are shown there
 covered_by:
   web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing, not the agent describing the photo)
   android: manual
   ios: manual
-source: [med-ku8r]
+source: [med-ku8r, med-adje]

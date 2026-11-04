@@ -680,15 +680,62 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('anonymous local-trial calls hide Send photo (their turns never reach this tab)', () => {
-        const { window, cleanup } = createConversationEnv();
+    // bd med-adje: anonymous local-trial turns are answered by the server, so
+    // the photo goes over the relay leg; the marker is announced only once the
+    // server holds it, and the server's verdict settles the call bar.
+    it('anonymous local-trial calls show Send photo and hand the photo to the server before announcing it', async () => {
+        class FakeSocket {
+            constructor() { this.readyState = 1; this.sent = []; FakeSocket.last = this; }
+
+            send(d) { this.sent.push(JSON.parse(d)); }
+
+            close() { this.readyState = 3; }
+
+            recv(f) { this.onmessage({ data: JSON.stringify(f) }); }
+        }
+        FakeSocket.OPEN = 1;
+        vi.stubGlobal('WebSocket', FakeSocket);
+        const { window, conversation, cleanup } = createConversationEnv();
         try {
-            window.CloudVoiceLLM = { localTrial: true, start: vi.fn(), stop: vi.fn() };
-            const card = window.document.createElement('div');
+            const aiClient = { usesTrial: async () => true, chatStream: vi.fn() };
+            window.CloudVoiceLLM = Object.assign(createVoiceLLMResponder({
+                aiClient,
+                url: 'wss://base.test/api/attest/voice/device',
+                mint: async () => ({ call: 'anon', signedUrl: 'wss://el.test/convai' }),
+            }), { localTrial: true });
+            const card = window.document.createElement('section');
             window.document.body.appendChild(card);
             window.WGCallAgent.mountCard(card);
-            expect(card.querySelector('.wg-callbar__photo').hidden).toBe(true);
-            expect(card.querySelector('.wg-callbar__gallery').hidden).toBe(true);
+            const starting = window.WGCallAgent.startCall(card);
+            await vi.waitFor(() => expect(FakeSocket.last).toBeDefined());
+            const sock = FakeSocket.last;
+            sock.recv({ type: 'hello', call: 'anon' });
+            await starting;
+            window.__TEST_CONVERSATION_OPTS__.onConnect();
+            expect(card.querySelector('.wg-callbar__photo').hidden).toBe(false);
+            expect(card.querySelector('.wg-callbar__gallery').hidden).toBe(false);
+
+            const send = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(sock.sent).toHaveLength(1));
+            expect(sock.sent[0]).toMatchObject({ id: 1, type: 'image' });
+            expect(sock.sent[0].data).toMatch(/^data:image\/jpeg;base64,/);
+            expect(conversation.sendUserMessage).not.toHaveBeenCalled();
+            sock.recv({ id: 1, type: 'image_queued' });
+            await vi.waitFor(() => expect(conversation.sendUserMessage).toHaveBeenCalledWith('[User sent a photo]'));
+            expect(window.WGCallAgent.getState().uploading).toBe(true);
+            sock.recv({ id: 1, type: 'image_done' });
+            await send;
+            expect(window.WGCallAgent.getState()).toMatchObject({ uploading: false, photoError: '' });
+            expect(aiClient.chatStream).not.toHaveBeenCalled();
+
+            // The server's refusal surfaces inline; the agent is not told.
+            const refused = window.WGCallAgent.sendPhoto(makeImageBlob(window));
+            await vi.waitFor(() => expect(sock.sent).toHaveLength(2));
+            sock.recv({ id: 2, type: 'image_error', message: 'the call ended' });
+            await expect(refused).rejects.toThrow('the call ended');
+            expect(conversation.sendUserMessage).toHaveBeenCalledTimes(1);
+            expect(window.WGCallAgent.getState().photoError).toBe("Couldn't send the photo: the call ended");
+            await window.WGCallAgent.endCall();
         } finally {
             cleanup();
         }

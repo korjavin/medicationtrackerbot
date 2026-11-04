@@ -177,7 +177,10 @@ type attestEnv struct {
 	ca       attestCA
 	dc       *attestFakeDC
 	upstream atomic.Int32 // status the fake provider answers (0 = 200)
-	lastBody atomic.Value
+	// upstreamStream, when set, answers a stream:true request instead of the
+	// canned SSE (func(w http.ResponseWriter, r *http.Request)).
+	upstreamStream atomic.Value
+	lastBody       atomic.Value
 	food     *FoodProxyAPI
 	foodHits atomic.Int32 // requests the fake FastFoodDB received
 	// Anonymous voice (med-o7zq.22): off until a test sets the ElevenLabs
@@ -226,6 +229,10 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 			return
 		}
 		if strings.Contains(string(b), `"stream":true`) {
+			if f, _ := e.upstreamStream.Load().(func(http.ResponseWriter, *http.Request)); f != nil {
+				f(w, r)
+				return
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte("data: {\"model\":\"trial-model\",\"choices\":[{\"delta\":{\"content\":\"spoken answer\"}}]}\n\ndata: [DONE]\n\n"))
 			return
