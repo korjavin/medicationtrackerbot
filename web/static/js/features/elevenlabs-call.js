@@ -683,11 +683,8 @@
             setIcon(muteBtn.querySelector('.wg-ico'), activeMuted ? 'mic-off' : 'mic');
             muteBtn.disabled = state === 'connecting';
         }
-        // Anonymous local-trial turns are answered server-side and never
-        // reach this tab, so a photo could not ride them (med-adje).
         for (const [b, idle] of [[photoBtn, 'Send photo'], [galleryBtn, 'Send photo from gallery']]) {
             if (!b) continue;
-            b.hidden = localTrialVoice();
             b.disabled = state === 'connecting' || activeUploading;
             b.setAttribute('aria-label', activeUploading ? 'Sending…' : idle);
         }
@@ -816,17 +813,21 @@
     // In-call photos are downscaled + re-encoded before they are sent (bd
     // med-ku8r): 768 KiB → ~1 MiB of base64 in the vision turn, well under the
     // trial proxy's body cap. Re-encoding also drops EXIF (location) from
-    // camera photos.
+    // camera photos. Anonymous local-trial calls send it over the relay leg
+    // (bd med-adje), whose whole frame must fit 1 MiB: 720 KiB of JPEG is
+    // 960 KiB of base64, leaving room for the data: URL and JSON framing.
     const PHOTO_MAX_BYTES = 768 * 1024;
+    const PHOTO_MAX_BYTES_LOCAL_TRIAL = 720 * 1024;
     const PHOTO_STEPS = [[1600, 0.85], [1280, 0.75], [1024, 0.65], [768, 0.6]];
 
-    function photoTooLarge() {
-        const err = new Error(`Photo is too large to send — the limit is ${PHOTO_MAX_BYTES / 1024} KB.`);
+    function photoTooLarge(max) {
+        const err = new Error(`Photo is too large to send — the limit is ${max / 1024} KB.`);
         err.code = 'photo_too_large';
         return err;
     }
 
     async function shrinkPhoto(file) {
+        const max = localTrialVoice() ? PHOTO_MAX_BYTES_LOCAL_TRIAL : PHOTO_MAX_BYTES;
         let bmp = null;
         if (typeof window.createImageBitmap === 'function') {
             // Undecodable here (e.g. HEIC on a desktop browser): send as is.
@@ -843,14 +844,14 @@
                     if (!ctx || typeof canvas.toBlob !== 'function') break;
                     ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
                     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-                    if (blob && blob.size <= PHOTO_MAX_BYTES) return blob;
+                    if (blob && blob.size <= max) return blob;
                 }
             } finally {
                 if (typeof bmp.close === 'function') bmp.close();
             }
         }
-        if (file.size <= PHOTO_MAX_BYTES) return file;
-        throw photoTooLarge();
+        if (file.size <= max) return file;
+        throw photoTooLarge(max);
     }
 
     function readDataURL(blob) {
@@ -879,7 +880,9 @@
     // this tab's voice LLM responder (memory only) and the agent is told with a
     // marker user message, which triggers a turn; the responder attaches the
     // photo to that turn, which goes to the user's AI vision model (or the
-    // operator's trial AI). Resolves once that turn was answered.
+    // operator's trial AI). On anonymous local-trial calls the server answers
+    // the turns, so the responder hands the photo to it over the relay leg
+    // instead (bd med-adje). Resolves once that turn was answered.
     async function sendPhoto(file) {
         if (!activeConversation) {
             throw new Error('No active call');
@@ -916,6 +919,20 @@
             if (conv !== activeConversation) return; // hung up meanwhile
             // Queue before announcing, so the turn the marker triggers finds it.
             const answered = relay.setPendingImage(dataURL);
+            // Anonymous local-trial calls hold it on the server (bd med-adje):
+            // announce only once it is held there.
+            if (answered.queued) {
+                try {
+                    await answered.queued;
+                } catch (err) {
+                    answered.catch(() => { /* observed: err is rethrown below */ });
+                    throw err;
+                }
+                if (conv !== activeConversation) {
+                    answered.catch(() => { /* hung up meanwhile */ });
+                    return;
+                }
+            }
             try {
                 conv.sendUserMessage(PHOTO_MARKER);
             } catch (err) {
