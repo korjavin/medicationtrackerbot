@@ -48,6 +48,12 @@ const SLEEP_PAD_MS = 48 * 3600 * 1000;
 // the pending night; it is dropped only past this age.
 // ponytail: fixed 7-day cap, a night whose access stays revoked longer is lost.
 const SLEEP_PENDING_CAP_MS = 7 * 24 * 3600 * 1000;
+// One-time heal (bd med-y1gh): a device that already read sleep re-reads the
+// last 30 days by window once, so a day stuck on a short first night (before a
+// fuller one replaced it) heals. anchors.sleepHeal marks it done; a reset
+// anchor re-reads the whole history anyway. 30 days = Android's first read.
+// ponytail: a day stuck longer ago needs the switch-off/on rescan.
+const SLEEP_HEAL_MS = 30 * 24 * 3600 * 1000;
 const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
@@ -283,10 +289,15 @@ export async function runHealthImport(ctx, {
                 }
             };
             const since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
-            if (Number.isFinite(since)) {
-                const res = await health.query({ type: 'sleep', from: since - SLEEP_PAD_MS, to: now() });
+            const heal = kind === 'sleep' && anchors.sleepHeal !== 1 && Boolean(anchors.sleep);
+            let healed = false;
+            if (Number.isFinite(since) || heal) {
+                const from = Math.min(Number.isFinite(since) ? since : Infinity, heal ? now() - SLEEP_HEAL_MS : Infinity);
+                const res = await health.query({ type: 'sleep', from: from - SLEEP_PAD_MS, to: now() });
                 await take(res);
-                if (!(res && Array.isArray(res.samples) && res.samples.length) && since > now() - SLEEP_PENDING_CAP_MS) {
+                // Empty is also what a denied read answers: keep both retries.
+                healed = Boolean(res && Array.isArray(res.samples) && res.samples.length);
+                if (!healed && Number.isFinite(since) && since > now() - SLEEP_PENDING_CAP_MS) {
                     pending.push(since);
                 }
             }
@@ -321,6 +332,14 @@ export async function runHealthImport(ctx, {
                 if (!res || !res.more) break;
             }
             if (kind === 'sleep') {
+                // Marked once the heal read returned samples (a failure or a
+                // denied, empty read retries it), or once a first read without
+                // a sleep anchor, which covered the history itself, set one.
+                // ponytail: a device with no sleep in 30 days re-asks each run, one empty query.
+                if (anchors.sleep && anchors.sleepHeal !== 1 && (healed || !heal)) {
+                    anchors.sleepHeal = 1;
+                    writeJSON(storage, ANCHORS_KEY, anchors);
+                }
                 writeJSON(storage, SLEEP_PENDING_KEY, pending.length ? Math.min(...pending) : null);
             }
         } catch (e) {

@@ -563,10 +563,11 @@ and weight only asks once, at the next open, for the new types.
     night and nap of that day from **one source** — the one with the most
     asleep minutes — with `start_time`/`end_time` spanning them. Naps are
     therefore merged into the day's record rather than kept as sessions.
-  - Written once, `putIfAbsent` at `clientTs: 0` like every other import
-    (CLAUDE.md rule 12): the **first settled version of a day wins**, an edit
-    always outranks it, and a deleted day stays deleted (its tombstone also
-    rides in vault backups). Manual and Mi Band entries live under other ids.
+  - First written `putIfAbsent` at `clientTs: 0` like every other import
+    (CLAUDE.md rule 12). A **later settled version with more asleep minutes
+    replaces it** at `now()` (bd med-y1gh; a tie keeps the row); an edit
+    (`user_modified`) always outranks it, and a deleted day stays deleted (its
+    tombstone also rides in vault backups). Manual and Mi Band entries live under other ids.
 - **Settling:** a sleep day is written only once its last sample ended **3h**
   ago (`SLEEP_SETTLE_MS`), so a night still being written is not frozen as a
   fragment. A night still settling when its samples were read leaves its
@@ -621,9 +622,10 @@ and weight only asks once, at the next open, for the new types.
   wake-up that is the local date nearly everywhere, but a zone-less and a
   zoned source can file one night on different days (and so show it twice)
   for wake-ups before ~05:00 east of UTC+10 or after ~10:00 west of UTC−8.
-  The first settled version of a sleep day wins: if a device writes a day
-  while its Health copy is still incomplete (Health sync lag across devices
-  beyond the 3h settle), a later fuller version is not applied. Deleting the
+  If a device writes a sleep day while its Health copy is still incomplete
+  (a tracker writing a partial session first, or Health sync lag beyond the
+  3h settle), the fuller version replaces it when it arrives (bd med-y1gh);
+  days stuck short before that fix are re-read once, 30 days back. Deleting the
   day does not re-import it — the tombstone keeps it deleted (the safe
   direction). A backup restored and re-exported by a client that predates the
   `miband-hk-` / `sleep-hk-` tombstones loses them, as for BP and weight

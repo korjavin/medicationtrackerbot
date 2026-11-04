@@ -220,11 +220,14 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // (healthsource.js sleepDayOf), id `sleep-hk-<day>`: every night and nap of that day
   // from ONE source, the one with the most asleep minutes (then staged). The
   // key is the same across sources and devices, so copies of a night land on
-  // one row instead of piling up. Written once, putIfAbsent at clientTs 0
-  // (CLAUDE.md rule 12): the first settled version wins, an edit or delete
-  // always outranks it, a tombstone keeps the day deleted.
+  // one row instead of piling up. First written putIfAbsent at clientTs 0
+  // (CLAUDE.md rule 12). A fuller settled version later (trackers write a
+  // partial session first, the whole night hours after; bd med-y1gh) replaces
+  // a live Health day at now(), the converter's exception; a tie keeps the row.
+  // An edit (user_modified) or delete always outranks it, a tombstone keeps the
+  // day deleted.
   // Not written, counted in `skip` for the diagnostics line (bd med-w6gx.30):
-  // a day already there, live or deleted (exists); a day whose best version is
+  // a day already there and not thinner, live or deleted (exists); a day whose best version is
   // clipped by the window (clipped) or not settled (unsettled; `pending` = the
   // earliest unsettled start, for the caller to re-read by time window).
   // A day overlapping a Mi Band night is imported too (bd med-w6gx.31): the
@@ -300,13 +303,16 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       // yields, whichever arrived first: the same pick the converter makes
       // (a tie stays with the band). Put at now(), the converter's exception.
       const held = byId.get(recordId);
-      const band = held && !held.deleted && held.source !== HEALTH_SOURCE ? held : null;
+      // A live Health day not edited by hand yields the same way to a fuller
+      // settled version of itself (bd med-y1gh).
+      const live = held && !held.deleted
+        && (held.source !== HEALTH_SOURCE || !held.user_modified) ? held : null;
       // Same writes as before, each skip named: any of these leaves the day.
-      if ((byId.has(recordId) && !band) || aliased.has(recordId)) { skip.exists++; continue; }
+      if ((byId.has(recordId) && !live) || aliased.has(recordId)) { skip.exists++; continue; }
       if (!best.whole) { skip.clipped++; continue; }
       if (best.end > settledBy) { skip.unsettled++; continue; }
-      if (band) {
-        if (best.body.total_minutes <= (Number(band.total_minutes) || 0)) { skip.exists++; continue; }
+      if (live) {
+        if (best.body.total_minutes <= (Number(live.total_minutes) || 0)) { skip.exists++; continue; }
         await records.put('sleep', { recordId, clientTs: now(), deleted: false, ...best.body });
         added++;
         continue;
