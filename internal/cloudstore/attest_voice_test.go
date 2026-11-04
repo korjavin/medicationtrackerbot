@@ -62,6 +62,14 @@ func TestReserveAttestVoice(t *testing.T) {
 	if used, _ := r.AttestVoiceUsed(ctx, "k1"); used != 0 {
 		t.Fatalf("used after over-refund = %d", used)
 	}
+	// bd med-v1uz: a charge-back lands on the lifetime and the reservation
+	// day's row, past a cap too.
+	if err := r.ChargeAttestVoice(ctx, "k1", now, 50); err != nil {
+		t.Fatal(err)
+	}
+	if life, day, _ := r.AttestVoiceUsage(ctx, "k1", now); life != 50 || day != 50 {
+		t.Fatalf("after charge-back: %d/%d", life, day)
+	}
 	// Voice spent no AI request budget.
 	if ok, _, _ := r.ConsumeTrialRequest(ctx, "acct", now, 0, 1); !ok {
 		t.Fatal("voice spent the AI global budget")
