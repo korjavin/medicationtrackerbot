@@ -41,7 +41,8 @@ function buildWorkoutDayRow(day, index, length, onMove) {
     const meta = document.createElement('span');
     meta.className = 'wg-row__meta';
     const n = day.exercises.length;
-    meta.textContent = [`${n} exercise${n === 1 ? '' : 's'}`, day.description].filter(Boolean).join(' · ');
+    // Count only (PL3): the description is edited on the Day page.
+    meta.textContent = `${n} exercise${n === 1 ? '' : 's'}`;
     body.append(title, meta);
     row.appendChild(body);
 

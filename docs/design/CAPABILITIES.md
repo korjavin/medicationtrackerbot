@@ -226,13 +226,13 @@ The code is the source of truth. File paths are relative to `web/`, and line num
   - **Mi Band cardio cards** [NEW]: emoji icons 🏔️🚴🚶🏃.
   - **Empty / error**: "No workout history yet" and "Error loading history".
 - **Plans** (`groups.js`):
-  - Rows: kit rows with a Rotating tag and an Inactive chip; a tap opens the Plan page (no row actions).
+  - Rows: kit rows with a Rotating tag and an Inactive chip; a tap opens the Plan page; the More menu / swipe opens the **"Share or print"** sheet (PL6: Share plan [cloud], Print a sheet, Scan a filled sheet [cloud]).
   - "Add plan" sits in the Train app bar; the tab keeps **"Import plan"** [NEW].
   - The plan editor is three nested pages (med-xso6.22). Done on a child page stages; only the Plan page's Save writes.
   - **Plan page**:
     - Fields: name, description, training goal seg, "Rotate through days" and "Active" toggles, "Repeats on" chips, time, a reminder value row.
     - Contents: a list of Days (drag or Move up/down to reorder), or a flat exercise list when the plan does not rotate.
-    - Bottom rows on a saved plan: **Share** [NEW], **Print** [NEW], **Scan filled sheet** [NEW, cloud], Delete.
+    - Bottom row on a saved plan: Delete. Day rows show the exercise count only.
   - **Day page**: name, description, exercise rows (drag to reorder, swipe to Copy/Remove).
   - **Exercise page**: steppers for sets/reps/weight, a goal seg ("From plan" default), a weight-suggestion card with Apply, an Equipment value row, progression seg.
   - **Share modal** [NEW]: QR code, copy link, native share; links expire after 30 days.

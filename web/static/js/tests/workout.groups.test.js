@@ -2,9 +2,10 @@
 //
 // Exercises `_renderWorkoutGroups`: one tappable kit `.wg-row` per plan
 // (name, days · time · exercise count meta, a Rotating tag, an Inactive chip)
-// with no per-row action strip — a tap opens the Plan page (med-xso6.22),
-// which carries Share / Print / Scan / Delete. "Add plan" sits in the Train
-// app bar; the tab itself keeps a single "Import plan" button.
+// — a tap opens the Plan page (med-xso6.22), which ends with Delete; the row's
+// More menu (Edit, Share or print) opens the PL6 sheet (med-jqrf.4). "Add
+// plan" sits in the Train app bar; the tab itself keeps a single "Import plan"
+// button.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -53,10 +54,10 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
 
         const row = container.querySelector('.wg-list > .wg-row.wg-workout-plan-row');
         expect(row).not.toBeNull();
-        expect(row.tagName).toBe('BUTTON');
+        expect(row.tagName).toBe('DIV');
         expect(row.querySelector('.wg-row__title').textContent).toBe('Push Day');
         expect(row.querySelector('.wg-row__meta').textContent).toBe('Mon, Wed, Fri · 09:00 · 6 exercises');
-        expect(row.querySelector('.wg-row__chev')).not.toBeNull();
+        expect(row.querySelector('.wg-swipe__more')).not.toBeNull();
     });
 
     it('shows a Rotating tag when the group is_rotating', () => {
@@ -79,14 +80,15 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(rows[1].textContent).not.toContain('Inactive');
     });
 
-    it('rows carry no action strip (no edit / delete / print / share buttons)', () => {
+    it('rows carry only the More menu (Edit, Share or print), no delete / print / share buttons', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-groups-list');
         window._renderWorkoutGroups(container, [makeGroup()]);
 
         const row = container.querySelector('.wg-workout-plan-row');
-        expect(row.querySelectorAll('button')).toHaveLength(0);
-        expect(container.querySelectorAll('button')).toHaveLength(1);
+        expect(row.querySelector('.wg-swipe__more').getAttribute('aria-label')).toBe('More actions for Push Day');
+        expect(Array.from(row.querySelectorAll('.wg-menu__item')).map((b) => b.textContent)).toEqual(['Edit', 'Share or print']);
+        expect(Array.from(row.querySelectorAll('.wg-swipe__act')).map((b) => b.textContent)).toEqual(['Share or print']);
     });
 
     it('tapping a row opens that plan\'s page', async () => {

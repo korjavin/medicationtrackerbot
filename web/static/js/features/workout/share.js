@@ -577,7 +577,7 @@ async function receiveSharedPlan(text) {
         return;
     }
     if (SHARE_SHEET_QR_SHAPE.test(raw)) {
-        safeToast("That's a printed sheet code — use Scan filled sheet.", 'info');
+        safeToast("That's a printed sheet code — use Scan a filled sheet.", 'info');
         return;
     }
     // Short link (any host — the camera/clipboard may deliver the full URL):

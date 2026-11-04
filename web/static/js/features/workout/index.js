@@ -126,9 +126,6 @@ function loadWorkouts() {
         bindClick('add-variant-btn', () => addWorkoutPlanDay());
         bindClick('add-flat-exercise-btn', () => addWorkoutFlatExercise());
         bindClick('workout-group-notification-row', () => chooseWorkoutNotification());
-        bindClick('workout-group-share-btn', () => shareOpenWorkoutPlan());
-        bindClick('workout-group-print-btn', () => printOpenWorkoutPlan());
-        bindClick('workout-group-scan-btn', () => scanOpenWorkoutPlan());
         bindClick('workout-group-delete-btn', () => deleteOpenWorkoutPlan());
         bindClick('variant-add-exercise-btn', () => addExerciseToWorkoutDay());
         bindClick('workout-exercise-equipment-row', () => chooseWorkoutExerciseEquipment());

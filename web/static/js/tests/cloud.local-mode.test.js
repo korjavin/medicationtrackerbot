@@ -721,7 +721,6 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
             document.getElementById('importexport-nxk-group'),
             document.getElementById('importexport-reset-sync-group'),
             document.getElementById('integrations-elevenlabs-api-key').closest('section'),
-            document.getElementById('workout-group-share-btn'),
         ];
         for (const el of hidden) expect(shown(el), el.id || el.className).toBe(false);
         expect(shown(document.getElementById('local-reminder-verbosity').closest('section'))).toBe(true);
