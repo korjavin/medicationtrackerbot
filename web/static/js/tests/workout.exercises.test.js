@@ -83,7 +83,7 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
 
     // Regression: the row tag used to run a variant-name classifier over an
     // EXERCISE name, so anything it didn't recognise — "Bulgarian squat" and
-    // most of the library — was labelled "AD-HOC".
+    // most of the library — was labelled ad hoc.
     it('never tags a library row from a variant-name classifier', () => {
         const { window, document } = env;
         const container = document.getElementById('exercise-library-list');

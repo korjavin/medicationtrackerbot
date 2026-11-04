@@ -71,7 +71,7 @@
             deviceCheck: 'Google Play Integrity confirms this is the real app on a real phone. No personal data is shared.',
             trialTransit: [
                 'To count the trial without an account, our server stores an anonymous install id (a key this app made in this phone’s Android Keystore, confirmed by Google Play Integrity) and how many requests and seconds of calls this phone’s trial has used. Turning the trial on asks Google Play Integrity to check this app install: no health data, no account.',
-                'You get a limited number of free AI requests on this phone, a daily allowance of food lookups, and a limited number of free minutes of voice calls on this phone, with a daily limit (the minutes left are shown in Settings), counted by our server as call time: each call uses its full length limit when it starts, even if you hang up sooner. Google Play may keep a mark that this phone had its trial, so reinstalling does not reset it.',
+                'You get a limited number of free AI requests on this phone, a daily allowance of food lookups, and a limited number of free minutes of voice calls on this phone, with a daily limit (the minutes left are shown in Settings), counted by our server as call time: each call reserves its full time limit when it starts, and the time you don’t use comes back after the call ends, once ElevenLabs reports how long it ran. Google Play may keep a mark that this phone had its trial, so reinstalling does not reset it.',
             ],
         },
     });

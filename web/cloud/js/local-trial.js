@@ -248,6 +248,7 @@ const voiceCopy = () => ({
   trial_not_configured: 'Voice calls are not available on this server.',
   'voice:voice': `Free voice minutes used up on this ${device()}. Add your own keys in a cloud account to keep calling.`,
   'voice:voice-day': 'Free voice calls paused until tomorrow.',
+  'voice:retry': 'Try again in a few minutes.',
   'voice:global': 'The free voice line is busy today — try again tomorrow.',
   // One call per install: the last one is still in the server's 30 s grace.
   call_in_progress: 'Your last call is still ending — try again in a minute.',
@@ -356,7 +357,9 @@ export function createLocalTrial({ attest, base, fetchImpl, storage, client: sha
       }
       const code = body?.error || '';
       if (code === 'trial_budget_exhausted' && body.scope === 'voice') writeState(storage, { voiceRemaining: 0 });
-      throw voiceError(code === 'trial_budget_exhausted' ? `voice:${body.scope}` : code, res.status);
+      // A daily stop with a refund still pending may lift within minutes (bd med-v1uz.3).
+      const pending = body?.scope === 'voice-day' && body.retry_in_seconds > 0;
+      throw voiceError(code === 'trial_budget_exhausted' ? (pending ? 'voice:retry' : `voice:${body.scope}`) : code, res.status);
     },
     async enroll() {
       const res = await client.enroll();

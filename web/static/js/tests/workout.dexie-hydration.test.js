@@ -212,8 +212,10 @@ describe('Workouts cold-start Dexie hydration (Task 3)', () => {
 
         const container = document.getElementById('workout-history-display');
         expect(container.textContent).not.toContain('Loading...');
-        // The cached session group name appears somewhere in the rendered output.
-        expect(container.textContent).toContain('Push');
+        // The cached session renders as a Timeline row in its week.
+        const row = container.querySelector('.wg-workouts-history__week [data-session-id="100"]');
+        expect(row).not.toBeNull();
+        expect(row.querySelector('.wg-workouts-history-row__name').textContent).toBe('A');
     });
 
     it('loadExerciseLibrary renders cached library on offline cold start', async () => {

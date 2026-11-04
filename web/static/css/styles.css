@@ -4235,11 +4235,9 @@ body:has(.wg-callbar--dock) .wg-toasts {
     border-color: var(--wg-workouts-slot-muscle-border);
 }
 
-/* Workouts history sub-tab (Phase 7, Task 4). Day-grouped `.wg-card` rows
-   mirror the Meds + Weight history patterns: each row carries a plan / ad-hoc
-   tag, mono duration, optional volume, and a trailing icon-button cluster
-   (view / edit / delete). Offline-pending + rejected states surface as
-   `.wg-tag--mono` variants. */
+/* Workouts Timeline sub-tab (id history; kit screens-train-timeline.html
+   WN2): one kit .wg-section per Mon-Sun week, its .wg-list opening with the
+   .wg-wk day dots, then .wg-row rows. Meta pieces are "·"-separated here. */
 .wg-workouts-history {
     display: flex;
     flex-direction: column;
@@ -4254,97 +4252,29 @@ body:has(.wg-callbar--dock) .wg-toasts {
     margin: var(--space-lg) 0;
 }
 
-.wg-workouts-history__list {
+.wg-wk {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
-}
-
-.wg-workouts-history__group {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-workouts-history__group-label {
-    font-size: var(--wg-workouts-history-day-size);
-}
-
-.wg-workouts-history__rows {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
+    gap: var(--wg-s1);
+    /* kit 12px 14px 10px; 14px lines the dots up with the rows' lead */
+    padding: var(--wg-s3) calc(var(--wg-s1) * 3.5) calc(var(--wg-s1) * 2.5);
 }
 
 .wg-workouts-history-row {
-    display: grid;
-    grid-template-columns: var(--wg-workouts-history-row-cols);
-    column-gap: var(--wg-workouts-history-row-gap);
-    align-items: center;
-    padding: var(--wg-workouts-history-row-pad);
     cursor: pointer;
 }
 
-.wg-workouts-history-row__body {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
+.wg-workouts-history-row .wg-row__meta {
+    column-gap: var(--wg-s1);
 }
 
-.wg-workouts-history-row__title {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-    min-width: 0;
+.wg-workouts-history-row__part + .wg-workouts-history-row__part::before {
+    content: "\00B7";
+    margin-right: var(--wg-s1);
 }
 
-.wg-workouts-history-row__name {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-1);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-}
-
-.wg-workouts-history-row__meta {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-}
-
-.wg-workouts-history-row__time,
-.wg-workouts-history-row__duration,
-.wg-workouts-history-row__count,
-.wg-workouts-history-row__volume {
-    font-family: var(--wg-font-mono);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.02em;
-}
-
-.wg-workouts-history-row__time,
-.wg-workouts-history-row__count {
-    font-size: var(--wg-workouts-history-count-size);
-}
-
-.wg-workouts-history-row__duration {
-    font-size: var(--wg-workouts-history-duration-size);
-    color: var(--wg-fg-2);
-}
-
-.wg-workouts-history-row__volume {
-    font-size: var(--wg-workouts-history-count-size);
-}
-
-.wg-workouts-history-row__actions {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    flex-shrink: 0;
+.wg-workouts-history-row__finish {
+    margin-right: var(--wg-s1);
 }
 
 .wg-workouts-session-logs {
@@ -5175,13 +5105,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 .wg-workouts-gym-switch__caret {
     color: var(--wg-fg-3);
-}
-
-.wg-workouts-history-row__gym {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-history-count-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.02em;
 }
 
 /* Equipment editor extras beyond the shared modal shell: generator Fill

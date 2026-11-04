@@ -1,14 +1,24 @@
-// Wandergeek Workouts history sub-tab (Phase 7, Task 4).
+// Workouts Timeline sub-tab (id history; med-soo0.4, kit WN2).
 //
-// Exercises the rewritten `_renderWorkoutHistory` path. Each row is a
-// `.wg-card.wg-workouts-history-row` carrying a rotation-slot tag, mono
-// duration, optional volume, and a trailing icon-button cluster
-// (edit / delete). Day clusters use `.wg-section-label` for the
-// "Today" / "Yesterday" / explicit-date header. Offline-pending and
-// rejected badges surface as `.wg-tag--mono` variants.
+// Exercises `_renderWorkoutHistory`: Mon–Sun week sections (head with count
+// + total time, seven day dots), kit `.wg-row.wg-workouts-history-row` rows
+// with Off plan / Band tags, dim skipped rows, the Unfinished chip + Finish,
+// and "Show 4 earlier weeks" paging. Offline-pending and rejected badges
+// surface as the shared sync chips.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
+
+// "YYYY-MM-DD" (UTC) `days` from today, and the Monday of today's week
+// shifted by `weeks` — the renders below run with userTz 'UTC'.
+function utcDay(days) {
+    return new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+}
+function weekDay(weeks, dow) {
+    const now = new Date();
+    const mon = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - ((now.getUTCDay() + 6) % 7) * 86400000;
+    return new Date(mon + (weeks * 7 + dow) * 86400000).toISOString().slice(0, 10);
+}
 
 function makeSession(overrides) {
     const { session: sessionOverrides, ...rest } = overrides || {};
@@ -55,43 +65,115 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(empty.textContent).toBe('No workout history yet');
     });
 
-    it('groups sessions by day using .wg-section-label headers (Today / Yesterday / date)', () => {
+    // A plan session this Monday; last week a skipped plan Monday, an
+    // off-plan Telegram "walk" on Wednesday and a band run on Thursday; then
+    // six older weeks with one session each.
+    function timelineFixture() {
+        const at = (day) => `${day}T10:00:00.000Z`;
+        const sessions = [
+            makeSession({ variant_name: 'Upper Back & Grip', session: { id: 1, scheduled_date: weekDay(0, 0), started_at: `${weekDay(0, 0)}T16:04:00.000Z` } }),
+            makeSession({ variant_name: 'Pull', total_volume: 0, session: {
+                id: 2, status: 'skipped', scheduled_date: weekDay(-1, 0), scheduled_time: '18:00',
+                started_at: null, completed_at: null, duration_minutes: undefined } }),
+            makeSession({ group_name: 'Ad-hoc', variant_name: '', total_volume: 0, exercises_count: 0, exercises_completed: 0,
+                session: { id: 3, group_id: -1, notes: 'Morning run', scheduled_date: weekDay(-1, 2), started_at: at(weekDay(-1, 2)) } }),
+        ];
+        for (let w = 2; w <= 7; w += 1) {
+            sessions.push(makeSession({ session: { id: 10 + w, scheduled_date: weekDay(-w, 0), started_at: at(weekDay(-w, 0)) } }));
+        }
+        const miband = [{ id: 7, activity_name: 'running', start_time: at(weekDay(-1, 3)), distance_m: 5400, duration_sec: 1800, source: 'device' }];
+        return { sessions, miband };
+    }
+
+    it('groups rows into Mon–Sun weeks, newest first, with count, total time and day dots (WN2)', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
+        const { sessions, miband } = timelineFixture();
+        window._renderWorkoutHistory(container, sessions, miband, 'UTC');
 
-        const nowIso = new Date().toISOString();
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const older = new Date();
-        older.setDate(older.getDate() - 10);
+        const weeks = Array.from(container.querySelectorAll('.wg-workouts-history__week'));
+        expect(weeks.map((w) => w.dataset.week)).toEqual([weekDay(0, 0), weekDay(-1, 0), weekDay(-2, 0)]);
+        const labels = weeks.map((w) => w.querySelector('.wg-section__head .wg-eyebrow').textContent);
+        expect(labels[0]).toMatch(/^This week · \d{2}(\.\d{2})?–\d{2}\.\d{2}/);
+        expect(labels[1]).toMatch(/^Last week · /);
+        expect(labels[2]).toMatch(/^\d{2}(\.\d{2})?–\d{2}\.\d{2}/);
+        const metas = weeks.map((w) => w.querySelector('.wg-workouts-history__week-meta').textContent);
+        // The skipped plan day is not a workout; the run (45 min) + band (30 min) are.
+        expect(metas.slice(0, 2)).toEqual(['1 workout · 45 min', '2 workouts · 1h 15m']);
 
-        const sessions = [
-            makeSession({ session: { id: 1, started_at: nowIso } }),
-            makeSession({
-                session: {
-                    id: 2,
-                    started_at: yesterday.toISOString()
-                }
-            }),
-            makeSession({
-                session: {
-                    id: 3,
-                    started_at: older.toISOString()
-                }
-            })
-        ];
-
-        window._renderWorkoutHistory(container, sessions, [], 'UTC');
-
-        const labels = Array.from(container.querySelectorAll('.wg-section-label'));
-        expect(labels.length).toBe(3);
-        expect(labels[0].textContent).toBe('Today');
-        expect(labels[1].textContent).toBe('Yesterday');
-        // Third group has a locale-formatted date
-        expect(labels[2].textContent).toMatch(/\d{2}[./]\d{2}[./]\d{4}/);
+        const dots = (w) => Array.from(w.querySelectorAll('.wg-dots:not([aria-hidden]) .wg-dot'));
+        const thisWeek = dots(weeks[0]);
+        expect(thisWeek).toHaveLength(7);
+        expect(thisWeek[0].classList.contains('wg-dot--hit')).toBe(true);
+        const today = thisWeek.find((d) => d.dataset.day === utcDay(0));
+        expect(today.classList.contains('wg-dot--today')).toBe(true);
+        thisWeek.filter((d) => d.dataset.day > utcDay(0)).forEach((d) => expect(d.classList.contains('wg-dot--future')).toBe(true));
+        const lastWeek = dots(weeks[1]).map((d) => ['hit', 'rest'].find((k) => d.classList.contains(`wg-dot--${k}`)) || '');
+        expect(lastWeek).toEqual(['rest', '', 'hit', 'hit', '', '', '']);
+        expect(Array.from(weeks[0].querySelectorAll('.wg-dots__lbl')).map((l) => l.textContent).join('')).toBe('MTWTFSS');
     });
 
-    it('renders .wg-card history rows with slot tag, mono duration and volume', () => {
+    it('tags Off plan and Band rows and dims a skipped plan day without red', () => {
+        const { window, document } = env;
+        const container = document.getElementById('workout-history-display');
+        const { sessions, miband } = timelineFixture();
+        window._renderWorkoutHistory(container, sessions, miband, 'UTC');
+
+        const lastWeek = container.querySelectorAll('.wg-workouts-history__week')[1];
+        const rows = Array.from(lastWeek.querySelectorAll('.wg-workouts-history-row'));
+        expect(rows.map((r) => r.querySelector('.wg-workouts-history-row__name').textContent)).toEqual(['Running', 'Morning run', 'Pull']);
+        expect(rows[0].querySelector('.wg-workouts-history-row__tag').textContent).toBe('Band');
+        const bandParts = Array.from(rows[0].querySelectorAll('.wg-workouts-history-row__part')).map((p) => p.textContent);
+        expect(bandParts[0]).toBe('Thu 10:00');
+        expect(bandParts.slice(1)).toEqual(['30 min', '5.4 km']);
+        expect(rows[1].querySelector('.wg-workouts-history-row__tag').textContent).toBe('Off plan');
+        expect(rows[1].querySelector('.wg-row__lead--ok')).not.toBeNull();
+        const skipped = rows[2];
+        expect(skipped.querySelector('.wg-row__lead--stale')).not.toBeNull();
+        expect(Array.from(skipped.querySelectorAll('.wg-workouts-history-row__part')).map((p) => p.textContent)).toEqual(['Mon', 'skipped']);
+        expect(skipped.querySelector('.wg-workouts-history-row__tag')).toBeNull();
+        expect(skipped.querySelector('.wg-row__body [class*="danger"], .wg-row__lead--danger, .wg-dot--miss')).toBeNull();
+        expect(container.querySelector('.wg-dot--miss')).toBeNull();
+        // A plan session carries no tag; the plan day names it.
+        const planRow = container.querySelector('[data-session-id="1"]');
+        expect(planRow.querySelector('.wg-workouts-history-row__tag')).toBeNull();
+        expect(planRow.querySelector('.wg-workouts-history-row__name').textContent).toBe('Upper Back & Grip');
+        // 24h clock, as the kit and the card read.
+        expect(planRow.querySelector('.wg-workouts-history-row__time').textContent).toBe('Mon 16:04');
+    });
+
+    it('"Show 4 earlier weeks" adds four weeks per tap from the rows already read; a visit starts short again', async () => {
+        const { window, document } = env;
+        const container = document.getElementById('workout-history-display');
+        const { sessions, miband } = timelineFixture();
+        window._renderWorkoutHistory(container, sessions, miband, 'UTC');
+
+        const count = () => container.querySelectorAll('.wg-workouts-history__week').length;
+        const more = () => container.querySelector('.wg-tl-more');
+        expect(count()).toBe(3);
+        expect(more().textContent).toBe('Show 4 earlier weeks');
+        more().click();
+        expect(count()).toBe(7);
+        more().click();
+        expect(count()).toBe(8);
+        expect(more()).toBeNull();
+
+        // A refresh after a write keeps the open weeks; a visit resets them.
+        window.apiCall = vi.fn(async (url) => {
+            if (url.startsWith('/api/workout/sessions')) return sessions;
+            if (url.startsWith('/api/workout/miband')) return miband;
+            if (url.startsWith('/api/settings')) return { timezone: 'UTC' };
+            return null;
+        });
+        await window.loadWorkoutHistoryTab();
+        await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith('/api/workout/miband?limit=1000'));
+        expect(count()).toBe(8);
+        await window.loadWorkoutHistoryTab({ resetWeeks: true });
+        await vi.waitFor(() => expect(count()).toBe(3));
+        expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions?limit=500');
+    });
+
+    it('renders kit history rows with plan-day name, duration and volume', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         window._renderWorkoutHistory(
@@ -108,16 +190,14 @@ describe('Workouts history (Phase 7, Task 4)', () => {
 
         const row = container.querySelector('.wg-workouts-history-row');
         expect(row).not.toBeNull();
-        expect(row.classList.contains('wg-card')).toBe(true);
-
-        const slotTag = row.querySelector('.wg-workouts-slot-tag');
-        expect(slotTag).not.toBeNull();
-        expect(slotTag.classList.contains('wg-workouts-slot-tag--plan')).toBe(true);
-        expect(slotTag.textContent).toBe('PPL');
+        expect(row.classList.contains('wg-row')).toBe(true);
+        expect(row.getAttribute('role')).toBe('button');
+        expect(row.querySelector('.wg-workouts-history-row__name').textContent).toBe('Legs');
+        expect(row.querySelector('.wg-workouts-slot-tag')).toBeNull();
 
         const duration = row.querySelector('.wg-workouts-history-row__duration');
         expect(duration).not.toBeNull();
-        expect(duration.textContent).toBe('1h 2m');
+        expect(duration.textContent).toBe('1h 02m');
 
         const volume = row.querySelector('.wg-workouts-history-row__volume');
         expect(volume).not.toBeNull();
@@ -307,9 +387,35 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         const rows = container.querySelectorAll('.wg-workouts-history-row');
         expect(rows.length).toBe(1);
         expect(rows[0].dataset.sessionId).toBe('301');
-        const badge = rows[0].querySelector('.wg-tag--unfinished');
+        const badge = rows[0].querySelector('.wg-workouts-history-row__unfinished');
         expect(badge).not.toBeNull();
-        expect(badge.textContent).toBe('Unfinished — finish?');
+        expect(badge.classList.contains('wg-chip--pending')).toBe(true);
+        expect(badge.textContent).toBe('Unfinished');
+        expect(rows[0].querySelector('.wg-row__lead--warn')).not.toBeNull();
+        expect(rows[0].querySelector('.wg-workouts-history-row__finish').textContent).toBe('Finish');
+    });
+
+    it('the Unfinished row\'s Finish completes it in place, without opening the session', async () => {
+        const { window, document } = env;
+        const container = document.getElementById('workout-history-display');
+        const yesterday = new Date(Date.now() - 86400000);
+        window.loadWorkoutHistoryTab = vi.fn();
+        window.loadNextWorkout = vi.fn();
+        window.showWorkoutSessionModal = vi.fn();
+        window.apiCall = vi.fn(async () => true);
+        window._renderWorkoutHistory(container, [makeSession({ session: {
+            id: 304, group_id: -1, status: 'in_progress', scheduled_date: yesterday.toISOString().slice(0, 10),
+            started_at: yesterday.toISOString(), completed_at: null, duration_minutes: undefined
+        } })], [], 'UTC');
+        // An off-plan Unfinished row carries Finish, not the Off plan tag (WN6).
+        expect(container.querySelector('.wg-workouts-history-row__tag')).toBeNull();
+
+        container.querySelector('.wg-workouts-history-row__finish').click();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__confirm')).not.toBeNull());
+        document.querySelector('.mt-confirm-modal__confirm').click();
+        await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith(
+            '/api/workout/sessions/status?id=304', 'PUT', { status: 'completed' }));
+        expect(window.showWorkoutSessionModal).not.toHaveBeenCalled();
     });
 
     it('Finish from an Unfinished row persists status=completed', async () => {

@@ -452,8 +452,8 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-modal-input-pad-x',
     '--wg-workouts-modal-label-size',
 
-    // Workout slot-tag aliases — PLAN (sun) / AD-HOC (normal) triplets for
-    // the tag that opens a history row / session header.
+    // Workout slot-tag aliases — plan (sun) / off-plan (normal) triplets for
+    // the tag that opens the session header.
     '--wg-workouts-slot-plan-bg',
     '--wg-workouts-slot-plan-fg',
     '--wg-workouts-slot-plan-border',

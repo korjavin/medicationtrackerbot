@@ -39,6 +39,11 @@
       "ready": ["#workout-groups-tab.active", "#workout-groups-list > *"] },
     { "name": "workouts-stats", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"stats\"]" }, { "click": ".wg-workouts-stats__view [data-view=\"load\"]" }],
       "ready": ["#workout-stats-tab.active", "#workout-stats-display .wg-workout-chart"] },
+    { "name": "workouts-timeline", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }],
+      "ready": ["#workout-history-tab.active", "#workout-history-display .wg-workouts-history__week .wg-dots"] },
+    { "name": "workouts-timeline-end",
+      "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "scroll": "#workout-history-display > .wg-tl-more" }],
+      "ready": ["#workout-history-tab.active", "#workout-history-display > .wg-tl-more"] },
     { "name": "workout-session-log",
       "steps": [
         { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },

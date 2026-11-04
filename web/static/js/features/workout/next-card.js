@@ -3,14 +3,14 @@
 // ====================================
 
 // workoutSlotTag(doc, session, groupName, extraClass) — the tag that opens a
-// history row / session header. Ad-hoc sessions (group_id === -1) read
-// AD-HOC; planned sessions read their plan (group) name. Consumed by
-// history.js / sessions.js — load this file before those.
+// session header. Ad-hoc sessions (group_id === -1) read "Off plan";
+// planned sessions read their plan (group) name. Consumed by sessions.js —
+// load this file before it.
 function workoutSlotTag(doc, session, groupName, extraClass) {
     const isAdHoc = !!session && session.group_id === -1;
     const tag = doc.createElement('span');
     tag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${isAdHoc ? 'adhoc' : 'plan'}${extraClass ? ` ${extraClass}` : ''}`;
-    tag.textContent = isAdHoc ? 'AD-HOC' : (groupName || 'Plan');
+    tag.textContent = isAdHoc ? 'Off plan' : (groupName || 'Plan');
     return tag;
 }
 

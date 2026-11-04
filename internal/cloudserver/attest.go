@@ -604,6 +604,33 @@ func (a *AttestAPI) settlePending(bucket string) {
 	}
 }
 
+// pendingRefundWait is the whole seconds until the bucket's earliest pending
+// settlement deadline (0 = none pending). A final settlement lingers in the
+// list until its runSettlement wakes, so each is checked under its own lock
+// (taken after a.mu is released: pollLocked takes them the other way round);
+// one mid-poll counts as pending.
+func (a *AttestAPI) pendingRefundWait(bucket string, now time.Time) int {
+	a.mu.Lock()
+	list := append([]*voiceSettlement(nil), a.settlements[bucket]...)
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	wait := time.Duration(0)
+	for _, s := range list {
+		if s.mu.LockCtx(ctx) {
+			final := s.final
+			s.mu.Unlock()
+			if final {
+				continue
+			}
+		}
+		if d := s.deadline.Sub(now); d > 0 && (wait == 0 || d < wait) {
+			wait = d
+		}
+	}
+	return int((wait + time.Second - 1) / time.Second)
+}
+
 // NewAttestAPI builds the routes; trial supplies the provider config, the
 // per-subject burst limiter and the shared upstream proxy; food supplies the
 // operator FastFoodDB proxy (bd med-o7zq.19).
@@ -797,6 +824,13 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]any{"error": "trial_budget_exhausted", "scope": scope}
 		if scope != cloudstore.AttestScopeVoice {
 			resp["resets_at"] = now.Truncate(24 * time.Hour).Add(24 * time.Hour).Format(time.RFC3339)
+		}
+		// A daily stop while a settlement may still refund: tell the client the
+		// stop may lift within the wait (bd med-v1uz.3). Older clients ignore it.
+		if scope == cloudstore.AttestScopeVoiceDay {
+			if secs := a.pendingRefundWait(bucket, now); secs > 0 {
+				resp["retry_in_seconds"] = secs
+			}
 		}
 		writeJSON(w, http.StatusTooManyRequests, resp)
 		return

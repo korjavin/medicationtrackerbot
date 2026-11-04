@@ -2201,7 +2201,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         // Shown before the grant, so no numbers: the limits are the server's
         // (bd med-o7zq.28), shown in Settings once granted.
         expect(modal.textContent).toMatch(/free minutes of voice calls on this iPhone, with a daily limit/);
-        expect(modal.textContent).toMatch(/each call uses its full length limit when it starts/);
+        expect(modal.textContent).toMatch(/comes back after the call ends/);
         expect(modal.textContent).not.toMatch(/\d+ (free )?minutes/);
         modal.querySelector('[data-trial-consent-choice="allow"]').click();
         await turningOn;
@@ -2615,6 +2615,7 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
     it.each([
         [429, { error: 'trial_budget_exhausted', scope: 'voice' }, 'Free voice minutes used up on this iPhone. Add your own keys in a cloud account to keep calling.'],
         [429, { error: 'trial_budget_exhausted', scope: 'voice-day', resets_at: '2026-10-19T00:00:00Z' }, 'Free voice calls paused until tomorrow.'],
+        [429, { error: 'trial_budget_exhausted', scope: 'voice-day', resets_at: '2026-10-19T00:00:00Z', retry_in_seconds: 600 }, 'Try again in a few minutes.'],
         [429, { error: 'trial_budget_exhausted', scope: 'global', resets_at: '2026-10-19T00:00:00Z' }, 'The free voice line is busy today — try again tomorrow.'],
         [503, { error: 'voice_not_configured' }, 'Voice calls are not available on this server.'],
         [409, { error: 'call_in_progress' }, 'Your last call is still ending — try again in a minute.'],

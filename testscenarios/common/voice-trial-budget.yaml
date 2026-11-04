@@ -12,8 +12,11 @@ invariants:
   - After the call the time left drops by about the seconds actually talked, not by a whole grant
   - A start that never connects leaves the time left unchanged
   - Two short calls in a row never exhaust the day ("Free voice calls paused until tomorrow." appears only once the day budget is really used)
+  - Right after a start that never connected, a refused next start says "Try again in a few minutes." (the time comes back shortly), not "paused until tomorrow"
+  - Once the day budget is really used and nothing is waiting to come back, the refusal still says "Free voice calls paused until tomorrow."
+  - The consent text says each call reserves its full time limit and the time not used comes back after the call ends
 covered_by:
   web: manual
   android: manual
   ios: manual
-source: [med-dngs]
+source: [med-dngs, med-v1uz.1, med-v1uz.3]
