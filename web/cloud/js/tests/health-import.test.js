@@ -156,6 +156,31 @@ describe('Apple Health import', () => {
         expect(await runHealthImport({}, { health: fakeHealth(data), storage, records: restored, flush })).toEqual({ added: 0 });
     });
 
+    // bd med-8f4s.1: an edited Health weight keeps its source (the write-back
+    // skips it, the UI keeps its label) but not its source_id, so a restore
+    // mints it a normal id instead of folding it into the Health slot.
+    it('an edited Health weight stays from Health through re-edits, and restores under a normal id', async () => {
+        await runHealthImport({}, { health: fakeHealth({ weight: [kgSample(U2, T0, 70)] }), storage, records, flush });
+        const weight = createWeightDomain({ records, now: () => T0 + 60_000, timeZone: 'UTC' });
+        const edited = await weight.create({ measured_at: T0, weight: 71 }, { replacesId: `weight-hk-${U2}` });
+        const row = records.rows.get(edited.id);
+        expect(row.source).toBe('apple_health');
+        expect(row).not.toHaveProperty('source_id');
+        const again = await createWeightDomain({ records, now: () => T0 + 120_000, timeZone: 'UTC' })
+            .create({ measured_at: T0, weight: 72 }, { replacesId: edited.id });
+        expect(records.rows.get(again.id).source).toBe('apple_health');
+        // A manual edit stays manual.
+        const manual = await weight.create({ measured_at: T0 + 1000, weight: 80 });
+        const manualEdit = await weight.create({ measured_at: T0 + 1000, weight: 81 }, { replacesId: manual.id });
+        expect(records.rows.get(manualEdit.id)).not.toHaveProperty('source');
+
+        const restored = vaultToRecords(recordsToVault([records.rows.get(again.id)], { now: T0 }), { now: T0 })
+            .filter((r) => r.recordType === 'weight');
+        expect(restored).toHaveLength(1);
+        expect(restored[0].recordId).not.toMatch(/-hk-/);
+        expect(restored[0].source).toBe('apple_health');
+    });
+
     it('a deleted Health reading stays deleted across a backup, restore and full rescan', async () => {
         const data = { bp: [bpSample(U1, T0, 125, 82)], weight: [kgSample(U2, T0, 70)] };
         await runHealthImport({}, { health: fakeHealth(data), storage, records, flush });

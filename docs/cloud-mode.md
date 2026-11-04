@@ -352,6 +352,38 @@ Any new importer or derived writer answers each of these:
   `clientTs: 0` (rule 12) so edits and deletes always outrank it; a stamp
   derived from the content is no floor and reopens the LWW race.
 
+### Health write-back — the local-write seam and the ledger (bd med-8f4s.1)
+
+"Also write my entries" copies BP and weight entries made on this device to
+Health Connect / Apple Health. The Settings switch ships separately; until it
+does, `wg.health.write` is never set and nothing is marked or written.
+
+- **The seam is `sync.js` `onLocalWrite(fn)`**, called by `stampAndPut` inside
+  the records lock, after the row is stamped and before its IndexedDB put, for
+  every put/del of both ports (UI, voice, MCP, the Telegram drain, local mode).
+  `putIfAbsent` (imports, derived floors), `replaceAllRecords` (restore) and
+  `applyIncoming` (sync apply) never reach it. The callback is synchronous and
+  a throw never fails the write. The boundary is the operation, not the row's
+  device of origin: an edit on this phone of a row that synced in from another
+  device is mirrored, a row that only arrived by sync is not.
+- **The ledger** (`health-import.js` `startHealthWriteBack`) is
+  `wg.health.dirty` in localStorage, `{ bp: { recordId: clientTs }, weight: … }`.
+  The hook marks the id before the commit, then kicks that id's promise chain.
+  A step waits for the commit (`localWritesSettled`), reads the raw row and
+  makes Health match it under the vault recordId (live → `health.write` with
+  the committed clientTs as the version; tombstone or absent → `health.delete`,
+  a no-op for an id never written). The entry is cleared only while it still
+  holds the version the step started from; a failure keeps it. Every
+  foreground pass drains at most 50 entries of the kinds `health.writeAccess`
+  grants; nothing is ever evicted. Rows with `source` (from Health) are never
+  marked; an edited imported weight keeps its `source` (not its `source_id`),
+  so it stays "from Health".
+- **Off** stops marking and delivery; the ledger is kept and drains when the
+  switch is on again; copies already in Health stay. Import off turns write off.
+- **Disclosed gap:** if the ledger write itself fails (storage quota or
+  blocked), that obligation is lost with one diag line `[health] ledger write
+  failed`; the vault write still succeeds.
+
 ### Incident: a stale tab erased a finished workout (bd med-9a87)
 
 **2026-08-31, production.** A completed strength session vanished from history hours after it was logged. Worth keeping because nothing misbehaved — every component did exactly what it was written to do, and the data was still destroyed.

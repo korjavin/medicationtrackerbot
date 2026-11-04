@@ -69,6 +69,32 @@ describe('native/health.js', () => {
         expect([w.Health.label, w.Health.accessHint]).toEqual(['Health Connect', 'Health Connect → App permissions']);
     });
 
+    // bd med-8f4s.1: the write-back contract.
+    it('web: writeAccess, write and remove reject unsupported', async () => {
+        const h = load().Health;
+        await expect(h.writeAccess(['bp'])).rejects.toThrow(/unsupported/);
+        await expect(h.write({ type: 'bp', id: 'bp-1' })).rejects.toThrow(/unsupported/);
+        await expect(h.remove({ type: 'bp', id: 'bp-1' })).rejects.toThrow(/unsupported/);
+    });
+
+    it('shell: authorize with write, writeAccess, write and remove forward to the ops', async () => {
+        dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
+        const w = dom.window;
+        const sent = [];
+        w.webkit = { messageHandlers: { wgNative: { postMessage: (m) => { sent.push(m); return Promise.resolve(true); } } } };
+        for (const f of ['index.js', 'health.js']) w.eval(fs.readFileSync(path.join(NATIVE, f), 'utf8'));
+        await w.Health.requestAuthorization(['bp', 'weight'], { write: ['bp', 'weight'] });
+        await w.Health.writeAccess(['bp', 'weight']);
+        await w.Health.write({ type: 'weight', id: 'weight-1', version: 5, at: 1000, kg: 80 });
+        await w.Health.remove({ type: 'weight', id: 'weight-1' });
+        expect(JSON.parse(JSON.stringify(sent))).toEqual([
+            { op: 'health.authorize', args: { types: ['bp', 'weight'], write: ['bp', 'weight'] } },
+            { op: 'health.writeAccess', args: { types: ['bp', 'weight'] } },
+            { op: 'health.write', args: { type: 'weight', id: 'weight-1', version: 5, at: 1000, kg: 80 } },
+            { op: 'health.delete', args: { type: 'weight', id: 'weight-1' } },
+        ]);
+    });
+
     it('web: has no query surface, so nothing can reach HealthKit', () => {
         const w = load();
         expect(w.Health.query).toBeUndefined();
