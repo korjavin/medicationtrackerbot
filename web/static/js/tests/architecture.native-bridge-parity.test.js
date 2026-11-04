@@ -18,10 +18,6 @@ const ANDROID = path.join(ANDROID_DIR, fs.readdirSync(ANDROID_DIR, { recursive: 
 const PLATFORM_ONLY = {
     chrome: 'Android system bars',
     'clipboard.read': 'Android: WebView has no clipboard-read permission UI; iOS and the web read navigator.clipboard from the tap',
-    // Health write-back: iOS landed first (med-8f4s.3).
-    'health.writeAccess': 'pending-android: med-8f4s.2',
-    'health.write': 'pending-android: med-8f4s.2',
-    'health.delete': 'pending-android: med-8f4s.2',
 };
 
 // { op: group } from `<name> = [ ... ]` (Swift) or `<name> = setOf( ... )` (Kotlin).

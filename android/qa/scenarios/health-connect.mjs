@@ -13,7 +13,7 @@
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
 export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
-const WRITES = ['BLOOD_PRESSURE', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION'];
+const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION'];
 
 export default async function healthConnect(ctx) {
   const { shell, pkg, sleep } = ctx;
@@ -184,6 +184,126 @@ export default async function healthConnect(ctx) {
       throw new Error(`#2 not imported on the return (rescan: ${r.rescan}; shell on return: ${JSON.stringify(r.diagOnReturn)})`);
     });
     await ctx.stableShot('settings-health-row');
+
+    // med-8f4s.2: use the real page write seam and an independent native reader,
+    // not the bridge query (which intentionally hides our own exported rows).
+    let readSequence = 0;
+    const readNative = async () => {
+      const request = `${Date.now()}-${++readSequence}`;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthRead --es request ${request}`);
+      for (const until = Date.now() + 15_000; Date.now() < until;) {
+        const lines = (await shell('logcat -d -s qa-health-read:*')).split('\n');
+        const line = lines.findLast((l) => l.includes(`"request":"${request}"`));
+        if (line) {
+          const result = JSON.parse(line.slice(line.indexOf('{"request":')));
+          if (result.error) throw new Error(`native read: ${result.error}`);
+          return result.records;
+        }
+        await sleep(500);
+      }
+      throw new Error('native reader timed out');
+    };
+    const waitNative = async (id, accept) => {
+      let rows;
+      for (const until = Date.now() + 30_000; Date.now() < until;) {
+        rows = (await readNative()).filter((row) => row.clientId === id);
+        if (accept(rows)) return rows;
+        await sleep(1000);
+      }
+      throw new Error(`native state for ${id}: ${JSON.stringify(rows)}`);
+    };
+    const api = (path, method, body) => ctx.page.evaluate(
+      ([p, m, b]) => window.apiCall(p, m, b), [path, method, body]);
+    const native = (method, args) => ctx.page.evaluate(
+      ([m, a]) => window.Health[m](a), [method, args]);
+    r.writeBack = {};
+
+    await ctx.step('write access uses real grants; HW1 switch on', async () => {
+      await ctx.page.evaluate(() => window.switchTab('settings'));
+      const toggle = ctx.page.locator('#health-write-row .wg-toggle');
+      await toggle.waitFor({ state: 'visible', timeout: 15_000 });
+      r.writeBack.grants = await native('writeAccess', ['bp', 'weight']);
+      if (!['bp', 'weight'].every((k) => r.writeBack.grants.granted.includes(k))) throw new Error('missing write grants');
+      if (await ctx.page.evaluate(() => localStorage.getItem('wg.health.write') === 'true')) throw new Error('write switch was on by default');
+      await toggle.click();
+      await ctx.page.waitForFunction(() => {
+        const input = document.getElementById('health-write-toggle');
+        return input?.checked && !input.disabled && localStorage.getItem('wg.health.write') === 'true';
+      }, null, { timeout: 15_000 });
+      await ctx.page.locator('#health-write-row').scrollIntoViewIfNeeded();
+      r.writeBack.hw1 = await ctx.page.locator('#health-write-row').innerText();
+      if (/Writing paused|Writing .* only|isn't allowed/.test(r.writeBack.hw1)) throw new Error(`HW1: ${r.writeBack.hw1}`);
+      await ctx.stableShot('health-write-hw1');
+    });
+
+    let bp;
+    await ctx.step('hand-entered BP reaches Health Connect once under the vault id', async () => {
+      bp = await api('/api/bp', 'POST', { systolic: 121, diastolic: 81, measured_at: new Date().toISOString(), notes: 'write-back QA' });
+      r.writeBack.bp = bp;
+      r.writeBack.created = await waitNative(bp.id, (rows) => rows.length === 1 && rows[0].systolic === 121);
+      if (r.writeBack.created[0].recordingMethod !== 3) throw new Error('BP is not manually entered');
+    });
+
+    await ctx.step('editing BP upserts the same record; older and equal versions cannot replace it', async () => {
+      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { systolic: 126, diastolic: 83 });
+      r.writeBack.edited = await waitNative(bp.id, (rows) => rows.length === 1 && rows[0].systolic === 126);
+      const edited = r.writeBack.edited[0];
+      if (edited.version <= r.writeBack.created[0].version) throw new Error('edit did not advance the client version');
+      for (const version of [edited.version, edited.version - 1]) {
+        await native('write', { type: 'bp', id: bp.id, version, at: Date.now(), systolic: 111, diastolic: 71 });
+      }
+      const rows = (await readNative()).filter((row) => row.clientId === bp.id);
+      if (rows.length !== 1 || rows[0].systolic !== 126 || rows[0].version !== edited.version) throw new Error(`version regression: ${JSON.stringify(rows)}`);
+    });
+
+    await ctx.step('scan and changes filter our writes while raw anchors keep moving', async () => {
+      const scan = await native('query', { type: 'bp', anchor: null });
+      if (scan.samples.some((s) => s.systolic === 126 && s.diastolic === 83)) throw new Error('our BP was imported again');
+      if (!scan.samples.some((s) => s.systolic === FIRST[0] && s.diastolic === FIRST[1])) throw new Error('same-package record without client id was filtered');
+      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { systolic: 127, diastolic: 84 });
+      await waitNative(bp.id, (rows) => rows.length === 1 && rows[0].systolic === 127);
+      const changed = await native('query', { type: 'bp', anchor: scan.anchor });
+      r.writeBack.filteredChanges = changed;
+      if (!changed.anchor || changed.returned < 1 || changed.samples.some((s) => s.systolic === 127 && s.diastolic === 84)) throw new Error(`filtered changes: ${JSON.stringify(changed)}`);
+      const stored = await api('/api/bp?days=2', 'GET');
+      const rows = Array.isArray(stored) ? stored : stored.items || stored.data || stored.readings || [];
+      const own = rows.filter((row) => [121, 126, 127].includes(row.systolic) && row.notes === 'write-back QA');
+      if (own.length !== 1 || own[0].id !== bp.id) throw new Error(`duplicate vault BP: ${JSON.stringify(own)}`);
+    });
+
+    await ctx.step('delete is idempotent and never treats an imported store UUID as our identity', async () => {
+      const imported = (await readNative()).find((row) => row.clientId === null && row.systolic === FIRST[0] && row.diastolic === FIRST[1]);
+      if (!imported) throw new Error('native import fixture missing');
+      await native('remove', { type: 'bp', id: imported.id });
+      if (!(await readNative()).some((row) => row.id === imported.id)) throw new Error('delete erased an imported record by Health UUID');
+      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'DELETE');
+      await waitNative(bp.id, (rows) => rows.length === 0);
+      if (await native('remove', { type: 'bp', id: bp.id }) !== true) throw new Error('unknown client id did not resolve true');
+      r.writeBack.importedPreserved = imported.id;
+    });
+
+    await ctx.step('weight uses its vault identity and disappears on delete', async () => {
+      const weight = await api('/api/weight', 'POST', { weight: 72.25, measured_at: new Date().toISOString(), notes: 'write-back QA' });
+      r.writeBack.weight = await waitNative(weight.id, (rows) => rows.length === 1 && rows[0].kg === 72.25);
+      await api(`/api/weight/${encodeURIComponent(weight.id)}`, 'DELETE');
+      await waitNative(weight.id, (rows) => rows.length === 0);
+    });
+
+    await ctx.step('revoked write access reports the real partial grant and refuses writes', async () => {
+      await shell(`pm revoke ${pkg} android.permission.health.WRITE_BLOOD_PRESSURE`);
+      // Android may kill the app on revoke: relaunch from the persisted local-mode state.
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after revoke failed');
+      r.writeBack.partial = await native('writeAccess', ['bp', 'weight']);
+      if (r.writeBack.partial.granted.includes('bp') || !r.writeBack.partial.granted.includes('weight')) throw new Error('partial grant was misreported');
+      const denied = await ctx.page.evaluate(async () => {
+        try { await window.Health.write({ type: 'bp', id: 'denied-qa', version: 1, at: Date.now(), systolic: 120, diastolic: 80 }); return ''; }
+        catch (e) { return String(e.message || e); }
+      });
+      if (!/denied/.test(denied)) throw new Error(`write was not denied: ${denied}`);
+      await shell(`pm grant ${pkg} android.permission.health.WRITE_BLOOD_PRESSURE`);
+    });
   } finally {
     r.writer = (await shell('logcat -d -s qa-health-write:*')).split('\n').slice(-6);
     r.diag = (await healthDiag()).slice(-20);

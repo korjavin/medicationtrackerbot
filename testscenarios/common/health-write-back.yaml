@@ -21,6 +21,6 @@ invariants:
   - 'Write access revoked later in system settings leaves the switch on, reading "Writing paused: access was removed"; entries made meanwhile reach Health once access returns'
 covered_by:
   web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5)
-  android: manual  # until med-8f4s.2 QA
+  android: manual  # health-connect emulator QA covers BP/weight upsert/delete, no echo, grants and HW1; real device permission/retry checks remain manual
   ios: manual  # until med-8f4s.3 QA
-source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065]
+source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2]

@@ -1005,7 +1005,8 @@ class MainActivity : Activity() {
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))
             "lock.set" -> setLock(msg.optJSONObject("args")?.optBoolean("on") == true) { answer(it == null) }
             "diag.append" -> diag("page " + (msg.optJSONObject("args")?.optString("entry") ?: ""))
-            "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
+            "health.authorize", "health.query", "health.writeAccess", "health.write", "health.delete" ->
+                health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             "attest.status", "attest.enroll", "attest.setPass", "attest.assert" ->
                 attest.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             // Local mode's invite request + feedback POST (BasePost.kt): off the main thread, answered on it.

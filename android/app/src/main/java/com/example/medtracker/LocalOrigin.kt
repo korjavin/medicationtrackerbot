@@ -56,6 +56,7 @@ object LocalOrigin {
     /** Every other op the shell answers, in both modes (MainActivity.onBridge, Notifications, HealthConnect). */
     val SHARED_OPS = setOf(
         "ping", "chrome", "shell.ops", "diag.append", "health.authorize", "health.query",
+        "health.writeAccess", "health.write", "health.delete",
         "notifications.permission", "notifications.requestPermission", "notifications.schedule", "notifications.test",
         // The denied note's "Open Android Settings" (web #1218, bd med-ckm5.16).
         "notifications.openSettings",
