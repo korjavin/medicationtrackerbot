@@ -4,6 +4,8 @@ import android.app.Activity
 import android.os.Bundle
 import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.HealthConnectFeatures
+import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
@@ -29,6 +31,13 @@ class QaHealthRead : Activity() {
         CoroutineScope(Dispatchers.Main).launch {
             runCatching {
                 val client = HealthConnectClient.getOrCreate(this@QaHealthRead)
+                if (intent.getBooleanExtra("access", false)) {
+                    val granted = client.permissionController.getGrantedPermissions()
+                    return@runCatching JSONObject().put("request", request).put("access", JSONObject()
+                        .put("historyAvailable", client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) == HealthConnectFeatures.FEATURE_STATUS_AVAILABLE)
+                        .put("historyGranted", HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted)
+                        .put("granted", JSONArray(granted)))
+                }
                 val out = JSONArray()
                 for ((kind, type) in mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class,
                     "hr" to HeartRateRecord::class, "workout" to ExerciseSessionRecord::class)) {

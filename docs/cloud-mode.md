@@ -483,13 +483,14 @@ never turns it off (below).
   Legacy single writes remain supported; the production batched drain follows in
   med-8f4s.15 and belongs to the same store batch as the shell twins. On Android,
   zero requires an actual history permission grant. Without it, including when
-  the history feature is unavailable, the cutoff is 30 days before the install's
-  first observed grant of any Health permission. On upgrade that persisted date
-  is conservative, not a recovered original grant date; it never moves on a later
-  grant or restart and is excluded from backup. This bound never changes import
+  the history feature is unavailable, every access check uses a conservative
+  rolling cutoff 30 days before now. No inferred grant date is stored: the provider
+  can reset its anchor on a full permission revoke while the app is stopped.
+  Copy without history permission therefore covers only the last 30 days from
+  today; granting history allows older entries. This bound never changes import
   eligibility.
   Rows older than `readableFrom` (Android without the past-data permission:
-  30 days before the first grant) are not eligible and not counted; when any
+  the conservative rolling last 30 days) are not eligible and not counted; when any
   are cut, the dialog names them in a warn-icon hint line, never a red error ("N
   entries before dd.mm won't be copied: Health Connect needs access to past
   data to check them."; "1 entry ... to check it.") with "Allow past

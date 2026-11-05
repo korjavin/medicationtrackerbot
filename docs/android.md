@@ -565,14 +565,14 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   result and upsert semantics. The batched web drain (med-8f4s.15) follows both
   shell twins and ships in their containing store batch.
   `readableFrom` is zero only with `READ_HEALTH_DATA_HISTORY` actually granted;
-  otherwise it is the first observed grant of **any** Health Connect permission
-  (read or write) minus 30 days, even if the optional history feature is unavailable.
-  The install stores that first observation in non-backed-up `health` preferences
-  after authorization and when checking access or querying, never advancing it
-  after a restart or re-ask. An upgraded install with existing grants gets a
-  conservative first-observation stamp, **not the recovered first-grant date**:
-  Copy can omit additional older entries until history access is granted. This
-  bound restricts Copy eligibility, not import queries. See the
+  otherwise each access check reports a conservative **now minus 30 days**,
+  even with write-only/empty grants or an unavailable optional history feature.
+  The shell keeps no grant-date state: Health Connect resets its own anchor
+  after all permissions are revoked, which can happen while the app is stopped.
+  A remembered older date could then allow Copy beyond the readable dedupe window.
+  Without history permission, Copy therefore covers the last 30 days from today,
+  rather than 30 days before an inferred first grant. Grant history to copy older
+  entries. This bound restricts Copy eligibility, not import queries. See the
   [Android historical-read contract](https://developer.android.com/health-and-fitness/health-connect/read-data#read-data-older-than-30-days).
   A store/access error rejects rather than pretending access
   was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?}`

@@ -28,8 +28,6 @@ export default async function healthConnect(ctx) {
   const r = (ctx.results.health = { readings: [FIRST, SECOND], vitals: VITALS });
 
   await shell(`pm clear ${pkg}`);
-  // A write-only grant must establish the same stable window as a read grant.
-  await shell(`pm grant ${pkg} android.permission.health.WRITE_WEIGHT`);
 
   const healthDiag = async () => (await shell(`run-as ${pkg} cat shared_prefs/diag.xml`))
     .split(/&#10;|\n/).filter((l) => / health /.test(l));
@@ -94,18 +92,42 @@ export default async function healthConnect(ctx) {
       r.cardsBefore = await overview();
     });
 
-    const firstGrant = async () => {
-      const xml = await shell(`run-as ${pkg} cat shared_prefs/health.xml`);
-      const match = xml.match(/name="firstGrantMs" value="(\d+)"/);
-      if (!match) throw new Error(`missing first grant: ${xml}`);
-      return Number(match[1]);
+    const windowAccess = (types = ['bp', 'weight']) => ctx.page.evaluate(async (types) => {
+      const before = Date.now();
+      const access = await window.Health.writeAccess(types);
+      return { ...access, before, after: Date.now() };
+    }, types);
+    const assertWindow = (access, history = false) => {
+      if (history) {
+        if (access.readableFrom !== 0) throw new Error(`history window: ${JSON.stringify(access)}`);
+      } else if (!Number.isFinite(access.readableFrom) || access.readableFrom === 0 ||
+          access.readableFrom < access.before - 30 * 86400_000 - 2000 || access.readableFrom > access.after - 30 * 86400_000 + 2000) {
+        throw new Error(`rolling window: ${JSON.stringify(access)}`);
+      }
     };
-    await ctx.step('a write-only grant anchors a finite history window; restart and re-ask keep it', async () => {
+    const sdkAccess = async () => {
+      const request = `access-${Date.now()}`;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthRead --ez access true --es request ${request}`);
+      for (const until = Date.now() + 15_000; Date.now() < until;) {
+        const line = (await shell('logcat -d -s qa-health-read:*')).split('\n').findLast((l) => l.includes(`"request":"${request}"`));
+        if (line) {
+          const result = JSON.parse(line.slice(line.indexOf('{"request":')));
+          if (result.error) throw new Error(`SDK access: ${result.error}`);
+          return result.access;
+        }
+        await sleep(500);
+      }
+      throw new Error('SDK access diagnostic timed out');
+    };
+    await ctx.step('empty and write-only grants use todays conservative window; real SDK history access selects the branch', async () => {
       r.window = {};
-      r.window.writeOnly = await ctx.page.evaluate(() => window.Health.writeAccess(['bp', 'weight']));
-      r.window.first = await firstGrant();
-      const expected = r.window.first - 30 * 86400_000;
-      if (r.window.writeOnly.readableFrom !== expected || r.window.writeOnly.granted.join(',') !== 'weight') {
+      r.window.empty = await windowAccess();
+      assertWindow(r.window.empty);
+      if (r.window.empty.granted.length) throw new Error('fresh install had write grants');
+      await shell(`pm grant ${pkg} android.permission.health.WRITE_WEIGHT`);
+      r.window.writeOnly = await windowAccess();
+      assertWindow(r.window.writeOnly);
+      if (r.window.writeOnly.granted.join(',') !== 'weight') {
         throw new Error(`write-only window: ${JSON.stringify(r.window)}`);
       }
       for (const p of READS.filter((p) => p !== 'HEALTH_DATA_HISTORY')) await shell(`pm grant ${pkg} android.permission.health.READ_${p}`);
@@ -114,13 +136,16 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach for history window failed');
-      r.window.deniedHistory = await ctx.page.evaluate(() => window.Health.writeAccess(['bp', 'weight']));
-      if (r.window.deniedHistory.readableFrom !== expected || await firstGrant() !== r.window.first) throw new Error('history window moved after read grants/restart');
+      r.window.deniedHistory = await windowAccess();
+      assertWindow(r.window.deniedHistory);
       await shell(`pm grant ${pkg} android.permission.health.READ_HEALTH_DATA_HISTORY`);
-      r.window.history = await ctx.page.evaluate(() => window.Health.writeAccess(['bp', 'weight']));
-      if (r.window.history.readableFrom !== 0) throw new Error('granted history did not lift the window');
+      r.window.provider = await sdkAccess();
+      r.window.history = await windowAccess();
+      if (r.window.provider.historyAvailable && !r.window.provider.historyGranted) throw new Error('available history permission was not granted');
+      assertWindow(r.window.history, r.window.provider.historyGranted);
       await ctx.page.evaluate(() => window.Health.requestAuthorization(['bp'], { write: ['weight'] }));
-      if (await firstGrant() !== r.window.first) throw new Error('re-ask advanced first-grant stamp');
+      r.window.afterReask = await windowAccess();
+      assertWindow(r.window.afterReask, r.window.provider.historyGranted);
     });
 
     await ctx.step('a reading saved before the import: #1 (+ steps, HR, SpO2)', () => write(FIRST, VITALS));
@@ -631,13 +656,13 @@ export default async function healthConnect(ctx) {
     await ctx.step('without history permission Copy excludes an older entry and names the cutoff', async () => {
       await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
       const old = await api('/api/bp', 'POST', { systolic: 118, diastolic: 78,
-        measured_at: new Date(r.window.first - 31 * 86400_000).toISOString(), notes: 'history cutoff QA' });
+        measured_at: new Date(Date.now() - 31 * 86400_000).toISOString(), notes: 'history cutoff QA' });
       await shell(`pm revoke ${pkg} android.permission.health.READ_HEALTH_DATA_HISTORY`);
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach after history revoke failed');
-      r.window.afterRevoke = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
-      if (r.window.afterRevoke.readableFrom !== r.window.first - 30 * 86400_000 || await firstGrant() !== r.window.first) throw new Error('revocation changed the anchor');
+      r.window.afterRevoke = await windowAccess(['bp', 'weight', 'hr', 'workout']);
+      assertWindow(r.window.afterRevoke);
       await ctx.page.evaluate(() => {
         localStorage.setItem('wg.health.write', 'true');
         document.dispatchEvent(new Event('visibilitychange'));
@@ -658,12 +683,19 @@ export default async function healthConnect(ctx) {
       await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
       await api(`/api/bp/${encodeURIComponent(old.id)}`, 'DELETE');
       await shell(`pm grant ${pkg} android.permission.health.READ_HEALTH_DATA_HISTORY`);
-      if ((await native('writeAccess', ['bp'])).readableFrom !== 0 || await firstGrant() !== r.window.first) throw new Error('history regrant moved stamp or failed to lift cutoff');
+      r.window.providerAfterRetry = await sdkAccess();
+      r.window.afterRetry = await windowAccess(['bp']);
+      assertWindow(r.window.afterRetry, r.window.providerAfterRetry.historyGranted);
       await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'true'));
     });
 
     await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {
       r.copy = {};
+      if ((await native('writeAccess', ['bp', 'weight', 'hr', 'workout'])).readableFrom !== 0) {
+        r.copy.skipped = 'This provider has a finite historical window; the integrated eligible 1,010-entry quota fixture belongs to med-8f4s.15.';
+        ctx.log('health-copy', JSON.stringify(r.copy));
+        return;
+      }
       try {
         await copyMeasurement();
       } catch (e) {

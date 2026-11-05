@@ -19,13 +19,11 @@ import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.testing.populatedWithTestValues
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.time.TimeRangeFilter
-import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.time.Duration
 
@@ -34,40 +32,26 @@ import java.time.Duration
 @Config(sdk = [34], manifest = Config.NONE)
 class HealthConnectTest {
     @Test
-    fun firstObservedAnyGrantPersistsAcrossInstancesReasksAndRevocation() {
-        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("health-window", Context.MODE_PRIVATE)
-        prefs.edit().clear().commit()
-        var now = 1700000000000L
-        val window = HealthGrantWindow(prefs) { now }
-        assertNull(window.observe(emptySet()))
-        assertFalse(prefs.contains("firstGrantMs"))
-        val writeOnly = setOf(HealthPermission.getWritePermission(WeightRecord::class))
-        assertEquals(now, window.observe(writeOnly))
-        val first = now
-        now += Duration.ofDays(10).toMillis()
-        val restarted = HealthGrantWindow(prefs) { now }
-        assertEquals(first, restarted.observe(emptySet()))
-        assertEquals(first, restarted.observe(writeOnly + HealthPermission.getReadPermission(BloodPressureRecord::class)))
-        assertEquals(first - Duration.ofDays(30).toMillis(), restarted.readableFrom(writeOnly))
+    fun onlyActualHistoryPermissionMakesTheWindowUnbounded() {
+        val now = 1700000000000L
+        val reads = setOf(HealthPermission.getReadPermission(BloodPressureRecord::class))
+        // No feature flag enters this calculation: unavailable and denied both
+        // retain a conservative rolling restriction, without reading prefs.
+        assertEquals(now - Duration.ofDays(30).toMillis(), HealthConnect.readableFrom(reads, now))
+        assertEquals(0L, HealthConnect.readableFrom(reads + HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY, now))
+        assertEquals(now - Duration.ofDays(30).toMillis(), HealthConnect.readableFrom(emptySet(), now))
+        assertEquals(now - Duration.ofDays(30).toMillis(), HealthConnect.readableFrom(
+            setOf(HealthPermission.getWritePermission(WeightRecord::class)), now))
     }
 
     @Test
-    fun onlyGrantedHistoryLiftsTheConservativeWindowRegardlessOfFeatureAvailability() {
-        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("health-upgrade-window", Context.MODE_PRIVATE)
-        prefs.edit().clear().commit()
+    fun eachAccessUsesTodaysWindowEvenIfAllPermissionsWereRegrantedWhileTheAppWasStopped() {
+        val grants = setOf(HealthPermission.getReadPermission(BloodPressureRecord::class))
         val now = 1700000000000L
-        val reads = setOf(HealthPermission.getReadPermission(BloodPressureRecord::class))
-        val window = HealthGrantWindow(prefs) { now }
-        // No feature flag enters this calculation: unavailable and denied both
-        // retain Android's default restriction. Existing upgrade grants get now.
-        assertEquals(now - Duration.ofDays(30).toMillis(), window.readableFrom(reads))
-        assertEquals(now, prefs.getLong("firstGrantMs", 0))
-        assertEquals(0L, window.readableFrom(reads + HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY))
-        assertEquals(now - Duration.ofDays(30).toMillis(), window.readableFrom(reads))
-        // A new install's prefs contain no restored earlier first-grant value.
-        prefs.edit().clear().commit()
-        val later = now + Duration.ofDays(90).toMillis()
-        assertEquals(later - Duration.ofDays(30).toMillis(), HealthGrantWindow(prefs) { later }.readableFrom(reads))
+        val day = Duration.ofDays(1).toMillis()
+        assertEquals(HealthConnect.readableFrom(grants, now) + day, HealthConnect.readableFrom(grants, now + day))
+        val regrantedMonthsLater = now + 90 * day
+        assertEquals(regrantedMonthsLater - 30 * day, HealthConnect.readableFrom(grants, regrantedMonthsLater))
     }
 
     private fun batchBody(index: Int): JSONObject = JSONObject().put("id", "batch-$index").put("version", 17L)

@@ -2,7 +2,6 @@ package com.example.medtracker
 
 import android.app.Activity
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.aggregate.AggregateMetric
@@ -49,37 +48,13 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 import kotlin.reflect.KClass
 
-/** Persisted first OBSERVED grant, not a reconstruction of Health Connect's original date.
- * https://developer.android.com/health-and-fitness/health-connect/read-data#read-data-older-than-30-days
- * Unknown upgraded installs deliberately under-copy rather than read past the dedupe window.
- */
-internal class HealthGrantWindow(private val prefs: SharedPreferences,
-                                 private val now: () -> Long = System::currentTimeMillis) {
-    fun observe(granted: Set<String>): Long? = synchronized(lock) {
-        if (prefs.contains(FIRST_GRANT)) return@synchronized prefs.getLong(FIRST_GRANT, 0)
-        if (granted.isEmpty()) return@synchronized null
-        now().also { check(prefs.edit().putLong(FIRST_GRANT, it).commit()) { "cannot persist Health Connect grant" } }
-    }
-
-    fun readableFrom(granted: Set<String>): Long {
-        val first = observe(granted)
-        return if (HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted) 0
-        else (first ?: now()) - Duration.ofDays(30).toMillis()
-    }
-
-    private companion object {
-        const val FIRST_GRANT = "firstGrantMs"
-        val lock = Any()
-    }
-}
-
 /**
  * window.Health on Android (bd med-nt9p.8, .9, med-8f4s.2): Health Connect —
  * the twin of ios/App/Health.swift, answering the same ops with the same
  * sample shapes; web/domain/healthimport.js maps them into the vault.
  *
  *   health.authorize {types, write?}       → Boolean (false: no Health Connect on this device)
- *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr", "workout"]}
+ *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr", "workout"], readableFrom}
  *   health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?} → true
  *   health.write {type: "workout", id, version, start, end, activity} → true
  *   health.write {entries: [single-write body, ...]} → [true | error string, ...]
@@ -124,7 +99,6 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     private val client by lazy { HealthConnectClient.getOrCreate(activity) }
     /** The kinds whose permissions this install has requested (see query). */
     private val prefs by lazy { activity.getSharedPreferences("health", Context.MODE_PRIVATE) }
-    private val grantWindow by lazy { HealthGrantWindow(prefs) }
     /** Resumed by onRequestPermissionsResult: Health Connect permissions are runtime permissions from Android 14. */
     private var pendingAuth: (() -> Unit)? = null
 
@@ -186,15 +160,14 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         val granted = client.permissionController.getGrantedPermissions()
         return JSONObject().put("granted", JSONArray(writableKinds(kinds, granted)))
             .put("supported", JSONArray(WRITABLE.keys))
-            .put("readableFrom", grantWindow.readableFrom(granted))
+            .put("readableFrom", readableFrom(granted))
     }
 
     private suspend fun requireWrite(kind: String) {
         val type = WRITABLE[kind] ?: throw IllegalArgumentException("unknown write type: $kind")
-        if (!available()) throw SecurityException("denied")
-        val granted = client.permissionController.getGrantedPermissions()
-        grantWindow.observe(granted)
-        if (HealthPermission.getWritePermission(type) !in granted) throw SecurityException("denied")
+        if (!available() || HealthPermission.getWritePermission(type) !in client.permissionController.getGrantedPermissions()) {
+            throw SecurityException("denied")
+        }
     }
 
     private suspend fun write(args: JSONObject): Any {
@@ -203,7 +176,6 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             // One permission snapshot and one insert for the pass, rather than
             // a binder call per entry. A revoked grant still makes insert throw.
             val granted = client.permissionController.getGrantedPermissions()
-            grantWindow.observe(granted)
             return writeEntries(args.getJSONArray("entries"), { kind ->
                 val type = WRITABLE[kind] ?: throw IllegalArgumentException("unknown write type: $kind")
                 if (HealthPermission.getWritePermission(type) !in granted) throw SecurityException("denied")
@@ -238,11 +210,9 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) ==
                 HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
         }
-        val granted = client.permissionController.getGrantedPermissions()
-        grantWindow.observe(granted)
         val perms = (kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) } +
             writes.map { HealthPermission.getWritePermission(WRITABLE.getValue(it)) } + listOfNotNull(history)).toSet() -
-            granted
+            client.permissionController.getGrantedPermissions()
         if (perms.isEmpty()) return
         suspendCancellableCoroutine { cont ->
             pendingAuth?.invoke()
@@ -254,7 +224,6 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
                 cont.resume(Unit)
             }
         }
-        grantWindow.observe(client.permissionController.getGrantedPermissions())
     }
 
     private suspend fun query(args: JSONObject): JSONObject {
@@ -268,7 +237,6 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         if (kind !in asked()) ask(KINDS.keys - asked())
         val type = types.first()
         val granted = client.permissionController.getGrantedPermissions()
-        grantWindow.observe(granted)
         // Denied: no samples, no anchor — the page keeps its anchor for when access is granted.
         if (HealthPermission.getReadPermission(type) !in granted) {
             diag("health $kind denied")
@@ -485,6 +453,14 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     }
 
     internal companion object {
+        /** A rolling conservative bound: the provider resets its anchor on a
+         * full permission revoke, which can happen while our process is gone.
+         * Never infer that unseen grant epoch from persisted app preferences.
+         */
+        fun readableFrom(granted: Set<String>, now: Long = System.currentTimeMillis()): Long =
+            if (HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted) 0
+            else now - Duration.ofDays(HISTORY_DAYS).toMillis()
+
         /** The actual pass executor: validation errors are per entry, store errors are not.
          * insertRecords is atomic and throws on service/permission failure:
          * https://developer.android.com/reference/kotlin/androidx/health/connect/client/HealthConnectClient#insertRecords(kotlin.collections.List)
