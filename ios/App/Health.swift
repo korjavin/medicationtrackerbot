@@ -15,8 +15,9 @@ import HealthKit
 ///   health.write {type, id, version, at, systolic, diastolic | kg | bpm} → true, rejects "denied"
 ///   health.write {entries: [body, ...]}  → [true | "<that entry's error>", ...] in order (bd med-8f4s.14)
 ///     (each body = a single write's args; "denied" or a store error throws the whole call)
-///     The same id at an equal or lower version again resolves true (a replay:
-///     HealthKit keeps the higher version — a Copy from a second device).
+///     Resolves true iff the store then holds this app's id at a version >=
+///     the one sent: a store error is re-checked by held() (an equal or lower
+///     replay — a Copy from a second device — is true), else it rethrows.
 ///   health.write {type: "workout", id, version, start, end, activity: 50 | 3000} → true
 ///     (an HKWorkout, strength training or other, start…end in ms; nothing attached)
 ///   health.delete {type, id}             → true (nothing written under `id`: a no-op)
@@ -145,7 +146,7 @@ enum Health {
             // is that entry's string; a whole-call failure — "denied" (no share
             // grant or no Health store) or a HealthKit store error — throws the
             // whole call as a single write does, and the page keeps every id
-            // (a replay is absorbed, see write()).
+            // (a verified replay is that entry's true, see verified()).
             guard let entries = raw as? [Any] else { throw Failure("bad write: entries") }
             var results: [Any] = []
             for entry in entries {
@@ -186,12 +187,15 @@ enum Health {
             default: throw Failure("bad write: activity")
             }
             // The builder honours the sync identifier like a sample save: a
-            // higher version replaces the earlier workout (HealthWriteBackTests).
+            // higher version replaces the earlier workout (HealthWriteBackTests);
+            // a lower one throws, which verified() absorbs.
             let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: .local())
-            try await builder.beginCollection(at: start)
-            try await builder.addMetadata(identity(id, v))
-            try await builder.endCollection(at: end)
-            _ = try await builder.finishWorkout()
+            try await verified(kind, id, v) {
+                try await builder.beginCollection(at: start)
+                try await builder.addMetadata(identity(id, v))
+                try await builder.endCollection(at: end)
+                _ = try await builder.finishWorkout()
+            }
             return true
         }
         let at = try time("at")
@@ -207,17 +211,66 @@ enum Health {
             let d = HKQuantitySample(type: diastolic, quantity: HKQuantity(unit: mmHg, doubleValue: try value("diastolic")),
                                      start: at, end: at, metadata: identity(id + "/dia", v))
             // Saved as the correlation, not its members separately.
-            try await store.save(HKCorrelation(type: HKCorrelationType(.bloodPressure), start: at, end: at,
-                                               objects: [s, d], metadata: identity(id, v)))
+            try await verified(kind, id, v) { try await store.save(HKCorrelation(type: HKCorrelationType(.bloodPressure), start: at, end: at,
+                                               objects: [s, d], metadata: identity(id, v))) }
         } else if kind == "hr" {
             // The id arrives as <bp recordId>/pulse: stored verbatim.
-            try await store.save(HKQuantitySample(type: heartRate, quantity: HKQuantity(unit: .count().unitDivided(by: .minute()), doubleValue: try value("bpm")),
-                                                  start: at, end: at, metadata: identity(id, v)))
+            let sample = HKQuantitySample(type: heartRate, quantity: HKQuantity(unit: .count().unitDivided(by: .minute()), doubleValue: try value("bpm")),
+                                          start: at, end: at, metadata: identity(id, v))
+            try await verified(kind, id, v) { try await store.save(sample) }
         } else {
-            try await store.save(HKQuantitySample(type: bodyMass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: try value("kg")),
-                                                  start: at, end: at, metadata: identity(id, v)))
+            let sample = HKQuantitySample(type: bodyMass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: try value("kg")),
+                                          start: at, end: at, metadata: identity(id, v))
+            try await verified(kind, id, v) { try await store.save(sample) }
         }
         return true
+    }
+
+    /// Runs one store write; a store error (never our Failure) counts as
+    /// written only if held() finds our object at this version or newer —
+    /// else the ORIGINAL error rethrows. No error domain/code is trusted
+    /// (bd med-8f4s.14 R4): samples absorb a lower-version replay silently,
+    /// but HKWorkoutBuilder.finishWorkout throws com.apple.healthd.SQLite 1.
+    private static func verified(_ kind: String, _ id: String, _ v: NSNumber, _ save: () async throws -> Void) async throws {
+        do { try await save() } catch let error where !(error is Failure) {
+            if (try? await held(kind, id, v.int64Value)) == true { return }
+            throw error
+        }
+    }
+
+    /// The objects this app writes under `id` for a kind, primary first (the
+    /// bp correlation, then its members) — shared by write, held and delete.
+    static func owned(_ kind: String, _ id: String) throws -> [(HKSampleType, String)] {
+        switch kind {
+        case "bp": return [(HKCorrelationType(.bloodPressure), id), (systolic, id + "/sys"), (diastolic, id + "/dia")]
+        case "weight": return [(bodyMass, id)]
+        case "hr": return [(heartRate, id)]
+        case "workout": return [(HKObjectType.workoutType(), id)]
+        default: throw Failure("unknown type: \(kind)")
+        }
+    }
+
+    /// This app's own object under `key`: our source AND our sync identifier.
+    static func mine(_ key: String) -> NSPredicate {
+        NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: [key]),
+        ])
+    }
+
+    /// Does the store hold this app's `id` (the kind's primary object) at
+    /// `version` or newer? Needs no read grant: a share-only app still reads
+    /// back the samples it saved itself (Apple, "Authorizing access to health data").
+    static func held(_ kind: String, _ id: String, _ version: Int64) async throws -> Bool {
+        guard let primary = try owned(kind, id).first else { return false }
+        let found = try await withCheckedThrowingContinuation { (done: CheckedContinuation<[HKSample], Error>) in
+            store.execute(HKSampleQuery(sampleType: primary.0, predicate: mine(primary.1), limit: HKObjectQueryNoLimit,
+                                        sortDescriptors: nil) { @Sendable _, found, error in
+                if let error { done.resume(throwing: error) } else { done.resume(returning: found ?? []) }
+            })
+        }
+        let best = found.compactMap { ($0.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.int64Value }.max()
+        return best.map { $0 >= version } ?? false
     }
 
     /// Deletes each object written under `id`, matched on this app's source
@@ -226,21 +279,11 @@ enum Health {
     private static func delete(_ args: [String: Any]) async throws -> Any {
         guard let kind = args["type"] as? String, let id = args["id"] as? String, !id.isEmpty
         else { throw Failure("bad delete") }
-        let owned: [(HKObjectType, String)]
-        switch kind {
-        case "bp": owned = [(HKCorrelationType(.bloodPressure), id), (systolic, id + "/sys"), (diastolic, id + "/dia")]
-        case "weight": owned = [(bodyMass, id)]
-        case "hr": owned = [(heartRate, id)]
-        case "workout": owned = [(HKObjectType.workoutType(), id)]
-        default: throw Failure("unknown type: \(kind)")
-        }
+        let objects = try owned(kind, id)
         guard HKHealthStore.isHealthDataAvailable() else { return true }
         guard canWrite(kind) else { throw Failure("denied") }
-        let mine = HKQuery.predicateForObjects(from: HKSource.default())
-        for (type, key) in owned {
-            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                mine, HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: [key]),
-            ])
+        for (type, key) in objects {
+            let predicate = mine(key)
             try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
                 store.deleteObjects(of: type, predicate: predicate) { @Sendable _, _, error in
                     // Nothing matched is not a failure.

@@ -306,6 +306,17 @@ struct HealthDiagnosticView: View {
             check("workout our source", w.map { Health.ours($0) } == true)
             check("workout span", w.map { abs(ms($0.startDate) - start) < 1 && abs(ms($0.endDate) - ends[1]) < 1 } == true,
                   w.map { "\(ms($0.startDate))…\(ms($0.endDate))" } ?? "none")
+            // held() is what turns a store error into true (bd med-8f4s.14 R4):
+            // true only at our version or below it; the false cases are the
+            // proof that a real store error still rethrows.
+            step("held")
+            let heldCases: [(String, Int64, Bool)] = [(session, 1_000, true), (session, 2_000, true), (session, 2_001, false),
+                                                      ("workoutsession-qa-never-written", 1, false)]
+            for (id, version, want) in heldCases {
+                do { check("held \(id == session ? "workout" : "never-written") v\(version) \(want)",
+                           try await Health.held("workout", id, version) == want) }
+                catch { let e = error as NSError; check("held workout v\(version)", false, "\(e.domain) \(e.code)") }
+            }
             var refused = false
             do { _ = try await Health.handle("health.write", ["type": "workout", "id": session + "-bad", "version": 1,
                                                               "start": start, "end": ends[0], "activity": 52]) }

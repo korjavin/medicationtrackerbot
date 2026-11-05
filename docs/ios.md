@@ -595,16 +595,32 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   Health store) or a HealthKit store error — throws the whole call, as a
   single write does (entries before it may already be saved), and the page
   keeps every id. A
-  body without `entries` behaves exactly as before. Replay rule: the same
-  sync identifier at an equal or lower `SyncVersion` resolves `true` and
-  leaves the stored object as it was (HealthKit keeps the higher version) —
-  that is what makes a Copy from the user's second iPhone/iPad finish: the
+  body without `entries` behaves exactly as before. Replay rule (bd
+  med-8f4s.14 R4, same contract as Android): `health.write` resolves `true`
+  iff the store then holds this app's id at a version ≥ the one sent.
+  Samples absorb an equal or lower `SyncVersion` silently (HealthKit keeps the
+  higher version), but `HKWorkoutBuilder.finishWorkout` throws
+  `com.apple.healthd.SQLite 1` for a lower-version workout. So any store error
+  (never the shell's own refusals) is checked by `held(kind, id, version)`:
+  one `HKSampleQuery` on the kind's primary object (bp correlation, body mass,
+  heart rate, workout) with delete's own-source + sync-identifier predicate;
+  true when its highest `SyncVersion` ≥ the one sent → the write resolves
+  `true`, else the original error rethrows. No error domain or code is
+  trusted. That read needs no read grant: a share-only app still reads back
+  the samples it saved itself (Apple, "Authorizing access to health data").
+  This is what makes a Copy from the user's second iPhone/iPad finish: the
   dedupe read hides this app's own writes (`ours()`), so the second device
   re-sends ids the first one wrote with the same stored `clientTs`, and the
-  sync identifier dedupes them across devices. `HealthWriteBackTests` replays
-  weight, hr and workout at the equal and a lower version (BP too where the
-  runtime grants BP share) and checks one object at the higher version, and
-  sends a 10-entry mixed batch, one with malformed entries and (BP share denied) one that throws `denied`. Device check:
+  sync identifier dedupes them across devices. A newer version written by the
+  other device but not yet visible here makes `held` false → the error
+  throws, the page keeps the id and resends it next pass at the row's current
+  `clientTs` (absorbed then): one retry, never a wrong `true`.
+  `HealthWriteBackTests` replays weight, hr and workout at the equal and a
+  lower version (BP too where the runtime grants BP share) and checks one
+  object at the higher version; checks `held` on the workout at v1000/v2000
+  (true), v2001 and a never-written id (false); and sends a 10-entry mixed
+  batch, one with malformed entries and (BP share denied) one that throws
+  `denied`. Device check:
   Copy past entries on a second device finishes and doubles nothing.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
