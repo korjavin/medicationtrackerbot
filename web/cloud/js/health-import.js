@@ -80,7 +80,7 @@ const ROW_ID = 'health-import-row';
 const TOGGLE_ID = 'health-import-toggle';
 const WRITE_ROW_ID = 'health-write-row';
 const WRITE_TOGGLE_ID = 'health-write-toggle';
-const KIND_NAMES = { bp: 'blood pressure', weight: 'weight', hr: 'pulse' };
+const KIND_NAMES = { bp: 'blood pressure', weight: 'weight', hr: 'pulse (heart rate)' };
 
 function readJSON(storage, key, fallback) {
     try {
@@ -492,7 +492,8 @@ function writeHintText(health, granted, supported = DEFAULT_SUPPORTED) {
     const cap = (t) => t[0].toUpperCase() + t.slice(1);
     const names = (ks) => ks.map((k) => KIND_NAMES[k]).join(' and ');
     const have = names(kinds.filter((k) => granted.includes(k)));
-    return `Writing ${have} only. ${cap(names(missing))} ${missing.length > 1 ? "aren't" : "isn't"} allowed: allow it in ${accessHint(health)}.`;
+    const verb = missing.length > 1 ? "aren't allowed: allow them" : "isn't allowed: allow it";
+    return `Writing ${have} only. ${cap(names(missing))} ${verb} in ${accessHint(health)}.`;
 }
 
 export function healthStatusText(storage = globalThis.localStorage, health = globalThis.Health) {

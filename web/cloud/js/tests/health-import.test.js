@@ -1951,13 +1951,20 @@ describe('Health write-back', () => {
             expect(writeDesc()).toBe("Writing blood pressure only. Weight isn't allowed: allow it in Health Connect → App permissions.");
         });
 
+        it('two kinds missing read in the plural (Miles 15460)', async () => {
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp'], supported: ALL }));
+            await start();
+            await flip(writeToggle(), true);
+            expect(writeDesc()).toBe("Writing blood pressure only. Weight and pulse (heart rate) aren't allowed: allow them in Health Connect → App permissions.");
+        });
+
         // bd med-8f4s.6: heart rate denied on a shell that can write it.
         it('pulse denied: bp and weight arrive, the pulses wait and the line names pulse; allowed later, they arrive', async () => {
             health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'], supported: ALL }));
             await start();
             await flip(writeToggle(), true);
             expect(writeToggle().checked).toBe(true);
-            expect(writeDesc()).toBe("Writing blood pressure and weight only. Pulse isn't allowed: allow it in Health Connect → App permissions.");
+            expect(writeDesc()).toBe("Writing blood pressure and weight only. Pulse (heart rate) isn't allowed: allow it in Health Connect → App permissions.");
             const b = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80, pulse: 66 });
             const w = await api('/api/weight', 'POST', { measured_at: '2026-10-01T07:30:00Z', weight: 80 });
             await vi.waitFor(() => expect(dirty()).toEqual({ bp: {}, weight: {}, hr: { [b.id]: expect.any(Number) } }));
