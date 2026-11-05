@@ -445,13 +445,17 @@ describe('cloud medication identity through the real RxNorm port', () => {
                 effects: { scheduleReminderRecompute: vi.fn() },
             });
             const check = () => env.window.apiCall('/api/medications/ema-check?name=Candecor');
+            const poll = () => env.window.apiCall('/api/medications/ema-check?name=Candecor&poll=1');
             expect(await check()).toEqual({ status: 'off', candidates: [], ambiguous: false, source: null });
             expect(asset).not.toHaveBeenCalled();
             expect(caches.open).not.toHaveBeenCalled();
 
             pick('eu');
+            // A poll only reads the load; the check starts it.
+            expect((await poll()).status).toBe('idle');
+            expect(caches.open).not.toHaveBeenCalled();
             expect((await check()).status).toBe('loading');
-            await vi.waitFor(async () => expect((await check()).status).toBe('ready'));
+            await vi.waitFor(async () => expect((await poll()).status).toBe('ready'));
             const res = await check();
             expect(res.candidates.map((c) => c.jurisdiction)).toEqual(['Germany', 'Slovenia']);
             expect(res).toMatchObject({ ambiguous: true, source: { revision: 'EMA/518502/2018, Rev.90' } });

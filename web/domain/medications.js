@@ -178,7 +178,7 @@ function notFound(message) {
 //               checkInteractions(rxcuis) -> string[] } — browser impl does
 //               real RxNav fetches (Task 6), tests inject a fake. Failures
 //               degrade to empty results, never block a med save.
-//   ema     — { register() -> { status: 'off'|'loading'|'ready'|'unavailable',
+//   ema     — { register({ start }) -> { status: 'off'|'loading'|'ready'|'unavailable',
 //               catalogue?, progress? } } — the on-device EU register
 //               (web/cloud/js/ema.js, bd med-3u28.2); 'off' unless the EU
 //               register is picked. Read-only: nothing lands on the record.
@@ -227,10 +227,11 @@ export function createMedicationsDomain({
   // emaCheck backs the editor's EU chip (bd med-3u28.2): an exact,
   // case-insensitive name match over every jurisdiction of the register.
   // While the register downloads it answers 'loading' with the progress so
-  // far; the caller asks again.
-  async function emaCheck({ name = '' } = {}) {
+  // far; the caller asks again with poll set, which only reads where the
+  // load is, so a failed load stays 'unavailable' until a new check retries.
+  async function emaCheck({ name = '', poll = false } = {}) {
     let reg;
-    try { reg = await eu.register(); } catch { reg = { status: 'unavailable' }; }
+    try { reg = await eu.register({ start: !poll }); } catch { reg = { status: 'unavailable' }; }
     if (!reg || reg.status !== 'ready') {
       const status = (reg && reg.status) || 'unavailable';
       const res = { status, candidates: [], ambiguous: false, source: null };

@@ -69,6 +69,7 @@ function fillMedEditor(med) {
     document.getElementById('med-archived').checked = !!m.archived;
     document.getElementById('med-supplement').checked = !!m.supplement;
     setMedRxMatch('', '');
+    paintMedEu(null); // no EU chip carried over from the last editor
 
     setMedDate('med-start-date', m.start_date ? m.start_date.split('T')[0] : '');
     setMedDate('med-end-date', m.end_date ? m.end_date.split('T')[0] : '');
@@ -308,16 +309,19 @@ function getMedRegister() {
 const MED_EU_POLL_MS = 250;
 
 // The register downloads once; while it does the check answers 'loading'
-// with the progress so far, so ask again until it settles.
+// with the progress so far, so ask again until it settles. Only the first
+// call starts a load; polls just read it, so a failed load ends on ER6.
 async function checkMedEu(call, name, stale) {
+    const params = new URLSearchParams({ name });
     for (;;) {
         let res = null;
         try {
-            res = await call(`/api/medications/ema-check?${new URLSearchParams({ name })}`, 'GET');
+            res = await call(`/api/medications/ema-check?${params}`, 'GET');
         } catch (_) { /* shown as could not load; Save still works */ }
         if (stale()) return;
         paintMedEu(res || { status: 'unavailable' }, name);
         if (!res || res.status !== 'loading') return;
+        params.set('poll', '1');
         await new Promise((resolve) => setTimeout(resolve, MED_EU_POLL_MS));
         if (stale()) return;
     }

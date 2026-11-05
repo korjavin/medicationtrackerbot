@@ -764,6 +764,11 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(slot(document).querySelector('.wg-macros__val').textContent).toBe('46%');
             await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
             expect(slot(document).textContent).not.toContain('Loading');
+            // Only the first call starts the load; the polls just read it.
+            expect(window.apiCallDirect.mock.calls.map(([url]) => url)).toEqual([
+                '/api/medications/ema-check?name=Candecor',
+                '/api/medications/ema-check?name=Candecor&poll=1',
+            ]);
 
             window.apiCallDirect = vi.fn().mockResolvedValue(ready([]));
             commitName(document, window, 'Candekor');
@@ -818,6 +823,19 @@ describe('Medication editor page (kit M5–M6)', () => {
             pending.shift()(ready(CANDECOR));
             await other;
             expect(document.getElementById('med-eu-chip')).toBeNull();
+        });
+
+        it('a chip does not carry over: close, then Add medication opens with no EU chip', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn().mockResolvedValue(ready(CANDECOR));
+            window.showAddModal();
+            commitName(document, window, 'Candecor');
+            await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
+            window.closeModal();
+            window.showAddModal();
+            expect(document.getElementById('med-name').value).toBe('');
+            expect(document.getElementById('med-eu-chip')).toBeNull();
+            expect(slot(document).classList.contains('hidden')).toBe(true);
         });
 
         it('US register (the default): the Rx check runs as before and no EU check or EU DOM appears', async () => {

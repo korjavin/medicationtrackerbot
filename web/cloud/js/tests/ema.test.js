@@ -125,4 +125,18 @@ describe('ema port', () => {
     expect(await createEmaPort({ win: win('eu'), loader }).register()).toEqual({ status: 'loading', progress: 0.1 });
     expect(loader.ensure).toHaveBeenCalledTimes(1);
   });
+
+  it('offline: the editor polls see unavailable (ER6), and only a new check (Retry) fetches again', async () => {
+    const fetch = vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockImplementation(okFetch());
+    const loader = createEmaLoader({ fetch, caches: fakeCaches() });
+    const port = createEmaPort({ win: win('eu'), loader });
+    expect((await port.register()).status).toBe('loading');
+    await loader.ensure();
+    for (let i = 0; i < 4; i++) expect(await port.register({ start: false })).toEqual({ status: 'unavailable' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    expect((await port.register()).status).toBe('loading');
+    await vi.waitFor(async () => expect((await port.register({ start: false })).status).toBe('ready'));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
 });

@@ -976,7 +976,7 @@ export function createApiRouter(ctx, {
     }
     // The editor's EU chip (bd med-3u28.2): on-device register, nothing sent.
     if (path === '/api/medications/ema-check' && method === 'GET') {
-      return medications.emaCheck({ name: params.get('name') || '' });
+      return medications.emaCheck({ name: params.get('name') || '', poll: params.get('poll') === '1' });
     }
     // The Meds → Schedule tab's hour buckets and Upcoming list read this
     // instead of recomputing doses in the browser's own timezone (bd med-gut).

@@ -122,12 +122,14 @@ let sharedLoader = null; // module-state: one register per page lifetime, shared
 
 // The domain's ema port. register() never waits for a download: it starts
 // the load and reports where it is, so the editor can paint real progress.
+// start: false (the editor's polls) only reads the state, so a failed load
+// stays 'unavailable' until the next check (or Retry) starts another.
 export function createEmaPort({ win, loader } = {}) {
   return {
-    async register() {
+    async register({ start = true } = {}) {
       if (medRegister(win) !== 'eu') return { status: 'off' };
       const l = loader || (sharedLoader = sharedLoader || createEmaLoader());
-      l.ensure();
+      if (start) l.ensure();
       return l.state();
     },
   };
