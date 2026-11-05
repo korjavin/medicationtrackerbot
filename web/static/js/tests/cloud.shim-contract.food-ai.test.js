@@ -926,6 +926,19 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 expect(logs).toHaveLength(2);
                 expect(logs.filter((l) => !l.product_id)).toHaveLength(0);
             });
+
+            it('string macros from the unconstrained fallback are stored on the product as numbers', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    { name: 'Lentil soup', weight_grams: 300, carbs_100g: '12', protein_100g: '5', fat_100g: '2' },
+                ])));
+
+                await window.apiCall('/api/food/log/from-description', 'POST', { description: 'lentil soup' });
+
+                const [p] = (await window.apiCall('/api/food/products', 'GET')).products;
+                expect(p).toMatchObject({ carbs_100g: 12, protein_100g: 5, fat_100g: 2 });
+            });
         });
 
         it('Add sheet review: the uncertain item carries a warn chip, Log writes both and closes the sheet', async () => {

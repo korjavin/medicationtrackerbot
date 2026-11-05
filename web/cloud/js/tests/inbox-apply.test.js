@@ -1817,6 +1817,23 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(await records.list('foodlog')).toMatchObject([{ name: 'Boiled egg', product_id: products[0].recordId }]);
     });
 
+    it('two devices draining the same /food event with no shared state write ONE product once merged (rule 12 floor)', async () => {
+        const now = () => DRAIN_MS;
+        const drain = async (name) => {
+            const records = fakeRecords(seed());
+            const aiClient = { parseMealFromDescription: async () => ({ items: [{ ...TWO_EGGS[0], name }] }) };
+            await applyTGCommand(commandEvent('/food 2 eggs'), 20, { ...domainsFor(records, now, aiClient), editReply: vi.fn() });
+            return records;
+        };
+        const [a, b] = [await drain('Kharcho'), await drain('Kharcho soup')];
+        const merged = (type) => [...new Map([...b.dump()[type], ...a.dump()[type]].map((r) => [r.recordId, r])).values()];
+
+        const products = merged('foodproduct');
+        expect(products).toHaveLength(1);
+        expect(products[0]).toMatchObject({ recordId: 'foodproduct-tg-20-0', clientTs: 0 });
+        expect(merged('foodlog').map((l) => l.product_id)).toEqual(['foodproduct-tg-20-0']);
+    });
+
     it('bare /food is refused with a usage hint and logs nothing', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;

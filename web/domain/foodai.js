@@ -104,7 +104,8 @@ export function convertParsedMeal(parsed) {
 // The model's per-100 g estimate. The parser gives no kcal, so energy is the
 // 4/4/9 figure: only 'impossible' can fire on it (med-5jq.8).
 function per100gOf(item) {
-  const c = item.carbs_100g || 0, p = item.protein_100g || 0, f = item.fat_100g || 0;
+  // Number(): the unconstrained fallback provider may send "12".
+  const c = Number(item.carbs_100g) || 0, p = Number(item.protein_100g) || 0, f = Number(item.fat_100g) || 0;
   return { carbs_100g: c, protein_100g: p, fat_100g: f, energy_kcal_100g: 4 * c + 4 * p + 9 * f };
 }
 

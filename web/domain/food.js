@@ -383,7 +383,12 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     return all.find((p) => !p.deleted && p.name === name) || null;
   }
 
-  async function createProduct(input) {
+  // forLog — the deterministic recordId of the log this product is created
+  // for (a Telegram drain item). Then the product id derives from it and the
+  // write takes the floor (CLAUDE.md rule 12: clientTs 0, putIfAbsent), so two
+  // devices draining one event, or a re-parse under another name, write ONE
+  // product. A tombstone in that slot falls back to a fresh product.
+  async function createProduct(input, { forLog } = {}) {
     const nowMs = now();
     const record = {
       recordId: genId('foodproduct', nowMs),
@@ -402,6 +407,10 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       created_at: new Date(nowMs).toISOString(),
       last_used_at: new Date(nowMs).toISOString(),
     };
+    if (forLog && records.putIfAbsent) {
+      const stored = await records.putIfAbsent(PRODUCT_RECORD_TYPE, { ...record, recordId: `foodproduct-${forLog}`, clientTs: 0 });
+      if (stored && !stored.deleted) return stored;
+    }
     await records.put(PRODUCT_RECORD_TYPE, record);
     return record;
   }
@@ -512,7 +521,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       const found = resolveProduct(resolvedName, await records.list(PRODUCT_RECORD_TYPE), { barcode: input.barcode });
       const touched = found.product && await touchProduct(found.product, (cur) => (
         !cur.barcode && input.barcode ? { barcode: input.barcode } : {}));
-      const product = touched || await createProduct({ name: resolvedName, barcode: input.barcode || null, ...(per100g || per100gFrom(input)) });
+      const product = touched || await createProduct({ name: resolvedName, barcode: input.barcode || null, ...(per100g || per100gFrom(input)) }, { forLog: recordId });
       matched = touched ? found.matched : 'new';
       resolvedProductId = product.recordId;
       resolvedName = product.name;
