@@ -1894,12 +1894,92 @@ describe('Health write-back', () => {
             expect(calls().at(-1)).toEqual({ op: 'remove', type: 'workout', id: 'session-7-a' });
         });
 
-        it('a session completed without a start has no span: its mark resolves to a remove', async () => {
-            startHealthWriteBack({ health, storage, records });
-            await plan('session-7-c', 103);
-            await complete(103);
-            await idle();
-            expect(calls()).toEqual([{ op: 'remove', type: 'workout', id: 'session-7-c' }]);
+        // bd med-8f4s.12 rule D: a plan day marked Done without a start spans
+        // its scheduled time + 5 min per exercise, in the account zone.
+        describe('a plan day completed without a start', () => {
+            const at = (iso) => Date.parse(iso);
+            const span = () => Object.fromEntries(calls().map((c) => [c.id, c.op === 'write' ? [c.start, c.end, c.activity] : c.op]));
+            const day = (recordId, id, date, time) => records.put('workoutsession', {
+                recordId, clientTs: Date.now(), deleted: false, id, user_id: 1, group_id: 7, variant_id: 9,
+                scheduled_date: `${date}T00:00:00+02:00`, scheduled_time: time,
+                status: 'pending', started_at: null, completed_at: null, notes: '',
+            });
+            const planned = async (n) => {
+                for (let i = 1; i <= n; i++) {
+                    await records.put('workoutexercise', { recordId: `ex-${i}`, clientTs: 1, deleted: false, id: i, variant_id: 9, exercise_name: `Ex ${i}`, target_sets: 3, target_reps_min: 5, order_index: i });
+                }
+            };
+            const log = (n, sessionId, exerciseId, name) => records.put('exerciselog', { recordId: `log-${n}`, clientTs: 1, deleted: false, id: n, session_id: sessionId, exercise_id: exerciseId, exercise_name: name, logged_at: '2026-07-01T17:00:00.000Z' });
+
+            beforeEach(async () => {
+                await records.put('settings', { recordId: 'settings', clientTs: 1, deleted: false, timezone: 'Europe/Berlin' });
+            });
+
+            it('(a) 4 planned exercises, no logs: 18:00 → 18:20 local, strength; DST gap moves forward', async () => {
+                startHealthWriteBack({ health, storage, records });
+                await planned(4);
+                await day('session-7-c', 103, '2026-07-01', '18:00');
+                await day('session-7-dst', 105, '2026-03-29', '02:30');
+                await complete(103);
+                await complete(105);
+                await idle();
+                expect((await raw('workoutsession', 'session-7-c')).exercise_snapshot).toHaveLength(4);
+                expect(span()).toEqual({
+                    'session-7-c': [at('2026-07-01T16:00:00Z'), at('2026-07-01T16:20:00Z'), 50],
+                    // Berlin 02:30 does not exist that night: 03:30 CEST.
+                    'session-7-dst': [at('2026-03-29T01:30:00Z'), at('2026-03-29T01:50:00Z'), 50],
+                });
+            });
+
+            it('(b) logs on 2 distinct exercises (one twice) win over the snapshot: 18:10', async () => {
+                startHealthWriteBack({ health, storage, records });
+                await planned(4);
+                await day('session-7-c', 103, '2026-07-01', '18:00');
+                await log(1, 103, 1, 'Ex 1');
+                await log(2, 103, 1, 'Ex 1');
+                await log(3, 103, 0, ' my  Curl');
+                await log(4, 103, 0, 'My curl');
+                await complete(103);
+                await idle();
+                expect(span()).toEqual({ 'session-7-c': [at('2026-07-01T16:00:00Z'), at('2026-07-01T16:10:00Z'), 50] });
+            });
+
+            it('(c) no exercises, or no scheduled_time, is never written; a legacy row without a snapshot counts the live plan', async () => {
+                startHealthWriteBack({ health, storage, records });
+                await day('session-7-empty', 106, '2026-07-01', '18:00');
+                await complete(106);
+                await day('session-7-notime', 107, '2026-07-01', '');
+                await records.put('exerciselog', { recordId: 'log-9', clientTs: 1, deleted: false, id: 9, session_id: 107, exercise_id: 1, exercise_name: 'Ex 1', logged_at: '2026-07-01T17:00:00.000Z' });
+                await complete(107);
+                await idle();
+                await planned(2);
+                await records.put('workoutsession', {
+                    recordId: 'session-7-legacy', clientTs: Date.now(), deleted: false, id: 108, group_id: 7, variant_id: 9,
+                    scheduled_date: '2026-07-01T00:00:00+02:00', scheduled_time: '18:00', status: 'completed', completed_at: '2026-07-01T20:00:00.000Z',
+                });
+                await idle();
+                expect(span()).toEqual({
+                    'session-7-empty': 'remove',
+                    'session-7-notime': 'remove',
+                    'session-7-legacy': [at('2026-07-01T16:00:00Z'), at('2026-07-01T16:10:00Z'), 50],
+                });
+            });
+
+            it('the #1559 reversals still remove it: back to in progress, and delete', async () => {
+                startHealthWriteBack({ health, storage, records });
+                await planned(1);
+                await day('session-7-c', 103, '2026-07-01', '18:00');
+                await day('session-7-del', 104, '2026-07-01', '19:00');
+                await complete(103);
+                await complete(104);
+                await idle();
+                await api('/api/workout/sessions/status?id=103', 'PUT', { status: 'in_progress' });
+                await api('/api/workout/sessions/delete?id=104', 'DELETE');
+                await idle();
+                expect(calls().map((c) => `${c.op} ${c.id}`)).toEqual([
+                    'write session-7-c', 'write session-7-del', 'remove session-7-c', 'remove session-7-del',
+                ]);
+            });
         });
 
         it('moving a completed session back to in progress removes its workout; completing it again does not re-send', async () => {
