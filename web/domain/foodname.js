@@ -91,7 +91,7 @@ export function displayName(name) {
 // product name, brands and quantity with " - " ("Hazelnut Spread - MAXI
 // NUTRITION - 400 g"). Weights go, a branded item reads "Brand Product" (the
 // brand once, never repeated), an unbranded item or a store's house label on a
-// plain food reads as the food alone. OFF names are product names, not user
+// listed staple (STAPLES) reads as the food alone. OFF names are product names, not user
 // notes, so displayName's annotation strip does not apply ("Snack bar" stays).
 const WEIGHT = /(?:^|\s)(?:\d+(?:[.,]\d+)?\s*[x×]\s*)?\d+(?:[.,]\d+)?\s*(?:g|gr|kg|mg|ml|cl|dl|l|oz|lb)\.?$/i;
 // ponytail: a short list of store house labels; extend it when a scanned
@@ -99,6 +99,13 @@ const WEIGHT = /(?:^|\s)(?:\d+(?:[.,]\d+)?\s*[x×]\s*)?\d+(?:[.,]\d+)?\s*(?:g|gr
 const HOUSE_LABELS = new Set(['k classic', 'kaufland', 'lidl', 'milbona', 'aldi', 'gut gunstig', 'ja', 'rewe',
   'rewe bio', 'edeka', 'penny', 'netto', 'spar', 'tesco', 'sainsbury', 'carrefour', 'auchan', 'hacendado',
   'dia', 'migros', 'coop', 'great value', 'kirkland signature']);
+// Plain foods a house label may be dropped from (match keys). Anything else
+// keeps its label: "Tesco Chocolate cookies" is a product, not a staple
+// (Argus 15958). ponytail: a short list; extend it when a staple keeps its label.
+const STAPLES = new Set(['apple', 'banana', 'orange', 'lemon', 'lime', 'pear', 'grape', 'strawberry', 'blueberry',
+  'raspberry', 'avocado', 'tomato', 'potato', 'sweet potato', 'carrot', 'onion', 'red onion', 'garlic', 'cucumber',
+  'lettuce', 'spinach', 'broccoli', 'cauliflower', 'cabbage', 'zucchini', 'bell pepper', 'mushroom', 'egg',
+  'milk', 'whole milk', 'butter', 'rice', 'oat', 'rolled oat', 'flour', 'sugar', 'salt', 'water', 'natural yogurt']);
 // ALL-CAPS words of 4+ letters read as Title case ("MAXI" → "Maxi"); shorter
 // ones are likely acronyms ("KFC") and stay.
 const unshout = (s) => (s === s.toUpperCase() && s !== s.toLowerCase()
@@ -114,7 +121,7 @@ export function offDisplayName(name) {
   const product = unshout([parts[0], ...parts.slice(2)].join(' '));
   const brands = (parts[1] || '').split(',').map((b) => b.trim()).filter(Boolean);
   const inName = (b) => ` ${foodKey(product)} `.includes(` ${foodKey(b)} `);
-  const plain = product.split(' ').length <= 2 && !/\d/.test(product);
+  const plain = STAPLES.has(foodKey(product));
   const out = !brands.length || brands.some(inName) || (plain && brands.some((b) => HOUSE_LABELS.has(houseKey(b))))
     ? product
     : `${unshout(brands[0])} ${product}`;

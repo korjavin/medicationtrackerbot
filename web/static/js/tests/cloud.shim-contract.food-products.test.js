@@ -610,6 +610,17 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect((await productRows()).find((p) => p.recordId === 'p-old').aliases).toBeUndefined();
     });
 
+    it('first scan: a house label stays on a processed product, so a typed generic name never lands on that SKU (Argus 15958)', async () => {
+        const scan = (name, barcode) => env.window.apiCall('/api/food/log', 'POST', { ...body(name), barcode });
+        const bar = await scan('Protein bar - Lidl - 50 g', '4600000000093');
+        expect(bar).toMatchObject({ matched: 'new', name: 'Lidl Protein bar' });
+        const typed = await viaApi('Protein bar');
+        expect(typed).toMatchObject({ matched: 'new', name: 'Protein bar' });
+        expect(typed.product_id).not.toBe(bar.product_id);
+        // A listed staple drops the house label.
+        expect(await scan('Broccoli - K-Classic - 500 g', '4600000000109')).toMatchObject({ matched: 'new', name: 'Broccoli' });
+    });
+
     it('a meal matches only by its exact name, never by key or typo', async () => {
         await env.records.put('foodproduct', product('p-meal', 'Work lunch salad', { is_meal: true, usage_count: 50 }));
         expect(await viaApi('Salad')).toMatchObject({ matched: 'new', name: 'Salad' });
