@@ -140,6 +140,7 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach for history window failed');
+      await ctx.waitLocalReady(ctx.page);
       r.window.deniedHistory = await windowAccess();
       assertWindow(r.window.deniedHistory);
       await shell(`pm grant ${pkg} android.permission.health.READ_HEALTH_DATA_HISTORY`);
@@ -229,6 +230,7 @@ export default async function healthConnect(ctx) {
       await sleep(15_000);
       r.diagOnReturn = (await healthDiag()).slice(before);
       if (!(await ctx.attachPage())) throw new Error('re-attach failed');
+      await ctx.waitLocalReady(ctx.page);
       r.foreground = await waitFor(SECOND, 15_000);
       r.afterForeground = await state();
       if (r.foreground && !r.diagOnReturn.some((l) => / health bp /.test(l))) throw new Error('#2 is there but the return read nothing');
@@ -417,6 +419,7 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach after revoke failed');
+      await ctx.waitLocalReady(ctx.page);
       r.writeBack.partial = await native('writeAccess', ['bp', 'weight']);
       if (r.writeBack.partial.granted.includes('bp') || !r.writeBack.partial.granted.includes('weight')) throw new Error('partial grant was misreported');
       const denied = await ctx.page.evaluate(async () => {
@@ -440,6 +443,7 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach after heart-rate revoke failed');
+      await ctx.waitLocalReady(ctx.page);
       r.writeBack.hrDeniedAccess = await native('writeAccess', ['bp', 'weight', 'hr']);
       const access = r.writeBack.hrDeniedAccess;
       if (!access.supported.includes('hr') || access.granted.includes('hr') || !['bp', 'weight'].every((k) => access.granted.includes(k))) throw new Error('denied HR blocked BP/weight or hid support');
@@ -470,6 +474,7 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach after heart-rate grant failed');
+      await ctx.waitLocalReady(ctx.page);
       r.writeBack.pulseLateGrant = await waitNative(`${pending.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples[0].bpm === 70);
       await api(`/api/bp/${encodeURIComponent(pending.id)}`, 'DELETE');
       await waitNative(pending.id, (rows) => rows.length === 0);
@@ -627,6 +632,7 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach after exercise revoke failed');
+      await ctx.waitLocalReady(ctx.page);
       const access = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
       if (access.granted.includes('workout') || !['bp', 'weight', 'hr'].every((k) => access.granted.includes(k))) throw new Error('exercise denial leaked across kinds');
       const pending = await newSession('cardio');
@@ -650,6 +656,7 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach after exercise grant failed');
+      await ctx.waitLocalReady(ctx.page);
       r.workouts.lateGrant = await waitSession(pending);
       await removeSession(pending.id);
       await waitNative(r.workouts.lateGrant.clientId, (rows) => rows.length === 0);
@@ -665,6 +672,7 @@ export default async function healthConnect(ctx) {
       ctx.page = undefined;
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       if (!(await ctx.attachPage())) throw new Error('re-attach after history revoke failed');
+      await ctx.waitLocalReady(ctx.page);
       r.window.afterRevoke = await windowAccess(['bp', 'weight', 'hr', 'workout']);
       assertWindow(r.window.afterRevoke);
       await ctx.page.evaluate(() => {
