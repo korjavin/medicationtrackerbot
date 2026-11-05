@@ -477,6 +477,9 @@ never turns it off (below).
   `health.writeAccess` reply carries `readableFrom`** (ms: how far back
   `health.query` sees other apps' records; 0 = all; med-8f4s.13 Android,
   med-8f4s.14 iOS): absent, there is no Copy row and no offer (Archie 16124).
+  The current iOS shell reports zero below iOS 27 and withholds the field on
+  iOS 27+ while its limited-history coverage is unresolved, so Copy stays hidden
+  there (med-8f4s.14 R5; [iOS write-back](ios.md)).
   Android's field and native `health.write({entries: [...]})` support arrive
   together (med-8f4s.13): one insertion for the valid entries, ordered per-entry
   validation/refusal results, and a whole-call rejection if the insertion fails.
