@@ -838,6 +838,20 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(slot(document).classList.contains('hidden')).toBe(true);
         });
 
+        // Archie 16428 F3: a failed ema-check falls through to rx-check, whose
+        // shim port is the one register gate (no lookup unless it reads 'us').
+        it('a failed ema-check falls through to the Rx check, with no EU error painted', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn(async (url) => {
+                if (url.startsWith('/api/medications/ema-check')) throw new Error('shim failure');
+                return { rxcui: '1', normalized_name: 'candesartan', warning: '' };
+            });
+            window.showAddModal();
+            commitName(document, window, 'Candesartan');
+            await vi.waitFor(() => expect(document.getElementById('med-rx-name').textContent).toBe('Rx · candesartan'));
+            expect(slot(document).classList.contains('hidden')).toBe(true);
+        });
+
         it('US register (ema-check answers off): the Rx check runs as before and no EU DOM appears', async () => {
             const { document, window } = env;
             window.apiCallDirect = usRegister(async () => ({ rxcui: '1', normalized_name: 'candesartan', warning: '' }));

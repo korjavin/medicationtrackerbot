@@ -312,7 +312,12 @@ async function checkMedEu(call, name, stale) {
         let res = null;
         try {
             res = await call(`/api/medications/ema-check?${params}`, 'GET');
-        } catch (_) { /* shown as could not load; Save still works */ }
+        } catch (_) {
+            // The check itself failed: rx-check runs as before. It cannot send
+            // an EU user's name: the shim's rxnorm port answers "no lookup"
+            // unless the register reads 'us' (Archie 16428, F3).
+            return stale() || false;
+        }
         if (stale()) return true;
         if (res && res.status === 'off') return false;
         paintMedEu(res || { status: 'unavailable' }, name);
