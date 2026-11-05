@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Food catalog hints</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-food-catalog.html" aria-current="page">Food catalog hints</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-train-timeline.html">Train timeline</a><a href="screens-settings.html">Settings</a><a href="screens-trackers.html">Trackers</a><a href="screens-native.html">Native shells</a><a href="screens-onboarding.html">Onboarding</a><a href="screens-onboarding-v3.html">Onboarding v3</a><a href="screens-add-device.html">Add a device</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Food catalog hints</h1>
+<p class="kit-lede">Epic med-5jq keeps one product per food. The add sheet and the AI review show two small things: a scanned staple can be logged as a food you already have (med-5jq.7), and questionable numbers get a quiet hint you can ignore (med-5jq.9). There are no new screens or components, and nothing blocks saving.</p>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Inside the existing sheets</h2><p class="kit-group__sub">FC1 sits on F5 (a picked scan result), FC2 on F7 (AI review) and FC3 on F8 (manual entry).</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="FC1 Scan matches your food"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div><nav class="wg-tabbar" data-tabbar="food"></nav>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Lunch</div><div class="wg-sheethead__title">Log food</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="clock"></i>Now 12:40</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-affix"><i class="wg-ico wg-affix__lead" data-icon="search"></i><input class="wg-input wg-input--text" value="Broccoli florets, frozen"></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Scanned</span><span class="wg-meta">log it as</span></div>
+<div class="wg-choices">
+<button class="wg-choice" aria-pressed="true"><span>Broccoli<span class="wg-choice__sub">Your food · 34 kcal / 100 g</span></span></button>
+<button class="wg-choice" aria-pressed="false"><span>Broccoli florets, frozen<span class="wg-choice__sub">New food · 28 kcal / 100 g</span></span></button>
+</div></section>
+<div class="wg-picks" data-single><button class="wg-pick" aria-pressed="false">100<small>g</small></button><button class="wg-pick" aria-pressed="true">150<small>g</small></button><button class="wg-pick" aria-pressed="false">200<small>g</small></button><button class="wg-pick" aria-pressed="false">Other</button></div>
+</div>
+<div class="wg-sheet__foot"><button class="wg-btn wg-btn--primary"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add 150 g · 51 kcal</button></div>
+</div></div>
+</div></div><figcaption class="kit-cap"><b>FC1</b><span>A scanned staple matches a food you have (med-5jq.7)</span><em>Only for an unbranded staple whose name resolves to one of your products. Two choices replace the single picked row, and your food is preselected. Portions and the primary follow the selected choice. Logging with your food stores the barcode on it, so the next scan goes straight to Broccoli without asking. "New food" creates the scanned product as .6 does, and the next scan of that barcode finds it without asking. A branded product or no match → F5 as today.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="FC2 AI review, matched + flagged"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Edit</button><div class="wg-sheethead__titles"><div class="wg-eyebrow">Review · 3 items</div><div class="wg-sheethead__title">Log food</div></div></div>
+<div class="wg-sheet__body">
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Boiled egg</span><span class="wg-row__meta">100 g · P 13 · F 11<span class="wg-tag">Mine</span></span></span><span class="wg-row__value wg-row__value--sun">155<small>kcal</small></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Rye bread</span><span class="wg-row__meta">60 g · P 5 · F 1</span></span><span class="wg-row__value wg-row__value--sun">155<small>kcal</small></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Granola with nuts</span><span class="wg-row__meta">60 g · P 6 · F 9</span><span class="wg-hint"><i class="wg-ico wg-ico--sm wg-warn" data-icon="alert"></i> Calories don't match the macros (≈&nbsp;270).</span></span><span class="wg-row__value wg-row__value--sun">90<small>kcal</small></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+<div class="wg-card wg-card--tight"><div class="wg-macros"><span class="wg-macros__label">Total</span><span class="wg-meter"><span class="wg-meter__fill" style="--p:18%"></span></span><span class="wg-macros__val">400 kcal</span></div></div>
+<p class="wg-hint">Tap an item to adjust grams or replace it with a database match.</p>
+</div>
+<div class="wg-sheet__foot"><button class="wg-btn">Discard</button><button class="wg-btn wg-btn--primary">Log 3 items</button></div>
+</div></div>
+</div></div><figcaption class="kit-cap"><b>FC2</b><span>AI review: one matched, one flagged (med-5jq.9)</span><em>A matched item shows the name it will be logged under (your product's name, here for "hard-boiled eggs") and the existing <i>Mine</i> tag from search. There's no "renamed from" line. A flagged item gets one hint line under its meta: a warn icon and quiet text. It's not a chip and not a colour on the row, and Log stays enabled. The text comes from the item's warning field (.8), never computed here. The "estimate" chip stays as it is.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="FC3 Manual entry, impossible value"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Manual entry</div><div class="wg-sheethead__title">Food</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Butter cookies"></div>
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Amount</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="40"><span class="wg-affix__unit">g</span></div></div><div class="wg-field"><label class="wg-label">Values are</label><div class="wg-seg wg-seg--accent wg-seg--sm"><button class="wg-seg__opt" aria-pressed="true">per 100 g</button><button class="wg-seg__opt" aria-pressed="false">total</button></div></div></div>
+<div class="wg-fieldrow wg-fieldrow--3"><div class="wg-field"><label class="wg-label">Carbs</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="65"><span class="wg-affix__unit">g</span></div></div><div class="wg-field"><label class="wg-label">Protein</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="6"><span class="wg-affix__unit">g</span></div></div><div class="wg-field"><label class="wg-label">Fat</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="25"><span class="wg-affix__unit">g</span></div></div></div>
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Total calories</label><div class="wg-affix wg-affix--unit"><input class="wg-input wg-input--focus" value="4900"><span class="wg-affix__unit">kcal</span></div></div><div class="wg-field"><span class="wg-label">When</span><button class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="clock"></i>Now</button></div></div>
+<p class="wg-hint"><i class="wg-ico wg-ico--sm wg-warn" data-icon="alert"></i> Over 900 kcal per 100 g. Check the numbers.</p>
+</div>
+</div></div>
+</div></div><figcaption class="kit-cap"><b>FC3</b><span>Manual entry with an impossible value (med-5jq.9)</span><em>The same hint line as FC2, under the calories row, appears once the user leaves the field. Save stays enabled; the warning never blocks. The sheet asks the same domain check (.8) the response uses, so the wording and thresholds live in one place.</em></figcaption></figure>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Answers to the open questions</h2></div>
+<div class="kit-specs">
+<div class="kit-spec"><div class="kit-spec__name">Decisions (my recommendation, pending Developer)</div>
+<ol class="wg-olist">
+<li><b>Scan offer (.7):</b> two choices in place of the picked row, with your food preselected, and no extra sentence. The barcode is remembered silently, so the user is asked once per barcode either way.</li>
+<li><b>Branded products never get the offer.</b> No match, or more than one candidate → F5 unchanged.</li>
+<li><b>Matched AI items (.9):</b> the canonical name plus the existing <i>Mine</i> tag. No "renamed from" line: the user never saw the AI's own name.</li>
+<li><b>Flags:</b> one quiet hint line per item, with a warn icon and fg-3 text. No chip, no row colour, no dialog, and Log and Save are never disabled. With several warnings, show only the most severe (impossible, then inconsistent, then low). After a grams edit the flag stays, because it is per 100 g.</li>
+<li><b>Copy, one line per kind</b> (rendered from .8's field): impossible: "Over 900 kcal per 100 g. Check the numbers." Inconsistent: "Calories don't match the macros (≈ N)." Suspiciously low: "Only N kcal per 100 g. Check per 100 g vs total."</li>
+<li><b>Manual sheet:</b> it calls the .8 domain check on blur, the same function as the response field, not a UI copy (Archie to confirm the port).</li>
+</ol></div>
+</div></section>
+</main>
+</body>
+</html>
