@@ -60,12 +60,22 @@ export default async function euRegister(ctx) {
   let counting = null;
   const isAsset = (url) => url.includes('/static/data/ema-');
   const watch = (p) => {
-    p.on('request', (q) => { if (counting && isAsset(q.url())) r.assetRequests[counting]++; });
+    // Track the app checks, not the separate phase probe that deliberately precedes a reload.
+    // Keep the phase on the request: a late failure must not be assigned to a later check.
+    const phases = new WeakMap();
+    p.on('request', (q) => {
+      if (counting && isAsset(q.url())) {
+        phases.set(q, counting);
+        r.assetRequests[counting]++;
+      }
+    });
     p.on('response', (res) => {
-      if (isAsset(res.url())) r.assetResponses.push({ phase: counting, url: res.url(), status: res.status() });
+      const phase = phases.get(res.request());
+      if (phase) r.assetResponses.push({ phase, url: res.url(), status: res.status() });
     });
     p.on('requestfailed', (q) => {
-      if (isAsset(q.url())) r.failedAssetRequests.push({ url: q.url(), error: q.failure()?.errorText });
+      const phase = phases.get(q);
+      if (phase) r.failedAssetRequests.push({ phase, url: q.url(), error: q.failure()?.errorText });
     });
   };
 
