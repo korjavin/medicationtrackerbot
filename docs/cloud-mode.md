@@ -505,8 +505,10 @@ never turns it off (below).
   Connect's rate limit, store busy) shows "Copy paused" (HW8b) and backs off
   1→2→4… min, capped at 15; every foreground return runs a pass at once. The
   passes go on while a pulse of the job is still unsent (the row already shows
-  the result). A pass that fails again at the cap (an entry the store never
-  takes) lets the job go when Settings is left: Copy is free again and the
+  the result). The count of failed passes in a row is kept with the job, so a
+  relaunch neither restarts the back-off nor that count; once a pass fails
+  again at the cap (six in a row: an entry the store never takes), the job goes
+  when Settings is left or at the next launch: Copy is free again and the
   entry stays in the ledger. A relaunch resumes from the ledger and the job. The result (HW9/HW9b) stays
   until Settings is left; a kind not allowed is named, its entries stay queued
   and go out once allowed. Nothing touches the vault.

@@ -2610,14 +2610,27 @@ describe('Health write-back', () => {
                 expect(ledgerSize()).toBe(0);
             });
 
-            it('(c) an entry the store never takes: once the back-off is at its cap, leaving Settings frees Copy and keeps it queued', async () => {
+            it('(c) an entry the store never takes: once the back-off fails again at its cap, across relaunches, leaving Settings frees Copy and keeps it queued', async () => {
                 allowConsoleNoise();
-                health.write = vi.fn(async (a) => { if (a.id === 'bp-c') throw new Error('invalid'); return true; });
-                await open(health, { copyBackoffMs: 1 });
+                const rejectC = async (a) => { if (a.id === 'bp-c') throw new Error('invalid'); return true; };
+                health.write = vi.fn(rejectC);
+                // Slow enough on the first page to stop it at 2 or 3 failed passes.
+                await open(health, { copyBackoffMs: 60 });
                 await tap();
                 await vi.waitFor(() => expect(rowText()).toEqual(['Copy paused', 'Health Connect is busy. 4 of 5 so far; it continues when the app is open.']));
+                await vi.waitFor(() => expect(job().fails).toBeGreaterThanOrEqual(2), { interval: 5 });
+                expect(job().fails).toBeLessThan(6);
+                // A relaunch keeps the count (Argus 16051): it goes on, never back to 1.
+                // The old page dies: its writer never answers again.
+                health.write.mockImplementation(() => new Promise(() => {}));
+                const before = job().fails;
+                document.body.innerHTML = home;
+                const next = { ...health, write: vi.fn(rejectC) };
+                await open(next, { copyBackoffMs: 1 });
+                await vi.waitFor(() => expect(next.write).toHaveBeenCalledWith(expect.objectContaining({ id: 'bp-c' })));
+                await vi.waitFor(() => expect(job().fails).toBeGreaterThan(before));
                 // 1, 2, 4, 8, 15, then a failure at the cap.
-                await vi.waitFor(() => expect(health.write.mock.calls.filter(([a]) => a.id === 'bp-c').length).toBeGreaterThanOrEqual(8));
+                await vi.waitFor(() => expect(job().fails).toBeGreaterThanOrEqual(6));
                 const view = document.getElementById('settings-view');
                 view.classList.add('active');
                 view.classList.remove('active');

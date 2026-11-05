@@ -109,6 +109,9 @@ const COPY_GAP_MS = 1500;
 const COPY_BACKOFF_MS = 60 * 1000;
 // The back-off doubles up to 15× its first step (1 → 15 min).
 const COPY_BACKOFF_CAP = 15;
+// Failed passes in a row (1, 2, 4, 8, 15, then once more at 15) after which
+// the copy counts as stuck.
+const COPY_STUCK_FAILS = 6;
 const COPY_ROW_ID = 'health-copy-row';
 
 function readJSON(storage, key, fallback) {
@@ -950,8 +953,15 @@ export function startHealthImport(ctx, {
     };
     let copying = null;
     let copyTimer = null;
-    let backoff = 0;
-    let stuck = false;
+    // Passes in a row where every call failed, kept with the job so a relaunch
+    // neither restarts the back-off nor the count to giving up.
+    const fails = (job = readJob()) => (job && Number(job.fails)) || 0;
+    const setFails = (n) => {
+        const job = readJob();
+        if (!job || fails(job) === n) return;
+        job.fails = n;
+        writeJSON(storage, JOB_KEY, job);
+    };
     const later = (ms) => {
         clearTimeout(copyTimer);
         copyTimer = setTimeout(() => {
@@ -978,18 +988,13 @@ export function startHealthImport(ctx, {
             if (st && st.pending && isHealthWriteEnabled(storage)) {
                 if (delivered > 0) {
                     paused = false;
-                    stuck = false;
-                    backoff = 0;
+                    setFails(0);
                     later(copyGapMs);
                 } else {
                     paused = true;
-                    // Failing at the cap (about half an hour of nothing): likely an
-                    // entry the store never takes. Leaving Settings then lets the
-                    // job go (its ids stay in the ledger), so Copy is free again.
-                    const cap = copyBackoffMs * COPY_BACKOFF_CAP;
-                    stuck = backoff >= cap;
-                    backoff = Math.min(backoff ? backoff * 2 : copyBackoffMs, cap);
-                    later(backoff);
+                    const n = fails() + 1;
+                    setFails(n);
+                    later(Math.min(copyBackoffMs * 2 ** (n - 1), copyBackoffMs * COPY_BACKOFF_CAP));
                 }
             } else {
                 paused = false;
@@ -1008,11 +1013,15 @@ export function startHealthImport(ctx, {
     const drainWrites = () => copyPass().catch((e) => console.error('[health] write pass failed', e));
     // The result stays until Settings is left (HW9), then the row is "Copy
     // past entries" again; a kind whose read is still denied keeps the job, and
-    // so does a copy still going (pulses included) unless it is stuck.
+    // so does a copy still going (pulses included) unless it is stuck: failed
+    // again at the cap (an entry the store never takes; across relaunches, as
+    // the count is kept). Then the job goes, Copy is free again, and the
+    // entries stay in the ledger.
     const settleCopy = () => {
         const st = copyState();
-        if (!st || (st.pending && !stuck) || Object.keys(st.job.blocked || {}).length) return;
-        writeJSON(storage, JOB_KEY, null);
+        if (!st) return;
+        const stuck = fails(st.job) >= COPY_STUCK_FAILS;
+        if ((st.pending && !stuck) || Object.keys(st.job.blocked || {}).length) return;        writeJSON(storage, JOB_KEY, null);
         renderCopy();
     };
     // HW6 (offer: once per device, after a granting switch-on) and HW7 (the
@@ -1050,8 +1059,6 @@ export function startHealthImport(ctx, {
                 return;
             }
             paused = false;
-            stuck = false;
-            backoff = 0;
             renderCopy();
             drainWrites();
         } finally {
