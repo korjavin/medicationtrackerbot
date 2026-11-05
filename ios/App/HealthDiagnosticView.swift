@@ -64,7 +64,9 @@ struct HealthDiagnosticView: View {
     /// check that an imported row's id (`*-hk-<uuid>`) deletes nothing, then
     /// delete ours and find nothing left; then the same for a BP pulse as hr
     /// (bd med-8f4s.8), plus a seeded workout whose imported average heart
-    /// rate the pulse must not move. Each run uses fresh ids.
+    /// rate the pulse must not move; then a completed session as a workout (bd
+    /// med-8f4s.10): write, replace, activity guard, own-id filter (the seeded
+    /// unmarked workout still imports), delete. Each run uses fresh ids.
     @MainActor
     private func writeBack() async -> [String: Any] {
         var failed: [String] = []
@@ -89,6 +91,7 @@ struct HealthDiagnosticView: View {
             try await find(type, HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: [key]))
         }
         func value(_ s: HKSample?, _ unit: HKUnit) -> Double { (s as? HKQuantitySample)?.quantity.doubleValue(for: unit) ?? -1 }
+        func ms(_ d: Date) -> Double { (d.timeIntervalSince1970 * 1000).rounded() }
         /// Every sample one import pass (anchor nil, paged) hands the page, by uuid.
         func pages(_ kind: String) async throws -> [String: [String: Any]] {
             var byUUID: [String: [String: Any]] = [:], anchor: Any = NSNull(), more = true
@@ -103,27 +106,28 @@ struct HealthDiagnosticView: View {
         func imported(_ kind: String) async throws -> Set<String> { Set(try await pages(kind).keys) }
         var plain: [HKObject] = [], seeded: [HKObject] = []
         do {
-            let both = ["bp", "weight", "hr"]
+            let both = ["bp", "weight", "hr", "workout"]
             // One sheet: on the iOS 26.5 Simulator a second requestAuthorization
             // in the same launch never presents and never returns. So the sheet
             // is the one health.authorize would ask (its share set is
-            // write.flatMap(shareTypes) and readTypes), plus workout share to
-            // seed one with HKWorkoutBuilder, asked here directly. (The sheet
-            // left BP members notDetermined, so calling health.authorize again
-            // would be that second request.)
+            // write.flatMap(shareTypes) and readTypes), asked here directly.
+            // (The sheet left BP members notDetermined, so calling
+            // health.authorize again would be that second request.)
             step("authorize")
             check("hr shares heart rate", Health.shareTypes("hr") == [Health.heartRate])
-            let share = Set(both.flatMap(Health.shareTypes)).union([HKObjectType.workoutType()])
-            try await store.requestAuthorization(toShare: share, read: Set((both + ["workout"]).flatMap(Health.readTypes)))
+            check("workout shares workouts", Health.shareTypes("workout") == [HKObjectType.workoutType()])
+            try await store.requestAuthorization(toShare: Set(both.flatMap(Health.shareTypes)), read: Set(both.flatMap(Health.readTypes)))
             step("bp/weight")
             let access = try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any] ?? [:]
             let granted = access["granted"] as? [String] ?? []
-            let statuses = [Health.systolic, Health.diastolic, Health.bodyMass, Health.heartRate].map { store.authorizationStatus(for: $0).rawValue }
+            let statuses = [Health.systolic, Health.diastolic, Health.bodyMass, Health.heartRate, HKObjectType.workoutType()]
+                .map { store.authorizationStatus(for: $0).rawValue }
             result["granted"] = granted
-            check("supported", access["supported"] as? [String] == ["bp", "weight", "hr"], access["supported"] ?? "absent")
-            check("weight writable", granted.contains("weight"), "\(granted) status sys/dia/kg/hr \(statuses)")
-            // Heart rate is a plain quantity type: unlike bp it must grant here.
-            check("hr writable", granted.contains("hr"), "\(granted) status sys/dia/kg/hr \(statuses)")
+            check("supported", access["supported"] as? [String] == ["bp", "weight", "hr", "workout"], access["supported"] ?? "absent")
+            check("weight writable", granted.contains("weight"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
+            // Heart rate and workouts are plain types: unlike bp they must grant here.
+            check("hr writable", granted.contains("hr"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
+            check("workout writable", granted.contains("workout"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
             // ponytail: on the iOS 26.5 Simulator the share sheet grants the
             // blood-pressure correlation type (status 2) but leaves systolic and
             // diastolic notDetermined, re-asking is a no-op and every BP save
@@ -254,6 +258,43 @@ struct HealthDiagnosticView: View {
             let strayPulse = try await synced(Health.heartRate, pulse).count
             check("pulse gone", strayPulse == 0, strayPulse)
             check("unmarked hr kept", try await find(Health.heartRate, HKQuery.predicateForObject(with: plainHR.uuid)).count == 1)
+
+            // Workout write-back (bd med-8f4s.10): the page's payload for a
+            // completed session. The second write (higher version, strength,
+            // longer) must replace the first (other): one workout left.
+            step("workout write")
+            let session = "workoutsession-qa-\(run)", wt = HKObjectType.workoutType()
+            let start = at - 7_200_000, ends = [at - 5_400_000, at - 4_500_000]
+            for (version, activity, end) in [(1_000, 3000, ends[0]), (2_000, 50, ends[1])] {
+                _ = try await Health.handle("health.write", ["type": "workout", "id": session, "version": version,
+                                                             "start": start, "end": end, "activity": activity])
+            }
+            let mine = try await synced(wt, session)
+            let w = mine.first as? HKWorkout
+            check("one workout", mine.count == 1, mine.count)
+            check("workout version", (w?.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue == 2_000)
+            check("workout strength", w?.workoutActivityType == .traditionalStrengthTraining,
+                  w.map { "\($0.workoutActivityType.rawValue)" } ?? "none")
+            check("workout our source", w.map { Health.ours($0) } == true)
+            check("workout span", w.map { abs(ms($0.startDate) - start) < 1 && abs(ms($0.endDate) - ends[1]) < 1 } == true,
+                  w.map { "\(ms($0.startDate))…\(ms($0.endDate))" } ?? "none")
+            var refused = false
+            do { _ = try await Health.handle("health.write", ["type": "workout", "id": session + "-bad", "version": 1,
+                                                              "start": start, "end": ends[0], "activity": 52]) }
+            catch { refused = error.localizedDescription == "bad write: activity" }
+            check("activity refused", refused)
+            check("nothing for refused activity", try await synced(wt, session + "-bad").isEmpty)
+            // Our workout never imports; the unmarked same-bundle seed does.
+            step("workout filter")
+            let workoutSeen = try await imported("workout")
+            check("own workout filtered", w.map { !workoutSeen.contains($0.uuid.uuidString) } == true)
+            check("unmarked workout imports", workout.map { workoutSeen.contains($0.uuid.uuidString) } == true)
+            step("workout delete")
+            check("delete unknown workout", try await Health.handle("health.delete", ["type": "workout", "id": "workoutsession-qa-never-written"]) as? Bool == true)
+            check("delete workout", try await Health.handle("health.delete", ["type": "workout", "id": session]) as? Bool == true)
+            let strayWorkout = try await synced(wt, session).count
+            check("workout gone", strayWorkout == 0, strayWorkout)
+            check("unmarked workout kept", try await find(wt, HKQuery.predicateForObject(with: workout?.uuid ?? UUID())).count == 1)
         } catch {
             let e = error as NSError
             failed.append("error \(e.domain) \(e.code) \(e.localizedDescription)")
