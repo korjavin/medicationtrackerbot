@@ -1379,8 +1379,9 @@ mode, gated on the bridge platform being `ios` or `android`
   land: `medtracker-ema-rev90-v1` is created, yet holds no entry for the asset
   5 s after the chip shows. The register then works from memory (best-effort,
   as designed) and each launch reads it from the bundle again, which costs no
-  network in local mode. The editor shows no "not stored" line: the web app
-  has none. *US register* in local
+  network in local mode. ER6 has two states only, "No exact match" and
+  "Couldn't load the EU register" with Retry; there is no "not stored" state
+  (ruling on med-3u28.4). *US register* in local
   mode runs no check at all (RxNav is off, `rxnorm: null`); the choice says
   so ("Needs an account. Without one, no name check runs.").
 - **Visual testing:** runbook, probe reading and bead-filing protocol in [ios-visual-testing.md](ios-visual-testing.md). Device testing by the owner comes after the Simulator matrix.
