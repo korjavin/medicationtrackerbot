@@ -49,29 +49,42 @@
 //   sheet (health-import.js).
 //
 // Write-back (bd med-8f4s.1; shells: Android med-8f4s.2, iOS med-8f4s.3). Only
-// bp and weight, only rows made on this device (web/cloud/js/health-import.js
-// keeps the per-id ledger). A shell answers these only once it lists them in
+// bp, weight and the pulse of a bp row (hr, bd med-8f4s.6; shells .7/.8), only
+// rows made on this device (web/cloud/js/health-import.js keeps the per-id
+// ledger). A shell answers these only once it lists them in
 // shell.ops; an older shell rejects them "unsupported: <op>" (or, on Android,
 // never answers: foundation.call has no timeout), so the page sends none of
 // them unless canWrite() is true.
 //   canWrite() → Promise<boolean>: shell.ops lists health.write (web: false).
-//   requestAuthorization(types, { write: ['bp', 'weight'] }) → health.authorize
-//     { types, write }: one sheet asking read for `types` and write (share)
-//     for `write`. Without `write` it is the read-only sheet above.
+//   requestAuthorization(types, { write: ['bp', 'weight', 'hr'] }) →
+//     health.authorize { types, write }: one sheet asking read for `types` and
+//     write (share) for `write` ('hr': HealthKit heartRate share /
+//     WRITE_HEART_RATE). A write kind the shell does not know is ignored.
+//     Without `write` it is the read-only sheet above.
 //   writeAccess(types) → health.writeAccess { types } → Promise<{ granted:
-//     ['bp', 'weight'] }>: the kinds the store lets this app write now
-//     (HealthKit authorizationStatus(for:) on every share type of the kind;
-//     Health Connect getGrantedPermissions on the WRITE_* pair). Read after
-//     authorize and on each write pass.
+//     ['bp', 'weight', 'hr'], supported?: [kinds] }>: the kinds the store
+//     lets this app write now (HealthKit authorizationStatus(for:) on every
+//     share type of the kind; Health Connect getGrantedPermissions on the
+//     WRITE_* permissions). `supported` (optional) = the kinds this shell can
+//     write at all; absent (the .2/.3 shells) means ['bp', 'weight']. The page
+//     names a kind as not allowed only if it is supported and not granted, and
+//     asks the write sheet once for a supported kind it never asked. Read
+//     after authorize and on each write pass.
 //   write(args) → health.write { type: 'bp', id, version, at, systolic,
-//     diastolic } | { type: 'weight', id, version, at, kg } → Promise<true>.
-//     id = the vault recordId, the Health key (Health Connect clientRecordId,
-//     HealthKit HKMetadataKeySyncIdentifier); version = the committed
-//     clientTs (clientRecordVersion / HKMetadataKeySyncVersion); at = measured
-//     ms. The same id again replaces the record. Rejects "denied" (no write
-//     access for the kind) or "unsupported".
+//     diastolic } | { type: 'weight', id, version, at, kg } | { type: 'hr',
+//     id, version, at, bpm } → Promise<true>.
+//     id = the Health key, stored verbatim (Health Connect clientRecordId,
+//     HealthKit HKMetadataKeySyncIdentifier): the vault recordId for bp and
+//     weight, `<bp recordId>/pulse` for hr (one heart-rate sample at `at`:
+//     a HeartRateRecord with one sample / an HKQuantitySample of heartRate),
+//     so it never shares a key with the bp record; version = the committed
+//     clientTs of the row (clientRecordVersion / HKMetadataKeySyncVersion);
+//     at = measured ms. The same id again replaces the record. Rejects
+//     "denied" (no write access for the kind) or "unsupported".
 //   remove({ type, id }) → health.delete { type, id } → Promise<true>:
-//     deletes the record written under `id`; an id never written is a no-op.
+//     deletes the record written under `id` (hr: `<id>/pulse`, sent when the
+//     bp row is deleted or its pulse cleared); an id never written is a no-op.
+//   The heart-rate objects this app wrote never come back in the 'hr' query.
 //
 // Where it lands: web/domain/healthimport.js → vitals.js importSamples
 // (daystats / hrsample / spo2sample, the rows the Vitals cards read).

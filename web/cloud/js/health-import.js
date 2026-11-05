@@ -59,17 +59,28 @@ const PAGE = 500;
 // rest on the next open.
 const MAX_PAGES = 40;
 // Write-back (bd med-8f4s.1): the device-local switch and the per-id ledger of
-// what Health still owes, { bp: { recordId: clientTs }, weight: { … } }.
+// what Health still owes, { bp: { recordId: clientTs }, weight: { … }, hr: { … } }.
 const WRITE_KEY = 'wg.health.write';
 const DIRTY_KEY = 'wg.health.dirty';
-const WRITE_KINDS = ['bp', 'weight'];
+// hr (bd med-8f4s.6) is the pulse of a bp row: no record type of its own, its
+// ledger is keyed by the bp recordId, its Health key is `<recordId>/pulse`.
+const WRITE_KINDS = ['bp', 'weight', 'hr'];
+const RECORD_TYPE = { bp: 'bp', weight: 'weight', hr: 'bp' };
+// The write kinds a record type's put/del marks.
+const MARKS = { bp: ['bp', 'hr'], weight: ['weight'] };
+// What a shell can write when its writeAccess reply has no `supported` (the
+// shipped med-8f4s.2/.3 shells).
+const DEFAULT_SUPPORTED = ['bp', 'weight'];
+// The write kinds the write sheet has asked for on this device; absent on a
+// device switched on before hr existed = the old sheet's two.
+const WRITE_ASKED_KEY = 'wg.health.writeAsked';
 // ponytail: 50 Health calls per pass; the rest waits for the next pass.
 const WRITE_BATCH = 50;
 const ROW_ID = 'health-import-row';
 const TOGGLE_ID = 'health-import-toggle';
 const WRITE_ROW_ID = 'health-write-row';
 const WRITE_TOGGLE_ID = 'health-write-toggle';
-const KIND_NAMES = { bp: 'blood pressure', weight: 'weight' };
+const KIND_NAMES = { bp: 'blood pressure', weight: 'weight', hr: 'pulse (heart rate)' };
 
 function readJSON(storage, key, fallback) {
     try {
@@ -106,15 +117,26 @@ export function isHealthWriteEnabled(storage = globalThis.localStorage) {
 // opt-in. Passive sync apply never reaches the seam. A tombstone carries no
 // source, so it is always marked (its remove is a no-op for an id never written).
 function writeBackEligible(recordType, row, storage) {
-    if (!WRITE_KINDS.includes(recordType) || !isHealthWriteEnabled(storage)) return false;
+    if (!MARKS[recordType] || !isHealthWriteEnabled(storage)) return false;
     return row.deleted || !row.source;
 }
 
+// The Health key of a ledger entry: the hr object sits next to the bp
+// correlation's <id> (and iOS's <id>/sys, <id>/dia) under its own key.
+function healthId(kind, recordId) {
+    return kind === 'hr' ? `${recordId}/pulse` : recordId;
+}
+
+function pulseOf(row) {
+    const bpm = Number(row.pulse);
+    return Number.isFinite(bpm) && bpm > 0 ? bpm : null;
+}
+
 function healthBody(kind, row) {
-    const base = { type: kind, id: row.recordId, version: row.clientTs, at: Date.parse(row.measured_at) };
-    return kind === 'bp'
-        ? { ...base, systolic: row.systolic, diastolic: row.diastolic }
-        : { ...base, kg: row.weight };
+    const base = { type: kind, id: healthId(kind, row.recordId), version: row.clientTs, at: Date.parse(row.measured_at) };
+    if (kind === 'bp') return { ...base, systolic: row.systolic, diastolic: row.diastolic };
+    if (kind === 'hr') return { ...base, bpm: pulseOf(row) };
+    return { ...base, kg: row.weight };
 }
 
 // Health write-back (bd med-8f4s.1). sync.js onLocalWrite reports every bp /
@@ -129,9 +151,10 @@ function healthBody(kind, row) {
 // Nothing reaches Health for a kind the last writeAccess read did not grant:
 // its ids stay marked until a pass reads it granted. No write op at all on a
 // shell whose shell.ops lacks health.write (an Android call has no timeout).
-// Returns { drain, readAccess, supported }: drain is one pass over the
-// ledger, at most WRITE_BATCH calls; readAccess re-reads writeAccess alone
-// (both hand each answer to onAccess); supported resolves canWrite().
+// Returns { drain, readAccess, supported, markAsked }: drain is one pass over
+// the ledger, at most WRITE_BATCH calls; readAccess re-reads writeAccess alone
+// (both hand each answer to onAccess(granted, supported)); supported resolves
+// canWrite(); markAsked records the switch-on sheet's kinds.
 export function startHealthWriteBack({
     health = globalThis.Health,
     storage = globalThis.localStorage,
@@ -148,17 +171,44 @@ export function startHealthWriteBack({
         .then((v) => v === true, () => false);
     // The last writeAccess answer: granted kinds, null when it could not be read.
     let access = null;
+    // The kinds the last reply said this shell can write.
+    let kindsSupported = DEFAULT_SUPPORTED;
     const readAccess = () => (access = supported
         .then((ok) => (ok ? health.writeAccess(WRITE_KINDS) : { granted: [] }))
         .then((r) => {
             // A malformed reply is a failed read, not "nothing granted".
             if (!r || !Array.isArray(r.granted)) throw new Error('malformed writeAccess reply');
-            onAccess(r.granted);
+            kindsSupported = Array.isArray(r.supported) ? r.supported : DEFAULT_SUPPORTED;
+            onAccess(r.granted, kindsSupported);
             return r.granted;
         }).catch((e) => {
             diag(`[health] write access failed ${e && e.message}`);
             return null;
         }));
+
+    // A write kind this shell supports but the write sheet never asked for
+    // (a shell updated after the switch went on): ask once, then re-read.
+    // Mirrors the read side's ASKED_KEY rule.
+    let asking = null;
+    const askNewKinds = () => {
+        const asked = readJSON(storage, WRITE_ASKED_KEY, DEFAULT_SUPPORTED);
+        const fresh = kindsSupported.filter((k) => WRITE_KINDS.includes(k) && !(Array.isArray(asked) && asked.includes(k)));
+        if (!fresh.length) return null;
+        if (!asking) {
+            asking = Promise.resolve()
+                .then(() => {
+                    // Recorded first: asked once, even when the sheet rejects.
+                    writeJSON(storage, WRITE_ASKED_KEY, [...(Array.isArray(asked) ? asked : []), ...fresh]);
+                    return health.requestAuthorization(HEALTH_KINDS, { write: fresh });
+                })
+                .then(() => readAccess(), (e) => {
+                    diag(`[health] write authorization failed ${e && e.message}`);
+                    return null;
+                })
+                .finally(() => { asking = null; });
+        }
+        return asking;
+    };
 
     const step = async (kind, id) => {
         const from = ledger()[kind]?.[id];
@@ -167,15 +217,19 @@ export function startHealthWriteBack({
         const granted = await (access || readAccess());
         if (!granted || !granted.includes(kind)) return; // kept for the next pass
         try {
-            const row = (await records.listRaw(kind)).find((r) => r.recordId === id);
+            const row = (await records.listRaw(RECORD_TYPE[kind])).find((r) => r.recordId === id);
             // Switched off, or a newer access read dropped the kind, while we
             // waited: keep the entry, send nothing.
             const latest = await access;
             if (!isHealthWriteEnabled(storage) || !latest || !latest.includes(kind)) return;
             if (row && !row.deleted) {
-                if (!row.source) await health.write(healthBody(kind, row));
+                // A bp row without a pulse (an edit cleared it) owes Health no
+                // heart-rate entry: remove, a no-op for an id never written.
+                if (row.source) { /* came from Health: never written */ }
+                else if (kind === 'hr' && pulseOf(row) === null) await health.remove({ type: kind, id: healthId(kind, id) });
+                else await health.write(healthBody(kind, row));
             } else {
-                await health.remove({ type: kind, id });
+                await health.remove({ type: kind, id: healthId(kind, id) });
             }
         } catch (e) {
             // Revoked since the last read: hold the kind back until the next one.
@@ -211,19 +265,25 @@ export function startHealthWriteBack({
     // Synchronous, inside the records lock: no awaits, no Health calls here.
     hook((recordType, row) => {
         if (!writeBackEligible(recordType, row, storage)) return;
+        // A bp row marks its pulse too, always: the hook does not see the
+        // previous row, so an edit that cleared the pulse must still remove it.
+        const kinds = MARKS[recordType];
         const l = ledger();
-        l[recordType] = { ...l[recordType], [row.recordId]: row.clientTs };
+        for (const k of kinds) l[k] = { ...l[k], [row.recordId]: row.clientTs };
         if (!writeJSON(storage, DIRTY_KEY, l)) {
             diag('[health] ledger write failed');
             return;
         }
-        queueMicrotask(() => deliver(recordType, row.recordId));
+        // One chain per recordId: bp, then hr.
+        queueMicrotask(() => kinds.forEach((k) => deliver(k, row.recordId)));
     });
 
     const drain = async () => {
         if (!isHealthWriteEnabled(storage)) return null;
-        const granted = await readAccess();
+        let granted = await readAccess();
         if (!granted) return null;
+        const asked = askNewKinds();
+        if (asked) granted = (await asked) || granted;
         const l = ledger();
         // Interleave the kinds so one refused kind cannot starve the other.
         const lists = WRITE_KINDS.filter((k) => granted.includes(k))
@@ -234,7 +294,13 @@ export function startHealthWriteBack({
         }
         await Promise.all(picked.map(([k, id]) => deliver(k, id)));
     };
-    return { drain, readAccess, supported };
+    // The switch-on sheet asked every write kind: markAsked(WRITE_KINDS)
+    // before it opens (a pass racing the turn-on, e.g. the Health Connect
+    // activity's resume, must not show a second sheet), then markAsked()
+    // narrows it to the kinds the shell then supported (an older shell
+    // ignores a kind it does not know, so the build that knows it asks again).
+    const markAsked = (kinds = kindsSupported) => writeJSON(storage, WRITE_ASKED_KEY, kinds.filter((k) => WRITE_KINDS.includes(k)));
+    return { drain, readAccess, supported, markAsked };
 }
 
 // Forget how far this iPhone's Health store was read — the switch-on rescan
@@ -420,13 +486,18 @@ function writeRefusedText(health) {
 }
 
 // The write row's line while on (kit HW4/HW5): '' when every kind is granted.
-function writeHintText(health, granted) {
-    const missing = WRITE_KINDS.filter((k) => !granted.includes(k));
+// Only a kind the shell supports can be missing: an older shell cannot write
+// hr, and there is nothing the user could allow.
+function writeHintText(health, granted, supported = DEFAULT_SUPPORTED) {
+    const kinds = WRITE_KINDS.filter((k) => supported.includes(k));
+    const missing = kinds.filter((k) => !granted.includes(k));
     if (!missing.length) return '';
-    if (missing.length === WRITE_KINDS.length) return `Writing paused: access was removed. Allow it in ${accessHint(health)}.`;
+    if (missing.length === kinds.length) return `Writing paused: access was removed. Allow it in ${accessHint(health)}.`;
     const cap = (t) => t[0].toUpperCase() + t.slice(1);
-    const have = WRITE_KINDS.filter((k) => granted.includes(k)).map((k) => KIND_NAMES[k]).join(' and ');
-    return `Writing ${have} only. ${cap(missing.map((k) => KIND_NAMES[k]).join(' and '))} isn't allowed: allow it in ${accessHint(health)}.`;
+    const names = (ks) => ks.map((k) => KIND_NAMES[k]).join(' and ');
+    const have = names(kinds.filter((k) => granted.includes(k)));
+    const verb = missing.length > 1 ? "aren't allowed: allow them" : "isn't allowed: allow it";
+    return `Writing ${have} only. ${cap(names(missing))} ${verb} in ${accessHint(health)}.`;
 }
 
 export function healthStatusText(storage = globalThis.localStorage, health = globalThis.Health) {
@@ -480,9 +551,9 @@ export function startHealthImport(ctx, {
     // Each writeAccess answer sets the line: a kind missing is named (HW4),
     // nothing granted reads as paused (HW5). A pass never turns the switch
     // off: it resumes by itself once access returns (Miles 15063, Iris 15065).
-    const onAccess = (granted) => {
+    const onAccess = (granted, supported) => {
         if (!isHealthWriteEnabled(storage)) return;
-        writeHint = writeHintText(health, granted);
+        writeHint = writeHintText(health, granted, supported);
         renderWrite();
     };
     const writeBack = startHealthWriteBack({ health, storage, records, onAccess });
@@ -571,6 +642,7 @@ export function startHealthImport(ctx, {
                 toast(`Couldn't reach ${healthLabel(health)} — try again.`, 'error');
                 return false;
             };
+            writeBack.markAsked(WRITE_KINDS);
             try {
                 await health.requestAuthorization(HEALTH_KINDS, { write: WRITE_KINDS });
             } catch (e) {
@@ -583,6 +655,7 @@ export function startHealthImport(ctx, {
             const granted = await writeBack.readAccess();
             if (epoch !== writeEpoch || !isHealthImportEnabled(storage)) return false;
             if (!granted) return failed();
+            writeBack.markAsked();
             // Refused at turn-on (HW3): back off with where to allow it.
             if (!WRITE_KINDS.some((k) => granted.includes(k))) {
                 writeJSON(storage, WRITE_KEY, false);

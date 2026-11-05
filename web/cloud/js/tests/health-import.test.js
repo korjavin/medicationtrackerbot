@@ -1471,10 +1471,11 @@ describe('Health write-back', () => {
     const writeHealth = () => ({
         isSupported: () => true,
         canWrite: async () => true,
-        writeAccess: vi.fn(async () => ({ granted: ['bp', 'weight'] })),
+        writeAccess: vi.fn(async () => ({ granted: ['bp', 'weight', 'hr'] })),
         write: vi.fn(async () => true),
         remove: vi.fn(async () => true),
     });
+    const ALL = ['bp', 'weight', 'hr'];
     const dirty = () => JSON.parse(storage.getItem('wg.health.dirty') || '{}');
     const ledgerSize = () => Object.values(dirty()).reduce((n, m) => n + Object.keys(m).length, 0);
     const calls = () => [
@@ -1515,17 +1516,59 @@ describe('Health write-back', () => {
         const created = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 128, diastolic: 84, pulse: 66 });
         await idle();
         const v1 = (await raw('bp', created.id)).clientTs;
-        expect(calls()).toEqual([{ op: 'write', type: 'bp', id: created.id, version: v1, at: Date.parse('2026-10-01T07:30:00Z'), systolic: 128, diastolic: 84 }]);
+        const at = Date.parse('2026-10-01T07:30:00Z');
+        // bd med-8f4s.6: its pulse as a heart-rate entry under its own key, bp first.
+        expect(health.write.mock.calls.map(([a]) => a)).toEqual([
+            { type: 'bp', id: created.id, version: v1, at, systolic: 128, diastolic: 84 },
+            { type: 'hr', id: `${created.id}/pulse`, version: v1, at, bpm: 66 },
+        ]);
+        expect(dirty()).toEqual({ bp: {}, hr: {} }); // the ledger is keyed by the recordId
 
         await api(`/api/bp/${created.id}`, 'PUT', { systolic: 130 });
         await idle();
         const v2 = (await raw('bp', created.id)).clientTs;
         expect(v2).toBeGreaterThan(v1);
-        expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ id: created.id, version: v2, systolic: 130 }));
+        expect(health.write.mock.calls.slice(2).map(([a]) => a)).toEqual([
+            expect.objectContaining({ type: 'bp', id: created.id, version: v2, systolic: 130 }),
+            { type: 'hr', id: `${created.id}/pulse`, version: v2, at, bpm: 66 },
+        ]);
 
+        // Clearing the pulse removes the heart-rate entry; the bp write moves on.
+        health.write.mockClear();
+        await api(`/api/bp/${created.id}`, 'PUT', { pulse: null });
+        await idle();
+        const v3 = (await raw('bp', created.id)).clientTs;
+        expect(health.write.mock.calls.map(([a]) => a)).toEqual([expect.objectContaining({ type: 'bp', version: v3 })]);
+        expect(health.remove).toHaveBeenLastCalledWith({ type: 'hr', id: `${created.id}/pulse` });
+
+        // Setting it again brings it back.
+        await api(`/api/bp/${created.id}`, 'PUT', { pulse: 70 });
+        await idle();
+        const v4 = (await raw('bp', created.id)).clientTs;
+        expect(health.write).toHaveBeenLastCalledWith({ type: 'hr', id: `${created.id}/pulse`, version: v4, at, bpm: 70 });
+
+        health.remove.mockClear();
         await api(`/api/bp/${created.id}`, 'DELETE');
         await idle();
-        expect(health.remove).toHaveBeenCalledWith({ type: 'bp', id: created.id });
+        expect(health.remove.mock.calls.map(([a]) => a)).toEqual([
+            { type: 'bp', id: created.id },
+            { type: 'hr', id: `${created.id}/pulse` },
+        ]);
+    });
+
+    it('a bp row that came from Health never gets an hr call; its tombstone still sends the remove', async () => {
+        startHealthWriteBack({ health, storage, records });
+        const id = `bp-hk-${U1}`;
+        await records.put('bp', { recordId: id, clientTs: 0, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', systolic: 120, diastolic: 80, pulse: 66, source: 'apple_health', source_id: U1 });
+        await api(`/api/bp/${id}`, 'PUT', { pulse: 70 });
+        await new Promise((r) => setTimeout(r, 10));
+        expect(calls()).toEqual([]);
+        await api(`/api/bp/${id}`, 'DELETE');
+        await idle();
+        expect(calls()).toEqual([
+            { op: 'remove', type: 'bp', id },
+            { op: 'remove', type: 'hr', id: `${id}/pulse` },
+        ]);
     });
 
     it('a plain Telegram /bp drain is written, and a re-drain re-upserts the same record', async () => {
@@ -1574,6 +1617,27 @@ describe('Health write-back', () => {
         expect(dirty()).toEqual({ bp: { 'bp-gone': 5 } });
         await wb.drain();
         expect(health.remove).toHaveBeenCalledTimes(2);
+        expect(ledgerSize()).toBe(0);
+    });
+
+    it('120 bp rows with pulses drain both kinds over passes, interleaved, none dropped', async () => {
+        const rows = Array.from({ length: 120 }, (_, i) => ({ recordId: `bp-${i}`, clientTs: 10, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', systolic: 120, diastolic: 80, pulse: 60 + (i % 30) }));
+        for (const r of rows) await records.put('bp', r); // before the hook: marked by hand below
+        const wb = startHealthWriteBack({ health, storage, records });
+        storage.setItem('wg.health.dirty', JSON.stringify({
+            bp: Object.fromEntries(rows.map((r) => [r.recordId, 10])),
+            hr: Object.fromEntries(rows.map((r) => [r.recordId, 10])),
+        }));
+        const counts = [];
+        for (let i = 0; i < 5; i++) {
+            await wb.drain();
+            counts.push(health.write.mock.calls.length);
+        }
+        expect(counts).toEqual([50, 100, 150, 200, 240]);
+        // The first pass took both kinds, alternating.
+        expect(health.write.mock.calls.slice(0, 50).filter(([a]) => a.type === 'hr')).toHaveLength(25);
+        expect(new Set(health.write.mock.calls.filter(([a]) => a.type === 'hr').map(([a]) => a.id)))
+            .toEqual(new Set(rows.map((r) => `${r.recordId}/pulse`)));
         expect(ledgerSize()).toBe(0);
     });
 
@@ -1652,7 +1716,7 @@ describe('Health write-back', () => {
         expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: w.id, kg: 80 }));
 
         // Allowed later: the next pass delivers the latest version.
-        health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'] }));
+        health.writeAccess = vi.fn(async () => ({ granted: ALL }));
         await wb.drain();
         expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'bp', id: b.id, systolic: 121 }));
         expect(ledgerSize()).toBe(0);
@@ -1833,8 +1897,8 @@ describe('Health write-back', () => {
             await start(); // a second mount adds nothing
             expect(document.querySelectorAll('#health-write-row')).toHaveLength(1);
             await flip(writeToggle(), true);
-            expect(requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2'], { write: ['bp', 'weight'] });
-            expect(health.writeAccess).toHaveBeenCalledWith(['bp', 'weight']);
+            expect(requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2'], { write: ALL });
+            expect(health.writeAccess).toHaveBeenCalledWith(ALL);
             expect(writeToggle().checked).toBe(true);
             expect(storage.getItem('wg.health.write')).toBe('true');
             expect(writeDesc()).toBeNull();
@@ -1854,7 +1918,7 @@ describe('Health write-back', () => {
             expect(ledgerSize()).toBe(0);
 
             // Allowed now: the next turn-on clears the line.
-            health.writeAccess.mockResolvedValue({ granted: ['bp', 'weight'] });
+            health.writeAccess.mockResolvedValue({ granted: ALL });
             await flip(writeToggle(), true);
             expect(writeToggle().checked).toBe(true);
             expect(writeDesc()).toBeNull();
@@ -1872,7 +1936,7 @@ describe('Health write-back', () => {
             expect(Object.keys(dirty().bp)).toEqual([b.id]);
 
             // Blood pressure allowed later: the next foreground pass delivers it and the line goes.
-            health.writeAccess.mockResolvedValue({ granted: ['bp', 'weight'] });
+            health.writeAccess.mockResolvedValue({ granted: ALL });
             foreground();
             await idle();
             expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'bp', id: b.id }));
@@ -1885,6 +1949,96 @@ describe('Health write-back', () => {
             await flip(writeToggle(), true);
             expect(writeToggle().checked).toBe(true);
             expect(writeDesc()).toBe("Writing blood pressure only. Weight isn't allowed: allow it in Health Connect → App permissions.");
+        });
+
+        // Breakage review of #1547: the Health Connect activity's resume fires a
+        // pass while the turn-on flow still waits on its access read.
+        it('a pass racing the turn-on shows no second write sheet; a rejected later sheet is not re-asked', async () => {
+            allowConsoleNoise();
+            const requestAuthorization = vi.fn(async () => true);
+            let release;
+            const reply = { granted: ['bp', 'weight'], supported: ALL };
+            health.writeAccess = vi.fn()
+                .mockImplementationOnce(() => new Promise((r) => { release = () => r(reply); }))
+                .mockResolvedValue(reply);
+            await start({ ...health, requestAuthorization });
+            writeToggle().checked = true;
+            writeToggle().dispatchEvent(new window.Event('change'));
+            await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+            foreground();
+            await vi.waitFor(() => expect(health.writeAccess).toHaveBeenCalledTimes(2));
+            await new Promise((r) => setTimeout(r, 10));
+            release();
+            await vi.waitFor(() => expect(writeToggle().disabled).toBe(false));
+            expect(requestAuthorization.mock.calls.filter(([, o]) => o)).toHaveLength(1);
+            expect(storage.getItem('wg.health.writeAsked')).toBe(JSON.stringify(ALL));
+
+            // A shell asked for hr whose sheet rejects: asked once, not on every pass.
+            storage.setItem('wg.health.writeAsked', JSON.stringify(['bp', 'weight']));
+            requestAuthorization.mockClear();
+            requestAuthorization.mockRejectedValue(new Error('bridge gone'));
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(requestAuthorization.mock.calls.filter(([, o]) => o)).toEqual([[expect.any(Array), { write: ['hr'] }]]);
+        });
+
+        it('two kinds missing read in the plural (Miles 15460)', async () => {
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp'], supported: ALL }));
+            await start();
+            await flip(writeToggle(), true);
+            expect(writeDesc()).toBe("Writing blood pressure only. Weight and pulse (heart rate) aren't allowed: allow them in Health Connect → App permissions.");
+        });
+
+        // bd med-8f4s.6: heart rate denied on a shell that can write it.
+        it('pulse denied: bp and weight arrive, the pulses wait and the line names pulse; allowed later, they arrive', async () => {
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'], supported: ALL }));
+            await start();
+            await flip(writeToggle(), true);
+            expect(writeToggle().checked).toBe(true);
+            expect(writeDesc()).toBe("Writing blood pressure and weight only. Pulse (heart rate) isn't allowed: allow it in Health Connect → App permissions.");
+            const b = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80, pulse: 66 });
+            const w = await api('/api/weight', 'POST', { measured_at: '2026-10-01T07:30:00Z', weight: 80 });
+            await vi.waitFor(() => expect(dirty()).toEqual({ bp: {}, weight: {}, hr: { [b.id]: expect.any(Number) } }));
+            expect(calls().map((c) => c.type)).toEqual(['bp', 'weight']);
+            expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: w.id }));
+
+            health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL });
+            foreground();
+            await idle();
+            expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'hr', id: `${b.id}/pulse`, bpm: 66 }));
+            expect(writeDesc()).toBeNull();
+        });
+
+        // An updated page on a shell that predates hr (no `supported`).
+        it('an older shell: no pulse line, the pulses wait; once the shell supports hr the sheet is asked once and they arrive', async () => {
+            const requestAuthorization = vi.fn(async () => true);
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'] }));
+            await start({ ...health, requestAuthorization });
+            await flip(writeToggle(), true);
+            expect(writeToggle().checked).toBe(true);
+            expect(writeDesc()).toBeNull();
+            const b = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80, pulse: 66 });
+            await vi.waitFor(() => expect(dirty().bp).toEqual({}));
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(Object.keys(dirty().hr)).toEqual([b.id]);
+            expect(calls().map((c) => c.type)).toEqual(['bp']);
+            // The switch-on write sheet only.
+            expect(requestAuthorization.mock.calls.filter(([, o]) => o)).toEqual([[expect.any(Array), { write: ALL }]]);
+
+            // The shell updates: it now writes hr, never asked on this device.
+            requestAuthorization.mockClear();
+            health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL });
+            foreground();
+            await idle();
+            expect(requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2'], { write: ['hr'] });
+            expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'hr', id: `${b.id}/pulse` }));
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(requestAuthorization).toHaveBeenCalledTimes(1);
+            expect(storage.getItem('wg.health.writeAsked')).toBe(JSON.stringify(ALL));
         });
 
         // Miles 15063, Iris 15065: access removed later pauses, never turns it off.
@@ -1903,7 +2057,7 @@ describe('Health write-back', () => {
             expect(health.write).not.toHaveBeenCalled();
             expect(Object.keys(dirty().bp)).toEqual([b.id]);
 
-            health.writeAccess.mockResolvedValue({ granted: ['bp', 'weight'] });
+            health.writeAccess.mockResolvedValue({ granted: ALL });
             foreground();
             await idle();
             expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'bp', id: b.id }));
