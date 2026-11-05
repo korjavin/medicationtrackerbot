@@ -104,10 +104,17 @@ struct HealthDiagnosticView: View {
         var plain: [HKObject] = [], seeded: [HKObject] = []
         do {
             let both = ["bp", "weight", "hr"]
-            check("authorize", try await Health.handle("health.authorize", ["types": both + ["workout"], "write": both]) as? Bool == true)
-            // Workout share, only to seed one with HKWorkoutBuilder (second sheet).
-            step("workout share")
-            try await store.requestAuthorization(toShare: [HKObjectType.workoutType()], read: [])
+            // One sheet: on the iOS 26.5 Simulator a second requestAuthorization
+            // in the same launch never presents and never returns. So the sheet
+            // is the one health.authorize would ask (its share set is
+            // write.flatMap(shareTypes) and readTypes), plus workout share to
+            // seed one with HKWorkoutBuilder, asked here directly. (The sheet
+            // left BP members notDetermined, so calling health.authorize again
+            // would be that second request.)
+            step("authorize")
+            check("hr shares heart rate", Health.shareTypes("hr") == [Health.heartRate])
+            let share = Set(both.flatMap(Health.shareTypes)).union([HKObjectType.workoutType()])
+            try await store.requestAuthorization(toShare: share, read: Set((both + ["workout"]).flatMap(Health.readTypes)))
             step("bp/weight")
             let access = try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any] ?? [:]
             let granted = access["granted"] as? [String] ?? []
