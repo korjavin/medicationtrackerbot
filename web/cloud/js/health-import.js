@@ -17,7 +17,8 @@
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.
 import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled } from './sync.js';
-import { createHealthImportDomain } from '../../domain/healthimport.js';
+import { createHealthImportDomain, OPEN_SESSION_MS } from '../../domain/healthimport.js';
+import { findLibraryRowByName } from '../../domain/workout.js';
 import { diagLine } from './passkey-diag.js';
 
 // Sleep and workouts: bd med-w6gx.7. Steps, HR and SpO2: bd med-0xad.1.
@@ -59,15 +60,20 @@ const PAGE = 500;
 // rest on the next open.
 const MAX_PAGES = 40;
 // Write-back (bd med-8f4s.1): the device-local switch and the per-id ledger of
-// what Health still owes, { bp: { recordId: clientTs }, weight: { … }, hr: { … } }.
+// what Health still owes, { bp: { recordId: clientTs }, weight: { … }, hr: { … }, workout: { … } }.
 const WRITE_KEY = 'wg.health.write';
 const DIRTY_KEY = 'wg.health.dirty';
 // hr (bd med-8f4s.6) is the pulse of a bp row: no record type of its own, its
 // ledger is keyed by the bp recordId, its Health key is `<recordId>/pulse`.
-const WRITE_KINDS = ['bp', 'weight', 'hr'];
-const RECORD_TYPE = { bp: 'bp', weight: 'weight', hr: 'bp' };
+// workout (bd med-8f4s.5) is a completed workoutsession: start, end, type only.
+const WRITE_KINDS = ['bp', 'weight', 'hr', 'workout'];
+const RECORD_TYPE = { bp: 'bp', weight: 'weight', hr: 'bp', workout: 'workoutsession' };
 // The write kinds a record type's put/del marks.
-const MARKS = { bp: ['bp', 'hr'], weight: ['weight'] };
+const MARKS = { bp: ['bp', 'hr'], weight: ['weight'], workoutsession: ['workout'] };
+// HK traditionalStrengthTraining / HC EXERCISE_TYPE_STRENGTH_TRAINING, and HK
+// .other / HC EXERCISE_TYPE_OTHER_WORKOUT (the import's own codes).
+const ACTIVITY_STRENGTH = 50;
+const ACTIVITY_OTHER = 3000;
 // What a shell can write when its writeAccess reply has no `supported` (the
 // shipped med-8f4s.2/.3 shells).
 const DEFAULT_SUPPORTED = ['bp', 'weight'];
@@ -80,7 +86,7 @@ const ROW_ID = 'health-import-row';
 const TOGGLE_ID = 'health-import-toggle';
 const WRITE_ROW_ID = 'health-write-row';
 const WRITE_TOGGLE_ID = 'health-write-toggle';
-const KIND_NAMES = { bp: 'blood pressure', weight: 'weight', hr: 'pulse (heart rate)' };
+const KIND_NAMES = { bp: 'blood pressure', weight: 'weight', hr: 'pulse (heart rate)', workout: 'workouts' };
 
 function readJSON(storage, key, fallback) {
     try {
@@ -116,9 +122,51 @@ export function isHealthWriteEnabled(storage = globalThis.localStorage) {
 // of a row synced in from another device, an old entry first edited after
 // opt-in. Passive sync apply never reaches the seam. A tombstone carries no
 // source, so it is always marked (its remove is a no-op for an id never written).
+// A workout session is marked only once it is, or was, completed (a
+// completed_at survives an un-complete, which must remove its copy): creating,
+// starting, snoozing or skipping one has nothing to mirror.
 function writeBackEligible(recordType, row, storage) {
     if (!MARKS[recordType] || !isHealthWriteEnabled(storage)) return false;
-    return row.deleted || !row.source;
+    if (row.deleted) return true;
+    if (recordType === 'workoutsession') return row.status === 'completed' || Boolean(row.completed_at);
+    return !row.source;
+}
+
+// A workout in Health is a finished span: completed, started, and ending after
+// it started. Archie 15658: a span longer than OPEN_SESSION_MS (a session left
+// open and finished hours later) ends at its last log if that is after the
+// start, else at start + OPEN_SESSION_MS.
+async function workoutSpan(records, row) {
+    if (row.status !== 'completed' || !row.started_at || !row.completed_at) return null;
+    const start = Date.parse(row.started_at);
+    let end = Date.parse(row.completed_at);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    if (end - start > OPEN_SESSION_MS) {
+        const last = Math.max(-Infinity, ...(await records.listRaw('exerciselog'))
+            .filter((l) => !l.deleted && l.session_id === row.id && l.logged_at)
+            .map((l) => Date.parse(l.logged_at))
+            .filter(Number.isFinite));
+        end = last > start ? Math.min(last, end) : start + OPEN_SESSION_MS;
+    }
+    return { start, end };
+}
+
+// Archie 15360: a plan day is strength; an ad-hoc session (group -1: Telegram,
+// voice, "just log") is strength only if it has logs and every log's exercise
+// is a library row tagged with a strength body part, else "other workout".
+// ponytail: read at write time; a later tag or log edit is not re-sent until the session is.
+async function workoutActivity(records, session) {
+    if (session.group_id > 0) return ACTIVITY_STRENGTH;
+    const logs = (await records.listRaw('exerciselog')).filter((l) => !l.deleted && l.session_id === session.id);
+    if (!logs.length) return ACTIVITY_OTHER;
+    const library = (await records.listRaw('exerciselibrary')).filter((r) => !r.deleted);
+    const strength = logs.every((l) => {
+        const item = (l.source === 'library' && l.exercise_id > 0 && library.find((r) => r.id === l.exercise_id))
+            || findLibraryRowByName(library, l.exercise_name);
+        const part = String((item && item.body_part) || '').trim();
+        return part !== '' && part !== 'cardio';
+    });
+    return strength ? ACTIVITY_STRENGTH : ACTIVITY_OTHER;
 }
 
 // The Health key of a ledger entry: the hr object sits next to the bp
@@ -140,7 +188,7 @@ function healthBody(kind, row) {
 }
 
 // Health write-back (bd med-8f4s.1). sync.js onLocalWrite reports every bp /
-// weight put or delete made on this device; with the switch on, the hook marks
+// weight / workoutsession put or delete made on this device; with the switch on, the hook marks
 // the id in the ledger (synchronously, before the vault commit), then kicks
 // that id's chain. A chain step waits for the commit, reads the raw row and
 // makes Health match it: live → write, tombstone or absent → remove (a no-op
@@ -218,11 +266,17 @@ export function startHealthWriteBack({
         if (!granted || !granted.includes(kind)) return; // kept for the next pass
         try {
             const row = (await records.listRaw(RECORD_TYPE[kind])).find((r) => r.recordId === id);
+            const span = kind === 'workout' && row && !row.deleted ? await workoutSpan(records, row) : null;
+            const activity = span ? await workoutActivity(records, row) : null;
             // Switched off, or a newer access read dropped the kind, while we
             // waited: keep the entry, send nothing.
             const latest = await access;
             if (!isHealthWriteEnabled(storage) || !latest || !latest.includes(kind)) return;
-            if (row && !row.deleted) {
+            if (kind === 'workout') {
+                // Not (or no longer) a finished span: remove, a no-op for an id never written.
+                if (span) await health.write({ type: kind, id, version: row.clientTs, ...span, activity });
+                else await health.remove({ type: kind, id });
+            } else if (row && !row.deleted) {
                 // A bp row without a pulse (an edit cleared it) owes Health no
                 // heart-rate entry: remove, a no-op for an id never written.
                 if (row.source) { /* came from Health: never written */ }
@@ -494,9 +548,11 @@ function writeHintText(health, granted, supported = DEFAULT_SUPPORTED) {
     if (!missing.length) return '';
     if (missing.length === kinds.length) return `Writing paused: access was removed. Allow it in ${accessHint(health)}.`;
     const cap = (t) => t[0].toUpperCase() + t.slice(1);
-    const names = (ks) => ks.map((k) => KIND_NAMES[k]).join(' and ');
+    // "a", "a and b", "a, b and c".
+    const names = (ks) => ks.map((k) => KIND_NAMES[k]).join(', ').replace(/, ([^,]*)$/, ' and $1');
     const have = names(kinds.filter((k) => granted.includes(k)));
-    const verb = missing.length > 1 ? "aren't allowed: allow them" : "isn't allowed: allow it";
+    const plural = missing.length > 1 || missing[0] === 'workout';
+    const verb = plural ? "aren't allowed: allow them" : "isn't allowed: allow it";
     return `Writing ${have} only. ${cap(names(missing))} ${verb} in ${accessHint(health)}.`;
 }
 
