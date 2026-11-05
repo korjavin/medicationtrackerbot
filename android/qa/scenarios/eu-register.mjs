@@ -1,8 +1,9 @@
-// EU register check on the real shell in local mode (bd med-3u28.2, acceptance f): the measurement
-// gate and the editor/sheet screens. results.euRegister = {
+// EU register check on the real shell in local mode (bd med-3u28.2/.3): the measurement
+// gate, Settings choice, cache persistence across a cold relaunch and editor/sheet screens.
+// results.euRegister = {
 //   phases: fetch+decode, JSON.parse, index build of the bundled asset (ms), measured apart;
 //   first: the app path's first EU check (ms to ready, peak heap, long tasks, worst timer lag);
-//   second: the next page load (cache-first: no asset request);
+//   second: the cold relaunch (cache-first: no asset request);
 //   heapMB: { before, afterFirst, retained } after a forced GC (CDP), the register held in memory }.
 // Numbers only: the gate's verdict is a review call (worker / smaller projection is a follow-up bead).
 
@@ -53,9 +54,20 @@ async function timedCheck(name) {
 
 export default async function euRegister(ctx) {
   const { shell, pkg, sleep } = ctx;
-  const r = (ctx.results.euRegister = { assetRequests: { first: 0, second: 0 } });
+  const r = (ctx.results.euRegister = {
+    assetRequests: { first: 0, second: 0 }, assetResponses: [], failedAssetRequests: [],
+  });
   let counting = null;
-  const watch = (p) => p.on('request', (q) => { if (counting && q.url().includes('/static/data/ema-')) r.assetRequests[counting]++; });
+  const isAsset = (url) => url.includes('/static/data/ema-');
+  const watch = (p) => {
+    p.on('request', (q) => { if (counting && isAsset(q.url())) r.assetRequests[counting]++; });
+    p.on('response', (res) => {
+      if (isAsset(res.url())) r.assetResponses.push({ phase: counting, url: res.url(), status: res.status() });
+    });
+    p.on('requestfailed', (q) => {
+      if (isAsset(q.url())) r.failedAssetRequests.push({ url: q.url(), error: q.failure()?.errorText });
+    });
+  };
 
   await shell(`pm clear ${pkg}`);
   let page = await ctx.step('cold start in local mode (seeds the golden vault)', async () => {
@@ -82,6 +94,29 @@ export default async function euRegister(ctx) {
     await ctx.waitLocalReady(page);
     await sleep(3000); // boot work settles before measuring
   };
+  const openChoice = async () => {
+    await page.locator('[data-nav-to="settings"]:visible').first().click();
+    await page.evaluate(() => window.SettingsView.openSettingsPage('features'));
+    const row = page.locator('#med-register-choose');
+    await row.scrollIntoViewIfNeeded();
+    await row.click();
+    await page.locator('.mt-confirm-modal__choices').waitFor({ timeout: 10_000 });
+  };
+
+  await ctx.step('local Settings: US needs an account; choose EU through the UI', async () => {
+    r.origin = await page.evaluate(() => location.origin);
+    if (r.origin !== ctx.LOCAL_ORIGIN) throw new Error(`unexpected origin: ${r.origin}`);
+    r.us = await page.evaluate(() => window.apiCall('/api/medications/ema-check?name=Candecor'));
+    if (r.us.status !== 'off') throw new Error(`default US check: ${r.us.status}`);
+    await openChoice();
+    const choices = page.locator('.mt-confirm-modal__choice');
+    r.usCopy = await choices.filter({ hasText: 'US register' }).textContent();
+    if (!r.usCopy.includes('Needs an account. Without one, no name check runs.')) throw new Error(`local US copy: ${r.usCopy}`);
+    if (!(await page.locator('.mt-confirm-modal').textContent()).includes('Applies on this phone only.')) throw new Error('missing device-local choice hint');
+    await ctx.stableShot('er2-local-choice');
+    await choices.filter({ hasText: 'EU register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent === 'EU register');
+  });
 
   await ctx.step('phases: fetch+decode, JSON.parse, index build', async () => {
     r.phases = await page.evaluate(async (url) => {
@@ -102,9 +137,8 @@ export default async function euRegister(ctx) {
     if (r.phases.candecor !== 2) throw new Error(`Candecor: ${r.phases.candecor} rows`);
   });
 
-  await ctx.step('first EU check on this phone (download, parse, index, cache write)', async () => {
+  await ctx.step('first EU check on the emulator (bundled asset, parse, index, cache write)', async () => {
     await page.evaluate(async () => {
-      localStorage.setItem('medRegister:unknown', 'eu');
       for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-')) await caches.delete(n);
     });
     await freshPage();
@@ -114,17 +148,33 @@ export default async function euRegister(ctx) {
     counting = null;
     const after = await heapMB();
     r.heapMB = { before, afterFirst: after, retained: before !== null ? +(after - before).toFixed(1) : null };
-    r.cacheNames = await page.evaluate(async () => (await caches.keys()).filter((n) => n.startsWith('medtracker-')));
+    r.cache = await page.evaluate(async (asset) => {
+      const names = (await caches.keys()).filter((n) => n.startsWith('medtracker-ema-'));
+      const stored = await Promise.all(names.map(async (n) => !!(await (await caches.open(n)).match(asset))));
+      return { names, hasAsset: stored.some(Boolean) };
+    }, ASSET);
     if (r.first.status !== 'ready' || r.first.candidates !== 2) throw new Error(`first check: ${JSON.stringify(r.first)}`);
+    if (!r.cache.hasAsset) throw new Error(`register not stored on appassets: ${JSON.stringify(r.cache)}`);
+    if (r.assetRequests.first !== 1 || !r.assetResponses.some((res) => res.phase === 'first' && new URL(res.url).origin === ctx.LOCAL_ORIGIN && res.status === 200)) throw new Error('first check did not load the bundled register successfully');
+    if (r.failedAssetRequests.length) throw new Error(`failed register requests: ${JSON.stringify(r.failedAssetRequests)}`);
   });
 
-  await ctx.step('next page load reads the stored register (no asset request)', async () => {
-    await freshPage();
+  await ctx.step('force-stop and relaunch: EU choice persists and cache avoids an asset request', async () => {
+    page = await ctx.launchLocal(undefined, { extra: false });
+    watch(page);
+    r.relaunchOrigin = await page.evaluate(() => location.origin);
+    if (r.relaunchOrigin !== ctx.LOCAL_ORIGIN) throw new Error(`relaunch origin: ${r.relaunchOrigin}`);
+    await openChoice();
+    r.persistedChoice = await page.locator('.mt-confirm-modal__choice[aria-pressed="true"]').textContent();
+    if (!r.persistedChoice.startsWith('EU register')) throw new Error(`relaunch choice: ${r.persistedChoice}`);
+    await ctx.stableShot('relaunch-eu-choice');
+    await page.locator('.mt-confirm-modal__cancel').click();
     counting = 'second';
     r.second = await page.evaluate(timedCheck, 'Candecor');
     counting = null;
     if (r.second.status !== 'ready') throw new Error(`second check: ${JSON.stringify(r.second)}`);
     if (r.assetRequests.second) throw new Error(`${r.assetRequests.second} asset request(s) on the cached load`);
+    if (r.failedAssetRequests.length) throw new Error(`failed register requests: ${JSON.stringify(r.failedAssetRequests)}`);
   });
 
   // The ER frames on the device, for the design check.
