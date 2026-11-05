@@ -2873,6 +2873,56 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect((await getRaw(SLOT)).variant_id).toBe(2);
   });
 
+  // bd med-qsq3 B: the rewrite stamps exactly one above the read version — no
+  // skew term — and its queued op is discardable on a snapshot bootstrap like a
+  // floored row, so it is never laid over a newer Start compacted into the snapshot.
+  it('putIfUnchanged stamps read+1 under skew, and a re-bootstrap drops it under a newer snapshot row', async () => {
+    const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
+    // Device clock 60s behind the server: guard 1 would stamp 0 - skew = 60000.
+    await seed([read], { localLastSeq: 5, lastSnapshotSeq: 0, clockSkewMs: -60000 });
+
+    const stored = await recordsPort(ctx).putIfUnchanged('workoutsession', { ...read, variant_id: 2, clientTs: 0 }, read);
+    expect(stored.clientTs).toBe(4);
+    await flushConfirmed(ctx).catch(() => {}); // mispredicts: the op stays queued
+
+    const startedElsewhere = { ...read, clientTs: 9000, status: 'in_progress', started_at: '2026-08-31T18:00:00Z' };
+    await replaceAllRecords([startedElsewhere]);
+    expect(await getRaw(SLOT)).toMatchObject({ status: 'in_progress', variant_id: 1, clientTs: 9000 });
+
+    // A real write of the record afterwards is an ordinary pending edit again.
+    await recordsPort(ctx).put('workoutsession', { ...startedElsewhere, notes: 'mine' });
+    await flushConfirmed(ctx).catch(() => {});
+    await replaceAllRecords([{ ...startedElsewhere, clientTs: Date.now() + 1e9 }]);
+    expect((await getRaw(SLOT)).notes).toBe('mine');
+  });
+
+  // Argus round 2: an offline materialization moved twice sits at clientTs 2,
+  // above the floor band; it is still all derived, so a newer Start wins.
+  it('a fresh floor re-pointed twice offline loses to a newer snapshot Start', async () => {
+    await seed([]);
+    const port = recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true });
+    let row = await port.putIfAbsent('workoutsession', derived({ variant_id: 1 }));
+    row = await port.putIfUnchanged('workoutsession', { ...row, variant_id: 2, clientTs: 0 }, row);
+    row = await port.putIfUnchanged('workoutsession', { ...row, variant_id: 3, clientTs: 0 }, row);
+    expect(row.clientTs).toBe(2);
+
+    await replaceAllRecords([{ ...row, recordType: 'workoutsession', clientTs: 9000, status: 'in_progress', variant_id: 1 }]);
+    expect(await getRaw(SLOT)).toMatchObject({ status: 'in_progress', variant_id: 1 });
+  });
+
+  // Argus round 1: a re-point over an UNSENT real edit (an offline snooze)
+  // carries that edit in its body, so the queue entry must stay a real edit.
+  it('putIfUnchanged over a queued real edit keeps it a real pending edit on re-bootstrap', async () => {
+    const base = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
+    await seed([base]);
+    const snoozed = await recordsPort(ctx).put('workoutsession', { ...base, snoozed_until: '2026-08-31T19:00:00Z' });
+    await recordsPort(ctx).putIfUnchanged('workoutsession', { ...snoozed, variant_id: 2, clientTs: 0 }, snoozed);
+    await flushConfirmed(ctx).catch(() => {});
+
+    await replaceAllRecords([{ ...base, clientTs: Date.now() + 1e9, status: 'notified' }]);
+    expect(await getRaw(SLOT)).toMatchObject({ snoozed_until: '2026-08-31T19:00:00Z', variant_id: 2 });
+  });
+
   it('putIfUnchanged leaves a slot that moved on since the read (a Start, a tombstone)', async () => {
     const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
     const started = { ...read, clientTs: 9000, status: 'in_progress', started_at: '2026-08-31T18:00:00Z' };
