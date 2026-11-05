@@ -799,7 +799,7 @@ function cutText(n, from, label) {
     const d = new Date(from);
     const pad = (x) => String(x).padStart(2, '0');
     const date = `${pad(d.getDate())}.${pad(d.getMonth() + 1)}${d.getFullYear() === new Date().getFullYear() ? '' : `.${d.getFullYear()}`}`;
-    return `${entriesText(n)} before ${date} ${n === 1 ? "wasn't" : "weren't"} copied: ${label} needs access to past data to check them.`;
+    return `${entriesText(n)} before ${date} won't be copied: ${label} needs access to past data to check ${n === 1 ? 'it' : 'them'}.`;
 }
 
 // The copy row's line (kit HW8/HW8b/HW9/HW9b) for copyState() `st`.
@@ -1117,7 +1117,7 @@ export function startHealthImport(ctx, {
                 if (offer) writeJSON(storage, OFFERED_KEY, true);
                 let retry = false;
                 const cut = plan.cut ? {
-                    facts: [{ text: cutText(plan.cut, lastReadable, label), gone: true }],
+                    note: cutText(plan.cut, lastReadable, label),
                     link: { label: 'Allow past data', below: true, onClick: () => { retry = true; } },
                 } : {};
                 if (plan.total) {

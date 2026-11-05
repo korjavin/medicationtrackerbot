@@ -2883,7 +2883,7 @@ describe('Health write-back', () => {
                 // bp-a, bp-b, w-1 and w-2 are older than the window: cut before the dedupe, so counted as cut.
                 const cutDialog = ['3 past entries from this app.', {
                     ...OFFER[1],
-                    facts: [{ text: "4 entries before 02.10 weren't copied: Health Connect needs access to past data to check them.", gone: true }],
+                    note: "4 entries before 02.10 won't be copied: Health Connect needs access to past data to check them.",
                     link: { label: 'Allow past data', below: true, onClick: expect.any(Function) },
                 }];
                 expect(confirm.mock.calls[0]).toEqual(cutDialog);
@@ -2903,6 +2903,22 @@ describe('Health write-back', () => {
                 confirm.mockClear();
                 await tap();
                 await vi.waitFor(() => expect(confirm).toHaveBeenCalledWith('2 past entries from this app.', OFFER[1]));
+            });
+
+            it('(g) the cut line is one warn note, "won\'t be copied": singular "check it" in the offer, plural in the nothing-in-window alert', async () => {
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: at('2026-10-01T07:45:00Z') }));
+                confirm.mockResolvedValueOnce(false);
+                await open();
+                await tap();
+                await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+                expect(confirm.mock.calls[0][1].note).toBe("1 entry before 01.10 won't be copied: Health Connect needs access to past data to check it.");
+                expect(confirm.mock.calls[0][1]).not.toHaveProperty('facts');
+
+                health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL, readableFrom: at('2026-10-07T00:00:00Z') });
+                await tap();
+                await vi.waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+                expect(alert.mock.calls[0][0]).toBe('');
+                expect(alert.mock.calls[0][1].note).toMatch(/^\d+ entries before 07\.10 won't be copied: Health Connect needs access to past data to check them\.$/);
             });
 
             it('(e) while a copy runs the row is the progress line with a meter (HW8)', async () => {

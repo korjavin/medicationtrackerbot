@@ -475,8 +475,9 @@ never turns it off (below).
   med-8f4s.14 iOS): absent, there is no Copy row and no offer (Archie 16124).
   Rows older than `readableFrom` (Android without the past-data permission:
   30 days before the first grant) are not eligible and not counted; when any
-  are cut, the dialog names them ("N entries before dd.mm weren't copied:
-  Health Connect needs access to past data to check them.") with "Allow past
+  are cut, the dialog names them in a warn-icon hint line, never a red error ("N
+  entries before dd.mm won't be copied: Health Connect needs access to past
+  data to check them."; "1 entry ... to check it.") with "Allow past
   data", which shows the read sheet once more and recounts. Both count fresh,
   then mark every eligible id into the ledger exactly as the hook would (same
   recordIds, same clientTs versions, a bp marks its hr) and let the drain

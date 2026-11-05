@@ -333,14 +333,14 @@ describe('safeConfirm — in-page modal', () => {
             const onClick = vi.fn();
             const promise = window.safeConfirm('3 past entries from this app.', null, {
                 title: 'Copy?', hint: 'Nothing is copied twice.',
-                facts: [{ text: "4 entries before 02.10 weren't copied.", gone: true }],
+                note: "4 entries before 02.10 won't be copied.",
                 link: { label: 'Allow past data', below: true, onClick },
             });
             const body = document.querySelector('.wg-dialog__body');
             expect([...body.children].map((el) => [el.className, el.textContent])).toEqual([
                 ['mt-confirm-modal__message', '3 past entries from this app.'],
                 ['wg-hint', 'Nothing is copied twice.'],
-                ['wg-dialog__facts', "4 entries before 02.10 weren't copied."],
+                ['wg-hint wg-hint--note', "4 entries before 02.10 won't be copied."],
                 ['mt-confirm-modal__message', 'Allow past data'],
             ]);
             body.querySelector('button.wg-link').click();
