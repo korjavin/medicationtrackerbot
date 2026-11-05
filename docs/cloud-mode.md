@@ -409,7 +409,8 @@ never turns it off (below).
   other kinds, so a denied heart-rate permission never stops BP or weight.
 - **Workouts (bd med-8f4s.5)** are a fourth kind `workout` over
   `workoutsession` rows. Only a finished span is written: status `completed`,
-  `started_at` set and `completed_at > started_at` → `health.write {type:
+  `started_at` set and `completed_at > started_at` (or the unstarted plan-day
+  span below) → `health.write {type:
   'workout', id: recordId, version: clientTs, start, end, activity}`, nothing
   else (no title, energy, distance, HR or sets). A span longer than 4 h
   (`OPEN_SESSION_MS`, healthimport.js: a session left open and finished
@@ -432,9 +433,20 @@ never turns it off (below).
   workout logged by message or voice without a start and end (e.g. a
   Telegram "I did a workout" log, created and completed on the same instant:
   no span) is not copied to Health; one logged in the app, with sets, is
-  (Archie 15649). Likewise a session completed without being started
+  (Archie 15649). **A plan workout marked done without starting it**
   (Telegram/push "Done", MCP `set_workout_status`, History Finish on an
-  unstarted day) has no span and is not written. **Reversals made elsewhere
+  unstarted day; bd med-8f4s.12, Developer rule D 15670) is written from its
+  scheduled time, 5 minutes per exercise: start = `scheduled_date` +
+  `scheduled_time` in the account zone (`localWallToUtcMs`, the DST policy
+  `completionInstant` uses), end = start + 5 min × the distinct exercises
+  logged on it (`exercise_id`, else `exerciseKey(exercise_name)`), or, with no
+  logs, its `exercise_snapshot` (a legacy row without one: the plan's live
+  exercises); the Done-tap time is not used. Zero exercises, or no
+  `scheduled_time` (ad-hoc), → not written. Sessions completed this way before
+  this release are not backfilled; they are written on their next put here
+  (or on the next pass, if one is already queued in the ledger, e.g. held
+  back while workout access was denied).
+  **Reversals made elsewhere
   do not remove the copy this phone wrote:** an un-complete or delete on
   another device, on an older bundle, or via a vault replace/merge import
   never reaches this phone's seam, so the Health workout stays until the

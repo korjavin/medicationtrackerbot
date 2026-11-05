@@ -13,6 +13,7 @@ steps:
   - Enter a BP reading with a pulse; edit it to clear the pulse; edit again to set one; deny heart-rate write access and enter another BP
   - Complete a workout session; delete it; start a session and leave it open; skip a scheduled one
   - Log an ad-hoc workout of only a cardio-tagged exercise and complete it; deny workout write access and complete another session
+  - Mark a reminded plan workout Done from the notification without starting it; do the same for a plan day with no exercises
 invariants:
   - "A hand-entered reading shows in the Health app within seconds, as written by Med Tracker"
   - "Editing it changes the same Health record; deleting it removes it"
@@ -33,8 +34,9 @@ invariants:
   - "Workouts imported from Health are unchanged, and the mirrored workout never comes back as a Health workout in History"
   - "With workout write access denied, BP, pulse and weight still arrive"
   - "a workout logged by message or voice without a start and end is not copied to Health; one logged in the app, with sets, is"
+  - "A plan workout marked Done without starting it appears in Health from its scheduled time, 5 minutes per exercise of that day; one with no exercises does not"
 covered_by:
   web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind, the workout kind and the supported fallback
   android: manual  # health-connect emulator QA covers BP/weight upsert/delete, no echo, grants and HW1; real device permission/retry checks remain manual; pulse until med-8f4s.7 QA; workouts until med-8f4s.9 QA
   ios: ios/UITests/HealthDiagnosticTests.swift#HealthWriteBackTests  # qa job: weight upsert/delete/no-echo, pulse as hr (write, replace, delete, no echo, workout average untouched); BP itself and real-device permission/retry checks remain manual (Simulator leaves BP share notDetermined); workouts until med-8f4s.10 QA
-source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6, Zulip 15354, Zulip 15356, Zulip 15360, Zulip 15649, med-8f4s.5]
+source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6, Zulip 15354, Zulip 15356, Zulip 15360, Zulip 15649, med-8f4s.5, Zulip 15670, med-8f4s.12]
