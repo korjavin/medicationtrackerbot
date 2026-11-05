@@ -13,7 +13,7 @@
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
 export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
-const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION'];
+const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION', 'EXERCISE'];
 
 export default async function healthConnect(ctx) {
   const { shell, pkg, sleep } = ctx;
@@ -38,7 +38,7 @@ export default async function healthConnect(ctx) {
   const write = async ([sys, dia], vitals) => {
     await shell('input keyevent KEYCODE_HOME');
     await sleep(3000);
-    const extra = vitals ? ` --ei steps ${vitals.steps} --ei hr ${vitals.hr} --ei spo2 ${vitals.spo2} --ei spo2n ${SPO2N}` : '';
+      const extra = vitals ? ` --ei steps ${vitals.steps} --ei hr ${vitals.hr} --ei spo2 ${vitals.spo2} --ei spo2n ${SPO2N} --ez workout true` : '';
     await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --ei sys ${sys} --ei dia ${dia}${extra}`);
     const end = Date.now() + 20_000;
     while (Date.now() < end) {
@@ -222,8 +222,8 @@ export default async function healthConnect(ctx) {
       await ctx.page.evaluate(() => window.switchTab('settings'));
       const toggle = ctx.page.locator('#health-write-row .wg-toggle');
       await toggle.waitFor({ state: 'visible', timeout: 15_000 });
-      r.writeBack.grants = await native('writeAccess', ['bp', 'weight', 'hr']);
-      if (!['bp', 'weight', 'hr'].every((k) => r.writeBack.grants.granted.includes(k) && r.writeBack.grants.supported.includes(k))) throw new Error('missing write grants or supported kinds');
+      r.writeBack.grants = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
+      if (!['bp', 'weight', 'hr', 'workout'].every((k) => r.writeBack.grants.granted.includes(k) && r.writeBack.grants.supported.includes(k))) throw new Error('missing write grants or supported kinds');
       if (await ctx.page.evaluate(() => localStorage.getItem('wg.health.write') === 'true')) throw new Error('write switch was on by default');
       await toggle.click();
       await ctx.page.waitForFunction(() => {
@@ -388,16 +388,7 @@ export default async function healthConnect(ctx) {
     // weights: 1,700 Health Connect writes) through the real writer, and record
     // how long the count (the dedupe read) and the copy take, and whether
     // Health Connect's rate limit paused it. Evidence: never fails the run.
-    await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {
-      r.copy = {};
-      try {
-        await copyMeasurement();
-      } catch (e) {
-        r.copy.error = String(e?.message || e).split('\n')[0];
-        ctx.log('health-copy', JSON.stringify({ error: r.copy.error, states: r.copy.states }));
-        await ctx.stableShot('health-copy-error').catch(() => {});
-      }
-    });
+    // Run last of the write steps (below): it spends the app's write quota.
     async function copyMeasurement() {
       await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
       await ctx.page.evaluate(async () => {
@@ -442,10 +433,160 @@ export default async function healthConnect(ctx) {
       ctx.log('health-copy', JSON.stringify({ countMs: r.copy.countMs, copyMs: r.copy.copyMs, paused: r.copy.paused, ledgerLeft: r.copy.ledgerLeft, last: r.copy.states.at(-1) }));
     }
 
-    await ctx.step('Health Connect rationale names the pulse copy', async () => {
+    // med-8f4s.9: the page supplies its final span/type; independent SDK reads
+    // inspect provider metadata rather than asking the bridge that hides our copies.
+    r.workouts = {};
+    const complete = (id) => api(`/api/workout/sessions/status?id=${id}`, 'PUT', { status: 'completed' });
+    const removeSession = (id) => api(`/api/workout/sessions/delete?id=${id}`, 'DELETE');
+    const newSession = async (bodyPart) => {
+      const { session } = await api('/api/workout/sessions/adhoc', 'POST');
+      const name = `Workout QA ${bodyPart} ${Date.now()}`;
+      const exercise = await api('/api/workout/exercise-library/create', 'POST', { name, body_part: bodyPart });
+      await api('/api/workout/sessions/logs/create', 'POST', { session_id: session.id,
+        exercise_id: exercise.id, exercise_name: name, source: 'library', target_sets: 1, target_reps_min: 5, target_weight_kg: 10 });
+      return session;
+    };
+    const exported = (rows, session) => rows.filter((row) => row.type === 'workout' && row.clientId && row.start === Date.parse(session.started_at));
+    const waitSession = async (session) => {
+      for (const until = Date.now() + 30_000; Date.now() < until;) {
+        const rows = exported(await readNative(), session);
+        if (rows.length === 1) return rows[0];
+        await sleep(1000);
+      }
+      throw new Error(`workout did not arrive: ${JSON.stringify(session)}`);
+    };
+    let strength;
+    let strengthRecord;
+    let workoutAnchor;
+    await ctx.step('open session is absent; completing all-tagged strength writes one minimal manual session', async () => {
+      strength = await newSession('chest');
+      await sleep(1500);
+      if (exported(await readNative(), strength).length) throw new Error('open session was exported');
+      await complete(strength.id);
+      strengthRecord = await waitSession(strength);
+      const detail = await api(`/api/workout/sessions/details?id=${strength.id}`, 'GET');
+      const stored = await ctx.page.evaluate(async (id) => {
+        const { localRecordsPort } = await import('/js/sync.js');
+        return (await localRecordsPort().listRaw('workoutsession')).find((s) => s.id === id);
+      }, strength.id);
+      r.workouts.strength = { session: strength, detail, stored, record: strengthRecord };
+      // AndroidX ExerciseSessionRecord constants: STRENGTH_TRAINING=70,
+      // OTHER_WORKOUT=0 (developer.android.com/reference/kotlin/androidx/health/connect/client/records/ExerciseSessionRecord).
+      if (strengthRecord.exerciseType !== 70 || strengthRecord.recordingMethod !== 3 || strengthRecord.clientId !== stored.recordId || strengthRecord.version !== stored.clientTs ||
+          strengthRecord.end !== Date.parse(detail.session.completed_at) || strengthRecord.end <= strengthRecord.start ||
+          strengthRecord.title !== null || strengthRecord.notes !== null || strengthRecord.segments !== 0 || strengthRecord.laps !== 0) {
+        throw new Error(`workout metadata: ${JSON.stringify(r.workouts.strength)}`);
+      }
+      const scan = await native('query', { type: 'workout', anchor: null });
+      workoutAnchor = scan.anchor;
+      if (scan.samples.some((s) => s.start === strengthRecord.start)) throw new Error('marked workout echoed in scan');
+      if (!scan.samples.some((s) => s.activity === 37)) throw new Error('unmarked running fixture was filtered');
+      r.workouts.scan = scan;
+    });
+    await ctx.step('workout edits replace our identity; equal replay and stale versions preserve the committed payload', async () => {
+      const edited = { type: 'workout', id: strengthRecord.clientId, version: strengthRecord.version + 1,
+        start: strengthRecord.start, end: strengthRecord.end, activity: 3000 };
+      await native('write', edited);
+      r.workouts.edited = await waitNative(edited.id, (rows) => rows.length === 1 && rows[0].version === edited.version);
+      const generic = r.workouts.edited[0];
+      if (generic.exerciseType !== 0) throw new Error('other workout mapped to the wrong SDK type');
+      await native('write', edited);
+      await native('write', { ...edited, version: strengthRecord.version, activity: 50 });
+      r.workouts.replayed = await waitNative(edited.id, (rows) => rows.length === 1 && rows[0].version === edited.version && rows[0].exerciseType === generic.exerciseType);
+      const changes = await native('query', { type: 'workout', anchor: workoutAnchor });
+      if (!changes.anchor || changes.returned < 1 || changes.samples.some((s) => s.start === edited.start)) throw new Error('marked workout echoed or anchor stalled');
+      r.workouts.changes = changes;
+      r.workouts.imported = await ctx.page.evaluate(async (start) => {
+        const { localRecordsPort } = await import('/js/sync.js');
+        const { resetHealthAnchors, runHealthImport } = await import('/js/health-import.js');
+        const records = localRecordsPort();
+        resetHealthAnchors();
+        await runHealthImport({ accountId: 'local' }, { records, flush: async () => {} });
+        const rows = await records.list('miband');
+        return { ownEchoes: rows.filter((r) => r.source_start_ms === start),
+          unmarkedRunning: rows.filter((r) => r.source === 'apple_health' && r.activity_name === 'running').length };
+      }, edited.start);
+      if (r.workouts.imported.ownEchoes.length || !r.workouts.imported.unmarkedRunning) throw new Error('Health import echoed our other workout or lost the running fixture');
+      for (const activity of [37, 50.5, '50', null]) {
+        const result = await native('write', { ...edited, version: edited.version + 1, activity }).then(() => 'accepted', (e) => String(e.message || e));
+        if (!result.includes('bad write: activity')) throw new Error(`malformed activity accepted: ${activity}: ${result}`);
+      }
+      await removeSession(strength.id);
+      await waitNative(edited.id, (rows) => rows.length === 0);
+      const scan = await native('query', { type: 'workout', anchor: null });
+      if (!scan.samples.some((s) => s.activity === 37)) throw new Error('delete removed unmarked fixture');
+    });
+    await ctx.step('cardio completion writes other; denied exercise holds workouts while BP pulse and weight continue; late grant drains once', async () => {
+      const cardio = await newSession('cardio');
+      await sleep(1500);
+      await complete(cardio.id);
+      const other = await waitSession(cardio);
+      r.workouts.other = other;
+      if (other.exerciseType !== r.workouts.edited[0].exerciseType) throw new Error('cardio was not other workout');
+      await removeSession(cardio.id);
+      await waitNative(other.clientId, (rows) => rows.length === 0);
+      await shell(`pm revoke ${pkg} android.permission.health.WRITE_EXERCISE`);
+      // As for BP/HR above, Android kills the process on a permission revoke.
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after exercise revoke failed');
+      const access = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
+      if (access.granted.includes('workout') || !['bp', 'weight', 'hr'].every((k) => access.granted.includes(k))) throw new Error('exercise denial leaked across kinds');
+      const pending = await newSession('cardio');
+      await sleep(1500);
+      await complete(pending.id);
+      const reading = await api('/api/bp', 'POST', { systolic: 122, diastolic: 82, pulse: 71, measured_at: new Date(Date.now() - 60_000).toISOString() });
+      const weight = await api('/api/weight', 'POST', { weight: 74.25, measured_at: new Date(Date.now() - 60_000).toISOString() });
+      await waitNative(reading.id, (rows) => rows.length === 1);
+      await waitNative(`${reading.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples[0].bpm === 71);
+      await waitNative(weight.id, (rows) => rows.length === 1 && rows[0].kg === 74.25);
+      if (exported(await readNative(), pending).length) throw new Error('denied workout was written');
+      await ctx.page.evaluate(() => window.switchTab('settings'));
+      const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+      if (await notNow.isVisible()) await notNow.click();
+      await ctx.page.locator('#health-write-row').scrollIntoViewIfNeeded();
+      r.workouts.held = await ctx.page.evaluate(() => ({ ledger: JSON.parse(localStorage.getItem('wg.health.dirty') || '{}'), hint: document.getElementById('health-write-row')?.innerText }));
+      if (!/Workouts aren't allowed/.test(r.workouts.held.hint) || !Object.keys(r.workouts.held.ledger.workout || {}).length) throw new Error('workout denial missing from UI/ledger');
+      await ctx.stableShot('health-write-workout-denied');
+      await shell(`pm grant ${pkg} android.permission.health.WRITE_EXERCISE`);
+      await shell(`am force-stop ${pkg}`);
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after exercise grant failed');
+      r.workouts.lateGrant = await waitSession(pending);
+      await removeSession(pending.id);
+      await waitNative(r.workouts.lateGrant.clientId, (rows) => rows.length === 0);
+      await api(`/api/bp/${encodeURIComponent(reading.id)}`, 'DELETE');
+      await api(`/api/weight/${encodeURIComponent(weight.id)}`, 'DELETE');
+    });
+
+    await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {
+      r.copy = {};
+      try {
+        await copyMeasurement();
+      } catch (e) {
+        r.copy.error = String(e?.message || e).split('\n')[0];
+        ctx.log('health-copy', JSON.stringify({ error: r.copy.error, states: r.copy.states }));
+        await ctx.stableShot('health-copy-error').catch(() => {});
+      }
+    });
+
+    await ctx.step('Health Connect rationale names the pulse and completed workout copy', async () => {
       await shell(`am start -W -a androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE -n ${pkg}/com.example.medtracker.PermissionsRationaleActivity`);
       await ctx.waitFor({ text: 'Health Connect access' }, 10_000);
-      await ctx.stableShot('pulse-rationale');
+      await ctx.stableShot('workout-rationale');
+      // A short viewport as well: the longer approved disclosure must remain
+      // readable by scrolling, with the privacy link reachable at the bottom.
+      await shell('wm size 1080x1600');
+      try {
+        await sleep(1500);
+        await ctx.stableShot('workout-rationale-short');
+        await shell('input swipe 540 1400 540 350 500');
+        await sleep(500);
+        await ctx.stableShot('workout-rationale-short-bottom');
+      } finally {
+        await shell('wm size reset');
+      }
     });
   } finally {
     r.writer = (await shell('logcat -d -s qa-health-write:*')).split('\n').slice(-6);

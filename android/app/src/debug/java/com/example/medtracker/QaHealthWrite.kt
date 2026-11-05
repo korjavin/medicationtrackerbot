@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.StepsRecord
@@ -51,6 +52,10 @@ class QaHealthWrite : Activity() {
                 samples = listOf(HeartRateRecord.Sample(now.minusSeconds(600), hr), HeartRateRecord.Sample(now.minusSeconds(120), hr + 1))))
             if (spo2 > 0) for (i in 0 until spo2n) add(OxygenSaturationRecord(time = now.minusSeconds(30L + 60L * i),
                 zoneOffset = utc, percentage = Percentage(spo2), metadata = Metadata.manualEntry()))
+            if (intent.getBooleanExtra("workout", false)) add(ExerciseSessionRecord(
+                startTime = now.minusSeconds(7200), startZoneOffset = utc,
+                endTime = now.minusSeconds(6600), endZoneOffset = utc,
+                metadata = Metadata.manualEntry(), exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_RUNNING))
         }
         CoroutineScope(Dispatchers.Main).launch {
             runCatching {
