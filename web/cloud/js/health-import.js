@@ -94,15 +94,21 @@ const KIND_NAMES = { bp: 'blood pressure', weight: 'weight', hr: 'pulse (heart r
 const ENTRY_KINDS = ['bp', 'weight', 'workout'];
 // The HW6 offer, once per device.
 const OFFERED_KEY = 'wg.health.backfillOffered';
-// The open copy: { startedAt, total, ids: { kind: [recordId] }, blocked: { kind: n } }.
-// blocked = a kind whose read Health denied: not counted as held, not marked;
-// re-read on each pass until it can be.
+// The open copy: { startedAt, total, ids: { kind: [recordId] }, blocked: { kind: [recordId] } }.
+// blocked = a kind whose read Health denied: the ids the user confirmed, not
+// marked; re-read on each pass until it can be, then only those ids join (an
+// entry synced in later never rides on an old Copy).
 const JOB_KEY = 'wg.health.backfill';
+// The dedupe read pages until Health says it is done; past this many pages it
+// gives up and the count fails (nothing marked) rather than copy from a
+// partial list. 1,000 × PAGE samples is decades of readings.
+const COPY_MAX_PAGES = 1000;
 // A past entry another app already put into Health: the same values this close.
 const MATCH_MS = { bp: 30 * 60 * 1000, weight: DAY_MS };
 const COPY_GAP_MS = 1500;
 const COPY_BACKOFF_MS = 60 * 1000;
-const COPY_BACKOFF_CAP_MS = 15 * 60 * 1000;
+// The back-off doubles up to 15× its first step (1 → 15 min).
+const COPY_BACKOFF_CAP = 15;
 const COPY_ROW_ID = 'health-copy-row';
 
 function readJSON(storage, key, fallback) {
@@ -433,14 +439,14 @@ export function startHealthWriteBack({
 async function otherAppSamples(health, type, from) {
     const out = [];
     let anchor = null;
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < COPY_MAX_PAGES; page++) {
         const res = await health.query(anchor ? { type, from, limit: PAGE, anchor } : { type, from, limit: PAGE });
         if (!res || typeof res.anchor !== 'string') return page === 0 ? null : out;
         if (Array.isArray(res.samples)) out.push(...res.samples.filter(Boolean));
-        if (!res.more) break;
+        if (!res.more) return out;
         anchor = res.anchor;
     }
-    return out;
+    throw new Error(`${type} read did not finish in ${COPY_MAX_PAGES} pages`);
 }
 
 // The rows of `samples` held by a Health record: same key, within tol ms,
@@ -496,19 +502,24 @@ async function copyRows(records, kind) {
     return out;
 }
 
-// planCopy → { rows: { kind: [row] } (to mark), blocked: { kind: n }, total }.
+// planCopy → { rows: { kind: [row] } (to mark), blocked: { kind: [recordId] }, total }.
+// only (optional) { kind: [recordId] }: plan just those ids of each kind.
 // Throws when a read fails (store busy): no count, nothing marked.
-async function planCopy(health, records, kinds) {
+async function planCopy(health, records, kinds, only = null) {
     const rows = {};
     const blocked = {};
     let total = 0;
     for (const kind of kinds) {
-        const mine = await copyRows(records, kind);
+        let mine = await copyRows(records, kind);
+        if (only) {
+            const keep = new Set(only[kind] || []);
+            mine = mine.filter((r) => keep.has(r.recordId));
+        }
         if (!mine.length) continue;
         const starts = mine.map((r) => (r.span ? r.span.start - DAY_MS : r.at - MATCH_MS[kind])).filter(Number.isFinite);
         const theirs = await otherAppSamples(health, kind, starts.length ? Math.min(...starts) : 0);
         if (!theirs) {
-            blocked[kind] = mine.length;
+            blocked[kind] = mine.map((r) => r.recordId);
             total += mine.length;
             continue;
         }
@@ -846,10 +857,15 @@ export function startHealthImport(ctx, {
                 else done++;
             }
         }
-        for (const [kind, n] of Object.entries(blocked)) left[kind] = (left[kind] || 0) + n;
+        for (const [kind, ids] of Object.entries(blocked)) left[kind] = (left[kind] || 0) + (Array.isArray(ids) ? ids.length : 0);
         const refused = ENTRY_KINDS.filter((k) => left[k] && (blocked[k] || (lastGranted && !lastGranted.includes(k))));
         const running = Object.keys(left).some((k) => !refused.includes(k));
-        return { job, done, total: Number(job.total) || 0, left, refused, running };
+        // A pulse is not an entry, but its copy is part of this job: while one
+        // the store may take is still dirty, the passes go on (the row already
+        // shows the result).
+        const hrOk = !lastGranted || lastGranted.includes('hr');
+        const pulses = hrOk && (Array.isArray(job.ids.bp) ? job.ids.bp : []).some((id) => l.hr && l.hr[id] !== undefined);
+        return { job, done, total: Number(job.total) || 0, left, refused, running, pending: running || pulses };
     };
     let copyRow = null;
     let paused = false;
@@ -907,12 +923,14 @@ export function startHealthImport(ctx, {
     };
     // A kind whose read was denied when the copy started: read it again; once
     // it reads, its not-held entries join the job.
+    // Only the ids confirmed at Copy: a row synced in since is not part of it.
     const retryBlocked = async () => {
-        const kinds = Object.keys(readJob()?.blocked || {});
+        const confirmed = readJob()?.blocked || {};
+        const kinds = Object.keys(confirmed);
         if (!kinds.length) return;
         let plan;
         try {
-            plan = await planCopy(health, records, kinds);
+            plan = await planCopy(health, records, kinds, confirmed);
         } catch {
             return; // store busy: next pass
         }
@@ -920,11 +938,11 @@ export function startHealthImport(ctx, {
         if (!job) return;
         const rows = [];
         for (const k of kinds) {
-            if (plan.blocked[k] !== undefined || job.blocked[k] === undefined) continue;
+            if (plan.blocked[k] !== undefined || !Array.isArray(job.blocked[k])) continue;
             const got = plan.rows[k] || [];
             rows.push(...got);
             job.ids[k] = got.map((r) => r.recordId);
-            job.total = job.total - job.blocked[k] + got.length;
+            job.total = job.total - job.blocked[k].length + got.length;
             delete job.blocked[k];
         }
         if (rows.length && !writeBack.mark(rows)) return;
@@ -933,6 +951,7 @@ export function startHealthImport(ctx, {
     let copying = null;
     let copyTimer = null;
     let backoff = 0;
+    let stuck = false;
     const later = (ms) => {
         clearTimeout(copyTimer);
         copyTimer = setTimeout(() => {
@@ -956,14 +975,20 @@ export function startHealthImport(ctx, {
             await retryBlocked();
             const delivered = await writeBack.drain();
             const st = copyState();
-            if (st && st.running && isHealthWriteEnabled(storage)) {
+            if (st && st.pending && isHealthWriteEnabled(storage)) {
                 if (delivered > 0) {
                     paused = false;
+                    stuck = false;
                     backoff = 0;
                     later(copyGapMs);
                 } else {
                     paused = true;
-                    backoff = Math.min(backoff ? backoff * 2 : copyBackoffMs, COPY_BACKOFF_CAP_MS);
+                    // Failing at the cap (about half an hour of nothing): likely an
+                    // entry the store never takes. Leaving Settings then lets the
+                    // job go (its ids stay in the ledger), so Copy is free again.
+                    const cap = copyBackoffMs * COPY_BACKOFF_CAP;
+                    stuck = backoff >= cap;
+                    backoff = Math.min(backoff ? backoff * 2 : copyBackoffMs, cap);
                     later(backoff);
                 }
             } else {
@@ -982,10 +1007,11 @@ export function startHealthImport(ctx, {
     };
     const drainWrites = () => copyPass().catch((e) => console.error('[health] write pass failed', e));
     // The result stays until Settings is left (HW9), then the row is "Copy
-    // past entries" again; a kind whose read is still denied keeps the job.
+    // past entries" again; a kind whose read is still denied keeps the job, and
+    // so does a copy still going (pulses included) unless it is stuck.
     const settleCopy = () => {
         const st = copyState();
-        if (!st || st.running || Object.keys(st.job.blocked || {}).length) return;
+        if (!st || (st.pending && !stuck) || Object.keys(st.job.blocked || {}).length) return;
         writeJSON(storage, JOB_KEY, null);
         renderCopy();
     };
@@ -1024,6 +1050,7 @@ export function startHealthImport(ctx, {
                 return;
             }
             paused = false;
+            stuck = false;
             backoff = 0;
             renderCopy();
             drainWrites();

@@ -488,9 +488,12 @@ never turns it off (below).
   blow the quota for nothing). If another app already saved a reading without
   its pulse, we don't add the pulse to it. Nothing about held entries is
   stored, so the next copy recomputes. A kind whose read Android denies (no
-  samples, no anchor) is not copied and the result names it (HW9b); it is
-  re-read on every foreground pass while the copy is open and joins once it
-  reads. **Apple Health cannot signal a denied read** (it answers empty), so
+  samples, no anchor) is not copied and the result names it (HW9b); the job
+  keeps the ids confirmed at Copy, re-reads the kind on every foreground pass
+  while the copy is open, and once it reads those ids (only those; an entry
+  synced in since is not part of the Copy) join. The dedupe read pages until
+  Health says it is done; past 1,000 pages the count fails like a failed read
+  rather than copy from part of the list. **Apple Health cannot signal a denied read** (it answers empty), so
   there that kind copies without the duplicate check. A read that fails aborts
   the count with the "Couldn't reach …" toast; nothing is marked. The open copy
   is device-local `wg.health.backfill` `{ startedAt, total, ids, blocked }`;
@@ -498,8 +501,11 @@ never turns it off (below).
   id clears). While it is open and the page is visible, a pass that delivered
   is followed by the next 1.5 s later; a pass where every call failed (Health
   Connect's rate limit, store busy) shows "Copy paused" (HW8b) and backs off
-  1→2→4… min, capped at 15; every foreground return runs a pass at once. A
-  relaunch resumes from the ledger and the job. The result (HW9/HW9b) stays
+  1→2→4… min, capped at 15; every foreground return runs a pass at once. The
+  passes go on while a pulse of the job is still unsent (the row already shows
+  the result). A pass that fails again at the cap (an entry the store never
+  takes) lets the job go when Settings is left: Copy is free again and the
+  entry stays in the ledger. A relaunch resumes from the ledger and the job. The result (HW9/HW9b) stays
   until Settings is left; a kind not allowed is named, its entries stay queued
   and go out once allowed. Nothing touches the vault.
 - **Off** stops marking and delivery; the ledger is kept and drains when the

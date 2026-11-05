@@ -2436,10 +2436,10 @@ describe('Health write-back', () => {
                 const page = (all || []).slice(from, from + 2);
                 return { samples: page, anchor: `p${from + page.length}`, returned: page.length, more: from + page.length < (all || []).length };
             });
-            const open = async (h = health) => {
+            const open = async (h = health, opts = {}) => {
                 await startHealthImport({}, {
                     health: { label: 'Health Connect', accessHint: 'Health Connect → App permissions', requestAuthorization: vi.fn(async () => true), query, ...h },
-                    storage, doc: document, records, run: vi.fn(async () => null), toast, ask: confirm, tell: alert, copyGapMs: 0,
+                    storage, doc: document, records, run: vi.fn(async () => null), toast, ask: confirm, tell: alert, copyGapMs: 0, ...opts,
                 });
                 await tick();
             };
@@ -2610,6 +2610,53 @@ describe('Health write-back', () => {
                 expect(ledgerSize()).toBe(0);
             });
 
+            it('(c) an entry the store never takes: once the back-off is at its cap, leaving Settings frees Copy and keeps it queued', async () => {
+                allowConsoleNoise();
+                health.write = vi.fn(async (a) => { if (a.id === 'bp-c') throw new Error('invalid'); return true; });
+                await open(health, { copyBackoffMs: 1 });
+                await tap();
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copy paused', 'Health Connect is busy. 4 of 5 so far; it continues when the app is open.']));
+                // 1, 2, 4, 8, 15, then a failure at the cap.
+                await vi.waitFor(() => expect(health.write.mock.calls.filter(([a]) => a.id === 'bp-c').length).toBeGreaterThanOrEqual(8));
+                const view = document.getElementById('settings-view');
+                view.classList.add('active');
+                view.classList.remove('active');
+                await tick();
+                expect(rowText()).toEqual(['Copy past entries', null]);
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
+                expect(Object.keys(dirty().bp)).toEqual(['bp-c']);
+            });
+
+            it('(c) a pulse that failed once is retried while the row already shows the result', async () => {
+                allowConsoleNoise();
+                let failed = false;
+                health.write = vi.fn(async (a) => {
+                    if (a.id === 'bp-a/pulse' && !failed) {
+                        failed = true;
+                        throw new Error('busy');
+                    }
+                    return true;
+                });
+                await open();
+                await tap();
+                await finished();
+                await vi.waitFor(() => expect(dirty().hr || {}).toEqual({}));
+                expect(health.write.mock.calls.filter(([a]) => a.id === 'bp-a/pulse')).toHaveLength(2);
+                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
+            });
+
+            it('(d) a dedupe read that does not finish fails the count rather than copy from part of it', async () => {
+                allowConsoleNoise();
+                // 1,000 pages of other readings, the match for bp-c after them.
+                theirs.bp = [...Array.from({ length: 2000 }, (_, i) => bpSample(U3, at('2026-09-01T00:00:00Z') + i * 6e4, 99, 59)), bpSample(U1, at('2026-10-03T07:35:00Z'), 130, 85)];
+                await open();
+                await tap();
+                await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't reach Health Connect — try again.", 'error'));
+                expect(confirm).not.toHaveBeenCalled();
+                expect(storage.getItem('wg.health.backfill')).toBeNull();
+                expect(ledgerSize()).toBe(0);
+            });
+
             it('(d) pulse refused: readings copy, their pulses wait, and the write row names pulse (HW4)', async () => {
                 health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight', 'workout'], supported: ALL }));
                 await open();
@@ -2646,13 +2693,22 @@ describe('Health write-back', () => {
                 view.classList.remove('active');
                 await tick();
                 expect(rowText()[0]).toBe('Copied to Health Connect');
+                expect(job().blocked).toEqual({ weight: ['w-1', 'w-2'] });
 
+                // A weight that arrives after the Copy unmarked (synced in; here
+                // put with the switch off) is not part of it (Argus 16042 #1).
+                storage.setItem('wg.health.write', 'false');
+                await records.put('weight', { recordId: 'w-3', clientTs: 1, deleted: false, measured_at: '2026-10-07T08:00:00.000Z', weight: 79 });
+                storage.setItem('wg.health.write', 'true');
+                await tick();
+                expect(dirty().weight).toBeUndefined();
                 theirs.weight = [kgSample(U2, at('2026-10-01T20:00:00Z'), 80)];
                 foreground();
                 await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']));
                 expect(job().total).toBe(5);
                 expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: 'w-2' }));
                 expect(health.write).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'w-1' }));
+                expect(health.write).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'w-3' }));
                 expect(storage.getItem('wg.health.anchors')).toBe(ANCHORS);
             });
 
