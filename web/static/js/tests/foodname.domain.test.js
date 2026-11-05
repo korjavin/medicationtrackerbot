@@ -24,6 +24,16 @@ describe('foodKey — one key per food', () => {
     expect(foodKey('hotel home airplane dinner rice')).toBe('rice');
   });
 
+  it('keeps a percentage as part of the name (med-5jq.3)', () => {
+    expect(foodKey('Greek yogurt 2%')).toBe('greek yogurt 2%');
+    expect(foodKey('Greek yogurt 0%')).not.toBe(foodKey('Greek yogurt 2%'));
+    expect(foodKey('Milk 3.2%')).toBe('milk 3.2%');
+    expect(foodKey('Milk 3,2%')).toBe('milk 3.2%');
+    expect(foodKey('Milk 1.5%')).not.toBe(foodKey('Milk 3.2%'));
+    expect(foodKey('milk')).not.toBe(foodKey('Milk 3.2%'));
+    expect(foodKey('2x milk 300g')).toBe('milk');
+  });
+
   it('folds English plurals with a short exception list', () => {
     expect(foodKey('fries')).toBe('fries');
     expect(foodKey('hummus')).toBe('hummus');

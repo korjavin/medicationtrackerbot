@@ -67,8 +67,15 @@ function keptWords(name) {
     .filter(Boolean);
 }
 
+// A percentage names the product ("Greek yogurt 2%" is not "0%", Archie
+// 15700): carried through tokenizing as one letters+digits token, restored after.
+const PERCENT = /(\d+)(?:[.,](\d+))?%/g;
+const percentToken = (_, i, f) => ` ${i}${f ? `p${f}` : ''}pct `;
+const percentBack = (t) => t.replace(/^(\d+)(?:p(\d+))?pct$/, (_, i, f) => `${i}${f ? `.${f}` : ''}%`);
+
 export function foodKey(name) {
-  const tokens = keptWords(name).flatMap(subTokens).filter((t) => !isNoise(t)).map(singular);
+  const tokens = keptWords(String(name ?? '').replace(PERCENT, percentToken))
+    .flatMap(subTokens).filter((t) => !isNoise(t)).map(singular).map(percentBack);
   return ` ${tokens.join(' ')} `.replace(' hard boiled ', ' boiled ').trim();
 }
 
