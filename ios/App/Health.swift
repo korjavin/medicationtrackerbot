@@ -14,7 +14,7 @@ import HealthKit
 ///     (granted: every share type of the kind authorized; readableFrom 0: no history window)
 ///   health.write {type, id, version, at, systolic, diastolic | kg | bpm} → true, rejects "denied"
 ///   health.write {entries: [body, ...]}  → [true | "<that entry's error>", ...] in order (bd med-8f4s.14)
-///     (each body = a single write's args; a store error throws the whole call)
+///     (each body = a single write's args; "denied" or a store error throws the whole call)
 ///     The same id at an equal or lower version again resolves true (a replay:
 ///     HealthKit keeps the higher version — a Copy from a second device).
 ///   health.write {type: "workout", id, version, start, end, activity: 50 | 3000} → true
@@ -141,15 +141,18 @@ enum Health {
         case "health.write":
             guard let raw = args["entries"] else { return try await write(args) }
             // The batch (twin of Android's, one shape from the web): one result
-            // per entry, in order. A refusal of the entry itself (bad write,
-            // unknown type, denied) is that entry's string; a store error
-            // throws the whole call, and the page keeps every id (a replay is
-            // absorbed, see write()).
+            // per entry, in order. A malformed entry (bad write, unknown type)
+            // is that entry's string; a whole-call failure — "denied" (no share
+            // grant or no Health store) or a HealthKit store error — throws the
+            // whole call as a single write does, and the page keeps every id
+            // (a replay is absorbed, see write()).
             guard let entries = raw as? [Any] else { throw Failure("bad write: entries") }
             var results: [Any] = []
             for entry in entries {
                 guard let body = entry as? [String: Any] else { results.append("bad write: entry"); continue }
-                do { results.append(try await write(body)) } catch let f as Failure { results.append(f.errorDescription ?? "bad write") }
+                do { results.append(try await write(body)) } catch let f as Failure where f.errorDescription != "denied" {
+                    results.append(f.errorDescription ?? "bad write")
+                }
             }
             return results
         case "health.delete":

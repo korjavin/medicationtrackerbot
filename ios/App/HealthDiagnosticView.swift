@@ -382,6 +382,20 @@ struct HealthDiagnosticView: View {
             var bare = ""
             do { _ = try await Health.handle("health.write", [:]) } catch { bare = error.localizedDescription }
             check("bare write unchanged", bare == "bad write", bare)
+            // Denied is a whole-call failure, not an entry string: the Simulator
+            // leaves BP share notDetermined, so a batch carrying bp throws.
+            if !bpOn {
+                let deniedKg = "weight-\(b)-denied"
+                written.append(("weight", deniedKg, Health.bodyMass))  // saved before bp throws; cleaned below
+                var denied = "resolved"
+                do {
+                    _ = try await Health.handle("health.write", ["entries": [
+                        ["type": "weight", "id": deniedKg, "version": 1_000, "at": at, "kg": 70.0],
+                        ["type": "bp", "id": "bp-\(b)-denied", "version": 1_000, "at": at, "systolic": 118.0, "diastolic": 76.0],
+                    ]])
+                } catch { denied = error.localizedDescription }
+                check("batch denied throws", denied == "denied", denied)
+            }
             for w in written { _ = try await Health.handle("health.delete", ["type": w.kind, "id": w.id]) }
             var strayBatch = 0
             for w in written { strayBatch += try await synced(w.type, w.id).count }

@@ -587,11 +587,14 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   web offers Copy only when the field is present). A shell that reports it
   also takes the batch: `health.write {entries: [body, ...]}`, each body a
   single write's args (kinds may mix), answers an array with one result per
-  entry in order — `true`, or that entry's own refusal (`bad write: …`,
-  `unknown type: …`, `denied`; a non-object entry is `bad write: entry`). The
-  shell simply loops `write()` per body (HealthKit has no call quota; the
-  batch is for one web shape on both shells); a HealthKit store error throws
-  the whole call, as a single write does, and the page keeps every id. A
+  entry in order — `true`, or that entry's own malformed-body refusal
+  (`bad write: …`, `unknown type: …`; a non-object entry is
+  `bad write: entry`). The shell simply loops `write()` per body (HealthKit
+  has no call quota; the batch is for one web shape on both shells); a
+  whole-call failure — `denied` (no share grant for an entry's kind, or no
+  Health store) or a HealthKit store error — throws the whole call, as a
+  single write does (entries before it may already be saved), and the page
+  keeps every id. A
   body without `entries` behaves exactly as before. Replay rule: the same
   sync identifier at an equal or lower `SyncVersion` resolves `true` and
   leaves the stored object as it was (HealthKit keeps the higher version) —
@@ -601,7 +604,7 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   sync identifier dedupes them across devices. `HealthWriteBackTests` replays
   weight, hr and workout at the equal and a lower version (BP too where the
   runtime grants BP share) and checks one object at the higher version, and
-  sends a 10-entry mixed batch plus one with malformed entries. Device check:
+  sends a 10-entry mixed batch, one with malformed entries and (BP share denied) one that throws `denied`. Device check:
   Copy past entries on a second device finishes and doubles nothing.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
