@@ -155,6 +155,18 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
   clears the file → seeded again over records: Merge / Replace → Cancel → no
   further dialog, records kept, file cleared.
+- **EU register flow** ([`FlowQAEURegisterTests.swift`](../ios/UITests/FlowQAEURegisterTests.swift),
+  bd med-3u28.4, twin of Android's `eu-register`): four launches of the
+  `flowOnly` scenes `eu-register-us`, `eu-register-pick`, `eu-register`
+  (×2) in `tests/visual/scenes.json` (the visual tiers skip them). US (the
+  default) checks nothing in local mode → Settings → "Check names in" shows
+  the local US line, a native tap picks EU → relaunch: the choice held, the
+  first check loads the bundled register, Candecor's chip opens its sheet →
+  relaunch: cache-first when WebKit stored it. The driver's `euRegister`
+  step puts the numbers in the report; the test attaches them as
+  `eu-register-<step>.json`, and the `qa` job writes the Simulator's
+  WebContent RSS each second to `webcontent-rss.log` (both in `ios-qa`;
+  match the RSS to the JSON's epoch-ms windows).
 
 **Isolation (bd med-w6gx.23.8):** every flow class's `setUp` calls
 `QA.reset()`: the app stopped, then `Library/WebKit` (the store), both
@@ -1356,6 +1368,23 @@ mode, gated on the bridge platform being `ios` or `android`
   refused, `trial_pass_invalid`, and the page drops it). `install_unknown`
   erases silently without `dropAttest`. An account's data on the phone is
   not touched.
+- **EU register check** (bd med-3u28.4, web side med-3u28.2): with Settings →
+  Features → "Check names in" on *EU register* (device-local, per origin), the
+  medication editor's first check loads the bundled
+  `web/static/data/ema-article57-rev90-v1.json` (13 MB, already in
+  `LocalApp/`) from `wgapp://local` — no network, no bridge op — and keeps it
+  in memory for the page's lifetime. WKWebView treats the custom scheme as a
+  secure context and exposes the Cache API, but the loader's write never
+  lands: WebKit's `Cache.put` rejects any request whose URL is not http(s)
+  (`TypeError: Request url is not HTTP/HTTPS`, the spec rule, so a device
+  behaves the same; `FlowQAEURegisterTests` put probe, qa run 42082484001).
+  `medtracker-ema-rev90-v1` is created, yet stays empty. The register then works from memory (best-effort,
+  as designed) and each launch reads it from the bundle again, which costs no
+  network in local mode. ER6 has two states only, "No exact match" and
+  "Couldn't load the EU register" with Retry; there is no "not stored" state
+  (ruling on med-3u28.4). *US register* in local
+  mode runs no check at all (RxNav is off, `rxnorm: null`); the choice says
+  so ("Needs an account. Without one, no name check runs.").
 - **Visual testing:** runbook, probe reading and bead-filing protocol in [ios-visual-testing.md](ios-visual-testing.md). Device testing by the owner comes after the Simulator matrix.
 - **Visual QA hook** (bd med-y5xx.2, [design](design/ios-visual-testing.md)):
   Debug builds only (`#if DEBUG` in `Shell.swift` / `LocalOrigin.qaHome`),

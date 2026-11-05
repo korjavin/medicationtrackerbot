@@ -896,6 +896,10 @@
             } else {
                 window.safeToast('12 new readings from Apple Health', 'success', { duration: 0 });
             }
+        } else if (step.euRegister) {
+            // The EU register flow (bd med-3u28.4, FlowQAEURegisterTests): once
+            // per load (a redone scene keeps the first numbers).
+            if (!qa.euRegister) qa.euRegister = await euRegister(step.euRegister);
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else if (step.file) {
@@ -1078,7 +1082,123 @@
             });
             if (probes.renderedValues.some(({ expected, actual }) => expected !== actual)) failed.push('rendered');
         }
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister };
+    }
+
+    // The EU register check on this shell (bd med-3u28.4, twin of Android's
+    // eu-register.mjs): `want` is the choice Settings must have stored (a
+    // relaunch keeps it). "us": local mode has no RxNav, so after the editor's
+    // name commit (the scene's steps before) nothing checks and nothing loads.
+    // "eu": opens the editor and commits the name itself, timing the real
+    // first load to the chip with a 50 ms timer probe (its worst lateness is
+    // the freeze proxy; WebKit has no longtask entries and no heap API, so
+    // memory is the runner's WebContent RSS log, matched by the epoch ms
+    // here), counts the loader's asset fetches, checks the cache entry, then
+    // measures the phases apart.
+    async function euRegister(want) {
+        const ASSET = '/static/data/ema-article57-rev90-v1.json';
+        const ctx = window.MedTrackerCloud && window.MedTrackerCloud.ctx;
+        const key = `medRegister:${(ctx && ctx.accountId) || 'unknown'}`; // meds-history.js medRegisterKey
+        const register = window.localStorage.getItem(key) === 'eu' ? 'eu' : 'us';
+        if (register !== want) throw new Error(`euRegister: the stored choice is ${register}, want ${want}`);
+        const epoch = () => Math.round(window.performance.timeOrigin + window.performance.now()); // the page clock is pinned
+        const emaCaches = async () => {
+            try { return (await window.caches.keys()).filter((n) => n.startsWith('medtracker-ema-')); } catch (e) { return String((e && e.message) || e); }
+        };
+        const r = { register, secure: window.isSecureContext, cacheApi: typeof window.caches !== 'undefined', cachesBefore: await emaCaches() };
+        if (want === 'us') {
+            await sleep(3000); // a check would have painted by now
+            r.check = await window.apiCall(`/api/medications/ema-check?name=Candecor`);
+            r.euSlot = visible(document.getElementById('med-eu-slot'));
+            r.rxChip = visible(document.getElementById('med-rx-display'));
+            r.cachesAfter = await emaCaches();
+            return r;
+        }
+        let maxLag = 0, stop = false;
+        const probe = () => {
+            const t = window.performance.now();
+            setTimeout(() => { maxLag = Math.max(maxLag, window.performance.now() - t - 50); if (!stop) probe(); }, 50);
+        };
+        // Counts the loader's asset requests (it calls globalThis.fetch per
+        // request): 1 = read from the bundle, 0 = served by its cache.
+        const realFetch = window.fetch;
+        let assetFetches = 0;
+        window.fetch = function (input, ...rest) {
+            if (String((input && input.url) || input).includes('/static/data/ema-')) assetFetches++;
+            return realFetch.call(this, input, ...rest);
+        };
+        r.storedBefore = await cacheHit(ASSET);
+        // The editor's own path: open it, commit the name, wait for the chip.
+        probe();
+        r.firstAt = epoch();
+        const t0 = window.performance.now();
+        window.switchTab('meds');
+        window.showAddModal();
+        await until(() => document.getElementById('med-name'), STEP_MS, 'editor');
+        const input = document.getElementById('med-name');
+        input.value = 'Candecor';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        let progress = false;
+        const end = Date.now() + 60000;
+        while (!visible(document.getElementById('med-eu-chip'))) {
+            if (document.querySelector('#med-eu-slot .wg-meter')) progress = true;
+            if (document.getElementById('med-eu-retry')) throw new Error('euRegister: the editor shows "Couldn\'t load"');
+            if (Date.now() > end) throw new Error('euRegister: no EU chip in 60 s');
+            await sleep(20);
+        }
+        r.first = { ms: Math.round(window.performance.now() - t0), progress, chip: document.getElementById('med-eu-chip').textContent.trim() };
+        await sleep(200);
+        stop = true;
+        window.fetch = realFetch;
+        r.first.maxTimerLagMs = Math.round(maxLag);
+        r.firstEnd = epoch();
+        r.assetFetches = assetFetches;
+        r.cachesAfter = await emaCaches();
+        // The loader answers before its cache write lands: give it 5 s.
+        r.stored = false;
+        for (let i = 0; i < 50 && !r.stored; i++) {
+            r.stored = await cacheHit(ASSET);
+            if (!r.stored) await sleep(100);
+        }
+        if (!/Candesartan/.test(r.first.chip)) throw new Error(`euRegister: chip ${r.first.chip}`);
+        // Phases on their own copy, after the app's check (Android measures them first, on a page it then reloads).
+        r.phasesAt = epoch();
+        const p0 = window.performance.now();
+        const text = await (await window.fetch(ASSET, { cache: 'no-store' })).text();
+        const p1 = window.performance.now();
+        const data = JSON.parse(text);
+        const p2 = window.performance.now();
+        const { createEMACatalogue } = await import('/domain/ema-catalogue.js');
+        const p3 = window.performance.now();
+        const candecor = createEMACatalogue(data).exact('Candecor').candidates.length;
+        const p4 = window.performance.now();
+        r.phases = { fetchDecodeMs: Math.round(p1 - p0), parseMs: Math.round(p2 - p1), indexMs: Math.round(p4 - p3), chars: text.length, rows: data.rows.length, candecor };
+        // Not stored: why? The loader swallows its put error, so repeat its
+        // put (same key, same body) and a tiny one, and report each outcome.
+        if (!r.stored) {
+            const put = async (key, body) => {
+                try {
+                    const cache = await window.caches.open('medtracker-ema-rev90-v1');
+                    await cache.put(key, new window.Response(body, { headers: { 'Content-Type': 'application/json' } }));
+                    return (await cache.match(key)) ? 'ok' : 'no entry after put';
+                } catch (e) { return `${(e && e.name) || 'Error'}: ${(e && e.message) || e}`; }
+            };
+            r.putProbe = { small: await put('/qa/ema-put-probe', '{}'), asset: await put(ASSET, text) };
+            try { await (await window.caches.open('medtracker-ema-rev90-v1')).delete('/qa/ema-put-probe'); } catch (_) { /* probe only */ }
+            try { r.storageEstimate = await window.navigator.storage.estimate(); } catch (_) { /* no estimate */ }
+        }
+        r.phasesEnd = epoch();
+        return r;
+    }
+
+    // An entry for the asset in the loader's cache (not just its name: the
+    // loader opens the cache before the write).
+    async function cacheHit(url) {
+        try {
+            const cache = await window.caches.open('medtracker-ema-rev90-v1');
+            return !!(await cache.match(url));
+        } catch (_) { return false; }
     }
 
     // Where the scene's last ready element shows, in points of the web view
