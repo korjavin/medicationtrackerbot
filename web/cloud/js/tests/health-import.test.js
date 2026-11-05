@@ -2089,7 +2089,7 @@ describe('Health write-back', () => {
             await startHealthImport({}, {
                 health: { ...fakeHealth({}), label: 'Health Connect', accessHint: 'Health Connect → App permissions', ...h },
                 // An entry made right after switch-on can draw the HW6 offer: Not now.
-                storage, doc: document, records, run: vi.fn(async () => null), toast, confirm: async () => false,
+                storage, doc: document, records, run: vi.fn(async () => null), toast, ask: async () => false,
             });
             await new Promise((r) => setTimeout(r, 0));
         };
@@ -2439,7 +2439,7 @@ describe('Health write-back', () => {
             const open = async (h = health) => {
                 await startHealthImport({}, {
                     health: { label: 'Health Connect', accessHint: 'Health Connect → App permissions', requestAuthorization: vi.fn(async () => true), query, ...h },
-                    storage, doc: document, records, run: vi.fn(async () => null), toast, confirm, alert, copyGapMs: 0,
+                    storage, doc: document, records, run: vi.fn(async () => null), toast, ask: confirm, tell: alert, copyGapMs: 0,
                 });
                 await tick();
             };

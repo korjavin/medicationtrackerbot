@@ -743,7 +743,7 @@
             await startHealthImport({ accountId: 'local' }, {
                 health, storage, doc: document, records: localRecordsPort(), run: async () => null,
                 afterImport: async () => {}, appRefresh: { setImport: () => {} },
-                confirm: mode === 'offer' ? undefined : async () => true, // offer: the app's own dialog
+                ask: mode === 'offer' ? undefined : async () => true, // offer: the app's own dialog
             });
             await until(() => document.querySelector('#health-copy-row[data-state="ready"]'), STEP_MS, 'health copy row');
             const row = document.getElementById('health-copy-row');

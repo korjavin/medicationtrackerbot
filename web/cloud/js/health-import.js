@@ -784,8 +784,8 @@ export function startHealthImport(ctx, {
     appRefresh = globalThis.AppRefresh,
     records = recordsPort(ctx, ORIGIN_EXTERNAL),
     toast = (msg, type) => globalThis.safeToast && globalThis.safeToast(msg, type),
-    confirm = (msg, opts) => globalThis.safeConfirm(msg, null, opts),
-    alert = (msg, opts) => globalThis.safeAlert(msg, opts),
+    ask = (msg, opts) => globalThis.safeConfirm(msg, null, opts),
+    tell = (msg, opts) => globalThis.safeAlert(msg, opts),
     copyGapMs = COPY_GAP_MS,
     copyBackoffMs = COPY_BACKOFF_MS,
 } = {}) {
@@ -1005,11 +1005,11 @@ export function startHealthImport(ctx, {
                 return;
             }
             if (!plan.total) {
-                if (!offer) await alert(`Everything is already in ${label}.`, { title: 'Copy past entries' });
+                if (!offer) await tell(`Everything is already in ${label}.`, { title: 'Copy past entries' });
                 return;
             }
             if (offer) writeJSON(storage, OFFERED_KEY, true);
-            const ok = await confirm(`${plan.total} past ${plan.total === 1 ? 'entry' : 'entries'} from this app.`, {
+            const ok = await ask(`${plan.total} past ${plan.total === 1 ? 'entry' : 'entries'} from this app.`, {
                 title: 'Copy your past entries too?',
                 hint: `Readings that came from ${label} stay as they are, and nothing is copied twice.`,
                 confirmLabel: 'Copy',
