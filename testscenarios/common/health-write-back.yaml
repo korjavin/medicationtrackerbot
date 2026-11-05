@@ -22,7 +22,8 @@ invariants:
   - 'Write access revoked later in system settings leaves the switch on, reading "Writing paused: access was removed"; entries made meanwhile reach Health once access returns'
   - "A BP reading with a pulse shows in the Health app as one blood pressure record and one heart-rate entry at the same time, both by Med Tracker"
   - "Clearing the pulse removes the heart-rate entry, setting it again brings it back, deleting the reading removes both"
-  - "With heart-rate write access denied, BP and weight still arrive; the pulses arrive once access is allowed"
+  - "With heart-rate write access denied, BP and weight still arrive"
+  - "Pulses of readings saved or edited after this update arrive once access is allowed; an older reading follows on its next edit"
   - "The heart-rate entries Med Tracker wrote never come back into the Vitals heart-rate card"
 covered_by:
   web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind and the supported fallback
