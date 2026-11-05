@@ -247,15 +247,15 @@ function renderWorkoutSessionHeader(session) {
     const dateObj = dateParts.length === 3
         ? new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
         : new Date();
-    const weekday = dateObj.toLocaleDateString(undefined, { weekday: 'short' });
-    const dateStr = dateObj.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    // Same "Wed 04.11" as the Timeline / Plans rows (_planDDMM, groups.js).
+    const dateStr = `${dateObj.toLocaleDateString('en-US', { weekday: 'short' })} ${_planDDMM(dateObj)}`;
     // Ad-hoc sessions (group_id === -1, e.g. `/workout walk`) carry their
     // free-text label in session.notes; it names the session instead of a plan.
     const adhocLabel = (session.group_id === -1 && session.notes) ? String(session.notes).trim() : '';
     const sub = document.createElement('div');
     sub.className = 'wg-session-top__sub';
     sub.id = 'workout-session-modal-title';
-    sub.textContent = [adhocLabel || session.group_name, session.variant_name, `${dateStr} · ${weekday}`]
+    sub.textContent = [adhocLabel || session.group_name, session.variant_name, dateStr]
         .filter(Boolean).join(' · ');
 
     heading.replaceChildren(clock, sub);

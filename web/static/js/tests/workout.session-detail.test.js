@@ -80,8 +80,7 @@ describe('Workout session takeover (med-xso6.21)', () => {
         const heading = document.getElementById('workout-session-modal-heading');
         expect(heading.querySelector('.wg-session-top__clock').textContent).toBe('42m');
         const sub = heading.querySelector('.wg-session-top__sub');
-        expect(sub.textContent).toContain('PPL · Push Day · ');
-        expect(sub.textContent).toMatch(/\d{2}[./]\d{2}[./]\d{4}\s*·\s*\S+/);
+        expect(sub.textContent).toBe('PPL · Push Day · Wed 22.04');
         expect(document.getElementById('workout-session-modal-status').textContent).toBe('Completed');
         // Status is shown, never edited, in the top bar.
         expect(document.getElementById('session-status-select')).toBeNull();
