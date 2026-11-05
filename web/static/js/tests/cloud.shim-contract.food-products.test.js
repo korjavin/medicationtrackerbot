@@ -520,6 +520,18 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(await productRows()).toHaveLength(catalog.length);
     });
 
+    it('retyping a guessed name with impossible macros unlinks the log and creates no product (Argus 15893)', async () => {
+        await env.records.put('foodproduct', product('p-roast', 'Roast'));
+        const impossible = (name) => ({ ...body(name), protein: 150, calories: 681 });
+        const log = await env.window.apiCall('/api/food/log', 'POST', impossible('toast'));
+        expect(log).toMatchObject({ product_id: 'p-roast', matched: 'typo' });
+
+        const fixed = await env.window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...impossible('toast'), eaten_at: log.eaten_at });
+        expect(fixed).toMatchObject({ name: 'toast', matched: 'new' });
+        expect(fixed.product_id).toBeUndefined();
+        expect((await productRows()).map((p) => p.name)).not.toContain('toast');
+    });
+
     it('a typo match learns nothing: the next log is a typo match again (Archie 15700)', async () => {
         await viaApi('Yugurt');
         const row = (await productRows()).find((p) => p.recordId === 'p-yogurt');

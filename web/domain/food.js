@@ -603,8 +603,13 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
         // The user retyped the name a typo/alias guess replaced: the guess was
         // wrong. The one create on update (Archie 15689): a product under the
         // typed name, which wins by exact key from then on.
-        const created = await createProduct({ name, barcode: input.barcode || null, ...per100gFrom(input) });
-        productId = created.recordId;
+        // Impossible macros create no product here either (Archie 15882,
+        // Argus 15893): the log keeps the typed name, unlinked.
+        const per = per100gFrom(input);
+        const created = macroWarnings(per).includes('impossible')
+          ? null
+          : await createProduct({ name, barcode: input.barcode || null, ...per });
+        productId = created ? created.recordId : null;
         matched = 'new';
       } else if (found.product) {
         productId = found.product.recordId;
