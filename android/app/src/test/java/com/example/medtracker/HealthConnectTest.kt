@@ -54,10 +54,15 @@ class HealthConnectTest {
         assertEquals(listOf("bp", "weight"), HealthConnect.writableKinds(listOf("bp", "weight"),
             weightOnly + HealthPermission.getWritePermission(BloodPressureRecord::class)))
         val bpWeight = weightOnly + HealthPermission.getWritePermission(BloodPressureRecord::class)
-        assertEquals(listOf("bp", "weight", "hr"), HealthConnect.WRITABLE.keys.toList())
+        assertEquals(listOf("bp", "weight", "hr", "workout"), HealthConnect.WRITABLE.keys.toList())
         assertEquals(listOf("bp", "weight"), HealthConnect.writableKinds(listOf("bp", "weight", "hr"), bpWeight))
         assertEquals(listOf("bp", "weight", "hr"), HealthConnect.writableKinds(listOf("bp", "weight", "hr"),
             bpWeight + HealthPermission.getWritePermission(HeartRateRecord::class)))
+        val allKinds = listOf("bp", "weight", "hr", "workout")
+        val bpWeightHr = bpWeight + HealthPermission.getWritePermission(HeartRateRecord::class)
+        assertEquals(listOf("bp", "weight", "hr"), HealthConnect.writableKinds(allKinds, bpWeightHr))
+        assertEquals(allKinds, HealthConnect.writableKinds(allKinds,
+            bpWeightHr + HealthPermission.getWritePermission(ExerciseSessionRecord::class)))
     }
 
     @Test
@@ -107,6 +112,61 @@ class HealthConnectTest {
         assertNotEquals(AggregateRequest(setOf(HeartRateRecord.BPM_AVG), TimeRangeFilter.between(at, at.plusSeconds(60)),
             setOf(DataOrigin("our.app"))), request)
         // Unmarked same-package QA workouts share our origin; no marker-level aggregate filter is claimed.
+    }
+
+    @Test
+    fun workoutWritesOnlyTheFinalSpanTypeAndManualVaultIdentity() {
+        for ((activity, type) in listOf(50.0 to ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING,
+            3000.0 to ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT)) {
+            val workout = HealthConnect.writeRecord("workout", "session-42", 17L,
+                start = 1700000000000L, end = 1700003600000L, activity = activity) as ExerciseSessionRecord
+            assertEquals("session-42", workout.metadata.clientRecordId)
+            assertEquals(17L, workout.metadata.clientRecordVersion)
+            assertEquals(Metadata.RECORDING_METHOD_MANUAL_ENTRY, workout.metadata.recordingMethod)
+            assertEquals(1700000000000L, workout.startTime.toEpochMilli())
+            assertEquals(1700003600000L, workout.endTime.toEpochMilli())
+            assertEquals(type, workout.exerciseType)
+            assertNull(workout.title)
+            assertNull(workout.notes)
+            assertTrue(workout.segments.isEmpty())
+            assertTrue(workout.laps.isEmpty())
+        }
+    }
+
+    @Test
+    fun workoutRejectsUnknownFractionalMissingTypesAndInvalidSpans() {
+        for (activity in listOf(Double.NaN, Double.POSITIVE_INFINITY, 0.0, 37.0, 50.1, 3000.1)) {
+            try {
+                HealthConnect.writeRecord("workout", "session-42", 1, start = 10, end = 20, activity = activity)
+                throw AssertionError("accepted activity $activity")
+            } catch (e: IllegalArgumentException) { assertEquals("bad write: activity", e.message) }
+        }
+        for (end in listOf(10L, 9L)) {
+            try {
+                HealthConnect.writeRecord("workout", "session-42", 1, start = 10, end = end, activity = 50.0)
+                throw AssertionError("accepted end $end")
+            } catch (e: IllegalArgumentException) { assertEquals("bad write: end", e.message) }
+        }
+        for (value in listOf(null, "1700000000000", true, Double.NaN, Double.POSITIVE_INFINITY, 10.5, 1e20)) {
+            try {
+                HealthConnect.workoutMillis(value, "start")
+                throw AssertionError("accepted start $value")
+            } catch (e: IllegalArgumentException) { assertEquals("bad write: start", e.message) }
+        }
+        assertEquals(1700000000000L, HealthConnect.workoutMillis(1700000000000L, "start"))
+    }
+
+    @Test
+    fun workoutReadPathDropsOurMarkerButKeepsUnmarkedAndForeignSessions() {
+        val at = Instant.ofEpochMilli(1700000000000L)
+        fun workout(origin: String, id: String?) = ExerciseSessionRecord(at, ZoneOffset.UTC, at.plusSeconds(60), ZoneOffset.UTC,
+            (id?.let { Metadata.manualEntry(clientRecordId = it) } ?: Metadata.manualEntry())
+                .populatedWithTestValues(id = "store-id", dataOrigin = DataOrigin(origin)),
+            ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT)
+        val ours = workout("our.app", "session-42")
+        val unmarked = workout("our.app", null)
+        val foreign = workout("watch.app", "session-42")
+        assertEquals(listOf(unmarked, foreign), HealthConnect.importableWorkouts(listOf(ours, unmarked, foreign), "our.app"))
     }
 
     @Test
