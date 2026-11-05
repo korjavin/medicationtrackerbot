@@ -1368,6 +1368,19 @@ mode, gated on the bridge platform being `ios` or `android`
   refused, `trial_pass_invalid`, and the page drops it). `install_unknown`
   erases silently without `dropAttest`. An account's data on the phone is
   not touched.
+- **EU register check** (bd med-3u28.4, web side med-3u28.2): with Settings →
+  Features → "Check names in" on *EU register* (device-local, per origin), the
+  medication editor's first check loads the bundled
+  `web/static/data/ema-article57-rev90-v1.json` (13 MB, already in
+  `LocalApp/`) from `wgapp://local` — no network, no bridge op — and keeps it
+  in memory for the page's lifetime. WKWebView treats the custom scheme as a
+  secure context and its Cache API works there: the loader's
+  `medtracker-ema-rev90-v1` cache is written on the first load and read
+  cache-first on the next launch (Simulator, iOS 26.5, `FlowQAEURegisterTests`).
+  Were the cache ever refused, the register still answers from memory and is
+  simply fetched again from the bundle next launch. *US register* in local
+  mode runs no check at all (RxNav is off, `rxnorm: null`); the choice says
+  so ("Needs an account. Without one, no name check runs.").
 - **Visual testing:** runbook, probe reading and bead-filing protocol in [ios-visual-testing.md](ios-visual-testing.md). Device testing by the owner comes after the Simulator matrix.
 - **Visual QA hook** (bd med-y5xx.2, [design](design/ios-visual-testing.md)):
   Debug builds only (`#if DEBUG` in `Shell.swift` / `LocalOrigin.qaHome`),

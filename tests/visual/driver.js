@@ -1062,7 +1062,12 @@
         r.first.maxTimerLagMs = Math.round(maxLag);
         r.firstEnd = epoch();
         r.cachesAfter = await emaCaches();
-        try { r.stored = !!(await window.caches.match(ASSET)); } catch (_) { r.stored = false; }
+        // The loader answers ready before its cache write lands: give it 5 s.
+        r.stored = false;
+        for (let i = 0; i < 50 && !r.stored; i++) {
+            try { r.stored = !!(await window.caches.match(ASSET)); } catch (_) { break; }
+            if (!r.stored) await sleep(100);
+        }
         if (res.status !== 'ready' || r.first.candidates !== 2) throw new Error(`euRegister: first check ${JSON.stringify(r.first)}`);
         // Phases on their own copy, after the app's check (Android measures them first, on a page it then reloads).
         r.phasesAt = epoch();
