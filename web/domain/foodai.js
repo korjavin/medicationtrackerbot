@@ -101,19 +101,22 @@ export function convertParsedMeal(parsed) {
 // previewParsedMeal is the parse-only (dry run) shape the review step edits:
 // convertParsedMeal's totals plus the per-100g values (so a gram change can
 // recompute) and the model's `uncertain` flag. Same validation, nothing saved.
+// The model's per-100 g estimate. The parser gives no kcal, so energy is the
+// 4/4/9 figure: only 'impossible' can fire on it (med-5jq.8).
+function per100gOf(item) {
+  // Number(): the unconstrained fallback provider may send "12".
+  const c = Number(item.carbs_100g) || 0, p = Number(item.protein_100g) || 0, f = Number(item.fat_100g) || 0;
+  return { carbs_100g: c, protein_100g: p, fat_100g: f, energy_kcal_100g: 4 * c + 4 * p + 9 * f };
+}
+
 export function previewParsedMeal(parsed) {
   const totals = convertParsedMeal(parsed);
   return totals.map((t, i) => {
     const item = parsed.items[i];
-    const per100 = {
-      carbs_100g: item.carbs_100g || 0,
-      protein_100g: item.protein_100g || 0,
-      fat_100g: item.fat_100g || 0,
-    };
-    // The parser gives no kcal, so energy is the 4/4/9 figure: only
-    // 'impossible' can fire here (med-5jq.8; the review step shows it, .9).
-    return withMacroWarnings({ ...t, ...per100, uncertain: item.uncertain === true },
-      { ...per100, energy_kcal_100g: 4 * per100.carbs_100g + 4 * per100.protein_100g + 9 * per100.fat_100g });
+    const per = per100gOf(item);
+    const { energy_kcal_100g: _kcal, ...per100 } = per;
+    // The review step shows the warnings (.9).
+    return withMacroWarnings({ ...t, ...per100, uncertain: item.uncertain === true }, per);
   });
 }
 
@@ -133,6 +136,12 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
   // recordIdFor(index) → a stable recordId for item `index`, so a caller that
   // needs idempotent re-creates (e.g. a re-drained Telegram /food) overwrites its
   // own rows. Absent → the food domain generates ids, unchanged for the UI path.
+  // Every item reconciles against the catalog (med-5jq.4): foodDomain.create
+  // resolves it by exact key or alias (no typo tier: model output has no
+  // letter typos, Archie 15882) and links the product, or creates one from the
+  // item's per-100 g estimate (none for impossible macros). A re-drain keeps
+  // its log's link. No alias is learnt here: an exact or alias hit already
+  // carries the key.
   async function saveParsedItems(parsedMeal, eatenAt, recordIdFor) {
     const items = convertParsedMeal(parsedMeal);
     const saved = [];
@@ -141,7 +150,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
       try {
         saved.push(await foodDomain.create(
           { ...items[i], eaten_at: eatenAt },
-          { skipProductUpsert: true, recordId: recordIdFor ? recordIdFor(i) : undefined },
+          { recordId: recordIdFor ? recordIdFor(i) : undefined, per100g: per100gOf(parsedMeal.items[i]), typo: false },
         ));
       } catch {
         failed++;
@@ -173,7 +182,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
 
   // logParsedItems commits a reviewed dry-run list ({name, weight, *_100g})
   // through the same write path as a direct parse: re-validated, macros
-  // recomputed from per-100g, no product upsert.
+  // recomputed from per-100g, reconciled against the catalog.
   async function logParsedItems(items, { eatenAt } = {}) {
     const parsed = {
       items: (Array.isArray(items) ? items : []).map((it) => ({

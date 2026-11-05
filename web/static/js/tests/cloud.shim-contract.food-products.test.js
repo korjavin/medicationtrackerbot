@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { createFoodDomain } from '../../../domain/food.js';
+import { foodKey } from '../../../domain/foodname.js';
 
 function installApiCache(window, seed = {}) {
     const map = new Map(Object.entries(seed));
@@ -504,6 +505,34 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
             expect(rows.find((p) => p.recordId === res.product_id)).toMatchObject({ name, name_key: name.toLowerCase() });
         });
 
+    // med-5jq.4 (Archie 15882): an impossible estimate never becomes a shared product.
+    it('impossible macros save the log unlinked, no product; it lists and edits like a pre-.3 log', async () => {
+        const res = await env.window.apiCall('/api/food/log', 'POST', { ...body('Mystery bar'), protein: 150, calories: 681 });
+        expect(res).toMatchObject({ name: 'Mystery bar', matched: 'new' });
+        expect(res.product_id).toBeUndefined();
+        expect(res.warnings).toContain('impossible');
+        expect(await productRows()).toHaveLength(catalog.length);
+
+        const listed = (await env.window.apiCall('/api/food/log?days=1')).flatMap((g) => g.logs);
+        expect(listed.find((l) => l.id === res.id)).toMatchObject({ name: 'Mystery bar', protein: 150 });
+        const fixed = await env.window.apiCall(`/api/food/log/${res.id}`, 'PUT', { ...body('Mystery bar'), protein: 15, calories: 153, eaten_at: res.eaten_at });
+        expect(fixed).toMatchObject({ name: 'Mystery bar', protein: 15 });
+        expect(fixed.product_id).toBeUndefined();
+        expect(await productRows()).toHaveLength(catalog.length);
+    });
+
+    it('retyping a guessed name with impossible macros unlinks the log and creates no product (Argus 15893)', async () => {
+        await env.records.put('foodproduct', product('p-roast', 'Roast'));
+        const impossible = (name) => ({ ...body(name), protein: 150, calories: 681 });
+        const log = await env.window.apiCall('/api/food/log', 'POST', impossible('toast'));
+        expect(log).toMatchObject({ product_id: 'p-roast', matched: 'typo' });
+
+        const fixed = await env.window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...impossible('toast'), eaten_at: log.eaten_at });
+        expect(fixed).toMatchObject({ name: 'toast', matched: 'new' });
+        expect(fixed.product_id).toBeUndefined();
+        expect((await productRows()).map((p) => p.name)).not.toContain('toast');
+    });
+
     it('a typo match learns nothing: the next log is a typo match again (Archie 15700)', async () => {
         await viaApi('Yugurt');
         const row = (await productRows()).find((p) => p.recordId === 'p-yogurt');
@@ -537,6 +566,59 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         // A same-key barcode-less product links and adopts the code.
         expect(await scan('Coffee', '4600000000048')).toMatchObject({ product_id: 'p-coffee', matched: 'exact' });
         expect((await productRows()).find((p) => p.recordId === 'p-coffee').barcode).toBe('4600000000048');
+    });
+
+    // med-5jq.6: the add sheet logs a picked food-DB row as its raw name +
+    // barcode (add-sheet.js logPicked); the first log of a new code is the scan.
+    it('first scan: a clean display name, the raw name as alias key, the barcode kept; a re-scan hits it locally', async () => {
+        const raw = 'Hazelnut Spread - MAXI NUTRITION - 400 g';
+        const scan = (name, barcode) => env.window.apiCall('/api/food/log', 'POST', { ...body(name), barcode, per_100g: false });
+        const first = await scan(raw, '4600000000055');
+        expect(first).toMatchObject({ matched: 'new', name: 'Maxi Nutrition Hazelnut Spread' });
+        const row = (await productRows()).find((p) => p.recordId === first.product_id);
+        expect(row).toMatchObject({
+            name: 'Maxi Nutrition Hazelnut Spread', barcode: '4600000000055',
+            name_key: 'maxi nutrition hazelnut spread', aliases: [foodKey(raw)],
+        });
+        // The raw name still finds it by text.
+        expect((await env.window.apiCall(`/api/food/products/search?q=${encodeURIComponent(raw)}`)).map((p) => p.id)).toEqual([first.product_id]);
+
+        // A re-scan resolves locally (no fetch) and logs onto the same product.
+        await env.window.apiCall('/api/settings/integrations', 'PATCH', { food: { url: 'https://fooddb.example.test' } });
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        expect(await env.window.CloudFoodSearch.search('4600000000055', { remote: true }))
+            .toEqual([expect.objectContaining({ id: first.product_id, name: 'Maxi Nutrition Hazelnut Spread' })]);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        vi.unstubAllGlobals();
+        expect(await scan(raw, '4600000000055')).toMatchObject({ product_id: first.product_id, matched: 'exact' });
+
+        // Another SKU with the same raw name is its own product.
+        const other = await scan(raw, '4600000000062');
+        expect(other).toMatchObject({ matched: 'new', name: 'Maxi Nutrition Hazelnut Spread' });
+        expect(other.product_id).not.toBe(first.product_id);
+        expect(await productRows()).toHaveLength(catalog.length + 2);
+    });
+
+    it('first scan: a brand already in the name is not repeated; existing products keep their stored names', async () => {
+        await env.records.put('foodproduct', product('p-old', 'Hazelnut Spread - OLD BRAND - 400 g', { barcode: '4600000000079' }));
+        const scan = (name, barcode) => env.window.apiCall('/api/food/log', 'POST', { ...body(name), barcode });
+        expect(await scan('Nutella Hazelnut Spread - Nutella, Ferrero - 750 g', '4600000000086'))
+            .toMatchObject({ matched: 'new', name: 'Nutella Hazelnut Spread' });
+        expect(await scan('Hazelnut Spread - OLD BRAND - 400 g', '4600000000079'))
+            .toMatchObject({ product_id: 'p-old', name: 'Hazelnut Spread - OLD BRAND - 400 g' });
+        expect((await productRows()).find((p) => p.recordId === 'p-old').aliases).toBeUndefined();
+    });
+
+    it('first scan: a house label stays on a processed product, so a typed generic name never lands on that SKU (Argus 15958)', async () => {
+        const scan = (name, barcode) => env.window.apiCall('/api/food/log', 'POST', { ...body(name), barcode });
+        const bar = await scan('Protein bar - Lidl - 50 g', '4600000000093');
+        expect(bar).toMatchObject({ matched: 'new', name: 'Lidl Protein bar' });
+        const typed = await viaApi('Protein bar');
+        expect(typed).toMatchObject({ matched: 'new', name: 'Protein bar' });
+        expect(typed.product_id).not.toBe(bar.product_id);
+        // A listed staple drops the house label.
+        expect(await scan('Broccoli - K-Classic - 500 g', '4600000000109')).toMatchObject({ matched: 'new', name: 'Broccoli' });
     });
 
     it('a meal matches only by its exact name, never by key or typo', async () => {

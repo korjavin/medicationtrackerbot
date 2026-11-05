@@ -137,4 +137,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // Populate provider-assigned origins for no-echo and workout-isolation tests.
     testImplementation("androidx.health.connect:connect-testing:1.0.0-alpha03")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
