@@ -358,7 +358,7 @@ export default async function healthConnect(ctx) {
       await ctx.page.locator('#health-write-row').scrollIntoViewIfNeeded();
       r.writeBack.hrHeld = await ctx.page.evaluate(() => ({ ledger: JSON.parse(localStorage.getItem('wg.health.dirty') || '{}'), hint: document.getElementById('health-write-row')?.innerText }));
       // BP and weight went through the real write hooks while HR remained denied.
-      if (!/Pulse isn't allowed/.test(r.writeBack.hrHeld.hint)) throw new Error(`missing HR refusal hint: ${JSON.stringify(r.writeBack.hrHeld)}`);
+      if (!/Pulse \(heart rate\) isn't allowed/.test(r.writeBack.hrHeld.hint)) throw new Error(`missing HR refusal hint: ${JSON.stringify(r.writeBack.hrHeld)}`);
       if (!(pending.id in (r.writeBack.hrHeld.ledger.hr || {}))) throw new Error('denied pulse missing from pending ledger');
       if ((await healthDiag()).some((l) => /write hr failed/.test(l))) throw new Error('denied HR generated write failures instead of holding its kind');
       await ctx.stableShot('health-write-pulse-denied');
