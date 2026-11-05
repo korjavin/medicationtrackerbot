@@ -1,0 +1,24 @@
+id: eu-register-check
+title: With the EU register picked, the medication editor checks names on the phone and sends nothing
+platforms: [web, android, ios]
+preconditions:
+  - App open; Settings → Features → "Check names in" shows US register
+steps:
+  - Pick EU register in "Check names in"
+  - Add a medication named Candecor
+  - Tap the "EU · Candesartan Cilexetil" chip
+  - Name a second medication Voltaren and tap its chip
+  - Go offline, reopen the app and open Candecor again
+  - Pick US register again and open Candecor
+invariants:
+  - The first check downloads the register once with a progress meter; Save works meanwhile
+  - The sheet shows Oral Use with Germany, Slovenia, and the dated EMA source
+  - Voltaren shows "EU · 3 entries" and a sheet with one card per substance
+  - Offline after the first download the chip still appears (the register is stored on the phone)
+  - With EU picked no RxNav request is made; a medication's saved Rx match stays while its name is unchanged
+  - Back on US register the Rx chip path runs as before and the EU register is not fetched
+covered_by:
+  web: manual  # partial: web/static/js/tests/meds.modal.test.js (editor, sheet, stale guards), web/static/js/tests/cloud.shim-contract.meds.test.js (routing, kept match), web/cloud/js/tests/ema.test.js (loader + cache)
+  android: manual
+  ios: manual
+source: [med-3u28.2]

@@ -728,6 +728,66 @@
             const reload = window.reloadCurrentTab;
             window.reloadCurrentTab = () => {};
             try { await window.TZPlanBanner.refresh(); } finally { window.reloadCurrentTab = reload; }
+        } else if (step.healthCopy) {
+            // Copy past entries (bd med-8f4s.11, kit HW6-HW9b) shows only on a
+            // phone shell that writes to Health, which no QA pass has: mount the
+            // app's own Health card over a stub store where other apps hold
+            // nothing, writing on, in page-only storage, and reach the state
+            // step.healthCopy names: "row" HW7, "offer" HW6 (the dialog the row
+            // opens), "running" HW8 (a few calls land, then the store
+            // stops answering), "paused" HW8b (every call fails), "done" HW9,
+            // "refused" HW9b (weight not allowed), "cut" HW6 with the past-data
+            // line (Miles 16121). The vault is only read.
+            const mode = step.healthCopy;
+            const kinds = ['bp', 'weight', 'hr', 'workout'];
+            const mem = new Map([
+                ['wg.health.enabled', 'true'], ['wg.health.write', 'true'], ['wg.health.backfillOffered', 'true'],
+                ['wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2'])],
+                ['wg.health.writeAsked', JSON.stringify(kinds)],
+            ]);
+            const storage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => { mem.set(k, String(v)); }, removeItem: (k) => { mem.delete(k); } };
+            // running: the first pass lands 4 calls and fails the rest, so it
+            // ends with progress (the row renders per pass); every later call
+            // never answers, which holds HW8 "N of M" with the meter.
+            let calls = 0;
+            let hold = false;
+            const answer = () => {
+                if (mode === 'paused') return Promise.reject(new Error('busy'));
+                if (mode !== 'running') return Promise.resolve(true);
+                if (hold) return new Promise(() => {});
+                if (++calls === 5) setTimeout(() => { hold = true; }, 0);
+                return calls <= 4 ? Promise.resolve(true) : Promise.reject(new Error('busy'));
+            };
+            const health = {
+                label: 'Health Connect', accessHint: 'Health Connect → App permissions',
+                isSupported: () => true, canWrite: async () => true, requestAuthorization: async () => true,
+                // readableFrom: a shell without it offers no Copy; "cut" reads
+                // the last 30 days only (Android without the history permission).
+                writeAccess: async () => ({
+                    granted: mode === 'refused' ? kinds.filter((k) => k !== 'weight') : kinds, supported: kinds,
+                    readableFrom: mode === 'cut' ? Date.now() - 30 * 86400e3 : 0,
+                }),
+                query: async () => ({ samples: [], anchor: 'qa', returned: 0, more: false }),
+                write: answer, remove: answer,
+            };
+            const { startHealthImport } = await import('/js/health-import.js');
+            const { localRecordsPort } = await import('/js/sync.js');
+            // A shell with Health already mounted the real card: this one replaces it.
+            const mounted = document.getElementById('health-import-row');
+            if (mounted) mounted.parentNode.remove();
+            await startHealthImport({ accountId: 'local' }, {
+                health, storage, doc: document, records: localRecordsPort(), run: async () => null,
+                afterImport: async () => {}, appRefresh: { setImport: () => {} },
+                ask: mode === 'offer' || mode === 'cut' ? undefined : async () => true, // offer/cut: the app's own dialog
+            });
+            await until(() => document.querySelector('#health-copy-row[data-state="ready"]'), STEP_MS, 'health copy row');
+            const row = document.getElementById('health-copy-row');
+            row.scrollIntoView({ block: 'center' });
+            if (mode !== 'row') row.click();
+            // HW8 with a moved meter: past the first pass, not "0 of N".
+            if (mode === 'running') {
+                await until(() => /^[1-9]\d* of /.test(document.querySelector('#health-copy-row .wg-setting__desc')?.textContent || ''), STEP_MS, 'health copy progress');
+            }
         } else if (step.healthNative) {
             // iOS Simulator scene: only the native seed writes Health samples.
             // Remove fixture vitals, then run the real native importer and assert its values.

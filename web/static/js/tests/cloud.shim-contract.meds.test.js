@@ -19,6 +19,8 @@ import { createMedicationsDomain } from '../../../domain/medications.js';
 import { sortByEffective } from '../../../domain/medschedule.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
 
+const EMA_ASSET = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/ema-article57-rev90-v1.json');
+
 // Fake rxnorm port (Task 8: "warning alert (fake rxnorm port)") — the real
 // browser impl does live RxNav fetches (Task 6); tests substitute a
 // deterministic port instead of hitting the network.
@@ -376,6 +378,97 @@ describe('cloud medication identity through the real RxNorm port', () => {
         expect((await env.records.list('medication'))[0]).toMatchObject({
             name: 'Candecor', dosage: '8mg', schedule: '{"type":"as_needed"}', supplement: true,
             tz_shift_policy: 'strict', pack_size: null, rxcui: '', normalized_name: '',
+        });
+    });
+
+    describe('"Check names in" (bd med-3u28.2)', () => {
+        const LIPITOR = {
+            recordId: 1, clientTs: 1, name: 'Lipitor', dosage: '10mg', schedule: '{"type":"as_needed"}',
+            rxcui: '153165', normalized_name: 'Lipitor', archived: false, supplement: false,
+            inventory_count: null, tz_shift_policy: 'flexible', pack_size: null,
+            start_date: null, end_date: null, created_at: '2026-10-01T12:00:00Z',
+        };
+        const edit = (name) => ({ name, dosage: '10mg', schedule: '{"type":"as_needed"}', tz_shift_policy: 'flexible' });
+        const stored = async () => {
+            const { clientTs, ...rest } = (await env.records.list('medication'))[0];
+            return rest;
+        };
+        const pick = (register) => env.window.localStorage.setItem('medRegister:unknown', register);
+
+        afterEach(() => env.window.localStorage.clear());
+
+        it('EU register: no RxNav call at all; an unchanged name keeps the US match, a rename takes the empty result', async () => {
+            await env.records.put('medication', { ...LIPITOR });
+            pick('eu');
+            expect(await env.window.apiCall('/api/medications/rx-check?name=Lipitor')).toEqual({ rxcui: '', normalized_name: '', warning: '' });
+            await env.window.apiCall('/api/medications/1', 'POST', edit('lipitor '));
+            const kept = await stored();
+            expect(kept).toMatchObject({ name: 'lipitor', rxcui: '153165', normalized_name: 'Lipitor' });
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Sortis'));
+            const euRenamed = await stored();
+            expect(euRenamed).toMatchObject({ name: 'Sortis', rxcui: '', normalized_name: '' });
+            expect(fetchRxnav).not.toHaveBeenCalled();
+
+            // Otherwise byte-identical to the same save with the US register.
+            await env.records.put('medication', { ...LIPITOR });
+            pick('us');
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Sortis'));
+            expect(fetchRxnav).toHaveBeenCalled();
+            expect(await stored()).toEqual(euRenamed);
+        });
+
+        it('US register with RxNav failing: an unchanged name keeps its match; a changed name takes the lookup', async () => {
+            await env.records.put('medication', { ...LIPITOR });
+            fetchRxnav.mockRejectedValue(new Error('timeout'));
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
+            expect(await stored()).toMatchObject({ rxcui: '153165', normalized_name: 'Lipitor' });
+            // Non-2xx and a malformed reply are failures too: kept.
+            fetchRxnav.mockResolvedValue(new Response('', { status: 503 }));
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
+            expect(await stored()).toMatchObject({ rxcui: '153165', normalized_name: 'Lipitor' });
+            fetchRxnav.mockResolvedValue(new Response(JSON.stringify({ idGroup: { rxnormId: [7] } })));
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
+            expect(await stored()).toMatchObject({ rxcui: '153165', normalized_name: 'Lipitor' });
+            // RxNav answered with no unique exact match: cleared (5382c9aca).
+            fetchRxnav.mockImplementation(async () => new Response(JSON.stringify({ idGroup: { name: 'Lipitor' } })));
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
+            expect(await stored()).toMatchObject({ rxcui: '', normalized_name: '' });
+            await env.records.put('medication', { ...LIPITOR });
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Sortis'));
+            expect(await stored()).toMatchObject({ name: 'Sortis', rxcui: '', normalized_name: '' });
+        });
+
+        it('switching the register applies on the next check without a reload; US never loads the EU register', async () => {
+            const { createEmaPort, createEmaLoader } = await import('../../../cloud/js/ema.js');
+            const asset = vi.fn(async () => new Response(fs.readFileSync(EMA_ASSET, 'utf8')));
+            const caches = { open: vi.fn(async () => ({ match: async () => undefined, put: async () => {} })), keys: async () => [], delete: async () => true };
+            const { createRxnormPort } = await vi.importActual('../../../cloud/js/rxnorm.js');
+            env.window.offlineAwareApiCall = createApiRouter({}, {
+                records: env.records, win: env.window, rxnorm: createRxnormPort(),
+                ema: createEmaPort({ win: env.window, loader: createEmaLoader({ fetch: asset, caches }) }),
+                now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
+                effects: { scheduleReminderRecompute: vi.fn() },
+            });
+            const check = () => env.window.apiCall('/api/medications/ema-check?name=Candecor');
+            const poll = () => env.window.apiCall('/api/medications/ema-check?name=Candecor&poll=1');
+            expect(await check()).toEqual({ status: 'off', candidates: [], ambiguous: false, source: null });
+            expect(asset).not.toHaveBeenCalled();
+            expect(caches.open).not.toHaveBeenCalled();
+
+            pick('eu');
+            // A poll only reads the load; the check starts it.
+            expect((await poll()).status).toBe('idle');
+            expect(caches.open).not.toHaveBeenCalled();
+            expect((await check()).status).toBe('loading');
+            await vi.waitFor(async () => expect((await poll()).status).toBe('ready'));
+            const res = await check();
+            expect(res.candidates.map((c) => c.jurisdiction)).toEqual(['Germany', 'Slovenia']);
+            expect(res).toMatchObject({ ambiguous: true, source: { revision: 'EMA/518502/2018, Rev.90' } });
+            expect(asset).toHaveBeenCalledTimes(1);
+
+            pick('us');
+            expect((await check()).status).toBe('off');
+            expect((await env.window.apiCall('/api/medications/rx-check?name=Lipitor')).rxcui).toBe('153165');
         });
     });
 

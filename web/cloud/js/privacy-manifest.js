@@ -38,8 +38,9 @@
 // HONESTY CONSTRAINTS (inherited from med-yor.1 — do not "simplify" these away):
 //   * The vault claim is TRUE and stays stated unconditionally.
 //   * The carve-outs do NOT share one activation story. The operator-default
-//     food DB and RxNav have no toggle, and RxNav has no BYO alternative at
-//     all. Flattening them into "all opt-in" is a banned pattern in the guard.
+//     food DB has no toggle; RxNav is on by default (off only by picking the
+//     EU register, bd med-3u28.2) and has no BYO alternative at all.
+//     Flattening them into "all opt-in" is a banned pattern in the guard.
 
 // How much the OPERATOR (whoever runs this service) can see of an entry's data.
 // Rendered into the "Who sees it" column.
@@ -52,13 +53,14 @@ export const OPERATOR_VISIBILITY = {
   'at-rest': 'plaintext at rest (the operator holds the unwrapping key)',
 };
 
-// The activation class. Three egress classes, deliberately not collapsed:
-// off-until-enabled, no-toggle-active-on-use, and always-on. `on-device` and
+// The activation class. Four egress classes, deliberately not collapsed:
+// off-until-enabled, on-until-disabled, no-toggle-active-on-use, and always-on. `on-device` and
 // `user-initiated` cover rows that are not ongoing egress at all.
 export const ACTIVATION = {
   'opt-in-consent': 'Opt-in + explicit consent (revocable in Settings → Integrations)',
   'opt-in': 'Opt-in',
   'no-toggle': 'No toggle — active on use',
+  'opt-out': 'On by default — a setting turns it off',
   'always-on': 'Always on',
   'user-initiated': 'Only on your action',
   'on-device': 'On-device, inherent to offline use',
@@ -695,12 +697,12 @@ export const PRIVACY_MANIFEST = [
     id: 'rxnav',
     feature: 'Drug lookups (RxNav)',
     boundary: 'carve-out',
-    data: 'Drug-name and interaction queries, through a blind same-origin proxy',
+    data: 'Drug-name queries, through a blind same-origin proxy',
     destination: 'The operator in transit, then RxNav (NIH)',
     operatorVisibility: 'plaintext',
     retention: 'Never logged or stored by the application; only the resolved rxcui lands on the medication record. Mind the reverse proxy\'s access logs — the name travels in the query string',
-    activation: 'no-toggle',
-    activationNote: 'whenever a medication lookup or interaction check runs',
+    activation: 'opt-out',
+    activationNote: 'when "Check names in" is US register (the default); with EU register picked, names are checked on this phone against the EMA register and nothing is sent',
     byo: 'None — there is no BYO alternative for drug lookups',
     evidence: ['internal/cloudserver/rxnav_proxy.go:56', 'internal/cloudserver/rxnav_proxy.go:59'],
     code: {
@@ -709,11 +711,11 @@ export const PRIVACY_MANIFEST = [
       go: ['internal/cloudserver/rxnav_proxy.go', 'internal/cloudserver/proxy_upstream.go'],
       hosts: ['rxnav.nlm.nih.gov', 'lhncbc.nlm.nih.gov'],
     },
-    docSignal: 'Drug-name search + interaction queries',
+    docSignal: 'Drug-name search',
     userCopy: {
       category: 'visible',
-      title: 'Drug-name and interaction lookups',
-      detail: 'Drug searches and interaction checks are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record. There is no toggle for this, and no way to point it at a service of your own.',
+      title: 'Drug-name lookups',
+      detail: 'Drug-name searches are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record. This runs while Settings → Features → "Check names in" is US register, the default; pick EU register and names are checked on this phone instead, with nothing sent. EU register data — Source: European Medicines Agency (EMA), Article 57 product data, EMA/518502/2018 Rev.90, accessed October 2026. Contact-free A-D projection; original substance/product grouping retained. EMA source acknowledgement and legal notice apply; third-party material exceptions remain. There is no way to point it at a service of your own.',
     },
   },
 
@@ -838,12 +840,12 @@ export const PRIVACY_MANIFEST = [
   {
     // bd med-8f4s.4 (epic med-8f4s): the Health write-back (the pulse of a bp
     // entry as a heart-rate entry: bd med-8f4s.6; completed workout sessions:
-    // bd med-8f4s.5). Both modes, so no
+    // bd med-8f4s.5; past entries on request: bd med-8f4s.11). Both modes, so no
     // `mode`. Both shells' evidence points at their native write/delete code.
     id: 'health-write-back',
     feature: 'Also write my entries (Apple Health / Health Connect)',
     boundary: 'carve-out',
-    data: 'Blood pressure entries (with the pulse you noted), weight entries, and the workouts you complete in the app (start, end and type only, no exercises, sets or weights) that you add or change in the app on this phone (typed in, given by voice or an AI app, or sent by Telegram and picked up by this phone). The plaintext values, their time and the entry\'s id are handed to the phone\'s Health store, and the id lets an edit replace its copy. Syncing an entry from another device does not by itself copy it, and readings imported from Apple Health / Health Connect are never written back',
+    data: 'Blood pressure entries (with the pulse you noted), weight entries, and the workouts you complete in the app (start, end and type only, no exercises, sets or weights) that you add or change in the app on this phone (typed in, given by voice or an AI app, or sent by Telegram and picked up by this phone), and, if you choose, your past entries. The plaintext values, their time and the entry\'s id are handed to the phone\'s Health store, and the id lets an edit replace its copy. Syncing an entry from another device does not by itself copy it, and readings imported from Apple Health / Health Connect are never written back',
     destination: 'The phone\'s Health store (Apple Health on iPhone, Health Connect on Android). Every app you allowed there to read blood pressure, heart rate, weight or workouts can read them. The store and those apps handle the copies under their own security and privacy settings, and the store\'s own sync or backup can copy them further',
     operatorVisibility: 'none',
     retention: 'Until you delete them in Apple Health / Health Connect. Deleting them there does not necessarily delete copies that other apps or backups already hold. While the switch is on and write access is allowed, changes you make on this phone update or remove the copies; if access is unavailable, changes may wait and are retried when access returns and you reopen the app. Switching it off stops future copying and updates, and leaves the copies there',
@@ -868,7 +870,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'Your entries copied to Apple Health / Health Connect, if you switch it on',
-      detail: 'If you switch on "Also write my entries", the blood pressure entries (with the pulse you noted), weight entries, and the workouts you complete in the app (start, end and type only, no exercises, sets or weights) that you add or change on this phone are copied to Apple Health or Health Connect. That includes entries you type, give by voice or through an AI app, or send by Telegram and this phone picks up. The copies are outside your vault and no longer protected by its encryption: the Health store, and any app you allowed there to read them, handle them under their own security and privacy settings. Syncing an entry from another device does not by itself copy it, and readings imported from Health are never written back. While the switch is on and write access is allowed, your changes here update or remove the copies. If access is unavailable, changes may wait and are retried when access returns and you reopen the app. Turning it off stops future copying and updates. Copies already there stay until you delete them in the Health app or Health Connect, and deleting them there does not necessarily remove copies that other apps or backups already hold.',
+      detail: 'If you switch on "Also write my entries", the blood pressure entries (with the pulse you noted), weight entries, and the workouts you complete in the app (start, end and type only, no exercises, sets or weights) that you add or change on this phone are copied to Apple Health or Health Connect, and, if you choose, your past entries. That includes entries you type, give by voice or through an AI app, or send by Telegram and this phone picks up. The copies are outside your vault and no longer protected by its encryption: the Health store, and any app you allowed there to read them, handle them under their own security and privacy settings. Syncing an entry from another device does not by itself copy it, and readings imported from Health are never written back. While the switch is on and write access is allowed, your changes here update or remove the copies. If access is unavailable, changes may wait and are retried when access returns and you reopen the app. Turning it off stops future copying and updates. Copies already there stay until you delete them in the Health app or Health Connect, and deleting them there does not necessarily remove copies that other apps or backups already hold.',
     },
   },
 

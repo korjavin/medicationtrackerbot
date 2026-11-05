@@ -1105,8 +1105,8 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/medications",
     "risk": "write",
-    "description": "Create a new medication with a schedule. Routes through the standard create handler: deduped against existing meds, RxNorm-normalized when possible, and interaction-checked against active meds; the response carries any drug-interaction warning.",
-    "response_summary": "Object {id, status:\"created\", warning} where warning is a non-empty string when drug-drug interactions were detected.",
+    "description": "Create a new medication with a schedule. Routes through the standard create handler: deduped against existing meds, RxNorm-normalized when possible.",
+    "response_summary": "Object {id, status:\"created\", warning} where warning is reserved and currently always empty.",
     "required": [
       "name",
       "dosage",
@@ -1548,7 +1548,7 @@ export const CATALOG = [
     ],
     "risk": "write",
     "description": "Update a medication via FULL REPLACEMENT (not partial update). The schema marks name, dosage, schedule as required because they cannot be sent empty; every other field decodes to a zero value (false / empty string / null) and OVERWRITES the stored row. Required workflow: (1) call medications.list to fetch the current row, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back. Use this to archive (set archived=true), rename, or change schedule. Sending a partial body will silently clear fields you didn't include.",
-    "response_summary": "Object {status:\"updated\", warning} where warning carries any drug-interaction note.",
+    "response_summary": "Object {status:\"updated\", warning} where warning is reserved and currently always empty.",
     "required": [
       "id",
       "name",

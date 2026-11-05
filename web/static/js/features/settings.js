@@ -1297,12 +1297,38 @@ async function paintSyncSection() {
 }
 
 // Load settings (BP reminders status, etc.)
+// Features → Medications → "Check names in" (kit ER1/ER2, bd med-3u28.2): which
+// register checks medication names. Device-local and per account
+// (meds-history.js medRegisterKey); the editor's next check reads it, no reload.
+let _medRegisterBound = false; // module-state: one-time guard so the row's click listener binds once across loadSettings() calls
+const MED_REGISTER_LABELS = { us: 'US register', eu: 'EU register' };
+function bindMedRegister() {
+    const btn = document.getElementById('med-register-choose');
+    if (!btn || typeof getMedRegister !== 'function') return;
+    document.getElementById('med-register-value').textContent = MED_REGISTER_LABELS[getMedRegister()];
+    if (_medRegisterBound) return;
+    _medRegisterBound = true;
+    btn.addEventListener('click', async () => {
+        const current = getMedRegister();
+        // Local mode has no account, so no RxNav (local-boot.js rxnorm: null).
+        const local = document.documentElement.classList.contains('wg-local-vault');
+        const picked = await safeChoose('', [
+            { value: 'us', label: 'US register', sub: local ? 'Needs an account. Without one, no name check runs.' : 'Sends the name to RxNav (US NIH).', selected: current === 'us' },
+            { value: 'eu', label: 'EU register', sub: 'Checked on this phone; nothing is sent.', selected: current === 'eu' },
+        ], { title: 'Check medicine names in', hint: 'Applies on this phone only.' });
+        if (picked !== 'us' && picked !== 'eu') return;
+        try { localStorage.setItem(medRegisterKey(), picked); } catch (_) { /* storage denied: the choice stays US */ }
+        document.getElementById('med-register-value').textContent = MED_REGISTER_LABELS[getMedRegister()];
+    });
+}
+
 async function loadSettings({ source } = {}) {
     if (settingsRenderBlocked()) return;
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
     // builds alike, so the row is not wrapped in a wg-settings-cloud-* reveal.
     bindRerunOnboarding();
     bindSettingsPages();
+    bindMedRegister();
     if (window.__MEDTRACKER_CLOUD__) {
         // weekly_digest now drives a cloud horizon producer (med-eas.58), so the
         // toggle is live in cloud. It only makes sense alongside gamification
