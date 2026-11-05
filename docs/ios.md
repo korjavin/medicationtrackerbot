@@ -1374,11 +1374,13 @@ mode, gated on the bridge platform being `ios` or `android`
   `web/static/data/ema-article57-rev90-v1.json` (13 MB, already in
   `LocalApp/`) from `wgapp://local` — no network, no bridge op — and keeps it
   in memory for the page's lifetime. WKWebView treats the custom scheme as a
-  secure context and its Cache API works there: the loader's
-  `medtracker-ema-rev90-v1` cache is written on the first load and read
-  cache-first on the next launch (Simulator, iOS 26.5, `FlowQAEURegisterTests`).
-  Were the cache ever refused, the register still answers from memory and is
-  simply fetched again from the bundle next launch. *US register* in local
+  secure context and exposes the Cache API, but on the Simulator (iOS 26.5,
+  `FlowQAEURegisterTests`, qa run 42074968735) the loader's write does not
+  land: `medtracker-ema-rev90-v1` is created, yet holds no entry for the asset
+  5 s after the chip shows. The register then works from memory (best-effort,
+  as designed) and each launch reads it from the bundle again, which costs no
+  network in local mode. The editor shows no "not stored" line: the web app
+  has none. *US register* in local
   mode runs no check at all (RxNav is off, `rxnorm: null`); the choice says
   so ("Needs an account. Without one, no name check runs.").
 - **Visual testing:** runbook, probe reading and bead-filing protocol in [ios-visual-testing.md](ios-visual-testing.md). Device testing by the owner comes after the Simulator matrix.
