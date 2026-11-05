@@ -2708,6 +2708,22 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
         expect((await records.list('workoutsession')).find((s) => s.id === 901).variant_id).toBe(2);
     });
 
+    // Breakage review: deleteVariant leaves the cursor on the dead day. The P0
+    // card keeps the row's own live variant and nothing is written.
+    it('getNext never heals a row onto a deleted cursor variant', async () => {
+        const records = seed({
+            sessions: [session(WEDNESDAY, 'notified', { id: 901, clientTs: NOW + 1 })],
+            currentVariantId: 2
+        });
+        await records.del('workoutvariant', 'variant-2');
+        const putIfUnchanged = vi.spyOn(records, 'putIfUnchanged');
+
+        const next = await domainOver(records).getNext();
+
+        expect(next).toMatchObject({ variant_id: 1, variant_name: 'Legs', session: { id: 901 } });
+        expect(putIfUnchanged).not.toHaveBeenCalled();
+    });
+
     it('getNext does not heal a slot that has logs, nor a flat plan', async () => {
         const logged = seed({
             sessions: [session(WEDNESDAY, 'pending', { id: 901 })],

@@ -1715,6 +1715,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!group || !group.is_rotating) return s;
     const variantId = await resolveVariantId(group);
     if (!variantId || s.variant_id === variantId) return s;
+    // deleteVariant leaves the cursor where it was, so the cursor can name a
+    // dead day. Never move a row onto one.
+    if (!(await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, variantId))) return s;
     const stored = await repointSlot(s, variantId);
     return stored && !stored.deleted ? stored : s;
   }
