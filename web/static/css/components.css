@@ -232,6 +232,9 @@ progress.wg-meter::-moz-progress-bar{border-radius:var(--wg-r-pill);background:v
 .wg-affix--unit>.wg-input{padding-left:14px;padding-right:44px}
 .wg-select{display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;cursor:pointer;font-family:var(--wg-font-ui);font-size:var(--wg-fs-md)}
 .wg-hint{font:400 var(--wg-fs-xs)/1.4 var(--wg-font-ui);color:var(--wg-fg-3)}
+.wg-hint--note{display:flex;align-items:flex-start;gap:8px}
+.wg-hint--note>.wg-ico{flex:none;width:16px;height:16px;color:var(--wg-warn-fg)}
+.wg-hint--note>span{flex:1;min-width:0}
 .wg-error{display:flex;align-items:center;gap:6px;font:500 var(--wg-fs-xs)/1.4 var(--wg-font-ui);color:var(--wg-danger-fg)}
 .wg-field--error .wg-input{border-color:var(--wg-danger-line);box-shadow:var(--wg-sh-inset),0 0 0 3px rgba(198,85,58,.18)}
 .wg-fieldrow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.wg-fieldrow--3{grid-template-columns:repeat(3,minmax(0,1fr))}

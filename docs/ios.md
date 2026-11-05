@@ -1374,10 +1374,11 @@ mode, gated on the bridge platform being `ios` or `android`
   `web/static/data/ema-article57-rev90-v1.json` (13 MB, already in
   `LocalApp/`) from `wgapp://local` — no network, no bridge op — and keeps it
   in memory for the page's lifetime. WKWebView treats the custom scheme as a
-  secure context and exposes the Cache API, but on the Simulator (iOS 26.5,
-  `FlowQAEURegisterTests`, qa run 42074968735) the loader's write does not
-  land: `medtracker-ema-rev90-v1` is created, yet holds no entry for the asset
-  5 s after the chip shows. The register then works from memory (best-effort,
+  secure context and exposes the Cache API, but the loader's write never
+  lands: WebKit's `Cache.put` rejects any request whose URL is not http(s)
+  (`TypeError: Request url is not HTTP/HTTPS`, the spec rule, so a device
+  behaves the same; `FlowQAEURegisterTests` put probe, qa run 42082484001).
+  `medtracker-ema-rev90-v1` is created, yet stays empty. The register then works from memory (best-effort,
   as designed) and each launch reads it from the bundle again, which costs no
   network in local mode. ER6 has two states only, "No exact match" and
   "Couldn't load the EU register" with Retry; there is no "not stored" state

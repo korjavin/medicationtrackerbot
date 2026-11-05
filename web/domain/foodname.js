@@ -106,6 +106,8 @@ const STAPLES = new Set(['apple', 'banana', 'orange', 'lemon', 'lime', 'pear', '
   'raspberry', 'avocado', 'tomato', 'potato', 'sweet potato', 'carrot', 'onion', 'red onion', 'garlic', 'cucumber',
   'lettuce', 'spinach', 'broccoli', 'cauliflower', 'cabbage', 'zucchini', 'bell pepper', 'mushroom', 'egg',
   'milk', 'whole milk', 'butter', 'rice', 'oat', 'rolled oat', 'flour', 'sugar', 'salt', 'water', 'natural yogurt']);
+// isStaple: the name is one of those plain foods (an unbranded staple, med-5jq.7).
+export const isStaple = (name) => STAPLES.has(foodKey(name));
 // ALL-CAPS words of 4+ letters read as Title case ("MAXI" → "Maxi"); shorter
 // ones are likely acronyms ("KFC") and stay.
 const unshout = (s) => (s === s.toUpperCase() && s !== s.toLowerCase()
@@ -121,7 +123,7 @@ export function offDisplayName(name) {
   const product = unshout([parts[0], ...parts.slice(2)].join(' '));
   const brands = (parts[1] || '').split(',').map((b) => b.trim()).filter(Boolean);
   const inName = (b) => ` ${foodKey(product)} `.includes(` ${foodKey(b)} `);
-  const plain = STAPLES.has(foodKey(product));
+  const plain = isStaple(product);
   const out = !brands.length || brands.some(inName) || (plain && brands.some((b) => HOUSE_LABELS.has(houseKey(b))))
     ? product
     : `${unshout(brands[0])} ${product}`;

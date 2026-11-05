@@ -31,6 +31,9 @@
         results: [],
         remoteSearched: false,
         picked: null,
+        // FC1 (med-5jq.7): { mine, scanned } when a scanned staple matches one
+        // of the user's foods; the pick is one of the two.
+        offer: null,
         searchTimer: undefined,
         searchSeq: 0,
         review: null,
@@ -169,6 +172,7 @@
         const o = opts || {};
         st.eatenAt = validDate(o.eatenAt);
         st.picked = null;
+        st.offer = null;
         st.results = [];
         st.remoteSearched = false;
         st.review = null;
@@ -250,6 +254,7 @@
         cancelSearch();
         const q = ($('food-add-search').value || '').trim();
         st.picked = null;
+        st.offer = null;
         st.remoteSearched = false;
         if (q.length < 2) {
             st.results = [];
@@ -384,7 +389,8 @@
         list.replaceChildren();
         const q = (($('food-add-search') || {}).value || '').trim();
         const searching = q.length >= 2;
-        for (const p of st.results.slice(0, 30)) list.appendChild(resultRow(p));
+        renderOffer();
+        if (!st.offer) for (const p of st.results.slice(0, 30)) list.appendChild(resultRow(p));
         if (searching && !st.remoteSearched) {
             const more = el('button', 'wg-row wg-food-add__more');
             more.type = 'button';
@@ -400,6 +406,43 @@
         const tiles = $('food-add-tiles');
         if (tiles) tiles.classList.toggle('hidden', searching);
         if (recent) recent.classList.toggle('hidden', searching || !(($('food-add-recent') || {}).children || []).length);
+    }
+
+    // FC1: "Your food" / "New food" in place of the picked row; the portions
+    // and the primary follow the selected one.
+    function offerChoice(p, sub) {
+        const b = el('button', 'wg-choice');
+        b.type = 'button';
+        b.setAttribute('aria-pressed', st.picked && st.picked.product === p ? 'true' : 'false');
+        const label = el('span', '', productName(p));
+        label.appendChild(el('span', 'wg-choice__sub', `${sub} · ${Math.round(kcal100(p))} kcal / 100 g`));
+        b.appendChild(label);
+        b.addEventListener('click', () => {
+            if (!st.picked) return;
+            st.picked.product = p;
+            renderResults();
+            renderFoot();
+        });
+        return b;
+    }
+
+    function renderOffer() {
+        const section = $('food-add-offer');
+        const choices = $('food-add-offer-choices');
+        const portions = $('food-add-offer-portions');
+        if (!section || !choices || !portions) return;
+        const on = !!(st.offer && st.picked);
+        choices.replaceChildren(...(on ? [offerChoice(st.offer.mine, 'Your food'), offerChoice(st.offer.scanned, 'New food')] : []));
+        portions.replaceChildren(...(on ? [portionPicks(st.picked.product)] : []));
+        section.classList.toggle('hidden', !on);
+        portions.classList.toggle('hidden', !on);
+    }
+
+    // The offer for a scanned food-DB row (no id): the user's own product, or null.
+    async function stapleOffer(hit) {
+        const s = window.CloudFoodSearch;
+        if (hit.id || !s || typeof s.stapleOffer !== 'function') return null;
+        try { return (await s.stapleOffer(hit.name, hit.barcode)) || null; } catch (_) { return null; }
     }
 
     function logPicked() {
@@ -419,6 +462,12 @@
         };
         // A database hit has no id: the bare name upserts it into "Mine".
         if (p.id) payload.product_id = p.id;
+        // FC1 "Your food": the scanned barcode goes on it, the scanned name
+        // becomes its alias (food.js linkBarcodeToProduct).
+        if (st.offer && p === st.offer.mine) {
+            payload.barcode = st.offer.scanned.barcode;
+            payload.scanned_name = st.offer.scanned.name;
+        }
         return submitWrite(payload, `${payload.name} · ${payload.weight} g`);
     }
 
@@ -458,11 +507,14 @@
             if (input) input.value = text;
             cancelSearch();
             st.picked = null;
+            st.offer = null;
+            renderFoot();
             await runSearch(text.trim(), false);
             return;
         }
         cancelSearch();
         const seq = st.searchSeq;
+        st.offer = null;
         setSearchStatus('Looking up the barcode…');
         let hit = null;
         try {
@@ -470,6 +522,7 @@
         } catch (e) {
             console.error('Barcode lookup failed', e);
         }
+        const mine = hit ? await stapleOffer(hit) : null;
         // A miss without a food database to ask is not "no product": say why.
         const missCopy = hit ? '' : ((await remoteConfigured())
             ? 'No product found for that barcode. Enter it once and it will be found next time.'
@@ -485,7 +538,9 @@
         st.results = [hit];
         st.remoteSearched = true;
         setSearchStatus('');
-        pick(hit);
+        // FC1: your food is preselected.
+        st.offer = mine ? { mine, scanned: hit } : null;
+        pick(mine || hit);
     }
 
     // ---- recent -------------------------------------------------------------
