@@ -3,15 +3,22 @@ package com.example.medtracker
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.SleepSessionRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneOffset
+import java.time.Instant
+import androidx.health.connect.client.records.metadata.DataOrigin
+import androidx.health.connect.client.testing.populatedWithTestValues
+import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.time.TimeRangeFilter
 
 // The HealthKit codes healthimport.js reads (SLEEP_PHASE, WORKOUT_NAMES, STRENGTH_TYPES).
 class HealthConnectTest {
@@ -46,6 +53,60 @@ class HealthConnectTest {
         assertEquals(listOf("weight"), HealthConnect.writableKinds(listOf("bp", "weight", "sleep"), weightOnly))
         assertEquals(listOf("bp", "weight"), HealthConnect.writableKinds(listOf("bp", "weight"),
             weightOnly + HealthPermission.getWritePermission(BloodPressureRecord::class)))
+        val bpWeight = weightOnly + HealthPermission.getWritePermission(BloodPressureRecord::class)
+        assertEquals(listOf("bp", "weight", "hr"), HealthConnect.WRITABLE.keys.toList())
+        assertEquals(listOf("bp", "weight"), HealthConnect.writableKinds(listOf("bp", "weight", "hr"), bpWeight))
+        assertEquals(listOf("bp", "weight", "hr"), HealthConnect.writableKinds(listOf("bp", "weight", "hr"),
+            bpWeight + HealthPermission.getWritePermission(HeartRateRecord::class)))
+    }
+
+    @Test
+    fun pulseKeepsItsSeparateVerbatimIdentityAndOneSampleAtTheBpInstant() {
+        val pulse = HealthConnect.writeRecord("hr", "tg-42/pulse", 17L, 1700000000000L, bpm = 66.4) as HeartRateRecord
+        assertEquals("tg-42/pulse", pulse.metadata.clientRecordId)
+        assertEquals(17L, pulse.metadata.clientRecordVersion)
+        assertEquals(Metadata.RECORDING_METHOD_MANUAL_ENTRY, pulse.metadata.recordingMethod)
+        assertEquals(1700000000000L, pulse.startTime.toEpochMilli())
+        assertEquals(pulse.startTime, pulse.endTime)
+        assertEquals(pulse.startZoneOffset, pulse.endZoneOffset)
+        assertEquals(listOf(HeartRateRecord.Sample(pulse.startTime, 66L)), pulse.samples)
+    }
+
+    @Test
+    fun pulseRejectsInvalidValues() {
+        for (bpm in listOf(Double.NaN, Double.POSITIVE_INFINITY, 0.0, -1.0)) {
+            var rejected = false
+            try { HealthConnect.writeRecord("hr", "bp-42/pulse", 1L, 1700000000000L, bpm = bpm) }
+            catch (_: IllegalArgumentException) { rejected = true }
+            assertTrue("accepted $bpm", rejected)
+        }
+    }
+
+    @Test
+    fun pulseImportKeepsForeignAndUnmarkedRecords() {
+        val at = Instant.ofEpochMilli(1700000000000L)
+        fun pulse(origin: String, id: String?) = HeartRateRecord(at, ZoneOffset.UTC, at.plusSeconds(1), ZoneOffset.UTC,
+            listOf(HeartRateRecord.Sample(at, 66L)), (id?.let { Metadata.manualEntry(clientRecordId = it) } ?: Metadata.manualEntry())
+                .populatedWithTestValues(id = "store-id", dataOrigin = DataOrigin(origin)))
+        val ours = pulse("our.app", "bp-42/pulse")
+        val unmarked = pulse("our.app", null)
+        val foreign = pulse("other.app", "bp-42/pulse")
+        assertEquals(listOf(unmarked, foreign), listOf(ours, unmarked, foreign).filterNot {
+            HealthConnect.isOwnWrite(it.metadata.dataOrigin.packageName, it.metadata.clientRecordId, "our.app")
+        })
+    }
+
+    @Test
+    fun workoutAverageRemainsScopedToTheImportedWorkoutsOrigin() {
+        val at = Instant.ofEpochMilli(1700000000000L)
+        val workout = ExerciseSessionRecord(at, ZoneOffset.UTC, at.plusSeconds(60), ZoneOffset.UTC,
+            Metadata.manualEntry().populatedWithTestValues(dataOrigin = DataOrigin("watch.app")), ExerciseSessionRecord.EXERCISE_TYPE_RUNNING)
+        val request = HealthConnect.workoutRequest(workout, setOf(HeartRateRecord.BPM_AVG))
+        assertEquals(AggregateRequest(setOf(HeartRateRecord.BPM_AVG), TimeRangeFilter.between(at, at.plusSeconds(60)),
+            setOf(DataOrigin("watch.app"))), request)
+        assertNotEquals(AggregateRequest(setOf(HeartRateRecord.BPM_AVG), TimeRangeFilter.between(at, at.plusSeconds(60)),
+            setOf(DataOrigin("our.app"))), request)
+        // Unmarked same-package QA workouts share our origin; no marker-level aggregate filter is claimed.
     }
 
     @Test

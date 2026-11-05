@@ -45,6 +45,7 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.math.abs
+import kotlin.math.roundToLong
 import kotlin.reflect.KClass
 
 /**
@@ -53,8 +54,8 @@ import kotlin.reflect.KClass
  * sample shapes; web/domain/healthimport.js maps them into the vault.
  *
  *   health.authorize {types, write?}       → Boolean (false: no Health Connect on this device)
- *   health.writeAccess {types}            → {granted: ["bp", "weight"]}, real write grants only
- *   health.write {type, id, version, at, systolic?, diastolic?, kg?} → true
+ *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr"]}
+ *   health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?} → true
  *   health.delete {type, id}              → true (only our clientRecordId, never a store UUID)
  *   health.query {type, anchor?, limit?}   → {samples, anchor, returned, more}
  *   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
@@ -82,7 +83,10 @@ import kotlin.reflect.KClass
  * offers it (bd med-0xad.3); without it the reads answer what is readable.
  * An unknown type: authorize ignores it, query rejects. Reads happen only when the page asks,
  * i.e. while the app is in the foreground — never in the background. Opt-in
- * BP/weight writes use the vault id and committed version for upsert. Our
+ * BP/weight writes use the vault id and committed version for upsert; a BP's
+ * pulse uses the supplied <vault id>/pulse verbatim. AndroidX 1.1.0 permits
+ * equal start/end times: a pulse has one sample and both endpoints at `at`.
+ * Grants are real write permissions; supported lists capabilities even if denied. Our
  * package's records with a clientRecordId are excluded from import; records
  * without one (including QaHealthWrite's external-app stand-in) still import.
  */
@@ -150,6 +154,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         val types = args.optJSONArray("types") ?: JSONArray()
         val kinds = (0 until types.length()).map { types.optString(it) }
         return JSONObject().put("granted", JSONArray(writableKinds(kinds, client.permissionController.getGrantedPermissions())))
+            .put("supported", JSONArray(WRITABLE.keys))
     }
 
     private suspend fun requireWrite(kind: String) {
@@ -163,7 +168,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         val kind = args.getString("type")
         requireWrite(kind)
         val record = writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
-            args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"))
+            args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"), args.optDouble("bpm"))
         // Older clientRecordVersions cannot replace a newer record. Android 14
         // accepts equal-version replays: a committed version must keep its payload.
         client.insertRecords(listOf(record))
@@ -424,9 +429,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             if (HealthPermission.getReadPermission(DistanceRecord::class) in granted) add(DistanceRecord.DISTANCE_TOTAL)
         }
         if (!w.endTime.isAfter(w.startTime)) return o
-        val a = client.aggregate(
-            AggregateRequest(metrics, TimeRangeFilter.between(w.startTime, w.endTime), setOf(w.metadata.dataOrigin))
-        )
+        val a = client.aggregate(workoutRequest(w, metrics))
         a[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.let { o.put("duration", it.toMillis() / 1000.0) }
         a[HeartRateRecord.BPM_AVG]?.let { o.put("hr", it) }
         a[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.let { o.put("energy", it.inKilocalories) }
@@ -435,7 +438,11 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     }
 
     internal companion object {
-        val WRITABLE: Map<String, KClass<out Record>> = mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class)
+        fun workoutRequest(w: ExerciseSessionRecord, metrics: Set<AggregateMetric<*>>) =
+            AggregateRequest(metrics, TimeRangeFilter.between(w.startTime, w.endTime), setOf(w.metadata.dataOrigin))
+
+        val WRITABLE: Map<String, KClass<out Record>> = mapOf(
+            "bp" to BloodPressureRecord::class, "weight" to WeightRecord::class, "hr" to HeartRateRecord::class)
 
         fun writableKinds(kinds: Collection<String>, granted: Set<String>): List<String> = kinds.distinct().filter {
             WRITABLE[it]?.let { type -> HealthPermission.getWritePermission(type) in granted } == true
@@ -445,7 +452,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             originPackage == packageName && clientRecordId != null
 
         fun writeRecord(kind: String, id: String, version: Long, at: Long,
-                        systolic: Double = Double.NaN, diastolic: Double = Double.NaN, kg: Double = Double.NaN): Record {
+                        systolic: Double = Double.NaN, diastolic: Double = Double.NaN,
+                        kg: Double = Double.NaN, bpm: Double = Double.NaN): Record {
             require(id.isNotBlank()) { "missing id" }
             require(version >= 0) { "invalid version" }
             val time = Instant.ofEpochMilli(at)
@@ -460,6 +468,12 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
                 "weight" -> {
                     require(kg.isFinite()) { "invalid weight" }
                     WeightRecord(time = time, zoneOffset = offset, metadata = metadata, weight = Mass.kilograms(kg))
+                }
+                "hr" -> {
+                    require(bpm.isFinite() && bpm > 0) { "invalid heart rate" }
+                    HeartRateRecord(startTime = time, startZoneOffset = offset,
+                        endTime = time, endZoneOffset = offset,
+                        samples = listOf(HeartRateRecord.Sample(time, bpm.roundToLong())), metadata = metadata)
                 }
                 else -> throw IllegalArgumentException("unknown write type: $kind")
             }
