@@ -15,6 +15,7 @@ invariants:
   - Searching "yugurt" finds Yogurt
   - Earlier logs keep their names and totals
   - A product renamed on a device with an older app version is matched by its new name only
+  - With only "Roast" saved, a log of "toast" shows as Roast; editing that log's name back to "toast" creates a Toast product, and later "toast" logs land on Toast
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-products.test.js
   android: manual

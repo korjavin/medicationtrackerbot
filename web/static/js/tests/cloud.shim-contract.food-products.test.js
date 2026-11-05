@@ -540,6 +540,31 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(await viaApi('Pastu')).toMatchObject({ matched: 'new', name: 'Pastu' });
     });
 
+    // Known accepted typo case (Archie 15689): a lone Roast catches "toast".
+    // The guess shows at once and is correctable by retyping the name.
+    it('toast → Roast by typo; retyping "toast" on the log creates Toast and Roast forgets the key', async () => {
+        await env.records.put('foodproduct', product('p-roast', 'Roast'));
+        const log = await viaApi('toast');
+        expect(log).toMatchObject({ product_id: 'p-roast', matched: 'typo', name: 'Roast' });
+        expect((await productRows()).find((p) => p.recordId === 'p-roast').aliases).toEqual(['toast']);
+
+        const fixed = await env.window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...body('toast'), eaten_at: log.eaten_at });
+        expect(fixed).toMatchObject({ name: 'toast', matched: 'new' });
+        const rows = await productRows();
+        const toast = rows.find((p) => p.recordId === fixed.product_id);
+        expect(toast).toMatchObject({ name: 'toast', name_key: 'toast', energy_kcal_100g: 153 });
+        expect(rows.find((p) => p.recordId === 'p-roast').aliases).toEqual([]);
+
+        const again = await viaApi('Toast');
+        expect(again).toMatchObject({ product_id: toast.recordId, matched: 'exact' });
+        expect(await productRows()).toHaveLength(rows.length);
+
+        // A re-resolve to a DIFFERENT product stays a relink, no create.
+        const relinked = await env.window.apiCall(`/api/food/log/${again.id}`, 'PUT', { ...body('Yugurt'), eaten_at: again.eaten_at });
+        expect(relinked).toMatchObject({ product_id: 'p-yogurt', matched: 'typo', name: 'Yogurt' });
+        expect(await productRows()).toHaveLength(rows.length);
+    });
+
     it('a typo never picks between same-key duplicates', async () => {
         await env.records.put('foodproduct', product('p-yogurts', 'Yogurts', { usage_count: 2 }));
         expect(await viaApi('Yugurt')).toMatchObject({ matched: 'new', name: 'Yugurt' });

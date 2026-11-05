@@ -402,17 +402,23 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // older bundle's rename left stale).
   async function touchProduct(product, extra = () => ({})) {
     const nowMs = now();
-    const bump = (cur) => (cur && !cur.deleted ? {
+    return updateProductRow(product.recordId, (cur) => ({
       ...cur,
       ...extra(cur),
       name_key: foodKey(cur.name),
       clientTs: nowMs,
       usage_count: (cur.usage_count || 0) + 1,
       last_used_at: new Date(nowMs).toISOString(),
-    } : null);
-    if (records.update) return records.update(PRODUCT_RECORD_TYPE, product.recordId, bump);
-    const cur = (await records.list(PRODUCT_RECORD_TYPE)).find((p) => p.recordId === product.recordId);
-    const record = bump(cur);
+    }));
+  }
+
+  // updateProductRow applies `change(current)` to the stored live row; a row
+  // deleted meanwhile stays deleted (null).
+  async function updateProductRow(recordId, change) {
+    const apply = (cur) => (cur && !cur.deleted ? change(cur) : null);
+    if (records.update) return records.update(PRODUCT_RECORD_TYPE, recordId, apply);
+    const cur = (await records.list(PRODUCT_RECORD_TYPE)).find((p) => p.recordId === recordId);
+    const record = apply(cur);
     if (record) await records.put(PRODUCT_RECORD_TYPE, record);
     return record;
   }
@@ -515,8 +521,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // never creates a product. Without a product_id, an unchanged name keeps
   // the row's link (past logs are not relinked); a changed name re-resolves
   // (resolveProduct, med-5jq.3): a match relinks and takes the product's
-  // name, no match keeps the typed name unlinked. Learns no alias: that would
-  // be a product write.
+  // name, no match keeps the typed name unlinked. Learns no alias. One
+  // exception: retyping a name that a typo/alias guess replaced (it resolves
+  // back to the log's own product) rejects the guess and creates the product.
   async function update(id, input) {
     assertNonNegativeMacros(input, { checkWeight: true });
     const all = await records.list(LOG_RECORD_TYPE);
@@ -542,7 +549,23 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     } else if (name) {
       const found = resolveProduct(name, await records.list(PRODUCT_RECORD_TYPE));
       matched = found.matched;
-      if (found.product) {
+      const rejected = found.product && (found.matched === 'typo' || found.matched === 'alias')
+        && found.product.recordId === existing.product_id;
+      if (rejected) {
+        // The user retyped the name a typo/alias guess replaced: the guess was
+        // wrong. The one create on update (Archie 15689): a product under the
+        // typed name, and the old product forgets the key, so exact wins next.
+        const created = await createProduct({ name, barcode: input.barcode || null, ...per100gFrom(input) });
+        if ((found.product.aliases || []).includes(found.key)) {
+          await updateProductRow(found.product.recordId, (cur) => ({
+            ...cur,
+            clientTs: now(),
+            aliases: (cur.aliases || []).filter((a) => a !== found.key),
+          }));
+        }
+        productId = created.recordId;
+        matched = 'new';
+      } else if (found.product) {
         productId = found.product.recordId;
         name = found.product.name;
       }
