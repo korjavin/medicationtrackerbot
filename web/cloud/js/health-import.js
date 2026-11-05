@@ -808,9 +808,7 @@ function copyText(health, st, paused) {
     if (st.running && !paused) return { title: 'Copying past entries…', desc: `${st.done} of ${st.total}`, meter: true };
     if (st.running) return { title: 'Copy paused', desc: `${label} is busy. ${st.done} of ${st.total} so far; it continues when the app is open.` };
     if (!st.refused.length) return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}.` };
-    const rest = st.refused.reduce((n, k) => n + st.left[k], 0);
-    const follow = rest === 1 ? 'the other one follows' : `the other ${rest} follow`;
-    return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}. ${notAllowed(st.refused)} in ${label} settings, and ${follow}.` };
+    return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}. ${notAllowed(st.refused)} in ${label} settings, then tap Copy past entries again.` };
 }
 
 export function healthStatusText(storage = globalThis.localStorage, health = globalThis.Health) {
@@ -1077,8 +1075,9 @@ export function startHealthImport(ctx, {
     };
     const drainWrites = () => copyPass().catch((e) => console.error('[health] write pass failed', e));
     // The result stays until Settings is left (HW9), then the row is "Copy
-    // past entries" again; a kind whose read is still denied keeps the job, and
-    // so does a copy still going (pulses included) unless it is stuck: failed
+    // past entries" again; a kind whose read is still denied does not keep the
+    // job (its ids were never marked, so the next Copy recounts them), a copy
+    // still going (pulses included) does unless it is stuck: failed
     // again at the cap (an entry the store never takes; across relaunches, as
     // the count is kept). Then the job goes, Copy is free again, and the
     // entries stay in the ledger.
@@ -1086,7 +1085,7 @@ export function startHealthImport(ctx, {
         const st = copyState();
         if (!st) return;
         const stuck = fails(st.job) >= COPY_STUCK_FAILS;
-        if ((st.pending && !stuck) || Object.keys(st.job.blocked || {}).length) return;
+        if (st.pending && !stuck) return;
         writeJSON(storage, JOB_KEY, null);
         renderCopy();
     };
