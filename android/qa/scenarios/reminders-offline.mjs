@@ -186,8 +186,8 @@ export default async function remindersOffline(ctx) {
     // (`settings put secure immersive_mode_confirmations confirmed`) and find the stall.
   } finally {
     // Also retain the state-machine path when grantBoth itself fails; reboot may have closed ctx.
-    r.permissionDiagnostics ||= ((await adb(['shell', 'run-as', pkg, 'cat', 'shared_prefs/diag.xml']))
-      .match(/shell notifications step[^\n<]*/g) || []).slice(r.permissionDiagnosticsBefore || 0);
+    r.permissionDiagnostics ||= permissionDiagnosticLines(await adb(['shell', 'run-as', pkg, 'cat', 'shared_prefs/diag.xml']))
+      .slice(r.permissionDiagnosticsBefore || 0);
     await adb(['shell', 'svc power stayon false']); // the reboot step closed ctx.shell's device
   }
 }
@@ -280,7 +280,12 @@ async function grantBoth(ctx, out, tm = {}) {
 
 async function permissionDiagnostics(ctx) {
   const xml = await ctx.shell(`run-as ${ctx.pkg} cat shared_prefs/diag.xml`).catch(() => '');
-  return xml.match(/shell notifications step[^\n<]*/g) || [];
+  return permissionDiagnosticLines(xml);
+}
+
+/** SharedPreferences XML encodes diagnostic newlines as &#10; on the emulator. */
+export function permissionDiagnosticLines(xml) {
+  return xml.replace(/&#10;/g, '\n').match(/shell notifications step[^\n<]*/g) || [];
 }
 
 /**
