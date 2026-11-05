@@ -528,6 +528,12 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(await viaApi('boiled egg')).toMatchObject({ product_id: 'p-egg', matched: 'exact' });
     });
 
+    it('a stale name_key (renamed by an older bundle, which spreads the row) never matches', async () => {
+        await env.records.put('foodproduct', product('p-renamed', 'Fried egg', { name_key: 'boiled egg', usage_count: 99 }));
+        expect(await viaApi('Boiled egg')).toMatchObject({ product_id: 'p-egg', matched: 'exact', name: 'Boiled egg' });
+        expect((await env.window.apiCall('/api/food/products/search?q=boiled')).map((p) => p.id)).not.toContain('p-renamed');
+    });
+
     it('two near keys never guess: a typo between them creates a new product', async () => {
         await env.records.put('foodproduct', product('p-pasta', 'Pasta'));
         await env.records.put('foodproduct', product('p-paste', 'Paste'));

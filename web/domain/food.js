@@ -304,10 +304,6 @@ export function mergeProducts(base, extra) {
   return merged.slice(0, 50);
 }
 
-// A product's match key: the stored name_key (med-5jq.3), else computed from
-// the name for rows written before it. Never written back by a read.
-const productKey = (p) => p.name_key || foodKey(p.name);
-
 const ALIAS_CAP = 50;
 function withAlias(aliases, key) {
   const list = Array.isArray(aliases) ? aliases : [];
@@ -323,7 +319,9 @@ function mostUsed(list) {
 
 // resolveProduct (med-5jq.3) finds the catalog product a typed food name
 // means, in one in-memory pass — no network, no model:
-//   exact — a live product whose key (stored name_key or the name's key) is the name's key;
+//   exact — a live product whose name keys the same. Always the current
+//           name's key, never the stored name_key: an older bundle's rename
+//           spreads the row and leaves name_key stale (med-5jq.3 review);
 //   alias — the key was learnt for a product before (aliases);
 //   typo  — exactly one product key within keyDistance 1 (keys of 5-7 chars)
 //           or 2 (longer); shorter keys never typo-match, two near keys never guess.
@@ -338,7 +336,7 @@ export function resolveProduct(rawName, products) {
     return same.length ? { product: mostUsed(same), matched: 'exact', key } : none;
   }
   const keyed = live.map((p) => ({ p, k: foodKey(p.name) }));
-  const exact = keyed.filter(({ p, k }) => k === key || p.name_key === key).map(({ p }) => p);
+  const exact = keyed.filter(({ k }) => k === key).map(({ p }) => p);
   if (exact.length) return { product: mostUsed(exact), matched: 'exact', key };
   const alias = live.filter((p) => Array.isArray(p.aliases) && p.aliases.includes(key));
   if (alias.length) return { product: mostUsed(alias), matched: 'alias', key };
@@ -897,7 +895,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     // The match key too (med-5jq.3): "boiled eggs" finds "Boiled egg", and a
     // learnt alias finds its product.
     const keyNeedle = foodKey(query);
-    const byKey = (p) => !!keyNeedle && (productKey(p).includes(keyNeedle)
+    const byKey = (p) => !!keyNeedle && (foodKey(p.name).includes(keyNeedle)
       || (Array.isArray(p.aliases) && p.aliases.some((a) => String(a).includes(keyNeedle))));
     const local = all
       .filter((p) => !p.deleted)
