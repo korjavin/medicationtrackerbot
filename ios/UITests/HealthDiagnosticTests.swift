@@ -66,7 +66,8 @@ final class HealthDiagnosticTests: XCTestCase {
 
 /// The Health write-back through Health.handle (bd med-8f4s.3; hr .8; workout
 /// .10): write, replace, own-id import filter, an imported row's id deletes
-/// nothing, delete leaves nothing. Runs in the qa job (HealthDiagnosticView's
+/// nothing, delete leaves nothing; (.14) readableFrom 0, equal/lower-version
+/// replays resolve true, the entries batch. Runs in the qa job (HealthDiagnosticView's
 /// write-back mode).
 @MainActor
 final class HealthWriteBackTests: XCTestCase {

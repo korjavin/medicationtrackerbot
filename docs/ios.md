@@ -581,6 +581,28 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   session → Health shows one strength workout by Med Tracker over the
   session's span; edit or re-complete it → still one; delete it → gone; a
   Watch or other-app workout is not duplicated into the app.
+- **Copy past entries (bd med-8f4s.14; web .11/.15, Android twin .13):**
+  `health.writeAccess` answers `readableFrom: 0` — HealthKit has no
+  history window, so the page's Copy dedupe read is never bounded here (the
+  web offers Copy only when the field is present). A shell that reports it
+  also takes the batch: `health.write {entries: [body, ...]}`, each body a
+  single write's args (kinds may mix), answers an array with one result per
+  entry in order — `true`, or that entry's own refusal (`bad write: …`,
+  `unknown type: …`, `denied`; a non-object entry is `bad write: entry`). The
+  shell simply loops `write()` per body (HealthKit has no call quota; the
+  batch is for one web shape on both shells); a HealthKit store error throws
+  the whole call, as a single write does, and the page keeps every id. A
+  body without `entries` behaves exactly as before. Replay rule: the same
+  sync identifier at an equal or lower `SyncVersion` resolves `true` and
+  leaves the stored object as it was (HealthKit keeps the higher version) —
+  that is what makes a Copy from the user's second iPhone/iPad finish: the
+  dedupe read hides this app's own writes (`ours()`), so the second device
+  re-sends ids the first one wrote with the same stored `clientTs`, and the
+  sync identifier dedupes them across devices. `HealthWriteBackTests` replays
+  weight, hr and workout at the equal and a lower version (BP too where the
+  runtime grants BP share) and checks one object at the higher version, and
+  sends a 10-entry mixed batch plus one with malformed entries. Device check:
+  Copy past entries on a second device finishes and doubles nothing.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
   overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every

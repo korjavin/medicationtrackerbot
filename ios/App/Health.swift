@@ -10,9 +10,13 @@ import HealthKit
 /// Ops (web/static/js/native/health.js):
 ///   health.authorize {types, write?}     → Bool (false: no Health store on this device);
 ///     `write` (["bp", "weight", "hr", "workout"]) also asks share access, in the same sheet
-///   health.writeAccess {types}           → {granted: [kind], supported: ["bp", "weight", "hr", "workout"]}
-///     (granted: every share type of the kind authorized)
+///   health.writeAccess {types}           → {granted: [kind], supported: ["bp", "weight", "hr", "workout"], readableFrom: 0}
+///     (granted: every share type of the kind authorized; readableFrom 0: no history window)
 ///   health.write {type, id, version, at, systolic, diastolic | kg | bpm} → true, rejects "denied"
+///   health.write {entries: [body, ...]}  → [true | "<that entry's error>", ...] in order (bd med-8f4s.14)
+///     (each body = a single write's args; a store error throws the whole call)
+///     The same id at an equal or lower version again resolves true (a replay:
+///     HealthKit keeps the higher version — a Copy from a second device).
 ///   health.write {type: "workout", id, version, start, end, activity: 50 | 3000} → true
 ///     (an HKWorkout, strength training or other, start…end in ms; nothing attached)
 ///   health.delete {type, id}             → true (nothing written under `id`: a no-op)
@@ -126,11 +130,28 @@ enum Health {
             try await store.requestAuthorization(toShare: share, read: read)
             return true
         case "health.writeAccess":
-            guard HKHealthStore.isHealthDataAvailable() else { return ["granted": [String](), "supported": writeKinds] }
+            // readableFrom 0: HealthKit reads every sample, so Copy's dedupe is
+            // never bounded here (bd med-8f4s.14). Reporting it promises the
+            // page the entries batch below (one build, never apart).
+            guard HKHealthStore.isHealthDataAvailable() else {
+                return ["granted": [String](), "supported": writeKinds, "readableFrom": 0] as [String: Any]
+            }
             let kinds = args["types"] as? [String] ?? []
-            return ["granted": kinds.filter(canWrite), "supported": writeKinds]
+            return ["granted": kinds.filter(canWrite), "supported": writeKinds, "readableFrom": 0] as [String: Any]
         case "health.write":
-            return try await write(args)
+            guard let raw = args["entries"] else { return try await write(args) }
+            // The batch (twin of Android's, one shape from the web): one result
+            // per entry, in order. A refusal of the entry itself (bad write,
+            // unknown type, denied) is that entry's string; a store error
+            // throws the whole call, and the page keeps every id (a replay is
+            // absorbed, see write()).
+            guard let entries = raw as? [Any] else { throw Failure("bad write: entries") }
+            var results: [Any] = []
+            for entry in entries {
+                guard let body = entry as? [String: Any] else { results.append("bad write: entry"); continue }
+                do { results.append(try await write(body)) } catch let f as Failure { results.append(f.errorDescription ?? "bad write") }
+            }
+            return results
         case "health.delete":
             return try await delete(args)
         case "health.query":
