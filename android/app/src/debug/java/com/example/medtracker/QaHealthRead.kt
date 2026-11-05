@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -29,7 +30,8 @@ class QaHealthRead : Activity() {
             runCatching {
                 val client = HealthConnectClient.getOrCreate(this@QaHealthRead)
                 val out = JSONArray()
-                for ((kind, type) in mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class, "hr" to HeartRateRecord::class)) {
+                for ((kind, type) in mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class,
+                    "hr" to HeartRateRecord::class, "workout" to ExerciseSessionRecord::class)) {
                     var token: String? = null
                     do {
                         @Suppress("UNCHECKED_CAST")
@@ -40,6 +42,7 @@ class QaHealthRead : Activity() {
                                 .put("clientId", record.metadata.clientRecordId ?: JSONObject.NULL)
                                 .put("version", record.metadata.clientRecordVersion)
                                 .put("recordingMethod", record.metadata.recordingMethod)
+                                .put("origin", record.metadata.dataOrigin.packageName)
                             when (record) {
                                 is BloodPressureRecord -> row.put("systolic", record.systolic.inMillimetersOfMercury)
                                     .put("diastolic", record.diastolic.inMillimetersOfMercury)
@@ -48,6 +51,10 @@ class QaHealthRead : Activity() {
                                 is HeartRateRecord -> row.put("samples", JSONArray().apply {
                                     record.samples.forEach { put(JSONObject().put("at", it.time.toEpochMilli()).put("bpm", it.beatsPerMinute)) }
                                 }).put("at", record.startTime.toEpochMilli()).put("end", record.endTime.toEpochMilli())
+                                is ExerciseSessionRecord -> row.put("start", record.startTime.toEpochMilli())
+                                    .put("end", record.endTime.toEpochMilli()).put("exerciseType", record.exerciseType)
+                                    .put("title", record.title ?: JSONObject.NULL).put("notes", record.notes ?: JSONObject.NULL)
+                                    .put("segments", record.segments.size).put("laps", record.laps.size)
                             }
                             out.put(row)
                         }
