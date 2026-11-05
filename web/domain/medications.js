@@ -176,24 +176,35 @@ function notFound(message) {
 //   timeZone — IANA zone string (reserved for callers; unused directly here)
 //   rxnorm  — { searchRxNorm(name) -> {rxcui, normalizedName},
 //               checkInteractions(rxcuis) -> string[] } — browser impl does
-//               real RxNav fetches (Task 6), tests inject a fake. Failures
-//               degrade to empty results, never block a med save.
+//               real RxNav fetches (Task 6), tests inject a fake. searchRxNorm
+//               resolves null when no lookup was performed (failed, or EU
+//               register picked) and {rxcui:''} when it ran with no match.
+//               Failures never block a med save.
+//   ema     — { register({ start }) -> { status: 'off'|'loading'|'ready'|'unavailable',
+//               catalogue?, progress? } } — the on-device EU register
+//               (web/cloud/js/ema.js, bd med-3u28.2); 'off' unless the EU
+//               register is picked. Read-only: nothing lands on the record.
 export function createMedicationsDomain({
-  records, now, timeZone, rxnorm,
+  records, now, timeZone, rxnorm, ema,
 }) {
   const noopRxnorm = {
-    async searchRxNorm() { return { rxcui: '', normalizedName: '' }; },
+    async searchRxNorm() { return null; },
     async checkInteractions() { return []; },
   };
   const rx = rxnorm || noopRxnorm;
+  const eu = ema || { async register() { return { status: 'off' }; } };
   const stock = createStockDomain({ records, now });
 
+  // performed: false when no lookup ran (no port, EU register picked: the
+  // port resolves null) or it failed (throws, or null on timeout/non-2xx/
+  // malformed). A lookup that ran and matched nothing is performed.
   async function searchRxNorm(name) {
     try {
       const res = await rx.searchRxNorm(name);
-      return { rxcui: (res && res.rxcui) || '', normalizedName: (res && res.normalizedName) || '' };
+      if (!res) return { rxcui: '', normalizedName: '', performed: false };
+      return { rxcui: res.rxcui || '', normalizedName: res.normalizedName || '', performed: true };
     } catch {
-      return { rxcui: '', normalizedName: '' };
+      return { rxcui: '', normalizedName: '', performed: false };
     }
   }
 
@@ -217,6 +228,24 @@ export function createMedicationsDomain({
     const others = (await list({ archived: false })).filter((m) => m.id !== excludeId && m.rxcui);
     const warning = await warningFor([...others.map((m) => m.rxcui), match.rxcui]);
     return { rxcui: match.rxcui, normalized_name: match.normalizedName, warning };
+  }
+
+  // emaCheck backs the editor's EU chip (bd med-3u28.2): an exact,
+  // case-insensitive name match over every jurisdiction of the register.
+  // While the register downloads it answers 'loading' with the progress so
+  // far; the caller asks again with poll set, which only reads where the
+  // load is, so a failed load stays 'unavailable' until a new check retries.
+  async function emaCheck({ name = '', poll = false } = {}) {
+    let reg;
+    try { reg = await eu.register({ start: !poll }); } catch { reg = { status: 'unavailable' }; }
+    if (!reg || reg.status !== 'ready') {
+      const status = (reg && reg.status) || 'unavailable';
+      const res = { status, candidates: [], ambiguous: false, source: null };
+      if (status === 'loading') res.progress = typeof reg.progress === 'number' ? reg.progress : null;
+      return res;
+    }
+    const match = reg.catalogue.exact(String(name || '').trim());
+    return { status: 'ready', candidates: match.candidates, ambiguous: match.ambiguous, source: match.source };
   }
 
   async function warningFor(rxcuis) {
@@ -292,7 +321,8 @@ export function createMedicationsDomain({
 
   // update mirrors handleUpdateMedication's full-replace semantics exactly,
   // including its quirks: name/dosage/schedule/archived/start_date/end_date/
-  // rxcui/normalized_name/tz_shift_policy are all unconditionally overwritten
+  // tz_shift_policy are all unconditionally overwritten (rxcui/normalized_name
+  // too, except that an unchanged name keeps them when no lookup ran)
   // from the input (an omitted start_date/end_date clears it; an omitted
   // tz_shift_policy resets to "flexible") — only `supplement` and `pack_size`
   // are preserved when the input omits them.
@@ -314,11 +344,18 @@ export function createMedicationsDomain({
 
     assertNoDuplicate(all, name, dosage, id);
 
-    const { rxcui, normalizedName } = await searchRxNorm(name);
+    const { rxcui, normalizedName, performed } = await searchRxNorm(name);
 
     if (archived) {
       await cancelPendingIntakesForMedication(id);
     }
+
+    // An unchanged name keeps its saved US match only when no lookup ran (EU
+    // register picked, no port) or it failed. A lookup that ran and found no
+    // unique exact match clears it, so a wrong legacy approximate match heals
+    // on an ordinary Save (5382c9aca); a changed name always takes the result
+    // (bd med-3u28.2 ruling R1).
+    const keepMatch = !performed && name.toLowerCase() === String(existing.name || '').trim().toLowerCase();
 
     const nowMs = now();
     const updated = {
@@ -330,8 +367,8 @@ export function createMedicationsDomain({
       archived,
       start_date: toISOStringOrNull(input && input.start_date),
       end_date: toISOStringOrNull(input && input.end_date),
-      rxcui: rxcui || '',
-      normalized_name: normalizedName || '',
+      rxcui: keepMatch ? (existing.rxcui || '') : rxcui || '',
+      normalized_name: keepMatch ? (existing.normalized_name || '') : normalizedName || '',
       tz_shift_policy: tzShiftPolicy,
     };
     const wantCount = input && input.inventory_count !== undefined && input.inventory_count !== null
@@ -473,6 +510,6 @@ export function createMedicationsDomain({
   }
 
   return {
-    create, update, remove, list, get, restock, stockAudit, listRestocks, listLowStock, rxCheck,
+    create, update, remove, list, get, restock, stockAudit, listRestocks, listLowStock, rxCheck, emaCheck,
   };
 }

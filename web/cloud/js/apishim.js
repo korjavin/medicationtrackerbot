@@ -33,6 +33,7 @@ import {
 } from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
+import { createEmaPort, medRegister } from './ema.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
@@ -196,6 +197,8 @@ function debugOnce(key, ...args) {
 //   opts.rxnorm   the drug-name lookup port; null turns it off (the domain's
 //                 no-op), which local mode does: the RxNav proxy is the
 //                 operator's (bd med-o7zq.3, local-policy.js).
+//   opts.ema      the on-device EU register port (ema.js); omitted = the
+//                 page's shared lazy loader. Local mode keeps it: same asset.
 //   opts.operatorFoodDb  fooddb.js's operator food-DB port; omitted keeps the
 //                 cloud's same-origin one (local mode: LOCAL_FOOD_DB, bd
 //                 med-o7zq.20).
@@ -220,11 +223,21 @@ function debugOnce(key, ...args) {
 //                 the inbox applier passes () => false. Local mode never floors.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
-  rxnorm = createRxnormPort(), operatorFoodDb, protection, documentPolicy,
+  rxnorm: rxnormPort = createRxnormPort(), ema, operatorFoodDb, protection, documentPolicy,
   caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
   canFloor = recordsOverride ? caughtUp : async () => (await caughtUp()) && pulledThisSession(),
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
+  // "Check names in" (bd med-3u28.2), read per call so a Settings change
+  // applies without a reload: with the EU register picked RxNav never runs
+  // (no name leaves the device) and answers what local mode's null port does.
+  const rxnorm = rxnormPort && {
+    searchRxNorm: (name) => (medRegister(targetWindow) === 'eu'
+      ? Promise.resolve(null) : rxnormPort.searchRxNorm(name)), // null: no lookup performed
+    checkInteractions: (rxcuis) => (medRegister(targetWindow) === 'eu'
+      ? Promise.resolve([]) : rxnormPort.checkInteractions(rxcuis)),
+  };
+  const emaPort = ema || createEmaPort({ win: targetWindow });
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
   const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;
@@ -290,7 +303,7 @@ export function createApiRouter(ctx, {
     vitals = createVitalsDomain({ records, now, timeZone });
     reminders = createRemindersDomain({ records, now });
     medications = createMedicationsDomain({
-      records, now, timeZone, rxnorm,
+      records, now, timeZone, rxnorm, ema: emaPort,
     });
     intake = createIntakeDomain({ records, now, timeZone, via, onBoundary: onDoseBoundary });
     tzplan = createTzPlanDomain({ records, now, timeZone });
@@ -960,6 +973,10 @@ export function createApiRouter(ctx, {
         rxcui: params.get('rxcui') || '',
         excludeId: intParam(params, 'exclude_id', 0),
       });
+    }
+    // The editor's EU chip (bd med-3u28.2): on-device register, nothing sent.
+    if (path === '/api/medications/ema-check' && method === 'GET') {
+      return medications.emaCheck({ name: params.get('name') || '', poll: params.get('poll') === '1' });
     }
     // The Meds → Schedule tab's hour buckets and Upcoming list read this
     // instead of recomputing doses in the browser's own timezone (bd med-gut).
