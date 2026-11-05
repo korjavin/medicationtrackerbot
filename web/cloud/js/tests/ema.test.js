@@ -70,6 +70,26 @@ describe('ema loader', () => {
     expect(loader.state().status).toBe('ready');
   });
 
+  it('a compressed response (Traefik gzip, bd med-3u28.7) reports progress against the known decoded size', async () => {
+    const body = asset();
+    const half = Math.floor(body.length / 2);
+    let push;
+    const stream = new ReadableStream({ start(c) { push = c; } });
+    const loader = createEmaLoader({
+      // Content-Length, if any, is the compressed size: a ratio over it would pass 100%.
+      fetch: async () => new Response(stream, { headers: { 'Content-Encoding': 'gzip', 'Content-Length': '10' } }),
+      caches: fakeCaches(),
+      bytes: body.length,
+    });
+    const done = loader.ensure();
+    push.enqueue(new TextEncoder().encode(body.slice(0, half)));
+    await vi.waitFor(() => expect(loader.state().progress).toBeCloseTo(half / body.length, 2));
+    push.enqueue(new TextEncoder().encode(body.slice(half)));
+    push.close();
+    await done;
+    expect(loader.state().status).toBe('ready');
+  });
+
   it('a second page load reads the cache first and never touches the network', async () => {
     const caches = fakeCaches();
     await settle(createEmaLoader({ fetch: okFetch(), caches }));

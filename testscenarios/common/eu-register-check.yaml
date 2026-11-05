@@ -21,5 +21,5 @@ invariants:
 covered_by:
   web: manual  # partial: web/static/js/tests/meds.modal.test.js (editor, sheet, stale guards), web/static/js/tests/cloud.shim-contract.meds.test.js (routing, kept match), web/cloud/js/tests/ema.test.js (loader + cache)
   android: manual
-  ios: manual
+  ios: manual  # partial: ios/UITests/FlowQAEURegisterTests.swift (local mode: US checks nothing, Settings pick survives a relaunch, Candecor chip + sheet, cache-first relaunch); not Voltaren, offline or the account-mode US path
 source: [med-3u28.2, med-3u28.6]

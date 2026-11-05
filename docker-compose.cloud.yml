@@ -160,6 +160,19 @@ services:
       - "traefik.http.routers.cloud.tls.domains[0].main=${CLOUD_BASE_DOMAIN}"
       - "traefik.http.routers.cloud.tls.domains[0].sans=*.${CLOUD_BASE_DOMAIN}"
       - "traefik.http.services.cloud.loadbalancer.server.port=${PORT:-8080}"
+      # /static/ only, compressed (bd med-3u28.7): public build assets, e.g. the
+      # 13 MB EU register JSON. Scoped so API, SSE and the account HTML stay
+      # uncompressed (no BREACH surface, no stream buffering). A longer rule
+      # wins by Traefik's default length priority; no explicit priority, so the
+      # Portainer router (1000) still owns portainer.<base>.
+      - "traefik.http.routers.cloud-static.rule=(HostRegexp(`^.+\\.${CLOUD_BASE_DOMAIN}$$`) || Host(`${CLOUD_BASE_DOMAIN}`)) && PathPrefix(`/static/`)"
+      - "traefik.http.routers.cloud-static.entrypoints=websecure"
+      - "traefik.http.routers.cloud-static.tls.certresolver=wildcard"
+      - "traefik.http.routers.cloud-static.tls.domains[0].main=${CLOUD_BASE_DOMAIN}"
+      - "traefik.http.routers.cloud-static.tls.domains[0].sans=*.${CLOUD_BASE_DOMAIN}"
+      - "traefik.http.routers.cloud-static.service=cloud"
+      - "traefik.http.routers.cloud-static.middlewares=cloud-compress"
+      - "traefik.http.middlewares.cloud-compress.compress=true"
 
   # Local Telegram Bot API Server - removes the 20MB file download limit so
   # large Mi Band (.nxk) backups can be imported over the cloud child bots.

@@ -75,10 +75,10 @@ function nativeStub() {
 
 const { scenes } = JSON.parse(await readFile(join(repo, 'tests/visual/scenes.json'), 'utf8'));
 const nativeOnly = (s) => (s.nativeOnly !== undefined ? s.nativeOnly : s.name.startsWith('native-'));
-const eligible = scenes.filter((s) => !nativeOnly(s) && !s.requiresNativeHealth
+const eligible = scenes.filter((s) => !nativeOnly(s) && !s.requiresNativeHealth && !s.flowOnly
   && !(mode === 'cloud' ? s.localOnly : s.cloudOnly));
 const requested = process.env.WG_QA_SCENES;
-let selected = scenes;
+let selected = scenes.filter((s) => !s.flowOnly); // an iOS flow test's step, not a shot
 if (requested !== undefined) {
   const names = requested.split(',').map((name) => name.trim());
   if (names.some((name) => !name)) throw new Error('WG_QA_SCENES contains an empty scene name');

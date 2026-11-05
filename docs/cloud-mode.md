@@ -512,7 +512,9 @@ never turns it off (below).
   samples, no anchor) is not copied and the result names it (HW9b); the job
   keeps the ids confirmed at Copy, re-reads the kind on every foreground pass
   while the copy is open, and once it reads those ids (only those; an entry
-  synced in since is not part of the Copy) join. The dedupe read pages until
+  synced in since is not part of the Copy) join. Leaving Settings closes a
+  job left with only such a kind: it is skipped and re-offered on the next
+  Copy (its ids were never marked, so nothing is lost). The dedupe read pages until
   Health says it is done; past 1,000 pages the count fails like a failed read
   rather than copy from part of the list. **Apple Health cannot signal a denied read** (it answers empty), so
   there that kind copies without the duplicate check. A read that fails aborts
