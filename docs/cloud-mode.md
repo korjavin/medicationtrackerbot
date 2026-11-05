@@ -411,7 +411,10 @@ never turns it off (below).
   `workoutsession` rows. Only a finished span is written: status `completed`,
   `started_at` set and `completed_at > started_at` → `health.write {type:
   'workout', id: recordId, version: clientTs, start, end, activity}`, nothing
-  else (no title, energy, distance, HR or sets). The hook marks a session only
+  else (no title, energy, distance, HR or sets). A span longer than 4 h
+  (`OPEN_SESSION_MS`, healthimport.js: a session left open and finished
+  later) ends at its last log if that is after the start, else 4 h after the
+  start (Archie 15658). The hook marks a session only
   when it is completed, carries a `completed_at` (an un-complete back to in
   progress / pending keeps it, and must remove the copy) or is a tombstone, so
   creating, starting, snoozing or skipping one makes no Health call; any other

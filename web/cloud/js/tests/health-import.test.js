@@ -1931,6 +1931,25 @@ describe('Health write-back', () => {
             ]);
         });
 
+        // Archie 15658: a session left open and finished hours later.
+        it('a span over 4 h ends at the last log, else 4 h after the start', async () => {
+            startHealthWriteBack({ health, storage, records });
+            const done = (recordId, id) => records.put('workoutsession', {
+                recordId, clientTs: Date.now(), deleted: false, id, group_id: 7, variant_id: 9, status: 'completed',
+                started_at: '2026-10-01T08:00:00.000Z', completed_at: '2026-10-01T23:00:00.000Z',
+            });
+            await records.put('exerciselog', { recordId: 'log-a', clientTs: 1, deleted: false, id: 1, session_id: 201, exercise_id: 1, exercise_name: 'Bench press', logged_at: '2026-10-01T08:30:00.000Z' });
+            await records.put('exerciselog', { recordId: 'log-b', clientTs: 1, deleted: false, id: 2, session_id: 201, exercise_id: 1, exercise_name: 'Bench press', logged_at: '2026-10-01T09:10:00.000Z' });
+            await done('session-7-long', 201);
+            await done('session-7-nologs', 202);
+            await idle();
+            const ends = Object.fromEntries(health.write.mock.calls.map(([a]) => [a.id, [a.start, a.end]]));
+            expect(ends).toEqual({
+                'session-7-long': [Date.parse('2026-10-01T08:00:00Z'), Date.parse('2026-10-01T09:10:00Z')],
+                'session-7-nologs': [Date.parse('2026-10-01T08:00:00Z'), Date.parse('2026-10-01T12:00:00Z')],
+            });
+        });
+
         // inbox-apply.js "I did a workout": created and completed on the
         // message's sent instant, so started_at === completed_at.
         it('a Telegram "I did a workout" log (a zero-length span) is never written', async () => {

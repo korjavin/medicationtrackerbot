@@ -17,7 +17,7 @@
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.
 import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled } from './sync.js';
-import { createHealthImportDomain } from '../../domain/healthimport.js';
+import { createHealthImportDomain, OPEN_SESSION_MS } from '../../domain/healthimport.js';
 import { findLibraryRowByName } from '../../domain/workout.js';
 import { diagLine } from './passkey-diag.js';
 
@@ -132,12 +132,23 @@ function writeBackEligible(recordType, row, storage) {
     return !row.source;
 }
 
-// A workout in Health is a finished span: completed, started, and ending after it started.
-function workoutSpan(row) {
+// A workout in Health is a finished span: completed, started, and ending after
+// it started. Archie 15658: a span longer than OPEN_SESSION_MS (a session left
+// open and finished hours later) ends at its last log if that is after the
+// start, else at start + OPEN_SESSION_MS.
+async function workoutSpan(records, row) {
     if (row.status !== 'completed' || !row.started_at || !row.completed_at) return null;
     const start = Date.parse(row.started_at);
-    const end = Date.parse(row.completed_at);
-    return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
+    let end = Date.parse(row.completed_at);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    if (end - start > OPEN_SESSION_MS) {
+        const last = Math.max(-Infinity, ...(await records.listRaw('exerciselog'))
+            .filter((l) => !l.deleted && l.session_id === row.id && l.logged_at)
+            .map((l) => Date.parse(l.logged_at))
+            .filter(Number.isFinite));
+        end = last > start ? Math.min(last, end) : start + OPEN_SESSION_MS;
+    }
+    return { start, end };
 }
 
 // Archie 15360: a plan day is strength; an ad-hoc session (group -1: Telegram,
@@ -255,7 +266,7 @@ export function startHealthWriteBack({
         if (!granted || !granted.includes(kind)) return; // kept for the next pass
         try {
             const row = (await records.listRaw(RECORD_TYPE[kind])).find((r) => r.recordId === id);
-            const span = kind === 'workout' && row && !row.deleted ? workoutSpan(row) : null;
+            const span = kind === 'workout' && row && !row.deleted ? await workoutSpan(records, row) : null;
             const activity = span ? await workoutActivity(records, row) : null;
             // Switched off, or a newer access read dropped the kind, while we
             // waited: keep the entry, send nothing.

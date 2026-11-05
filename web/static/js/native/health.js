@@ -76,7 +76,8 @@
 //     diastolic } | { type: 'weight', id, version, at, kg } | { type: 'hr',
 //     id, version, at, bpm } | { type: 'workout', id, version, start, end,
 //     activity } → Promise<true>.
-//     workout: one finished session (completed, started, end > start; ms),
+//     workout: one finished session (completed, started, end > start; ms;
+//     a span over 4 h is cut at the last log, else at start + 4 h),
 //     no title, energy, distance, HR or sets. activity is exactly 50
 //     (HK traditionalStrengthTraining / HC EXERCISE_TYPE_STRENGTH_TRAINING)
 //     or 3000 (HK .other / HC EXERCISE_TYPE_OTHER_WORKOUT); any other code
