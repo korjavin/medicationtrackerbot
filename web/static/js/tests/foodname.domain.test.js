@@ -2,7 +2,7 @@
 // Pure layer with no caller yet (wiring is .3/.4/.6), so this pure-unit suite
 // owns it. Fixtures are the epic med-5jq duplicate table, verbatim.
 import { describe, expect, it } from 'vitest';
-import { foodKey, displayName, keyDistance } from '../../../domain/foodname.js';
+import { foodKey, displayName, keyDistance, offDisplayName } from '../../../domain/foodname.js';
 
 describe('foodKey — one key per food', () => {
   it.each([
@@ -75,6 +75,25 @@ describe('displayName — what the user typed, minus annotations', () => {
     ['', ''],
   ])('%j → %j', (input, out) => {
     expect(displayName(input)).toBe(out);
+  });
+});
+
+describe('offDisplayName — a clean name for a scanned food-DB row (med-5jq.6)', () => {
+  it.each([
+    ['Hazelnut Spread - MAXI NUTRITION - 400 g', 'Maxi Nutrition Hazelnut Spread'],
+    ['Nutella Hazelnut Spread - Nutella, Ferrero - 750g', 'Nutella Hazelnut Spread'],
+    ['Coca-Cola Zero - Coca-Cola - 6x33cl', 'Coca-Cola Zero'],
+    ['Big Mac - KFC - 1 L', 'KFC Big Mac'],
+    ['Broccoli - K-Classic - 500 g', 'Broccoli'],
+    ['Vollmilch - Gut & Günstig - 1 L', 'Vollmilch'],
+    ['Chocolate chip cookies - Tesco - 200 g', 'Tesco Chocolate chip cookies'],
+    ['Greek yogurt - Fage - 2% - 500 g', 'Fage Greek yogurt 2%'],
+    ['ORANGE JUICE - 1.5 l', 'Orange Juice'],
+    ['Snack bar', 'Snack bar'],
+    ['Oats 500g', 'Oats'],
+    ['', ''],
+  ])('%j → %j', (input, out) => {
+    expect(offDisplayName(input)).toBe(out);
   });
 });
 

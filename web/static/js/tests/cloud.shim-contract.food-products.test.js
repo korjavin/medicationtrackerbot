@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { createFoodDomain } from '../../../domain/food.js';
+import { foodKey } from '../../../domain/foodname.js';
 
 function installApiCache(window, seed = {}) {
     const map = new Map(Object.entries(seed));
@@ -565,6 +566,48 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         // A same-key barcode-less product links and adopts the code.
         expect(await scan('Coffee', '4600000000048')).toMatchObject({ product_id: 'p-coffee', matched: 'exact' });
         expect((await productRows()).find((p) => p.recordId === 'p-coffee').barcode).toBe('4600000000048');
+    });
+
+    // med-5jq.6: the add sheet logs a picked food-DB row as its raw name +
+    // barcode (add-sheet.js logPicked); the first log of a new code is the scan.
+    it('first scan: a clean display name, the raw name as alias key, the barcode kept; a re-scan hits it locally', async () => {
+        const raw = 'Hazelnut Spread - MAXI NUTRITION - 400 g';
+        const scan = (name, barcode) => env.window.apiCall('/api/food/log', 'POST', { ...body(name), barcode, per_100g: false });
+        const first = await scan(raw, '4600000000055');
+        expect(first).toMatchObject({ matched: 'new', name: 'Maxi Nutrition Hazelnut Spread' });
+        const row = (await productRows()).find((p) => p.recordId === first.product_id);
+        expect(row).toMatchObject({
+            name: 'Maxi Nutrition Hazelnut Spread', barcode: '4600000000055',
+            name_key: 'maxi nutrition hazelnut spread', aliases: [foodKey(raw)],
+        });
+        // The raw name still finds it by text.
+        expect((await env.window.apiCall(`/api/food/products/search?q=${encodeURIComponent(raw)}`)).map((p) => p.id)).toEqual([first.product_id]);
+
+        // A re-scan resolves locally (no fetch) and logs onto the same product.
+        await env.window.apiCall('/api/settings/integrations', 'PATCH', { food: { url: 'https://fooddb.example.test' } });
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        expect(await env.window.CloudFoodSearch.search('4600000000055', { remote: true }))
+            .toEqual([expect.objectContaining({ id: first.product_id, name: 'Maxi Nutrition Hazelnut Spread' })]);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        vi.unstubAllGlobals();
+        expect(await scan(raw, '4600000000055')).toMatchObject({ product_id: first.product_id, matched: 'exact' });
+
+        // Another SKU with the same raw name is its own product.
+        const other = await scan(raw, '4600000000062');
+        expect(other).toMatchObject({ matched: 'new', name: 'Maxi Nutrition Hazelnut Spread' });
+        expect(other.product_id).not.toBe(first.product_id);
+        expect(await productRows()).toHaveLength(catalog.length + 2);
+    });
+
+    it('first scan: a brand already in the name is not repeated; existing products keep their stored names', async () => {
+        await env.records.put('foodproduct', product('p-old', 'Hazelnut Spread - OLD BRAND - 400 g', { barcode: '4600000000079' }));
+        const scan = (name, barcode) => env.window.apiCall('/api/food/log', 'POST', { ...body(name), barcode });
+        expect(await scan('Nutella Hazelnut Spread - Nutella, Ferrero - 750 g', '4600000000086'))
+            .toMatchObject({ matched: 'new', name: 'Nutella Hazelnut Spread' });
+        expect(await scan('Hazelnut Spread - OLD BRAND - 400 g', '4600000000079'))
+            .toMatchObject({ product_id: 'p-old', name: 'Hazelnut Spread - OLD BRAND - 400 g' });
+        expect((await productRows()).find((p) => p.recordId === 'p-old').aliases).toBeUndefined();
     });
 
     it('a meal matches only by its exact name, never by key or typo', async () => {

@@ -5,7 +5,7 @@
 // internal/domain/food.go.
 
 import { offsetMsAt, dayStartMs } from './bp.js';
-import { foodKey, keyDistance } from './foodname.js';
+import { foodKey, keyDistance, offDisplayName } from './foodname.js';
 import { macroWarnings, withMacroWarnings } from './foodmacros.js';
 
 const LOG_RECORD_TYPE = 'foodlog';
@@ -411,6 +411,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       created_at: new Date(nowMs).toISOString(),
       last_used_at: new Date(nowMs).toISOString(),
     };
+    if (input.aliases && input.aliases.length) record.aliases = input.aliases;
     if (forLog && records.putIfAbsent) {
       const stored = await records.putIfAbsent(PRODUCT_RECORD_TYPE, { ...record, recordId: `foodproduct-${forLog}` });
       if (stored && !stored.deleted) return stored;
@@ -529,9 +530,15 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       const touched = found.product && await touchProduct(found.product, (cur) => (
         !cur.barcode && input.barcode ? { barcode: input.barcode } : {}));
       const per = per100g || per100gFrom(input);
+      // A new barcode is a first scan (med-5jq.6): the product takes a clean
+      // name, the food-DB's raw name stays findable as an alias key. The
+      // barcode, not the name, is what re-scans match on.
+      const name = input.barcode ? offDisplayName(resolvedName) : resolvedName;
+      const rawKey = foodKey(resolvedName);
+      const aliases = rawKey && rawKey !== foodKey(name) ? [rawKey] : [];
       const product = touched || (macroWarnings(per).includes('impossible')
         ? null
-        : await createProduct({ name: resolvedName, barcode: input.barcode || null, ...per }, { forLog: recordId }));
+        : await createProduct({ name, barcode: input.barcode || null, aliases, ...per }, { forLog: recordId }));
       matched = touched ? found.matched : 'new';
       if (product) {
         resolvedProductId = product.recordId;

@@ -241,7 +241,7 @@ Food targets are a settings singleton — see `settings.food_targets`, not repea
   `is_meal` (bool), `total_weight_g` (num), `created_at` (RFC3339), `last_used_at` (RFC3339),
   and cloud-only (med-5jq.3) `name_key` (str, the name's match key, `web/domain/foodname.js`
   `foodKey`; absent on older rows; matching always recomputes it from `name`) and
-  `aliases` (string[], match keys a confirmed link stored for this product; absent until one is). Both carried verbatim;
+  `aliases` (string[], match keys a confirmed link stored for this product, or since med-5jq.6 the key of the food-DB's raw name on a product created by a first barcode scan; absent until one is). Both carried verbatim;
   older clients ignore them, and keep them through an edit (they spread the row).
 - **incomplete_days** (optional, cloud-only) — sorted local calendar days the user
   flagged as "tracking incomplete" (`fooddaystatus` records, `web/domain/food.js`).
