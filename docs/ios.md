@@ -254,7 +254,7 @@ Store Connect (ASC) by the owner from this section.
   | `NSCameraUsageDescription` | barcode scan, meal photos, invite QR |
   | `NSMicrophoneUsageDescription` | voice assistant, voice notes in feedback |
   | `NSHealthShareUsageDescription` | Apple Health read import |
-  | `NSHealthUpdateUsageDescription` | the opt-in "Also write my entries" write-back of BP + weight (bd med-8f4s); upload validation demands it of any HealthKit app |
+  | `NSHealthUpdateUsageDescription` | the opt-in "Also write my entries" write-back of BP (with its pulse) + weight (bd med-8f4s); upload validation demands it of any HealthKit app |
   | `NSFaceIDUsageDescription` | local mode's optional lock (`LocalAuthentication`) |
 
   Local notifications need no Info.plist string (iOS asks at runtime). Photo
@@ -495,9 +495,10 @@ by a killed app is swept at the next launch). A page script sends `window.print(
 
 Import: Health → the page → the encrypted vault, like a hand-entered reading.
 The opt-in write-back (epic med-8f4s, switch "Also write my entries", off by
-default) copies BP and weight entries added or changed on this iPhone into
-Apple Health: plaintext out of the vault, disclosed as the `health-write-back`
-privacy-manifest row. The shell side is bd med-8f4s.3.
+default) copies BP entries (with the pulse noted, as a heart-rate sample) and
+weight entries added or changed on this iPhone into Apple Health: plaintext
+out of the vault, disclosed as the `health-write-back` privacy-manifest row.
+The shell side is bd med-8f4s.3 (bp, weight) and bd med-8f4s.8 (hr).
 
 - **Native:** [`ios/App/Health.swift`](../ios/App/Health.swift) answers
   `health.authorize` and `health.query` (anchored queries, raw samples) over the
@@ -520,6 +521,20 @@ privacy-manifest row. The shell side is bd med-8f4s.3.
   `notDetermined`, so every BP save fails and `writeAccess` omits `bp`; the
   test then runs the weight half, checks that a BP write is refused `denied`,
   and reports `bpSkipped`. BP write-back needs a device check.
+- **Pulse write-back (bd med-8f4s.8):** kind `hr` shares heart rate (asked in
+  the same sheet when `write` names it). `health.write {type: "hr", id, version,
+  at, bpm}` saves one heart-rate sample at `at`; the page sends the id already
+  suffixed (`<bp recordId>/pulse`) and it is stored verbatim — the bp
+  correlation's identities are not extended, hr has its own `health.delete`.
+  `health.writeAccess` also answers `supported: ["bp","weight","hr"]` (a page
+  treats an absent field as bp + weight, i.e. an older shell). The anchored
+  `hr` query drops this app's sync-identified samples (SpO2 gets the same
+  filter; nothing writes SpO2), so a written pulse never re-imports into the
+  Vitals heart-rate card. A workout's imported average heart rate is
+  `HKWorkout.statistics(for: heartRate)` — the workout's own associated
+  samples, not a window query — so a pulse written inside a workout's time
+  span leaves it unchanged; `HealthWriteBackTests` seeds a workout with
+  `HKWorkoutBuilder` and checks that.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
   overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every

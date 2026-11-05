@@ -851,8 +851,10 @@ export const PRIVACY_MANIFEST = [
     byo: 'n/a',
     evidence: [
       'web/cloud/js/health-import.js:1',
-      'ios/App/Health.swift:132',
-      'ios/App/Health.swift:165',
+      'ios/App/Health.swift:139',
+      'ios/App/Health.swift:162',
+      'ios/App/Health.swift:176',
+      'ios/App/Health.swift:183',
       'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:162',
       'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:173',
     ],
