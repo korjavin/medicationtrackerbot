@@ -429,7 +429,13 @@ never turns it off (below).
   workout logged by message or voice without a start and end (e.g. a
   Telegram "I did a workout" log, created and completed on the same instant:
   no span) is not copied to Health; one logged in the app, with sets, is
-  (Archie 15649). Workouts imported from Health are `miband` rows, never a write
+  (Archie 15649). Likewise a session completed without being started
+  (Telegram/push "Done", MCP `set_workout_status`, History Finish on an
+  unstarted day) has no span and is not written. **Reversals made elsewhere
+  do not remove the copy this phone wrote:** an un-complete or delete on
+  another device, on an older bundle, or via a vault replace/merge import
+  never reaches this phone's seam, so the Health workout stays until the
+  session is next written here or deleted in Health. Workouts imported from Health are `miband` rows, never a write
   kind; the shells drop their own workouts from the workout query, so the
   import's overlap rule (a strength workout yields to an in-app session) is
   unchanged.
