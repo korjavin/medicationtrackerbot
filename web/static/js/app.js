@@ -201,9 +201,6 @@ document.getElementById('weekly-digest-feature-toggle').addEventListener('change
         await saveGamificationMode(key, this.checked);
     });
 });
-document.getElementById('live-hr-feature-toggle').addEventListener('change', async function () {
-    await toggleFeatureSetting('live_hr', this.checked);
-});
 
 // Food + Journey targets share one Save: the Settings Targets page's page-bar
 // primary (features/settings.js openSettingsPage → saveTargets).

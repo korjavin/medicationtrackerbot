@@ -35,7 +35,7 @@ function loadSettingsView() {
 
 // Home row (data-settings-open) → the section selectors its page must contain.
 const ROWS = [
-    ['features', ['.wg-settings-features', '[input-id="bp-feature-toggle"]', '[input-id="live-hr-feature-toggle"]']],
+    ['features', ['.wg-settings-features', '[input-id="bp-feature-toggle"]']],
     ['targets', ['#food-target-settings', '#gamification-targets-settings']],
     ['notifications', ['.wg-settings-notifications-cloud', '.wg-settings-reminders']],
     ['units', ['.wg-settings-units']],
@@ -322,7 +322,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
 
             window.featureSettings = { bp: true, weight: true, food: false };
             window.SettingsView.updateFeatureToggles();
-            expect(summary('features')).toBe('2 of 13 on');
+            expect(summary('features')).toBe('2 of 12 on');
 
             // Bot build: no cloud delivery channel in the summary.
             document.querySelector('.wg-settings-notifications-cloud').classList.add('wg-settings-hidden');
