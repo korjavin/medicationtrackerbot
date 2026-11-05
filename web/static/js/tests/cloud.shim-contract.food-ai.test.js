@@ -791,6 +791,19 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             expect(await logsToday(window)).toHaveLength(0);
         });
 
+        it('preview items carry macro warnings for the review step (med-5jq.8)', async () => {
+            const { window } = env;
+            await setOpenAIKey(window);
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                ...UNSURE,
+                { name: 'Mystery', weight_grams: 100, carbs_100g: 80, protein_100g: 30, fat_100g: 10, uncertain: false },
+            ])));
+
+            const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'curry, naan, mystery', dry_run: true });
+
+            expect(res.items.map((it) => it.warnings)).toEqual([undefined, undefined, ['impossible']]);
+        });
+
         it('without dry_run the same route still logs (MCP contract unchanged)', async () => {
             const { window } = env;
             await setOpenAIKey(window);
