@@ -86,9 +86,11 @@
         page.append(bar, content);
 
         let closed = false;
+        let showRing = null;
         function close() {
             if (closed) return;
             closed = true;
+            if (showRing) doc.removeEventListener('keydown', showRing, true);
             window.ModalManager.close(id);
             window.ModalManager.register(id, null);
             page.remove();
@@ -116,8 +118,21 @@
         // or a deeplink must not paint a ring on it (med-5jsn): carry the
         // opener's focus-visible state over instead of letting WebKit guess.
         let ring = false;
-        try { ring = !!(returnFocus && returnFocus.matches(':focus-visible')); } catch (_) { /* old engine */ }
-        backBtn.focus({ focusVisible: ring });
+        try {
+            ring = !!(returnFocus && !returnFocus.classList.contains('wg-back--quiet-focus')
+                && returnFocus.matches(':focus-visible'));
+        } catch (_) { /* old engine */ }
+        // Older Android WebViews silently ignore focusVisible. Keep Back
+        // focused there too, but quiet only this initial non-keyboard focus;
+        // keyboard input restores the normal kit ring. Keep the quiet state
+        // across nested pushes so touch Back also restores focus without a ring.
+        let focusVisibleSupported = false;
+        backBtn.focus({ get focusVisible() { focusVisibleSupported = true; return ring; } });
+        if (!ring && !focusVisibleSupported) {
+            backBtn.classList.add('wg-back--quiet-focus');
+            showRing = () => backBtn.classList.remove('wg-back--quiet-focus');
+            doc.addEventListener('keydown', showRing, { once: true, capture: true });
+        }
 
         return {
             el: page,
