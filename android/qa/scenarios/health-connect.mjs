@@ -515,6 +515,18 @@ export default async function healthConnect(ctx) {
       await shell(`am start -W -a androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE -n ${pkg}/com.example.medtracker.PermissionsRationaleActivity`);
       await ctx.waitFor({ text: 'Health Connect access' }, 10_000);
       await ctx.stableShot('workout-rationale');
+      // A short viewport as well: the longer approved disclosure must remain
+      // readable by scrolling, with the privacy link reachable at the bottom.
+      await shell('wm size 1080x1600');
+      try {
+        await sleep(1500);
+        await ctx.stableShot('workout-rationale-short');
+        await shell('input swipe 540 1400 540 350 500');
+        await sleep(500);
+        await ctx.stableShot('workout-rationale-short-bottom');
+      } finally {
+        await shell('wm size reset');
+      }
     });
   } finally {
     r.writer = (await shell('logcat -d -s qa-health-write:*')).split('\n').slice(-6);
