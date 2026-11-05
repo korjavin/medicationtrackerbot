@@ -242,7 +242,8 @@ function safePrompt(msg, opts) {
 // safeChoose — the in-page replacement for a native <select>: a list of
 // tappable options in the confirm modal shell. choices: [{ value, label, sub,
 // selected, disabled }]. Resolves the picked choice's value, or null on
-// cancel. opts: { title, cancelLabel, icon, tone }. With opts.confirmLabel
+// cancel. opts: { title, cancelLabel, icon, tone, hint (a line under the
+// list) }. With opts.confirmLabel
 // (D1 "choose + Continue"): a tap only selects, the preselected choice is
 // opts.selected (or the one marked selected), and the confirm button settles
 // the selected value.
@@ -490,6 +491,12 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             list.appendChild(btn);
         }
         body.appendChild(list);
+        if (opts.hint) {
+            const hint = doc.createElement('p');
+            hint.className = 'wg-hint';
+            hint.textContent = opts.hint;
+            body.appendChild(hint);
+        }
     }
     if (contentMode) body.appendChild(opts.content);
 

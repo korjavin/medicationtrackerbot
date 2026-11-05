@@ -16,6 +16,18 @@
       "ready": ["#food-view.active", "#food-list > *"] },
     { "name": "food-add-sheet", "steps": [{ "tab": "food" }, { "click": "#add-food-inline-btn" }],
       "ready": ["#food-add-sheet", "#food-add-search"] },
+    { "name": "food-review-flags", "steps": [{ "tab": "food" }, { "aiReview": [
+        { "name": "Boiled egg", "weight": 100, "carbs": 1, "protein": 13, "fat": 11, "calories": 155, "carbs_100g": 1, "protein_100g": 13, "fat_100g": 11, "uncertain": false, "matched": "exact", "is_meal": false },
+        { "name": "Rye bread", "weight": 60, "carbs": 31.5, "protein": 5, "fat": 1, "calories": 155, "carbs_100g": 52.5, "protein_100g": 8.3, "fat_100g": 1.7, "uncertain": false },
+        { "name": "Granola with nuts", "weight": 60, "carbs": 41.25, "protein": 6, "fat": 9, "calories": 90, "carbs_100g": 68.75, "protein_100g": 10, "fat_100g": 15, "uncertain": false, "warnings": ["inconsistent"] }
+      ] }],
+      "ready": ["#food-add-sheet[data-view=\"review\"]", "#food-add-review-list .wg-hint"] },
+    { "name": "food-manual-flag", "steps": [{ "tab": "food" }, { "click": "#add-food-inline-btn" },
+        { "fill": "#food-add-search", "value": "Butter cookies" }, { "click": "#food-add-manual-btn" },
+        { "fill": "#food-weight", "value": "40" }, { "fill": "#food-carbs", "value": "65" },
+        { "fill": "#food-protein", "value": "6" }, { "fill": "#food-fat", "value": "25" },
+        { "fill": "#food-calories", "value": "4900", "change": true }],
+      "ready": ["#food-modal", "#food-macro-hint"] },
     { "name": "food-add-sheet-keyboard", "steps": [{ "tab": "food" }, { "click": "#add-food-inline-btn" }],
       "ready": ["#food-add-sheet", "#food-add-search"],
       "native": [

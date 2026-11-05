@@ -238,6 +238,21 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         expect(caches.match).not.toHaveBeenCalled();
     });
 
+    it('the EU register asset is never intercepted or copied into the shell cache (bd med-3u28.2)', async () => {
+        const { evt } = await fireFetch(listeners, req('/static/data/ema-article57-rev90-v1.json'));
+        expect(evt.respondWith).not.toHaveBeenCalled();
+        expect(caches.match).not.toHaveBeenCalled();
+    });
+
+    it('activate keeps the EU register cache (named outside the prefix)', async () => {
+        caches.seed('medtracker-ema-rev90-v1', '/static/data/ema-article57-rev90-v1.json', {});
+        const handler = listeners.get('activate')[0];
+        let waited;
+        handler({ waitUntil: (p) => { waited = p; } });
+        await waited;
+        expect(caches.delete).not.toHaveBeenCalledWith('medtracker-ema-rev90-v1');
+    });
+
     it('/mcp/* is never intercepted', async () => {
         const { evt } = await fireFetch(listeners, req('/mcp/relay'));
         expect(evt.respondWith).not.toHaveBeenCalled();

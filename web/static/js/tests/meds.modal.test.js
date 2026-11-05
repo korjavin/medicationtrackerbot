@@ -647,6 +647,210 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(true);
     });
 
+    describe('EU register check (kit ER3–ER9, bd med-3u28.2)', () => {
+        // Real Rev.90 rows (web/static/data/ema-article57-rev90-v1.json).
+        const SOURCE = {
+            revision: 'EMA/518502/2018, Rev.90', data_date: '09/10/2026',
+            reuse_url: 'https://www.ema.europa.eu/en/about-us/about-website/legal-notice',
+        };
+        const row = (name, substances, route, jurisdiction) => ({ name, substances, route, jurisdiction });
+        const CANDECOR = [
+            row('Candecor', 'Candesartan Cilexetil', 'Oral Use', 'Slovenia'),
+            row('Candecor', 'Candesartan Cilexetil', 'Oral Use', 'Germany'),
+        ];
+        const VOLTAREN = [
+            row('Voltaren', 'Diclofenac Diethylamine', 'Cutaneous Use', 'Denmark'),
+            row('Voltaren', 'Diclofenac Potassium', 'Oral Use', 'Portugal'),
+            row('Voltaren', 'Diclofenac Sodium', 'Rectal Use', 'Austria'),
+            row('Voltaren', 'Diclofenac Sodium', 'Rectal Use', 'Belgium'),
+            row('Voltaren', 'Diclofenac Sodium', 'Oral Use', 'Cyprus'),
+            row('Voltaren', 'Diclofenac Diethylamine', 'Cutaneous Use', 'Iceland'),
+        ];
+        const DUOGESTAN = [
+            row('Duogestan', 'Estradiol Hemihydrate | Progesterone', 'Oral Use', 'Belgium'),
+            row('Duogestan', 'Estradiol | Progesterone', 'Oral Use', 'Belgium'),
+        ];
+        const ready = (candidates) => ({ status: 'ready', candidates, ambiguous: candidates.length > 1, source: SOURCE });
+        const commitName = (document, window, value) => {
+            const name = document.getElementById('med-name');
+            name.value = value;
+            name.dispatchEvent(new window.Event('change'));
+        };
+        const slot = (document) => document.getElementById('med-eu-slot');
+
+        beforeEach(() => {
+            env.window.localStorage.setItem('medRegister:unknown', 'eu');
+        });
+
+        it('one entry: the ok chip names the substance; tap opens the sheet with route rows and the dated source', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn().mockResolvedValue(ready(CANDECOR));
+            window.showAddModal();
+            commitName(document, window, 'Candecor');
+            await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
+
+            expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications/ema-check?name=Candecor', 'GET');
+            expect(window.apiCallDirect.mock.calls.some(([url]) => url.includes('rx-check'))).toBe(false);
+            const chip = document.getElementById('med-eu-chip');
+            expect(chip.className).toBe('wg-chip wg-chip--ok');
+            expect(chip.textContent).toBe('EU · Candesartan Cilexetil');
+            expect(document.getElementById('med-rx-display').classList.contains('hidden')).toBe(true);
+
+            chip.click();
+            const sheet = document.getElementById('med-eu-sheet');
+            expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('EU register');
+            expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('Candecor');
+            expect(sheet.querySelector('.wg-note')).toBeNull();
+            const cards = sheet.querySelectorAll('.wg-sheet__body > .wg-card');
+            expect(cards).toHaveLength(1);
+            expect(cards[0].querySelector('.wg-card__title').textContent).toBe('Candesartan Cilexetil');
+            expect(cards[0].querySelector('.wg-row__title').textContent).toBe('Oral Use');
+            expect(cards[0].querySelector('.wg-row__meta').textContent).toBe('Germany, Slovenia');
+            expect(sheet.querySelector('.wg-hint').textContent).toBe("An entry doesn't confirm which product you take.");
+            const fine = sheet.querySelector('.wg-shell__fine');
+            expect(fine.textContent).toBe('Source: European Medicines Agency (EMA), Article 57 product data, Rev.90, data of 09.10.2026. EMA legal notice');
+            expect(fine.querySelector('a').getAttribute('href')).toBe(SOURCE.reuse_url);
+            expect(fine.querySelector('a').getAttribute('target')).toBe('_blank');
+
+            sheet.querySelector('.wg-sheethead .wg-btn').click();
+            expect(document.getElementById('med-eu-sheet')).toBeNull();
+        });
+
+        it('several entries: a neutral "EU · N entries" chip; the sheet has the note and one card per substance text', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn().mockResolvedValue(ready(VOLTAREN));
+            window.showAddModal();
+            commitName(document, window, 'Voltaren');
+            await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
+            const chip = document.getElementById('med-eu-chip');
+            expect(chip.className).toBe('wg-chip');
+            expect(chip.textContent).toBe('EU · 3 entries');
+
+            chip.click();
+            const sheet = document.getElementById('med-eu-sheet');
+            expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('EU register · 3 entries');
+            expect(sheet.querySelector('.wg-note--info .wg-note__body').textContent).toBe('Several entries match. Check the substance on your pack.');
+            const cards = Array.from(sheet.querySelectorAll('.wg-sheet__body > .wg-card'));
+            expect(cards.map((c) => c.querySelector('.wg-card__title').textContent))
+                .toEqual(['Diclofenac Sodium', 'Diclofenac Diethylamine', 'Diclofenac Potassium']);
+            expect(Array.from(cards[0].querySelectorAll('.wg-row')).map((r) => [r.querySelector('.wg-row__title').textContent, r.querySelector('.wg-row__meta').textContent]))
+                .toEqual([['Rectal Use', 'Austria, Belgium'], ['Oral Use', 'Cyprus']]);
+            expect(cards[1].querySelector('.wg-row__meta').textContent).toBe('Denmark, Iceland');
+        });
+
+        it('"|" in the register: products joined with "+" and marked as separate products (ER9)', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn().mockResolvedValue(ready(DUOGESTAN));
+            window.showAddModal();
+            commitName(document, window, 'Duogestan');
+            await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
+            expect(document.getElementById('med-eu-chip').textContent).toBe('EU · 2 entries');
+            document.getElementById('med-eu-chip').click();
+            const titles = Array.from(document.querySelectorAll('#med-eu-sheet .wg-card__title'));
+            expect(titles.map((t) => t.firstChild.textContent)).toEqual(['Estradiol + Progesterone', 'Estradiol Hemihydrate + Progesterone']);
+            expect(titles.map((t) => t.querySelector('.wg-row__meta').textContent))
+                .toEqual(['2 separate products in one entry', '2 separate products in one entry']);
+        });
+
+        it('first download shows real progress (ER4), then the chip; no match says the match is exact (ER6)', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn()
+                .mockResolvedValueOnce({ status: 'loading', progress: 0.46, candidates: [], ambiguous: false, source: null })
+                .mockResolvedValue(ready(CANDECOR));
+            window.showAddModal();
+            commitName(document, window, 'Candecor');
+            await vi.waitFor(() => expect(slot(document).textContent).toContain('Loading the EU register, only this once.'));
+            expect(slot(document).querySelector('.wg-meter__fill').style.getPropertyValue('--p')).toBe('46%');
+            expect(slot(document).querySelector('.wg-macros__val').textContent).toBe('46%');
+            await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
+            expect(slot(document).textContent).not.toContain('Loading');
+            // Only the first call starts the load; the polls just read it.
+            expect(window.apiCallDirect.mock.calls.map(([url]) => url)).toEqual([
+                '/api/medications/ema-check?name=Candecor',
+                '/api/medications/ema-check?name=Candecor&poll=1',
+            ]);
+
+            window.apiCallDirect = vi.fn().mockResolvedValue(ready([]));
+            commitName(document, window, 'Candekor');
+            await vi.waitFor(() => expect(slot(document).textContent).toBe('No exact match in the EU register. The name must match exactly.'));
+            expect(document.getElementById('med-eu-chip')).toBeNull();
+        });
+
+        it('a failed load says so with Retry (ER6), and Save still works', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn().mockResolvedValue({ status: 'unavailable', candidates: [], ambiguous: false, source: null });
+            window.showAddModal();
+            commitName(document, window, 'Candecor');
+            await vi.waitFor(() => expect(document.getElementById('med-eu-retry')).not.toBeNull());
+            expect(slot(document).textContent).toContain("Couldn't load the EU register.");
+
+            window.apiCallDirect = vi.fn().mockResolvedValue(ready(CANDECOR));
+            document.getElementById('med-eu-retry').click();
+            await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
+
+            window.DataStore.applyOptimistic = vi.fn().mockResolvedValue({ commit: vi.fn(), rollback: vi.fn() });
+            window.loadMeds = vi.fn();
+            window.apiCallDirect = vi.fn().mockResolvedValue({ id: 1, status: 'created', warning: '' });
+            document.getElementById('schedule-type').value = 'as_needed';
+            await window.saveMedication();
+            expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications', 'POST', expect.objectContaining({ name: 'Candecor' }));
+        });
+
+        it('discards a late answer after the editor closes, the name changes or another med opens', async () => {
+            const { document, window } = env;
+            const pending = [];
+            window.apiCallDirect = vi.fn(() => new Promise((resolve) => pending.push(resolve)));
+            window.showAddModal();
+            document.getElementById('med-name').value = 'Candecor';
+            const closed = window.checkMedRx();
+            window.closeModal();
+            pending.shift()(ready(CANDECOR));
+            await closed;
+            expect(slot(document).classList.contains('hidden')).toBe(true);
+
+            window.showAddModal();
+            document.getElementById('med-name').value = 'Candecor';
+            const renamed = window.checkMedRx();
+            document.getElementById('med-name').value = 'Voltaren';
+            pending.shift()(ready(CANDECOR));
+            await renamed;
+            expect(document.getElementById('med-eu-chip')).toBeNull();
+
+            document.getElementById('med-name').value = 'Candecor';
+            const other = window.checkMedRx();
+            window.showAddModal();
+            document.getElementById('med-name').value = 'Candecor';
+            pending.shift()(ready(CANDECOR));
+            await other;
+            expect(document.getElementById('med-eu-chip')).toBeNull();
+        });
+
+        it('a chip does not carry over: close, then Add medication opens with no EU chip', async () => {
+            const { document, window } = env;
+            window.apiCallDirect = vi.fn().mockResolvedValue(ready(CANDECOR));
+            window.showAddModal();
+            commitName(document, window, 'Candecor');
+            await vi.waitFor(() => expect(document.getElementById('med-eu-chip')).not.toBeNull());
+            window.closeModal();
+            window.showAddModal();
+            expect(document.getElementById('med-name').value).toBe('');
+            expect(document.getElementById('med-eu-chip')).toBeNull();
+            expect(slot(document).classList.contains('hidden')).toBe(true);
+        });
+
+        it('US register (the default): the Rx check runs as before and no EU check or EU DOM appears', async () => {
+            const { document, window } = env;
+            window.localStorage.removeItem('medRegister:unknown');
+            window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '1', normalized_name: 'candesartan', warning: '' });
+            window.showAddModal();
+            commitName(document, window, 'Candesartan');
+            await vi.waitFor(() => expect(document.getElementById('med-rx-name').textContent).toBe('Rx · candesartan'));
+            expect(window.apiCallDirect.mock.calls.every(([url]) => !url.includes('ema-check'))).toBe(true);
+            expect(slot(document).classList.contains('hidden')).toBe(true);
+            expect(slot(document).childElementCount).toBe(0);
+        });
+    });
+
     it('Delete is offered only for an archived, never-taken med and goes through deleteMed', async () => {
         const { document, window } = env;
         await seedMedications(window, [

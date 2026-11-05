@@ -894,6 +894,51 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 expect(res.items[0]).toMatchObject({ protein: 12, fat: 10 });
             });
 
+            it('the dry run names a matched item as it will be logged, writing nothing (med-5jq.9)', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                await seedProduct({ name: 'Boiled egg' });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    ...EGGS('boiled eggs'),
+                    { name: 'Toast', weight_grams: 40, carbs_100g: 50, protein_100g: 9, fat_100g: 4, uncertain: false },
+                ])));
+
+                const res = await window.CloudFoodAI.parseMealFromDescription('eggs and toast', { dryRun: true });
+
+                expect(res.items[0]).toMatchObject({ name: 'Boiled egg', matched: 'exact', is_meal: false });
+                expect(res.items[1].name).toBe('Toast');
+                expect(res.items[1].matched).toBeUndefined();
+                expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(1);
+                expect((await env.records.list('foodproduct'))[0].usage_count).toBe(3);
+            });
+
+            it('a reviewed alias match commits to the previewed product, not a busier same-key sibling (med-5jq.9)', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                const egg = await seedProduct({ name: 'Boiled egg', aliases: ['egg boiled'] });
+                await seedProduct({ recordId: 'p-eggs', name: 'Boiled eggs', usage_count: 20 });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('eggs, boiled'))));
+
+                const preview = await window.CloudFoodAI.parseMealFromDescription('eggs', { dryRun: true });
+                expect(preview.items[0]).toMatchObject({ name: 'Boiled egg', product_id: egg.id, matched: 'alias' });
+
+                const res = await window.CloudFoodAI.logParsedItems(preview.items, { eatenAt: Date.now() });
+                expect(res.items[0]).toMatchObject({ name: 'Boiled egg', product_id: egg.id });
+            });
+
+            it('a reviewed match whose product was deleted meanwhile still logs via the name', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                await seedProduct({ name: 'Boiled egg' });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('boiled eggs'))));
+
+                const preview = await window.CloudFoodAI.parseMealFromDescription('eggs', { dryRun: true });
+                const res = await window.CloudFoodAI.logParsedItems(
+                    [{ ...preview.items[0], product_id: 'foodproduct_gone' }], { eatenAt: Date.now() });
+                expect(res.failed).toBe(0);
+                expect(res.items[0]).toMatchObject({ name: 'Boiled egg', product_id: 'p-egg' });
+            });
+
             it('a parsed "eggs, boiled" links "Boiled egg" through its confirmed alias, no second product', async () => {
                 const { window } = env;
                 await setOpenAIKey(window);

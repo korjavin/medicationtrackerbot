@@ -152,11 +152,15 @@ function switchFoodTab(tab) {
         bindInput('food-fat', () => calculateFoodCalories());
         bindChange('food-per-100g', () => onFoodPer100gChange());
         bindFocus('food-calories', () => onFoodCaloriesFocus());
+        // FC3: the macro check runs once the user leaves a number field.
+        ['food-weight', 'food-carbs', 'food-protein', 'food-fat', 'food-calories']
+            .forEach((id) => bindChange(id, () => checkFoodMacros()));
 
         document.querySelectorAll('#food-per-100g-seg .wg-seg__opt').forEach((btn) => {
             btn.addEventListener('click', () => {
                 setFoodPer100g(btn.dataset.per100g === 'true');
                 calculateFoodCalories(true);
+                checkFoodMacros();
             });
         });
         bindClick('food-datetime-btn', () => openFoodDatetimePicker());

@@ -376,6 +376,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/mcp/')) return;
+  // The EU register (13 MB, bd med-3u28.2) has its own cache outside this
+  // worker's prefix (js/ema.js); never copy it into the shell cache.
+  if (url.pathname.startsWith('/static/data/ema-')) return;
 
   if (request.mode === 'navigate') {
     if (url.pathname === '/' && url.searchParams.get('__wg_provider_reload') === '1') {

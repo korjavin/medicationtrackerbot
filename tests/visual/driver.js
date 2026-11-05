@@ -465,6 +465,18 @@
             const el = firstVisible(step.fill);
             el.value = step.value;
             el.dispatchEvent(new window.Event('input', { bubbles: true }));
+            // `change: true` also leaves the field (the blur-time checks).
+            if (step.change) el.dispatchEvent(new window.Event('change', { bubbles: true }));
+        } else if (step.aiReview) {
+            // The AI review (kit FC2, med-5jq.9) without a provider on CI:
+            // answer the dry-run parse with step.aiReview's items and Estimate.
+            const items = step.aiReview;
+            window.CloudFoodAI = Object.assign({}, window.CloudFoodAI, {
+                parseMealFromDescription: async () => ({ status: 'parsed', items: items.map((it) => ({ ...it })) }),
+            });
+            window.showAddFoodModal({ view: 'describe' });
+            document.getElementById('food-add-describe-text').value = 'breakfast';
+            document.getElementById('food-add-primary-btn').click();
         } else if (step.tag) {
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.

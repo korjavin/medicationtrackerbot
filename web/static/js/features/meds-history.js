@@ -69,6 +69,7 @@ function fillMedEditor(med) {
     document.getElementById('med-archived').checked = !!m.archived;
     document.getElementById('med-supplement').checked = !!m.supplement;
     setMedRxMatch('', '');
+    paintMedEu(null); // no EU chip carried over from the last editor
 
     setMedDate('med-start-date', m.start_date ? m.start_date.split('T')[0] : '');
     setMedDate('med-end-date', m.end_date ? m.end_date.split('T')[0] : '');
@@ -273,20 +274,205 @@ async function checkMedRx() {
     // Only a fresh lookup verifies this editor's current name. Saved legacy
     // associations, no-match replies and outages never restore an old chip.
     setMedRxMatch('', '');
+    paintMedEu(null);
     if (!name) return;
+    // Closing/reopening, another check or a new name supersedes this answer.
+    const stale = () => checkVersion !== _medRxCheckVersion || editingMedId !== editorId ||
+        nameInput.value.trim() !== name || document.getElementById('med-modal').classList.contains('hidden');
+    const call = window.offlineAwareApiCall || window.apiCallDirect;
+    if (getMedRegister() === 'eu') return checkMedEu(call, name, stale);
     const params = new URLSearchParams({ name });
     if (editingMedId) params.set('exclude_id', String(editingMedId));
-    const call = window.offlineAwareApiCall || window.apiCallDirect;
     let res;
     try {
         res = await call(`/api/medications/rx-check?${params}`, 'GET');
     } catch (_) {
         return; // offline or no lookup: no verified chip; Save still works
     }
-    // Closing/reopening, another check or a new name supersedes this answer.
-    if (!res || checkVersion !== _medRxCheckVersion || editingMedId !== editorId ||
-        nameInput.value.trim() !== name || document.getElementById('med-modal').classList.contains('hidden')) return;
+    if (!res || stale()) return;
     setMedRxMatch(res.normalized_name || '', res.warning || '');
+}
+
+// ==================== EU register check (bd med-3u28.2, kit ER1–ER9) ====================
+// Settings → Features → "Check names in" picks the register: a per-account,
+// device-local preference (never vault data). The cloud ema/rxnorm ports read
+// the same key (web/cloud/js/ema.js medRegister).
+function medRegisterKey() {
+    const accountId = window.MedTrackerCloud?.ctx?.accountId || 'unknown';
+    return `medRegister:${accountId}`;
+}
+
+function getMedRegister() {
+    try { return localStorage.getItem(medRegisterKey()) === 'eu' ? 'eu' : 'us'; } catch (_) { return 'us'; }
+}
+
+const MED_EU_POLL_MS = 250;
+
+// The register downloads once; while it does the check answers 'loading'
+// with the progress so far, so ask again until it settles. Only the first
+// call starts a load; polls just read it, so a failed load ends on ER6.
+async function checkMedEu(call, name, stale) {
+    const params = new URLSearchParams({ name });
+    for (;;) {
+        let res = null;
+        try {
+            res = await call(`/api/medications/ema-check?${params}`, 'GET');
+        } catch (_) { /* shown as could not load; Save still works */ }
+        if (stale()) return;
+        paintMedEu(res || { status: 'unavailable' }, name);
+        if (!res || res.status !== 'loading') return;
+        params.set('poll', '1');
+        await new Promise((resolve) => setTimeout(resolve, MED_EU_POLL_MS));
+        if (stale()) return;
+    }
+}
+
+// One entry per substance text as the register writes it; its routes with
+// every country (alphabetical); "|" separates distinct products (ER9).
+function groupMedEuEntries(candidates) {
+    const bySubstance = new Map();
+    for (const c of candidates) {
+        if (!bySubstance.has(c.substances)) bySubstance.set(c.substances, { rows: 0, routes: new Map() });
+        const entry = bySubstance.get(c.substances);
+        entry.rows++;
+        if (!entry.routes.has(c.route)) entry.routes.set(c.route, new Set());
+        entry.routes.get(c.route).add(c.jurisdiction);
+    }
+    return [...bySubstance].map(([substances, entry]) => ({
+        products: substances.split('|').map((s) => s.trim()).filter(Boolean),
+        rows: entry.rows,
+        routes: [...entry.routes].map(([route, countries]) => ({ route, countries: [...countries].sort((a, b) => a.localeCompare(b)) }))
+            .sort((a, b) => b.countries.length - a.countries.length || a.route.localeCompare(b.route)),
+    })).sort((a, b) => b.rows - a.rows || a.products.join(' + ').localeCompare(b.products.join(' + ')));
+}
+
+function paintMedEu(res, name) {
+    const slot = document.getElementById('med-eu-slot');
+    if (!slot) return;
+    slot.replaceChildren();
+    const show = (...nodes) => { slot.append(...nodes); slot.classList.remove('hidden'); };
+    slot.classList.add('hidden');
+    if (!res) return;
+    if (res.status === 'loading') {
+        // Only the network download (ER4) shows; a cached copy loads quietly.
+        if (typeof res.progress !== 'number') return;
+        const pct = `${Math.round(res.progress * 100)}%`;
+        const meter = _medsEl('span', 'wg-meter');
+        const fill = _medsEl('span', 'wg-meter__fill');
+        fill.style.setProperty('--p', pct);
+        meter.appendChild(fill);
+        const macros = _medsEl('div', 'wg-macros');
+        macros.append(meter, _medsEl('span', 'wg-macros__val', pct));
+        const card = _medsEl('div', 'wg-card wg-card--tight');
+        card.appendChild(macros);
+        show(_medsEl('span', 'wg-hint', 'Loading the EU register, only this once.'), card);
+        return;
+    }
+    if (res.status === 'unavailable') {
+        const line = _medsEl('span', 'wg-hint');
+        line.append(_medsIcon('cloud-off', 'wg-ico--sm wg-warn'), " Couldn't load the EU register.");
+        const retry = _medsEl('button', 'wg-btn wg-btn--sm');
+        retry.type = 'button';
+        retry.id = 'med-eu-retry';
+        retry.append(_medsIcon('refresh', 'wg-ico--sm'), 'Retry');
+        retry.addEventListener('click', () => checkMedRx());
+        const row = _medsEl('span', 'wg-hstack');
+        row.appendChild(retry);
+        show(line, row);
+        return;
+    }
+    if (res.status !== 'ready') return;
+    const entries = groupMedEuEntries(res.candidates || []);
+    if (!entries.length) {
+        show(_medsEl('span', 'wg-hint', 'No exact match in the EU register. The name must match exactly.'));
+        return;
+    }
+    const one = entries.length === 1;
+    const chip = _medsEl('button', one ? 'wg-chip wg-chip--ok' : 'wg-chip');
+    chip.type = 'button';
+    chip.id = 'med-eu-chip';
+    chip.append(_medsIcon(one ? 'check' : 'globe'),
+        one ? `EU · ${entries[0].products.join(' + ')}` : `EU · ${entries.length} entries`,
+        _medsIcon('chev-r', 'wg-ico--sm'));
+    chip.addEventListener('click', () => openMedEuSheet(name, entries, res.source));
+    const row = _medsEl('span', 'wg-hstack');
+    row.appendChild(chip);
+    show(row);
+}
+
+let _medEuSheetClose = null; // module-state: closer of the open EU register sheet (one at a time)
+
+function openMedEuSheet(name, entries, source) {
+    if (_medEuSheetClose) _medEuSheetClose();
+    const several = entries.length > 1;
+    // wg-meds-eusheet: the stock sheet's --z-confirm layer, above its backdrop.
+    const modal = _medsEl('mt-modal', 'wg-modal wg-sheet wg-sheet--full wg-meds-eusheet');
+    modal.id = 'med-eu-sheet';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    const backdrop = _medsEl('div', 'mt-confirm-backdrop wg-sheet-backdrop');
+    const head = window.WGSheet.header({
+        eyebrow: several ? `EU register · ${entries.length} entries` : 'EU register',
+        title: name,
+        actions: [{ label: 'Close', icon: 'x' }],
+    });
+    const body = _medsEl('div', 'wg-sheet__body');
+    if (several) {
+        const note = _medsEl('div', 'wg-note wg-note--info');
+        note.append(_medsIcon('info'), _medsEl('span', 'wg-note__body', 'Several entries match. Check the substance on your pack.'));
+        body.appendChild(note);
+    }
+    for (const entry of entries) {
+        const card = _medsEl('div', 'wg-card wg-vstack');
+        const title = _medsEl('span', 'wg-card__title', entry.products.join(' + '));
+        if (entry.products.length > 1) {
+            const meta = _medsEl('span', 'wg-row__meta');
+            meta.appendChild(_medsEl('span', '', `${entry.products.length} separate products in one entry`));
+            title.appendChild(meta);
+        }
+        const list = _medsEl('div', 'wg-list');
+        for (const r of entry.routes) {
+            const row = _medsEl('div', 'wg-row');
+            const rowBody = _medsEl('span', 'wg-row__body');
+            const meta = _medsEl('span', 'wg-row__meta');
+            meta.appendChild(_medsEl('span', '', r.countries.join(', ')));
+            rowBody.append(_medsEl('span', 'wg-row__title', r.route), meta);
+            row.appendChild(rowBody);
+            list.appendChild(row);
+        }
+        card.append(title, list);
+        body.appendChild(card);
+    }
+    body.appendChild(_medsEl('p', 'wg-hint', "An entry doesn't confirm which product you take."));
+    if (source) {
+        const rev = String(source.revision || '').split(',').pop().trim();
+        const date = String(source.data_date || '').replace(/\//g, '.');
+        const fine = _medsEl('p', 'wg-shell__fine',
+            `Source: European Medicines Agency (EMA), Article 57 product data, ${rev}, data of ${date}. `);
+        const link = _medsEl('a', 'wg-link', 'EMA legal notice');
+        link.href = source.reuse_url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        fine.appendChild(link);
+        body.appendChild(fine);
+    }
+    modal.append(_medsEl('div', 'wg-sheet__grab'), head.el, body);
+
+    function close() {
+        if (_medEuSheetClose !== close) return false;
+        _medEuSheetClose = null;
+        window.ModalManager.close(modal.id);
+        window.ModalManager.register(modal.id, null);
+        modal.remove();
+        backdrop.remove();
+        return true;
+    }
+    head.buttons[0].addEventListener('click', close);
+    backdrop.addEventListener('click', close);
+    _medEuSheetClose = close;
+    document.body.append(backdrop, modal);
+    window.ModalManager.register(modal.id, close);
+    window.ModalManager.open(modal.id);
 }
 
 // The editor's destructive footer action; deleteMed owns the dialog + write.

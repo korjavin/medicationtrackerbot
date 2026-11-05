@@ -35,6 +35,7 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
                     'bp-feature-toggle', 'weight-feature-toggle', 'food-intake-toggle',
                     'medication-feature-toggle', 'workout-feature-toggle', 'health-feature-toggle',
                 ]],
+                ['Medications', []],
                 ['Journey', ['gamification-feature-toggle', 'weekly-digest-feature-toggle']],
                 ['Safety', ['gam-mode-ed-safe-toggle']],
             ]);
@@ -57,6 +58,62 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
             // 12 toggles across the two pages.
             const all = doc.querySelectorAll('[data-settings-page="features"] mt-setting-toggle, [data-settings-page="journey-extras"] mt-setting-toggle');
             expect(all.length).toBe(12);
+        } finally {
+            cleanup();
+        }
+    });
+
+    // ER1/ER2 (bd med-3u28.2): one value row picks the register, US by default;
+    // the choice is device-local, per account, and never an API write.
+    it('"Check names in" shows US register by default and stores the EU pick per account on this device', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.MedTrackerCloud = { ctx: { accountId: 'acct-1' } };
+            window.apiCall = vi.fn().mockResolvedValue(null);
+            window.bindMedRegister(); // loadSettings' first step
+            const value = document.getElementById('med-register-value');
+            expect(value.textContent).toBe('US register');
+            const row = document.getElementById('med-register-choose');
+            expect(row.querySelector('.wg-setting__title').textContent).toBe('Check names in');
+            expect(row.closest('.wg-section').querySelector('.wg-eyebrow').textContent).toBe('Medications');
+
+            window.safeChoose = vi.fn().mockResolvedValue('eu');
+            row.click();
+            await vi.waitFor(() => expect(value.textContent).toBe('EU register'));
+            const [msg, choices, opts] = window.safeChoose.mock.calls[0];
+            expect(msg).toBe('');
+            expect(choices).toEqual([
+                { value: 'us', label: 'US register', sub: 'Sends the name to RxNav (US NIH).', selected: true },
+                { value: 'eu', label: 'EU register', sub: 'Checked on this phone; nothing is sent.', selected: false },
+            ]);
+            expect(opts).toEqual({ title: 'Check medicine names in', hint: 'Applies on this phone only.' });
+            expect(window.localStorage.getItem('medRegister:acct-1')).toBe('eu');
+            expect(window.apiCall.mock.calls.some(([url, method]) => method && method !== 'GET')).toBe(false);
+
+            // Local mode has no RxNav: the US option says so instead (ER2 local).
+            document.documentElement.classList.add('wg-local-vault');
+            window.safeChoose = vi.fn().mockResolvedValue(null);
+            row.click();
+            await vi.waitFor(() => expect(window.safeChoose).toHaveBeenCalled());
+            expect(window.safeChoose.mock.calls[0][1][0].sub).toBe('Needs an account. Without one, no name check runs.');
+            expect(window.safeChoose.mock.calls[0][1][1].selected).toBe(true);
+            expect(value.textContent).toBe('EU register');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('safeChoose renders the hint line under the choices (ER2)', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const picked = window.safeChoose('', [{ value: 'us', label: 'US register', sub: 'Sends the name to RxNav (US NIH).' }],
+                { title: 'Check medicine names in', hint: 'Applies on this phone only.' });
+            const body = document.querySelector('.mt-confirm-modal__body');
+            expect(body.lastElementChild.className).toBe('wg-hint');
+            expect(body.lastElementChild.textContent).toBe('Applies on this phone only.');
+            expect(body.querySelector('.wg-choice__sub').textContent).toBe('Sends the name to RxNav (US NIH).');
+            document.querySelector('.mt-confirm-modal__choice').click();
+            expect(await picked).toBe('us');
         } finally {
             cleanup();
         }
