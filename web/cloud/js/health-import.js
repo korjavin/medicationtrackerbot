@@ -18,7 +18,9 @@
 // reading; nothing new leaves the device.
 import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled } from './sync.js';
 import { createHealthImportDomain, OPEN_SESSION_MS } from '../../domain/healthimport.js';
-import { findLibraryRowByName } from '../../domain/workout.js';
+import { findLibraryRowByName, exerciseKey } from '../../domain/workout.js';
+import { localWallToUtcMs } from '../../domain/medschedule.js';
+import { createSettingsDomain } from '../../domain/settings.js';
 import { diagLine } from './passkey-diag.js';
 
 // Sleep and workouts: bd med-w6gx.7. Steps, HR and SpO2: bd med-0xad.1.
@@ -132,18 +134,55 @@ function writeBackEligible(recordType, row, storage) {
     return !row.source;
 }
 
+// A plan day marked Done without a start (push/Telegram Done, MCP, History
+// Finish), bd med-8f4s.12 rule D: 5 minutes per exercise of the day from its
+// scheduled time; the Done tap is never used.
+const UNSTARTED_MS_PER_EXERCISE = 5 * 60 * 1000;
+
+// The account's zone, as the workout domain resolves it (completionInstant):
+// the pinned/floored settings zone, else this device's.
+async function accountZone(records) {
+    return (await createSettingsDomain({ records, now: Date.now, timeZone: timeZone() }).getGeneral()).timezone;
+}
+
 // A workout in Health is a finished span: completed, started, and ending after
 // it started. Archie 15658: a span longer than OPEN_SESSION_MS (a session left
 // open and finished hours later) ends at its last log if that is after the
 // start, else at start + OPEN_SESSION_MS.
+// Completed with no started_at: a plan day with a scheduled_time spans
+// scheduled_date + scheduled_time (account zone) + 5 min × its exercises: the
+// distinct exercises logged on it when any, else its exercise_snapshot (a
+// legacy row without one: the plan's live exercises). Zero exercises, or no
+// scheduled_time (ad-hoc), → no span.
 async function workoutSpan(records, row) {
-    if (row.status !== 'completed' || !row.started_at || !row.completed_at) return null;
-    const start = Date.parse(row.started_at);
-    let end = Date.parse(row.completed_at);
+    if (row.status !== 'completed') return null;
+    const logs = async () => (await records.listRaw('exerciselog')).filter((l) => !l.deleted && l.session_id === row.id);
+    let start;
+    let end;
+    if (row.started_at) {
+        if (!row.completed_at) return null;
+        start = Date.parse(row.started_at);
+        end = Date.parse(row.completed_at);
+    } else {
+        const day = String(row.scheduled_date || '').slice(0, 10);
+        const hhmm = /^(\d{2}):(\d{2})$/.exec(row.scheduled_time || '');
+        if (!hhmm || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+        const logged = await logs();
+        let count = new Set(logged.map((l) => (l.exercise_id > 0 ? `id:${l.exercise_id}` : `name:${exerciseKey(l.exercise_name)}`))).size;
+        if (!count) {
+            count = Array.isArray(row.exercise_snapshot)
+                ? row.exercise_snapshot.length
+                : (await records.listRaw('workoutexercise')).filter((e) => !e.deleted && e.variant_id === row.variant_id).length;
+        }
+        if (!count) return null;
+        const wall = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), +hhmm[1], +hhmm[2]);
+        start = localWallToUtcMs(wall, await accountZone(records));
+        end = start + count * UNSTARTED_MS_PER_EXERCISE;
+    }
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
     if (end - start > OPEN_SESSION_MS) {
-        const last = Math.max(-Infinity, ...(await records.listRaw('exerciselog'))
-            .filter((l) => !l.deleted && l.session_id === row.id && l.logged_at)
+        const last = Math.max(-Infinity, ...(await logs())
+            .filter((l) => l.logged_at)
             .map((l) => Date.parse(l.logged_at))
             .filter(Number.isFinite));
         end = last > start ? Math.min(last, end) : start + OPEN_SESSION_MS;
