@@ -117,6 +117,14 @@ describe('safeConfirm — in-page modal', () => {
         await expect(promise).resolves.toBe(true);
     });
 
+    it('a safePrompt note callback is not mistaken for the static caution line', async () => {
+        const { window, document } = env;
+        const prompt = window.safePrompt('Goal', { value: '70', note: () => null });
+        expect(document.querySelector('.wg-hint--note')).toBeNull();
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        await prompt;
+    });
+
     it('keeps prompt input and content/form focus and their settlement behavior', async () => {
         const { window, document } = env;
         const prompt = window.safePrompt('Name', { destructive: true, focusCancel: true, value: ' Test ' });
@@ -333,7 +341,7 @@ describe('safeConfirm — in-page modal', () => {
             const onClick = vi.fn();
             const promise = window.safeConfirm('3 past entries from this app.', null, {
                 title: 'Copy?', hint: 'Nothing is copied twice.',
-                note: "4 entries before 02.10 won't be copied.",
+                caution: "4 entries before 02.10 won't be copied.",
                 link: { label: 'Allow past data', below: true, onClick },
             });
             const body = document.querySelector('.wg-dialog__body');

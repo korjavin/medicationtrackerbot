@@ -280,7 +280,7 @@ function safeForm(msg, content, opts) {
 //     the icon tile; destructive:true with no tone means tone 'danger'.
 //     destructive (or tone 'danger') paints the confirm filled clay.
 //   hint: a quiet .wg-hint line under the message (the HW6 copy offer).
-//   note: a warn-icon .wg-hint line (no box, never a red error) after the hint.
+//   caution: a warn-icon .wg-hint line (no box, never a red error) after the hint.
 //   facts: [{ text, gone }] — what goes (gone: ×, li.is-gone) and what stays
 //     (✓), rendered as .wg-dialog__facts under the message.
 //   link: { label, onClick, below } — a .wg-link in the body ("Export a backup
@@ -341,7 +341,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         linkBtn.textContent = opts.link.label;
     }
     const linkBelow = !!(linkBtn && opts.link.below);
-    if (msg || (linkBtn && !linkBelow) || !(inputMode || choiceMode || contentMode || facts.length || opts.note)) {
+    if (msg || (linkBtn && !linkBelow) || !(inputMode || choiceMode || contentMode || facts.length || opts.caution)) {
         const messageEl = doc.createElement('p');
         messageEl.className = 'mt-confirm-modal__message';
         if (linkBtn && !linkBelow) messageEl.append(linkBtn, msg ? ' ' : '');
@@ -356,7 +356,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         hintEl.textContent = opts.hint;
         if (!choiceMode) body.appendChild(hintEl);
     }
-    if (opts.note) {
+    if (opts.caution) {
         const note = doc.createElement('p');
         note.className = 'wg-hint wg-hint--note';
         const mark = iconSvg('alert', 16);
@@ -365,7 +365,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             note.appendChild(mark);
         }
         const text = doc.createElement('span');
-        text.textContent = opts.note;
+        text.textContent = String(opts.caution);
         note.appendChild(text);
         body.appendChild(note);
     }

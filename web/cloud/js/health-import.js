@@ -1117,7 +1117,7 @@ export function startHealthImport(ctx, {
                 if (offer) writeJSON(storage, OFFERED_KEY, true);
                 let retry = false;
                 const cut = plan.cut ? {
-                    note: cutText(plan.cut, lastReadable, label),
+                    caution: cutText(plan.cut, lastReadable, label),
                     link: { label: 'Allow past data', below: true, onClick: () => { retry = true; } },
                 } : {};
                 if (plan.total) {
