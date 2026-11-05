@@ -2873,6 +2873,29 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect((await getRaw(SLOT)).variant_id).toBe(2);
   });
 
+  // bd med-qsq3 B: the rewrite stamps exactly one above the read version — no
+  // skew term — and its queued op is discardable on a snapshot bootstrap like a
+  // floored row, so it is never laid over a newer Start compacted into the snapshot.
+  it('putIfUnchanged stamps read+1 under skew, and a re-bootstrap drops it under a newer snapshot row', async () => {
+    const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
+    // Device clock 60s behind the server: guard 1 would stamp 0 - skew = 60000.
+    await seed([read], { localLastSeq: 5, lastSnapshotSeq: 0, clockSkewMs: -60000 });
+
+    const stored = await recordsPort(ctx).putIfUnchanged('workoutsession', { ...read, variant_id: 2, clientTs: 0 }, read);
+    expect(stored.clientTs).toBe(4);
+    await flushConfirmed(ctx).catch(() => {}); // mispredicts: the op stays queued
+
+    const startedElsewhere = { ...read, clientTs: 9000, status: 'in_progress', started_at: '2026-08-31T18:00:00Z' };
+    await replaceAllRecords([startedElsewhere]);
+    expect(await getRaw(SLOT)).toMatchObject({ status: 'in_progress', variant_id: 1, clientTs: 9000 });
+
+    // A real write of the record afterwards is an ordinary pending edit again.
+    await recordsPort(ctx).put('workoutsession', { ...startedElsewhere, notes: 'mine' });
+    await flushConfirmed(ctx).catch(() => {});
+    await replaceAllRecords([{ ...startedElsewhere, clientTs: Date.now() + 1e9 }]);
+    expect((await getRaw(SLOT)).notes).toBe('mine');
+  });
+
   it('putIfUnchanged leaves a slot that moved on since the read (a Start, a tombstone)', async () => {
     const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
     const started = { ...read, clientTs: 9000, status: 'in_progress', started_at: '2026-08-31T18:00:00Z' };

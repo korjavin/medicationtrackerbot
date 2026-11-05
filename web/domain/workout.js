@@ -1658,25 +1658,43 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // The rotation cursor is the source of truth either way — getNext, the card
     // and reminders.js all render from it — so a lost re-point is cosmetic drift
     // in the record, not a wrong workout.
+    // A lost re-point is healed by getNext/listPlans (repointSlot below, bd
+    // med-qsq3) the next time that slot is the card's, so it is drift only
+    // until then.
     const todayStr = localDateStr(nowMs, timeZone);
     for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
       if (s.group_id !== groupId || s.variant_id === nextVariantId) continue;
-      if (s.status !== 'pending' && s.status !== 'notified') continue;
-      if (s.started_at || s.completed_at || s.exercise_snapshot) continue;
       // Date prefix as a STRING, never via UTC parts: scheduled_date is local
       // midnight stamped with the minting device's offset, so re-rendering it in
       // another zone shifts the day (same rule reminders.js documents).
       // Today's untouched row moves too (bd med-q6l3): minted early off the old
       // cursor, then a late Skip on yesterday advances it, and the card says Pull
-      // while Start would start the row's Push. The status/started_at guards above
-      // already keep a started or acted-on today's row in place.
+      // while Start would start the row's Push. repointSlot's guards keep a
+      // started or acted-on today's row in place.
       if (String(s.scheduled_date).slice(0, 10) < todayStr) continue;
-      if ((await countSessionExerciseLogs(s.id)) > 0) continue;
-      // Compare-and-swap on the version read above (bd med-q6l3): a Start,
-      // Finish or delete that landed since (another tab, a pulled op) keeps the
-      // slot, instead of this stale body being promoted over it.
-      await records.putIfUnchanged(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: 0 }, s);
+      await repointSlot(s, nextVariantId);
     }
+  }
+
+  // repointSlot moves an untouched session onto variantId: never acted on
+  // (pending/notified, no started_at/completed_at), no per-session plan copy,
+  // no logs. Anything else keeps its variant (see moveRotation above).
+  // Compare-and-swap on the version `s` the caller read (bd med-q6l3): a Start,
+  // Finish or delete that landed since (another tab, a pulled op) keeps the
+  // slot, instead of this stale body being promoted over it. putIfUnchanged
+  // stamps exactly s.clientTs + 1 (bd med-qsq3), so the rewrite outranks only
+  // the version it read.
+  // ponytail: the no-logs check runs before the CAS and createLog never
+  // rewrites the session row, so a log added in between, or a peer's log this
+  // device has not pulled yet, does not stop the re-point (bd med-qsq3 C). The
+  // result is a mislabel (variant_id disagrees with the logs), not data loss.
+  // Closing it needs the session row to carry its log state, which is a new
+  // real write per log; not worth it for this window.
+  async function repointSlot(s, variantId) {
+    if (s.status !== 'pending' && s.status !== 'notified') return;
+    if (s.started_at || s.completed_at || s.exercise_snapshot) return;
+    if ((await countSessionExerciseLogs(s.id)) > 0) return;
+    await records.putIfUnchanged(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: variantId, clientTs: 0 }, s);
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
@@ -2929,6 +2947,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         exercises,
         group,
         status,
+        existing,
         isRotating: !!group.is_rotating,
       };
     }
@@ -2940,7 +2959,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // Returns false — and adds the slot to `suppressed` — when the raw slot is
   // already spoken for (see resolveNext above); the caller re-scans.
   async function ensureScheduledSession(occ, suppressed) {
-    if (occ.sessionId) return true;
+    if (occ.sessionId) {
+      // Heal a slot that disagrees with the cursor (bd med-qsq3 A). The card
+      // renders the rotation cursor, Start starts the row. Two devices that
+      // moved the rotation concurrently offline both re-point the same floored
+      // row to the same clientTs with different variant_ids, and strict-`>`
+      // LWW never converges that tie. The rotation record does converge (it is
+      // stamped now()), so re-pointing to it here, at the floor, writes a row
+      // one above the tie that every device then takes. A re-point that lost
+      // its CAS heals the same way. Rotating groups only: a flat group's card
+      // shows its first day, and setVariant's pick there must stand.
+      const s = occ.existing;
+      if (occ.isRotating && s && s.variant_id !== occ.variantId) await repointSlot(s, occ.variantId);
+      return true;
+    }
     const recordId = sessionRecordId(occ.groupId, occ.dateStr);
     const record = {
       recordId,

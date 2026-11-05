@@ -469,7 +469,7 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
         }
       }
     }
-    for (const { recordId } of pending) {
+    for (const { recordId, derived } of pending) {
       const r = await getRecord(recordId);
       if (!r) continue;
       const snap = snapshotById.get(recordId);
@@ -488,7 +488,13 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
       // field may already be compacted into this snapshot, so neither side may
       // simply replace the other.
       const merge = snap && !snap.deleted && !r.deleted ? APPLY_MERGE[r.recordType] : null;
-      if (snap && r.clientTs <= FLOOR_MAX_CLIENT_TS && snap.clientTs > r.clientTs) {
+      // A queued derived rewrite (putIfUnchanged, bd med-qsq3) is discardable
+      // the same way at any stamp: it was stamped exactly one above the version
+      // it read, with no clock in it, so a snapshot copy above it is a write it
+      // never saw (a Start on another device), not clock noise. A notified row
+      // re-pointed at its real clientTs + 1, or a row re-pointed twice, sits
+      // above FLOOR_MAX_CLIENT_TS and used to be laid over that newer copy.
+      if (snap && (r.clientTs <= FLOOR_MAX_CLIENT_TS || derived) && snap.clientTs > r.clientTs) {
         losingPending.push(recordId);
         if (merge) overlay.push(merge(snap, r));
         continue;
@@ -565,8 +571,11 @@ export async function resetLocalSync(ctx) {
   }
 }
 
-async function markPending(recordId, recordType) {
-  await withStore('pending', 'readwrite', (store) => store.put({ recordId, recordType }));
+// `derived` marks a queued derived rewrite (putIfUnchanged, bd med-qsq3) so
+// replaceAllRecords can drop it like a floored row. Any later write of the
+// record re-marks it without the flag. Local bookkeeping only, never on the wire.
+async function markPending(recordId, recordType, derived = false) {
+  await withStore('pending', 'readwrite', (store) => store.put(derived ? { recordId, recordType, derived } : { recordId, recordType }));
 }
 
 async function readPending() {
@@ -1919,11 +1928,14 @@ async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, update, sk
       stamped = existing;
       return null;
     }
-    stamped = {
-      ...record,
-      clientTs: ifAbsent ? record.clientTs : nextClientTs(existing, record.clientTs, skewMs),
-      recordType,
-    };
+    // A derived rewrite (ifMatchTs) stamps exactly one above the version it
+    // read (bd med-qsq3): no skew term, so it never jumps to a wall-clock-ish
+    // stamp, and every device that rewrites the same version stamps the same.
+    let clientTs;
+    if (ifAbsent) clientTs = record.clientTs;
+    else if (ifMatchTs !== undefined) clientTs = ifMatchTs + 1;
+    else clientTs = nextClientTs(existing, record.clientTs, skewMs);
+    stamped = { ...record, clientTs, recordType };
     const policy = existing && MERGE_POLICY[recordType];
     if (policy) {
       const merged = policy(existing, stamped);
@@ -1961,7 +1973,7 @@ async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, update, sk
       wrote = Boolean(row);
       if (wrote) await putRecord(row);
     }
-    if (wrote && pending) await markPending(record.recordId, recordType);
+    if (wrote && pending) await markPending(record.recordId, recordType, ifMatchTs !== undefined);
   });
   return { stamped, wrote };
 }

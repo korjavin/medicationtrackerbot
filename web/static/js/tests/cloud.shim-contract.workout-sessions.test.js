@@ -2670,6 +2670,51 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
         expect(next.variant_id).toBe(2);
     });
 
+    // bd med-qsq3 A: two devices moved the rotation offline and each re-pointed
+    // today's row to clientTs 1 with its own variant. The cursor converged (it
+    // is stamped now()); the row tie never would. getNext heals the row to the
+    // cursor, so Start starts what the card shows.
+    it("getNext heals today's untouched row that disagrees with the cursor (equal-stamp tie)", async () => {
+        const records = seed({
+            sessions: [session(WEDNESDAY, 'pending', { id: 901, clientTs: 1 })],
+            currentVariantId: 2
+        });
+        const putIfUnchanged = vi.spyOn(records, 'putIfUnchanged');
+
+        const next = await domainOver(records).getNext();
+
+        expect(next).toMatchObject({ variant_id: 2, session: { id: 901 } });
+        expect(putIfUnchanged).toHaveBeenCalledWith('workoutsession',
+            expect.objectContaining({ variant_id: 2, clientTs: 0 }), expect.objectContaining({ clientTs: 1 }));
+        expect((await records.list('workoutsession')).find((s) => s.id === 901).variant_id).toBe(2);
+
+        // Agreeing now: a second read writes nothing.
+        putIfUnchanged.mockClear();
+        await domainOver(records).getNext();
+        expect(putIfUnchanged).not.toHaveBeenCalled();
+    });
+
+    it('getNext does not heal a slot that has logs, nor a flat plan', async () => {
+        const logged = seed({
+            sessions: [session(WEDNESDAY, 'pending', { id: 901 })],
+            currentVariantId: 2,
+            logs: [{
+                recordId: 'log-99', clientTs: NOW, deleted: false, id: 99, session_id: 901,
+                exercise_id: 5, exercise_name: 'Row', status: 'completed', sets_completed: 3,
+                reps_completed: 8, weight_kg: 40, logged_at: new Date(NOW).toISOString()
+            }]
+        });
+        await domainOver(logged).getNext();
+        expect((await logged.list('workoutsession')).find((s) => s.id === 901).variant_id).toBe(1);
+
+        // A flat group's card shows its first day; a picked day (variant 2) stands.
+        const flat = seed({ sessions: [session(WEDNESDAY, 'pending', { id: 901, variantId: 2 })] });
+        const group = (await flat.list('workoutgroup'))[0];
+        await flat.put('workoutgroup', { ...group, is_rotating: false });
+        await domainOver(flat).getNext();
+        expect((await flat.list('workoutsession')).find((s) => s.id === 901).variant_id).toBe(2);
+    });
+
     // Argus P1: a Start landing between moveRotation's read and its write (a
     // second tab, a pulled op) must survive; through the stamping port a plain
     // floored put would be promoted over it and wipe started_at.
