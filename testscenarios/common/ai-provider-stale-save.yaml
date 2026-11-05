@@ -13,9 +13,11 @@ invariants:
   - AI requests keep going to B's URL with B's key, for text and for food photos (own photo key or inherited)
   - A key rotated at the same URL on the other device is kept; the Save goes through with this page's other fields
   - When the saved settings cannot be reloaded, Save stays disabled and the hint under the provider row says to reopen Settings
+  - Leaving and reopening Settings while it is still loading still ends with Save enabled once the settings arrive
+  - When Settings refreshes while you have typed changes and only settings this page does not show changed, your typed values stay and the next Save goes through
   - 'Scope: covers saves from the current app version on one tab; an older app version or a second tab on the same device is not protected'
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.settings.test.js
   android: web/static/js/tests/cloud.shim-contract.settings.test.js
   ios: web/static/js/tests/cloud.shim-contract.settings.test.js
-source: [med-tew4, med-yzag]
+source: [med-tew4, med-yzag, med-ob00]

@@ -158,6 +158,12 @@ describe('Wandergeek material primitives', () => {
         expect(blocks.some((b) => /position:\s*fixed\b/.test(b))).toBe(true);
     });
 
+    it('quiets only the initial Back focus on WebViews that ignore focusVisible', () => {
+        expect(css).toContain('.wg-back:focus-visible{outline:0;box-shadow:var(--wg-focus)}');
+        expect(css).toContain('.wg-back--quiet-focus:focus{outline:0;box-shadow:none}');
+        expect(css.indexOf('.wg-back--quiet-focus:focus')).toBeGreaterThan(css.indexOf('.wg-back:focus-visible'));
+    });
+
     it('#app reserves bottom space for the fixed tab bar via --wg-tabbar-reserved', () => {
         const blocks = extractClassBlocks(css, '#app');
         expect(blocks.length).toBeGreaterThan(0);
