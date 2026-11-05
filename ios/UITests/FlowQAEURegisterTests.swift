@@ -48,9 +48,8 @@ final class FlowQAEURegisterTests: XCTestCase {
         // Relaunch: the choice held (the step fails otherwise); the first check
         // downloads the bundled register, the chip shows, its sheet opens.
         let first = try scene(app, "eu-register", flow: flow, step: "first", timeout: 180)
-        let firstCheck = first["first"] as? [String: Any]
-        XCTAssertEqual(firstCheck?["status"] as? String, "ready", "the first check: \(first)")
-        XCTAssertEqual((first["cachesBefore"] as? [String])?.isEmpty ?? true, true, "a register cache before the first download: \(first)")
+        XCTAssertEqual(first["storedBefore"] as? Bool, false, "a stored register before the first download: \(first)")
+        XCTAssertEqual(first["assetFetches"] as? Int, 1, "the first load did not read the bundled register once: \(first)")
         let chip = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Candesartan'")).firstMatch
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "no EU chip for Candecor")
         shot(flow, "chip")
@@ -61,9 +60,11 @@ final class FlowQAEURegisterTests: XCTestCase {
         // Next launch: cache-first when WebKit stored it on this origin; else
         // the register loads again into memory and still answers (best-effort).
         let second = try scene(app, "eu-register", flow: flow, step: "second", timeout: 180)
-        XCTAssertEqual((second["first"] as? [String: Any])?["status"] as? String, "ready", "the cached check: \(second)")
         if first["stored"] as? Bool == true {
-            XCTAssertEqual(second["cachesBefore"] as? [String], ["medtracker-ema-rev90-v1"], "the stored register is gone after a relaunch: \(second)")
+            XCTAssertEqual(second["storedBefore"] as? Bool, true, "the stored register is gone after a relaunch: \(second)")
+            XCTAssertEqual(second["assetFetches"] as? Int, 0, "the relaunch fetched the register instead of reading its cache: \(second)")
+        } else {
+            XCTAssertEqual(second["assetFetches"] as? Int, 1, "not stored, yet the relaunch did not load it again: \(second)")
         }
         XCTAssertTrue(app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Candesartan'")).firstMatch
             .waitForExistence(timeout: 10), "no EU chip on the second launch")

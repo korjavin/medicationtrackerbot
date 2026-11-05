@@ -1078,10 +1078,12 @@
     // eu-register.mjs): `want` is the choice Settings must have stored (a
     // relaunch keeps it). "us": local mode has no RxNav, so after the editor's
     // name commit (the scene's steps before) nothing checks and nothing loads.
-    // "eu": the app's own first check timed with a 50 ms timer probe (its
-    // worst lateness is the freeze proxy; WebKit has no longtask entries and no
-    // heap API, so memory is the runner's WebContent RSS log, matched by
-    // the epoch ms here), the Cache API verdict, then the phases apart.
+    // "eu": opens the editor and commits the name itself, timing the real
+    // first load to the chip with a 50 ms timer probe (its worst lateness is
+    // the freeze proxy; WebKit has no longtask entries and no heap API, so
+    // memory is the runner's WebContent RSS log, matched by the epoch ms
+    // here), counts the loader's asset fetches, checks the cache entry, then
+    // measures the phases apart.
     async function euRegister(want) {
         const ASSET = '/static/data/ema-article57-rev90-v1.json';
         const ctx = window.MedTrackerCloud && window.MedTrackerCloud.ctx;
@@ -1106,29 +1108,49 @@
             const t = window.performance.now();
             setTimeout(() => { maxLag = Math.max(maxLag, window.performance.now() - t - 50); if (!stop) probe(); }, 50);
         };
+        // Counts the loader's asset requests (it calls globalThis.fetch per
+        // request): 1 = read from the bundle, 0 = served by its cache.
+        const realFetch = window.fetch;
+        let assetFetches = 0;
+        window.fetch = function (input, ...rest) {
+            if (String((input && input.url) || input).includes('/static/data/ema-')) assetFetches++;
+            return realFetch.call(this, input, ...rest);
+        };
+        r.storedBefore = await cacheHit(ASSET);
+        // The editor's own path: open it, commit the name, wait for the chip.
         probe();
         r.firstAt = epoch();
         const t0 = window.performance.now();
-        let res, polls = 0;
-        for (;;) {
-            res = await window.apiCall('/api/medications/ema-check?name=Candecor');
-            polls++;
-            if (res.status !== 'loading') break;
-            await sleep(100);
+        window.switchTab('meds');
+        window.showAddModal();
+        await until(() => document.getElementById('med-name'), STEP_MS, 'editor');
+        const input = document.getElementById('med-name');
+        input.value = 'Candecor';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+        let progress = false;
+        const end = Date.now() + 60000;
+        while (!visible(document.getElementById('med-eu-chip'))) {
+            if (document.querySelector('#med-eu-slot .wg-meter')) progress = true;
+            if (document.getElementById('med-eu-retry')) throw new Error('euRegister: the editor shows "Couldn\'t load"');
+            if (Date.now() > end) throw new Error('euRegister: no EU chip in 60 s');
+            await sleep(20);
         }
-        r.first = { ms: Math.round(window.performance.now() - t0), status: res.status, candidates: (res.candidates || []).length, polls };
+        r.first = { ms: Math.round(window.performance.now() - t0), progress, chip: document.getElementById('med-eu-chip').textContent.trim() };
         await sleep(200);
         stop = true;
+        window.fetch = realFetch;
         r.first.maxTimerLagMs = Math.round(maxLag);
         r.firstEnd = epoch();
+        r.assetFetches = assetFetches;
         r.cachesAfter = await emaCaches();
-        // The loader answers ready before its cache write lands: give it 5 s.
+        // The loader answers before its cache write lands: give it 5 s.
         r.stored = false;
         for (let i = 0; i < 50 && !r.stored; i++) {
-            try { r.stored = !!(await window.caches.match(ASSET)); } catch (_) { break; }
+            r.stored = await cacheHit(ASSET);
             if (!r.stored) await sleep(100);
         }
-        if (res.status !== 'ready' || r.first.candidates !== 2) throw new Error(`euRegister: first check ${JSON.stringify(r.first)}`);
+        if (!/Candesartan/.test(r.first.chip)) throw new Error(`euRegister: chip ${r.first.chip}`);
         // Phases on their own copy, after the app's check (Android measures them first, on a page it then reloads).
         r.phasesAt = epoch();
         const p0 = window.performance.now();
@@ -1143,6 +1165,15 @@
         r.phases = { fetchDecodeMs: Math.round(p1 - p0), parseMs: Math.round(p2 - p1), indexMs: Math.round(p4 - p3), chars: text.length, rows: data.rows.length, candecor };
         r.phasesEnd = epoch();
         return r;
+    }
+
+    // An entry for the asset in the loader's cache (not just its name: the
+    // loader opens the cache before the write).
+    async function cacheHit(url) {
+        try {
+            const cache = await window.caches.open('medtracker-ema-rev90-v1');
+            return !!(await cache.match(url));
+        } catch (_) { return false; }
     }
 
     // Where the scene's last ready element shows, in points of the web view
