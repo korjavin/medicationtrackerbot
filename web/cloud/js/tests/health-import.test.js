@@ -1190,6 +1190,18 @@ describe('Apple Health import', () => {
             expect(records.rows.get(DAY_ID).deleted).toBe(true);
         });
 
+        // bd med-poeu: the user deletes the short day first; a fuller version must not bring it back.
+        it('a short day the user deleted is not brought back by a later, fuller import', async () => {
+            const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
+            const window = { from: N0 - 48 * H, to: N0 + 60 * H };
+            await at.importSamples('sleep', night.slice(0, 1), window);
+            expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 120 });
+            await records.del('sleep', DAY_ID);
+            const later = createHealthImportDomain({ records, now: () => W0 + H, timeZone: 'UTC' });
+            expect(await later.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
+            expect(records.rows.get(DAY_ID).deleted).toBe(true);
+        });
+
         it('a deleted night stays deleted across a backup, restore and full rescan', async () => {
             await runHealthImport({}, opts({ sleep: night }));
             await records.del('sleep', DAY_ID);
