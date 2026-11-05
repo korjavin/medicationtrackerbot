@@ -285,6 +285,19 @@ describe('safeConfirm — in-page modal', () => {
             await expect(promise).resolves.toBe(true);
         });
 
+        it('a hint renders as a quiet .wg-hint line under the message (HW6)', async () => {
+            const { window, document } = env;
+            const promise = window.safeConfirm('304 past entries from this app.', null, { title: 'Copy?', hint: 'Nothing is copied twice.' });
+            const modal = document.querySelector('mt-modal.mt-confirm-modal');
+            const body = modal.querySelector('.wg-dialog__body');
+            expect([...body.children].map((el) => [el.className, el.textContent])).toEqual([
+                ['mt-confirm-modal__message', '304 past entries from this app.'],
+                ['wg-hint', 'Nothing is copied twice.'],
+            ]);
+            modal.querySelector('.mt-confirm-modal__cancel').click();
+            await expect(promise).resolves.toBe(false);
+        });
+
         it('typedConfirm renders the kit __confirm block with the word in mono and gates the confirm', async () => {
             const { window, document } = env;
             const promise = window.safeConfirm('', null, { title: 'Erase?', destructive: true, typedConfirm: 'ERASE' });
@@ -314,6 +327,26 @@ describe('safeConfirm — in-page modal', () => {
             expect(onClick).toHaveBeenCalledTimes(1);
             expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
         });
+
+        it('link.below puts the link on its own line after the hint and facts (the copy offer\'s "Allow past data")', async () => {
+            const { window, document } = env;
+            const onClick = vi.fn();
+            const promise = window.safeConfirm('3 past entries from this app.', null, {
+                title: 'Copy?', hint: 'Nothing is copied twice.',
+                facts: [{ text: "4 entries before 02.10 weren't copied.", gone: true }],
+                link: { label: 'Allow past data', below: true, onClick },
+            });
+            const body = document.querySelector('.wg-dialog__body');
+            expect([...body.children].map((el) => [el.className, el.textContent])).toEqual([
+                ['mt-confirm-modal__message', '3 past entries from this app.'],
+                ['wg-hint', 'Nothing is copied twice.'],
+                ['wg-dialog__facts', "4 entries before 02.10 weren't copied."],
+                ['mt-confirm-modal__message', 'Allow past data'],
+            ]);
+            body.querySelector('button.wg-link').click();
+            await expect(promise).resolves.toBe(false);
+            expect(onClick).toHaveBeenCalledTimes(1);
+        });
     });
 });
 
@@ -327,6 +360,21 @@ describe('safeChoose — choose + Continue', () => {
         { value: 'merge', label: 'Merge', sub: 'Keep both.' },
         { value: 'replace', label: 'Replace', sub: 'Delete these first' },
     ], { title: 'Records already here', icon: 'archive', tone: 'info', confirmLabel: 'Continue', ...opts });
+
+    it('a hint renders exactly once, under the list (safeChoose) or the message (safeConfirm)', async () => {
+        const { window, document } = env;
+        const picking = open(window, { hint: 'Applies on this phone only.' });
+        let body = document.querySelector('.wg-dialog__body');
+        expect([...body.querySelectorAll('.wg-hint')].map((h) => h.textContent)).toEqual(['Applies on this phone only.']);
+        expect(body.lastElementChild.className).toBe('wg-hint');
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        await picking;
+        const confirming = window.safeConfirm('Copy?', null, { hint: 'Nothing is copied twice.' });
+        body = document.querySelector('.wg-dialog__body');
+        expect(body.querySelectorAll('.wg-hint')).toHaveLength(1);
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        await confirming;
+    });
 
     it('preselects the selected choice and Continue commits only it', async () => {
         const { window, document } = env;

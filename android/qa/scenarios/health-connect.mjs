@@ -384,6 +384,63 @@ export default async function healthConnect(ctx) {
       await waitNative(weight.id, (rows) => rows.length === 0);
     });
 
+    // bd med-8f4s.11 section 6: copy 1,000 past entries (700 BP with pulse, 300
+    // weights: 1,700 Health Connect writes) through the real writer, and record
+    // how long the count (the dedupe read) and the copy take, and whether
+    // Health Connect's rate limit paused it. Evidence: never fails the run.
+    // Run last of the write steps (below): it spends the app's write quota.
+    async function copyMeasurement() {
+      await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
+      await ctx.page.evaluate(async () => {
+        const base = Date.now() - 400 * 864e5;
+        for (let i = 0; i < 700; i++) await window.apiCall('/api/bp', 'POST', { systolic: 100 + (i % 40), diastolic: 60 + (i % 9), pulse: 60 + (i % 20), measured_at: new Date(base + i * 12 * 36e5).toISOString(), notes: 'copy QA' });
+        for (let i = 0; i < 300; i++) await window.apiCall('/api/weight', 'POST', { weight: 70 + (i % 50) / 10, measured_at: new Date(base + i * 864e5).toISOString() });
+        localStorage.setItem('wg.health.write', 'true');
+      });
+      // A reload, not a force-stop: a force-stop right after setItem can drop
+      // the WebView's not yet flushed localStorage (the switch came back off).
+      await ctx.page.reload({ waitUntil: 'load' });
+      await ctx.page.waitForFunction(() => typeof window.switchTab === 'function', null, { timeout: 60_000 });
+      // Copy shows only once writeAccess reports readableFrom (Archie 16124),
+      // which this shell gains with med-8f4s.13: until then the measurement
+      // supplies 0 (a shell value wins), then a foreground pass re-reads access.
+      await ctx.page.evaluate(() => {
+        const orig = window.Health.writeAccess.bind(window.Health);
+        window.Health.writeAccess = async (types) => ({ readableFrom: 0, ...(await orig(types)) });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await ctx.page.evaluate(() => window.switchTab('settings'));
+      const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+      if (await notNow.isVisible().catch(() => false)) await notNow.click();
+      const row = ctx.page.locator('#health-copy-row[data-state="ready"]');
+      await row.waitFor({ state: 'visible', timeout: 30_000 });
+      await row.scrollIntoViewIfNeeded();
+      const t0 = Date.now();
+      await row.click();
+      const confirm = ctx.page.locator('.mt-confirm-modal .mt-confirm-modal__confirm');
+      await confirm.waitFor({ state: 'visible', timeout: 120_000 });
+      r.copy.countMs = Date.now() - t0;
+      r.copy.offer = await ctx.page.locator('.mt-confirm-modal').innerText();
+      await ctx.stableShot('health-copy-offer');
+      const t1 = Date.now();
+      await confirm.click();
+      r.copy.states = [];
+      for (const until = Date.now() + 15 * 60_000; Date.now() < until;) {
+        const s = await ctx.page.evaluate(() => {
+          const el = document.getElementById('health-copy-row');
+          return el ? `${el.dataset.state} ${el.querySelector('.wg-setting__desc')?.textContent || ''}` : 'none';
+        }).catch(() => 'detached');
+        if (r.copy.states.at(-1) !== s) r.copy.states.push(s);
+        if (/^(done|refused)/.test(s)) break;
+        await sleep(2000);
+      }
+      r.copy.copyMs = Date.now() - t1;
+      r.copy.paused = r.copy.states.some((s) => s.startsWith('paused'));
+      r.copy.ledgerLeft = await ctx.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('wg.health.dirty') || '{}')).reduce((n, m) => n + Object.keys(m).length, 0));
+      await ctx.stableShot('health-copy-result');
+      ctx.log('health-copy', JSON.stringify({ countMs: r.copy.countMs, copyMs: r.copy.copyMs, paused: r.copy.paused, ledgerLeft: r.copy.ledgerLeft, last: r.copy.states.at(-1) }));
+    }
+
     // med-8f4s.9: the page supplies its final span/type; independent SDK reads
     // inspect provider metadata rather than asking the bridge that hides our copies.
     r.workouts = {};
@@ -509,6 +566,17 @@ export default async function healthConnect(ctx) {
       await waitNative(r.workouts.lateGrant.clientId, (rows) => rows.length === 0);
       await api(`/api/bp/${encodeURIComponent(reading.id)}`, 'DELETE');
       await api(`/api/weight/${encodeURIComponent(weight.id)}`, 'DELETE');
+    });
+
+    await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {
+      r.copy = {};
+      try {
+        await copyMeasurement();
+      } catch (e) {
+        r.copy.error = String(e?.message || e).split('\n')[0];
+        ctx.log('health-copy', JSON.stringify({ error: r.copy.error, states: r.copy.states }));
+        await ctx.stableShot('health-copy-error').catch(() => {});
+      }
     });
 
     await ctx.step('Health Connect rationale names the pulse and completed workout copy', async () => {

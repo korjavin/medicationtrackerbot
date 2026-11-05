@@ -279,10 +279,12 @@ function safeForm(msg, content, opts) {
 //   tone 'danger' (data loss) | 'warn' (reversible) | 'info' (a choice) picks
 //     the icon tile; destructive:true with no tone means tone 'danger'.
 //     destructive (or tone 'danger') paints the confirm filled clay.
+//   hint: a quiet .wg-hint line under the message (the HW6 copy offer).
 //   facts: [{ text, gone }] — what goes (gone: ×, li.is-gone) and what stays
 //     (✓), rendered as .wg-dialog__facts under the message.
-//   link: { label, onClick } — a .wg-link in the body ("Export a backup
-//     first"); tapping it cancels the dialog, then runs onClick.
+//   link: { label, onClick, below } — a .wg-link in the body ("Export a backup
+//     first"); tapping it cancels the dialog, then runs onClick. below: on its
+//     own line after the facts (the copy offer's "Allow past data").
 //   dangerOutline: Cancel raised (the safe choice), confirm .wg-btn--danger-ghost.
 // safeConfirm also takes opts.typedConfirm: a word the user must type
 // (case-insensitive) before the confirm button enables (.wg-dialog__confirm,
@@ -337,12 +339,21 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         linkBtn.className = 'wg-link mt-confirm-modal__link';
         linkBtn.textContent = opts.link.label;
     }
-    if (msg || linkBtn || !(inputMode || choiceMode || contentMode || facts.length)) {
+    const linkBelow = !!(linkBtn && opts.link.below);
+    if (msg || (linkBtn && !linkBelow) || !(inputMode || choiceMode || contentMode || facts.length)) {
         const messageEl = doc.createElement('p');
         messageEl.className = 'mt-confirm-modal__message';
-        if (linkBtn) messageEl.append(linkBtn, msg ? ' ' : '');
+        if (linkBtn && !linkBelow) messageEl.append(linkBtn, msg ? ' ' : '');
         messageEl.append(String(msg ?? ''));
         body.appendChild(messageEl);
+    }
+    // One hint line: under the message, or under the list in choices mode.
+    let hintEl = null;
+    if (opts.hint) {
+        hintEl = doc.createElement('p');
+        hintEl.className = 'wg-hint';
+        hintEl.textContent = opts.hint;
+        if (!choiceMode) body.appendChild(hintEl);
     }
     if (facts.length) {
         const list = doc.createElement('ul');
@@ -361,6 +372,12 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             list.appendChild(li);
         }
         body.appendChild(list);
+    }
+    if (linkBelow) {
+        const p = doc.createElement('p');
+        p.className = 'mt-confirm-modal__message';
+        p.appendChild(linkBtn);
+        body.appendChild(p);
     }
 
     const actions = doc.createElement('div');
@@ -476,12 +493,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             list.appendChild(btn);
         }
         body.appendChild(list);
-        if (opts.hint) {
-            const hint = doc.createElement('p');
-            hint.className = 'wg-hint';
-            hint.textContent = opts.hint;
-            body.appendChild(hint);
-        }
+        if (hintEl) body.appendChild(hintEl);
     }
     if (contentMode) body.appendChild(opts.content);
 

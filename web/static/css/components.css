@@ -190,6 +190,11 @@ button.wg-row{cursor:pointer}button.wg-row:hover{background:var(--wg-bg-card-hi)
 .wg-meter__fill{position:absolute;left:0;top:0;bottom:0;width:var(--p,0%);border-radius:inherit;background:var(--wg-sun)}
 .wg-meter__fill--mint{background:var(--wg-mint)}.wg-meter__fill--sage{background:var(--wg-sage)}.wg-meter__fill--clay{background:var(--wg-clay-soft)}.wg-meter__fill--sky{background:var(--wg-sky)}
 .wg-meter--over .wg-meter__fill{background:repeating-linear-gradient(135deg,var(--wg-clay-soft) 0 6px,var(--wg-clay) 6px 12px)}
+/* the meter as a native <progress> (web/cloud/js allows no inline --p): its value is the fill */
+progress.wg-meter{display:block;width:100%;border:0;-webkit-appearance:none;appearance:none;color:var(--wg-sun)}
+progress.wg-meter::-webkit-progress-bar{background:transparent}
+progress.wg-meter::-webkit-progress-value{border-radius:var(--wg-r-pill);background:var(--wg-sun)}
+progress.wg-meter::-moz-progress-bar{border-radius:var(--wg-r-pill);background:var(--wg-sun)}
 .wg-macros{display:grid;grid-template-columns:62px minmax(0,1fr) 84px;align-items:center;gap:6px 10px}
 .wg-macros__label{font:600 var(--wg-fs-xs) var(--wg-font-ui);color:var(--wg-fg-2)}
 .wg-macros__val{font:500 11px var(--wg-font-mono);color:var(--wg-fg-3);text-align:right;white-space:nowrap}
