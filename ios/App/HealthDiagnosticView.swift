@@ -104,6 +104,13 @@ struct HealthDiagnosticView: View {
             return byUUID
         }
         func imported(_ kind: String) async throws -> Set<String> { Set(try await pages(kind).keys) }
+        /// A replay (bd med-8f4s.14): the same id at an equal or lower version
+        /// — a Copy from the user's second device — must resolve true. A throw
+        /// is recorded with its domain/code, so the report names what HealthKit did.
+        func replay(_ name: String, _ args: [String: Any]) async {
+            do { check("\(name) replay resolves", try await Health.handle("health.write", args) as? Bool == true) }
+            catch { let e = error as NSError; check("\(name) replay resolves", false, "\(e.domain) \(e.code) \(e.localizedDescription)") }
+        }
         var plain: [HKObject] = [], seeded: [HKObject] = []
         do {
             let both = ["bp", "weight", "hr", "workout"]
@@ -124,6 +131,15 @@ struct HealthDiagnosticView: View {
                 .map { store.authorizationStatus(for: $0).rawValue }
             result["granted"] = granted
             check("supported", access["supported"] as? [String] == ["bp", "weight", "hr", "workout"], access["supported"] ?? "absent")
+            // The OS gate (R5), pure: omitted on iOS 27+, 0 before; the reply follows this OS.
+            check("readableFromField 26 is 0", Health.readableFromField(osMajor: 26) == 0)
+            check("readableFromField 27 omits", Health.readableFromField(osMajor: 27) == nil)
+            let os = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+            if os < 27 {
+                check("readableFrom 0", (access["readableFrom"] as? NSNumber)?.intValue == 0, access["readableFrom"] ?? "absent")
+            } else {
+                check("readableFrom omitted on iOS \(os)", access["readableFrom"] == nil, access["readableFrom"] ?? "absent")
+            }
             check("weight writable", granted.contains("weight"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
             // Heart rate and workouts are plain types: unlike bp they must grant here.
             check("hr writable", granted.contains("hr"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
@@ -154,7 +170,20 @@ struct HealthDiagnosticView: View {
                 }
                 _ = try await Health.handle("health.write", ["type": "weight", "id": weight, "version": version, "at": at, "kg": sys / 2])
             }
+            // Replays: equal version (same payload), then lower (the old one).
+            // HealthKit must keep the v2000 objects; the report says whether
+            // the equal one was kept or re-saved (its uuid).
+            step("replay")
+            let kgBefore = try await synced(Health.bodyMass, weight).first?.uuid
+            for (version, sys) in [(2_000, 131.0), (1_000, 120.0)] {
+                if bpOn {
+                    await replay("bp v\(version)", ["type": "bp", "id": bp, "version": version, "at": at,
+                                                    "systolic": sys, "diastolic": 80.0])
+                }
+                await replay("weight v\(version)", ["type": "weight", "id": weight, "version": version, "at": at, "kg": sys / 2])
+            }
             let kgs = try await synced(Health.bodyMass, weight)
+            result["equalReplay"] = kgs.count == 1 && kgs.first?.uuid == kgBefore ? "kept" : "replaced"
             check("one weight", kgs.count == 1 && abs(value(kgs.first, kg) - 65.5) < 0.01, "\(kgs.count) \(value(kgs.first, kg))")
             check("weight version", (kgs.first?.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue == 2_000)
             check("weight our source", kgs.first.map { Health.ours($0) } == true)
@@ -238,6 +267,9 @@ struct HealthDiagnosticView: View {
             for (version, b) in [(1_000, 61.0), (2_000, 64.0)] {
                 _ = try await Health.handle("health.write", ["type": "hr", "id": pulse, "version": version, "at": at, "bpm": b])
             }
+            for (version, b) in [(2_000, 64.0), (1_000, 61.0)] {
+                await replay("hr v\(version)", ["type": "hr", "id": pulse, "version": version, "at": at, "bpm": b])
+            }
             let hrs = try await synced(Health.heartRate, pulse)
             check("one pulse", hrs.count == 1 && value(hrs.first, bpm) == 64, "\(hrs.count) \(value(hrs.first, bpm))")
             check("pulse version", (hrs.first?.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue == 2_000)
@@ -269,6 +301,10 @@ struct HealthDiagnosticView: View {
                 _ = try await Health.handle("health.write", ["type": "workout", "id": session, "version": version,
                                                              "start": start, "end": end, "activity": activity])
             }
+            for (version, activity, end) in [(2_000, 50, ends[1]), (1_000, 3000, ends[0])] {
+                await replay("workout v\(version)", ["type": "workout", "id": session, "version": version,
+                                                     "start": start, "end": end, "activity": activity])
+            }
             let mine = try await synced(wt, session)
             let w = mine.first as? HKWorkout
             check("one workout", mine.count == 1, mine.count)
@@ -278,6 +314,17 @@ struct HealthDiagnosticView: View {
             check("workout our source", w.map { Health.ours($0) } == true)
             check("workout span", w.map { abs(ms($0.startDate) - start) < 1 && abs(ms($0.endDate) - ends[1]) < 1 } == true,
                   w.map { "\(ms($0.startDate))…\(ms($0.endDate))" } ?? "none")
+            // held() is what turns a store error into true (bd med-8f4s.14 R4):
+            // true only at our version or below it; the false cases are the
+            // proof that a real store error still rethrows.
+            step("held")
+            let heldCases: [(String, Int64, Bool)] = [(session, 1_000, true), (session, 2_000, true), (session, 2_001, false),
+                                                      ("workoutsession-qa-never-written", 1, false)]
+            for (id, version, want) in heldCases {
+                do { check("held \(id == session ? "workout" : "never-written") v\(version) \(want)",
+                           try await Health.held("workout", id, version) == want) }
+                catch { let e = error as NSError; check("held workout v\(version)", false, "\(e.domain) \(e.code)") }
+            }
             var refused = false
             do { _ = try await Health.handle("health.write", ["type": "workout", "id": session + "-bad", "version": 1,
                                                               "start": start, "end": ends[0], "activity": 52]) }
@@ -295,6 +342,83 @@ struct HealthDiagnosticView: View {
             let strayWorkout = try await synced(wt, session).count
             check("workout gone", strayWorkout == 0, strayWorkout)
             check("unmarked workout kept", try await find(wt, HKQuery.predicateForObject(with: workout?.uuid ?? UUID())).count == 1)
+
+            // Batch (bd med-8f4s.14, Android twin .13): 10 mixed bodies → 10
+            // true in order, one object per id; then a malformed body gets its
+            // own error string while the others in the call are saved.
+            step("batch")
+            let b = "qa-batch-\(run)"
+            var written: [(kind: String, id: String, type: HKSampleType)] = []
+            var entries: [Any] = []
+            for i in 0..<4 {
+                let id = "weight-\(b)-\(i)"
+                entries.append(["type": "weight", "id": id, "version": 1_000, "at": at - Double(i) * 60_000, "kg": 70.0 + Double(i)])
+                written.append(("weight", id, Health.bodyMass))
+                let pid = "bp-\(b)-\(i)/pulse"
+                entries.append(["type": "hr", "id": pid, "version": 1_000, "at": at - Double(i) * 60_000, "bpm": 60.0 + Double(i)])
+                written.append(("hr", pid, Health.heartRate))
+            }
+            for i in 0..<2 {
+                let id = "workoutsession-\(b)-\(i)", s = at - Double(i + 3) * 7_200_000
+                entries.append(["type": "workout", "id": id, "version": 1_000, "start": s, "end": s + 1_800_000, "activity": 50])
+                written.append(("workout", id, wt))
+            }
+            if bpOn {
+                let id = "bp-\(b)-bp"
+                entries.append(["type": "bp", "id": id, "version": 1_000, "at": at, "systolic": 118.0, "diastolic": 76.0])
+                written.append(("bp", id, bpType))
+            }
+            func results(_ reply: Any) -> [String] {
+                (reply as? [Any] ?? []).map { $0 as? Bool == true ? "true" : ($0 as? String ?? "\($0)") }
+            }
+            let reply = results(try await Health.handle("health.write", ["entries": entries]))
+            check("batch all true", reply == Array(repeating: "true", count: entries.count), reply)
+            var counts: [String] = []
+            for w in written {
+                let n = try await synced(w.type, w.id).count
+                counts.append("\(n)")
+            }
+            check("batch one per id", counts == Array(repeating: "1", count: written.count), counts)
+
+            let okKg = "weight-\(b)-ok", okHR = "bp-\(b)-ok/pulse", badKg = "weight-\(b)-bad"
+            let mixed: [Any] = [
+                ["type": "weight", "id": okKg, "version": 1_000, "at": at, "kg": 71.5],
+                ["type": "weight", "id": badKg, "version": 1_000, "at": at, "kg": -1.0],
+                "not an object",
+                ["type": "sleep", "id": "sleep-\(b)", "version": 1_000, "at": at],
+                [String: Any](),
+                ["type": "hr", "id": okHR, "version": 1_000, "at": at, "bpm": 66.0],
+            ]
+            written += [("weight", okKg, Health.bodyMass), ("hr", okHR, Health.heartRate)]
+            let mixedReply = results(try await Health.handle("health.write", ["entries": mixed]))
+            check("batch malformed", mixedReply == ["true", "bad write: kg", "bad write: entry", "unknown type: sleep", "bad write", "true"], mixedReply)
+            let okKgs = try await synced(Health.bodyMass, okKg).count, okHRs = try await synced(Health.heartRate, okHR).count
+            check("batch others saved", okKgs == 1 && okHRs == 1, "\(okKgs) \(okHRs)")
+            check("batch malformed nothing", try await synced(Health.bodyMass, badKg).isEmpty)
+            var shape = ""
+            do { _ = try await Health.handle("health.write", ["entries": "x"]) } catch { shape = error.localizedDescription }
+            check("entries not a list throws", shape == "bad write: entries", shape)
+            var bare = ""
+            do { _ = try await Health.handle("health.write", [:]) } catch { bare = error.localizedDescription }
+            check("bare write unchanged", bare == "bad write", bare)
+            // Denied is a whole-call failure, not an entry string: the Simulator
+            // leaves BP share notDetermined, so a batch carrying bp throws.
+            if !bpOn {
+                let deniedKg = "weight-\(b)-denied"
+                written.append(("weight", deniedKg, Health.bodyMass))  // saved before bp throws; cleaned below
+                var denied = "resolved"
+                do {
+                    _ = try await Health.handle("health.write", ["entries": [
+                        ["type": "weight", "id": deniedKg, "version": 1_000, "at": at, "kg": 70.0],
+                        ["type": "bp", "id": "bp-\(b)-denied", "version": 1_000, "at": at, "systolic": 118.0, "diastolic": 76.0],
+                    ]])
+                } catch { denied = error.localizedDescription }
+                check("batch denied throws", denied == "denied", denied)
+            }
+            for w in written { _ = try await Health.handle("health.delete", ["type": w.kind, "id": w.id]) }
+            var strayBatch = 0
+            for w in written { strayBatch += try await synced(w.type, w.id).count }
+            check("batch gone", strayBatch == 0, strayBatch)
         } catch {
             let e = error as NSError
             failed.append("error \(e.domain) \(e.code) \(e.localizedDescription)")
