@@ -310,7 +310,8 @@ describe('WGWorkoutChart.render', () => {
                 .map((b) => Number(b.getAttribute('x')) + Number(b.getAttribute('width')) / 2);
             const labels = Array.from(svg.querySelectorAll('text[data-workout-axis="x"]'));
             expect(labels.map((t) => t.textContent)).toEqual(
-                two.map((w) => new Date(w.week).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })));
+                two.map((w) => { const d = new Date(w.week); return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`; }));
+            expect(labels[0].textContent).toMatch(/^\d{2}\.\d{2}$/);
             labels.forEach((t, i) => expect(Number(t.getAttribute('x'))).toBeCloseTo(centres[i], 0));
             // A skipped week keeps its slot: gaps stay evenly spaced.
             const gap = env.api.render({ sessions: [two[0], { week: '2026-10-26T12:00:00Z', volume: 500 }], metric: 'volume', variant: 'bars' });
