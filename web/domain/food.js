@@ -497,6 +497,18 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       if (!resolvedName) resolvedName = product.name;
       bumpAfterCreate = product;
     } else if (resolvedName) {
+      // A replay of a recordId that already landed (a re-drained Telegram
+      // item, re-parsed by the model under maybe another name) keeps the
+      // row's link: no second product, no second use (med-5jq.4 review).
+      const prior = recordId && (await records.list(LOG_RECORD_TYPE)).find((r) => !r.deleted && r.recordId === recordId);
+      const linked = prior && prior.product_id && (await productsIndex()).get(prior.product_id);
+      if (linked) {
+        resolvedProductId = linked.recordId;
+        resolvedName = linked.name;
+        matched = 'exact';
+      }
+    }
+    if (resolvedName && !resolvedProductId) {
       const found = resolveProduct(resolvedName, await records.list(PRODUCT_RECORD_TYPE), { barcode: input.barcode });
       const touched = found.product && await touchProduct(found.product, (cur) => (
         !cur.barcode && input.barcode ? { barcode: input.barcode } : {}));

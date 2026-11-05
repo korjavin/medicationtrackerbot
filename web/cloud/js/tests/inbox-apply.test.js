@@ -1802,6 +1802,21 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(logs[0].product_id).toBe(products[0].recordId);
     });
 
+    it('a re-drain the model parses under another name keeps the first link: no orphan product, no second use', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const names = ['Boiled egg', 'eggs, boiled'];
+        const aiClient = { parseMealFromDescription: async () => ({ items: [{ ...TWO_EGGS[0], name: names.shift() }] }) };
+        const opts = { ...domainsFor(records, now, aiClient), editReply: vi.fn() };
+        await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
+        await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
+
+        const products = await records.list('foodproduct');
+        expect(products).toHaveLength(1);
+        expect(products[0]).toMatchObject({ name: 'Boiled egg', usage_count: 1 });
+        expect(await records.list('foodlog')).toMatchObject([{ name: 'Boiled egg', product_id: products[0].recordId }]);
+    });
+
     it('bare /food is refused with a usage hint and logs nothing', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
