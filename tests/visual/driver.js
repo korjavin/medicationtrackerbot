@@ -711,7 +711,7 @@
             // app's own Health card over a stub store where other apps hold
             // nothing, writing on, in page-only storage, and reach the state
             // step.healthCopy names: "row" HW7, "offer" HW6 (the dialog the row
-            // opens), "running" HW8 (the first 50 calls land, then the store
+            // opens), "running" HW8 (a few calls land, then the store
             // stops answering), "paused" HW8b (every call fails), "done" HW9,
             // "refused" HW9b (weight not allowed). The vault is only read.
             const mode = step.healthCopy;
@@ -722,11 +722,17 @@
                 ['wg.health.writeAsked', JSON.stringify(kinds)],
             ]);
             const storage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => { mem.set(k, String(v)); }, removeItem: (k) => { mem.delete(k); } };
+            // running: the first pass lands 4 calls and fails the rest, so it
+            // ends with progress (the row renders per pass); every later call
+            // never answers, which holds HW8 "N of M" with the meter.
             let calls = 0;
+            let hold = false;
             const answer = () => {
                 if (mode === 'paused') return Promise.reject(new Error('busy'));
-                if (mode === 'running' && ++calls > 50) return new Promise(() => {});
-                return Promise.resolve(true);
+                if (mode !== 'running') return Promise.resolve(true);
+                if (hold) return new Promise(() => {});
+                if (++calls === 5) setTimeout(() => { hold = true; }, 0);
+                return calls <= 4 ? Promise.resolve(true) : Promise.reject(new Error('busy'));
             };
             const health = {
                 label: 'Health Connect', accessHint: 'Health Connect → App permissions',
