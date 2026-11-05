@@ -22,6 +22,16 @@ def _heredoc(m):
     return m.group(0) if re.search(r"\b(ba|z|da)?sh\b|\beval\b|\bsource\b|\bxargs\b", m.group(1)) else m.group(1)
 cmd = re.sub(r"([^\n]*<<-?\s*(['\"])(\w+)\2[^\n]*)\n(?:.*?\n)??[ \t]*\3[ \t]*(?=\n|$)", _heredoc, cmd, flags=re.S)
 cmd = re.sub(r"\d*>>?(&\d+|\s*[\w./-]+)", " ", cmd)
+# Separators inside a quoted string are data (`rg 'vitest|pnpm'`, `mr send "…pnpm test…"`), unless a
+# shell runs the string: after `-c`/`eval` it becomes its own segment, and `"$(…)"` stays as it is.
+def _quoted(m):
+    s, inner = m.group(0), m.group(0)[1:-1]
+    if re.search(r"(\s-\w*c|\beval)\s*$", cmd[:m.start()]):
+        return f" ; {inner} ; "
+    if s[0] == '"' and ("$(" in inner or "`" in inner):
+        return s
+    return s[0] + re.sub(r"[;&|\n()]", " ", inner) + s[0]
+cmd = re.sub(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", _quoted, cmd)
 for seg in re.split(r"[;&|\n()]+|\$\(|`", cmd):
     try:
         words = shlex.split(seg)
