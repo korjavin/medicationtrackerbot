@@ -54,8 +54,11 @@ import kotlin.reflect.KClass
  * sample shapes; web/domain/healthimport.js maps them into the vault.
  *
  *   health.authorize {types, write?}       → Boolean (false: no Health Connect on this device)
- *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr"]}
+ *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr", "workout"]}
  *   health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?} → true
+ *   health.write {type: "workout", id, version, start, end, activity} → true
+ *     activity: exactly 50 (strength training) or 3000 (other workout); end > start.
+ *     No title, exercises, sets, weights, segments, calories, distance or heart rate.
  *   health.delete {type, id}              → true (only our clientRecordId, never a store UUID)
  *   health.query {type, anchor?, limit?}   → {samples, anchor, returned, more}
  *   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
@@ -167,7 +170,10 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     private suspend fun write(args: JSONObject): Boolean {
         val kind = args.getString("type")
         requireWrite(kind)
-        val record = writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
+        val record = if (kind == "workout") writeRecord(kind, args.getString("id"), args.getLong("version"),
+            start = workoutMillis(args.opt("start"), "start"), end = workoutMillis(args.opt("end"), "end"),
+            activity = (args.opt("activity") as? Number)?.toDouble() ?: Double.NaN)
+        else writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
             args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"), args.optDouble("bpm"))
         // Older clientRecordVersions cannot replace a newer record. Android 14
         // accepts equal-version replays: a committed version must keep its payload.
@@ -309,7 +315,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
                 }
             }
             "workout" -> JSONArray().apply {
-                records.filterIsInstance<ExerciseSessionRecord>().forEach { put(workout(it, granted)) }
+                importableWorkouts(records, activity.packageName).forEach { put(workout(it, granted)) }
             }.let { page(it, anchor, returned, more) }
             else -> JSONArray().apply { records.filterNot {
                 isOwnWrite(it.metadata.dataOrigin.packageName, it.metadata.clientRecordId, activity.packageName)
@@ -442,7 +448,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             AggregateRequest(metrics, TimeRangeFilter.between(w.startTime, w.endTime), setOf(w.metadata.dataOrigin))
 
         val WRITABLE: Map<String, KClass<out Record>> = mapOf(
-            "bp" to BloodPressureRecord::class, "weight" to WeightRecord::class, "hr" to HeartRateRecord::class)
+            "bp" to BloodPressureRecord::class, "weight" to WeightRecord::class, "hr" to HeartRateRecord::class,
+            "workout" to ExerciseSessionRecord::class)
 
         fun writableKinds(kinds: Collection<String>, granted: Set<String>): List<String> = kinds.distinct().filter {
             WRITABLE[it]?.let { type -> HealthPermission.getWritePermission(type) in granted } == true
@@ -451,9 +458,23 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         fun isOwnWrite(originPackage: String, clientRecordId: String?, packageName: String): Boolean =
             originPackage == packageName && clientRecordId != null
 
-        fun writeRecord(kind: String, id: String, version: Long, at: Long,
+        fun importableWorkouts(records: List<Record>, packageName: String): List<ExerciseSessionRecord> =
+            records.filterIsInstance<ExerciseSessionRecord>().filterNot {
+                isOwnWrite(it.metadata.dataOrigin.packageName, it.metadata.clientRecordId, packageName)
+            }
+
+        /** JSON numbers only: getLong/optInt would silently accept strings or truncate fractions. */
+        fun workoutMillis(value: Any?, field: String): Long {
+            val number = (value as? Number)?.toDouble()
+            require(number != null && number.isFinite() && number % 1.0 == 0.0 &&
+                number >= -9007199254740991.0 && number <= 9007199254740991.0) { "bad write: $field" }
+            return number.toLong()
+        }
+
+        fun writeRecord(kind: String, id: String, version: Long, at: Long = 0,
                         systolic: Double = Double.NaN, diastolic: Double = Double.NaN,
-                        kg: Double = Double.NaN, bpm: Double = Double.NaN): Record {
+                        kg: Double = Double.NaN, bpm: Double = Double.NaN,
+                        start: Long = 0, end: Long = 0, activity: Double = Double.NaN): Record {
             require(id.isNotBlank()) { "missing id" }
             require(version >= 0) { "invalid version" }
             val time = Instant.ofEpochMilli(at)
@@ -474,6 +495,19 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
                     HeartRateRecord(startTime = time, startZoneOffset = offset,
                         endTime = time, endZoneOffset = offset,
                         samples = listOf(HeartRateRecord.Sample(time, bpm.roundToLong())), metadata = metadata)
+                }
+                "workout" -> {
+                    val exerciseType = when (activity) {
+                        50.0 -> ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING
+                        3000.0 -> ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT
+                        else -> throw IllegalArgumentException("bad write: activity")
+                    }
+                    require(end > start) { "bad write: end" }
+                    val from = Instant.ofEpochMilli(start)
+                    val to = Instant.ofEpochMilli(end)
+                    ExerciseSessionRecord(startTime = from, startZoneOffset = ZoneId.systemDefault().rules.getOffset(from),
+                        endTime = to, endZoneOffset = ZoneId.systemDefault().rules.getOffset(to),
+                        metadata = metadata, exerciseType = exerciseType)
                 }
                 else -> throw IllegalArgumentException("unknown write type: $kind")
             }

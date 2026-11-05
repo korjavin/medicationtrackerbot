@@ -520,8 +520,9 @@ Reminders stay local notifications (above).
 The twin of the Apple Health import ([ios.md](ios.md)): Health Connect → the
 page → the encrypted vault, like a hand-entered reading. The opt-in
 write-back (epic med-8f4s, "Also write my entries", off by default; shell
-side bd med-8f4s.2) copies BP and weight entries added or changed on this
-phone into Health Connect, disclosed as the `health-write-back`
+side bd med-8f4s.2, .7, .9) copies blood pressure entries (with the pulse you noted),
+weight entries, and the workouts you complete in the app (start, end and type only,
+no exercises, sets or weights) added or changed on this phone into Health Connect, disclosed as the `health-write-back`
 privacy-manifest row; the rationale screen
 (`PermissionsRationaleActivity.kt`) states both. Health
 Connect is part of the Android 14 framework, so there is no provider app to
@@ -549,12 +550,12 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   permission dialog on Android 14) and answers `true` whenever Health Connect
   exists, `false` when it doesn't (work profile, no service); like HealthKit, a
   denied type just returns no samples.
-- **Opt-in write-back (med-8f4s.2, med-8f4s.7):** `WRITE_BLOOD_PRESSURE`,
-  `WRITE_WEIGHT` and `WRITE_HEART_RATE` join that Play declaration before the containing Play upload
-  (owner task med-0xad.8). `health.authorize {types, write: ['bp', 'weight', 'hr']}`
+- **Opt-in write-back (med-8f4s.2, med-8f4s.7, med-8f4s.9; iOS twin med-8f4s.10):** `WRITE_BLOOD_PRESSURE`,
+  `WRITE_WEIGHT`, `WRITE_HEART_RATE` and `WRITE_EXERCISE` join that Play declaration before the containing Play upload
+  (owner task med-0xad.8, still required before upload). `health.authorize {types, write: ['bp', 'weight', 'hr', 'workout']}`
   asks for reads and writes in one sheet; omitting `write` stays read-only.
   `health.writeAccess {types}` reports the actual granted write kinds, including
-  partial grants, plus `supported: ['bp', 'weight', 'hr']` even when a kind is denied.
+  partial grants, plus `supported: ['bp', 'weight', 'hr', 'workout']` even when a kind is denied.
   Older shells omit `supported`, which the page treats as BP/weight support.
   A store/access error rejects rather than pretending access
   was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?}`
@@ -568,6 +569,24 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   both identities. Denied heart-rate access holds only pending pulses, leaving BP
   and weight free to write. A later grant drains the existing ledger; older readings
   follow their next edit, with no historical pulse backfill.
+  `health.write {type: 'workout', id, version, start, end, activity}` writes an
+  `ExerciseSessionRecord` with that same manual provenance and client identity/version.
+  The final span and type come from the page: numeric activity **50** maps to the SDK's
+  `EXERCISE_TYPE_STRENGTH_TRAINING`, **3000** to `EXERCISE_TYPE_OTHER_WORKOUT`;
+  unknown, missing or malformed types and non-increasing spans reject. Numeric strings
+  and fractional timestamps reject rather than silently coercing. The shell adds no
+  title, notes, segments or laps, and writes no calories, distance or heart rate for it.
+  Plans are strength; ad-hoc sessions are strength only with nonempty, all non-cardio
+  tagged exercise logs, otherwise other. Names and per-set details stay in the app.
+  The web owns eligibility and span limits; the shell does not infer them. An open,
+  skipped or zero-length session is never mirrored. Denying exercise write access holds
+  only workouts; BP, pulse and weight continue. A later grant can drain eligible queued
+  local changes, with no switch-on backfill or writes caused by passive sync. A workout
+  completed on another device is not mirrored by this phone.
+  Workout reads drop only this package's sessions carrying a `clientRecordId`, before
+  building samples, while raw read counts and changes anchors still advance. Foreign
+  sessions and unmarked same-package fixtures remain importable. Workout averages stay
+  scoped to the imported session's own data origin; no blanket heart-rate filter is added.
   `health.delete {type, id}` deletes by our package's client identity only;
   an unknown id is a successful no-op. A Health Connect UUID from an imported
   reading is never used as a deletion target. Both write/delete reject
