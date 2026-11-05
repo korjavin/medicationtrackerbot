@@ -2896,6 +2896,20 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect((await getRaw(SLOT)).notes).toBe('mine');
   });
 
+  // Argus round 2: an offline materialization moved twice sits at clientTs 2,
+  // above the floor band; it is still all derived, so a newer Start wins.
+  it('a fresh floor re-pointed twice offline loses to a newer snapshot Start', async () => {
+    await seed([]);
+    const port = recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true });
+    let row = await port.putIfAbsent('workoutsession', derived({ variant_id: 1 }));
+    row = await port.putIfUnchanged('workoutsession', { ...row, variant_id: 2, clientTs: 0 }, row);
+    row = await port.putIfUnchanged('workoutsession', { ...row, variant_id: 3, clientTs: 0 }, row);
+    expect(row.clientTs).toBe(2);
+
+    await replaceAllRecords([{ ...row, recordType: 'workoutsession', clientTs: 9000, status: 'in_progress', variant_id: 1 }]);
+    expect(await getRaw(SLOT)).toMatchObject({ status: 'in_progress', variant_id: 1 });
+  });
+
   // Argus round 1: a re-point over an UNSENT real edit (an offline snooze)
   // carries that edit in its body, so the queue entry must stay a real edit.
   it('putIfUnchanged over a queued real edit keeps it a real pending edit on re-bootstrap', async () => {

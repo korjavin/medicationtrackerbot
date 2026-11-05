@@ -574,7 +574,7 @@ export async function resetLocalSync(ctx) {
   }
 }
 
-// `derived` marks a queued derived rewrite (putIfUnchanged, bd med-qsq3) so
+// `derived` marks a queued derived write (putIfAbsent, putIfUnchanged; bd med-qsq3) so
 // replaceAllRecords can drop it like a floored row. Any later write of the
 // record re-marks it without the flag, and a derived rewrite never flags an
 // entry that is already queued plain: the rewrite copies that unsent real edit
@@ -1988,7 +1988,9 @@ async function stampAndPut(recordType, record, { ifAbsent, ifMatchTs, update, sk
       wrote = Boolean(row);
       if (wrote) await putRecord(row);
     }
-    if (wrote && pending) await markPending(record.recordId, recordType, ifMatchTs !== undefined);
+    // Both derived modes queue discardable entries: a floored materialization
+    // followed by two re-points is a derived row at clientTs 2 (bd med-qsq3).
+    if (wrote && pending) await markPending(record.recordId, recordType, ifAbsent || ifMatchTs !== undefined);
   });
   return { stamped, wrote };
 }
