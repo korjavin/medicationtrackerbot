@@ -38,7 +38,12 @@ export function medRegister(win) {
   }
 }
 
-async function readText(res, bytes, onProgress) {
+// A half-open connection (captive portal, a phone waking up) never settles a
+// fetch; with no byte for this long the load fails, so the editor reaches
+// "Couldn't load" with Retry instead of loading forever.
+const EMA_STALL_MS = 15000;
+
+async function readText(res, bytes, onProgress, onBytes) {
   const length = Number(res.headers && res.headers.get('content-length'));
   const encoded = res.headers && res.headers.get('content-encoding');
   const total = !encoded && length > 0 ? length : bytes;
@@ -50,6 +55,7 @@ async function readText(res, bytes, onProgress) {
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    onBytes();
     chunks.push(value);
     loaded += value.length;
     onProgress(Math.min(loaded / total, 0.99));
@@ -62,6 +68,7 @@ export function createEmaLoader({
   caches: cacheStorage = globalThis.caches,
   revision = EMA_REVISION,
   bytes = EMA_BYTES,
+  stallMs = EMA_STALL_MS,
 } = {}) {
   const url = emaAssetUrl(revision);
   const cacheName = EMA_CACHE_PREFIX + revision;
@@ -91,10 +98,27 @@ export function createEmaLoader({
         return;
       } catch { /* a corrupt copy is replaced below */ }
     }
-    // no-store: this cache, not the HTTP one, holds the copy.
-    const res = await fetchImpl(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`ema asset ${res.status}`);
-    const text = await readText(res, bytes, (p) => { progress = p; });
+    // Stall guard: re-armed on every chunk; firing aborts the request and
+    // rejects even if the fetch ignores the signal.
+    const ctrl = new AbortController();
+    let timer;
+    let stalled;
+    const stall = new Promise((_, reject) => { stalled = reject; });
+    stall.catch(() => {});
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { ctrl.abort(); stalled(new Error('ema asset stalled')); }, stallMs);
+    };
+    let text;
+    try {
+      arm();
+      // no-store: this cache, not the HTTP one, holds the copy.
+      const res = await Promise.race([fetchImpl(url, { cache: 'no-store', signal: ctrl.signal }), stall]);
+      if (!res.ok) throw new Error(`ema asset ${res.status}`);
+      text = await Promise.race([readText(res, bytes, (p) => { progress = p; }, arm), stall]);
+    } finally {
+      clearTimeout(timer);
+    }
     const next = createEMACatalogue(JSON.parse(text));
     catalogue = next;
     if (cache) await store(cache, text);

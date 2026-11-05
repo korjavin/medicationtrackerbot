@@ -45,7 +45,7 @@ describe('ema loader', () => {
     expect(loader.state().status).toBe('loading');
     await a;
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith('/static/data/ema-article57-rev90-v1.json', { cache: 'no-store' });
+    expect(fetch).toHaveBeenCalledWith('/static/data/ema-article57-rev90-v1.json', { cache: 'no-store', signal: expect.any(AbortSignal) });
     expect(loader.state().status).toBe('ready');
     expect(loader.state().catalogue.exact('candecor').candidates).toHaveLength(1);
     expect([...caches.stores.keys()]).toEqual(['medtracker-ema-rev90-v1']);
@@ -107,6 +107,21 @@ describe('ema loader', () => {
     expect((await settle(loader)).status).toBe('unavailable');
     expect((await settle(loader)).status).toBe('ready');
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('a stalled download fails after the stall timeout (no response, or the body stops), and Retry loads', async () => {
+    const body = asset();
+    const silent = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(body.slice(0, 10))); } });
+    const fetch = vi.fn()
+      .mockImplementationOnce((_url, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))))
+      .mockImplementationOnce(async () => new Response(silent, { headers: { 'Content-Length': String(body.length) } }))
+      .mockImplementation(okFetch(body));
+    const loader = createEmaLoader({ fetch, caches: fakeCaches(), stallMs: 20 });
+    expect((await settle(loader)).status).toBe('unavailable');
+    expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect((await settle(loader)).status).toBe('unavailable');
+    expect((await settle(loader)).status).toBe('ready');
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 });
 
