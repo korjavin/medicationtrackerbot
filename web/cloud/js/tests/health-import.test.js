@@ -2606,6 +2606,43 @@ describe('Health write-back', () => {
                 expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
             });
 
+            it('(c) a pass where every call hits the rate limit is no step to stuck (Argus 16138 #1)', async () => {
+                allowConsoleNoise();
+                const quota = async () => { throw new Error('API call quota exceeded, availableQuota: 0'); };
+                storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-c': 1 } }));
+                storage.setItem('wg.health.backfill', JSON.stringify({ startedAt: 1, total: 1, ids: { bp: ['bp-c'] }, blocked: {}, fails: 5 }));
+                await open({ ...health, write: vi.fn(quota), remove: vi.fn(quota) });
+                await vi.waitFor(() => expect(rowText()[0]).toBe('Copy paused'));
+                expect(job().fails).toBe(5);
+                const view = document.getElementById('settings-view');
+                view.classList.add('active');
+                view.classList.remove('active');
+                await tick();
+                expect(job().ids).toEqual({ bp: ['bp-c'] });
+            });
+
+            it('(g)(i) a saved job admits its blocked ids only under the current window, and not at all without readableFrom (Argus 16138 #2)', async () => {
+                const saved = JSON.stringify({ startedAt: 1, total: 2, ids: {}, blocked: { weight: ['w-1', 'w-2'] } });
+                // A shell without readableFrom: no row, no read, nothing marked or written.
+                storage.setItem('wg.health.backfill', saved);
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL }));
+                await open();
+                foreground();
+                await tick();
+                expect(copyRow()).toBeNull();
+                expect(query).not.toHaveBeenCalled();
+                expect(dirty().weight).toBeUndefined();
+                expect(job().blocked).toEqual({ weight: ['w-1', 'w-2'] });
+
+                // A window from 01.10 12:00: w-1 (08:00) and w-2 (09:00) are older, dropped unsent.
+                document.body.innerHTML = home;
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: at('2026-10-01T12:00:00Z') }));
+                await open();
+                await finished();
+                expect(job()).toMatchObject({ total: 0, ids: { weight: [] }, blocked: {} });
+                expect(health.write).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'weight' }));
+            });
+
             it('(c) a relaunch mid-copy resumes from the ledger and the job', async () => {
                 allowConsoleNoise();
                 health.write = vi.fn(async () => { throw new Error('busy'); });

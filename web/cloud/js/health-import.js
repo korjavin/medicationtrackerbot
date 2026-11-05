@@ -926,8 +926,10 @@ export function startHealthImport(ctx, {
         if (copyRow) copyRow.remove();
         copyRow = null;
         if (!writeRow || !canWrite || !isHealthWriteEnabled(storage)) return;
+        // No readableFrom, no Copy, a saved job included: its marked ids drain
+        // as ledger entries, its blocked ids wait (retryBlocked).
+        if (lastReadable === null) return;
         const st = copyState();
-        if (!st && lastReadable === null) return;
         const row = doc.createElement(st ? 'div' : 'button');
         row.id = COPY_ROW_ID;
         row.className = 'wg-setting';
@@ -977,13 +979,15 @@ export function startHealthImport(ctx, {
     // A kind whose read was denied when the copy started: read it again; once
     // it reads, its not-held entries join the job.
     // Only the ids confirmed at Copy: a row synced in since is not part of it.
+    // Runs after a pass read access, under the shell's current window: none
+    // without readableFrom, and an id now older than it is dropped, not sent.
     const retryBlocked = async () => {
         const confirmed = readJob()?.blocked || {};
         const kinds = Object.keys(confirmed);
-        if (!kinds.length) return;
+        if (!kinds.length || lastReadable === null) return;
         let plan;
         try {
-            plan = await planCopy(health, records, kinds, { only: confirmed, storage });
+            plan = await planCopy(health, records, kinds, { only: confirmed, storage, readableFrom: lastReadable });
         } catch {
             return; // store busy: next pass
         }
@@ -998,8 +1002,9 @@ export function startHealthImport(ctx, {
             job.total = job.total - job.blocked[k].length + got.length;
             delete job.blocked[k];
         }
-        if (rows.length && !writeBack.mark(rows)) return;
+        if (rows.length && !writeBack.mark(rows)) return 0;
         writeJSON(storage, JOB_KEY, job);
+        return rows.length;
     };
     let copying = null;
     let copyTimer = null;
@@ -1033,18 +1038,20 @@ export function startHealthImport(ctx, {
         }
         copying = (async () => {
             if (!readJob()) return writeBack.drain();
-            await retryBlocked();
             const delivered = await writeBack.drain();
+            // After the drain: its access read set lastReadable. Ids admitted
+            // now go out on the next pass, after the short gap.
+            const admitted = await retryBlocked();
             const st = copyState();
             if (st && st.pending && isHealthWriteEnabled(storage)) {
-                if (delivered > 0 && writeBack.quotaHit()) {
-                    // Some got through, the rest hit the rate limit: progress, so
-                    // not a step toward stuck, but wait the first back-off step
+                if (writeBack.quotaHit()) {
+                    // A call hit the rate limit: wait the first back-off step
                     // (HW8b) so the quota refills and live entries get through.
+                    // Never a step toward stuck: the store will take it later.
                     paused = true;
-                    setFails(0);
+                    if (delivered > 0) setFails(0);
                     later(copyBackoffMs);
-                } else if (delivered > 0) {
+                } else if (delivered > 0 || admitted > 0) {
                     paused = false;
                     setFails(0);
                     later(copyGapMs);

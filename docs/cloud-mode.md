@@ -521,7 +521,10 @@ never turns it off (below).
   pass where any call hit the rate limit ("API call quota exceeded") also
   shows "Copy paused" and waits 1 min even if some calls got through (at the
   limit Health Connect lets 1-2 of 50 through, so the copy would otherwise
-  spin and slow live entries); it is progress, not a step toward stuck. The
+  spin and slow live entries); it is never a step toward stuck, even when no
+  call got through. A kind blocked by a denied read rejoins only under the
+  shell's current `readableFrom` (ids now older are dropped unsent), and not at
+  all, nor is the row shown, while the shell reports none. The
   passes go on while a pulse of the job is still unsent (the row already shows
   the result). The count of failed passes in a row is kept with the job, so a
   relaunch neither restarts the back-off nor that count; once a pass fails
