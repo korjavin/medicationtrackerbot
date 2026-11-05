@@ -55,18 +55,18 @@ async function timedCheck(name) {
 export default async function euRegister(ctx) {
   const { shell, pkg, sleep } = ctx;
   const r = (ctx.results.euRegister = {
-    assetRequests: { first: 0, second: 0 }, assetResponses: [], failedAssetRequests: [],
+    assetRequests: { first: 0, second: 0 }, assetResponses: [], finishedAssetRequests: [], failedAssetRequests: [],
   });
   let counting = null;
   const isAsset = (url) => url.includes('/static/data/ema-');
   const watch = (p) => {
-    // Track the app checks, not the separate phase probe that deliberately precedes a reload.
+    // Label the separate phase probe, which deliberately precedes a reload, as instrumentation.
     // Keep the phase on the request: a late failure must not be assigned to a later check.
     const phases = new WeakMap();
     p.on('request', (q) => {
-      if (counting && isAsset(q.url())) {
-        phases.set(q, counting);
-        r.assetRequests[counting]++;
+      if (isAsset(q.url())) {
+        phases.set(q, counting || 'instrumentation');
+        if (counting) r.assetRequests[counting]++;
       }
     });
     p.on('response', (res) => {
@@ -77,7 +77,12 @@ export default async function euRegister(ctx) {
       const phase = phases.get(q);
       if (phase) r.failedAssetRequests.push({ phase, url: q.url(), error: q.failure()?.errorText });
     });
+    p.on('requestfinished', (q) => {
+      const phase = phases.get(q);
+      if (phase) r.finishedAssetRequests.push({ phase, url: q.url() });
+    });
   };
+  const failedAppRequests = () => r.failedAssetRequests.filter((q) => q.phase !== 'instrumentation');
 
   await shell(`pm clear ${pkg}`);
   let page = await ctx.step('cold start in local mode (seeds the golden vault)', async () => {
@@ -166,7 +171,8 @@ export default async function euRegister(ctx) {
     if (r.first.status !== 'ready' || r.first.candidates !== 2) throw new Error(`first check: ${JSON.stringify(r.first)}`);
     if (!r.cache.hasAsset) throw new Error(`register not stored on appassets: ${JSON.stringify(r.cache)}`);
     if (r.assetRequests.first !== 1 || !r.assetResponses.some((res) => res.phase === 'first' && new URL(res.url).origin === ctx.LOCAL_ORIGIN && res.status === 200)) throw new Error('first check did not load the bundled register successfully');
-    if (r.failedAssetRequests.length) throw new Error(`failed register requests: ${JSON.stringify(r.failedAssetRequests)}`);
+    if (!r.finishedAssetRequests.some((q) => q.phase === 'first')) throw new Error('first register asset request did not finish');
+    if (failedAppRequests().length) throw new Error(`failed register requests: ${JSON.stringify(failedAppRequests())}`);
   });
 
   await ctx.step('force-stop and relaunch: EU choice persists and cache avoids an asset request', async () => {
@@ -184,7 +190,7 @@ export default async function euRegister(ctx) {
     counting = null;
     if (r.second.status !== 'ready') throw new Error(`second check: ${JSON.stringify(r.second)}`);
     if (r.assetRequests.second) throw new Error(`${r.assetRequests.second} asset request(s) on the cached load`);
-    if (r.failedAssetRequests.length) throw new Error(`failed register requests: ${JSON.stringify(r.failedAssetRequests)}`);
+    if (failedAppRequests().length) throw new Error(`failed register requests: ${JSON.stringify(failedAppRequests())}`);
   });
 
   // The ER frames on the device, for the design check.
