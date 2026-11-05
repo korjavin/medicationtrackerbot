@@ -1190,6 +1190,18 @@ describe('Apple Health import', () => {
             expect(records.rows.get(DAY_ID).deleted).toBe(true);
         });
 
+        // bd med-poeu: the user deletes the short day first; a fuller version must not bring it back.
+        it('a short day the user deleted is not brought back by a later, fuller import', async () => {
+            const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
+            const window = { from: N0 - 48 * H, to: N0 + 60 * H };
+            await at.importSamples('sleep', night.slice(0, 1), window);
+            expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 120 });
+            await records.del('sleep', DAY_ID);
+            const later = createHealthImportDomain({ records, now: () => W0 + H, timeZone: 'UTC' });
+            expect(await later.importSamples('sleep', night, window)).toMatchObject({ added: 0 });
+            expect(records.rows.get(DAY_ID).deleted).toBe(true);
+        });
+
         it('a deleted night stays deleted across a backup, restore and full rescan', async () => {
             await runHealthImport({}, opts({ sleep: night }));
             await records.del('sleep', DAY_ID);
@@ -1475,7 +1487,9 @@ describe('Health write-back', () => {
         write: vi.fn(async () => true),
         remove: vi.fn(async () => true),
     });
-    const ALL = ['bp', 'weight', 'hr'];
+    const ALL = ['bp', 'weight', 'hr', 'workout'];
+    // What a med-8f4s.6 shell (.7/.8) can write: no workouts.
+    const HR = ['bp', 'weight', 'hr'];
     const dirty = () => JSON.parse(storage.getItem('wg.health.dirty') || '{}');
     const ledgerSize = () => Object.values(dirty()).reduce((n, m) => n + Object.keys(m).length, 0);
     const calls = () => [
@@ -1840,6 +1854,145 @@ describe('Health write-back', () => {
         expect(storage.getItem('wg.health.dirty')).toBeNull();
     });
 
+    // bd med-8f4s.5: a completed workout session is one workout in Health,
+    // start, end and type only (Archie 15354, 15360).
+    describe('workouts', () => {
+        const tick = () => new Promise((r) => setTimeout(r, 5));
+        const plan = (recordId, id) => records.put('workoutsession', {
+            recordId, clientTs: Date.now(), deleted: false, id, user_id: 1, group_id: 7, variant_id: 9,
+            scheduled_date: `${new Date().toISOString().slice(0, 10)}T00:00:00Z`, scheduled_time: '07:00',
+            status: 'pending', started_at: null, completed_at: null, snoozed_until: null, snooze_count: 0,
+            notification_message_id: null, notes: '',
+        });
+        const complete = (id) => api(`/api/workout/sessions/status?id=${id}`, 'PUT', { status: 'completed' });
+        const workoutCall = async (recordId, activity) => {
+            const s = await raw('workoutsession', recordId);
+            return { op: 'write', type: 'workout', id: recordId, version: s.clientTs, start: Date.parse(s.started_at), end: Date.parse(s.completed_at), activity };
+        };
+
+        beforeEach(() => {
+            health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL }));
+        });
+
+        it('(a) a completed plan session is one strength workout; create, start, snooze and skip send nothing; delete removes it', async () => {
+            startHealthWriteBack({ health, storage, records });
+            await plan('session-7-a', 101);
+            await plan('session-7-b', 102);
+            await api('/api/workout/sessions/101/start', 'POST');
+            await api('/api/workout/sessions/101/snooze', 'POST', { minutes: 10 });
+            await api('/api/workout/sessions/102/skip', 'POST');
+            await tick();
+            expect(calls()).toEqual([]);
+            expect(storage.getItem('wg.health.dirty')).toBeNull();
+
+            await complete(101);
+            await idle();
+            expect(calls()).toEqual([await workoutCall('session-7-a', 50)]);
+
+            await api('/api/workout/sessions/delete?id=101', 'DELETE');
+            await idle();
+            expect(calls().at(-1)).toEqual({ op: 'remove', type: 'workout', id: 'session-7-a' });
+        });
+
+        it('a session completed without a start has no span: its mark resolves to a remove', async () => {
+            startHealthWriteBack({ health, storage, records });
+            await plan('session-7-c', 103);
+            await complete(103);
+            await idle();
+            expect(calls()).toEqual([{ op: 'remove', type: 'workout', id: 'session-7-c' }]);
+        });
+
+        it('moving a completed session back to in progress removes its workout; completing it again does not re-send', async () => {
+            startHealthWriteBack({ health, storage, records });
+            await plan('session-7-d', 104);
+            await api('/api/workout/sessions/104/start', 'POST');
+            await tick();
+            await complete(104);
+            await idle();
+            await api('/api/workout/sessions/status?id=104', 'PUT', { status: 'in_progress' });
+            await idle();
+            expect(calls().at(-1)).toEqual({ op: 'remove', type: 'workout', id: 'session-7-d' });
+        });
+
+        it('an ad-hoc session is strength only when every log is a strength-tagged library exercise, else other', async () => {
+            startHealthWriteBack({ health, storage, records });
+            const lib = (recordId, id, name, body_part) => records.put('exerciselibrary', { recordId, clientTs: 1, deleted: false, id, name, body_part });
+            await lib('lib-1', 1, 'Bench press', 'chest');
+            await lib('lib-2', 2, 'Treadmill', 'cardio');
+            await lib('lib-3', 3, 'Plank', '');
+            const adhoc = async (names) => {
+                const { session } = await api('/api/workout/sessions/adhoc', 'POST');
+                const ids = { 'Bench press': 1, Treadmill: 2, Plank: 3 };
+                for (const name of names) {
+                    await api('/api/workout/sessions/logs/create', 'POST', { session_id: session.id, exercise_id: ids[name], exercise_name: name, source: 'library', target_sets: 3, target_reps_min: 5 });
+                }
+                await tick();
+                await complete(session.id);
+                await idle();
+                return (await records.listRaw('workoutsession')).find((r) => r.id === session.id).recordId;
+            };
+            const strength = await adhoc(['Bench press']);
+            const mixed = await adhoc(['Bench press', 'Treadmill']);
+            const untagged = await adhoc(['Plank']);
+            const empty = await adhoc([]);
+            expect(calls()).toEqual([
+                await workoutCall(strength, 50),
+                await workoutCall(mixed, 3000),
+                await workoutCall(untagged, 3000),
+                await workoutCall(empty, 3000),
+            ]);
+        });
+
+        // Archie 15658: a session left open and finished hours later.
+        it('a span over 4 h ends at the last log, else 4 h after the start', async () => {
+            startHealthWriteBack({ health, storage, records });
+            const done = (recordId, id) => records.put('workoutsession', {
+                recordId, clientTs: Date.now(), deleted: false, id, group_id: 7, variant_id: 9, status: 'completed',
+                started_at: '2026-10-01T08:00:00.000Z', completed_at: '2026-10-01T23:00:00.000Z',
+            });
+            await records.put('exerciselog', { recordId: 'log-a', clientTs: 1, deleted: false, id: 1, session_id: 201, exercise_id: 1, exercise_name: 'Bench press', logged_at: '2026-10-01T08:30:00.000Z' });
+            await records.put('exerciselog', { recordId: 'log-b', clientTs: 1, deleted: false, id: 2, session_id: 201, exercise_id: 1, exercise_name: 'Bench press', logged_at: '2026-10-01T09:10:00.000Z' });
+            await done('session-7-long', 201);
+            await done('session-7-nologs', 202);
+            await idle();
+            const ends = Object.fromEntries(health.write.mock.calls.map(([a]) => [a.id, [a.start, a.end]]));
+            expect(ends).toEqual({
+                'session-7-long': [Date.parse('2026-10-01T08:00:00Z'), Date.parse('2026-10-01T09:10:00Z')],
+                'session-7-nologs': [Date.parse('2026-10-01T08:00:00Z'), Date.parse('2026-10-01T12:00:00Z')],
+            });
+        });
+
+        // inbox-apply.js "I did a workout": created and completed on the
+        // message's sent instant, so started_at === completed_at.
+        it('a Telegram "I did a workout" log (a zero-length span) is never written', async () => {
+            startHealthWriteBack({ health, storage, records });
+            const sentMs = Date.now();
+            const workout = createWorkoutDomain({ records, now: () => sentMs, timeZone: 'UTC' });
+            const session = await workout.createAdHocSession({ recordId: 'tg-9', notes: 'gym' });
+            await workout.setSessionStatus(session.id, 'completed');
+            await idle();
+            expect((await raw('workoutsession', 'tg-9')).status).toBe('completed');
+            expect(calls()).toEqual([{ op: 'remove', type: 'workout', id: 'tg-9' }]);
+        });
+
+        // No re-import: the shells drop their own workouts before the page.
+        it('a workout page holding only our own (dropped by the shell) moves the anchor and writes nothing', async () => {
+            const mem = memRecords();
+            const h = {
+                isSupported: () => true,
+                requestAuthorization: async () => true,
+                query: vi.fn(async ({ type }) => (type === 'workout'
+                    ? { samples: [], anchor: 'w1', returned: 2, more: false }
+                    : { samples: [], anchor: null, returned: 0, more: false })),
+            };
+            const st = memStorage();
+            st.setItem('wg.health.enabled', 'true');
+            expect(await runHealthImport({}, { health: h, storage: st, records: mem, flush: async () => true, diag: () => {} })).toEqual({ added: 0 });
+            expect(JSON.parse(st.getItem('wg.health.anchors')).workout).toBe('w1');
+            expect(mem.rows.size).toBe(0);
+        });
+    });
+
     // Kit HW0-HW4 (screens-health-write.html): the "Also write my entries" row.
     describe('Settings write row', () => {
         const writeRow = () => document.getElementById('health-write-row');
@@ -1981,11 +2134,11 @@ describe('Health write-back', () => {
             await new Promise((r) => setTimeout(r, 10));
             foreground();
             await new Promise((r) => setTimeout(r, 10));
-            expect(requestAuthorization.mock.calls.filter(([, o]) => o)).toEqual([[expect.any(Array), { write: ['hr'] }]]);
+            expect(requestAuthorization.mock.calls.filter(([, o]) => o)).toEqual([[expect.any(Array), { write: ['hr', 'workout'] }]]);
         });
 
         it('two kinds missing read in the plural (Miles 15460)', async () => {
-            health.writeAccess = vi.fn(async () => ({ granted: ['bp'], supported: ALL }));
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp'], supported: HR }));
             await start();
             await flip(writeToggle(), true);
             expect(writeDesc()).toBe("Writing blood pressure only. Weight and pulse (heart rate) aren't allowed: allow them in Health Connect → App permissions.");
@@ -1993,7 +2146,7 @@ describe('Health write-back', () => {
 
         // bd med-8f4s.6: heart rate denied on a shell that can write it.
         it('pulse denied: bp and weight arrive, the pulses wait and the line names pulse; allowed later, they arrive', async () => {
-            health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'], supported: ALL }));
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'], supported: HR }));
             await start();
             await flip(writeToggle(), true);
             expect(writeToggle().checked).toBe(true);
@@ -2004,7 +2157,7 @@ describe('Health write-back', () => {
             expect(calls().map((c) => c.type)).toEqual(['bp', 'weight']);
             expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: w.id }));
 
-            health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL });
+            health.writeAccess.mockResolvedValue({ granted: HR, supported: HR });
             foreground();
             await idle();
             expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'hr', id: `${b.id}/pulse`, bpm: 66 }));
@@ -2030,7 +2183,7 @@ describe('Health write-back', () => {
 
             // The shell updates: it now writes hr, never asked on this device.
             requestAuthorization.mockClear();
-            health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL });
+            health.writeAccess.mockResolvedValue({ granted: HR, supported: HR });
             foreground();
             await idle();
             expect(requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2'], { write: ['hr'] });
@@ -2038,7 +2191,53 @@ describe('Health write-back', () => {
             foreground();
             await new Promise((r) => setTimeout(r, 10));
             expect(requestAuthorization).toHaveBeenCalledTimes(1);
+            expect(storage.getItem('wg.health.writeAsked')).toBe(JSON.stringify(HR));
+
+            // bd med-8f4s.5: the next shell writes workouts; asked once, on its own.
+            requestAuthorization.mockClear();
+            health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL });
+            foreground();
+            await vi.waitFor(() => expect(requestAuthorization).toHaveBeenCalledWith(expect.any(Array), { write: ['workout'] }));
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(requestAuthorization).toHaveBeenCalledTimes(1);
             expect(storage.getItem('wg.health.writeAsked')).toBe(JSON.stringify(ALL));
+        });
+
+        // bd med-8f4s.5 (b): workouts denied on a shell that can write them.
+        it('workouts denied: bp, pulse and weight arrive, the workouts wait and the line names them; allowed later, they arrive', async () => {
+            health.writeAccess = vi.fn(async () => ({ granted: HR, supported: ALL }));
+            await start();
+            await flip(writeToggle(), true);
+            expect(writeToggle().checked).toBe(true);
+            expect(writeDesc()).toBe("Writing blood pressure, weight and pulse (heart rate) only. Workouts aren't allowed: allow them in Health Connect → App permissions.");
+            const s = await api('/api/workout/sessions/adhoc', 'POST');
+            await new Promise((r) => setTimeout(r, 5));
+            await api(`/api/workout/sessions/status?id=${s.session.id}`, 'PUT', { status: 'completed' });
+            const b = await api('/api/bp', 'POST', { measured_at: '2026-10-01T07:30:00Z', systolic: 120, diastolic: 80, pulse: 66 });
+            const w = await api('/api/weight', 'POST', { measured_at: '2026-10-01T07:30:00Z', weight: 80 });
+            const sessionId = (await records.listRaw('workoutsession'))[0].recordId;
+            await vi.waitFor(() => expect(dirty()).toEqual({ bp: {}, weight: {}, hr: {}, workout: { [sessionId]: expect.any(Number) } }));
+            expect(calls().map((c) => c.type).sort()).toEqual(['bp', 'hr', 'weight']);
+            expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: w.id }));
+            expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'hr', id: `${b.id}/pulse` }));
+
+            health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL });
+            foreground();
+            await idle();
+            expect(health.write).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'workout', id: sessionId, activity: 3000 }));
+            expect(writeDesc()).toBeNull();
+        });
+
+        it('on a shell that cannot write workouts (no `supported`, or a .7/.8 shell) no workout line shows', async () => {
+            health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'] }));
+            await start();
+            await flip(writeToggle(), true);
+            expect(writeDesc()).toBeNull();
+            health.writeAccess.mockResolvedValue({ granted: HR, supported: HR });
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(writeDesc()).toBeNull();
         });
 
         // Miles 15063, Iris 15065: access removed later pauses, never turns it off.

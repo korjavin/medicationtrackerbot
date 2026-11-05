@@ -488,7 +488,7 @@ Spec: [screens-onboarding-v3.html](claude-design/ui_kits/app-v2/screens-onboardi
 - **Files**: downloads go to the share sheet / Save to Files (iOS) or the Android downloads/share flow, and print uses the native print dialog. The restore picker accepts `.age` on iOS.
 - **Camera**: live barcode scanning falls back to ZXing on canvas where `BarcodeDetector` is missing (iOS).
 - **Haptics**: the rest timer vibrates when rest ends (Android only; iOS has no vibrate).
-- **Health data**: HealthKit (iOS) / Health Connect (Android) import BP, weight, sleep and workouts. The data is pulled while the app is open; an opt-in "Also write my entries" switch copies BP entries (with the pulse you noted, as a heart-rate entry) and weight entries added or changed on the phone back into the Health store (epic med-8f4s).
+- **Health data**: HealthKit (iOS) / Health Connect (Android) import BP, weight, sleep and workouts. The data is pulled while the app is open; an opt-in "Also write my entries" switch copies BP entries (with the pulse you noted, as a heart-rate entry), weight entries, and the workouts you complete in the app (start, end and type only, no exercises, sets or weights) added or changed on the phone back into the Health store (epic med-8f4s).
 
 ### Web-only changes since the kit (no kit frame)
 
