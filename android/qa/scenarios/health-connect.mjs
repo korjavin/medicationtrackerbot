@@ -421,9 +421,9 @@ export default async function healthConnect(ctx) {
         return (await localRecordsPort().listRaw('workoutsession')).find((s) => s.id === id);
       }, strength.id);
       r.workouts.strength = { session: strength, detail, stored, record: strengthRecord };
-      // SDK constants are verified by the Kotlin tests; the bridge round-trip
-      // mapping below independently verifies 50/3000 against actual SDK records.
-      if (strengthRecord.recordingMethod !== 3 || strengthRecord.clientId !== stored.recordId || strengthRecord.version !== stored.clientTs ||
+      // AndroidX ExerciseSessionRecord constants: STRENGTH_TRAINING=70,
+      // OTHER_WORKOUT=0 (developer.android.com/reference/kotlin/androidx/health/connect/client/records/ExerciseSessionRecord).
+      if (strengthRecord.exerciseType !== 70 || strengthRecord.recordingMethod !== 3 || strengthRecord.clientId !== stored.recordId || strengthRecord.version !== stored.clientTs ||
           strengthRecord.end !== Date.parse(detail.session.completed_at) || strengthRecord.end <= strengthRecord.start ||
           strengthRecord.title !== null || strengthRecord.notes !== null || strengthRecord.segments !== 0 || strengthRecord.laps !== 0) {
         throw new Error(`workout metadata: ${JSON.stringify(r.workouts.strength)}`);
@@ -440,13 +440,24 @@ export default async function healthConnect(ctx) {
       await native('write', edited);
       r.workouts.edited = await waitNative(edited.id, (rows) => rows.length === 1 && rows[0].version === edited.version);
       const generic = r.workouts.edited[0];
-      if (generic.exerciseType === strengthRecord.exerciseType) throw new Error('strength and other mapped to same SDK type');
+      if (generic.exerciseType !== 0) throw new Error('other workout mapped to the wrong SDK type');
       await native('write', edited);
       await native('write', { ...edited, version: strengthRecord.version, activity: 50 });
       r.workouts.replayed = await waitNative(edited.id, (rows) => rows.length === 1 && rows[0].version === edited.version && rows[0].exerciseType === generic.exerciseType);
       const changes = await native('query', { type: 'workout', anchor: workoutAnchor });
       if (!changes.anchor || changes.returned < 1 || changes.samples.some((s) => s.start === edited.start)) throw new Error('marked workout echoed or anchor stalled');
       r.workouts.changes = changes;
+      r.workouts.imported = await ctx.page.evaluate(async (start) => {
+        const { localRecordsPort } = await import('/js/sync.js');
+        const { resetHealthAnchors, runHealthImport } = await import('/js/health-import.js');
+        const records = localRecordsPort();
+        resetHealthAnchors();
+        await runHealthImport({ accountId: 'local' }, { records, flush: async () => {} });
+        const rows = await records.list('miband');
+        return { ownEchoes: rows.filter((r) => r.source_start_ms === start),
+          unmarkedRunning: rows.filter((r) => r.source === 'apple_health' && r.activity_name === 'running').length };
+      }, edited.start);
+      if (r.workouts.imported.ownEchoes.length || !r.workouts.imported.unmarkedRunning) throw new Error('Health import echoed our other workout or lost the running fixture');
       for (const activity of [37, 50.5, '50', null]) {
         const result = await native('write', { ...edited, version: edited.version + 1, activity }).then(() => 'accepted', (e) => String(e.message || e));
         if (!result.includes('bad write: activity')) throw new Error(`malformed activity accepted: ${activity}: ${result}`);
@@ -466,6 +477,10 @@ export default async function healthConnect(ctx) {
       await removeSession(cardio.id);
       await waitNative(other.clientId, (rows) => rows.length === 0);
       await shell(`pm revoke ${pkg} android.permission.health.WRITE_EXERCISE`);
+      // As for BP/HR above, Android kills the process on a permission revoke.
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after exercise revoke failed');
       const access = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
       if (access.granted.includes('workout') || !['bp', 'weight', 'hr'].every((k) => access.granted.includes(k))) throw new Error('exercise denial leaked across kinds');
       const pending = await newSession('cardio');
