@@ -72,8 +72,9 @@ async function paintCloudPush(toggleBtn, on) {
 
 // The app shells' APNs/FCM wake channel (bd med-erq1.3, native/push-token.js):
 // "on" once the shell has a device token for the relay to wake. Hidden on the
-// web and on a page without the capability.
-async function paintNativeWake(doc) {
+// web and on a page without the capability. `granted` is the shell's
+// notification permission, so an off line says why (bd med-hh0e).
+async function paintNativeWake(doc, granted) {
     if (settingsRenderBlocked(doc)) return;
     const line = doc?.getElementById('cloud-push-wake');
     if (!line) return;
@@ -83,7 +84,8 @@ async function paintNativeWake(doc) {
     } catch (e) { /* native/ stub: leave the line hidden */ }
     if (settingsRenderBlocked(doc)) return;
     line.hidden = on === null;
-    if (on !== null) line.textContent = on ? 'Wake-ups: on' : 'Wake-ups: off (allow notifications)';
+    if (on !== null) line.textContent = on ? 'Wake-ups: on'
+        : granted ? 'Wake-ups: off (not connected yet)' : 'Wake-ups: off (allow notifications)';
 }
 
 // status is passed only on the initial bind. After a deliberate Disable click
@@ -97,7 +99,7 @@ async function refreshCloudPushToggleState(toggleBtn, status) {
             const granted = (await window.LocalNotifications.permission()) === 'granted';
             if (settingsRenderBlocked()) return;
             paintCloudPush(toggleBtn, granted);
-            await paintNativeWake(toggleBtn.ownerDocument);
+            await paintNativeWake(toggleBtn.ownerDocument, granted);
             return;
         }
         const { getSubscription } = await loadCloudPushModule();
