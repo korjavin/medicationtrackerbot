@@ -75,7 +75,7 @@ export default async function euRegister(ctx) {
     });
     p.on('requestfailed', (q) => {
       const phase = phases.get(q);
-      if (phase) r.failedAssetRequests.push({ phase, url: q.url(), error: q.failure()?.errorText });
+      if (phase) r.failedAssetRequests.push({ phase, url: q.url(), error: q.failure()?.errorText, observedDuring: r.observationStage });
     });
     p.on('requestfinished', (q) => {
       const phase = phases.get(q);
@@ -110,8 +110,10 @@ export default async function euRegister(ctx) {
     await sleep(3000); // boot work settles before measuring
   };
   const openChoice = async () => {
-    await page.locator('[data-nav-to="settings"]:visible').first().click();
-    await page.evaluate(() => window.SettingsView.openSettingsPage('features'));
+    // A plain relaunch can restore Settings, where its own navigation button is hidden.
+    const features = page.locator('[data-settings-open="features"]:visible');
+    if (!(await features.count())) await page.locator('[data-nav-to="settings"]:visible').first().click();
+    await features.click();
     const row = page.locator('#med-register-choose');
     await row.scrollIntoViewIfNeeded();
     await row.click();
@@ -157,10 +159,18 @@ export default async function euRegister(ctx) {
       for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-')) await caches.delete(n);
     });
     await freshPage();
+    r.observationStage = 'before-first-heap-gc';
     const before = await heapMB();
+    // Finish the actual network request before the diagnostic forced GC or a later cold stop.
+    // A ready catalogue alone can precede delivery of Playwright's network completion event.
+    const finished = page.waitForEvent('requestfinished', { predicate: (q) => isAsset(q.url()), timeout: 15_000 });
+    finished.catch(() => {});
+    r.observationStage = 'first-app-check';
     counting = 'first';
     r.first = await page.evaluate(timedCheck, 'Candecor');
+    await finished;
     counting = null;
+    r.observationStage = 'after-first-heap-gc';
     const after = await heapMB();
     r.heapMB = { before, afterFirst: after, retained: before !== null ? +(after - before).toFixed(1) : null };
     r.cache = await page.evaluate(async (asset) => {
