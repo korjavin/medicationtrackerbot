@@ -33,6 +33,7 @@ export default async function remindersOffline(ctx) {
   const { shell, pkg, sleep } = ctx;
   const r = (ctx.results.reminders ||= {}); // a retry adds to the first attempt's findings
   r.attempts = (r.attempts || 0) + 1;
+  delete r.permissionDiagnostics; // a grantBoth failure must capture this attempt's exits, including on retry
   await shell('svc power stayon true'); // the screen stays on through the notification waits
   // Undo local-smoke's pm grant / appops (and a retry's grants), so Enable meets both system screens.
   await shell(`pm revoke ${pkg} android.permission.POST_NOTIFICATIONS`).catch(() => {});
