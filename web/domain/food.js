@@ -469,13 +469,15 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // links the log, takes the product's own name and touches it (its macros
   // stay the user's, med-5jq.2; a barcode-less product adopts the log's
   // barcode); no match creates a product from the computed per-100g macros.
-  // The response's `matched` says which (exact|alias|typo|new).
-  // skipProductUpsert matches the AI handlers (handleCreateFoodLogFrom*), which
-  // CreateLog a bare-named entry with no product_id and no UpsertProduct.
+  // The response's `matched` says which (exact|alias|typo|new). AI-parsed
+  // items take this same path (med-5jq.4).
   // recordId overrides the generated id so a caller with its own stable key can
   // make re-creates idempotent (a re-drained Telegram /food overwrites its own
   // rows instead of appending — bd med-eas.29.4). Absent → generated, unchanged.
-  async function create(input, { skipProductUpsert = false, recordId } = {}) {
+  // per100g overrides the per-100 g values derived from the log's (truncated)
+  // totals for a created product and the warnings: the AI path passes the
+  // model's own estimate, which the totals lose on small portions.
+  async function create(input, { recordId, per100g } = {}) {
     assertNonNegativeMacros(input, { checkWeight: true });
     const nowMs = now();
     let resolvedName = input.name || '';
@@ -494,11 +496,11 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       resolvedProductId = product.recordId;
       if (!resolvedName) resolvedName = product.name;
       bumpAfterCreate = product;
-    } else if (resolvedName && !skipProductUpsert) {
+    } else if (resolvedName) {
       const found = resolveProduct(resolvedName, await records.list(PRODUCT_RECORD_TYPE), { barcode: input.barcode });
       const touched = found.product && await touchProduct(found.product, (cur) => (
         !cur.barcode && input.barcode ? { barcode: input.barcode } : {}));
-      const product = touched || await createProduct({ name: resolvedName, barcode: input.barcode || null, ...per100gFrom(input) });
+      const product = touched || await createProduct({ name: resolvedName, barcode: input.barcode || null, ...(per100g || per100gFrom(input)) });
       matched = touched ? found.matched : 'new';
       resolvedProductId = product.recordId;
       resolvedName = product.name;
@@ -524,7 +526,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     if (bumpAfterCreate) await touchProduct(bumpAfterCreate);
 
     const products = await productsIndex();
-    const resp = withMacroWarnings(toLogResponse(record, isMealFor(record, products)), per100gFrom(input));
+    const resp = withMacroWarnings(toLogResponse(record, isMealFor(record, products)), per100g || per100gFrom(input));
     if (matched) resp.matched = matched;
     return resp;
   }

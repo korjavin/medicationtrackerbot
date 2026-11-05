@@ -1,0 +1,21 @@
+id: food-ai-log-links-product
+title: An AI-described or photographed meal links the saved product, a new dish gets one product
+platforms: [web, android, ios]
+preconditions:
+  - The food database holds "Boiled egg" and no "Kharcho"
+  - An AI key or the trial AI is available
+steps:
+  - Describe a meal the AI reads as "boiled eggs", review and log it
+  - Describe a meal the AI reads as "Kharcho", review and log it, then log it again the same way
+  - Send /food with the same description to the Telegram bot
+invariants:
+  - The eggs log shows as "Boiled egg" with the AI's macros, and no second egg product appears
+  - '"Kharcho" appears once in the food database with the AI''s per-100 g values; both logs are linked to it'
+  - A Telegram /food delivered twice still leaves one log per item and one product
+  - Earlier AI logs keep their names, totals and missing links
+  - A wrong AI match shows the product's name on the log at once and is corrected by editing the log's name, as for a typed log
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.food-ai.test.js
+  android: manual
+  ios: manual
+source: [med-5jq.4]

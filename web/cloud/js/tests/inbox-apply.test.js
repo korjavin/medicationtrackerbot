@@ -1793,7 +1793,13 @@ describe('inbox-apply.js — a Telegram data command', () => {
         await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
         await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
 
-        expect(await records.list('foodlog')).toHaveLength(1);
+        const logs = await records.list('foodlog');
+        expect(logs).toHaveLength(1);
+        // med-5jq.4: the item is linked to a catalog product, and the re-drain
+        // resolves to that same product instead of creating a second one.
+        const products = await records.list('foodproduct');
+        expect(products).toHaveLength(1);
+        expect(logs[0].product_id).toBe(products[0].recordId);
     });
 
     it('bare /food is refused with a usage hint and logs nothing', async () => {
@@ -1907,6 +1913,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         await applyTGPhoto(photoEvent(), 30, opts);
 
         expect(await records.list('foodlog')).toHaveLength(1);
+        expect(await records.list('foodproduct')).toHaveLength(1);
     });
 
     it('a photo the relay cannot fetch is answered and acked, logging nothing', async () => {
