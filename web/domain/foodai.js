@@ -37,8 +37,14 @@ items array.`;
 // med-5jq.5: the user's most-used catalog names ride along with each parse so
 // the model reuses them instead of inventing a fresh name. Only the NAMES
 // leave the vault — no macros, dates or quantities (privacy-manifest.js:
-// trial-ai / byo-openai). ~1k tokens at N=150 (pinned by the shim-contract test).
+// trial-ai / byo-openai / local-trial). ~1k tokens at N=150 (pinned by the
+// shim-contract test).
 export const CATALOG_PROMPT_LIMIT = 150;
+// Longer names (raw food-DB strings) are left out, not truncated: a truncated
+// name the model returned "exactly" would miss the product's key and create a
+// clipped duplicate. Bounds the block at 150 × 60 chars and limits what
+// crowd-sourced text reaches the prompt.
+export const CATALOG_NAME_MAX = 60;
 
 // withCatalog(systemPrompt, names) → the prompt plus the catalog block, or
 // the prompt unchanged for an empty catalog. JSON.stringify delimits the names
@@ -183,7 +189,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
   async function catalogNames() {
     try {
       const { products } = await foodDomain.listProducts({ limit: CATALOG_PROMPT_LIMIT });
-      return [...new Set(products.map((p) => p.name).filter(Boolean))];
+      return [...new Set(products.map((p) => p.name).filter((n) => n && n.length <= CATALOG_NAME_MAX))];
     } catch {
       return [];
     }

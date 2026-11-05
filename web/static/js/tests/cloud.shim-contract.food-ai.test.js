@@ -1011,6 +1011,29 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 expect(block.length).toBeLessThanOrEqual(6000);
             });
 
+            it('names over 60 chars (raw food-DB strings) stay out of the prompt; the block stays bounded with long Cyrillic names', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                const long = 'Паста шоколадно-ореховая с какао и фундуком - МАКСИ НУТРИШН - 350 г';
+                expect(long.length).toBeGreaterThan(60);
+                for (let i = 0; i < 150; i++) {
+                    const name = i % 2 ? `${long} №${i}` : `Гречневая каша с молоком и маслом №${i}`;
+                    await seedProduct({ recordId: `p-${i}`, name, usage_count: 1000 - i });
+                }
+                const fetchMock = vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('Boiled egg')));
+                vi.stubGlobal('fetch', fetchMock);
+
+                await window.CloudFoodAI.parseMealFromDescription('каша', { dryRun: true });
+
+                const system = systemOf(fetchMock);
+                const listed = JSON.parse(system.match(/Foods already in this user's catalog: (\[.*\])\n/)[1]);
+                expect(listed).toHaveLength(75);
+                expect(listed.every((n) => n.length <= 60 && n.startsWith('Гречневая'))).toBe(true);
+                expect(system).not.toContain('МАКСИ');
+                // Worst case is 150 × (60 + quotes/comma) chars plus the rule.
+                expect(system.split("Foods already in this user's catalog")[1].length).toBeLessThanOrEqual(150 * 63 + 400);
+            });
+
             it('string macros from the unconstrained fallback are stored on the product as numbers', async () => {
                 const { window } = env;
                 await setOpenAIKey(window);
