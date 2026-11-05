@@ -1,0 +1,21 @@
+id: food-scan-clean-name
+title: A first barcode scan saves the product under a clean name, and a re-scan finds it
+platforms: [web, android, ios]
+preconditions:
+  - The food database knows a barcode as "Hazelnut Spread - MAXI NUTRITION - 400 g"
+  - No saved product holds that barcode
+steps:
+  - Scan the barcode and log the product
+  - Scan the same barcode again
+  - Search Food DB for "Hazelnut Spread - MAXI NUTRITION"
+invariants:
+  - The saved product and the log read "Maxi Nutrition Hazelnut Spread" (no weight, brand once)
+  - The re-scan picks the saved product at once, even offline, and adds no second product
+  - The search by the raw name finds the saved product
+  - A different barcode with the same name is saved as its own product
+  - Products saved before this change keep their stored names
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.food-products.test.js
+  android: manual
+  ios: manual
+source: [med-5jq.6]
