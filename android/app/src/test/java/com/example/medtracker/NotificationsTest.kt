@@ -2,7 +2,6 @@ package com.example.medtracker
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.pm.PackageManager
 import android.provider.Settings
@@ -13,6 +12,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowAlarmManager
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
@@ -27,7 +27,7 @@ class NotificationsTest {
         val activity = Robolectric.buildActivity(PermissionActivity::class.java).setup().get()
         val nm = activity.getSystemService(NotificationManager::class.java)
         shadowOf(nm).setNotificationsEnabled(false)
-        shadowOf(activity.getSystemService(AlarmManager::class.java)).setCanScheduleExactAlarms(true)
+        ShadowAlarmManager.setCanScheduleExactAlarms(true)
         val diagnostics = mutableListOf<String>()
         val replies = mutableListOf<Any?>()
         val notifications = Notifications(activity, diagnostics::add) { "qa.test" }
