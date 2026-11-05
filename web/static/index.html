@@ -2334,18 +2334,18 @@
                 <div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div>
                 <div class="wg-card wg-vstack">
                     <div class="wg-seg" role="group" aria-label="Schedule type">
-                        <button type="button" class="wg-seg__opt" data-schedule-type="daily" aria-pressed="true">Daily</button>
+                        <button type="button" class="wg-seg__opt" data-schedule-type="daily" aria-pressed="false">Daily</button>
                         <button type="button" class="wg-seg__opt" data-schedule-type="weekly" aria-pressed="false">Weekly</button>
-                        <button type="button" class="wg-seg__opt" data-schedule-type="as_needed" aria-pressed="false">As needed</button>
+                        <button type="button" class="wg-seg__opt" data-schedule-type="as_needed" aria-pressed="true">As needed</button>
                     </div>
-                    <input type="hidden" id="schedule-type" value="daily">
+                    <input type="hidden" id="schedule-type" value="as_needed">
 
                     <div id="days-container" class="wg-field hidden">
                         <span class="wg-label">Days</span>
                         <div class="wg-picks" data-day-picks role="group" aria-label="Days"></div>
                     </div>
 
-                    <div id="times-container" class="wg-vstack">
+                    <div id="times-container" class="wg-vstack hidden">
                         <div id="time-inputs" class="wg-list">
                             <div class="wg-row time-row">
                                 <span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span>
