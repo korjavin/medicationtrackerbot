@@ -477,8 +477,25 @@ never turns it off (below).
   `health.writeAccess` reply carries `readableFrom`** (ms: how far back
   `health.query` sees other apps' records; 0 = all; med-8f4s.13 Android,
   med-8f4s.14 iOS): absent, there is no Copy row and no offer (Archie 16124).
+  The current iOS shell reports zero below iOS 27 and withholds the field on
+  iOS 27+ while its limited-history coverage is unresolved, so Copy stays hidden
+  there (med-8f4s.14 R5; [iOS write-back](ios.md)).
+  Android's field and native `health.write({entries: [...]})` support arrive
+  together (med-8f4s.13): one insertion for the valid entries, ordered per-entry
+  validation/refusal results, and a whole-call rejection if the insertion fails.
+  Legacy single writes remain supported; the production batched drain follows in
+  med-8f4s.15 and belongs to the same store batch as the shell twins. On Android,
+  zero requires an actual history permission grant. Without it, including when
+  the history feature is unavailable, every access check uses a conservative
+  rolling cutoff 30 days before now. No inferred grant date is stored: the provider
+  can reset its anchor on a full permission revoke while the app is stopped.
+  Copy without history permission therefore covers only the last 30 days from
+  today at planning; granting history allows older entries. The bound also applies
+  when retrying read-blocked kinds. Already queued ids retain their successfully
+  completed dedupe snapshot rather than being discarded as time passes. This
+  bound never changes import eligibility.
   Rows older than `readableFrom` (Android without the past-data permission:
-  30 days before the first grant) are not eligible and not counted; when any
+  the conservative rolling last 30 days) are not eligible and not counted; when any
   are cut, the dialog names them in a warn-icon hint line, never a red error ("N
   entries before dd.mm won't be copied: Health Connect needs access to past
   data to check them."; "1 entry ... to check it.") with "Allow past

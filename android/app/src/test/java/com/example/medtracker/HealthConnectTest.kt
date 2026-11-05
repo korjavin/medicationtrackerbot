@@ -19,9 +19,102 @@ import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.testing.populatedWithTestValues
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.time.Duration
 
 // The HealthKit codes healthimport.js reads (SLEEP_PHASE, WORKOUT_NAMES, STRENGTH_TYPES).
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], manifest = Config.NONE)
 class HealthConnectTest {
+    @Test
+    fun onlyActualHistoryPermissionMakesTheWindowUnbounded() {
+        val now = 1700000000000L
+        val reads = setOf(HealthPermission.getReadPermission(BloodPressureRecord::class))
+        // No feature flag enters this calculation: unavailable and denied both
+        // retain a conservative rolling restriction, without reading prefs.
+        assertEquals(now - Duration.ofDays(30).toMillis(), HealthConnect.readableFrom(reads, now))
+        assertEquals(0L, HealthConnect.readableFrom(reads + HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY, now))
+        assertEquals(now - Duration.ofDays(30).toMillis(), HealthConnect.readableFrom(emptySet(), now))
+        assertEquals(now - Duration.ofDays(30).toMillis(), HealthConnect.readableFrom(
+            setOf(HealthPermission.getWritePermission(WeightRecord::class)), now))
+    }
+
+    @Test
+    fun eachAccessUsesTodaysWindowEvenIfAllPermissionsWereRegrantedWhileTheAppWasStopped() {
+        val grants = setOf(HealthPermission.getReadPermission(BloodPressureRecord::class))
+        val now = 1700000000000L
+        val day = Duration.ofDays(1).toMillis()
+        assertEquals(HealthConnect.readableFrom(grants, now) + day, HealthConnect.readableFrom(grants, now + day))
+        val regrantedMonthsLater = now + 90 * day
+        assertEquals(regrantedMonthsLater - 30 * day, HealthConnect.readableFrom(grants, regrantedMonthsLater))
+    }
+
+    private fun batchBody(index: Int): JSONObject = JSONObject().put("id", "batch-$index").put("version", 17L)
+        .put("at", 1700000000000L).apply {
+            when (index % 3) {
+                0 -> put("type", "bp").put("systolic", 121).put("diastolic", 81)
+                1 -> put("type", "weight").put("kg", 72.5)
+                else -> put("type", "hr").put("bpm", 66)
+            }
+        }
+
+    @Test
+    fun fiftyMixedBodiesUseOneRealPassInsertionAndKeepOrderIdentityAndVersions() = runBlocking {
+        var calls = 0
+        val results = HealthConnect.writeEntries(JSONArray().apply { repeat(50) { put(batchBody(it)) } }, {}, { records ->
+            calls++
+            assertEquals(50, records.size)
+            records.forEachIndexed { i, record ->
+                assertEquals("batch-$i", record.metadata.clientRecordId)
+                assertEquals(17L, record.metadata.clientRecordVersion)
+            }
+            assertEquals(17, records.filterIsInstance<BloodPressureRecord>().size)
+            assertEquals(17, records.filterIsInstance<WeightRecord>().size)
+            assertEquals(16, records.filterIsInstance<HeartRateRecord>().size)
+        })
+        assertEquals(1, calls)
+        assertEquals(List(50) { true }, (0 until results.length()).map { results.get(it) })
+    }
+
+    @Test
+    fun malformedAndDeniedBodiesReturnTheirOwnErrorsWhileOtherRecordsShareOneInsert() = runBlocking {
+        var calls = 0
+        val entries = JSONArray().apply { repeat(50) { put(batchBody(it)) } }
+        entries.getJSONObject(20).put("bpm", 0)
+        val result = HealthConnect.writeEntries(entries, {}, { records ->
+            calls++
+            assertEquals(49, records.size)
+            assertFalse(records.any { it.metadata.clientRecordId == "batch-20" })
+        })
+        assertEquals(1, calls)
+        assertEquals("invalid heart rate", result.getString(20))
+        assertTrue((0 until 50).filter { it != 20 }.all { result.get(it) == true })
+        val denied = HealthConnect.writeEntries(JSONArray().put(batchBody(0)).put(batchBody(1)), {
+            if (it == "bp") throw SecurityException("denied")
+        }, { assertEquals(listOf("batch-1"), it.map { r -> r.metadata.clientRecordId }) })
+        assertEquals("denied", denied.getString(0))
+        assertEquals(true, denied.get(1))
+    }
+
+    @Test
+    fun wholeStoreFailurePropagatesAndAllInvalidOrEmptyBatchesDoNotInsert() = runBlocking {
+        val failure = SecurityException("revoked during insert")
+        var observed: Exception? = null
+        try { HealthConnect.writeEntries(JSONArray().put(batchBody(0)), {}, { throw failure }) }
+        catch (e: Exception) { observed = e }
+        assertTrue(observed === failure)
+        val bad = HealthConnect.writeEntries(JSONArray().put(JSONObject().put("type", "other")), {
+            throw SecurityException("denied")
+        }, { throw AssertionError("inserted invalid batch") })
+        assertEquals("denied", bad.getString(0))
+        assertEquals(0, HealthConnect.writeEntries(JSONArray(), {}, { throw AssertionError("inserted empty batch") }).length())
+    }
+
     @Test
     fun onlyOurClientIdentifiedCopiesAreExcludedFromImport() {
         assertTrue(HealthConnect.isOwnWrite("our.app", "bp-42", "our.app"))

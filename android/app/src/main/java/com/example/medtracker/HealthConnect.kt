@@ -54,9 +54,10 @@ import kotlin.reflect.KClass
  * sample shapes; web/domain/healthimport.js maps them into the vault.
  *
  *   health.authorize {types, write?}       → Boolean (false: no Health Connect on this device)
- *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr", "workout"]}
+ *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr", "workout"], readableFrom}
  *   health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?} → true
  *   health.write {type: "workout", id, version, start, end, activity} → true
+ *   health.write {entries: [single-write body, ...]} → [true | error string, ...]
  *     activity: exactly 50 (strength training) or 3000 (other workout); end > start.
  *     No title, exercises, sets, weights, segments, calories, distance or heart rate.
  *   health.delete {type, id}              → true (only our clientRecordId, never a store UUID)
@@ -156,8 +157,10 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         check(available()) { "Health Connect unavailable" }
         val types = args.optJSONArray("types") ?: JSONArray()
         val kinds = (0 until types.length()).map { types.optString(it) }
-        return JSONObject().put("granted", JSONArray(writableKinds(kinds, client.permissionController.getGrantedPermissions())))
+        val granted = client.permissionController.getGrantedPermissions()
+        return JSONObject().put("granted", JSONArray(writableKinds(kinds, granted)))
             .put("supported", JSONArray(WRITABLE.keys))
+            .put("readableFrom", readableFrom(granted))
     }
 
     private suspend fun requireWrite(kind: String) {
@@ -167,14 +170,20 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         }
     }
 
-    private suspend fun write(args: JSONObject): Boolean {
+    private suspend fun write(args: JSONObject): Any {
+        if (args.has("entries")) {
+            check(available()) { "Health Connect unavailable" }
+            // One permission snapshot and one insert for the pass, rather than
+            // a binder call per entry. A revoked grant still makes insert throw.
+            val granted = client.permissionController.getGrantedPermissions()
+            return writeEntries(args.getJSONArray("entries"), { kind ->
+                val type = WRITABLE[kind] ?: throw IllegalArgumentException("unknown write type: $kind")
+                if (HealthPermission.getWritePermission(type) !in granted) throw SecurityException("denied")
+            }, { records -> client.insertRecords(records) })
+        }
         val kind = args.getString("type")
         requireWrite(kind)
-        val record = if (kind == "workout") writeRecord(kind, args.getString("id"), args.getLong("version"),
-            start = workoutMillis(args.opt("start"), "start"), end = workoutMillis(args.opt("end"), "end"),
-            activity = (args.opt("activity") as? Number)?.toDouble() ?: Double.NaN)
-        else writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
-            args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"), args.optDouble("bpm"))
+        val record = writeBody(args)
         // Older clientRecordVersions cannot replace a newer record. Android 14
         // accepts equal-version replays: a committed version must keep its payload.
         client.insertRecords(listOf(record))
@@ -444,6 +453,51 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     }
 
     internal companion object {
+        /** A rolling conservative bound: the provider resets its anchor on a
+         * full permission revoke, which can happen while our process is gone.
+         * Never infer that unseen grant epoch from persisted app preferences.
+         */
+        fun readableFrom(granted: Set<String>, now: Long = System.currentTimeMillis()): Long =
+            if (HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted) 0
+            else now - Duration.ofDays(HISTORY_DAYS).toMillis()
+
+        /** The actual pass executor: validation errors are per entry, store errors are not.
+         * insertRecords is atomic and throws on service/permission failure:
+         * https://developer.android.com/reference/kotlin/androidx/health/connect/client/HealthConnectClient#insertRecords(kotlin.collections.List)
+         */
+        suspend fun writeEntries(entries: JSONArray, requireWrite: (String) -> Unit,
+                                 insert: suspend (List<Record>) -> Unit): JSONArray {
+            val results = JSONArray()
+            val records = mutableListOf<Record>()
+            val valid = mutableListOf<Int>()
+            for (i in 0 until entries.length()) {
+                try {
+                    val body = entries.getJSONObject(i)
+                    requireWrite(body.getString("type"))
+                    records.add(writeBody(body))
+                    valid.add(i)
+                    results.put(JSONObject.NULL)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    results.put(e.message ?: e.javaClass.simpleName)
+                }
+            }
+            // Do not catch this: the web must keep every pending id on a whole-call failure.
+            if (records.isNotEmpty()) insert(records)
+            for (i in valid) results.put(i, true)
+            return results
+        }
+
+        private fun writeBody(args: JSONObject): Record {
+            val kind = args.getString("type")
+            return if (kind == "workout") writeRecord(kind, args.getString("id"), args.getLong("version"),
+                start = workoutMillis(args.opt("start"), "start"), end = workoutMillis(args.opt("end"), "end"),
+                activity = (args.opt("activity") as? Number)?.toDouble() ?: Double.NaN)
+            else writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
+                args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"), args.optDouble("bpm"))
+        }
+
         fun workoutRequest(w: ExerciseSessionRecord, metrics: Set<AggregateMetric<*>>) =
             AggregateRequest(metrics, TimeRangeFilter.between(w.startTime, w.endTime), setOf(w.metadata.dataOrigin))
 

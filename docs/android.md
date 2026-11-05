@@ -557,6 +557,25 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   `health.writeAccess {types}` reports the actual granted write kinds, including
   partial grants, plus `supported: ['bp', 'weight', 'hr', 'workout']` even when a kind is denied.
   Older shells omit `supported`, which the page treats as BP/weight support.
+  The same shell build adds `readableFrom` and `health.write {entries: [body, ...]}`
+  (med-8f4s.13). The batch validates each body and its kind's permission, then
+  inserts all valid records in one Health Connect call. Its ordered reply contains
+  `true` or that body's error string; a failed insertion rejects the entire call
+  so the page keeps its pending ids. Legacy single writes keep their existing
+  result and upsert semantics. The batched web drain (med-8f4s.15) follows both
+  shell twins and ships in their containing store batch.
+  `readableFrom` is zero only with `READ_HEALTH_DATA_HISTORY` actually granted;
+  otherwise each access check reports a conservative **now minus 30 days**,
+  even with write-only/empty grants or an unavailable optional history feature.
+  The shell keeps no grant-date state: Health Connect resets its own anchor
+  after all permissions are revoked, which can happen while the app is stopped.
+  A remembered older date could then allow Copy beyond the readable dedupe window.
+  Without history permission, Copy therefore covers the last 30 days from today,
+  rather than 30 days before an inferred first grant. Grant history to copy older
+  entries. The bound applies when planning Copy or retrying a read-blocked kind;
+  already queued ids retain their completed dedupe snapshot. This bound restricts
+  Copy eligibility, not import queries. See the
+  [Android historical-read contract](https://developer.android.com/health-and-fitness/health-connect/read-data#read-data-older-than-30-days).
   A store/access error rejects rather than pretending access
   was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?}`
   inserts a manually entered BP/weight/pulse with `clientRecordId = id` (vault id,
