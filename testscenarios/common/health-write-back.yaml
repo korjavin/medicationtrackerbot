@@ -14,6 +14,7 @@ steps:
   - Complete a workout session; delete it; start a session and leave it open; skip a scheduled one
   - Log an ad-hoc workout of only a cardio-tagged exercise and complete it; deny workout write access and complete another session
   - Mark a reminded plan workout Done from the notification without starting it; do the same for a plan day with no exercises
+  - Turn the switch on with past entries present, some of them already in Health from another app; accept the offer / decline and use Settings → Copy past entries; background the app mid-copy and return
 invariants:
   - "A hand-entered reading shows in the Health app within seconds, as written by Med Tracker"
   - "Editing it changes the same Health record; deleting it removes it"
@@ -35,8 +36,9 @@ invariants:
   - "With workout write access denied, BP, pulse and weight still arrive"
   - "a workout logged by message or voice without a start and end is not copied to Health; one logged in the app, with sets, is"
   - "A plan workout marked Done without starting it appears in Health from its scheduled time, 5 minutes per exercise of that day; one with no exercises does not"
+  - "Every own past reading/weight/completed workout appears once in Health, with pulse where recorded; a reading another app already put into Health is not copied and not counted; entries imported from Health are not copied; a second copy adds nothing; a copy interrupted by backgrounding or a Health refusal finishes later and reports what was copied and what was not allowed"
 covered_by:
-  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind, the workout kind and the supported fallback
+  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind, the workout kind, the supported fallback and copy past entries (HW6-HW9b)
   android: manual  # BP/weight/pulse automated by android/qa/scenarios/health-connect.mjs: independent create/edit/clear/delete, no echo, partial grants and pending pulse retry; workouts until med-8f4s.9 QA; real permission sheets remain release checks
   ios: manual  # until med-8f4s.3 QA; pulse until med-8f4s.8 QA; workouts until med-8f4s.10 QA
-source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6, Zulip 15354, Zulip 15356, Zulip 15360, Zulip 15649, med-8f4s.5, Zulip 15670, med-8f4s.12]
+source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6, Zulip 15354, Zulip 15356, Zulip 15360, Zulip 15649, med-8f4s.5, Zulip 15670, med-8f4s.12, Zulip 15590, Zulip 15615, Zulip 15620, med-8f4s.11]

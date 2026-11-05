@@ -72,7 +72,8 @@ const WORKOUT_NAMES = {
 // A strength workout also yields to an in-app workout session it overlaps:
 // per-set logging (docs/workout-depth.md) is the record of that gym visit. A
 // session never completed counts for this long after its start.
-const STRENGTH_TYPES = new Set([20, 50]);
+// The copy of past entries (health-import.js) applies it in reverse.
+export const STRENGTH_TYPES = new Set([20, 50]);
 // Also the cap on a written-back workout's span (web/cloud/js/health-import.js).
 export const OPEN_SESSION_MS = 4 * HOUR_MS;
 
@@ -80,7 +81,7 @@ function rfc3339(ms) {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-function overlaps(a, list) {
+export function overlaps(a, list) {
   return list.some((b) => a.start < b.end && b.start < a.end);
 }
 

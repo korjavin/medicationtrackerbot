@@ -17,7 +17,7 @@
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.
 import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled } from './sync.js';
-import { createHealthImportDomain, OPEN_SESSION_MS } from '../../domain/healthimport.js';
+import { createHealthImportDomain, OPEN_SESSION_MS, STRENGTH_TYPES, overlaps } from '../../domain/healthimport.js';
 import { findLibraryRowByName, exerciseKey } from '../../domain/workout.js';
 import { localWallToUtcMs } from '../../domain/medschedule.js';
 import { createSettingsDomain } from '../../domain/settings.js';
@@ -89,6 +89,21 @@ const TOGGLE_ID = 'health-import-toggle';
 const WRITE_ROW_ID = 'health-write-row';
 const WRITE_TOGGLE_ID = 'health-write-toggle';
 const KIND_NAMES = { bp: 'blood pressure', weight: 'weight', hr: 'pulse (heart rate)', workout: 'workouts' };
+// Copy past entries (bd med-8f4s.11, kit HW6-HW9b). An entry is a bp reading
+// (its pulse rides along as the hr mark), a weight or a completed workout.
+const ENTRY_KINDS = ['bp', 'weight', 'workout'];
+// The HW6 offer, once per device.
+const OFFERED_KEY = 'wg.health.backfillOffered';
+// The open copy: { startedAt, total, ids: { kind: [recordId] }, blocked: { kind: n } }.
+// blocked = a kind whose read Health denied: not counted as held, not marked;
+// re-read on each pass until it can be.
+const JOB_KEY = 'wg.health.backfill';
+// A past entry another app already put into Health: the same values this close.
+const MATCH_MS = { bp: 30 * 60 * 1000, weight: DAY_MS };
+const COPY_GAP_MS = 1500;
+const COPY_BACKOFF_MS = 60 * 1000;
+const COPY_BACKOFF_CAP_MS = 15 * 60 * 1000;
+const COPY_ROW_ID = 'health-copy-row';
 
 function readJSON(storage, key, fallback) {
     try {
@@ -385,7 +400,21 @@ export function startHealthWriteBack({
         for (let i = 0; picked.length < WRITE_BATCH && lists.some((x) => i < x.length); i++) {
             for (const x of lists) if (i < x.length && picked.length < WRITE_BATCH) picked.push(x[i]);
         }
-        await Promise.all(picked.map(([k, id]) => deliver(k, id)));
+        // The calls that went through: 0 = the pass made no progress.
+        return (await Promise.all(picked.map(([k, id]) => deliver(k, id)))).filter(Boolean).length;
+    };
+    // Copy past entries: rows [{ recordType, recordId, clientTs }] marked
+    // exactly as the hook marks them, in one ledger write; an id already
+    // marked keeps its entry (step reads the row as it is at delivery anyway).
+    const mark = (rows) => {
+        const l = ledger();
+        for (const r of rows) {
+            for (const k of MARKS[r.recordType]) {
+                l[k] = l[k] || {};
+                if (l[k][r.recordId] === undefined) l[k][r.recordId] = r.clientTs;
+            }
+        }
+        return writeJSON(storage, DIRTY_KEY, l);
     };
     // The switch-on sheet asked every write kind: markAsked(WRITE_KINDS)
     // before it opens (a pass racing the turn-on, e.g. the Health Connect
@@ -393,7 +422,117 @@ export function startHealthWriteBack({
     // narrows it to the kinds the shell then supported (an older shell
     // ignores a kind it does not know, so the build that knows it asks again).
     const markAsked = (kinds = kindsSupported) => writeJSON(storage, WRITE_ASKED_KEY, kinds.filter((k) => WRITE_KINDS.includes(k)));
-    return { drain, readAccess, supported, markAsked };
+    return { drain, readAccess, supported, markAsked, mark, ledger };
+}
+
+// What other apps already put into Health for one kind, since `from`: the
+// import's own query with no anchor, paged with an anchor that lives only in
+// this read: wg.health.anchors, the import's cursor, never moves. The shells
+// leave out what this app wrote. null = read denied (Android answers no
+// samples and no anchor; HealthKit cannot tell, it answers empty).
+async function otherAppSamples(health, type, from) {
+    const out = [];
+    let anchor = null;
+    for (let page = 0; page < MAX_PAGES; page++) {
+        const res = await health.query(anchor ? { type, from, limit: PAGE, anchor } : { type, from, limit: PAGE });
+        if (!res || typeof res.anchor !== 'string') return page === 0 ? null : out;
+        if (Array.isArray(res.samples)) out.push(...res.samples.filter(Boolean));
+        if (!res.more) break;
+        anchor = res.anchor;
+    }
+    return out;
+}
+
+// The rows of `samples` held by a Health record: same key, within tol ms,
+// one-to-one, nearest in time first (two genuine readings minutes apart with
+// the same numbers never fold into one Health record). Sorted lists + a binary
+// search per row: no scan over years of readings per row.
+function heldRows(rows, samples, tol) {
+    const byKey = new Map();
+    for (const s of samples) {
+        if (!Number.isFinite(s.at)) continue;
+        if (!byKey.has(s.key)) byKey.set(s.key, []);
+        byKey.get(s.key).push(s.at);
+    }
+    for (const l of byKey.values()) l.sort((a, b) => a - b);
+    const pairs = [];
+    for (const r of rows) {
+        const l = byKey.get(r.key);
+        if (!l || !Number.isFinite(r.at)) continue;
+        let lo = 0;
+        let hi = l.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (l[mid] < r.at - tol) lo = mid + 1;
+            else hi = mid;
+        }
+        for (let j = lo; j < l.length && l[j] <= r.at + tol; j++) pairs.push([Math.abs(l[j] - r.at), r.recordId, `${r.key}#${j}`]);
+    }
+    pairs.sort((a, b) => a[0] - b[0]);
+    const held = new Set();
+    const used = new Set();
+    for (const [, id, s] of pairs) {
+        if (held.has(id) || used.has(s)) continue;
+        held.add(id);
+        used.add(s);
+    }
+    return held;
+}
+
+// The past entries of one kind the hook would have marked: live, made in the
+// app (no `source`; rows synced from another device are the user's own), a
+// workout only as a finished span. Each with its match key / span.
+async function copyRows(records, kind) {
+    const live = (await records.listRaw(RECORD_TYPE[kind])).filter((r) => !r.deleted);
+    const base = (r) => ({ recordType: RECORD_TYPE[kind], recordId: r.recordId, clientTs: r.clientTs, at: Date.parse(r.measured_at) });
+    if (kind === 'bp') return live.filter((r) => !r.source).map((r) => ({ ...base(r), key: `${Math.round(r.systolic)}/${Math.round(r.diastolic)}` }));
+    if (kind === 'weight') return live.filter((r) => !r.source).map((r) => ({ ...base(r), key: Math.round(Number(r.weight) * 10) }));
+    const out = [];
+    // ponytail: a few awaits per session; workouts are hundreds, not the thousands bp is.
+    for (const r of live) {
+        const span = await workoutSpan(records, r);
+        if (span) out.push({ recordType: RECORD_TYPE[kind], recordId: r.recordId, clientTs: r.clientTs, span, activity: await workoutActivity(records, r) });
+    }
+    return out;
+}
+
+// planCopy → { rows: { kind: [row] } (to mark), blocked: { kind: n }, total }.
+// Throws when a read fails (store busy): no count, nothing marked.
+async function planCopy(health, records, kinds) {
+    const rows = {};
+    const blocked = {};
+    let total = 0;
+    for (const kind of kinds) {
+        const mine = await copyRows(records, kind);
+        if (!mine.length) continue;
+        const starts = mine.map((r) => (r.span ? r.span.start - DAY_MS : r.at - MATCH_MS[kind])).filter(Number.isFinite);
+        const theirs = await otherAppSamples(health, kind, starts.length ? Math.min(...starts) : 0);
+        if (!theirs) {
+            blocked[kind] = mine.length;
+            total += mine.length;
+            continue;
+        }
+        let held;
+        if (kind === 'workout') {
+            // The importer's overlap rule in reverse: a Health strength workout
+            // overlapping a session is never imported, so a strength session
+            // it overlaps is never sent; a session typed Other yields to any.
+            const spans = theirs.filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end));
+            const strength = spans.filter((s) => STRENGTH_TYPES.has(s.activity));
+            held = new Set(mine.filter((r) => overlaps(r.span, r.activity === ACTIVITY_STRENGTH ? strength : spans)).map((r) => r.recordId));
+        } else {
+            const valid = kind === 'bp'
+                ? (s) => Number.isFinite(s.systolic) && Number.isFinite(s.diastolic)
+                : (s) => Number.isFinite(s.kg);
+            const key = kind === 'bp'
+                ? (s) => `${Math.round(s.systolic)}/${Math.round(s.diastolic)}`
+                : (s) => Math.round(s.kg * 10);
+            held = heldRows(mine, theirs.filter(valid).map((s) => ({ at: s.start, key: key(s) })), MATCH_MS[kind]);
+        }
+        rows[kind] = mine.filter((r) => !held.has(r.recordId));
+        total += rows[kind].length;
+    }
+    return { rows, blocked, total };
 }
 
 // Forget how far this iPhone's Health store was read — the switch-on rescan
@@ -586,13 +725,33 @@ function writeHintText(health, granted, supported = DEFAULT_SUPPORTED) {
     const missing = kinds.filter((k) => !granted.includes(k));
     if (!missing.length) return '';
     if (missing.length === kinds.length) return `Writing paused: access was removed. Allow it in ${accessHint(health)}.`;
-    const cap = (t) => t[0].toUpperCase() + t.slice(1);
-    // "a", "a and b", "a, b and c".
-    const names = (ks) => ks.map((k) => KIND_NAMES[k]).join(', ').replace(/, ([^,]*)$/, ' and $1');
-    const have = names(kinds.filter((k) => granted.includes(k)));
-    const plural = missing.length > 1 || missing[0] === 'workout';
-    const verb = plural ? "aren't allowed: allow them" : "isn't allowed: allow it";
-    return `Writing ${have} only. ${cap(names(missing))} ${verb} in ${accessHint(health)}.`;
+    const have = kindNames(kinds.filter((k) => granted.includes(k)));
+    return `Writing ${have} only. ${notAllowed(missing)} in ${accessHint(health)}.`;
+}
+
+// "a", "a and b", "a, b and c".
+function kindNames(ks) {
+    return ks.map((k) => KIND_NAMES[k]).join(', ').replace(/, ([^,]*)$/, ' and $1');
+}
+
+// "Weight isn't allowed: allow it", "Workouts aren't allowed: allow them".
+function notAllowed(ks) {
+    const names = kindNames(ks);
+    const plural = ks.length > 1 || ks[0] === 'workout';
+    return `${names[0].toUpperCase()}${names.slice(1)} ${plural ? "aren't allowed: allow them" : "isn't allowed: allow it"}`;
+}
+
+const entriesText = (n) => `${n} ${n === 1 ? 'entry' : 'entries'}`;
+
+// The copy row's line (kit HW8/HW8b/HW9/HW9b) for copyState() `st`.
+function copyText(health, st, paused) {
+    const label = healthLabel(health);
+    if (st.running && !paused) return { title: 'Copying past entries…', desc: `${st.done} of ${st.total}`, meter: true };
+    if (st.running) return { title: 'Copy paused', desc: `${label} is busy. ${st.done} of ${st.total} so far; it continues when the app is open.` };
+    if (!st.refused.length) return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}.` };
+    const rest = st.refused.reduce((n, k) => n + st.left[k], 0);
+    const follow = rest === 1 ? 'the other one follows' : `the other ${rest} follow`;
+    return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}. ${notAllowed(st.refused)} in ${label} settings, and ${follow}.` };
 }
 
 export function healthStatusText(storage = globalThis.localStorage, health = globalThis.Health) {
@@ -625,8 +784,13 @@ export function startHealthImport(ctx, {
     appRefresh = globalThis.AppRefresh,
     records = recordsPort(ctx, ORIGIN_EXTERNAL),
     toast = (msg, type) => globalThis.safeToast && globalThis.safeToast(msg, type),
+    confirm = (msg, opts) => globalThis.safeConfirm(msg, null, opts),
+    alert = (msg, opts) => globalThis.safeAlert(msg, opts),
+    copyGapMs = COPY_GAP_MS,
+    copyBackoffMs = COPY_BACKOFF_MS,
 } = {}) {
     if (!health || !health.isSupported()) return null;
+    const label = healthLabel(health);
     // "Also write my entries" (kit HW0-HW5): shown only while the import is on
     // and the shell answers health.write; its line only for HW3/HW4/HW5.
     let canWrite = false;
@@ -642,17 +806,238 @@ export function startHealthImport(ctx, {
         writeRow.desc.textContent = writeHint;
         if (writeHint) writeRow.body.appendChild(writeRow.desc);
         else writeRow.desc.remove();
+        renderCopy();
     };
+    // The last writeAccess answer, for the copy row's refused kinds.
+    let lastGranted = null;
+    let lastSupported = DEFAULT_SUPPORTED;
     // Each writeAccess answer sets the line: a kind missing is named (HW4),
     // nothing granted reads as paused (HW5). A pass never turns the switch
     // off: it resumes by itself once access returns (Miles 15063, Iris 15065).
     const onAccess = (granted, supported) => {
+        lastGranted = granted;
+        lastSupported = supported;
         if (!isHealthWriteEnabled(storage)) return;
         writeHint = writeHintText(health, granted, supported);
         renderWrite();
     };
     const writeBack = startHealthWriteBack({ health, storage, records, onAccess });
-    const drainWrites = () => writeBack.drain().catch((e) => console.error('[health] write pass failed', e));
+
+    // Copy past entries (bd med-8f4s.11, kit HW6-HW9b): mark every past entry
+    // Health does not already hold into the write-back ledger, then let the
+    // drain deliver it, WRITE_BATCH per pass. Device-local, nothing touches the
+    // vault; the ledger and the job persist, so a relaunch resumes.
+    const readJob = () => {
+        const j = readJSON(storage, JOB_KEY, null);
+        return j && typeof j === 'object' && j.ids && typeof j.ids === 'object' ? j : null;
+    };
+    // Entries done = ledger ids cleared; left per kind (blocked reads count as
+    // left); refused = left in a kind Health won't let us read or write.
+    const copyState = () => {
+        const job = readJob();
+        if (!job) return null;
+        const l = writeBack.ledger();
+        const blocked = job.blocked || {};
+        let done = 0;
+        const left = {};
+        for (const [kind, ids] of Object.entries(job.ids)) {
+            for (const id of Array.isArray(ids) ? ids : []) {
+                if (l[kind] && l[kind][id] !== undefined) left[kind] = (left[kind] || 0) + 1;
+                else done++;
+            }
+        }
+        for (const [kind, n] of Object.entries(blocked)) left[kind] = (left[kind] || 0) + n;
+        const refused = ENTRY_KINDS.filter((k) => left[k] && (blocked[k] || (lastGranted && !lastGranted.includes(k))));
+        const running = Object.keys(left).some((k) => !refused.includes(k));
+        return { job, done, total: Number(job.total) || 0, left, refused, running };
+    };
+    let copyRow = null;
+    let paused = false;
+    let opening = false;
+    const renderCopy = () => {
+        if (copyRow) copyRow.remove();
+        copyRow = null;
+        if (!writeRow || !canWrite || !isHealthWriteEnabled(storage)) return;
+        const st = copyState();
+        const row = doc.createElement(st ? 'div' : 'button');
+        row.id = COPY_ROW_ID;
+        row.className = 'wg-setting';
+        // HW7 ready, HW8 running, HW8b paused, HW9 done, HW9b refused (the visual scenes key on it).
+        row.dataset.state = !st ? 'ready' : st.running ? (paused ? 'paused' : 'running') : (st.refused.length ? 'refused' : 'done');
+        const lead = doc.createElement('span');
+        lead.className = 'wg-row__lead';
+        const ico = doc.createElement('i');
+        ico.className = 'wg-ico';
+        ico.dataset.icon = 'history';
+        lead.appendChild(ico);
+        const body = doc.createElement('span');
+        body.className = 'wg-setting__body';
+        const title = doc.createElement('span');
+        title.className = 'wg-setting__title';
+        body.appendChild(title);
+        row.append(lead, body);
+        if (!st) {
+            // HW7: title only, a tap opens the HW6 dialog with fresh counts.
+            row.type = 'button';
+            title.textContent = 'Copy past entries';
+            const chev = doc.createElement('i');
+            chev.className = 'wg-ico wg-row__chev';
+            chev.dataset.icon = 'chev-r';
+            row.appendChild(chev);
+            row.addEventListener('click', () => openCopy(false));
+        } else {
+            const t = copyText(health, st, paused);
+            title.textContent = t.title;
+            const desc = doc.createElement('span');
+            desc.className = 'wg-setting__desc';
+            desc.textContent = t.desc;
+            body.appendChild(desc);
+            if (t.meter) {
+                const meter = doc.createElement('progress');
+                meter.className = 'wg-meter';
+                meter.max = Math.max(1, st.total);
+                meter.value = st.done;
+                meter.setAttribute('aria-label', `${st.done} of ${st.total}`);
+                body.appendChild(meter);
+            }
+        }
+        if (globalThis.WGIcons && typeof globalThis.WGIcons.hydrate === 'function') globalThis.WGIcons.hydrate(row);
+        writeRow.row.after(row);
+        copyRow = row;
+    };
+    // A kind whose read was denied when the copy started: read it again; once
+    // it reads, its not-held entries join the job.
+    const retryBlocked = async () => {
+        const kinds = Object.keys(readJob()?.blocked || {});
+        if (!kinds.length) return;
+        let plan;
+        try {
+            plan = await planCopy(health, records, kinds);
+        } catch {
+            return; // store busy: next pass
+        }
+        const job = readJob();
+        if (!job) return;
+        const rows = [];
+        for (const k of kinds) {
+            if (plan.blocked[k] !== undefined || job.blocked[k] === undefined) continue;
+            const got = plan.rows[k] || [];
+            rows.push(...got);
+            job.ids[k] = got.map((r) => r.recordId);
+            job.total = job.total - job.blocked[k] + got.length;
+            delete job.blocked[k];
+        }
+        if (rows.length && !writeBack.mark(rows)) return;
+        writeJSON(storage, JOB_KEY, job);
+    };
+    let copying = null;
+    let copyTimer = null;
+    let backoff = 0;
+    const later = (ms) => {
+        clearTimeout(copyTimer);
+        copyTimer = setTimeout(() => {
+            copyTimer = null;
+            if (doc.visibilityState !== 'hidden') drainWrites();
+        }, ms);
+    };
+    // One write pass; with a copy open, the next starts copyGapMs after one
+    // that delivered, or backs off 1→2→4… min (cap 15) after one where every
+    // call failed (Health Connect's quota, store busy): HW8b. A foreground
+    // return runs a pass at once.
+    // A pass asked for while one runs (the copy just started) runs after it.
+    let again = false;
+    const copyPass = () => {
+        if (copying) {
+            again = true;
+            return copying;
+        }
+        copying = (async () => {
+            if (!readJob()) return writeBack.drain();
+            await retryBlocked();
+            const delivered = await writeBack.drain();
+            const st = copyState();
+            if (st && st.running && isHealthWriteEnabled(storage)) {
+                if (delivered > 0) {
+                    paused = false;
+                    backoff = 0;
+                    later(copyGapMs);
+                } else {
+                    paused = true;
+                    backoff = Math.min(backoff ? backoff * 2 : copyBackoffMs, COPY_BACKOFF_CAP_MS);
+                    later(backoff);
+                }
+            } else {
+                paused = false;
+            }
+            renderCopy();
+            return delivered;
+        })().finally(() => {
+            copying = null;
+            if (again) {
+                again = false;
+                drainWrites();
+            }
+        });
+        return copying;
+    };
+    const drainWrites = () => copyPass().catch((e) => console.error('[health] write pass failed', e));
+    // The result stays until Settings is left (HW9), then the row is "Copy
+    // past entries" again; a kind whose read is still denied keeps the job.
+    const settleCopy = () => {
+        const st = copyState();
+        if (!st || st.running || Object.keys(st.job.blocked || {}).length) return;
+        writeJSON(storage, JOB_KEY, null);
+        renderCopy();
+    };
+    // HW6 (offer: once per device, after a granting switch-on) and HW7 (the
+    // Settings tap): count, ask, then mark and drain.
+    const openCopy = async (offer) => {
+        if (opening || readJob()) return;
+        opening = true;
+        try {
+            let plan;
+            try {
+                if (!(await writeBack.readAccess())) throw new Error('write access unreadable');
+                plan = await planCopy(health, records, ENTRY_KINDS.filter((k) => lastSupported.includes(k)));
+            } catch (e) {
+                console.error('[health] copy count failed', e);
+                if (!offer) toast(`Couldn't reach ${label} — try again.`, 'error');
+                return;
+            }
+            if (!plan.total) {
+                if (!offer) await alert(`Everything is already in ${label}.`, { title: 'Copy past entries' });
+                return;
+            }
+            if (offer) writeJSON(storage, OFFERED_KEY, true);
+            const ok = await confirm(`${plan.total} past ${plan.total === 1 ? 'entry' : 'entries'} from this app.`, {
+                title: 'Copy your past entries too?',
+                hint: `Readings that came from ${label} stay as they are, and nothing is copied twice.`,
+                confirmLabel: 'Copy',
+                cancelLabel: 'Not now',
+            });
+            if (!ok || readJob() || !isHealthWriteEnabled(storage)) return;
+            const ids = Object.fromEntries(Object.entries(plan.rows).map(([k, rs]) => [k, rs.map((r) => r.recordId)]));
+            const job = { startedAt: Date.now(), total: plan.total, ids, blocked: plan.blocked };
+            if (!writeBack.mark(Object.values(plan.rows).flat()) || !writeJSON(storage, JOB_KEY, job)) {
+                console.error('[health] copy could not be stored');
+                toast("Couldn't start the copy — try again.", 'error');
+                return;
+            }
+            paused = false;
+            backoff = 0;
+            renderCopy();
+            drainWrites();
+        } finally {
+            opening = false;
+        }
+    };
+    settleCopy();
+    const view = doc.getElementById('settings-view');
+    const Observer = doc.defaultView && doc.defaultView.MutationObserver;
+    if (view && Observer) {
+        new Observer(() => { if (!view.classList.contains('active')) settleCopy(); })
+            .observe(view, { attributes: true, attributeFilter: ['class'] });
+    }
     let inFlight = null;
     const refresh = () => {
         const desc = doc.getElementById(ROW_ID)?.querySelector('.wg-setting__desc');
@@ -759,6 +1144,8 @@ export function startHealthImport(ctx, {
             }
             if (!isHealthWriteEnabled(storage)) return false;
             drainWrites();
+            // HW6: the one-time offer (not awaited: the switch settles now).
+            if (readJSON(storage, OFFERED_KEY, false) !== true) openCopy(true);
             return true;
         },
     });

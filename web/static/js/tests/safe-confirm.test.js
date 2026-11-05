@@ -285,6 +285,19 @@ describe('safeConfirm — in-page modal', () => {
             await expect(promise).resolves.toBe(true);
         });
 
+        it('a hint renders as a quiet .wg-hint line under the message (HW6)', async () => {
+            const { window, document } = env;
+            const promise = window.safeConfirm('304 past entries from this app.', null, { title: 'Copy?', hint: 'Nothing is copied twice.' });
+            const modal = document.querySelector('mt-modal.mt-confirm-modal');
+            const body = modal.querySelector('.wg-dialog__body');
+            expect([...body.children].map((el) => [el.className, el.textContent])).toEqual([
+                ['mt-confirm-modal__message', '304 past entries from this app.'],
+                ['wg-hint', 'Nothing is copied twice.'],
+            ]);
+            modal.querySelector('.mt-confirm-modal__cancel').click();
+            await expect(promise).resolves.toBe(false);
+        });
+
         it('typedConfirm renders the kit __confirm block with the word in mono and gates the confirm', async () => {
             const { window, document } = env;
             const promise = window.safeConfirm('', null, { title: 'Erase?', destructive: true, typedConfirm: 'ERASE' });

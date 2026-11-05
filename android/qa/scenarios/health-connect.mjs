@@ -384,6 +384,55 @@ export default async function healthConnect(ctx) {
       await waitNative(weight.id, (rows) => rows.length === 0);
     });
 
+    // bd med-8f4s.11 section 6: copy 1,000 past entries (700 BP with pulse, 300
+    // weights: 1,700 Health Connect writes) through the real writer, and record
+    // how long the count (the dedupe read) and the copy take, and whether
+    // Health Connect's rate limit paused it. Evidence: never fails the run.
+    await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {
+      r.copy = {};
+      await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
+      await ctx.page.evaluate(async () => {
+        const base = Date.now() - 400 * 864e5;
+        for (let i = 0; i < 700; i++) await window.apiCall('/api/bp', 'POST', { systolic: 100 + (i % 40), diastolic: 60 + (i % 9), pulse: 60 + (i % 20), measured_at: new Date(base + i * 12 * 36e5).toISOString(), notes: 'copy QA' });
+        for (let i = 0; i < 300; i++) await window.apiCall('/api/weight', 'POST', { weight: 70 + (i % 50) / 10, measured_at: new Date(base + i * 864e5).toISOString() });
+        localStorage.setItem('wg.health.write', 'true');
+      });
+      await shell(`am force-stop ${pkg}`);
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach before the copy failed');
+      await ctx.page.evaluate(() => window.switchTab('settings'));
+      const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+      if (await notNow.isVisible().catch(() => false)) await notNow.click();
+      const row = ctx.page.locator('#health-copy-row[data-state="ready"]');
+      await row.waitFor({ state: 'visible', timeout: 30_000 });
+      await row.scrollIntoViewIfNeeded();
+      const t0 = Date.now();
+      await row.click();
+      const confirm = ctx.page.locator('.mt-confirm-modal .mt-confirm-modal__confirm');
+      await confirm.waitFor({ state: 'visible', timeout: 120_000 });
+      r.copy.countMs = Date.now() - t0;
+      r.copy.offer = await ctx.page.locator('.mt-confirm-modal').innerText();
+      await ctx.stableShot('health-copy-offer');
+      const t1 = Date.now();
+      await confirm.click();
+      r.copy.states = [];
+      for (const until = Date.now() + 15 * 60_000; Date.now() < until;) {
+        const s = await ctx.page.evaluate(() => {
+          const el = document.getElementById('health-copy-row');
+          return el ? `${el.dataset.state} ${el.querySelector('.wg-setting__desc')?.textContent || ''}` : 'none';
+        }).catch(() => 'detached');
+        if (r.copy.states.at(-1) !== s) r.copy.states.push(s);
+        if (/^(done|refused)/.test(s)) break;
+        await sleep(2000);
+      }
+      r.copy.copyMs = Date.now() - t1;
+      r.copy.paused = r.copy.states.some((s) => s.startsWith('paused'));
+      r.copy.ledgerLeft = await ctx.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('wg.health.dirty') || '{}')).reduce((n, m) => n + Object.keys(m).length, 0));
+      await ctx.stableShot('health-copy-result');
+      ctx.log('health-copy', JSON.stringify({ countMs: r.copy.countMs, copyMs: r.copy.copyMs, paused: r.copy.paused, ledgerLeft: r.copy.ledgerLeft, last: r.copy.states.at(-1) }));
+    });
+
     await ctx.step('Health Connect rationale names the pulse copy', async () => {
       await shell(`am start -W -a androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE -n ${pkg}/com.example.medtracker.PermissionsRationaleActivity`);
       await ctx.waitFor({ text: 'Health Connect access' }, 10_000);

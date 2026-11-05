@@ -278,6 +278,7 @@ function safeForm(msg, content, opts) {
 //   tone 'danger' (data loss) | 'warn' (reversible) | 'info' (a choice) picks
 //     the icon tile; destructive:true with no tone means tone 'danger'.
 //     destructive (or tone 'danger') paints the confirm filled clay.
+//   hint: a quiet .wg-hint line under the message (the HW6 copy offer).
 //   facts: [{ text, gone }] — what goes (gone: ×, li.is-gone) and what stays
 //     (✓), rendered as .wg-dialog__facts under the message.
 //   link: { label, onClick } — a .wg-link in the body ("Export a backup
@@ -342,6 +343,12 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         if (linkBtn) messageEl.append(linkBtn, msg ? ' ' : '');
         messageEl.append(String(msg ?? ''));
         body.appendChild(messageEl);
+    }
+    if (opts.hint) {
+        const hint = doc.createElement('p');
+        hint.className = 'wg-hint';
+        hint.textContent = opts.hint;
+        body.appendChild(hint);
     }
     if (facts.length) {
         const list = doc.createElement('ul');

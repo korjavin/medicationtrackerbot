@@ -223,7 +223,8 @@ only). It then copies the blood pressure entries (with the pulse you noted),
 weight entries, and the workouts you complete in the app (start, end and type
 only, no exercises, sets or weights) that you add or change on that phone to
 the phone's Health store,
-including entries recorded there by voice, through an AI app or from Telegram.
+including entries recorded there by voice, through an AI app or from Telegram,
+and, if you choose "Copy past entries", your past entries.
 Syncing an entry from another device does not by itself copy it, and readings
 imported from Health are never written back. These copies are outside your
 vault and no longer protected by its encryption: Apple Health or Health
