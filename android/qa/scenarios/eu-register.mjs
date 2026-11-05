@@ -35,10 +35,24 @@ async function timedCheck(name) {
   probe();
   const t0 = performance.now();
   let res;
+  let lastState = null;
   let polls = 0;
   for (;;) {
-    res = await window.apiCall(`/api/medications/ema-check?name=${encodeURIComponent(name)}`);
+    const remaining = 60_000 - (performance.now() - t0);
+    if (remaining <= 0) { res = { status: 'timeout', candidates: [] }; break; }
+    let timer;
+    try {
+      // Same contract as the editor (meds-history.js): poll=1 only observes the loader.
+      // Starting again on every poll can hide a failed load in an endless retry loop.
+      res = await Promise.race([
+        window.apiCall(`/api/medications/ema-check?name=${encodeURIComponent(name)}${polls ? '&poll=1' : ''}`),
+        new Promise((resolve) => { timer = setTimeout(() => resolve({ status: 'timeout', candidates: [] }), remaining); }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
     polls++;
+    if (res.status !== 'timeout') lastState = { status: res.status, progress: res.progress ?? null };
     if (res.status !== 'loading') break;
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -48,7 +62,7 @@ async function timedCheck(name) {
   if (po) po.disconnect();
   const round = (n) => Math.round(n);
   return {
-    ms: round(ms), status: res.status, candidates: res.candidates.length, polls,
+    ms: round(ms), status: res.status, candidates: res.candidates.length, polls, lastState,
     maxTimerLagMs: round(maxLag), longTasks: tasks.length, longestTaskMs: round(Math.max(0, ...tasks)),
     totalBlockingMs: round(tasks.reduce((s, d) => s + Math.max(0, d - 50), 0)),
     peakHeapMB: performance.memory ? +(peak / 1048576).toFixed(1) : null,
