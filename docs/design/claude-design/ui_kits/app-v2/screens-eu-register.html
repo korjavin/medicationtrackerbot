@@ -232,7 +232,8 @@
 <li><b>EU chosen</b>: the editor shows an EU chip where the Rx chip is today. The RxNav lookup doesn't run. No interaction warning is lost: RxNav's interaction endpoint is shut down and the client already returns none (rxnorm.js:11-14, Miles 15510).</li>
 <li><b>Sheet</b>: one card per substance text, route rows with countries. No country chips (dropped for simplicity).</li>
 <li><b>Footer</b>: two short lines; the full attribution text stays in the privacy/about page (Miles .5 to confirm it meets the EMA notice).</li>
-</ol></div><div class="kit-spec"><div class="kit-spec__name">Slice 2 · open questions, my answers (for Developer)</div><ol class="wg-olist">
+</ol></div><div class="kit-spec"><div class="kit-spec__name">Slice 2 · approved by Developer 17045 as drawn, plus: the check never blocks Save</div><ol class="wg-olist">
+<li><b>Never blocking</b>: no match, several unpicked, still loading or failed → Save just saves the medication without a match. Save never waits for the check.</li>
 <li><b>One match</b>: saved on Save, no extra step, the same as the Rx match today.</li>
 <li><b>Several</b>: nothing is saved until the user taps "Use this" on a card. The app never guesses.</li>
 <li><b>What is stored</b>: the substance text as written, the register revision and its data date (Archie names the fields). The list shows only the substance.</li>
