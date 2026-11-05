@@ -62,7 +62,9 @@ struct HealthDiagnosticView: View {
     /// with write, write a BP and a weight, rewrite them with a higher version,
     /// check the own-id import filter against an unmarked same-bundle pair,
     /// check that an imported row's id (`*-hk-<uuid>`) deletes nothing, then
-    /// delete ours and find nothing left. Each run uses fresh ids.
+    /// delete ours and find nothing left; then the same for a BP pulse as hr
+    /// (bd med-8f4s.8), plus a seeded workout whose imported average heart
+    /// rate the pulse must not move. Each run uses fresh ids.
     @MainActor
     private func writeBack() async -> [String: Any] {
         var failed: [String] = []
@@ -70,6 +72,8 @@ struct HealthDiagnosticView: View {
         func check(_ name: String, _ ok: Bool, _ seen: Any = "") {
             if !ok { failed.append("\(name) (\(seen))") }
         }
+        /// Shown while running, so a stall names its step (the test waits on "pending*").
+        func step(_ name: String) { report = "pending: \(name)" }
         let store = Health.store
         let mmHg = HKUnit.millimeterOfMercury(), kg = HKUnit.gramUnit(with: .kilo)
         let bpType = HKCorrelationType(.bloodPressure)
@@ -85,25 +89,41 @@ struct HealthDiagnosticView: View {
             try await find(type, HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: [key]))
         }
         func value(_ s: HKSample?, _ unit: HKUnit) -> Double { (s as? HKQuantitySample)?.quantity.doubleValue(for: unit) ?? -1 }
-        /// Every uuid one import pass (anchor nil, paged) hands the page.
-        func imported(_ kind: String) async throws -> Set<String> {
-            var uuids = Set<String>(), anchor: Any = NSNull(), more = true
+        /// Every sample one import pass (anchor nil, paged) hands the page, by uuid.
+        func pages(_ kind: String) async throws -> [String: [String: Any]] {
+            var byUUID: [String: [String: Any]] = [:], anchor: Any = NSNull(), more = true
             while more {
                 let page = try await Health.handle("health.query", ["type": kind, "anchor": anchor, "limit": 1000]) as? [String: Any] ?? [:]
-                for s in page["samples"] as? [[String: Any]] ?? [] { if let u = s["uuid"] as? String { uuids.insert(u) } }
+                for s in page["samples"] as? [[String: Any]] ?? [] { if let u = s["uuid"] as? String { byUUID[u] = s } }
                 anchor = page["anchor"] ?? NSNull()
                 more = page["more"] as? Bool ?? false
             }
-            return uuids
+            return byUUID
         }
-        var plain: [HKObject] = []
+        func imported(_ kind: String) async throws -> Set<String> { Set(try await pages(kind).keys) }
+        var plain: [HKObject] = [], seeded: [HKObject] = []
         do {
-            let both = ["bp", "weight"]
-            check("authorize", try await Health.handle("health.authorize", ["types": both, "write": both]) as? Bool == true)
-            let granted = (try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any])?["granted"] as? [String] ?? []
-            let statuses = [Health.systolic, Health.diastolic, Health.bodyMass].map { store.authorizationStatus(for: $0).rawValue }
+            let both = ["bp", "weight", "hr"]
+            // One sheet: on the iOS 26.5 Simulator a second requestAuthorization
+            // in the same launch never presents and never returns. So the sheet
+            // is the one health.authorize would ask (its share set is
+            // write.flatMap(shareTypes) and readTypes), plus workout share to
+            // seed one with HKWorkoutBuilder, asked here directly. (The sheet
+            // left BP members notDetermined, so calling health.authorize again
+            // would be that second request.)
+            step("authorize")
+            check("hr shares heart rate", Health.shareTypes("hr") == [Health.heartRate])
+            let share = Set(both.flatMap(Health.shareTypes)).union([HKObjectType.workoutType()])
+            try await store.requestAuthorization(toShare: share, read: Set((both + ["workout"]).flatMap(Health.readTypes)))
+            step("bp/weight")
+            let access = try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any] ?? [:]
+            let granted = access["granted"] as? [String] ?? []
+            let statuses = [Health.systolic, Health.diastolic, Health.bodyMass, Health.heartRate].map { store.authorizationStatus(for: $0).rawValue }
             result["granted"] = granted
-            check("weight writable", granted.contains("weight"), "\(granted) status sys/dia/kg \(statuses)")
+            check("supported", access["supported"] as? [String] == ["bp", "weight", "hr"], access["supported"] ?? "absent")
+            check("weight writable", granted.contains("weight"), "\(granted) status sys/dia/kg/hr \(statuses)")
+            // Heart rate is a plain quantity type: unlike bp it must grant here.
+            check("hr writable", granted.contains("hr"), "\(granted) status sys/dia/kg/hr \(statuses)")
             // ponytail: on the iOS 26.5 Simulator the share sheet grants the
             // blood-pressure correlation type (status 2) but leaves systolic and
             // diastolic notDetermined, re-asking is a no-op and every BP save
@@ -183,11 +203,63 @@ struct HealthDiagnosticView: View {
                     + synced(Health.diastolic, bp + "/dia").count
             }
             check("nothing left", stray == 0, stray)
+
+            // Pulse write-back (bd med-8f4s.8): the page sends <bp id>/pulse as
+            // its own hr kind. A workout spans the pulse, its average from its
+            // own associated samples (100, 120): the pulse must not move it.
+            let bpm = HKUnit.count().unitDivided(by: .minute())
+            let pulse = bp + "/pulse", pulseAt = Date(timeIntervalSince1970: at / 1000)
+            step("workout seed")
+            let config = HKWorkoutConfiguration()
+            config.activityType = .walking
+            let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: .local())
+            let ws = pulseAt.addingTimeInterval(-600)
+            try await builder.beginCollection(at: ws)
+            let workoutHRs = [100.0, 120.0].enumerated().map { i, b in
+                HKQuantitySample(type: Health.heartRate, quantity: HKQuantity(unit: bpm, doubleValue: b),
+                                 start: ws.addingTimeInterval(Double(i + 1) * 120), end: ws.addingTimeInterval(Double(i + 1) * 120))
+            }
+            try await builder.addSamples(workoutHRs)
+            try await builder.endCollection(at: pulseAt.addingTimeInterval(600))
+            let workout = try await builder.finishWorkout()
+            seeded = workoutHRs + (workout.map { [$0] } ?? [])
+            /// The workout's average heart rate as the workout import reads it.
+            func workoutHR() async throws -> Double {
+                try await pages("workout")[workout?.uuid.uuidString ?? "none"]?["hr"] as? Double ?? -1
+            }
+            step("workout read")
+            let before = try await workoutHR()
+            step("pulse")
+            check("workout hr seeded", abs(before - 110) < 0.01, before)
+            for (version, b) in [(1_000, 61.0), (2_000, 64.0)] {
+                _ = try await Health.handle("health.write", ["type": "hr", "id": pulse, "version": version, "at": at, "bpm": b])
+            }
+            let hrs = try await synced(Health.heartRate, pulse)
+            check("one pulse", hrs.count == 1 && value(hrs.first, bpm) == 64, "\(hrs.count) \(value(hrs.first, bpm))")
+            check("pulse version", (hrs.first?.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue == 2_000)
+            check("pulse our source", hrs.first.map { Health.ours($0) } == true)
+            check("pulse at", hrs.first.map { abs($0.startDate.timeIntervalSince(pulseAt)) < 0.001 } == true)
+            let after = try await workoutHR()
+            check("workout hr unchanged by pulse", abs(after - before) < 0.01, "\(before) → \(after)")
+
+            // An unmarked same-bundle heart-rate sample still imports; our pulse does not.
+            let plainHR = HKQuantitySample(type: Health.heartRate, quantity: HKQuantity(unit: bpm, doubleValue: 77), start: t, end: t)
+            try await store.save(plainHR)
+            plain.append(plainHR)
+            let hrSeen = try await imported("hr")
+            check("unmarked hr imports", hrSeen.contains(plainHR.uuid.uuidString))
+            check("own pulse filtered", hrs.first.map { !hrSeen.contains($0.uuid.uuidString) } == true)
+            check("delete unknown pulse", try await Health.handle("health.delete", ["type": "hr", "id": "bp-qa-never-written/pulse"]) as? Bool == true)
+            check("delete pulse", try await Health.handle("health.delete", ["type": "hr", "id": pulse]) as? Bool == true)
+            let strayPulse = try await synced(Health.heartRate, pulse).count
+            check("pulse gone", strayPulse == 0, strayPulse)
+            check("unmarked hr kept", try await find(Health.heartRate, HKQuery.predicateForObject(with: plainHR.uuid)).count == 1)
         } catch {
             let e = error as NSError
             failed.append("error \(e.domain) \(e.code) \(e.localizedDescription)")
         }
         if !plain.isEmpty { try? await store.delete(plain) }
+        if !seeded.isEmpty { try? await store.delete(seeded) }
         result["failed"] = failed
         result["ok"] = failed.isEmpty
         return result

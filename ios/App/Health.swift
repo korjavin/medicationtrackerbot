@@ -2,23 +2,26 @@ import Foundation
 import HealthKit
 
 /// window.Health on iOS (bd med-w6gx.6): HealthKit import, plus the opt-in
-/// write-back of bp/weight (bd med-8f4s.3). The page asks; this answers with
-/// raw samples — mapping them into vault records is the web domain layer's job
+/// write-back of bp/weight (bd med-8f4s.3) and a bp entry's pulse as hr (bd
+/// med-8f4s.8). The page asks; this answers with raw samples — mapping them
+/// into vault records is the web domain layer's job
 /// (web/domain/healthimport.js), not the shell's.
 ///
 /// Ops (web/static/js/native/health.js):
 ///   health.authorize {types, write?}     → Bool (false: no Health store on this device);
-///     `write` (["bp", "weight"]) also asks share access, in the same sheet
-///   health.writeAccess {types}           → {granted: [kind]} (every share type of the kind authorized)
-///   health.write {type, id, version, at, systolic, diastolic | kg} → true, rejects "denied"
+///     `write` (["bp", "weight", "hr"]) also asks share access, in the same sheet
+///   health.writeAccess {types}           → {granted: [kind], supported: ["bp", "weight", "hr"]}
+///     (granted: every share type of the kind authorized)
+///   health.write {type, id, version, at, systolic, diastolic | kg | bpm} → true, rejects "denied"
 ///   health.delete {type, id}             → true (nothing written under `id`: a no-op)
 ///     Our identity: HKMetadataKeySyncIdentifier = the vault recordId on the
-///     sample (weight) or correlation (bp; members <id>/sys, <id>/dia), with
-///     HKMetadataKeySyncVersion = version, so the same id again replaces.
-///     delete matches only that identity from this app's own source — never
-///     an HK UUID, so an imported row's id (weight-hk-<uuid>) deletes nothing.
-///     The anchored bp/weight queries drop what this app wrote with that
-///     identity, so the write-back is never imported back.
+///     sample (weight), correlation (bp; members <id>/sys, <id>/dia) or
+///     heart-rate sample (hr; the page sends <bp recordId>/pulse, stored
+///     verbatim), with HKMetadataKeySyncVersion = version, so the same id
+///     again replaces. delete matches only that identity from this app's own
+///     source — never an HK UUID, so an imported row's id (weight-hk-<uuid>)
+///     deletes nothing. The anchored bp/weight/hr queries drop what this app
+///     wrote with that identity, so the write-back is never imported back.
 ///   health.query {type, anchor?, limit?} → {samples, anchor, returned, more}
 ///     (returned: added + deleted objects HealthKit handed back)
 ///   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
@@ -74,14 +77,18 @@ enum Health {
 
     /// Write (share) authorization: a blood-pressure correlation is saved
     /// with its two members, and the correlation type itself is not a share
-    /// type. Only bp and weight are ever written.
+    /// type. Only bp, weight and hr (a bp entry's pulse) are ever written.
     static func shareTypes(_ kind: String) -> [HKSampleType] {
         switch kind {
         case "bp": return [systolic, diastolic]
         case "weight": return [bodyMass]
+        case "hr": return [heartRate]
         default: return []
         }
     }
+
+    /// The kinds health.write takes (writeAccess `supported`).
+    static let writeKinds = ["bp", "weight", "hr"]
 
     static func canWrite(_ kind: String) -> Bool {
         let types = shareTypes(kind)
@@ -115,9 +122,9 @@ enum Health {
             try await store.requestAuthorization(toShare: share, read: read)
             return true
         case "health.writeAccess":
-            guard HKHealthStore.isHealthDataAvailable() else { return ["granted": [String]()] }
+            guard HKHealthStore.isHealthDataAvailable() else { return ["granted": [String](), "supported": writeKinds] }
             let kinds = args["types"] as? [String] ?? []
-            return ["granted": kinds.filter(canWrite)]
+            return ["granted": kinds.filter(canWrite), "supported": writeKinds]
         case "health.write":
             return try await write(args)
         case "health.delete":
@@ -152,6 +159,10 @@ enum Health {
             // Saved as the correlation, not its members separately.
             try await store.save(HKCorrelation(type: HKCorrelationType(.bloodPressure), start: at, end: at,
                                                objects: [s, d], metadata: identity(id, v)))
+        } else if kind == "hr" {
+            // The id arrives as <bp recordId>/pulse: stored verbatim.
+            try await store.save(HKQuantitySample(type: heartRate, quantity: HKQuantity(unit: .count().unitDivided(by: .minute()), doubleValue: try value("bpm")),
+                                                  start: at, end: at, metadata: identity(id, v)))
         } else {
             try await store.save(HKQuantitySample(type: bodyMass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: try value("kg")),
                                                   start: at, end: at, metadata: identity(id, v)))
@@ -169,6 +180,7 @@ enum Health {
         switch kind {
         case "bp": owned = [(HKCorrelationType(.bloodPressure), id), (systolic, id + "/sys"), (diastolic, id + "/dia")]
         case "weight": owned = [(bodyMass, id)]
+        case "hr": owned = [(heartRate, id)]
         default: throw Failure("unknown type: \(kind)")
         }
         guard HKHealthStore.isHealthDataAvailable() else { return true }
@@ -273,8 +285,10 @@ enum Health {
             newAnchor = r.newAnchor
             returned = r.addedSamples.count + r.deletedObjects.count
         case "hr", "spo2":
-            // Every sample, workout-rate heart rate included; SpO2 comes from
-            // HealthKit as a 0-1 fraction and goes out as percent.
+            // Every sample, workout-rate heart rate included, except the
+            // pulses this app wrote back (returned and the anchor stay as the
+            // query produced them); SpO2 comes from HealthKit as a 0-1
+            // fraction and goes out as percent.
             let spo2 = args["type"] as? String == "spo2"
             let since = fromMs.map { HKQuery.predicateForSamples(withStart: Date(timeIntervalSince1970: $0 / 1000), end: nil, options: .strictStartDate) }
             let r = try await HKAnchoredObjectQueryDescriptor(
@@ -282,6 +296,7 @@ enum Health {
                 anchor: anchor, limit: limit).result(for: store)
             let unit = spo2 ? HKUnit.percent() : HKUnit.count().unitDivided(by: .minute())
             samples = r.addedSamples.compactMap { q -> [String: Any]? in
+                guard !ours(q) else { return nil }
                 let v = q.quantity.doubleValue(for: unit) * (spo2 ? 100 : 1)
                 if spo2, !(50...100).contains(v) { return nil }
                 return ["uuid": q.uuid.uuidString, "start": ms(q.startDate), "value": v]
