@@ -401,7 +401,8 @@ let _medEuSheetClose = null; // module-state: closer of the open EU register she
 function openMedEuSheet(name, entries, source) {
     if (_medEuSheetClose) _medEuSheetClose();
     const several = entries.length > 1;
-    const modal = _medsEl('mt-modal', 'wg-modal wg-sheet wg-sheet--full');
+    // wg-meds-eusheet: the stock sheet's --z-confirm layer, above its backdrop.
+    const modal = _medsEl('mt-modal', 'wg-modal wg-sheet wg-sheet--full wg-meds-eusheet');
     modal.id = 'med-eu-sheet';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
