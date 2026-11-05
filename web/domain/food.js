@@ -6,6 +6,7 @@
 
 import { offsetMsAt, dayStartMs } from './bp.js';
 import { foodKey, keyDistance } from './foodname.js';
+import { withMacroWarnings } from './foodmacros.js';
 
 const LOG_RECORD_TYPE = 'foodlog';
 const PRODUCT_RECORD_TYPE = 'foodproduct';
@@ -212,7 +213,7 @@ function toLogResponse(record, isMeal) {
 }
 
 function toProductResponse(record) {
-  return {
+  return withMacroWarnings({
     id: record.recordId,
     name: record.name,
     barcode: record.barcode || undefined,
@@ -225,7 +226,7 @@ function toProductResponse(record) {
     total_weight_g: record.total_weight_g,
     created_at: record.created_at,
     last_used_at: record.last_used_at,
-  };
+  }, record);
 }
 
 // Same heuristic as web/cloud/js/fooddb.js isBarcode() and Go's
@@ -505,7 +506,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     if (bumpAfterCreate) await touchProduct(bumpAfterCreate);
 
     const products = await productsIndex();
-    const resp = toLogResponse(record, isMealFor(record, products));
+    const resp = withMacroWarnings(toLogResponse(record, isMealFor(record, products)), per100gFrom(input));
     if (matched) resp.matched = matched;
     return resp;
   }
@@ -568,7 +569,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     await records.put(LOG_RECORD_TYPE, record);
 
     const products = await productsIndex();
-    const resp = toLogResponse(record, isMealFor(record, products));
+    const resp = withMacroWarnings(toLogResponse(record, isMealFor(record, products)), per100gFrom(input));
     if (matched !== undefined) resp.matched = matched;
     return resp;
   }

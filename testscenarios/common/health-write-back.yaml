@@ -10,6 +10,7 @@ steps:
   - Edit a blood pressure reading and a weight that were imported from Health
   - Enter a reading while Health refuses write access, delete it, then allow access again and reopen the app
   - Switch "Also write my entries" off and enter another reading
+  - Enter a BP reading with a pulse; edit it to clear the pulse; edit again to set one; deny heart-rate write access and enter another BP
 invariants:
   - "A hand-entered reading shows in the Health app within seconds, as written by Med Tracker"
   - "Editing it changes the same Health record; deleting it removes it"
@@ -19,8 +20,13 @@ invariants:
   - "Switching it off stops updates and leaves the copies already in Health"
   - "The switch shows only while import is on; refused write access flips it back with where to allow it; one kind allowed keeps it on and names the other"
   - 'Write access revoked later in system settings leaves the switch on, reading "Writing paused: access was removed"; entries made meanwhile reach Health once access returns'
+  - "A BP reading with a pulse shows in the Health app as one blood pressure record and one heart-rate entry at the same time, both by Med Tracker"
+  - "Clearing the pulse removes the heart-rate entry, setting it again brings it back, deleting the reading removes both"
+  - "With heart-rate write access denied, BP and weight still arrive"
+  - "Pulses of readings saved or edited after this update arrive once access is allowed; an older reading follows on its next edit"
+  - "The heart-rate entries Med Tracker wrote never come back into the Vitals heart-rate card"
 covered_by:
-  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5)
-  android: manual  # health-connect emulator QA covers BP/weight upsert/delete, no echo, grants and HW1; real device permission/retry checks remain manual
-  ios: manual  # until med-8f4s.3 QA
-source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2]
+  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind and the supported fallback
+  android: manual  # health-connect emulator QA covers BP/weight upsert/delete, no echo, grants and HW1; real device permission/retry checks remain manual; pulse until med-8f4s.7 QA
+  ios: manual  # until med-8f4s.3 QA; pulse until med-8f4s.8 QA
+source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6]

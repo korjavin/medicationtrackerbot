@@ -2,6 +2,10 @@ package registry
 
 import "encoding/json"
 
+// macroWarningsNote documents the optional `warnings` field (med-5jq.8,
+// web/domain/foodmacros.js): flags only, never a rejection.
+const macroWarningsNote = "`warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (> 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (< 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values."
+
 // FoodOperations returns the set of food-related operations for the registry.
 // Includes read-only operations for browsing logs/products/targets and write
 // operations whose backend handlers carry strong domain validation
@@ -130,7 +134,7 @@ output(result)`,
   }
 }`),
 			Description:     "List the user's saved food products (used as templates when logging). Page a large catalog with limit/offset.",
-			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal}) and 'total' (int).",
+			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal, warnings?}) and 'total' (int). " + macroWarningsNote,
 			ResponseExample: `{
   "products": [
     {"id": 12, "name": "oatmeal", "barcode": "", "carbs_100g": 60.0, "protein_100g": 12.0, "fat_100g": 7.0, "energy_kcal_100g": 360.0, "is_meal": false}
@@ -154,9 +158,10 @@ output({"count": result["total"], "products": result["products"]})`,
   }
 }`),
 			Description:     "Search the user's saved food products (and the open_food_facts cache) by name, match key (case, plurals and quantity/meal-time notes folded) and learnt aliases. Use it before food.log.create to find an existing product_id: food.log.create without a product_id reconciles the name against the catalog (exact key, learnt alias, or one unambiguous typo), but a name in another language or a synonym it has not learnt still creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
-			ResponseSummary: "JSON array of matching products with id, name, barcode, per-100g macros.",
+			ResponseSummary: "JSON array of matching products with id, name, barcode, per-100g macros, and warnings when the macros look wrong. " + macroWarningsNote,
 			ResponseExample: `[
-  {"id": 12, "name": "oatmeal", "barcode": "", "carbs_100g": 60.0, "protein_100g": 12.0, "fat_100g": 7.0, "energy_kcal_100g": 360.0}
+  {"id": 12, "name": "oatmeal", "barcode": "", "carbs_100g": 60.0, "protein_100g": 12.0, "fat_100g": 7.0, "energy_kcal_100g": 360.0},
+  {"id": 31, "name": "croissant", "barcode": "", "carbs_100g": 45.8, "protein_100g": 8.2, "fat_100g": 21.0, "energy_kcal_100g": 32.0, "warnings": ["inconsistent"]}
 ]`,
 			Example: `result = api.call("food.products.search", params={"q": "oatmeal"})
 output(result)`,
@@ -175,7 +180,7 @@ output(result)`,
   }
 }`),
 			Description:     "Top-N most frequently logged products for this user (highest usage_count first). Use this to discover canonical names the user has logged before, so reused meals share the same food_product entry.",
-			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal}) and 'total' (int).",
+			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, warnings?}) and 'total' (int). " + macroWarningsNote,
 			ResponseExample: `{
   "products": [
     {"id": 7, "name": "chicken breast", "barcode": "", "carbs_100g": 0.0, "protein_100g": 31.0, "fat_100g": 3.6, "energy_kcal_100g": 165.0, "usage_count": 42, "is_meal": false}
@@ -209,7 +214,7 @@ for p in result["products"]:
   }
 }`),
 			Description:     "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server reconciles it against the catalog before creating anything: the same match key (case, plurals, quantity/meal-time/place notes folded), an alias learnt earlier, or exactly one close spelling (a typo) links the existing product, and the log takes that product's name; only a name matching nothing creates a new product, under the name as given — so that name becomes the shared identity for every future log of this food. The reconcile does not translate or know synonyms, so a canonical English name is still preferred (e.g. \"boiled egg\", not \"вареное яйцо\"), in its generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). Macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
-			ResponseSummary: "The created FoodLog {id, eaten_at, name, product_id, weight, carbs, protein, fat, calories, is_meal} plus matched: how a bare name found its product — exact, alias, typo, or new (a product was created). name is the matched product's name. matched is absent when you passed product_id.",
+			ResponseSummary: "The created FoodLog {id, eaten_at, name, product_id, weight, carbs, protein, fat, calories, is_meal, warnings?} plus matched: how a bare name found its product — exact, alias, typo, or new (a product was created). name is the matched product's name. matched is absent when you passed product_id. warnings describes the entry's per-100 g macros. " + macroWarningsNote,
 			ResponseExample: `{"id": "foodlog_1777464600000_k2j4h1qz", "eaten_at": "2026-04-29T12:30:00.000Z", "weight": 120, "carbs": 1, "protein": 15, "fat": 12, "calories": 172, "is_meal": false, "name": "Boiled egg", "product_id": "foodproduct_1771000000000_a8d0c3pe", "matched": "typo"}`,
 			Example: `result = api.call(
     "food.log.create",
@@ -271,7 +276,7 @@ output({"items": result["items"]})`,
   }
 }`),
 			Description:     "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back. Same naming rules as food.log.create apply — keep the name canonical English and generic so logs across days share a single product_id. Without product_id, an unchanged name keeps the log's product link; a changed name is reconciled like food.log.create (match → relinked, with the product's name), but an update never creates or changes a product: no match leaves the log unlinked under the name you sent.",
-			ResponseSummary: "Updated FoodLog object; when the name changed and no product_id was sent it also carries matched: exact, alias, typo, or null (no product matched, log left unlinked).",
+			ResponseSummary: "Updated FoodLog object, with warnings? describing its per-100 g macros; when the name changed and no product_id was sent it also carries matched: exact, alias, typo, or null (no product matched, log left unlinked). " + macroWarningsNote,
 			Example: `api.call(
     "food.log.update",
     path_params={"id": 42},
@@ -341,7 +346,7 @@ output({"moved": len(result)})`,
   }
 }`),
 			Description:     "Update a saved food product. Full-replacement semantics: omitted fields decode to zero values. Read the product via food.products.list/search before sending.",
-			ResponseSummary: "Updated FoodProduct object.",
+			ResponseSummary: "Updated FoodProduct object, with warnings? when its macros look wrong. " + macroWarningsNote,
 			Example: `api.call(
     "food.products.update",
     path_params={"id": 7},

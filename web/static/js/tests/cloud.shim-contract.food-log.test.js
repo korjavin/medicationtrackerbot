@@ -231,6 +231,64 @@ describe('cloud shim contract — food log flows (features/food/log.js over web/
 //
 // BP hid the same class of bug behind two protections food lacks: a browser
 // stamp, and a rolling 30-day window rather than a single calendar day.
+// med-5jq.8 — implausible per-100 g macros are flagged on the log, product
+// and MCP responses (computed on read), never rejected. The epic's real
+// examples: a 300,000 kcal entry, a 32 kcal croissant, a 10 kcal red wine.
+describe('cloud shim contract — macro sanity warnings (med-5jq.8)', () => {
+    let env;
+    const today = localDateStr();
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+    });
+
+    afterEach(() => { env.cleanup(); });
+
+    const per100 = (window, name, { carbs = 0, protein = 0, fat = 0, calories }) => window.apiCall('/api/food/log', 'POST', {
+        eaten_at: `${today}T12:00:00`, weight: 100, carbs, protein, fat, calories, name, barcode: '', per_100g: true,
+    });
+
+    it('flags the epic examples on create, and still saves them', async () => {
+        const { window } = env;
+        const huge = await per100(window, 'mystery bar', { carbs: 50, protein: 10, fat: 20, calories: 300000 });
+        const croissant = await per100(window, 'croissant', { carbs: 45.8, protein: 8.2, fat: 21, calories: 32 });
+        const normal = await per100(window, 'oatmeal', { carbs: 60, protein: 12, fat: 7, calories: 360 });
+        // 4 x 2.6 g = 10.4 kcal: self-consistent. Its missing kcal is alcohol,
+        // which only a per-food-class range could catch (no food class yet).
+        const wine = await per100(window, 'red wine', { carbs: 2.6, calories: 10 });
+
+        expect(huge.warnings).toEqual(['impossible', 'inconsistent']);
+        expect(croissant.warnings).toEqual(['inconsistent']);
+        expect(normal).not.toHaveProperty('warnings');
+        expect(wine).not.toHaveProperty('warnings');
+
+        const logs = (await window.apiCall(`/api/food/log?date=${today}&days=1`)).flatMap((g) => g.logs);
+        expect(logs.map((l) => l.name).sort()).toEqual(['croissant', 'mystery bar', 'oatmeal', 'red wine']);
+    });
+
+    it('flags impossible sums and suspicious-low energy', async () => {
+        const { window } = env;
+        expect((await per100(window, 'typo', { carbs: 80, protein: 30, fat: 0, calories: 440 })).warnings).toEqual(['impossible']);
+        expect((await per100(window, 'zero kcal bread', { carbs: 49, protein: 9, fat: 3, calories: 0 })).warnings).toEqual(['suspicious-low']);
+    });
+
+    it('products carry the flag on list/search, and a log update re-checks its own values', async () => {
+        const { window } = env;
+        const log = await per100(window, 'croissant', { carbs: 45.8, protein: 8.2, fat: 21, calories: 32 });
+
+        const [found] = await window.apiCall('/api/food/products/search?q=croissant');
+        expect(found.warnings).toEqual(['inconsistent']);
+        const { products } = await window.apiCall('/api/food/products');
+        expect(products.find((p) => p.name === 'croissant').warnings).toEqual(['inconsistent']);
+
+        const fixed = await window.apiCall(`/api/food/log/${log.id}`, 'PUT', {
+            eaten_at: `${today}T12:00:00`, weight: 100, carbs: 45.8, protein: 8.2, fat: 21, calories: 406, name: 'croissant', per_100g: true,
+        });
+        expect(fixed).not.toHaveProperty('warnings');
+    });
+});
+
 describe('cloud shim contract — food log eaten_at guard (med-d5t.11)', () => {
     let env;
     const today = localDateStr();

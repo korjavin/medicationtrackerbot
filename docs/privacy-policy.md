@@ -219,13 +219,14 @@ stores them in your vault like a reading you typed in.
 
 The app **writes** to Apple Health or Health Connect only if you also switch on
 **Also write my entries** (off by default, in the iPhone and Android apps
-only). It then copies the blood pressure and weight entries you add or change
-on that phone to the phone's Health store, including entries recorded there by
-voice, through an AI app or from Telegram. Syncing an entry from another device
-does not by itself copy it, and readings imported from Health are never written
-back. These copies are outside your vault and no longer protected by its
-encryption: Apple Health or Health Connect, and every app you allowed to read
-blood pressure or weight there, handle them under their own security and
+only). It then copies the blood pressure entries (with the pulse you noted) and
+weight entries you add or change on that phone to the phone's Health store,
+including entries recorded there by voice, through an AI app or from Telegram.
+Syncing an entry from another device does not by itself copy it, and readings
+imported from Health are never written back. These copies are outside your
+vault and no longer protected by its encryption: Apple Health or Health
+Connect, and every app you allowed to read blood pressure, heart rate or weight
+there, handle them under their own security and
 privacy settings. While the switch is on and write access is allowed, changes
 you make on that phone update or remove the copies. If access is unavailable,
 changes may wait and are retried when access returns and you reopen the app.
