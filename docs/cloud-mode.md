@@ -426,8 +426,10 @@ never turns it off (below).
   per-segment times and has no weight. **Not mirrored:** sessions completed
   before the switch (or this release) until next written, a session completed
   on another device (passive sync apply never reaches the seam), and a
-  Telegram "I did a workout" log (created and completed on the same instant:
-  no span). Workouts imported from Health are `miband` rows, never a write
+  workout logged by message or voice without a start and end (e.g. a
+  Telegram "I did a workout" log, created and completed on the same instant:
+  no span) is not copied to Health; one logged in the app, with sets, is
+  (Archie 15649). Workouts imported from Health are `miband` rows, never a write
   kind; the shells drop their own workouts from the workout query, so the
   import's overlap rule (a strength workout yields to an in-app session) is
   unchanged.
