@@ -37,22 +37,28 @@ async function fetchJson(url) {
 // have no absolute confidence meaning; spelling candidates need manual review:
 // https://lhncbc.nlm.nih.gov/RxNav/news/RxNormApproxMatch.html
 // The proxy pins findRxcuiByString to search=0 (case-insensitive exact).
+// Resolves null when the lookup failed (timeout, non-2xx, malformed), so the
+// domain can keep a saved match; {rxcui:''} when RxNav answered with no
+// unique exact match, which clears it (bd med-3u28.2 ruling R1).
 export async function searchRxNorm(name) {
   let rxcui = '';
   try {
     const searchUrl = `/api/rxnav/rxcui?name=${encodeURIComponent(name)}`;
     const data = await fetchJson(searchUrl);
-    const ids = data && data.idGroup && data.idGroup.rxnormId;
+    if (!data || typeof data.idGroup !== 'object' || !data.idGroup) return null;
+    const ids = data.idGroup.rxnormId;
+    // No rxnormId: RxNav's own "no match" answer.
+    if (ids === undefined) return { rxcui: '', normalizedName: '' };
     // JSON IDs are strings in the upstream contract. Malformed or ambiguous
     // responses must not become the first guessed medication identity.
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !/^\d+$/.test(id))) {
-      return { rxcui: '', normalizedName: '' };
+      return null;
     }
     const uniqueIds = [...new Set(ids)];
     if (uniqueIds.length !== 1) return { rxcui: '', normalizedName: '' };
     rxcui = uniqueIds[0];
   } catch {
-    return { rxcui: '', normalizedName: '' };
+    return null;
   }
   if (!rxcui) return { rxcui: '', normalizedName: '' };
 

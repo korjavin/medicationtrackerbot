@@ -233,7 +233,7 @@ export function createApiRouter(ctx, {
   // (no name leaves the device) and answers what local mode's null port does.
   const rxnorm = rxnormPort && {
     searchRxNorm: (name) => (medRegister(targetWindow) === 'eu'
-      ? Promise.resolve({ rxcui: '', normalizedName: '' }) : rxnormPort.searchRxNorm(name)),
+      ? Promise.resolve(null) : rxnormPort.searchRxNorm(name)), // null: no lookup performed
     checkInteractions: (rxcuis) => (medRegister(targetWindow) === 'eu'
       ? Promise.resolve([]) : rxnormPort.checkInteractions(rxcuis)),
   };

@@ -351,7 +351,7 @@ describe('cloud medication identity through the real RxNorm port', () => {
         });
     });
 
-    it('rechecks a legacy wrong identity without writing on open; Save keeps it while the name is unchanged, a rename drops it', async () => {
+    it('rechecks a legacy wrong identity without writing on open; ordinary Save clears only its derived match', async () => {
         const { window, document } = env;
         const legacy = {
             recordId: 1, clientTs: 1, name: 'Candecor', dosage: '8mg', schedule: '{"type":"as_needed"}',
@@ -374,17 +374,10 @@ describe('cloud medication identity through the real RxNorm port', () => {
         });
         expect(write).not.toHaveBeenCalled();
         expect((await env.records.list('medication'))[0]).toMatchObject(legacy);
-        // No lookup match for an unchanged name keeps the saved match (bd
-        // med-3u28.2: no quiet strip on EU, no account or a RxNav outage).
         await window.saveMedication();
         expect((await env.records.list('medication'))[0]).toMatchObject({
             name: 'Candecor', dosage: '8mg', schedule: '{"type":"as_needed"}', supplement: true,
-            tz_shift_policy: 'strict', pack_size: null, rxcui: '999', normalized_name: 'Caldecort',
-        });
-        document.getElementById('med-name').value = 'Candecor comp';
-        await window.saveMedication();
-        expect((await env.records.list('medication'))[0]).toMatchObject({
-            name: 'Candecor comp', dosage: '8mg', rxcui: '', normalized_name: '',
+            tz_shift_policy: 'strict', pack_size: null, rxcui: '', normalized_name: '',
         });
     });
 
@@ -429,6 +422,18 @@ describe('cloud medication identity through the real RxNorm port', () => {
             fetchRxnav.mockRejectedValue(new Error('timeout'));
             await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
             expect(await stored()).toMatchObject({ rxcui: '153165', normalized_name: 'Lipitor' });
+            // Non-2xx and a malformed reply are failures too: kept.
+            fetchRxnav.mockResolvedValue(new Response('', { status: 503 }));
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
+            expect(await stored()).toMatchObject({ rxcui: '153165', normalized_name: 'Lipitor' });
+            fetchRxnav.mockResolvedValue(new Response(JSON.stringify({ idGroup: { rxnormId: [7] } })));
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
+            expect(await stored()).toMatchObject({ rxcui: '153165', normalized_name: 'Lipitor' });
+            // RxNav answered with no unique exact match: cleared (5382c9aca).
+            fetchRxnav.mockImplementation(async () => new Response(JSON.stringify({ idGroup: { name: 'Lipitor' } })));
+            await env.window.apiCall('/api/medications/1', 'POST', edit('Lipitor'));
+            expect(await stored()).toMatchObject({ rxcui: '', normalized_name: '' });
+            await env.records.put('medication', { ...LIPITOR });
             await env.window.apiCall('/api/medications/1', 'POST', edit('Sortis'));
             expect(await stored()).toMatchObject({ name: 'Sortis', rxcui: '', normalized_name: '' });
         });
