@@ -361,6 +361,13 @@ export default async function healthConnect(ctx) {
       if (!/Pulse \(heart rate\) isn't allowed/.test(r.writeBack.hrHeld.hint)) throw new Error(`missing HR refusal hint: ${JSON.stringify(r.writeBack.hrHeld)}`);
       if (!(pending.id in (r.writeBack.hrHeld.ledger.hr || {}))) throw new Error('denied pulse missing from pending ledger');
       if ((await healthDiag()).some((l) => /write hr failed/.test(l))) throw new Error('denied HR generated write failures instead of holding its kind');
+      // Saving BP can offer the unrelated reminders nudge. Dismiss it through
+      // its normal action so the evidence actually shows the refusal row.
+      const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+      await notNow.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      if (await notNow.isVisible()) await notNow.click();
+      await ctx.page.locator('#notify-permission-sheet').waitFor({ state: 'hidden', timeout: 5000 });
+      await ctx.page.locator('#health-write-row').scrollIntoViewIfNeeded();
       await ctx.stableShot('health-write-pulse-denied');
       await shell(`pm grant ${pkg} android.permission.health.WRITE_HEART_RATE`);
       // Playwright's attached WebView can stay "visible" under another Activity.
