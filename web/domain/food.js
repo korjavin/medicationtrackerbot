@@ -342,19 +342,26 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     return record;
   }
 
-  // touchProduct records one use: usage_count+1 and last_used_at. `extra`
-  // carries the only other fields a caller may set (a missing barcode on a
-  // log create; a meal's definition in createMealFromLogs).
-  async function touchProduct(product, extra = {}) {
+  // touchProduct records one use on the CURRENT stored row (not the caller's
+  // snapshot, so an edit or synced op that landed meanwhile is kept):
+  // usage_count+1 and last_used_at. `extra(current)` returns the only other
+  // fields a caller may set (a missing barcode on a log create; a meal's
+  // definition in createMealFromLogs). A product deleted meanwhile stays
+  // deleted: resolves null. records.update is the locked compare-and-merge;
+  // ports without it (test fakes) re-read just before the put.
+  async function touchProduct(product, extra = () => ({})) {
     const nowMs = now();
-    const record = {
-      ...product,
-      ...extra,
+    const bump = (cur) => (cur && !cur.deleted ? {
+      ...cur,
+      ...extra(cur),
       clientTs: nowMs,
-      usage_count: (product.usage_count || 0) + 1,
+      usage_count: (cur.usage_count || 0) + 1,
       last_used_at: new Date(nowMs).toISOString(),
-    };
-    await records.put(PRODUCT_RECORD_TYPE, record);
+    } : null);
+    if (records.update) return records.update(PRODUCT_RECORD_TYPE, product.recordId, bump);
+    const cur = (await records.list(PRODUCT_RECORD_TYPE)).find((p) => p.recordId === product.recordId);
+    const record = bump(cur);
+    if (record) await records.put(PRODUCT_RECORD_TYPE, record);
     return record;
   }
 
@@ -412,9 +419,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       bumpAfterCreate = product;
     } else if (resolvedName && !skipProductUpsert) {
       const existing = await findProduct(resolvedName);
-      const product = existing
-        ? await touchProduct(existing, !existing.barcode && input.barcode ? { barcode: input.barcode } : {})
-        : await createProduct({ name: resolvedName, barcode: input.barcode || null, ...per100gFrom(input) });
+      const touched = existing
+        && await touchProduct(existing, (cur) => (!cur.barcode && input.barcode ? { barcode: input.barcode } : {}));
+      const product = touched || await createProduct({ name: resolvedName, barcode: input.barcode || null, ...per100gFrom(input) });
       resolvedProductId = product.recordId;
     }
 
@@ -785,7 +792,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       total_weight_g: totalWeight,
     };
     const existing = await findProduct(name);
-    const product = existing ? await touchProduct(existing, meal) : await createProduct({ name, ...meal });
+    const product = (existing && await touchProduct(existing, () => meal)) || await createProduct({ name, ...meal });
     return toProductResponse(product);
   }
 

@@ -15,7 +15,8 @@
 // tests stub it from env.window (which does have a real DOM) for the
 // duration of the test.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createFoodDomain } from '../../../domain/food.js';
 
 function installApiCache(window, seed = {}) {
     const map = new Map(Object.entries(seed));
@@ -169,6 +170,30 @@ describe('cloud shim contract — food products flows (features/food/{products,d
             expect(renamed.name).toBe('Granola square');
             expect(renamed.product_id).toBeUndefined();
             expect(await products(window)).toEqual([edited]);
+        });
+
+        // The usage touch lands on the CURRENT row: a product edit (or synced op)
+        // that arrives while the log write is in flight survives it. Port-level,
+        // since the shim cannot interleave two writes inside one request.
+        it('a product edit landing during a product_id log create survives the usage touch', async () => {
+            const records = createInMemoryRecordsPort();
+            const food = createFoodDomain({ records, now: () => Date.now(), timeZone: 'UTC', foodDb: null });
+            await food.create({ name: 'Lentils', weight: 100, carbs: 20, protein: 5, fat: 1, calories: 110 });
+            const [product] = await food.listProducts().then((r) => r.products);
+            const put = records.put.bind(records);
+            records.put = async (type, record) => {
+                const stored = await put(type, record);
+                if (type === 'foodlog') await food.updateProduct(product.id, { ...product, protein_100g: 42 });
+                return stored;
+            };
+            await food.create({ product_id: product.id, weight: 50, carbs: 10, protein: 3, fat: 0, calories: 55 });
+            const [after] = (await food.listProducts()).products;
+            expect(after).toMatchObject({ protein_100g: 42, usage_count: 2 });
+
+            await food.removeProduct(product.id);
+            records.put = put;
+            await food.create({ name: 'Lentils', weight: 100, carbs: 20, protein: 5, fat: 1, calories: 110 });
+            expect((await food.listProducts()).products).toHaveLength(1); // deleted stays deleted; a new one is created
         });
 
         it('moving three logs bumps no product', async () => {
