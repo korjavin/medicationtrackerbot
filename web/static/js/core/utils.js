@@ -347,11 +347,13 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         messageEl.append(String(msg ?? ''));
         body.appendChild(messageEl);
     }
+    // One hint line: under the message, or under the list in choices mode.
+    let hintEl = null;
     if (opts.hint) {
-        const hint = doc.createElement('p');
-        hint.className = 'wg-hint';
-        hint.textContent = opts.hint;
-        body.appendChild(hint);
+        hintEl = doc.createElement('p');
+        hintEl.className = 'wg-hint';
+        hintEl.textContent = opts.hint;
+        if (!choiceMode) body.appendChild(hintEl);
     }
     if (facts.length) {
         const list = doc.createElement('ul');
@@ -491,12 +493,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             list.appendChild(btn);
         }
         body.appendChild(list);
-        if (opts.hint) {
-            const hint = doc.createElement('p');
-            hint.className = 'wg-hint';
-            hint.textContent = opts.hint;
-            body.appendChild(hint);
-        }
+        if (hintEl) body.appendChild(hintEl);
     }
     if (contentMode) body.appendChild(opts.content);
 

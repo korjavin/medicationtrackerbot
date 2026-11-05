@@ -361,6 +361,21 @@ describe('safeChoose — choose + Continue', () => {
         { value: 'replace', label: 'Replace', sub: 'Delete these first' },
     ], { title: 'Records already here', icon: 'archive', tone: 'info', confirmLabel: 'Continue', ...opts });
 
+    it('a hint renders exactly once, under the list (safeChoose) or the message (safeConfirm)', async () => {
+        const { window, document } = env;
+        const picking = open(window, { hint: 'Applies on this phone only.' });
+        let body = document.querySelector('.wg-dialog__body');
+        expect([...body.querySelectorAll('.wg-hint')].map((h) => h.textContent)).toEqual(['Applies on this phone only.']);
+        expect(body.lastElementChild.className).toBe('wg-hint');
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        await picking;
+        const confirming = window.safeConfirm('Copy?', null, { hint: 'Nothing is copied twice.' });
+        body = document.querySelector('.wg-dialog__body');
+        expect(body.querySelectorAll('.wg-hint')).toHaveLength(1);
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        await confirming;
+    });
+
     it('preselects the selected choice and Continue commits only it', async () => {
         const { window, document } = env;
         const promise = open(window, { selected: 'merge', destructive: true, focusCancel: true });

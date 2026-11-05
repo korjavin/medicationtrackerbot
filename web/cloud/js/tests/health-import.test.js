@@ -2638,8 +2638,9 @@ describe('Health write-back', () => {
                 document.body.innerHTML = home;
                 health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: at('2026-10-01T12:00:00Z') }));
                 await open();
+                // The saved job already reads as a result (weight named), so wait on the job itself.
+                await vi.waitFor(() => expect(job()).toMatchObject({ total: 0, ids: { weight: [] }, blocked: {} }));
                 await finished();
-                expect(job()).toMatchObject({ total: 0, ids: { weight: [] }, blocked: {} });
                 expect(health.write).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'weight' }));
             });
 
