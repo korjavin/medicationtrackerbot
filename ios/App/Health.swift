@@ -2,26 +2,29 @@ import Foundation
 import HealthKit
 
 /// window.Health on iOS (bd med-w6gx.6): HealthKit import, plus the opt-in
-/// write-back of bp/weight (bd med-8f4s.3) and a bp entry's pulse as hr (bd
-/// med-8f4s.8). The page asks; this answers with raw samples — mapping them
-/// into vault records is the web domain layer's job
-/// (web/domain/healthimport.js), not the shell's.
+/// write-back of bp/weight (bd med-8f4s.3), a bp entry's pulse as hr (bd
+/// med-8f4s.8) and completed workout sessions (bd med-8f4s.10). The page asks;
+/// this answers with raw samples — mapping them into vault records is the web
+/// domain layer's job (web/domain/healthimport.js), not the shell's.
 ///
 /// Ops (web/static/js/native/health.js):
 ///   health.authorize {types, write?}     → Bool (false: no Health store on this device);
-///     `write` (["bp", "weight", "hr"]) also asks share access, in the same sheet
-///   health.writeAccess {types}           → {granted: [kind], supported: ["bp", "weight", "hr"]}
+///     `write` (["bp", "weight", "hr", "workout"]) also asks share access, in the same sheet
+///   health.writeAccess {types}           → {granted: [kind], supported: ["bp", "weight", "hr", "workout"]}
 ///     (granted: every share type of the kind authorized)
 ///   health.write {type, id, version, at, systolic, diastolic | kg | bpm} → true, rejects "denied"
+///   health.write {type: "workout", id, version, start, end, activity: 50 | 3000} → true
+///     (an HKWorkout, strength training or other, start…end in ms; nothing attached)
 ///   health.delete {type, id}             → true (nothing written under `id`: a no-op)
 ///     Our identity: HKMetadataKeySyncIdentifier = the vault recordId on the
-///     sample (weight), correlation (bp; members <id>/sys, <id>/dia) or
+///     sample (weight), correlation (bp; members <id>/sys, <id>/dia),
 ///     heart-rate sample (hr; the page sends <bp recordId>/pulse, stored
-///     verbatim), with HKMetadataKeySyncVersion = version, so the same id
-///     again replaces. delete matches only that identity from this app's own
-///     source — never an HK UUID, so an imported row's id (weight-hk-<uuid>)
-///     deletes nothing. The anchored bp/weight/hr queries drop what this app
-///     wrote with that identity, so the write-back is never imported back.
+///     verbatim) or workout (the session recordId), with
+///     HKMetadataKeySyncVersion = version, so the same id again replaces.
+///     delete matches only that identity from this app's own source — never
+///     an HK UUID, so an imported row's id (weight-hk-<uuid>) deletes nothing.
+///     The anchored bp/weight/hr/workout queries drop what this app wrote with
+///     that identity, so the write-back is never imported back.
 ///   health.query {type, anchor?, limit?} → {samples, anchor, returned, more}
 ///     (returned: added + deleted objects HealthKit handed back)
 ///   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
@@ -77,18 +80,19 @@ enum Health {
 
     /// Write (share) authorization: a blood-pressure correlation is saved
     /// with its two members, and the correlation type itself is not a share
-    /// type. Only bp, weight and hr (a bp entry's pulse) are ever written.
+    /// type. Only bp, weight, hr (a bp entry's pulse) and workout are ever written.
     static func shareTypes(_ kind: String) -> [HKSampleType] {
         switch kind {
         case "bp": return [systolic, diastolic]
         case "weight": return [bodyMass]
         case "hr": return [heartRate]
+        case "workout": return [HKObjectType.workoutType()]
         default: return []
         }
     }
 
     /// The kinds health.write takes (writeAccess `supported`).
-    static let writeKinds = ["bp", "weight", "hr"]
+    static let writeKinds = ["bp", "weight", "hr", "workout"]
 
     static func canWrite(_ kind: String) -> Bool {
         let types = shareTypes(kind)
@@ -138,13 +142,35 @@ enum Health {
 
     private static func write(_ args: [String: Any]) async throws -> Any {
         guard let kind = args["type"] as? String, let id = args["id"] as? String, !id.isEmpty,
-              let version = args["version"] as? NSNumber, let atMs = (args["at"] as? NSNumber)?.doubleValue, atMs.isFinite
+              let version = args["version"] as? NSNumber
         else { throw Failure("bad write") }
+        func time(_ key: String) throws -> Date {
+            guard let x = (args[key] as? NSNumber)?.doubleValue, x.isFinite else { throw Failure("bad write") }
+            return Date(timeIntervalSince1970: x / 1000)
+        }
         guard !shareTypes(kind).isEmpty else { throw Failure("unknown type: \(kind)") }
         guard HKHealthStore.isHealthDataAvailable(), canWrite(kind) else { throw Failure("denied") }
         // HKMetadataKeySyncVersion must be an integer.
         let v = NSNumber(value: version.int64Value)
-        let at = Date(timeIntervalSince1970: atMs / 1000)
+        if kind == "workout" {
+            let start = try time("start"), end = try time("end")
+            guard end > start else { throw Failure("bad write: end") }
+            let config = HKWorkoutConfiguration()
+            switch (args["activity"] as? NSNumber)?.intValue {
+            case 50: config.activityType = .traditionalStrengthTraining
+            case 3000: config.activityType = .other
+            default: throw Failure("bad write: activity")
+            }
+            // The builder honours the sync identifier like a sample save: a
+            // higher version replaces the earlier workout (HealthWriteBackTests).
+            let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: .local())
+            try await builder.beginCollection(at: start)
+            try await builder.addMetadata(identity(id, v))
+            try await builder.endCollection(at: end)
+            _ = try await builder.finishWorkout()
+            return true
+        }
+        let at = try time("at")
         func value(_ key: String) throws -> Double {
             guard let x = (args[key] as? NSNumber)?.doubleValue, x.isFinite, x > 0 else { throw Failure("bad write: \(key)") }
             return x
@@ -181,6 +207,7 @@ enum Health {
         case "bp": owned = [(HKCorrelationType(.bloodPressure), id), (systolic, id + "/sys"), (diastolic, id + "/dia")]
         case "weight": owned = [(bodyMass, id)]
         case "hr": owned = [(heartRate, id)]
+        case "workout": owned = [(HKObjectType.workoutType(), id)]
         default: throw Failure("unknown type: \(kind)")
         }
         guard HKHealthStore.isHealthDataAvailable() else { return true }
@@ -272,7 +299,8 @@ enum Health {
                 predicates: [.workout()],
                 anchor: anchor, limit: limit).result(for: store)
             let bpm = HKUnit.count().unitDivided(by: .minute())
-            samples = r.addedSamples.map { w -> [String: Any] in
+            // Our mirrored sessions never re-import (returned/anchor unchanged).
+            samples = r.addedSamples.filter { !ours($0) }.map { w -> [String: Any] in
                 var o: [String: Any] = ["uuid": w.uuid.uuidString, "start": ms(w.startDate), "end": ms(w.endDate),
                                         "activity": Int(w.workoutActivityType.rawValue), "duration": w.duration]
                 if let hr = w.statistics(for: heartRate)?.averageQuantity() { o["hr"] = hr.doubleValue(for: bpm) }

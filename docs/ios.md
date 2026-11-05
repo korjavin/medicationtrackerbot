@@ -254,7 +254,7 @@ Store Connect (ASC) by the owner from this section.
   | `NSCameraUsageDescription` | barcode scan, meal photos, invite QR |
   | `NSMicrophoneUsageDescription` | voice assistant, voice notes in feedback |
   | `NSHealthShareUsageDescription` | Apple Health read import |
-  | `NSHealthUpdateUsageDescription` | the opt-in "Also write my entries" write-back of BP (with its pulse) + weight (bd med-8f4s); upload validation demands it of any HealthKit app |
+  | `NSHealthUpdateUsageDescription` | the opt-in "Also write my entries" write-back of BP (with its pulse), weight and completed workouts (bd med-8f4s); upload validation demands it of any HealthKit app |
   | `NSFaceIDUsageDescription` | local mode's optional lock (`LocalAuthentication`) |
 
   Local notifications need no Info.plist string (iOS asks at runtime). Photo
@@ -495,10 +495,11 @@ by a killed app is swept at the next launch). A page script sends `window.print(
 
 Import: Health → the page → the encrypted vault, like a hand-entered reading.
 The opt-in write-back (epic med-8f4s, switch "Also write my entries", off by
-default) copies BP entries (with the pulse noted, as a heart-rate sample) and
-weight entries added or changed on this iPhone into Apple Health: plaintext
-out of the vault, disclosed as the `health-write-back` privacy-manifest row.
-The shell side is bd med-8f4s.3 (bp, weight) and bd med-8f4s.8 (hr).
+default) copies BP entries (with the pulse noted, as a heart-rate sample),
+weight entries and completed workout sessions added or changed on this iPhone
+into Apple Health: plaintext out of the vault, disclosed as the
+`health-write-back` privacy-manifest row. The shell side is bd med-8f4s.3 (bp,
+weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
 
 - **Native:** [`ios/App/Health.swift`](../ios/App/Health.swift) answers
   `health.authorize` and `health.query` (anchored queries, raw samples) over the
@@ -545,6 +546,29 @@ The shell side is bd med-8f4s.3 (bp, weight) and bd med-8f4s.8 (hr).
   check in the med-8f4s.8/.10 TestFlight batch: save a BP with pulse → Health
   shows one BP and one heart-rate entry by Med Tracker; clear the pulse → the
   heart-rate entry is gone; set it again → back; delete the reading → both gone.
+- **Workout write-back (bd med-8f4s.10):** kind `workout` shares
+  `HKObjectType.workoutType()` (asked in the same sheet when `write` names it;
+  `writeAccess` reports and lists it in `supported`). `health.write {type:
+  "workout", id, version, start, end, activity}` builds one workout with
+  `HKWorkoutBuilder` from `start` to `end` (ms): activity 50 →
+  `.traditionalStrengthTraining`, 3000 → `.other`, anything else rejects `bad
+  write: activity`; no energy, distance, heart rate or title. The identity
+  (`SyncIdentifier` = the session recordId, `SyncVersion` = version) goes on as
+  builder metadata, and HealthKit's sync-id upsert replaces the earlier
+  workout on a higher version — `HealthWriteBackTests` writes twice and finds
+  exactly one. `health.delete` matches it like the other kinds. The anchored
+  `workout` query drops this app's sync-identified workouts, so the mirrored
+  session never re-imports as a Health workout row; an unmarked same-bundle
+  workout (the QA's seed) still imports. Which sessions are written (completed
+  only; open, pending or skipped never; the 4 h cap) is the page's rule
+  (med-8f4s.5), not the shell's, so the QA does not cover it. What the QA does
+  not execute, as for the pulse: `health.authorize` itself (one sheet asked
+  directly; evidence `shareTypes("workout") == [workoutType]` plus
+  `writeAccess` granting `workout`), and the page → bridge → HealthKit chain —
+  an owner device check in the med-8f4s.8/.10 TestFlight batch: finish a
+  session → Health shows one strength workout by Med Tracker over the
+  session's span; edit or re-complete it → still one; delete it → gone; a
+  Watch or other-app workout is not duplicated into the app.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
   overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every
