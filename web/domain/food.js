@@ -5,6 +5,7 @@
 // internal/domain/food.go.
 
 import { offsetMsAt, dayStartMs } from './bp.js';
+import { foodKey, keyDistance } from './foodname.js';
 
 const LOG_RECORD_TYPE = 'foodlog';
 const PRODUCT_RECORD_TYPE = 'foodproduct';
@@ -302,6 +303,52 @@ export function mergeProducts(base, extra) {
   return merged.slice(0, 50);
 }
 
+// A product's match key: the stored name_key (med-5jq.3), else computed from
+// the name for rows written before it. Never written back by a read.
+const productKey = (p) => p.name_key || foodKey(p.name);
+
+const ALIAS_CAP = 50;
+function withAlias(aliases, key) {
+  const list = Array.isArray(aliases) ? aliases : [];
+  return list.includes(key) || list.length >= ALIAS_CAP ? list : [...list, key];
+}
+
+// Several products may share a key (catalogs already hold "Boiled eggs" next
+// to "boiled egg"): the most used wins, then the older one.
+function mostUsed(list) {
+  return list.slice().sort((a, b) => (b.usage_count || 0) - (a.usage_count || 0)
+    || String(a.created_at || '').localeCompare(String(b.created_at || '')))[0];
+}
+
+// resolveProduct (med-5jq.3) finds the catalog product a typed food name
+// means, in one in-memory pass — no network, no model:
+//   exact — a live product whose key (stored name_key or the name's key) is the name's key;
+//   alias — the key was learnt for a product before (aliases);
+//   typo  — exactly one product key within keyDistance 1 (keys of 5-7 chars)
+//           or 2 (longer); shorter keys never typo-match, two near keys never guess.
+// The key only matches; the caller takes the product's own name. A name that
+// keys to '' (only annotations, "Breakfast") matches by exact name only.
+export function resolveProduct(rawName, products) {
+  const key = foodKey(rawName);
+  const live = (products || []).filter((p) => !p.deleted && p.name);
+  const none = { product: null, matched: null, key };
+  if (!key) {
+    const same = live.filter((p) => p.name === rawName);
+    return same.length ? { product: mostUsed(same), matched: 'exact', key } : none;
+  }
+  const keyed = live.map((p) => ({ p, k: foodKey(p.name) }));
+  const exact = keyed.filter(({ p, k }) => k === key || p.name_key === key).map(({ p }) => p);
+  if (exact.length) return { product: mostUsed(exact), matched: 'exact', key };
+  const alias = live.filter((p) => Array.isArray(p.aliases) && p.aliases.includes(key));
+  if (alias.length) return { product: mostUsed(alias), matched: 'alias', key };
+  const len = Array.from(key).length;
+  const max = len > 7 ? 2 : len >= 5 ? 1 : 0;
+  if (!max) return none;
+  const near = keyed.filter(({ k }) => k && keyDistance(key, k, max) <= max);
+  if (new Set(near.map(({ k }) => k)).size !== 1) return none;
+  return { product: mostUsed(near.map(({ p }) => p)), matched: 'typo', key };
+}
+
 // createFoodDomain builds the food domain API over the injected ports:
 //   records  — { list(type), put(type, record), del(type, id) }
 //   now()    — current time in ms epoch
@@ -313,7 +360,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // create and by updateProduct, never rewritten by a log (med-5jq.2). Logs
   // only find a product, create one for a genuinely new food, or touch it.
 
-  // findProduct: exact-name match (med-5jq.3 replaces it with the key match).
+  // findProduct: exact-name match, for saving a meal (the user naming a
+  // product). Food logs reconcile through resolveProduct instead.
   async function findProduct(name) {
     if (!name) return null;
     const all = await records.list(PRODUCT_RECORD_TYPE);
@@ -327,6 +375,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       clientTs: nowMs,
       deleted: false,
       name: input.name,
+      name_key: foodKey(input.name),
       barcode: input.barcode || null,
       carbs_100g: input.carbs_100g || 0,
       protein_100g: input.protein_100g || 0,
@@ -348,12 +397,15 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // fields a caller may set (a missing barcode on a log create; a meal's
   // definition in createMealFromLogs). A product deleted meanwhile stays
   // deleted: resolves null. records.update is the locked compare-and-merge;
-  // ports without it (test fakes) re-read just before the put.
+  // ports without it (test fakes) re-read just before the put. name_key is
+  // refreshed from the current name (backfills older rows, and heals a key an
+  // older bundle's rename left stale).
   async function touchProduct(product, extra = () => ({})) {
     const nowMs = now();
     const bump = (cur) => (cur && !cur.deleted ? {
       ...cur,
       ...extra(cur),
+      name_key: foodKey(cur.name),
       clientTs: nowMs,
       usage_count: (cur.usage_count || 0) + 1,
       last_used_at: new Date(nowMs).toISOString(),
@@ -392,8 +444,11 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
 
   // create mirrors handleCreateFoodLog (food_handlers.go:21): a product_id
   // resolves the log's name/product and only bumps usage afterwards; a bare
-  // name touches the existing product of that name (its macros stay the
-  // user's, med-5jq.2) or creates one from the computed per-100g macros.
+  // name reconciles against the catalog (resolveProduct, med-5jq.3): a match
+  // links the log, takes the product's own name and touches it (its macros
+  // stay the user's, med-5jq.2; a typo match learns the typed key as an
+  // alias); no match creates a product from the computed per-100g macros.
+  // The response's `matched` says which (exact|alias|typo|new).
   // skipProductUpsert matches the AI handlers (handleCreateFoodLogFrom*), which
   // CreateLog a bare-named entry with no product_id and no UpsertProduct.
   // recordId overrides the generated id so a caller with its own stable key can
@@ -405,6 +460,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     let resolvedName = input.name || '';
     let resolvedProductId = null;
     let bumpAfterCreate = null;
+    let matched;
 
     if (input.product_id) {
       const products = await productsIndex();
@@ -418,11 +474,15 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       if (!resolvedName) resolvedName = product.name;
       bumpAfterCreate = product;
     } else if (resolvedName && !skipProductUpsert) {
-      const existing = await findProduct(resolvedName);
-      const touched = existing
-        && await touchProduct(existing, (cur) => (!cur.barcode && input.barcode ? { barcode: input.barcode } : {}));
+      const found = resolveProduct(resolvedName, await records.list(PRODUCT_RECORD_TYPE));
+      const touched = found.product && await touchProduct(found.product, (cur) => ({
+        ...(!cur.barcode && input.barcode ? { barcode: input.barcode } : {}),
+        ...(found.matched === 'typo' ? { aliases: withAlias(cur.aliases, found.key) } : {}),
+      }));
       const product = touched || await createProduct({ name: resolvedName, barcode: input.barcode || null, ...per100gFrom(input) });
+      matched = touched ? found.matched : 'new';
       resolvedProductId = product.recordId;
+      resolvedName = product.name;
     }
 
     const record = {
@@ -445,13 +505,18 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     if (bumpAfterCreate) await touchProduct(bumpAfterCreate);
 
     const products = await productsIndex();
-    return toLogResponse(record, isMealFor(record, products));
+    const resp = toLogResponse(record, isMealFor(record, products));
+    if (matched) resp.matched = matched;
+    return resp;
   }
 
   // update rewrites the log row only — no product write (med-5jq.2): the
   // log's macros stay on the log, an edit is not a use, and a renamed log
-  // never creates a product. Without a product_id the link is re-resolved
-  // by name (findProduct), null when nothing matches.
+  // never creates a product. Without a product_id, an unchanged name keeps
+  // the row's link (past logs are not relinked); a changed name re-resolves
+  // (resolveProduct, med-5jq.3): a match relinks and takes the product's
+  // name, no match keeps the typed name unlinked. Learns no alias: that would
+  // be a product write.
   async function update(id, input) {
     assertNonNegativeMacros(input, { checkWeight: true });
     const all = await records.list(LOG_RECORD_TYPE);
@@ -462,12 +527,24 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       throw err;
     }
 
+    let name = input.name || '';
+    let productId = input.product_id || null;
+    let matched;
     if (input.product_id) {
       const products = await productsIndex();
       if (!products.has(input.product_id)) {
         const err = new Error('invalid product_id: product does not exist or belongs to another user');
         err.code = 'invalid_product';
         throw err;
+      }
+    } else if (name && name === existing.name) {
+      productId = existing.product_id || null;
+    } else if (name) {
+      const found = resolveProduct(name, await records.list(PRODUCT_RECORD_TYPE));
+      matched = found.matched;
+      if (found.product) {
+        productId = found.product.recordId;
+        name = found.product.name;
       }
     }
 
@@ -485,13 +562,15 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       protein: input.protein || 0,
       fat: input.fat || 0,
       calories: input.calories || 0,
-      name: input.name || '',
-      product_id: input.product_id || (await findProduct(input.name))?.recordId || null,
+      name,
+      product_id: productId,
     };
     await records.put(LOG_RECORD_TYPE, record);
 
     const products = await productsIndex();
-    return toLogResponse(record, isMealFor(record, products));
+    const resp = toLogResponse(record, isMealFor(record, products));
+    if (matched !== undefined) resp.matched = matched;
+    return resp;
   }
 
   async function remove(id) {
@@ -713,6 +792,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       ...existing,
       clientTs: now(),
       name: input.name,
+      name_key: foodKey(input.name), // aliases stay (spread)
       barcode: input.barcode || null,
       carbs_100g: input.carbs_100g || 0,
       protein_100g: input.protein_100g || 0,
@@ -813,9 +893,14 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
 
     const all = await records.list(PRODUCT_RECORD_TYPE);
     const needle = query.toLowerCase();
+    // The match key too (med-5jq.3): "boiled eggs" finds "Boiled egg", and a
+    // learnt alias finds its product.
+    const keyNeedle = foodKey(query);
+    const byKey = (p) => !!keyNeedle && (productKey(p).includes(keyNeedle)
+      || (Array.isArray(p.aliases) && p.aliases.some((a) => String(a).includes(keyNeedle))));
     const local = all
       .filter((p) => !p.deleted)
-      .filter((p) => p.name.toLowerCase().includes(needle) || (p.barcode || '').toLowerCase().includes(needle))
+      .filter((p) => p.name.toLowerCase().includes(needle) || (p.barcode || '').toLowerCase().includes(needle) || byKey(p))
       .sort((a, b) => {
         if (!!b.is_meal !== !!a.is_meal) return (b.is_meal ? 1 : 0) - (a.is_meal ? 1 : 0);
         if (b.usage_count !== a.usage_count) return b.usage_count - a.usage_count;

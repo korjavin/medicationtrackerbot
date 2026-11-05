@@ -208,8 +208,7 @@ describe('cloud shim contract — food products flows (features/food/{products,d
         });
     });
 
-    it('CloudFoodSearch.search: local-only finds a product created via a food log; remote merges a mocked food-DB response', async () => {
-        const { window } = env;
+    it('CloudFoodSearch.search: local-only finds a product created via a food log; remote merges a mocked food-DB response', async () => {        const { window } = env;
         env.window.__MEDTRACKER_CLOUD__ = true;
         vi.stubGlobal('document', window.document);
 
@@ -441,5 +440,111 @@ describe('cloud shim contract — food products flows (features/food/{products,d
                 vi.useRealTimers();
             }
         });
+    });
+});
+
+// bd med-5jq.3 — a named food log reconciles against the catalog before it
+// creates a product: exact key → learnt alias → one bounded typo match. The
+// epic's duplicate table (foodname.domain.test.js) is the fixture, logged
+// through POST /api/food/log and the MCP router the Telegram agent also uses.
+describe('food logs reconcile against the catalog (med-5jq.3)', () => {
+    let env;
+    const product = (id, name, extra = {}) => ({
+        recordId: id, clientTs: 1, deleted: false, name, barcode: null,
+        carbs_100g: 1, protein_100g: 1, fat_100g: 1, energy_kcal_100g: 20,
+        usage_count: 1, is_meal: false, total_weight_g: 0,
+        created_at: '2026-01-01T00:00:00Z', last_used_at: '2026-01-01T00:00:00Z', ...extra,
+    });
+    // Rows written before name_key existed: the key is computed on read.
+    const catalog = [
+        product('p-egg', 'Boiled egg', { usage_count: 7 }),
+        product('p-sandwich', 'Sandwich'),
+        product('p-yogurt', 'Yogurt'),
+        product('p-cappuccino', 'Cappuccino'),
+        product('p-kimchi', 'Kimchi'),
+        product('p-rye', 'Rye bread'),
+        product('p-spaghetti', 'Dry spaghetti'),
+        product('p-coffee', 'Coffee'),
+        product('p-banana', 'Banana'),
+    ];
+    const body = (name) => ({ name, eaten_at: new Date().toISOString(), weight: 100, carbs: 9, protein: 9, fat: 9, calories: 153 });
+    const viaApi = (name) => env.window.apiCall('/api/food/log', 'POST', body(name));
+    const viaMcp = async (name) => (await env.window.CloudMCPDispatcher.handle('mcp_call', { op: 'food.log.create', mode: 'write', intent: 'log a meal', body: body(name) })).result;
+    const productRows = async () => (await env.records.list('foodproduct')).filter((p) => !p.deleted);
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { foodproduct: catalog.map((p) => ({ ...p })) } });
+        env.window.__MEDTRACKER_CLOUD__ = true;
+        installApiCache(env.window);
+    });
+
+    afterEach(() => { env.cleanup(); env = null; });
+
+    const linked = [
+        ['Boiled eggs', 'p-egg', 'exact'], ['boiled egg', 'p-egg', 'exact'], ['hard-boiled eggs', 'p-egg', 'exact'],
+        ['2 boiled eggs', 'p-egg', 'exact'], ['boiled eggs breakfast', 'p-egg', 'exact'], ['Boiled eggs (airline)', 'p-egg', 'exact'],
+        ['Night sandwiches', 'p-sandwich', 'exact'],
+        ['Yugurt', 'p-yogurt', 'typo'], ['capuccino', 'p-cappuccino', 'typo'], ['Swandwich', 'p-sandwich', 'typo'], ['Kim Chi', 'p-kimchi', 'typo'],
+    ];
+    for (const [via, log] of [['POST /api/food/log', viaApi], ['MCP food.log.create', viaMcp]]) {
+        it.each(linked)(`${via}: %j links to the one existing product (%s, %s), creates none`, async (name, id, matched) => {
+            const res = await log(name);
+            const target = catalog.find((p) => p.recordId === id);
+            expect(res).toMatchObject({ product_id: id, matched, name: target.name });
+            expect(await productRows()).toHaveLength(catalog.length);
+        });
+    }
+
+    it.each([['Fried egg'], ['White bread'], ['Cooked spaghetti'], ['Coffee with milk'], ['Dried banana']])(
+        'must-not-merge: %j creates its own product, as typed', async (name) => {
+            const res = await viaApi(name);
+            expect(res).toMatchObject({ matched: 'new', name });
+            const rows = await productRows();
+            expect(rows).toHaveLength(catalog.length + 1);
+            expect(rows.find((p) => p.recordId === res.product_id)).toMatchObject({ name, name_key: name.toLowerCase() });
+        });
+
+    it('a typo match learns the typed key: the next log matches by alias, search finds it, an edit keeps it', async () => {
+        await viaApi('Yugurt');
+        expect((await productRows()).find((p) => p.recordId === 'p-yogurt')).toMatchObject({ aliases: ['yugurt'], usage_count: 2, name_key: 'yogurt' });
+        expect(await viaApi('yugurts')).toMatchObject({ product_id: 'p-yogurt', matched: 'alias', name: 'Yogurt' });
+        expect((await env.window.apiCall('/api/food/products/search?q=yugurt')).map((p) => p.id)).toEqual(['p-yogurt']);
+
+        const [row] = (await productRows()).filter((p) => p.recordId === 'p-yogurt');
+        await env.window.apiCall('/api/food/products/p-yogurt', 'PUT', { ...row, name: 'Greek yogurt', energy_kcal_100g: 97 });
+        expect((await productRows()).find((p) => p.recordId === 'p-yogurt'))
+            .toMatchObject({ name: 'Greek yogurt', name_key: 'greek yogurt', aliases: ['yugurt'], energy_kcal_100g: 97 });
+        expect(await viaApi('Yugurt')).toMatchObject({ product_id: 'p-yogurt', matched: 'alias', name: 'Greek yogurt' });
+    });
+
+    it('search matches on the key: "boiled eggs" and "Hard-boiled" find the Boiled egg product', async () => {
+        for (const q of ['boiled eggs', 'Hard-boiled']) {
+            expect((await env.window.apiCall(`/api/food/products/search?q=${encodeURIComponent(q)}`)).map((p) => p.id), q).toContain('p-egg');
+        }
+    });
+
+    it('same-key duplicates: the log links to the more used product', async () => {
+        await env.records.put('foodproduct', product('p-eggs-dup', 'Boiled eggs', { usage_count: 2 }));
+        expect(await viaApi('boiled egg')).toMatchObject({ product_id: 'p-egg', matched: 'exact' });
+    });
+
+    it('two near keys never guess: a typo between them creates a new product', async () => {
+        await env.records.put('foodproduct', product('p-pasta', 'Pasta'));
+        await env.records.put('foodproduct', product('p-paste', 'Paste'));
+        expect(await viaApi('Pastu')).toMatchObject({ matched: 'new', name: 'Pastu' });
+    });
+
+    it('update: a changed name relinks to the canonical product; an unchanged name keeps its link; no product write', async () => {
+        const log = await viaApi('Fried egg');
+        const before = await productRows();
+        const relinked = await env.window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...body('2 boiled eggs'), eaten_at: log.eaten_at });
+        expect(relinked).toMatchObject({ product_id: 'p-egg', name: 'Boiled egg', matched: 'exact' });
+        const kept = await env.window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...body('Boiled egg'), eaten_at: log.eaten_at, calories: 99 });
+        expect(kept).toMatchObject({ product_id: 'p-egg', calories: 99 });
+        expect(kept.matched).toBeUndefined();
+        const unmatched = await env.window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...body('Granola square'), eaten_at: log.eaten_at });
+        expect(unmatched).toMatchObject({ name: 'Granola square', matched: null });
+        expect(unmatched.product_id).toBeUndefined();
+        expect(await productRows()).toEqual(before);
     });
 });

@@ -209,6 +209,8 @@
         {
           "id": 100,
           "name": "Greek yogurt 2%",
+          "name_key": "greek yogurt",
+          "aliases": ["greek yugurt"],
           "barcode": "5901234123457",
           "carbs_100g": 4.0,
           "protein_100g": 10.0,

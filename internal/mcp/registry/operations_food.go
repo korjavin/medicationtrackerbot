@@ -153,7 +153,7 @@ output({"count": result["total"], "products": result["products"]})`,
     "limit": {"type": "integer", "description": "Max results (default 20)"}
   }
 }`),
-			Description:     "Search the user's saved food products (and the open_food_facts cache) by name. Use it before food.log.create to find an existing product_id: food.log.create without a product_id upserts a product by exact name, so a differently spelled or annotated name for the same food creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
+			Description:     "Search the user's saved food products (and the open_food_facts cache) by name, match key (case, plurals and quantity/meal-time notes folded) and learnt aliases. Use it before food.log.create to find an existing product_id: food.log.create without a product_id reconciles the name against the catalog (exact key, learnt alias, or one unambiguous typo), but a name in another language or a synonym it has not learnt still creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
 			ResponseSummary: "JSON array of matching products with id, name, barcode, per-100g macros.",
 			ResponseExample: `[
   {"id": 12, "name": "oatmeal", "barcode": "", "carbs_100g": 60.0, "protein_100g": 12.0, "fat_100g": 7.0, "energy_kcal_100g": 360.0}
@@ -208,8 +208,9 @@ for p in result["products"]:
     "per_100g":   {"type": "boolean", "description": "If true, treat the carb/protein/fat/calories as per-100g and let the server scale by weight"}
   }
 }`),
-			Description:     "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server upserts a food_products row by name — so the name you choose becomes the shared identity for every future log of this food. Normalize names to canonical English (e.g. \"boiled egg\", not \"вареное яйцо\"), in their generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
-			ResponseSummary: "{status, id, product_id, name} — product_id is the food_products row that was matched or upserted from name; null only if no name was provided.",
+			Description:     "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server reconciles it against the catalog before creating anything: the same match key (case, plurals, quantity/meal-time/place notes folded), an alias learnt earlier, or exactly one close spelling (a typo) links the existing product, and the log takes that product's name; only a name matching nothing creates a new product, under the name as given — so that name becomes the shared identity for every future log of this food. The reconcile does not translate or know synonyms, so a canonical English name is still preferred (e.g. \"boiled egg\", not \"вареное яйцо\"), in its generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). Macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
+			ResponseSummary: "The created FoodLog {id, eaten_at, name, product_id, weight, carbs, protein, fat, calories, is_meal} plus matched: how a bare name found its product — exact, alias, typo, or new (a product was created). name is the matched product's name. matched is absent when you passed product_id.",
+			ResponseExample: `{"id": "foodlog_1777464600000_k2j4h1qz", "eaten_at": "2026-04-29T12:30:00.000Z", "weight": 120, "carbs": 1, "protein": 15, "fat": 12, "calories": 172, "is_meal": false, "name": "Boiled egg", "product_id": "foodproduct_1771000000000_a8d0c3pe", "matched": "typo"}`,
 			Example: `result = api.call(
     "food.log.create",
     body={
@@ -238,7 +239,7 @@ output(result)`,
     "eaten_at":    {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred); defaults to now if omitted. All parsed items share this timestamp."}
   }
 }`),
-			Description:     "Log one or more food intake entries from a natural-language meal description — pass the user's words verbatim; the AI parser estimates items and macros. Unlike food.log.create, this endpoint does NOT upsert into food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
+			Description:     "Log one or more food intake entries from a natural-language meal description — pass the user's words verbatim; the AI parser estimates items and macros. Unlike food.log.create, this endpoint does NOT link or create food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
 			ResponseSummary: "{status, items:[{id, name, weight, carbs, protein, fat, calories}], failed}.",
 			Example: `result = api.call(
     "food.log.from_description",
@@ -269,8 +270,8 @@ output({"items": result["items"]})`,
     "per_100g":   {"type": "boolean", "description": "If true, server scales the macros by weight"}
   }
 }`),
-			Description:     "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back. Same naming rules as food.log.create apply — keep the name canonical English and generic so logs across days share a single product_id.",
-			ResponseSummary: "Updated FoodLog object.",
+			Description:     "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back. Same naming rules as food.log.create apply — keep the name canonical English and generic so logs across days share a single product_id. Without product_id, an unchanged name keeps the log's product link; a changed name is reconciled like food.log.create (match → relinked, with the product's name), but an update never creates or changes a product: no match leaves the log unlinked under the name you sent.",
+			ResponseSummary: "Updated FoodLog object; when the name changed and no product_id was sent it also carries matched: exact, alias, typo, or null (no product matched, log left unlinked).",
 			Example: `api.call(
     "food.log.update",
     path_params={"id": 42},
@@ -310,7 +311,7 @@ output({"deleted": 42})`,
     "eaten_at": {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred) every listed log is re-dated to"}
   }
 }`),
-			Description:     "Re-date existing food log entries to one new eaten_at (e.g. a meal photo uploaded late that landed on today but was eaten yesterday). Only eaten_at changes: name, weight, macros and product_id are kept exactly and no product is upserted — prefer this over food.log.update when only the time is wrong. All ids must exist or nothing moves.",
+			Description:     "Re-date existing food log entries to one new eaten_at (e.g. a meal photo uploaded late that landed on today but was eaten yesterday). Only eaten_at changes: name, weight, macros and product_id are kept exactly and no product is touched — prefer this over food.log.update when only the time is wrong. All ids must exist or nothing moves.",
 			ResponseSummary: "Array of the moved FoodLog objects.",
 			Example: `result = api.call(
     "food.log.move",

@@ -238,7 +238,11 @@ Food targets are a settings singleton — see `settings.food_targets`, not repea
   `product_id` (number → product.id | null).
 - **product** — `id` (number, FK glue), `name` (str), `barcode` (str|null), `carbs_100g`,
   `protein_100g`, `fat_100g`, `energy_kcal_100g` (num, per-100g), `usage_count` (int),
-  `is_meal` (bool), `total_weight_g` (num), `created_at` (RFC3339), `last_used_at` (RFC3339).
+  `is_meal` (bool), `total_weight_g` (num), `created_at` (RFC3339), `last_used_at` (RFC3339),
+  and cloud-only (med-5jq.3) `name_key` (str, the name's match key, `web/domain/foodname.js`
+  `foodKey`; absent on older rows, computed on read) and `aliases` (string[], match keys
+  learnt for this product, max 50; absent until one is learnt). Both carried verbatim;
+  older clients ignore them, and keep them through an edit (they spread the row).
 - **incomplete_days** (optional, cloud-only) — sorted local calendar days the user
   flagged as "tracking incomplete" (`fooddaystatus` records, `web/domain/food.js`).
   Omitted when none are flagged; unflagged days are dropped (delete-by-absence).
@@ -740,7 +744,8 @@ Export → import → export (and each single hop) must be
   files omit them; equality holds after stripping, the way
   `med_reminder_pref` is stripped.
 - **Cloud-only food day flags** — `food.incomplete_days` (med-0sgs). Legacy bot
-  files omit it; stripped the same way.
+  files omit it; stripped the same way. Likewise a product's `name_key` and
+  `aliases` (med-5jq.3).
 - **Cloud-only trackers** — `trackers` (med-1vy5). Legacy bot files omit it;
   stripped the same way.
 - **Cloud-only nudge state** — `protection` (med-ta2n.4). Legacy bot files omit

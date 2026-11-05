@@ -1,0 +1,21 @@
+id: food-log-links-existing-product
+title: Logging a food under another spelling links the saved product, no duplicate
+platforms: [web, android, ios]
+preconditions:
+  - The food database holds "Boiled egg" and "Yogurt"
+steps:
+  - Enter manually a food named "2 boiled eggs" and save
+  - Enter manually a food named "Yugurt" and save, then again "Yugurt"
+  - Enter manually a food named "Fried egg" and save
+  - Open the food database and search "yugurt"
+invariants:
+  - The first two logs show as "Boiled egg" and "Yogurt" and count as uses of those products
+  - No product appears for "2 boiled eggs" or "Yugurt"
+  - The log named "Fried egg" gets its own new product under that name
+  - Searching "yugurt" finds Yogurt
+  - Earlier logs keep their names and totals
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.food-products.test.js
+  android: manual
+  ios: manual
+source: [med-5jq.3]
