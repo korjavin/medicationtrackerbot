@@ -30,6 +30,9 @@ export const BODY_FIELDS = Object.freeze({
   height_unit: { valid: (v) => v === 'cm' || v === 'ftin', def: 'cm', hint: "must be 'cm' or 'ftin', or null" },
   show_bmi: { valid: isBool, def: true, hint: 'must be a boolean, or null' },
   bmi_nudge_dismissed: { valid: isBool, def: false, hint: 'must be a boolean, or null', vault: false },
+  // "Check names in" (bd med-3u28.6): which register checks medication names.
+  // Synced vault data, so it follows a move to an account and a restore.
+  med_register: { valid: (v) => v === 'us' || v === 'eu', def: 'us', hint: "must be 'us' or 'eu', or null" },
 });
 
 // readBodySettings: every BODY_FIELDS key, its default when absent or invalid.

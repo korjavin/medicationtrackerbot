@@ -446,6 +446,7 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   "height_cm": 180,                          // absent when unset
   "height_unit": "ftin",                     // absent when unset
   "show_bmi": false,                         // absent when unset
+  "med_register": "eu",                      // absent when unset (med-3u28.6)
   "features": { "food": false, "bp": true, ... },
   "tab_order": ["bp","weight","food","health","workouts","meds"],
   "food_targets": { "calories": int, "carbs": int, "protein": int, "fat": int } | null,
@@ -464,6 +465,9 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   (the default applies: no height, `cm`, `true`) — never `null`; legacy files omit them
   and import with no height. An invalid value (e.g. non-numeric height) is ignored on
   import. `bmi_nudge_dismissed` lives on the same singleton but is **not** exported.
+- **med_register** — Settings → "Check names in" (bd med-3u28.6): `"us"` | `"eu"`, on
+  the same singleton through the same `BODY_FIELDS` entry, so the same rules apply:
+  absent when unset (US), invalid ignored on import. The golden fixture has none.
 - **features** — object map of feature-flag booleans (`food`, `bp`, `weight`,
   `medication`, `workout`, `health`, `gamification`, `weekly_digest`, …). Mirrors the
   `features` singleton `flags`.

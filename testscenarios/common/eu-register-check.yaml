@@ -17,8 +17,9 @@ invariants:
   - Offline after the first download the chip still appears (the register is stored on the phone)
   - With EU picked no RxNav request is made; a medication's saved Rx match stays while its name is unchanged
   - Back on US register the Rx chip path runs as before and the EU register is not fetched
+  - With an account the choice syncs: another device of the account shows the same register after a pull, and its next check follows it without a reload
 covered_by:
   web: manual  # partial: web/static/js/tests/meds.modal.test.js (editor, sheet, stale guards), web/static/js/tests/cloud.shim-contract.meds.test.js (routing, kept match), web/cloud/js/tests/ema.test.js (loader + cache)
   android: manual
   ios: manual  # partial: ios/UITests/FlowQAEURegisterTests.swift (local mode: US checks nothing, Settings pick survives a relaunch, Candecor chip + sheet, cache-first relaunch); not Voltaren, offline or the account-mode US path
-source: [med-3u28.2]
+source: [med-3u28.2, med-3u28.6]

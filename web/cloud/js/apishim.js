@@ -33,7 +33,7 @@ import {
 } from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
-import { createEmaPort, medRegister } from './ema.js';
+import { createEmaPort } from './ema.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
@@ -197,8 +197,9 @@ function debugOnce(key, ...args) {
 //   opts.rxnorm   the drug-name lookup port; null turns it off (the domain's
 //                 no-op), which local mode does: the RxNav proxy is the
 //                 operator's (bd med-o7zq.3, local-policy.js).
-//   opts.ema      the on-device EU register port (ema.js); omitted = the
-//                 page's shared lazy loader. Local mode keeps it: same asset.
+//   opts.emaLoader  the EU register loader behind the ema port (ema.js);
+//                 omitted = the page's shared lazy loader. Local mode keeps
+//                 it: same asset.
 //   opts.operatorFoodDb  fooddb.js's operator food-DB port; omitted keeps the
 //                 cloud's same-origin one (local mode: LOCAL_FOOD_DB, bd
 //                 med-o7zq.20).
@@ -223,21 +224,68 @@ function debugOnce(key, ...args) {
 //                 the inbox applier passes () => false. Local mode never floors.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
-  rxnorm: rxnormPort = createRxnormPort(), ema, operatorFoodDb, protection, documentPolicy,
+  rxnorm: rxnormPort = createRxnormPort(), emaLoader, operatorFoodDb, protection, documentPolicy,
   caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
   canFloor = recordsOverride ? caughtUp : async () => (await caughtUp()) && pulledThisSession(),
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
-  // "Check names in" (bd med-3u28.2), read per call so a Settings change
-  // applies without a reload: with the EU register picked RxNav never runs
-  // (no name leaves the device) and answers what local mode's null port does.
-  const rxnorm = rxnormPort && {
-    searchRxNorm: (name) => (medRegister(targetWindow) === 'eu'
-      ? Promise.resolve(null) : rxnormPort.searchRxNorm(name)), // null: no lookup performed
-    checkInteractions: (rxcuis) => (medRegister(targetWindow) === 'eu'
-      ? Promise.resolve([]) : rxnormPort.checkInteractions(rxcuis)),
+  // "Check names in" (bd med-3u28.2/.6): the settings record's med_register,
+  // read per call so a Settings change or a pull applies without a reload.
+  // Unless it reads 'us', RxNav never runs (no name leaves the device) and
+  // answers what local mode's null port does; an unreadable record is null,
+  // so neither register runs. With no field stored, slice 1's device-local key
+  // still decides ('eu' → 'eu', else 'us') and an 'eu' key is carried into the
+  // record once this page may write from its mirror (below).
+  const medRegister = async () => {
+    let rec;
+    try {
+      rec = (await records.list('settings')).find((r) => r.recordId === 'settings' && !r.deleted);
+    } catch {
+      return null;
+    }
+    if (rec && (rec.med_register === 'us' || rec.med_register === 'eu')) return rec.med_register;
+    if (legacyMedRegister() !== 'eu') return 'us';
+    await carryLegacyMedRegister().catch(() => {}); // a failed write retries on the next read
+    return 'eu';
   };
-  const emaPort = ema || createEmaPort({ win: targetWindow });
+  const rxnorm = rxnormPort && {
+    searchRxNorm: async (name) => ((await medRegister()) !== 'us'
+      ? null : rxnormPort.searchRxNorm(name)), // null: no lookup performed
+    checkInteractions: async (rxcuis) => ((await medRegister()) !== 'us'
+      ? [] : rxnormPort.checkInteractions(rxcuis)),
+  };
+  const emaPort = createEmaPort({ register: medRegister, loader: emaLoader });
+  // Slice 1's device-local key (bd med-3u28.2), read only while the record
+  // has no med_register. Kept, never removed: an open slice-1 tab on this
+  // origin still reads it (removal is a later release).
+  function legacyMedRegister() {
+    try {
+      const accountId = (targetWindow.MedTrackerCloud && targetWindow.MedTrackerCloud.ctx && targetWindow.MedTrackerCloud.ctx.accountId) || 'unknown';
+      return targetWindow.localStorage.getItem(`medRegister:${accountId}`);
+    } catch {
+      return null;
+    }
+  }
+  // The carry-over (bd med-3u28.6, Archie 16428): 'eu' key + no field → one
+  // setBodySettings({ med_register: 'eu' }) at now() (the user's own pick;
+  // rule 12 n/a). mergeGeneral writes the whole singleton from this mirror,
+  // so only once this page may derive from it: canFloor (a pull in this page
+  // load reached the tail, the move pickup settled). Local mode has no pull
+  // and no other device, so it carries at once. Idempotent by the field's
+  // presence; single-flight so concurrent reads write once.
+  let carrying = null;
+  function carryLegacyMedRegister() {
+    carrying = carrying || (async () => {
+      try {
+        if (!portFactory && !(await canFloor())) return;
+        const rec = (await records.list('settings')).find((r) => r.recordId === 'settings' && !r.deleted);
+        if (!rec || rec.med_register === undefined) await settings.setBodySettings({ med_register: 'eu' });
+      } finally {
+        carrying = null;
+      }
+    })();
+    return carrying;
+  }
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
   const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;
@@ -475,6 +523,10 @@ export function createApiRouter(ctx, {
   // GET /api/settings and the bootstrap payload — the settings-only reads,
   // without the heavy bp/weight aggregate reads that /api/settings discards.
   async function settingsResponse() {
+    // The register as the ports read it (a slice-1 key before its carry-over),
+    // so the Settings row never shows US while checks run EU. Read before
+    // getGeneral, so a carry-over it makes is in the record read below.
+    const register = await medRegister();
     const [weightUnit, features, foodTargets, tabOrder, general, bpStatus, weightStatus] = await Promise.all([
       readWeightUnit(),
       settings.getFeatures(),
@@ -498,6 +550,7 @@ export function createApiRouter(ctx, {
       height_unit: general.height_unit,
       show_bmi: general.show_bmi,
       bmi_nudge_dismissed: general.bmi_nudge_dismissed,
+      med_register: register || general.med_register,
     };
     if (tabOrder) block.tab_order = tabOrder;
     return { settings: block, features: clampFeatures(features) };
@@ -724,7 +777,7 @@ export function createApiRouter(ctx, {
     }
 
     // Partial patch of the body settings (height_cm, height_unit, show_bmi,
-    // bmi_nudge_dismissed — settings.js BODY_FIELDS); null resets a field.
+    // bmi_nudge_dismissed, med_register — settings.js BODY_FIELDS); null resets a field.
     if (path === '/api/settings/body' && method === 'PATCH') return settings.setBodySettings(body);
 
     if (path === '/api/settings' && method === 'POST') {

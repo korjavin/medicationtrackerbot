@@ -387,7 +387,7 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             });
 
             expect(await patchBody(window, { height_cm: 180 })).toEqual({
-                height_cm: 180, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false,
+                height_cm: 180, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false, med_register: 'us',
             });
             expect(await getBmi(window)).toEqual({
                 height_cm: 180, latest_kg: 82.4, bmi: 25.4, band: 'overweight', borders_kg: [59.9, 81.0, 97.2, 113.4, 129.6],

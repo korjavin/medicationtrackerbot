@@ -1097,9 +1097,9 @@
     // measures the phases apart.
     async function euRegister(want) {
         const ASSET = '/static/data/ema-article57-rev90-v1.json';
-        const ctx = window.MedTrackerCloud && window.MedTrackerCloud.ctx;
-        const key = `medRegister:${(ctx && ctx.accountId) || 'unknown'}`; // meds-history.js medRegisterKey
-        const register = window.localStorage.getItem(key) === 'eu' ? 'eu' : 'us';
+        // The settings record's med_register (bd med-3u28.6), as the Settings row reads it.
+        const settings = await window.apiCall('/api/settings');
+        const register = settings && settings.med_register === 'eu' ? 'eu' : 'us';
         if (register !== want) throw new Error(`euRegister: the stored choice is ${register}, want ${want}`);
         const epoch = () => Math.round(window.performance.timeOrigin + window.performance.now()); // the page clock is pinned
         const emaCaches = async () => {

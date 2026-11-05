@@ -63,13 +63,14 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
         }
     });
 
-    // ER1/ER2 (bd med-3u28.2): one value row picks the register, US by default;
-    // the choice is device-local, per account, and never an API write.
-    it('"Check names in" shows US register by default and stores the EU pick per account on this device', async () => {
+    // ER1/ER2 (bd med-3u28.2/.6): one value row picks the register, US by
+    // default; it reads GET /api/settings and writes PATCH /api/settings/body
+    // through applyOptimistic, never localStorage.
+    it('"Check names in" shows the record\'s register and saves a pick through PATCH /api/settings/body', async () => {
         const { window, document, cleanup } = loadFrontendEnv();
         try {
             window.MedTrackerCloud = { ctx: { accountId: 'acct-1' } };
-            window.apiCall = vi.fn().mockResolvedValue(null);
+            window.apiCall = vi.fn(async (url, method, body) => (method === 'PATCH' ? { ...body } : null));
             window.bindMedRegister(); // loadSettings' first step
             const value = document.getElementById('med-register-value');
             expect(value.textContent).toBe('US register');
@@ -77,6 +78,7 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
             expect(row.querySelector('.wg-setting__title').textContent).toBe('Check names in');
             expect(row.closest('.wg-section').querySelector('.wg-eyebrow').textContent).toBe('Medications');
 
+            const optimistic = vi.spyOn(window.DataStore, 'applyOptimistic');
             window.safeChoose = vi.fn().mockResolvedValue('eu');
             row.click();
             await vi.waitFor(() => expect(value.textContent).toBe('EU register'));
@@ -86,18 +88,43 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
                 { value: 'us', label: 'US register', sub: 'Sends the name to RxNav (US NIH).', selected: true },
                 { value: 'eu', label: 'EU register', sub: 'Checked on this phone; nothing is sent.', selected: false },
             ]);
-            expect(opts).toEqual({ title: 'Check medicine names in', hint: 'Applies on this phone only.' });
-            expect(window.localStorage.getItem('medRegister:acct-1')).toBe('eu');
-            expect(window.apiCall.mock.calls.some(([url, method]) => method && method !== 'GET')).toBe(false);
+            // With an account the choice syncs: no "this phone only" hint.
+            expect(opts).toEqual({ title: 'Check medicine names in', hint: '' });
+            await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith('/api/settings/body', 'PATCH', { med_register: 'eu' }));
+            expect(optimistic.mock.calls[0][0]).toBe('settings_bundle');
+            expect(optimistic.mock.calls[0][1]({ body: { show_bmi: true } })).toEqual({ body: { show_bmi: true, med_register: 'eu' } });
+            expect(window.localStorage.getItem('medRegister:acct-1')).toBeNull();
 
-            // Local mode has no RxNav: the US option says so instead (ER2 local).
+            // A pull from another device repaints from the bundle (GET /api/settings).
+            window.applyBundleBody(window.AuthBootstrap.normalizeSettingsBundle({ settings: { med_register: 'us' } }).body);
+            expect(value.textContent).toBe('US register');
+            window.applyBundleBody(window.AuthBootstrap.normalizeSettingsBundle({ settings: { med_register: 'eu' } }).body);
+            expect(value.textContent).toBe('EU register');
+
+            // Local mode has no RxNav: the US option says so instead (ER2 local),
+            // and the choice stays on this phone.
             document.documentElement.classList.add('wg-local-vault');
             window.safeChoose = vi.fn().mockResolvedValue(null);
             row.click();
             await vi.waitFor(() => expect(window.safeChoose).toHaveBeenCalled());
             expect(window.safeChoose.mock.calls[0][1][0].sub).toBe('Needs an account. Without one, no name check runs.');
             expect(window.safeChoose.mock.calls[0][1][1].selected).toBe(true);
+            expect(window.safeChoose.mock.calls[0][2].hint).toBe('Applies on this phone only.');
             expect(value.textContent).toBe('EU register');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('"Check names in" repaints the confirmed register when the PATCH fails', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.apiCall = vi.fn().mockResolvedValue(null);
+            window.bindMedRegister();
+            window.safeChoose = vi.fn().mockResolvedValue('eu');
+            document.getElementById('med-register-choose').click();
+            await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith('/api/settings/body', 'PATCH', { med_register: 'eu' }));
+            await vi.waitFor(() => expect(document.getElementById('med-register-value').textContent).toBe('US register'));
         } finally {
             cleanup();
         }
