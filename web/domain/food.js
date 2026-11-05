@@ -834,7 +834,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // AI review shows the name an item will be logged under (med-5jq.9).
   async function matchName(name, opts) {
     const { product, matched } = resolveProduct(name, await records.list(PRODUCT_RECORD_TYPE), opts);
-    return product ? { name: product.name, matched, is_meal: !!product.is_meal } : null;
+    return product ? { name: product.name, product_id: product.recordId, matched, is_meal: !!product.is_meal } : null;
   }
 
   async function listProducts({ isMeal, q, offset = 0, limit = 100, sort } = {}) {

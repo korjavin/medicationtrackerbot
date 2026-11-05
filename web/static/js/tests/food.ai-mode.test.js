@@ -144,7 +144,7 @@ describe('Food Add sheet — Describe → review → Log (med-xso6.17)', () => {
     it('a grams edit keeps the flag; renaming a matched item drops its Mine tag', async () => {
         stubAI({
             parseMealFromDescription: vi.fn(async () => ({ status: 'parsed', items: [
-                { ...PREVIEW[0], name: 'Boiled egg', matched: 'exact', is_meal: false, warnings: ['impossible'] },
+                { ...PREVIEW[0], name: 'Boiled egg', product_id: 'p-egg', matched: 'exact', is_meal: false, warnings: ['impossible'] },
             ] })),
         });
         await estimate();
@@ -162,6 +162,8 @@ describe('Food Add sheet — Describe → review → Log (med-xso6.17)', () => {
         await idle();
         expect(row().querySelector('.wg-tag')).toBeNull();
         expect(row().querySelector('.wg-hint')).not.toBeNull();
+        // The renamed item no longer commits to the matched product.
+        expect(env.window.FoodLog.addSheet.state.review[0].product_id).toBeUndefined();
     });
 
     it('Log commits the reviewed items via logParsedItems, reloads, and shows the Undo summary', async () => {

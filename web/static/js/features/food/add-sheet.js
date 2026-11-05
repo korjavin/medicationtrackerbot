@@ -688,7 +688,10 @@
         if (!choice || !st.review || st.review[i] !== item) return;
         st.review[i] = { ...recompute(item, choice.grams), name: choice.name };
         // A renamed item no longer is the matched product.
-        if (choice.name !== item.name) delete st.review[i].matched;
+        if (choice.name !== item.name) {
+            delete st.review[i].matched;
+            delete st.review[i].product_id;
+        }
         renderReview();
     }
 

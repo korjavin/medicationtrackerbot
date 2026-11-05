@@ -147,11 +147,18 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     const saved = [];
     let failed = 0;
     for (let i = 0; i < items.length; i++) {
+      const opts = { recordId: recordIdFor ? recordIdFor(i) : undefined, per100g: per100gOf(parsedMeal.items[i]), typo: false };
+      const input = { ...items[i], eaten_at: eatenAt };
+      // A reviewed item keeps the product its preview matched (med-5jq.9: a
+      // re-resolve of the canonical name could pick a same-key sibling); a
+      // product deleted meanwhile falls back to the bare-name reconcile.
+      const productId = parsedMeal.items[i].product_id;
       try {
-        saved.push(await foodDomain.create(
-          { ...items[i], eaten_at: eatenAt },
-          { recordId: recordIdFor ? recordIdFor(i) : undefined, per100g: per100gOf(parsedMeal.items[i]), typo: false },
-        ));
+        saved.push(await foodDomain.create(productId ? { ...input, product_id: productId } : input, opts)
+          .catch((e) => {
+            if (productId && e && e.code === 'invalid_product') return foodDomain.create(input, opts);
+            throw e;
+          }));
       } catch {
         failed++;
       }
@@ -203,6 +210,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
         carbs_100g: Number(it && it.carbs_100g) || 0,
         protein_100g: Number(it && it.protein_100g) || 0,
         fat_100g: Number(it && it.fat_100g) || 0,
+        product_id: (it && it.product_id) || undefined,
       })),
     };
     return saveParsedItems(parsed, eatenAt ?? now());
