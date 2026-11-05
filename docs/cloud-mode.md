@@ -469,11 +469,25 @@ never turns it off (below).
   nothing old; copying past entries is the user's explicit action: a one-time
   offer (in-page dialog) after a switch-on that granted a kind (device-local
   `wg.health.backfillOffered`, never when the total is 0), and Settings → "Copy
-  past entries" any time the switch is on. Both count fresh, then mark every
-  eligible id into the ledger exactly as the hook would (same recordIds, same
-  clientTs versions, a bp marks its hr) and let the drain deliver it: the
-  shells' own-id upsert replaces, so a second copy re-sends the same ids and
-  versions and adds nothing. Eligible = the hook's rule over the vault: live
+  past entries" any time the switch is on. **Only on a shell whose
+  `health.writeAccess` reply carries `readableFrom`** (ms: how far back
+  `health.query` sees other apps' records; 0 = all; med-8f4s.13 Android,
+  med-8f4s.14 iOS): absent, there is no Copy row and no offer (Archie 16124).
+  Rows older than `readableFrom` (Android without the past-data permission:
+  30 days before the first grant) are not eligible and not counted; when any
+  are cut, the dialog names them ("N entries before dd.mm weren't copied:
+  Health Connect needs access to past data to check them.") with "Allow past
+  data", which shows the read sheet once more and recounts. Both count fresh,
+  then mark every eligible id into the ledger exactly as the hook would (same
+  recordIds, same clientTs versions, a bp marks its hr) and let the drain
+  deliver it: the shells' own-id upsert replaces. **What this device wrote is
+  remembered:** each successful write of a bp/weight/workout (copy or live)
+  records its id in device-local `wg.health.copied` `{ kind: { recordId:
+  clientTs } }` (a remove drops it), and the count leaves out ids there or
+  still in the ledger, any version (later edits are the hook's), because the
+  shells hide this app's own records from the read; after a finished copy the
+  next tap says "Everything is already in Health Connect." A reinstall or a
+  second device recounts and replays; the upsert absorbs it. Eligible = the hook's rule over the vault: live
   bp/weight rows without `source` (rows synced from another device are the
   user's own and are copied) and completed sessions with a `workoutSpan`
   (kinds the shell's `supported` lists; an older shell copies bp and weight
@@ -489,7 +503,7 @@ never turns it off (below).
   **Pulse follows its reading:** no heart-rate read (a years-long hr scan would
   blow the quota for nothing). If another app already saved a reading without
   its pulse, we don't add the pulse to it. Nothing about held entries is
-  stored, so the next copy recomputes. A kind whose read Android denies (no
+  stored, so the next copy recomputes them. A kind whose read Android denies (no
   samples, no anchor) is not copied and the result names it (HW9b); the job
   keeps the ids confirmed at Copy, re-reads the kind on every foreground pass
   while the copy is open, and once it reads those ids (only those; an entry

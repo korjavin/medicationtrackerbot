@@ -327,6 +327,26 @@ describe('safeConfirm — in-page modal', () => {
             expect(onClick).toHaveBeenCalledTimes(1);
             expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
         });
+
+        it('link.below puts the link on its own line after the hint and facts (the copy offer\'s "Allow past data")', async () => {
+            const { window, document } = env;
+            const onClick = vi.fn();
+            const promise = window.safeConfirm('3 past entries from this app.', null, {
+                title: 'Copy?', hint: 'Nothing is copied twice.',
+                facts: [{ text: "4 entries before 02.10 weren't copied.", gone: true }],
+                link: { label: 'Allow past data', below: true, onClick },
+            });
+            const body = document.querySelector('.wg-dialog__body');
+            expect([...body.children].map((el) => [el.className, el.textContent])).toEqual([
+                ['mt-confirm-modal__message', '3 past entries from this app.'],
+                ['wg-hint', 'Nothing is copied twice.'],
+                ['wg-dialog__facts', "4 entries before 02.10 weren't copied."],
+                ['mt-confirm-modal__message', 'Allow past data'],
+            ]);
+            body.querySelector('button.wg-link').click();
+            await expect(promise).resolves.toBe(false);
+            expect(onClick).toHaveBeenCalledTimes(1);
+        });
     });
 });
 

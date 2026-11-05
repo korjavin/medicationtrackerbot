@@ -713,7 +713,8 @@
             // step.healthCopy names: "row" HW7, "offer" HW6 (the dialog the row
             // opens), "running" HW8 (a few calls land, then the store
             // stops answering), "paused" HW8b (every call fails), "done" HW9,
-            // "refused" HW9b (weight not allowed). The vault is only read.
+            // "refused" HW9b (weight not allowed), "cut" HW6 with the past-data
+            // line (Miles 16121). The vault is only read.
             const mode = step.healthCopy;
             const kinds = ['bp', 'weight', 'hr', 'workout'];
             const mem = new Map([
@@ -737,7 +738,12 @@
             const health = {
                 label: 'Health Connect', accessHint: 'Health Connect → App permissions',
                 isSupported: () => true, canWrite: async () => true, requestAuthorization: async () => true,
-                writeAccess: async () => ({ granted: mode === 'refused' ? kinds.filter((k) => k !== 'weight') : kinds, supported: kinds }),
+                // readableFrom: a shell without it offers no Copy; "cut" reads
+                // the last 30 days only (Android without the history permission).
+                writeAccess: async () => ({
+                    granted: mode === 'refused' ? kinds.filter((k) => k !== 'weight') : kinds, supported: kinds,
+                    readableFrom: mode === 'cut' ? Date.now() - 30 * 86400e3 : 0,
+                }),
                 query: async () => ({ samples: [], anchor: 'qa', returned: 0, more: false }),
                 write: answer, remove: answer,
             };
@@ -749,7 +755,7 @@
             await startHealthImport({ accountId: 'local' }, {
                 health, storage, doc: document, records: localRecordsPort(), run: async () => null,
                 afterImport: async () => {}, appRefresh: { setImport: () => {} },
-                ask: mode === 'offer' ? undefined : async () => true, // offer: the app's own dialog
+                ask: mode === 'offer' || mode === 'cut' ? undefined : async () => true, // offer/cut: the app's own dialog
             });
             await until(() => document.querySelector('#health-copy-row[data-state="ready"]'), STEP_MS, 'health copy row');
             const row = document.getElementById('health-copy-row');

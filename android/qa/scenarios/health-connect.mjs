@@ -401,6 +401,14 @@ export default async function healthConnect(ctx) {
       // the WebView's not yet flushed localStorage (the switch came back off).
       await ctx.page.reload({ waitUntil: 'load' });
       await ctx.page.waitForFunction(() => typeof window.switchTab === 'function', null, { timeout: 60_000 });
+      // Copy shows only once writeAccess reports readableFrom (Archie 16124),
+      // which this shell gains with med-8f4s.13: until then the measurement
+      // supplies 0 (a shell value wins), then a foreground pass re-reads access.
+      await ctx.page.evaluate(() => {
+        const orig = window.Health.writeAccess.bind(window.Health);
+        window.Health.writeAccess = async (types) => ({ readableFrom: 0, ...(await orig(types)) });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
       await ctx.page.evaluate(() => window.switchTab('settings'));
       const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
       if (await notNow.isVisible().catch(() => false)) await notNow.click();

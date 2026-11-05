@@ -99,6 +99,12 @@ const OFFERED_KEY = 'wg.health.backfillOffered';
 // marked; re-read on each pass until it can be, then only those ids join (an
 // entry synced in later never rides on an old Copy).
 const JOB_KEY = 'wg.health.backfill';
+// What this device has written to Health, { kind: { recordId: clientTs } }
+// (entry kinds): the shells hide our own records from health.query, so a
+// recount would offer them again. Any version counts; later edits are the
+// hook's. Device-local: a reinstall or a second device recounts and replays
+// (the shells' own-id upsert absorbs it).
+const COPIED_KEY = 'wg.health.copied';
 // The dedupe read pages until Health says it is done; past this many pages it
 // gives up and the count fails (nothing marked) rather than copy from a
 // partial list. 1,000 × PAGE samples is decades of readings.
@@ -292,7 +298,10 @@ export function startHealthWriteBack({
             // A malformed reply is a failed read, not "nothing granted".
             if (!r || !Array.isArray(r.granted)) throw new Error('malformed writeAccess reply');
             kindsSupported = Array.isArray(r.supported) ? r.supported : DEFAULT_SUPPORTED;
-            onAccess(r.granted, kindsSupported);
+            // How far back the shell can read other apps' records (ms, 0 =
+            // all; med-8f4s.13/.14). null = an older shell: no Copy at all.
+            const readableFrom = Number.isFinite(r.readableFrom) && r.readableFrom >= 0 ? r.readableFrom : null;
+            onAccess(r.granted, kindsSupported, readableFrom);
             return r.granted;
         }).catch((e) => {
             diag(`[health] write access failed ${e && e.message}`);
@@ -337,18 +346,25 @@ export function startHealthWriteBack({
             // waited: keep the entry, send nothing.
             const latest = await access;
             if (!isHealthWriteEnabled(storage) || !latest || !latest.includes(kind)) return;
+            let wrote = false;
             if (kind === 'workout') {
                 // Not (or no longer) a finished span: remove, a no-op for an id never written.
-                if (span) await health.write({ type: kind, id, version: row.clientTs, ...span, activity });
+                if (span) wrote = await health.write({ type: kind, id, version: row.clientTs, ...span, activity }) !== false;
                 else await health.remove({ type: kind, id });
             } else if (row && !row.deleted) {
                 // A bp row without a pulse (an edit cleared it) owes Health no
                 // heart-rate entry: remove, a no-op for an id never written.
                 if (row.source) { /* came from Health: never written */ }
                 else if (kind === 'hr' && pulseOf(row) === null) await health.remove({ type: kind, id: healthId(kind, id) });
-                else await health.write(healthBody(kind, row));
+                else wrote = await health.write(healthBody(kind, row)) !== false;
             } else {
                 await health.remove({ type: kind, id: healthId(kind, id) });
+            }
+            if (ENTRY_KINDS.includes(kind)) {
+                const c = readJSON(storage, COPIED_KEY, {});
+                if (wrote) (c[kind] = c[kind] || {})[id] = row.clientTs;
+                else if (c[kind]) delete c[kind][id];
+                writeJSON(storage, COPIED_KEY, c);
             }
         } catch (e) {
             // Revoked since the last read: hold the kind back until the next one.
@@ -513,18 +529,30 @@ async function copyRows(records, kind) {
     return out;
 }
 
-// planCopy → { rows: { kind: [row] } (to mark), blocked: { kind: [recordId] }, total }.
+// planCopy → { rows: { kind: [row] } (to mark), blocked: { kind: [recordId] }, total, cut }.
 // only (optional) { kind: [recordId] }: plan just those ids of each kind.
+// Leaves out what this device already wrote (wg.health.copied) or still owes
+// (the ledger), and, cut = how many, rows older than readableFrom: the shell
+// cannot read that far back, so it could not tell whether Health holds them.
 // Throws when a read fails (store busy): no count, nothing marked.
-async function planCopy(health, records, kinds, only = null) {
+async function planCopy(health, records, kinds, { only = null, storage = null, readableFrom = 0 } = {}) {
     const rows = {};
     const blocked = {};
     let total = 0;
+    let cut = 0;
+    const copied = storage ? readJSON(storage, COPIED_KEY, {}) : {};
+    const dirty = storage ? readJSON(storage, DIRTY_KEY, {}) : {};
     for (const kind of kinds) {
-        let mine = await copyRows(records, kind);
+        let mine = (await copyRows(records, kind))
+            .filter((r) => copied[kind]?.[r.recordId] === undefined && dirty[kind]?.[r.recordId] === undefined);
         if (only) {
             const keep = new Set(only[kind] || []);
             mine = mine.filter((r) => keep.has(r.recordId));
+        }
+        if (readableFrom > 0) {
+            const n = mine.length;
+            mine = mine.filter((r) => (r.span ? r.span.start : r.at) >= readableFrom);
+            cut += n - mine.length;
         }
         if (!mine.length) continue;
         const starts = mine.map((r) => (r.span ? r.span.start - DAY_MS : r.at - MATCH_MS[kind])).filter(Number.isFinite);
@@ -554,7 +582,7 @@ async function planCopy(health, records, kinds, only = null) {
         rows[kind] = mine.filter((r) => !held.has(r.recordId));
         total += rows[kind].length;
     }
-    return { rows, blocked, total };
+    return { rows, blocked, total, cut };
 }
 
 // Forget how far this iPhone's Health store was read — the switch-on rescan
@@ -765,6 +793,15 @@ function notAllowed(ks) {
 
 const entriesText = (n) => `${n} ${n === 1 ? 'entry' : 'entries'}`;
 
+// The copy dialog's line for rows older than what the shell can read (Miles
+// 16121); the date as dd.mm, with the year when it is not this year's.
+function cutText(n, from, label) {
+    const d = new Date(from);
+    const pad = (x) => String(x).padStart(2, '0');
+    const date = `${pad(d.getDate())}.${pad(d.getMonth() + 1)}${d.getFullYear() === new Date().getFullYear() ? '' : `.${d.getFullYear()}`}`;
+    return `${entriesText(n)} before ${date} ${n === 1 ? "wasn't" : "weren't"} copied: ${label} needs access to past data to check them.`;
+}
+
 // The copy row's line (kit HW8/HW8b/HW9/HW9b) for copyState() `st`.
 function copyText(health, st, paused) {
     const label = healthLabel(health);
@@ -833,12 +870,16 @@ export function startHealthImport(ctx, {
     // The last writeAccess answer, for the copy row's refused kinds.
     let lastGranted = null;
     let lastSupported = DEFAULT_SUPPORTED;
+    // readableFrom of the last answer; null (an older shell, or not read yet):
+    // no Copy row and no offer (Archie 16124, R6).
+    let lastReadable = null;
     // Each writeAccess answer sets the line: a kind missing is named (HW4),
     // nothing granted reads as paused (HW5). A pass never turns the switch
     // off: it resumes by itself once access returns (Miles 15063, Iris 15065).
-    const onAccess = (granted, supported) => {
+    const onAccess = (granted, supported, readableFrom) => {
         lastGranted = granted;
         lastSupported = supported;
+        lastReadable = readableFrom;
         if (!isHealthWriteEnabled(storage)) return;
         writeHint = writeHintText(health, granted, supported);
         renderWrite();
@@ -886,6 +927,7 @@ export function startHealthImport(ctx, {
         copyRow = null;
         if (!writeRow || !canWrite || !isHealthWriteEnabled(storage)) return;
         const st = copyState();
+        if (!st && lastReadable === null) return;
         const row = doc.createElement(st ? 'div' : 'button');
         row.id = COPY_ROW_ID;
         row.className = 'wg-setting';
@@ -941,7 +983,7 @@ export function startHealthImport(ctx, {
         if (!kinds.length) return;
         let plan;
         try {
-            plan = await planCopy(health, records, kinds, confirmed);
+            plan = await planCopy(health, records, kinds, { only: confirmed, storage });
         } catch {
             return; // store busy: next pass
         }
@@ -1037,7 +1079,8 @@ export function startHealthImport(ctx, {
         const st = copyState();
         if (!st) return;
         const stuck = fails(st.job) >= COPY_STUCK_FAILS;
-        if ((st.pending && !stuck) || Object.keys(st.job.blocked || {}).length) return;        writeJSON(storage, JOB_KEY, null);
+        if ((st.pending && !stuck) || Object.keys(st.job.blocked || {}).length) return;
+        writeJSON(storage, JOB_KEY, null);
         renderCopy();
     };
     // HW6 (offer: once per device, after a granting switch-on) and HW7 (the
@@ -1047,25 +1090,47 @@ export function startHealthImport(ctx, {
         opening = true;
         try {
             let plan;
-            try {
-                if (!(await writeBack.readAccess())) throw new Error('write access unreadable');
-                plan = await planCopy(health, records, ENTRY_KINDS.filter((k) => lastSupported.includes(k)));
-            } catch (e) {
-                console.error('[health] copy count failed', e);
-                if (!offer) toast(`Couldn't reach ${label} — try again.`, 'error');
-                return;
+            let ok = false;
+            // "Allow past data" asks once more and opens the dialog again with
+            // fresh counts; still denied, it looks the same (Miles 16121).
+            for (;;) {
+                try {
+                    if (!(await writeBack.readAccess())) throw new Error('write access unreadable');
+                    if (lastReadable === null) return;
+                    plan = await planCopy(health, records, ENTRY_KINDS.filter((k) => lastSupported.includes(k)), { storage, readableFrom: lastReadable });
+                } catch (e) {
+                    console.error('[health] copy count failed', e);
+                    if (!offer) toast(`Couldn't reach ${label} — try again.`, 'error');
+                    return;
+                }
+                if (!plan.total && !plan.cut) {
+                    if (!offer) await tell(`Everything is already in ${label}.`, { title: 'Copy past entries' });
+                    return;
+                }
+                if (offer) writeJSON(storage, OFFERED_KEY, true);
+                let retry = false;
+                const cut = plan.cut ? {
+                    facts: [{ text: cutText(plan.cut, lastReadable, label), gone: true }],
+                    link: { label: 'Allow past data', below: true, onClick: () => { retry = true; } },
+                } : {};
+                if (plan.total) {
+                    ok = await ask(`${plan.total} past ${plan.total === 1 ? 'entry' : 'entries'} from this app.`, {
+                        title: 'Copy your past entries too?',
+                        hint: `Readings that came from ${label} stay as they are, and nothing is copied twice.`,
+                        confirmLabel: 'Copy',
+                        cancelLabel: 'Not now',
+                        ...cut,
+                    });
+                } else {
+                    await tell('', { title: 'Copy past entries', ...cut });
+                }
+                if (!retry) break;
+                try {
+                    await health.requestAuthorization(HEALTH_KINDS);
+                } catch (e) {
+                    console.error('[health] past-data authorization failed', e);
+                }
             }
-            if (!plan.total) {
-                if (!offer) await tell(`Everything is already in ${label}.`, { title: 'Copy past entries' });
-                return;
-            }
-            if (offer) writeJSON(storage, OFFERED_KEY, true);
-            const ok = await ask(`${plan.total} past ${plan.total === 1 ? 'entry' : 'entries'} from this app.`, {
-                title: 'Copy your past entries too?',
-                hint: `Readings that came from ${label} stay as they are, and nothing is copied twice.`,
-                confirmLabel: 'Copy',
-                cancelLabel: 'Not now',
-            });
             if (!ok || readJob() || !isHealthWriteEnabled(storage)) return;
             const ids = Object.fromEntries(Object.entries(plan.rows).map(([k, rs]) => [k, rs.map((r) => r.recordId)]));
             const job = { startedAt: Date.now(), total: plan.total, ids, blocked: plan.blocked };

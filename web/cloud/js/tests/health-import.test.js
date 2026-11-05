@@ -2486,7 +2486,7 @@ describe('Health write-back', () => {
             beforeEach(async () => {
                 storage.setItem('wg.health.write', 'true');
                 storage.setItem('wg.health.anchors', ANCHORS);
-                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL }));
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: 0 }));
                 confirm = vi.fn(async () => true);
                 alert = vi.fn(async () => {});
                 query.mockClear();
@@ -2514,11 +2514,18 @@ describe('Health write-back', () => {
                 expect(storage.getItem('wg.health.last')).toBeNull();
             });
 
-            it('(b) a second copy re-sends the same ids and versions; a later edit sends a higher one; nothing left says so', async () => {
+            it('(b)(h) after a copy nothing is offered again; a later edit sends a higher version; a row synced in later is offered alone', async () => {
                 await open();
                 await tap();
                 await finished();
                 const first = calls();
+                // One entry per delivered entry id, at the version sent.
+                const v1 = async (type, id) => (await raw(type, id)).clientTs;
+                expect(JSON.parse(storage.getItem('wg.health.copied'))).toEqual({
+                    bp: { 'bp-a': await v1('bp', 'bp-a'), 'bp-c': await v1('bp', 'bp-c'), 'bp-e': await v1('bp', 'bp-e') },
+                    weight: { 'w-2': await v1('weight', 'w-2') },
+                    workout: { 'session-s2': await v1('workoutsession', 'session-s2') },
+                });
                 // Leaving Settings ends the result: the row is the action again.
                 const view = document.getElementById('settings-view');
                 view.classList.add('active');
@@ -2528,32 +2535,30 @@ describe('Health write-back', () => {
                 expect(rowText()).toEqual(['Copy past entries', null]);
                 expect(storage.getItem('wg.health.backfill')).toBe('null');
 
+                // The shells hide our own records from the read, yet nothing is offered again.
                 health.write.mockClear();
                 health.remove.mockClear();
                 await tap();
-                await finished();
-                expect(calls()).toEqual(expect.arrayContaining(first));
-                expect(calls()).toHaveLength(first.length);
+                await vi.waitFor(() => expect(alert).toHaveBeenCalledWith('Everything is already in Health Connect.', { title: 'Copy past entries' }));
+                expect(confirm).toHaveBeenCalledTimes(1);
+                expect(calls()).toEqual([]);
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
 
-                health.write.mockClear();
                 await api('/api/bp/bp-a', 'PUT', { systolic: 129 });
                 await idle();
                 const v = (await raw('bp', 'bp-a')).clientTs;
                 expect(v).toBeGreaterThan(first.find((c) => c.id === 'bp-a').version);
                 expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'bp', id: 'bp-a', version: v, systolic: 129 }));
 
-                // Health now holds every entry: nothing to copy, OK only.
-                view.classList.add('active');
-                view.classList.remove('active');
-                await tick();
-                confirm.mockClear();
-                theirs.bp.push(bpSample(U1, at('2026-10-01T07:30:00Z'), 129, 84), bpSample(U1, at('2026-10-03T07:30:00Z'), 130, 85), bpSample(U1, at('2026-10-04T07:00:00Z'), 140, 90));
-                theirs.weight.push(kgSample(U1, at('2026-10-01T09:00:00Z'), 80.1));
-                theirs.workout.push({ uuid: U1, start: at('2026-10-06T08:00:00Z'), end: at('2026-10-06T09:00:00Z'), activity: 50 });
+                // A weight synced in from another device (unmarked: put with the switch off).
+                storage.setItem('wg.health.write', 'false');
+                await records.put('weight', { recordId: 'w-3', clientTs: 1, deleted: false, measured_at: '2026-10-07T08:00:00.000Z', weight: 79 });
+                storage.setItem('wg.health.write', 'true');
+                health.write.mockClear();
                 await tap();
-                await vi.waitFor(() => expect(alert).toHaveBeenCalledWith('Everything is already in Health Connect.', { title: 'Copy past entries' }));
-                expect(confirm).not.toHaveBeenCalled();
-                expect(storage.getItem('wg.health.backfill')).toBe('null');
+                await vi.waitFor(() => expect(confirm).toHaveBeenCalledWith('1 past entry from this app.', expect.any(Object)));
+                await finished();
+                expect(sent()).toEqual(['write weight w-3']);
             });
 
             it('(c) every call failing pauses the copy (HW8b, no meter); a foreground return resumes and completes it', async () => {
@@ -2698,7 +2703,7 @@ describe('Health write-back', () => {
             });
 
             it('(d) pulse refused: readings copy, their pulses wait, and the write row names pulse (HW4)', async () => {
-                health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight', 'workout'], supported: ALL }));
+                health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight', 'workout'], supported: ALL, readableFrom: 0 }));
                 await open();
                 await tap();
                 await finished();
@@ -2708,12 +2713,12 @@ describe('Health write-back', () => {
             });
 
             it('(d) weight write refused: HW9b names it and the waiting one follows once allowed', async () => {
-                health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'hr', 'workout'], supported: ALL }));
+                health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'hr', 'workout'], supported: ALL, readableFrom: 0 }));
                 await open();
                 await tap();
                 await finished();
                 expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. Weight isn't allowed: allow it in Health Connect settings, and the other one follows."]);
-                health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL });
+                health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL, readableFrom: 0 });
                 foreground();
                 await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']));
                 expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: 'w-2' }));
@@ -2792,7 +2797,7 @@ describe('Health write-back', () => {
                 // Older shell (no `supported`): bp and weight only.
                 storage.setItem('wg.health.write', 'false');
                 document.body.innerHTML = home;
-                health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'] }));
+                health.writeAccess = vi.fn(async () => ({ granted: ['bp', 'weight'], readableFrom: 0 }));
                 await open();
                 await flip(writeToggle(), true);
                 await vi.waitFor(() => expect(confirm).toHaveBeenCalledWith('6 past entries from this app.', expect.any(Object)));
@@ -2813,6 +2818,53 @@ describe('Health write-back', () => {
                 await tick();
                 expect(confirm).not.toHaveBeenCalled();
                 expect(storage.getItem('wg.health.backfillOffered')).toBe('false');
+            });
+
+            it('(i) a shell whose writeAccess carries no readableFrom gets no Copy: no row, no offer, no read', async () => {
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL }));
+                storage.setItem('wg.health.write', 'false');
+                await open();
+                await flip(writeToggle(), true);
+                await tick();
+                expect(copyRow()).toBeNull();
+                expect(confirm).not.toHaveBeenCalled();
+                expect(query).not.toHaveBeenCalled();
+            });
+
+            it('(g) rows older than readableFrom are cut and named; "Allow past data" asks again and reopens with fresh counts', async () => {
+                const requestAuthorization = vi.fn(async () => true);
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: at('2026-10-02T12:00:00Z') }));
+                confirm.mockImplementationOnce(async (msg, opts) => {
+                    opts.link.onClick();
+                    return false;
+                });
+                await open({ ...health, requestAuthorization });
+                const before = requestAuthorization.mock.calls.length;
+                await tap();
+                await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+                // bp-a, bp-b, w-1 and w-2 are older than the window: cut before the dedupe, so counted as cut.
+                const cutDialog = ['3 past entries from this app.', {
+                    ...OFFER[1],
+                    facts: [{ text: "4 entries before 02.10 weren't copied: Health Connect needs access to past data to check them.", gone: true }],
+                    link: { label: 'Allow past data', below: true, onClick: expect.any(Function) },
+                }];
+                expect(confirm.mock.calls[0]).toEqual(cutDialog);
+                // One read sheet (no write kinds): the history permission sits with read.
+                expect(requestAuthorization.mock.calls.slice(before)).toEqual([[expect.any(Array)]]);
+                // Still denied: the same dialog again.
+                expect(confirm.mock.calls[1]).toEqual(cutDialog);
+                await finished();
+                expect(job().ids).toEqual({ bp: ['bp-c', 'bp-e'], workout: ['session-s2'] });
+
+                // Granted later (readableFrom 0): the older rows are offered, no cut line.
+                const view = document.getElementById('settings-view');
+                view.classList.add('active');
+                view.classList.remove('active');
+                await tick();
+                health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL, readableFrom: 0 });
+                confirm.mockClear();
+                await tap();
+                await vi.waitFor(() => expect(confirm).toHaveBeenCalledWith('2 past entries from this app.', OFFER[1]));
             });
 
             it('(e) while a copy runs the row is the progress line with a meter (HW8)', async () => {
