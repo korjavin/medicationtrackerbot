@@ -309,44 +309,51 @@ export function mergeProducts(base, extra) {
 //   foodDb   — remote search port, { search(query) => Promise<product[]> };
 //              optional — omitted/falsy means remote search is unavailable.
 export function createFoodDomain({ records, now, timeZone, foodDb }) {
-  // upsertProductByName ports UpsertProduct's ON CONFLICT(name) semantics
-  // (repo.go:141): COALESCE-preserve non-zero macros, bump usage_count,
-  // refresh last_used_at; is_meal/total_weight_g only overwritten when the
-  // incoming row says is_meal.
-  async function upsertProductByName(input) {
-    const nowMs = now();
+  // A product's name and per-100 g macros are the user's: set by the first
+  // create and by updateProduct, never rewritten by a log (med-5jq.2). Logs
+  // only find a product, create one for a genuinely new food, or touch it.
+
+  // findProduct: exact-name match (med-5jq.3 replaces it with the key match).
+  async function findProduct(name) {
+    if (!name) return null;
     const all = await records.list(PRODUCT_RECORD_TYPE);
-    const existing = all.find((p) => !p.deleted && p.name === input.name);
-    const record = existing
-      ? {
-        ...existing,
-        clientTs: nowMs,
-        barcode: input.barcode || existing.barcode || null,
-        carbs_100g: input.carbs_100g ? input.carbs_100g : existing.carbs_100g,
-        protein_100g: input.protein_100g ? input.protein_100g : existing.protein_100g,
-        fat_100g: input.fat_100g ? input.fat_100g : existing.fat_100g,
-        energy_kcal_100g: input.energy_kcal_100g ? input.energy_kcal_100g : existing.energy_kcal_100g,
-        usage_count: existing.usage_count + 1,
-        is_meal: input.is_meal ? true : !!existing.is_meal,
-        total_weight_g: input.is_meal ? input.total_weight_g : existing.total_weight_g,
-        last_used_at: new Date(nowMs).toISOString(),
-      }
-      : {
-        recordId: genId('foodproduct', nowMs),
-        clientTs: nowMs,
-        deleted: false,
-        name: input.name,
-        barcode: input.barcode || null,
-        carbs_100g: input.carbs_100g || 0,
-        protein_100g: input.protein_100g || 0,
-        fat_100g: input.fat_100g || 0,
-        energy_kcal_100g: input.energy_kcal_100g || 0,
-        usage_count: 1,
-        is_meal: !!input.is_meal,
-        total_weight_g: input.total_weight_g || 0,
-        created_at: new Date(nowMs).toISOString(),
-        last_used_at: new Date(nowMs).toISOString(),
-      };
+    return all.find((p) => !p.deleted && p.name === name) || null;
+  }
+
+  async function createProduct(input) {
+    const nowMs = now();
+    const record = {
+      recordId: genId('foodproduct', nowMs),
+      clientTs: nowMs,
+      deleted: false,
+      name: input.name,
+      barcode: input.barcode || null,
+      carbs_100g: input.carbs_100g || 0,
+      protein_100g: input.protein_100g || 0,
+      fat_100g: input.fat_100g || 0,
+      energy_kcal_100g: input.energy_kcal_100g || 0,
+      usage_count: 1,
+      is_meal: !!input.is_meal,
+      total_weight_g: input.total_weight_g || 0,
+      created_at: new Date(nowMs).toISOString(),
+      last_used_at: new Date(nowMs).toISOString(),
+    };
+    await records.put(PRODUCT_RECORD_TYPE, record);
+    return record;
+  }
+
+  // touchProduct records one use: usage_count+1 and last_used_at. `extra`
+  // carries the only other fields a caller may set (a missing barcode on a
+  // log create; a meal's definition in createMealFromLogs).
+  async function touchProduct(product, extra = {}) {
+    const nowMs = now();
+    const record = {
+      ...product,
+      ...extra,
+      clientTs: nowMs,
+      usage_count: (product.usage_count || 0) + 1,
+      last_used_at: new Date(nowMs).toISOString(),
+    };
     await records.put(PRODUCT_RECORD_TYPE, record);
     return record;
   }
@@ -378,7 +385,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
 
   // create mirrors handleCreateFoodLog (food_handlers.go:21): a product_id
   // resolves the log's name/product and only bumps usage afterwards; a bare
-  // name upserts the product with the computed per-100g macros up front.
+  // name touches the existing product of that name (its macros stay the
+  // user's, med-5jq.2) or creates one from the computed per-100g macros.
   // skipProductUpsert matches the AI handlers (handleCreateFoodLogFrom*), which
   // CreateLog a bare-named entry with no product_id and no UpsertProduct.
   // recordId overrides the generated id so a caller with its own stable key can
@@ -401,9 +409,12 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       }
       resolvedProductId = product.recordId;
       if (!resolvedName) resolvedName = product.name;
-      bumpAfterCreate = product.name;
+      bumpAfterCreate = product;
     } else if (resolvedName && !skipProductUpsert) {
-      const product = await upsertProductByName({ name: resolvedName, barcode: input.barcode || null, ...per100gFrom(input) });
+      const existing = await findProduct(resolvedName);
+      const product = existing
+        ? await touchProduct(existing, !existing.barcode && input.barcode ? { barcode: input.barcode } : {})
+        : await createProduct({ name: resolvedName, barcode: input.barcode || null, ...per100gFrom(input) });
       resolvedProductId = product.recordId;
     }
 
@@ -424,15 +435,16 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     };
     await records.put(LOG_RECORD_TYPE, record);
 
-    if (bumpAfterCreate) await upsertProductByName({ name: bumpAfterCreate });
+    if (bumpAfterCreate) await touchProduct(bumpAfterCreate);
 
     const products = await productsIndex();
     return toLogResponse(record, isMealFor(record, products));
   }
 
-  // update mirrors handleUpdateFoodLog (food_handlers.go:477): always
-  // recomputes per-100g macros from the edited totals and upserts the named
-  // product (no usage-only bump path — unlike create).
+  // update rewrites the log row only — no product write (med-5jq.2): the
+  // log's macros stay on the log, an edit is not a use, and a renamed log
+  // never creates a product. Without a product_id the link is re-resolved
+  // by name (findProduct), null when nothing matches.
   async function update(id, input) {
     assertNonNegativeMacros(input, { checkWeight: true });
     const all = await records.list(LOG_RECORD_TYPE);
@@ -467,13 +479,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       fat: input.fat || 0,
       calories: input.calories || 0,
       name: input.name || '',
-      product_id: input.product_id || null,
+      product_id: input.product_id || (await findProduct(input.name))?.recordId || null,
     };
     await records.put(LOG_RECORD_TYPE, record);
-
-    if (record.name) {
-      await upsertProductByName({ name: record.name, barcode: input.barcode || null, ...per100gFrom(input) });
-    }
 
     const products = await productsIndex();
     return toLogResponse(record, isMealFor(record, products));
@@ -491,7 +499,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
 
   // moveLogs re-dates existing rows without touching anything else (med-don1).
   // Not update() per row: update() is a full replacement (a partial body zeroes
-  // macros) and re-runs upsertProductByName. Validates everything before the
+  // macros). No product write: a move is not a use (med-5jq.2). Validates everything before the
   // first write so a bad id moves nothing.
   async function moveLogs(ids, eatenAt) {
     const uniqueIds = [...new Set(Array.isArray(ids) ? ids : [])];
@@ -765,16 +773,19 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       throw err;
     }
 
+    // Saving a meal is the user defining that product, so an existing
+    // same-name product takes the meal's summed definition (zeros included).
     const mult = 100 / totalWeight;
-    const product = await upsertProductByName({
-      name,
+    const meal = {
       carbs_100g: totalCarbs * mult,
       protein_100g: totalProtein * mult,
       fat_100g: totalFat * mult,
       energy_kcal_100g: totalCalories * mult,
       is_meal: true,
       total_weight_g: totalWeight,
-    });
+    };
+    const existing = await findProduct(name);
+    const product = existing ? await touchProduct(existing, meal) : await createProduct({ name, ...meal });
     return toProductResponse(product);
   }
 

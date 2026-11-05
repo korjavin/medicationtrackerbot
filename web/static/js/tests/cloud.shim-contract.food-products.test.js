@@ -132,6 +132,57 @@ describe('cloud shim contract — food products flows (features/food/{products,d
         expect(meal.fat_100g).toBeCloseTo(7 * mult, 5);
     });
 
+    // med-5jq.2: a product's name and per-100 g macros are the user's; logs
+    // never rewrite them. create finds+touches or creates; update/move write none.
+    describe('food logs never rewrite shared products (med-5jq.2)', () => {
+        const products = async (window) => (await window.apiCall('/api/food/products?limit=100')).products;
+        const eaten = () => new Date().toISOString();
+
+        it('a new food creates exactly one product; a repeat log bumps usage once and keeps the macros', async () => {
+            const { window } = env;
+            await createLog(window, { name: 'Skyr', eaten_at: eaten(), weight: 200, carbs: 8, protein: 22, fat: 0, calories: 120 });
+            const [created] = await products(window);
+            expect(await products(window)).toHaveLength(1);
+            expect(created).toMatchObject({ name: 'Skyr', usage_count: 1, protein_100g: 11, energy_kcal_100g: 60 });
+
+            const second = await createLog(window, { name: 'Skyr', eaten_at: eaten(), weight: 100, carbs: 9, protein: 5, fat: 3, calories: 90 });
+            const after = await products(window);
+            expect(after).toHaveLength(1);
+            expect(after[0]).toMatchObject({ id: created.id, usage_count: 2, protein_100g: 11, energy_kcal_100g: 60 });
+            expect(second.product_id).toBe(created.id);
+        });
+
+        it('a log update with other macros, or a rename to an unknown name, leaves the products alone', async () => {
+            const { window } = env;
+            const log = await createLog(window, { name: 'Oat bar', eaten_at: eaten(), weight: 40, carbs: 20, protein: 4, fat: 5, calories: 143 });
+            const [product] = await products(window);
+            // The user's own edit of the product must stick through later log edits.
+            await window.apiCall(`/api/food/products/${product.id}`, 'PUT', { ...product, carbs_100g: 60, energy_kcal_100g: 380 });
+            const edited = (await products(window))[0];
+
+            const body = { eaten_at: log.eaten_at, weight: 50, carbs: 40, protein: 9, fat: 9, calories: 280, name: 'Oat bar' };
+            const updated = await window.apiCall(`/api/food/log/${log.id}`, 'PUT', body);
+            expect(updated).toMatchObject({ carbs: 40, calories: 280, product_id: product.id });
+            expect(await products(window)).toEqual([edited]);
+
+            const renamed = await window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...body, name: 'Granola square' });
+            expect(renamed.name).toBe('Granola square');
+            expect(renamed.product_id).toBeUndefined();
+            expect(await products(window)).toEqual([edited]);
+        });
+
+        it('moving three logs bumps no product', async () => {
+            const { window } = env;
+            const ids = [];
+            for (const name of ['Rice', 'Chicken', 'Salad']) {
+                ids.push((await createLog(window, { name, eaten_at: eaten(), weight: 100, carbs: 10, protein: 10, fat: 1, calories: 89 })).id);
+            }
+            const before = await products(window);
+            await window.apiCall('/api/food/log/move', 'POST', { ids, eaten_at: new Date(Date.now() - 86400000).toISOString() });
+            expect(await products(window)).toEqual(before);
+        });
+    });
+
     it('CloudFoodSearch.search: local-only finds a product created via a food log; remote merges a mocked food-DB response', async () => {
         const { window } = env;
         env.window.__MEDTRACKER_CLOUD__ = true;
