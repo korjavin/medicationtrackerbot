@@ -444,7 +444,7 @@ describe('cloud shim contract — food products flows (features/food/{products,d
 });
 
 // bd med-5jq.3 — a named food log reconciles against the catalog before it
-// creates a product: exact key → learnt alias → one bounded typo match. The
+// creates a product: barcode → exact key → alias → one bounded typo match. The
 // epic's duplicate table (foodname.domain.test.js) is the fixture, logged
 // through POST /api/food/log and the MCP router the Telegram agent also uses.
 describe('food logs reconcile against the catalog (med-5jq.3)', () => {
@@ -504,17 +504,53 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
             expect(rows.find((p) => p.recordId === res.product_id)).toMatchObject({ name, name_key: name.toLowerCase() });
         });
 
-    it('a typo match learns the typed key: the next log matches by alias, search finds it, an edit keeps it', async () => {
+    it('a typo match learns nothing: the next log is a typo match again (Archie 15700)', async () => {
         await viaApi('Yugurt');
-        expect((await productRows()).find((p) => p.recordId === 'p-yogurt')).toMatchObject({ aliases: ['yugurt'], usage_count: 2, name_key: 'yogurt' });
-        expect(await viaApi('yugurts')).toMatchObject({ product_id: 'p-yogurt', matched: 'alias', name: 'Yogurt' });
-        expect((await env.window.apiCall('/api/food/products/search?q=yugurt')).map((p) => p.id)).toEqual(['p-yogurt']);
+        const row = (await productRows()).find((p) => p.recordId === 'p-yogurt');
+        expect(row).toMatchObject({ usage_count: 2, name_key: 'yogurt' });
+        expect(row.aliases).toBeUndefined();
+        expect(await viaApi('yugurts')).toMatchObject({ product_id: 'p-yogurt', matched: 'typo', name: 'Yogurt' });
+    });
 
-        const [row] = (await productRows()).filter((p) => p.recordId === 'p-yogurt');
-        await env.window.apiCall('/api/food/products/p-yogurt', 'PUT', { ...row, name: 'Greek yogurt', energy_kcal_100g: 97 });
-        expect((await productRows()).find((p) => p.recordId === 'p-yogurt'))
-            .toMatchObject({ name: 'Greek yogurt', name_key: 'greek yogurt', aliases: ['yugurt'], energy_kcal_100g: 97 });
-        expect(await viaApi('Yugurt')).toMatchObject({ product_id: 'p-yogurt', matched: 'alias', name: 'Greek yogurt' });
+    it('a stored alias matches and is searchable; a product edit keeps it', async () => {
+        await env.records.put('foodproduct', product('p-oat', 'Oatmeal', { aliases: ['porridge'] }));
+        expect(await viaApi('Porridge')).toMatchObject({ product_id: 'p-oat', matched: 'alias', name: 'Oatmeal' });
+        expect((await env.window.apiCall('/api/food/products/search?q=porridge')).map((p) => p.id)).toEqual(['p-oat']);
+
+        const row = (await productRows()).find((p) => p.recordId === 'p-oat');
+        await env.window.apiCall('/api/food/products/p-oat', 'PUT', { ...row, name: 'Rolled oats', energy_kcal_100g: 97 });
+        expect((await productRows()).find((p) => p.recordId === 'p-oat'))
+            .toMatchObject({ name: 'Rolled oats', name_key: 'rolled oat', aliases: ['porridge'], energy_kcal_100g: 97 });
+        expect(await viaApi('porridge')).toMatchObject({ product_id: 'p-oat', matched: 'alias', name: 'Rolled oats' });
+    });
+
+    it('barcode first: the same barcode links under any name; a different barcode is never a candidate; no typo guess', async () => {
+        await env.records.put('foodproduct', product('p-bar', 'Protein bar', { barcode: '4600000000017' }));
+        const scan = (name, barcode) => env.window.apiCall('/api/food/log', 'POST', { ...body(name), barcode });
+        expect(await scan('Choco snack', '4600000000017')).toMatchObject({ product_id: 'p-bar', matched: 'exact', name: 'Protein bar' });
+
+        const other = await scan('Protein bar', '4600000000024');
+        expect(other).toMatchObject({ matched: 'new', name: 'Protein bar' });
+        expect(other.product_id).not.toBe('p-bar');
+        expect(await scan('Yugurt', '4600000000031')).toMatchObject({ matched: 'new', name: 'Yugurt' });
+
+        // A same-key barcode-less product links and adopts the code.
+        expect(await scan('Coffee', '4600000000048')).toMatchObject({ product_id: 'p-coffee', matched: 'exact' });
+        expect((await productRows()).find((p) => p.recordId === 'p-coffee').barcode).toBe('4600000000048');
+    });
+
+    it('a meal matches only by its exact name, never by key or typo', async () => {
+        await env.records.put('foodproduct', product('p-meal', 'Work lunch salad', { is_meal: true, usage_count: 50 }));
+        expect(await viaApi('Salad')).toMatchObject({ matched: 'new', name: 'Salad' });
+        expect(await viaApi('  work LUNCH   salad ')).toMatchObject({ product_id: 'p-meal', matched: 'exact', name: 'Work lunch salad' });
+    });
+
+    it('a percentage names the product: Greek yogurt 0% never lands on 2%', async () => {
+        await env.records.put('foodproduct', product('p-gy2', 'Greek yogurt 2%'));
+        expect(await viaApi('greek yogurt 2%')).toMatchObject({ product_id: 'p-gy2', matched: 'exact' });
+        const zero = await viaApi('Greek yogurt 0%');
+        expect(zero).toMatchObject({ matched: 'new', name: 'Greek yogurt 0%' });
+        expect((await productRows()).find((p) => p.recordId === zero.product_id).name_key).toBe('greek yogurt 0%');
     });
 
     it('search matches on the key: "boiled eggs" and "Hard-boiled" find the Boiled egg product', async () => {
@@ -542,18 +578,17 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
 
     // Known accepted typo case (Archie 15689): a lone Roast catches "toast".
     // The guess shows at once and is correctable by retyping the name.
-    it('toast → Roast by typo; retyping "toast" on the log creates Toast and Roast forgets the key', async () => {
+    it('toast → Roast by typo; retyping "toast" on the log creates Toast, later toasts land on it', async () => {
         await env.records.put('foodproduct', product('p-roast', 'Roast'));
         const log = await viaApi('toast');
         expect(log).toMatchObject({ product_id: 'p-roast', matched: 'typo', name: 'Roast' });
-        expect((await productRows()).find((p) => p.recordId === 'p-roast').aliases).toEqual(['toast']);
 
         const fixed = await env.window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...body('toast'), eaten_at: log.eaten_at });
         expect(fixed).toMatchObject({ name: 'toast', matched: 'new' });
         const rows = await productRows();
         const toast = rows.find((p) => p.recordId === fixed.product_id);
         expect(toast).toMatchObject({ name: 'toast', name_key: 'toast', energy_kcal_100g: 153 });
-        expect(rows.find((p) => p.recordId === 'p-roast').aliases).toEqual([]);
+        expect(rows.find((p) => p.recordId === 'p-roast').aliases).toBeUndefined();
 
         const again = await viaApi('Toast');
         expect(again).toMatchObject({ product_id: toast.recordId, matched: 'exact' });
