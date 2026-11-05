@@ -481,28 +481,6 @@ describe('cloud medication identity through the real RxNorm port', () => {
             expect(fetchRxnav).not.toHaveBeenCalled();
         });
 
-        // bd med-3u28.6 (a): the pick rides the vault through the local →
-        // account move (exportJSON → move.stash → restoreVault/importAll).
-        it('a move carries the pick: EU + one med in local mode → the account shows EU and its first save sends nothing', async () => {
-            const { recordsToVault, vaultToRecords } = await import('../../../domain/vault.js');
-            const opts = { now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC', effects: { scheduleReminderRecompute: vi.fn() } };
-            const local = createInMemoryRecordsPort();
-            const localRouter = createApiRouter({}, { ...opts, records: local, win: env.window, rxnorm: null });
-            await localRouter('/api/settings/body', 'PATCH', { med_register: 'eu' });
-            await localRouter('/api/medications', 'POST', { name: 'Candecor', dosage: '8mg', schedule: '{"type":"as_needed"}' });
-            const stash = JSON.stringify(recordsToVault([...await local.list('settings'), ...await local.list('medication')], { now: Date.now() }));
-
-            const moved = {};
-            for (const r of vaultToRecords(JSON.parse(stash), { now: Date.now() })) (moved[r.recordType] = moved[r.recordType] || []).push(r);
-            env.records = createInMemoryRecordsPort(moved);
-            const { createRxnormPort } = await vi.importActual('../../../cloud/js/rxnorm.js');
-            env.window.offlineAwareApiCall = createApiRouter({}, { ...opts, records: env.records, win: env.window, rxnorm: createRxnormPort() });
-            expect((await env.window.apiCall('/api/settings')).med_register).toBe('eu');
-            await env.window.apiCall('/api/medications', 'POST', { name: 'Lipitor', dosage: '10mg', schedule: '{"type":"as_needed"}' });
-            expect((await env.records.list('medication')).map((m) => m.name).sort()).toEqual(['Candecor', 'Lipitor']);
-            expect(fetchRxnav).not.toHaveBeenCalled();
-        });
-
         it('rejects a register that is neither us nor eu', async () => {
             await expect(env.window.offlineAwareApiCall('/api/settings/body', 'PATCH', { med_register: 'uk' }))
                 .rejects.toMatchObject({ code: 'invalid_request' });

@@ -1741,6 +1741,55 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
   });
 
+  // bd med-3u28.6 (a): the register choice is vault data, so it rides the
+  // pickup. The stash comes from a real local router; the file importAll is
+  // handed becomes the account's records as importAll does (vaultToRecords,
+  // then Replace = those rows, Merge = mergeRecords, receiver wins).
+  describe('the "Check names in" choice (med-3u28.6)', () => {
+    const OPTS = { now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC', effects: { scheduleReminderRecompute: () => {} } };
+    const MED = (name) => ({ name, dosage: '10mg', schedule: '{"type":"as_needed"}' });
+    async function localStash() {
+      const { createApiRouter } = await import('../apishim.js');
+      const { createInMemoryRecordsPort } = await import('../../../static/js/tests/helpers/cloud-shim-harness.js');
+      const local = createInMemoryRecordsPort();
+      const router = createApiRouter({}, { ...OPTS, records: local, rxnorm: null });
+      await router('/api/settings/body', 'PATCH', { med_register: 'eu' });
+      await router('/api/medications', 'POST', MED('Candecor'));
+      return JSON.stringify(realVault.recordsToVault([...await local.list('settings'), ...await local.list('medication')], { now: Date.now() }));
+    }
+    async function accountRouter(rows) {
+      const { createApiRouter } = await import('../apishim.js');
+      const { createInMemoryRecordsPort } = await import('../../../static/js/tests/helpers/cloud-shim-harness.js');
+      const byType = {};
+      for (const r of rows) (byType[r.recordType] = byType[r.recordType] || []).push(r);
+      const rxnav = vi.fn(async () => ({ rxcui: '', normalizedName: '' }));
+      const router = createApiRouter({}, { ...OPTS, records: createInMemoryRecordsPort(byType), rxnorm: { searchRxNorm: rxnav, checkInteractions: rxnav } });
+      return { router, rxnav };
+    }
+
+    it('EU + one med in local mode → an empty account shows EU and its first save sends nothing', async () => {
+      let file = null;
+      const { log } = await boot({ stash: { vault: await localStash() }, importAll: (json) => { file = json; return { upload: 'synced' }; } });
+      await vi.waitFor(() => expect(log).toContain('move.clear'));
+      expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'importAll', 'move.clear']);
+      const { router, rxnav } = await accountRouter(realVault.vaultToRecords(JSON.parse(file), { now: Date.now() }));
+      expect((await router('/api/settings')).med_register).toBe('eu');
+      await router('/api/medications', 'POST', MED('Lipitor'));
+      expect(rxnav).not.toHaveBeenCalled();
+    });
+
+    it('Merge into an account with its own settings keeps the account\'s choice (disclosed)', async () => {
+      let file = null;
+      const { log } = await boot({ content: true, choice: 'merge', stash: { vault: await localStash() }, importAll: (json) => { file = json; return { upload: 'synced' }; } });
+      await vi.waitFor(() => expect(log).toContain('move.clear'));
+      const here = [{ recordType: 'settings', recordId: 'settings', clientTs: 5, deleted: false, timezone: 'UTC' }];
+      const { router, rxnav } = await accountRouter(realVault.mergeRecords(here, realVault.vaultToRecords(JSON.parse(file), { now: Date.now() })));
+      expect((await router('/api/settings')).med_register).toBe('us');
+      await router('/api/medications', 'POST', MED('Lipitor'));
+      expect(rxnav).toHaveBeenCalled();
+    });
+  });
+
   it('no stash: nothing else happens', async () => {
     const { log } = await boot({ stash: null });
     await vi.waitFor(() => expect(log).toContain('move.take'));
