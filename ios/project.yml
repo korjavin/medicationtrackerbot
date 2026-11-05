@@ -134,7 +134,7 @@ targets:
         NSHealthShareUsageDescription: Import your blood pressure, weight, sleep, workouts, steps, heart rate and blood oxygen from Apple Health into your encrypted vault.
         # The opt-in write-back (bd med-8f4s, copy med-8f4s.4); App Store upload
         # validation also demands this string of any HealthKit app.
-        NSHealthUpdateUsageDescription: 'Only if you switch on "Also write my entries": copy the blood pressure and weight entries you add or change on this iPhone to Apple Health, where apps you allow can read them. Turning it off stops updates and keeps the copies there.'
+        NSHealthUpdateUsageDescription: 'Only if you switch on "Also write my entries": copy the blood pressure entries (with the pulse you noted) and weight entries you add or change on this iPhone to Apple Health, where apps you allow can read them. Turning it off stops updates and keeps the copies there.'
         # Local mode's optional lock (bd med-o7zq.8, App/LocalLock.swift).
         NSFaceIDUsageDescription: Unlock Med Tracker when you turn on its lock.
         # Service Workers only run on app-bound domains (max 10); the wildcard

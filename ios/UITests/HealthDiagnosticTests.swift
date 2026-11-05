@@ -22,8 +22,10 @@ final class HealthDiagnosticTests: XCTestCase {
         let result = app.staticTexts["health-diagnostic-result"]
         XCTAssertTrue(result.waitForExistence(timeout: 30))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let deadline = Date().addingTimeInterval(45)
-        while result.label == "pending", Date() < deadline {
+        // "pending: <step>" is a run still in progress (the write-back mode
+        // names its step, so a stall shows where).
+        let deadline = Date().addingTimeInterval(120)
+        while result.label.hasPrefix("pending"), Date() < deadline {
             for host in [app, springboard] {
                 // One action per pass, then let the sheet settle: toggles read
                 // right after "Turn On All" still say "0", and tapping them
@@ -51,8 +53,8 @@ final class HealthDiagnosticTests: XCTestCase {
         report.name = "health-native-baseline.json"
         report.lifetime = .keepAlways
         test.add(report)
-        guard result.label != "pending" else {
-            XCTFail("Native HealthKit authorization did not complete; see permission screenshot")
+        guard !result.label.hasPrefix("pending") else {
+            XCTFail("Native HealthKit run did not complete (\(result.label)); see permission screenshot")
             return [:]
         }
         let data = try XCTUnwrap(result.label.data(using: .utf8))
