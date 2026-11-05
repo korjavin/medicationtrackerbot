@@ -112,6 +112,8 @@ const COPY_BACKOFF_CAP = 15;
 // Failed passes in a row (1, 2, 4, 8, 15, then once more at 15) after which
 // the copy counts as stuck.
 const COPY_STUCK_FAILS = 6;
+// The store's rate limit (Health Connect: "API call quota exceeded").
+const QUOTA_RE = /quota|rate.?limit/i;
 const COPY_ROW_ID = 'health-copy-row';
 
 function readJSON(storage, key, fallback) {
@@ -367,10 +369,15 @@ export function startHealthWriteBack({
             writeJSON(storage, DIRTY_KEY, now);
         }
     };
+    // Set when a call since the last drain started hit the store's rate limit
+    // (Health Connect "API call quota exceeded"): the copy then pauses even if
+    // a few calls of the pass got through.
+    let quotaHit = false;
     const deliver = (kind, id) => {
         const next = (chains.get(id) || Promise.resolve())
             .then(() => step(kind, id))
             .then(() => true, (e) => {
+                if (QUOTA_RE.test(String(e && e.message))) quotaHit = true;
                 diag(`[health] write ${kind} failed ${e && e.message}`);
                 return false;
             });
@@ -401,6 +408,7 @@ export function startHealthWriteBack({
         if (!granted) return null;
         const asked = askNewKinds();
         if (asked) granted = (await asked) || granted;
+        quotaHit = false;
         const l = ledger();
         // Interleave the kinds so one refused kind cannot starve the other.
         const lists = WRITE_KINDS.filter((k) => granted.includes(k))
@@ -431,7 +439,7 @@ export function startHealthWriteBack({
     // narrows it to the kinds the shell then supported (an older shell
     // ignores a kind it does not know, so the build that knows it asks again).
     const markAsked = (kinds = kindsSupported) => writeJSON(storage, WRITE_ASKED_KEY, kinds.filter((k) => WRITE_KINDS.includes(k)));
-    return { drain, readAccess, supported, markAsked, mark, ledger };
+    return { drain, readAccess, supported, markAsked, mark, ledger, quotaHit: () => quotaHit };
 }
 
 // What other apps already put into Health for one kind, since `from`: the
@@ -971,7 +979,8 @@ export function startHealthImport(ctx, {
     };
     // One write pass; with a copy open, the next starts copyGapMs after one
     // that delivered, or backs off 1→2→4… min (cap 15) after one where every
-    // call failed (Health Connect's quota, store busy): HW8b. A foreground
+    // call failed (store busy): HW8b. A pass that hit the rate limit waits the
+    // first step (1 min, HW8b) even when some calls got through. A foreground
     // return runs a pass at once.
     // A pass asked for while one runs (the copy just started) runs after it.
     let again = false;
@@ -986,7 +995,14 @@ export function startHealthImport(ctx, {
             const delivered = await writeBack.drain();
             const st = copyState();
             if (st && st.pending && isHealthWriteEnabled(storage)) {
-                if (delivered > 0) {
+                if (delivered > 0 && writeBack.quotaHit()) {
+                    // Some got through, the rest hit the rate limit: progress, so
+                    // not a step toward stuck, but wait the first back-off step
+                    // (HW8b) so the quota refills and live entries get through.
+                    paused = true;
+                    setFails(0);
+                    later(copyBackoffMs);
+                } else if (delivered > 0) {
                     paused = false;
                     setFails(0);
                     later(copyGapMs);

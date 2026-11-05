@@ -2574,6 +2574,33 @@ describe('Health write-back', () => {
                 expect(sent().filter((s) => COPIED.includes(s)).length).toBeGreaterThanOrEqual(COPIED.length);
             });
 
+            it('(c) Health Connect\'s rate limit pauses the copy (HW8b) even when a few calls get through; no hammering, not a step to stuck', async () => {
+                allowConsoleNoise();
+                // The store's quota lets two calls through, then refuses (emulator run 42038548012).
+                let allowance = 2;
+                const quota = async () => {
+                    if (allowance <= 0) throw new Error('android.health.connect.HealthConnectException: API call quota exceeded, availableQuota: 0.62 requested: 1');
+                    allowance--;
+                    return true;
+                };
+                health.write = vi.fn(quota);
+                health.remove = vi.fn(quota);
+                await open();
+                await tap();
+                await vi.waitFor(() => expect(rowText()[0]).toBe('Copy paused'));
+                expect(rowText()[1]).toMatch(/^Health Connect is busy\. \d of 5 so far; it continues when the app is open\.$/);
+                expect(job().fails || 0).toBe(0);
+                // Paused for the minute-scale back-off: no further calls meanwhile.
+                const n = health.write.mock.calls.length + health.remove.mock.calls.length;
+                await new Promise((r) => setTimeout(r, 100));
+                expect(health.write.mock.calls.length + health.remove.mock.calls.length).toBe(n);
+
+                allowance = 100;
+                foreground();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
+            });
+
             it('(c) a relaunch mid-copy resumes from the ledger and the job', async () => {
                 allowConsoleNoise();
                 health.write = vi.fn(async () => { throw new Error('busy'); });

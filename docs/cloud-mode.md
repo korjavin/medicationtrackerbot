@@ -503,7 +503,11 @@ never turns it off (below).
   id clears). While it is open and the page is visible, a pass that delivered
   is followed by the next 1.5 s later; a pass where every call failed (Health
   Connect's rate limit, store busy) shows "Copy paused" (HW8b) and backs off
-  1→2→4… min, capped at 15; every foreground return runs a pass at once. The
+  1→2→4… min, capped at 15; every foreground return runs a pass at once. A
+  pass where any call hit the rate limit ("API call quota exceeded") also
+  shows "Copy paused" and waits 1 min even if some calls got through (at the
+  limit Health Connect lets 1-2 of 50 through, so the copy would otherwise
+  spin and slow live entries); it is progress, not a step toward stuck. The
   passes go on while a pulse of the job is still unsent (the row already shows
   the result). The count of failed passes in a row is kept with the job, so a
   relaunch neither restarts the back-off nor that count; once a pass fails
