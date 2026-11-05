@@ -121,9 +121,6 @@ const REQUIRED_TOKENS = [
     '--color-toast-success-solid',
     '--color-toast-error-solid',
 
-    // Data refresh banner
-    '--color-refresh-btn',
-
     // UI / borders
     '--color-border-divider',
     '--color-toggle-inactive',
