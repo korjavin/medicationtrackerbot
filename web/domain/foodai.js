@@ -160,6 +160,18 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     return { status: 'created', items: saved, failed };
   }
 
+  // The dry run names each item as the log will (med-5jq.9): a catalog match
+  // (exact or alias, no typo tier — same as the commit) takes the product's
+  // name and carries `matched` + `is_meal` for the review row's tag.
+  async function preview(parsed) {
+    const items = previewParsedMeal(parsed);
+    for (const item of items) {
+      const m = await foodDomain.matchName(item.name, { typo: false });
+      if (m) Object.assign(item, m);
+    }
+    return items;
+  }
+
   async function parseMealFromDescription(description, { eatenAt, recordIdFor, dryRun = false } = {}) {
     const trimmed = (description || '').trim();
     if (!trimmed) throw invalid('Description is required');
@@ -167,7 +179,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
       throw invalid(`Description too long (max ${MAX_DESCRIPTION_BYTES} bytes)`);
     }
     const parsed = await aiClient.parseMealFromDescription(trimmed);
-    if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
+    if (dryRun) return { status: 'parsed', items: await preview(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
@@ -176,7 +188,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
   // what makes "300g" beat guessing the portion from pixels.
   async function parseMealFromPhoto(file, { eatenAt, recordIdFor, caption, dryRun = false } = {}) {
     const parsed = await aiClient.parseMealFromImage(file, (caption || '').trim());
-    if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
+    if (dryRun) return { status: 'parsed', items: await preview(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 

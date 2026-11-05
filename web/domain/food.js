@@ -830,6 +830,13 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
 
   // listProducts mirrors ListProducts (repo.go:242): is_meal filter, `q`
   // substring match, limit/offset, three sort modes.
+  // matchName: what a bare-name create would link to, without writing — the
+  // AI review shows the name an item will be logged under (med-5jq.9).
+  async function matchName(name, opts) {
+    const { product, matched } = resolveProduct(name, await records.list(PRODUCT_RECORD_TYPE), opts);
+    return product ? { name: product.name, matched, is_meal: !!product.is_meal } : null;
+  }
+
   async function listProducts({ isMeal, q, offset = 0, limit = 100, sort } = {}) {
     const all = await records.list(PRODUCT_RECORD_TYPE);
     let filtered = all.filter((p) => !p.deleted);
@@ -1017,6 +1024,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     incompleteDays,
     dayStatuses,
     listProducts,
+    matchName,
     updateProduct,
     removeProduct,
     createMealFromLogs,

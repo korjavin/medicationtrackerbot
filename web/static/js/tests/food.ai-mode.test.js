@@ -114,6 +114,56 @@ describe('Food Add sheet — Describe → review → Log (med-xso6.17)', () => {
         expect(document.getElementById('food-add-primary-btn').textContent).toBe('Log 2 items');
     });
 
+    // med-5jq.9 (kit FC2): a matched item shows its catalog name + the Mine
+    // tag; a flagged item gets one hint line rendered from its warnings field.
+    it('review shows a matched item with the Mine tag and a flagged item with one hint line; Log stays enabled', async () => {
+        stubAI({
+            parseMealFromDescription: vi.fn(async () => ({ status: 'parsed', items: [
+                { ...PREVIEW[0], name: 'Boiled egg', matched: 'exact', is_meal: false },
+                { name: 'Granola with nuts', weight: 60, carbs: 30, protein: 6, fat: 9, calories: 225, carbs_100g: 50, protein_100g: 10, fat_100g: 15, uncertain: false, warnings: ['inconsistent', 'suspicious-low'] },
+                { ...PREVIEW[1], warnings: ['impossible', 'inconsistent'] },
+            ] })),
+        });
+        await estimate();
+        const rows = env.document.querySelectorAll('#food-add-review-list .wg-food-add__review-row');
+
+        expect(rows[0].querySelector('.wg-row__title').textContent).toBe('Boiled egg');
+        expect(rows[0].querySelector('.wg-row__meta .wg-tag').textContent).toBe('Mine');
+        expect(rows[0].querySelector('.wg-hint')).toBeNull();
+
+        // Several warnings → only the most severe, one line, warn icon.
+        expect(rows[1].querySelector('.wg-tag')).toBeNull();
+        expect(rows[1].querySelectorAll('.wg-hint')).toHaveLength(1);
+        expect(rows[1].querySelector('.wg-hint').textContent).toBe(' Calories don\'t match the macros (≈ 225).');
+        expect(rows[1].querySelector('.wg-hint .wg-ico.wg-warn')).not.toBeNull();
+        expect(rows[2].querySelector('.wg-hint').textContent).toBe(' Over 900 kcal per 100 g. Check the numbers.');
+
+        expect(env.document.getElementById('food-add-primary-btn').disabled).toBe(false);
+    });
+
+    it('a grams edit keeps the flag; renaming a matched item drops its Mine tag', async () => {
+        stubAI({
+            parseMealFromDescription: vi.fn(async () => ({ status: 'parsed', items: [
+                { ...PREVIEW[0], name: 'Boiled egg', matched: 'exact', is_meal: false, warnings: ['impossible'] },
+            ] })),
+        });
+        await estimate();
+        const row = () => env.document.querySelector('#food-add-review-list .wg-food-add__review-row');
+
+        env.window.safeForm = vi.fn(async () => ({ name: 'Boiled egg', grams: 50 }));
+        row().click();
+        await idle();
+        expect(row().querySelector('.wg-row__meta').textContent).toMatch(/^50 g/);
+        expect(row().querySelector('.wg-hint').textContent).toContain('Over 900 kcal per 100 g');
+        expect(row().querySelector('.wg-tag').textContent).toBe('Mine');
+
+        env.window.safeForm = vi.fn(async () => ({ name: 'Eggs Benedict', grams: 50 }));
+        row().click();
+        await idle();
+        expect(row().querySelector('.wg-tag')).toBeNull();
+        expect(row().querySelector('.wg-hint')).not.toBeNull();
+    });
+
     it('Log commits the reviewed items via logParsedItems, reloads, and shows the Undo summary', async () => {
         const ai = stubAI();
         await estimate();

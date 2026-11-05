@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import * as FoodMacros from '../../../../web/domain/foodmacros.js';
 
 function flushPromises() {
     return new Promise((resolve) => setTimeout(resolve, 0));
@@ -150,6 +151,46 @@ describe('Manual food form (kit F8)', () => {
 
         document.getElementById('food-modal-cancel-btn').click();
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
+    });
+
+    // med-5jq.9 (kit FC3): leaving a number field asks the domain check (.8);
+    // an impossible value gets one quiet hint line, Save stays enabled.
+    it('an impossible value shows the hint once the field is left; a fix clears it', async () => {
+        const { document, window } = env;
+        window.FoodMacros = FoodMacros;
+        window.FoodLog.openManual({ name: 'Butter cookies' });
+        const hint = document.getElementById('food-macro-hint');
+        expect(hint.classList.contains('hidden')).toBe(true);
+
+        const set = async (id, value) => {
+            const input = document.getElementById(id);
+            input.value = value;
+            input.dispatchEvent(new window.Event('change'));
+            await flushPromises();
+        };
+        await set('food-weight', '40');
+        await set('food-carbs', '65');
+        await set('food-protein', '6');
+        await set('food-fat', '25');
+        expect(hint.classList.contains('hidden')).toBe(true);
+
+        await set('food-calories', '4900');
+        expect(hint.classList.contains('hidden')).toBe(false);
+        expect(hint.textContent).toBe(' Over 900 kcal per 100 g. Check the numbers.');
+        expect(hint.querySelector('.wg-ico.wg-warn')).not.toBeNull();
+        expect(document.getElementById('food-modal-save-btn').disabled).toBe(false);
+
+        // 4/4/9 of the 40 g totals (26 C, 2 P, 10 F) is 202: no longer impossible, still off.
+        await set('food-calories', '120');
+        expect(hint.textContent).toBe(' Calories don\'t match the macros (≈ 202).');
+
+        await set('food-calories', '200');
+        expect(hint.classList.contains('hidden')).toBe(true);
+
+        // A fresh sheet starts without the hint.
+        await set('food-calories', '4900');
+        window.FoodLog.openManual();
+        expect(hint.classList.contains('hidden')).toBe(true);
     });
 
     it('Save POSTs a new log when food-id is empty and closes the sheet', async () => {

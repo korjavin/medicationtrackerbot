@@ -894,6 +894,24 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 expect(res.items[0]).toMatchObject({ protein: 12, fat: 10 });
             });
 
+            it('the dry run names a matched item as it will be logged, writing nothing (med-5jq.9)', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                await seedProduct({ name: 'Boiled egg' });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    ...EGGS('boiled eggs'),
+                    { name: 'Toast', weight_grams: 40, carbs_100g: 50, protein_100g: 9, fat_100g: 4, uncertain: false },
+                ])));
+
+                const res = await window.CloudFoodAI.parseMealFromDescription('eggs and toast', { dryRun: true });
+
+                expect(res.items[0]).toMatchObject({ name: 'Boiled egg', matched: 'exact', is_meal: false });
+                expect(res.items[1].name).toBe('Toast');
+                expect(res.items[1].matched).toBeUndefined();
+                expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(1);
+                expect((await env.records.list('foodproduct'))[0].usage_count).toBe(3);
+            });
+
             it('a parsed "eggs, boiled" links "Boiled egg" through its confirmed alias, no second product', async () => {
                 const { window } = env;
                 await setOpenAIKey(window);
