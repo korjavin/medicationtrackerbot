@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.BloodPressureRecord
+import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -28,7 +29,7 @@ class QaHealthRead : Activity() {
             runCatching {
                 val client = HealthConnectClient.getOrCreate(this@QaHealthRead)
                 val out = JSONArray()
-                for ((kind, type) in mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class)) {
+                for ((kind, type) in mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class, "hr" to HeartRateRecord::class)) {
                     var token: String? = null
                     do {
                         @Suppress("UNCHECKED_CAST")
@@ -42,7 +43,11 @@ class QaHealthRead : Activity() {
                             when (record) {
                                 is BloodPressureRecord -> row.put("systolic", record.systolic.inMillimetersOfMercury)
                                     .put("diastolic", record.diastolic.inMillimetersOfMercury)
+                                    .put("at", record.time.toEpochMilli())
                                 is WeightRecord -> row.put("kg", record.weight.inKilograms)
+                                is HeartRateRecord -> row.put("samples", JSONArray().apply {
+                                    record.samples.forEach { put(JSONObject().put("at", it.time.toEpochMilli()).put("bpm", it.beatsPerMinute)) }
+                                }).put("at", record.startTime.toEpochMilli()).put("end", record.endTime.toEpochMilli())
                             }
                             out.put(row)
                         }

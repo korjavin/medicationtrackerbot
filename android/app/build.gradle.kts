@@ -135,4 +135,6 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
+    // Populate provider-assigned origins for no-echo and workout-isolation tests.
+    testImplementation("androidx.health.connect:connect-testing:1.0.0-alpha03")
 }

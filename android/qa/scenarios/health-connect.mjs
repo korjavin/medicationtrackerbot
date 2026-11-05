@@ -222,8 +222,8 @@ export default async function healthConnect(ctx) {
       await ctx.page.evaluate(() => window.switchTab('settings'));
       const toggle = ctx.page.locator('#health-write-row .wg-toggle');
       await toggle.waitFor({ state: 'visible', timeout: 15_000 });
-      r.writeBack.grants = await native('writeAccess', ['bp', 'weight']);
-      if (!['bp', 'weight'].every((k) => r.writeBack.grants.granted.includes(k))) throw new Error('missing write grants');
+      r.writeBack.grants = await native('writeAccess', ['bp', 'weight', 'hr']);
+      if (!['bp', 'weight', 'hr'].every((k) => r.writeBack.grants.granted.includes(k) && r.writeBack.grants.supported.includes(k))) throw new Error('missing write grants or supported kinds');
       if (await ctx.page.evaluate(() => localStorage.getItem('wg.health.write') === 'true')) throw new Error('write switch was on by default');
       await toggle.click();
       await ctx.page.waitForFunction(() => {
@@ -240,14 +240,17 @@ export default async function healthConnect(ctx) {
     await ctx.step('hand-entered BP reaches Health Connect once under the vault id', async () => {
       // The emulator's WebView clock can run a fraction ahead of the Health
       // service. A measured reading in the recent past avoids future-time rejection.
-      bp = await api('/api/bp', 'POST', { systolic: 121, diastolic: 81, measured_at: new Date(Date.now() - 60_000).toISOString(), notes: 'write-back QA' });
+      bp = await api('/api/bp', 'POST', { systolic: 121, diastolic: 81, pulse: 66, measured_at: new Date(Date.now() - 60_000).toISOString(), notes: 'write-back QA' });
       r.writeBack.bp = bp;
       r.writeBack.created = await waitNative(bp.id, (rows) => rows.length === 1 && rows[0].systolic === 121);
       if (r.writeBack.created[0].recordingMethod !== 3) throw new Error('BP is not manually entered');
+      r.writeBack.pulseCreated = await waitNative(`${bp.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples?.length === 1 && rows[0].samples[0].bpm === 66);
+      const pulse = r.writeBack.pulseCreated[0];
+      if (pulse.recordingMethod !== 3 || pulse.version !== r.writeBack.created[0].version || pulse.at !== r.writeBack.created[0].at || pulse.samples[0].at !== pulse.at) throw new Error('pulse identity, provenance, version or timestamp mismatch');
     });
 
     await ctx.step('editing BP upserts once; equal replay is idempotent and older versions cannot replace it', async () => {
-      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { systolic: 126, diastolic: 83 });
+      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { systolic: 126, diastolic: 83, pulse: 67 });
       r.writeBack.edited = await waitNative(bp.id, (rows) => rows.length === 1 && rows[0].systolic === 126);
       const edited = r.writeBack.edited[0];
       if (edited.version <= r.writeBack.created[0].version) throw new Error('edit did not advance the client version');
@@ -259,6 +262,28 @@ export default async function healthConnect(ctx) {
         at: Date.parse(bp.measured_at), systolic: 111, diastolic: 71 });
       const rows = (await readNative()).filter((row) => row.clientId === bp.id);
       if (rows.length !== 1 || rows[0].systolic !== 126 || rows[0].version !== edited.version) throw new Error(`version regression: ${JSON.stringify(rows)}`);
+      r.writeBack.pulseEdited = await waitNative(`${bp.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples[0].bpm === 67 && rows[0].version === edited.version);
+      await native('write', { type: 'hr', id: `${bp.id}/pulse`, version: edited.version, at: edited.at, bpm: 67 });
+      await native('write', { type: 'hr', id: `${bp.id}/pulse`, version: edited.version - 1, at: edited.at, bpm: 55 });
+      await waitNative(`${bp.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples[0].bpm === 67 && rows[0].version === edited.version);
+    });
+
+    await ctx.step('pulse scan and changes exclude our copies but preserve the unmarked heart-rate series', async () => {
+      const scan = await native('query', { type: 'hr', anchor: null });
+      if (scan.samples.some((s) => s.start === r.writeBack.pulseCreated[0].at)) throw new Error('our pulse echoed in scan');
+      if (![VITALS.hr, VITALS.hr + 1].every((v) => scan.samples.some((s) => s.value === v))) throw new Error('unmarked HR series was filtered');
+      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { pulse: 68 });
+      await waitNative(`${bp.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples[0].bpm === 68);
+      r.writeBack.pulseChanges = await native('query', { type: 'hr', anchor: scan.anchor });
+      if (!r.writeBack.pulseChanges.anchor || r.writeBack.pulseChanges.returned < 1 || r.writeBack.pulseChanges.samples.some((s) => s.start === r.writeBack.pulseCreated[0].at)) throw new Error('our pulse echoed in changes or raw anchor stalled');
+    });
+
+    await ctx.step('clearing pulse removes only its own identity; setting it again recreates one sample', async () => {
+      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { pulse: null });
+      r.writeBack.pulseCleared = await waitNative(`${bp.id}/pulse`, (rows) => rows.length === 0);
+      await waitNative(bp.id, (rows) => rows.length === 1);
+      await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'PUT', { pulse: 69 });
+      r.writeBack.pulseRestored = await waitNative(`${bp.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples.length === 1 && rows[0].samples[0].bpm === 69);
     });
 
     await ctx.step('scan and changes filter our writes while raw anchors keep moving', async () => {
@@ -283,6 +308,12 @@ export default async function healthConnect(ctx) {
       if (!(await readNative()).some((row) => row.id === imported.id)) throw new Error('delete erased an imported record by Health UUID');
       await api(`/api/bp/${encodeURIComponent(bp.id)}`, 'DELETE');
       await waitNative(bp.id, (rows) => rows.length === 0);
+      r.writeBack.pulseDeleted = await waitNative(`${bp.id}/pulse`, (rows) => rows.length === 0);
+      const importedPulse = (await readNative()).find((row) => row.type === 'hr' && row.clientId === null);
+      if (!importedPulse) throw new Error('unmarked pulse fixture missing');
+      await native('remove', { type: 'hr', id: importedPulse.id });
+      if (!(await readNative()).some((row) => row.id === importedPulse.id)) throw new Error('pulse delete erased an imported Health UUID');
+      if (await native('remove', { type: 'hr', id: `${bp.id}/pulse` }) !== true) throw new Error('unknown pulse id did not resolve true');
       if (await native('remove', { type: 'bp', id: bp.id }) !== true) throw new Error('unknown client id did not resolve true');
       r.writeBack.importedPreserved = imported.id;
     });
@@ -308,6 +339,42 @@ export default async function healthConnect(ctx) {
       });
       if (!/denied/.test(denied)) throw new Error(`write was not denied: ${denied}`);
       await shell(`pm grant ${pkg} android.permission.health.WRITE_BLOOD_PRESSURE`);
+    });
+
+    await ctx.step('denied heart-rate access holds pulse only; late grant drains existing pending writes', async () => {
+      await shell(`pm revoke ${pkg} android.permission.health.WRITE_HEART_RATE`);
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after heart-rate revoke failed');
+      r.writeBack.hrDeniedAccess = await native('writeAccess', ['bp', 'weight', 'hr']);
+      const access = r.writeBack.hrDeniedAccess;
+      if (!access.supported.includes('hr') || access.granted.includes('hr') || !['bp', 'weight'].every((k) => access.granted.includes(k))) throw new Error('denied HR blocked BP/weight or hid support');
+      const pending = await api('/api/bp', 'POST', { systolic: 124, diastolic: 82, pulse: 70, measured_at: new Date(Date.now() - 60_000).toISOString(), notes: 'pulse denied QA' });
+      r.writeBack.hrDeniedBp = await waitNative(pending.id, (rows) => rows.length === 1);
+      await waitNative(`${pending.id}/pulse`, (rows) => rows.length === 0);
+      const weight = await api('/api/weight', 'POST', { weight: 73.25, measured_at: new Date(Date.now() - 60_000).toISOString() });
+      await waitNative(weight.id, (rows) => rows.length === 1 && rows[0].kg === 73.25);
+      await ctx.page.evaluate(() => window.switchTab('settings'));
+      await ctx.page.locator('#health-write-row').scrollIntoViewIfNeeded();
+      r.writeBack.hrHeld = await ctx.page.evaluate(() => ({ ledger: JSON.parse(localStorage.getItem('wg.health.dirty') || '{}'), hint: document.getElementById('health-write-row')?.innerText }));
+      // The independent reader returns through visibilitychange, so a denied kind has had a drain pass.
+      if (!/Pulse isn't allowed/.test(r.writeBack.hrHeld.hint)) throw new Error(`missing HR refusal hint: ${JSON.stringify(r.writeBack.hrHeld)}`);
+      if (!(pending.id in (r.writeBack.hrHeld.ledger.hr || {}))) throw new Error('denied pulse missing from pending ledger');
+      if ((await healthDiag()).some((l) => /write hr failed/.test(l))) throw new Error('denied HR generated write failures instead of holding its kind');
+      await ctx.stableShot('health-write-pulse-denied');
+      await shell(`pm grant ${pkg} android.permission.health.WRITE_HEART_RATE`);
+      r.writeBack.pulseLateGrant = await waitNative(`${pending.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples[0].bpm === 70);
+      await api(`/api/bp/${encodeURIComponent(pending.id)}`, 'DELETE');
+      await waitNative(pending.id, (rows) => rows.length === 0);
+      await waitNative(`${pending.id}/pulse`, (rows) => rows.length === 0);
+      await api(`/api/weight/${encodeURIComponent(weight.id)}`, 'DELETE');
+      await waitNative(weight.id, (rows) => rows.length === 0);
+    });
+
+    await ctx.step('Health Connect rationale names the pulse copy', async () => {
+      await shell(`am start -W -a androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE -n ${pkg}/com.example.medtracker.PermissionsRationaleActivity`);
+      await ctx.waitFor({ text: 'Health Connect access' }, 10_000);
+      await ctx.stableShot('pulse-rationale');
     });
   } finally {
     r.writer = (await shell('logcat -d -s qa-health-write:*')).split('\n').slice(-6);

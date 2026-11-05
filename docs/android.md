@@ -549,17 +549,25 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   permission dialog on Android 14) and answers `true` whenever Health Connect
   exists, `false` when it doesn't (work profile, no service); like HealthKit, a
   denied type just returns no samples.
-- **Opt-in write-back (med-8f4s.2):** `WRITE_BLOOD_PRESSURE` and
-  `WRITE_WEIGHT` join that Play declaration before the containing Play upload
-  (owner task med-0xad.8). `health.authorize {types, write: ['bp', 'weight']}`
+- **Opt-in write-back (med-8f4s.2, med-8f4s.7):** `WRITE_BLOOD_PRESSURE`,
+  `WRITE_WEIGHT` and `WRITE_HEART_RATE` join that Play declaration before the containing Play upload
+  (owner task med-0xad.8). `health.authorize {types, write: ['bp', 'weight', 'hr']}`
   asks for reads and writes in one sheet; omitting `write` stays read-only.
   `health.writeAccess {types}` reports the actual granted write kinds, including
-  partial grants; a store/access error rejects rather than pretending access
-  was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?}`
-  inserts a manually entered BP/weight with `clientRecordId = id` (vault id)
+  partial grants, plus `supported: ['bp', 'weight', 'hr']` even when a kind is denied.
+  Older shells omit `supported`, which the page treats as BP/weight support.
+  A store/access error rejects rather than pretending access
+  was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?}`
+  inserts a manually entered BP/weight/pulse with `clientRecordId = id` (vault id,
+  or the supplied `<bpRecordId>/pulse` verbatim for pulse)
   and `clientRecordVersion = version` (committed clientTs). Health Connect
   upserts a higher version and ignores an older one. Android 14 also accepts
   equal-version replays, so each committed version carries the same values.
+  A pulse is one heart-rate sample with both record endpoints at the BP timestamp
+  (AndroidX 1.1.0 allows equal endpoints). Clearing the pulse removes that separate record; deleting the BP removes
+  both identities. Denied heart-rate access holds only pending pulses, leaving BP
+  and weight free to write. A later grant drains the existing ledger; older readings
+  follow their next edit, with no historical pulse backfill.
   `health.delete {type, id}` deletes by our package's client identity only;
   an unknown id is a successful no-op. A Health Connect UUID from an imported
   reading is never used as a deletion target. Both write/delete reject

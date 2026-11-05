@@ -36,7 +36,7 @@ class PermissionsRationaleActivity : Activity() {
                 "When you switch on the Health Connect import in Settings, Med Tracker reads your blood " +
                     "pressure, weight, sleep, workouts, steps, heart rate and blood oxygen, only while the app " +
                     "is open, into your end-to-end encrypted vault. Med Tracker writes to Health Connect only " +
-                    "if you also switch on \"Also write my entries\". The blood pressure and weight entries you " +
+                    "if you also switch on \"Also write my entries\". The blood pressure entries (with the pulse you noted) and weight entries you " +
                     "add or change on this phone are then copied to Health Connect, where apps you allow can " +
                     "read them. It never writes back what it imported. Turning it off stops copying and " +
                     "updates; copies already in Health Connect stay until you delete them there. You can turn " +
