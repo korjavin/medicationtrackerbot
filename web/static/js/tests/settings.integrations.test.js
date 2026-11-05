@@ -260,6 +260,41 @@ describe('Settings → Integrations section', () => {
             expect(env.document.getElementById('integrations-elevenlabs-agent-id').value).toBe('fixture-typed');
             page.close();
         });
+
+        // bd med-ob00: a first read is never dropped — nothing newer exists yet.
+        it('a first read that answers after the page unbinds still applies and enables Save', async () => {
+            const { settings, page, setRead } = await setup();
+            const first = deferred();
+            setRead(() => first.promise);
+            const loading = env.window.SettingsIntegrations.load();
+            page.close();
+            first.resolve(await settings.getIntegrations());
+            expect(await loading).not.toBeNull();
+            const reopened = env.window.SettingsView.openSettingsPage('integrations');
+            expect(reopened.el.querySelector('.wg-pagebar .wg-btn--primary').disabled).toBe(false);
+            expect(env.document.getElementById('integrations-openai-api-key').value).toBe('***');
+            reopened.close();
+        });
+
+        // bd med-ob00: a draft-preserving refresh that only moved a group no
+        // input shows (food) becomes the baseline, so the typed values save.
+        it('a draft-preserving refresh after a hidden-group change does not make the next Save a conflict', async () => {
+            const { settings, patches, page } = await setup();
+            await env.window.SettingsIntegrations.load();
+            await env.window.SettingsIntegrations.save();
+            await settings.patchIntegrations({ food: { url: 'https://food-b.example' } });
+            editAgent('fixture-typed');
+            await env.window.SettingsIntegrations.load({ preserveDraft: true });
+            expect(env.document.getElementById('integrations-elevenlabs-agent-id').value).toBe('fixture-typed');
+            await env.window.SettingsIntegrations.save();
+            expect(patches.at(-1).food).toBeUndefined();
+            const stored = await settings.readIntegrationsUnmasked();
+            expect(stored.elevenlabs).toEqual({ api_key: 'fixture-voice-key', agent_id: 'fixture-typed' });
+            expect(stored.food).toEqual({ api_key: 'fixture-food-key', url: 'https://food-b.example', domain: 'legacy.example' });
+            expect(stored.openai.api_key).toBe('fixture-main-key');
+            expect(stored.openai.vision_api_key).toBe('fixture-photo-key');
+            page.close();
+        });
     });
 
     describe('Check key through the direct UI port and real settings/client', () => {
