@@ -37,6 +37,7 @@ class NotificationsTest {
         }
         assertEquals("runtime-prompt", diagnostics.last().substringAfter("result="))
         assertTrue(replies.isEmpty())
+        shadowOf(activity).nextStartedActivity // consume Robolectric's runtime-permission activity
         assertTrue(notifications.onRequestPermissionsResult(7001, intArrayOf(PackageManager.PERMISSION_DENIED)))
         val intent = shadowOf(activity).nextStartedActivity
         assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, intent.action)
@@ -62,6 +63,7 @@ class NotificationsTest {
         val replies = mutableListOf<Any?>()
         val notifications = Notifications(activity) { "qa.test" }
         notifications.handle("notifications.requestPermission", null) { value, _ -> replies += value }
+        shadowOf(activity).nextStartedActivity // inspect only activities started after the callback
         activity.rationale = true
         assertFalse(notifications.onRequestPermissionsResult(42, intArrayOf(PackageManager.PERMISSION_DENIED)))
         assertTrue(replies.isEmpty())
