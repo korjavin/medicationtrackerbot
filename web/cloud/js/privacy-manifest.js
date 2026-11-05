@@ -715,7 +715,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'Drug-name lookups',
-      detail: 'Drug-name searches are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record. This runs while Settings → Features → "Check names in" is US register, the default; pick EU register and names are checked on this phone instead, with nothing sent. There is no way to point it at a service of your own.',
+      detail: 'Drug-name searches are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record. This runs while Settings → Features → "Check names in" is US register, the default; pick EU register and names are checked on this phone instead, with nothing sent. EU register data — Source: European Medicines Agency (EMA), Article 57 product data, EMA/518502/2018 Rev.90, accessed October 2026. Contact-free A-D projection; original substance/product grouping retained. EMA source acknowledgement and legal notice apply; third-party material exceptions remain. There is no way to point it at a service of your own.',
     },
   },
 
