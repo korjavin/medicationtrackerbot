@@ -390,6 +390,15 @@ export default async function healthConnect(ctx) {
     // Health Connect's rate limit paused it. Evidence: never fails the run.
     await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {
       r.copy = {};
+      try {
+        await copyMeasurement();
+      } catch (e) {
+        r.copy.error = String(e?.message || e).split('\n')[0];
+        ctx.log('health-copy', JSON.stringify({ error: r.copy.error, states: r.copy.states }));
+        await ctx.stableShot('health-copy-error').catch(() => {});
+      }
+    });
+    async function copyMeasurement() {
       await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
       await ctx.page.evaluate(async () => {
         const base = Date.now() - 400 * 864e5;
@@ -397,10 +406,10 @@ export default async function healthConnect(ctx) {
         for (let i = 0; i < 300; i++) await window.apiCall('/api/weight', 'POST', { weight: 70 + (i % 50) / 10, measured_at: new Date(base + i * 864e5).toISOString() });
         localStorage.setItem('wg.health.write', 'true');
       });
-      await shell(`am force-stop ${pkg}`);
-      ctx.page = undefined;
-      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
-      if (!(await ctx.attachPage())) throw new Error('re-attach before the copy failed');
+      // A reload, not a force-stop: a force-stop right after setItem can drop
+      // the WebView's not yet flushed localStorage (the switch came back off).
+      await ctx.page.reload({ waitUntil: 'load' });
+      await ctx.page.waitForFunction(() => typeof window.switchTab === 'function', null, { timeout: 60_000 });
       await ctx.page.evaluate(() => window.switchTab('settings'));
       const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
       if (await notNow.isVisible().catch(() => false)) await notNow.click();
@@ -431,7 +440,7 @@ export default async function healthConnect(ctx) {
       r.copy.ledgerLeft = await ctx.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('wg.health.dirty') || '{}')).reduce((n, m) => n + Object.keys(m).length, 0));
       await ctx.stableShot('health-copy-result');
       ctx.log('health-copy', JSON.stringify({ countMs: r.copy.countMs, copyMs: r.copy.copyMs, paused: r.copy.paused, ledgerLeft: r.copy.ledgerLeft, last: r.copy.states.at(-1) }));
-    });
+    }
 
     await ctx.step('Health Connect rationale names the pulse copy', async () => {
       await shell(`am start -W -a androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE -n ${pkg}/com.example.medtracker.PermissionsRationaleActivity`);
