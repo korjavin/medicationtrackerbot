@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — EU register check</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-eu-register.html" aria-current="page">EU register</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="screens-trackers.html">Trackers</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">EU register check</h1>
+<p class="kit-lede">Epic med-3u28. Settings picks which register checks medication names: the US one (RxNav, today) or the EU one (EMA Article 57, checked on the phone over the bundled copy, nothing sent). The editor shows the result as the same chip either way. Kit base: M5 editor, S2 Features.</p>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Settings</h2></div><div class="kit-board"><figure class="kit-frame" data-screen-label="ER1 Settings: which register"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Settings</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Features</div></div><span></span></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Tracking · shown in the nav</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="activity"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Blood pressure</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Blood pressure"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Weight</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Weight"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="food"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Food</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Food"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Medications</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Medications"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Workouts</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Workouts"></button></div>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Medications</span></div><div class="wg-list"><button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Check names in</span></span><span class="wg-setting__value">US register</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button></div></section>
+</div>
+</div></div><figcaption class="kit-cap"><b>ER1</b><span>Settings → Features: one choice</span><em>One row, "Check names in", with the current register as its value. US register is the default, so nobody's lookup changes until they pick EU.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="ER2 Choose the register"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Settings</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Features</div></div><span></span></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Tracking · shown in the nav</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="activity"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Blood pressure</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Blood pressure"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Weight</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Weight"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="food"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Food</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Food"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Medications</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Medications"></button></div><div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Workouts</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Workouts"></button></div>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Medications</span></div><div class="wg-list"><button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Check names in</span></span><span class="wg-setting__value">US register</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button></div></section>
+</div><div class="wg-scrim"><div class="wg-dialog" role="dialog"><p class="wg-dialog__title">Check medicine names in</p><div class="wg-choices">
+<button class="wg-choice" aria-pressed="true"><span>US register<span class="wg-choice__sub">Sends the name to RxNav (US NIH).</span></span></button>
+<button class="wg-choice" aria-pressed="false"><span>EU register<span class="wg-choice__sub">Checked on this phone; nothing is sent.</span></span></button>
+</div><div class="wg-dialog__acts"><button class="wg-btn">Cancel</button></div></div></div>
+</div></div><figcaption class="kit-cap"><b>ER2</b><span>The choice (safeChoose)</span><em>The existing in-page choice dialog, two options. Each sub-line says the one thing that differs: where the name goes. Neither checks interactions today (the RxNav interaction endpoint is gone, Miles 15510).</em></figcaption></figure>
+</div></section>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Editor, EU chosen</h2></div><div class="kit-board"><figure class="kit-frame" data-screen-label="ER3 Editor · EU match"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Candecor</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Candecor"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<span class="wg-hstack"><button class="wg-chip wg-chip--ok"><i class="wg-ico" data-icon="check"></i>EU · Candesartan Cilexetil<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></button></span>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+</div></section>
+</div>
+</div></div><figcaption class="kit-cap"><b>ER3</b><span>Editor with EU chosen: a match</span><em>The same chip as the Rx match, in the same place. It names the substance; tap opens the entry (ER7). No button, no opt-in step. Nothing is written to the medication.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="ER4 Editor · first load"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Candecor</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Candecor"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<div class="wg-vstack"><span class="wg-hint">Loading the EU register, only this once.</span><div class="wg-card wg-card--tight"><div class="wg-macros"><span class="wg-meter"><span class="wg-meter__fill" style="--p:46%"></span></span><span class="wg-macros__val">46%</span></div></div></div>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+</div></section>
+</div>
+</div></div><figcaption class="kit-cap"><b>ER4</b><span>First check on this phone</span><em>Only once, right after EU is picked: the register downloads in the background, with real progress (about 1.6 MB compressed on the web; the iOS and Android apps already carry it, so there it only loads from the app). The editor stays usable and Save works.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="ER5 Editor · several / none"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Voltaren</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Voltaren"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<span class="wg-hstack"><button class="wg-chip"><i class="wg-ico" data-icon="globe"></i>EU · 3 entries<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></button></span>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+</div></section>
+</div>
+</div></div><figcaption class="kit-cap"><b>ER5</b><span>Several entries, or none</span><em>Several entries → a neutral chip "EU · 3 entries" that opens ER8. No exact match → one quiet line (shown in ER6). It never says unknown or unauthorised.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="ER6 Editor · no match, failed"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Candekor</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Candekor"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<span class="wg-hint">No exact match in the EU register. The name must match exactly.</span><div class="wg-divider"></div><span class="wg-hint"><i class="wg-ico wg-ico--sm wg-warn" data-icon="cloud-off"></i> Couldn't load the EU register.</span><span class="wg-hstack"><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="refresh"></i>Retry</button></span>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+</div></section>
+</div>
+</div></div><figcaption class="kit-cap"><b>ER6</b><span>No exact match · could not load</span><em>Top: a typo finds nothing; the line says the match is exact. Bottom state (same place): offline before the first download, with Retry. Save works in both.</em></figcaption></figure>
+</div></section>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Entry sheet</h2><p class="kit-group__sub">Real Rev.90 rows.</p></div><div class="kit-board"><figure class="kit-frame" data-screen-label="ER7 Entry · one"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Candecor</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Candecor"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<span class="wg-hstack"><button class="wg-chip wg-chip--ok"><i class="wg-ico" data-icon="check"></i>EU · Candesartan Cilexetil<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></button></span>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+</div></section>
+</div>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">EU register</div><div class="wg-sheethead__title">Candecor</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-card wg-vstack"><span class="wg-card__title">Candesartan Cilexetil</span><div class="wg-list"><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Oral Use</span><span class="wg-row__meta"><span>Germany, Slovenia</span></span></span></div></div></div><p class="wg-hint">An entry doesn't confirm which product you take.</p><p class="wg-shell__fine">Source: European Medicines Agency (EMA), Article 57 product data, Rev.90, data of 09.10.2026. <a href="#" class="wg-link">EMA legal notice</a></p>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>ER7</b><span>The entry sheet</span><em>Substance as the register writes it; one row per route with its countries. Two lines of footer: the entry isn't identification, and the dated EMA source with the legal notice link.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="ER8 Entries · several"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Voltaren</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Voltaren"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<span class="wg-hstack"><button class="wg-chip"><i class="wg-ico" data-icon="globe"></i>EU · 3 entries<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></button></span>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+</div></section>
+</div>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">EU register · 3 entries</div><div class="wg-sheethead__title">Voltaren</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-note wg-note--info"><i class="wg-ico" data-icon="info"></i><span class="wg-note__body">Several entries match. Check the substance on your pack.</span></div><div class="wg-card wg-vstack"><span class="wg-card__title">Diclofenac Sodium</span><div class="wg-list"><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Rectal Use</span><span class="wg-row__meta"><span>Austria, Belgium, Croatia, Cyprus, Finland, Germany, Greece, Hungary, Italy, Luxembourg, Malta, Norway, Portugal, Slovenia, Sweden</span></span></span></div><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Oral Use</span><span class="wg-row__meta"><span>Austria, Belgium, Cyprus, Finland, Greece, Hungary, Italy, Luxembourg, Malta, Norway, Portugal</span></span></span></div><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Cutaneous Use</span><span class="wg-row__meta"><span>Croatia, Czech Republic, Denmark, Finland, Hungary, Netherlands, Norway, Romania, Slovakia, Slovenia, Sweden</span></span></span></div></div></div><div class="wg-card wg-vstack"><span class="wg-card__title">Diclofenac Diethylamine</span><div class="wg-list"><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Cutaneous Use</span><span class="wg-row__meta"><span>Denmark, Iceland, Sweden</span></span></span></div></div></div><div class="wg-card wg-vstack"><span class="wg-card__title">Diclofenac Potassium</span><div class="wg-list"><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Oral Use</span><span class="wg-row__meta"><span>Portugal</span></span></span></div></div></div><p class="wg-hint">An entry doesn't confirm which product you take.</p><p class="wg-shell__fine">Source: European Medicines Agency (EMA), Article 57 product data, Rev.90, data of 09.10.2026. <a href="#" class="wg-link">EMA legal notice</a></p>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>ER8</b><span>Several entries</span><em>Voltaren: 3 substance texts, 52 register rows. One note, then one card per substance; the app picks none. Countries are listed alphabetically, with no filters. The Diclofenac Sodium card shows 3 of its 6 routes here; the real sheet scrolls.</em></figcaption></figure>
+<figure class="kit-frame" data-screen-label="ER9 Entry · separate products"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Duogestan</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Duogestan"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<span class="wg-hstack"><button class="wg-chip"><i class="wg-ico" data-icon="globe"></i>EU · 2 entries<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></button></span>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+</div></section>
+</div>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">EU register · 2 entries</div><div class="wg-sheethead__title">Duogestan</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-note wg-note--info"><i class="wg-ico" data-icon="info"></i><span class="wg-note__body">Several entries match. Check the substance on your pack.</span></div><div class="wg-card wg-vstack"><span class="wg-card__title">Estradiol Hemihydrate + Progesterone<span class="wg-row__meta"><span>2 separate products in one entry</span></span></span><div class="wg-list"><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Oral Use</span><span class="wg-row__meta"><span>Belgium</span></span></span></div></div></div><div class="wg-card wg-vstack"><span class="wg-card__title">Estradiol + Progesterone<span class="wg-row__meta"><span>2 separate products in one entry</span></span></span><div class="wg-list"><div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Oral Use</span><span class="wg-row__meta"><span>Belgium</span></span></span></div></div></div><p class="wg-hint">An entry doesn't confirm which product you take.</p><p class="wg-shell__fine">Source: European Medicines Agency (EMA), Article 57 product data, Rev.90, data of 09.10.2026. <a href="#" class="wg-link">EMA legal notice</a></p>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>ER9</b><span>"|" in the register: separate products</span><em>A register entry can hold several pharmaceutical products (EMA writes them with "|"). They're joined with "+" and the line under says they are separate products, never one ingredient list.</em></figcaption></figure>
+</div></section>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Answers to the open questions</h2></div><div class="kit-specs"><div class="kit-spec"><div class="kit-spec__name">Approved round 2 (Developer 15503 asked for a US/EU choice in Settings and simpler; approved 15518)</div><ol class="wg-olist">
+<li><b>One setting decides the register</b>: "Check names in" US register (default, today's behaviour) or EU register. No editor button, no first-tap opt-in, no on/off switch.</li>
+<li><b>EU chosen</b>: the editor shows an EU chip where the Rx chip is today. The RxNav lookup doesn't run. No interaction warning is lost: RxNav's interaction endpoint is shut down and the client already returns none (rxnorm.js:11-14, Miles 15510).</li>
+<li><b>Sheet</b>: one card per substance text, route rows with countries. No country chips (dropped for simplicity).</li>
+<li><b>Footer</b>: two short lines; the full attribution text stays in the privacy/about page (Miles .5 to confirm it meets the EMA notice).</li>
+</ol></div></div></section>
+</main>
+</body>
+</html>
