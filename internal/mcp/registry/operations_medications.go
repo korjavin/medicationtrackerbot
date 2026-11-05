@@ -135,8 +135,8 @@ output(result)`,
     "tz_shift_policy": {"type": "string", "enum": ["", "flexible", "medium", "strict"], "description": "How to reconcile this medication on timezone change. Empty defaults to medium."}
   }
 }`),
-			Description:     "Create a new medication with a schedule. Routes through the standard create handler: deduped against existing meds, RxNorm-normalized when possible, and interaction-checked against active meds; the response carries any drug-interaction warning.",
-			ResponseSummary: "Object {id, status:\"created\", warning} where warning is a non-empty string when drug-drug interactions were detected.",
+			Description:     "Create a new medication with a schedule. Routes through the standard create handler: deduped against existing meds, RxNorm-normalized when possible.",
+			ResponseSummary: "Object {id, status:\"created\", warning} where warning is reserved and currently always empty.",
 			Example: `# Mounjaro 5 mg every Saturday at 10:00 for 4 weeks starting next Saturday.
 import json
 schedule = json.dumps({"type": "weekly", "days": [6], "times": ["10:00"]})
@@ -176,7 +176,7 @@ output(result)`,
   }
 }`),
 			Description:     "Update a medication via FULL REPLACEMENT (not partial update). The schema marks name, dosage, schedule as required because they cannot be sent empty; every other field decodes to a zero value (false / empty string / null) and OVERWRITES the stored row. Required workflow: (1) call medications.list to fetch the current row, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back. Use this to archive (set archived=true), rename, or change schedule. Sending a partial body will silently clear fields you didn't include.",
-			ResponseSummary: "Object {status:\"updated\", warning} where warning carries any drug-interaction note.",
+			ResponseSummary: "Object {status:\"updated\", warning} where warning is reserved and currently always empty.",
 			Example: `# Archive a medication: list, find the row, flip archived=true, send everything back.
 meds = api.call("medications.list", params={"archived": "true"})
 target = next(m for m in meds if m["name"] == "Mounjaro" and m["dosage"] == "7.5 mg")

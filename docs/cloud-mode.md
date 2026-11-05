@@ -179,6 +179,10 @@ wording: BYO-key provider calls go browser-direct and never touch the operator
 payloads are app-layer encrypted under the NK on top of RFC 8291, so the push
 relay and the browser vendor both carry ciphertext (`internal/cloudserver/push.go:29`).
 
+### EU medicines register (on-device)
+
+Settings → Features → Medications → "Check names in" picks US register (RxNav, the carve-out above; default) or EU register (bd med-3u28). This is **not a carve-out**: the EMA Article 57 register is a bundled static file (`/static/data/ema-article57-rev90-v1.json`, schema and licence in `third_party/ema-article57/README.md`) and the lookup runs in the browser, so no medicine name is sent anywhere. It is loaded on the first EU check (never at boot, never with US picked) and cached best-effort in its own Cache API cache `medtracker-ema-<revision>`; the revision and date show in the app, and the EMA attribution (`source.attribution`) is on the privacy page. With EU picked the RxNav lookup does not run. A saved US match (`rxcui`/`normalized_name`) is kept while the name is unchanged and no lookup ran, and dropped when the name changes. Nothing is written to the medication. Known limits: the choice is per app origin and device-local, so moving from the phone-only app to an account starts at US (pick EU again; bd med-3u28.6); the first EU check in the web/account app downloads about 13 MB uncompressed (bd med-3u28.7).
+
 ## Trust model — what the server can and cannot see
 
 Model the cloud as honest-but-curious **and** breachable. Design so that even a hostile operator learns nothing beyond metadata.

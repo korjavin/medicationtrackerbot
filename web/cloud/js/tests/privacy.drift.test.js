@@ -83,6 +83,13 @@ describe('operator-visibility page ↔ leakage table (med-d5t.9)', () => {
     // Inbound Telegram content is transiently visible before sealing.
     expect(text).toMatch(/telegram delivers your messages to the bot in the clear/);
   });
+
+  it('carries the full EMA attribution from the catalogue source (med-3u28.5)', () => {
+    const src = JSON.parse(fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../third_party/ema-article57/source.json'), 'utf8'));
+    const rx = PRIVACY_ITEMS.find((i) => i.docSignal === 'Drug-name search');
+    expect(rx.detail).toContain(src.attribution);
+  });
 });
 
 describe('renderPrivacyInto', () => {
