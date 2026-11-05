@@ -357,12 +357,18 @@ export default async function healthConnect(ctx) {
       await ctx.page.evaluate(() => window.switchTab('settings'));
       await ctx.page.locator('#health-write-row').scrollIntoViewIfNeeded();
       r.writeBack.hrHeld = await ctx.page.evaluate(() => ({ ledger: JSON.parse(localStorage.getItem('wg.health.dirty') || '{}'), hint: document.getElementById('health-write-row')?.innerText }));
-      // The independent reader returns through visibilitychange, so a denied kind has had a drain pass.
+      // BP and weight went through the real write hooks while HR remained denied.
       if (!/Pulse isn't allowed/.test(r.writeBack.hrHeld.hint)) throw new Error(`missing HR refusal hint: ${JSON.stringify(r.writeBack.hrHeld)}`);
       if (!(pending.id in (r.writeBack.hrHeld.ledger.hr || {}))) throw new Error('denied pulse missing from pending ledger');
       if ((await healthDiag()).some((l) => /write hr failed/.test(l))) throw new Error('denied HR generated write failures instead of holding its kind');
       await ctx.stableShot('health-write-pulse-denied');
       await shell(`pm grant ${pkg} android.permission.health.WRITE_HEART_RATE`);
+      // Playwright's attached WebView can stay "visible" under another Activity.
+      // Reopen the persisted app to exercise a real next-open drain after granting.
+      await shell(`am force-stop ${pkg}`);
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after heart-rate grant failed');
       r.writeBack.pulseLateGrant = await waitNative(`${pending.id}/pulse`, (rows) => rows.length === 1 && rows[0].samples[0].bpm === 70);
       await api(`/api/bp/${encodeURIComponent(pending.id)}`, 'DELETE');
       await waitNative(pending.id, (rows) => rows.length === 0);
