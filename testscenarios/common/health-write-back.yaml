@@ -11,6 +11,8 @@ steps:
   - Enter a reading while Health refuses write access, delete it, then allow access again and reopen the app
   - Switch "Also write my entries" off and enter another reading
   - Enter a BP reading with a pulse; edit it to clear the pulse; edit again to set one; deny heart-rate write access and enter another BP
+  - Complete a workout session; delete it; start a session and leave it open; skip a scheduled one
+  - Log an ad-hoc workout of only a cardio-tagged exercise and complete it; deny workout write access and complete another session
 invariants:
   - "A hand-entered reading shows in the Health app within seconds, as written by Med Tracker"
   - "Editing it changes the same Health record; deleting it removes it"
@@ -25,8 +27,13 @@ invariants:
   - "With heart-rate write access denied, BP and weight still arrive"
   - "Pulses of readings saved or edited after this update arrive once access is allowed; an older reading follows on its next edit"
   - "The heart-rate entries Med Tracker wrote never come back into the Vitals heart-rate card"
+  - "A completed workout shows in the Health app as one strength workout from its start to its finish, by Med Tracker, with no exercises or sets"
+  - "An ad-hoc workout that is not all strength-tagged exercises shows as an other workout, never as strength"
+  - "Deleting the session removes it; an open, pending or skipped session never appears"
+  - "Workouts imported from Health are unchanged, and the mirrored workout never comes back as a Health workout in History"
+  - "With workout write access denied, BP, pulse and weight still arrive"
 covered_by:
-  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind and the supported fallback
-  android: manual  # health-connect emulator QA covers BP/weight upsert/delete, no echo, grants and HW1; real device permission/retry checks remain manual; pulse until med-8f4s.7 QA
-  ios: manual  # until med-8f4s.3 QA; pulse until med-8f4s.8 QA
-source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6]
+  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind, the workout kind and the supported fallback
+  android: manual  # health-connect emulator QA covers BP/weight upsert/delete, no echo, grants and HW1; real device permission/retry checks remain manual; pulse until med-8f4s.7 QA; workouts until med-8f4s.9 QA
+  ios: manual  # until med-8f4s.3 QA; pulse until med-8f4s.8 QA; workouts until med-8f4s.10 QA
+source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6, Zulip 15354, Zulip 15356, Zulip 15360, med-8f4s.5]
