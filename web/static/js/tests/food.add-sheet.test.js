@@ -289,6 +289,17 @@ describe('Food Add sheet', () => {
             expect(payload.scanned_name).toBeUndefined();
         });
 
+        it('a text scan after an offer drops it: its results show and the old primary goes (Argus 16177)', async () => {
+            const { window, document } = env;
+            await scan({ ...MINE });
+            window.CloudFoodSearch.search = vi.fn(async () => [{ id: 'p-milk', name: 'Milk', energy_kcal_100g: 64 }]);
+            window.FoodLog.addSheet.onScan('Milk', '');
+            await settle(10);
+            expect(document.getElementById('food-add-offer').classList.contains('hidden')).toBe(true);
+            expect(Array.from(document.querySelectorAll('#food-add-results .wg-food-add__result .wg-row__title')).map((n) => n.textContent)).toEqual(['Milk']);
+            expect(document.getElementById('food-add-foot').classList.contains('hidden')).toBe(true);
+        });
+
         it('no offer (a branded product, no match) → the single picked row as before', async () => {
             const { document } = env;
             await scan(null);

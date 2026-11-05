@@ -507,6 +507,8 @@
             if (input) input.value = text;
             cancelSearch();
             st.picked = null;
+            st.offer = null;
+            renderFoot();
             await runSearch(text.trim(), false);
             return;
         }
