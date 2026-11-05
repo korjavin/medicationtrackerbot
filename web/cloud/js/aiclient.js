@@ -11,7 +11,7 @@
 // same-origin proxy /api/trial/openai/chat/completions — no Authorization
 // header, no model field (the server forces the operator's model). Vault
 // key always wins; no key and no trial flag keeps today's no_api_key error.
-import { MealSystemPrompt, MealPhotoSystemPrompt, mealSchema } from '../../domain/foodai.js';
+import { MealSystemPrompt, MealPhotoSystemPrompt, mealSchema, withCatalog } from '../../domain/foodai.js';
 import { ActivitySystemPrompt, activitySchema } from '../../domain/activityai.js';
 import { ExerciseTagSystemPrompt, exerciseTagSchema } from '../../domain/exercisetag.js';
 import { WorkoutSheetPhotoSystemPrompt, workoutSheetSchema } from '../../domain/workoutsheet.js';
@@ -761,7 +761,9 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
     if (!consent || consent[scope] !== true) throw trialConsentRequiredError(scope);
   }
 
-  async function parseMealFromDescription(description) {
+  // catalog — the user's top catalog names (foodai.js withCatalog, med-5jq.5).
+  async function parseMealFromDescription(description, { catalog } = {}) {
+    const system = withCatalog(MealSystemPrompt, catalog);
     const { text } = await credentials();
     const useTrial = !text.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
@@ -778,7 +780,7 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
       strictBody: {
         model: text.model,
         messages: [
-          { role: 'system', content: MealSystemPrompt },
+          { role: 'system', content: system },
           { role: 'user', content: description },
         ],
         response_format: RESPONSE_FORMAT,
@@ -786,7 +788,7 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
       fencedBody: {
         model: text.model,
         messages: [
-          { role: 'system', content: fenceInstruction(MealSystemPrompt) },
+          { role: 'system', content: fenceInstruction(system) },
           { role: 'user', content: description },
         ],
       },
@@ -825,7 +827,8 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
     });
   }
 
-  async function parseMealFromImage(file, caption = '') {
+  async function parseMealFromImage(file, caption = '', { catalog } = {}) {
+    const system = withCatalog(MealPhotoSystemPrompt, catalog);
     const { vision } = await credentials();
     const useTrial = !vision.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
@@ -855,7 +858,7 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
       strictBody: {
         model: vision.model,
         messages: [
-          { role: 'system', content: MealPhotoSystemPrompt },
+          { role: 'system', content: system },
           { role: 'user', content: userContent('Identify the foods in this photo and return the JSON described above.') },
         ],
         response_format: RESPONSE_FORMAT,
@@ -863,7 +866,7 @@ export function createAIClient({ settingsDomain, deviceStore = null, documentPol
       fencedBody: {
         model: vision.model,
         messages: [
-          { role: 'system', content: fenceInstruction(MealPhotoSystemPrompt) },
+          { role: 'system', content: fenceInstruction(system) },
           { role: 'user', content: userContent('Identify the foods in this photo and return JSON.') },
         ],
       },

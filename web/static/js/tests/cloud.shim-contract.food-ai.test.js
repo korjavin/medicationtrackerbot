@@ -1003,6 +1003,92 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 expect((await logsToday(window)).map((l) => l.name)).toEqual(['Protein shake']);
             });
 
+            // med-5jq.5 — the parse prompt carries the user's top catalog names.
+            const systemOf = (fetchMock, call = 0) => JSON.parse(fetchMock.mock.calls[call][1].body).messages[0].content;
+            // P2-2 / P3-3 rulings (Archie 16009): the negative cases ("greek
+            // yogurt with granola" must not take "Greek yogurt with honey"; the
+            // list never merges split items) need a live model, so CI pins the
+            // rule text; the live check is on the owner's device list.
+            const RULE = new RegExp([
+                'Prefer a name from this list whenever the eaten food is the same thing, even if the user wrote it differently or in another language.',
+                'Use a listed name only for the same food: a different ingredient, flavour, brand or preparation is a new name, not the nearest listed one.',
+                'The list never changes how many items you return: split the meal by the rules above first, then name each item.',
+                'Return a listed name exactly as written, even when it is not in English; the English rule applies only to new names.',
+                'Invent a new name only when nothing on the list is the same food.',
+            ].join(' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+            it('an empty catalog sends no catalog block', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                const fetchMock = vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('Boiled egg')));
+                vi.stubGlobal('fetch', fetchMock);
+
+                await window.CloudFoodAI.parseMealFromDescription('egg', { dryRun: true });
+
+                expect(systemOf(fetchMock)).not.toMatch(/already in this user's catalog/);
+                expect(systemOf(fetchMock)).not.toMatch(RULE);
+            });
+
+            it('text and photo prompts list the top 150 names by usage (names only, ~1.5k-token budget); a listed name links exact', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                const bases = ['Greek yogurt', 'Chicken breast', 'Buckwheat porridge', 'Rye bread', 'Cottage cheese',
+                    'Salmon fillet', 'Beef stroganoff', 'Lentil soup', 'Caesar salad', 'Oatmeal',
+                    'Spaghetti bolognese', 'Cappuccino', 'Banana', 'Kimchi', 'Hummus'];
+                const preps = ['', ' with honey', ' with berries', ' sandwich', ' bowl', ' wrap', ' (homemade)', ' with rice', ' with salad', ' light'];
+                const names = bases.flatMap((b) => preps.map((p) => b + p));
+                expect(names).toHaveLength(150);
+                for (let i = 0; i < names.length; i++) {
+                    await seedProduct({ recordId: `p-${i}`, name: names[i], usage_count: 1000 - i });
+                }
+                await seedProduct({ recordId: 'p-rare', name: 'Rarely eaten thing', usage_count: 0 });
+                await seedProduct({ recordId: 'p-egg', name: 'Boiled egg', usage_count: 900 });
+                const fetchMock = vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('Boiled egg')));
+                vi.stubGlobal('fetch', fetchMock);
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'два вареных яйца' });
+                await window.CloudFoodAI.parseMealFromPhoto(makeImageFile(env), { dryRun: true });
+
+                expect(res.items[0]).toMatchObject({ name: 'Boiled egg', product_id: 'p-egg', matched: 'exact' });
+                for (const call of [0, 1]) {
+                    const system = systemOf(fetchMock, call);
+                    expect(system).toMatch(RULE);
+                    const listed = JSON.parse(system.match(/Foods already in this user's catalog: (\[.*\])\n/)[1]);
+                    expect(listed).toHaveLength(150);
+                    expect(listed).toContain('Boiled egg');
+                    expect(listed).not.toContain('Rarely eaten thing');
+                    expect(listed).not.toContain(names[149]); // 151st by usage, after Boiled egg
+                    // Names only: no macros or dates ride along.
+                    expect(system).not.toMatch(/2026-01-01|energy_kcal|usage_count/);
+                }
+                // Budget: the whole block (list + rule) at ~4 chars/token.
+                const block = systemOf(fetchMock).split("Foods already in this user's catalog")[1];
+                expect(block.length).toBeLessThanOrEqual(6000);
+            });
+
+            it('names over 60 chars (raw food-DB strings) stay out of the prompt; the block stays bounded with long Cyrillic names', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                const long = 'Паста шоколадно-ореховая с какао и фундуком - МАКСИ НУТРИШН - 350 г';
+                expect(long.length).toBeGreaterThan(60);
+                for (let i = 0; i < 150; i++) {
+                    const name = i % 2 ? `${long} №${i}` : `Гречневая каша с молоком и маслом №${i}`;
+                    await seedProduct({ recordId: `p-${i}`, name, usage_count: 1000 - i });
+                }
+                const fetchMock = vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('Boiled egg')));
+                vi.stubGlobal('fetch', fetchMock);
+
+                await window.CloudFoodAI.parseMealFromDescription('каша', { dryRun: true });
+
+                const system = systemOf(fetchMock);
+                const listed = JSON.parse(system.match(/Foods already in this user's catalog: (\[.*\])\n/)[1]);
+                expect(listed).toHaveLength(75);
+                expect(listed.every((n) => n.length <= 60 && n.startsWith('Гречневая'))).toBe(true);
+                expect(system).not.toContain('МАКСИ');
+                // Worst case is 150 × (60 + quotes/comma) chars plus the rule.
+                expect(system.split("Foods already in this user's catalog")[1].length).toBeLessThanOrEqual(150 * 63 + 400);
+            });
+
             it('string macros from the unconstrained fallback are stored on the product as numbers', async () => {
                 const { window } = env;
                 await setOpenAIKey(window);

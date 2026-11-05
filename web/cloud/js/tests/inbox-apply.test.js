@@ -1944,7 +1944,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const event = { ...photoEvent(), caption: 'chicken salad, 300g' };
         await applyTGPhoto(event, 34, { foodAI, editReply: vi.fn(), fetchPhoto: okFetchPhoto() });
 
-        expect(parseMealFromImage).toHaveBeenCalledWith(expect.anything(), 'chicken salad, 300g');
+        expect(parseMealFromImage).toHaveBeenCalledWith(expect.anything(), 'chicken salad, 300g', expect.anything());
     });
 
     it('re-draining the same photo event overwrites its own rows instead of duplicating', async () => {
