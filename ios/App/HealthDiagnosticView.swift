@@ -72,6 +72,8 @@ struct HealthDiagnosticView: View {
         func check(_ name: String, _ ok: Bool, _ seen: Any = "") {
             if !ok { failed.append("\(name) (\(seen))") }
         }
+        /// Shown while running, so a stall names its step (the test waits on "pending*").
+        func step(_ name: String) { report = "pending: \(name)" }
         let store = Health.store
         let mmHg = HKUnit.millimeterOfMercury(), kg = HKUnit.gramUnit(with: .kilo)
         let bpType = HKCorrelationType(.bloodPressure)
@@ -104,7 +106,9 @@ struct HealthDiagnosticView: View {
             let both = ["bp", "weight", "hr"]
             check("authorize", try await Health.handle("health.authorize", ["types": both + ["workout"], "write": both]) as? Bool == true)
             // Workout share, only to seed one with HKWorkoutBuilder (second sheet).
+            step("workout share")
             try await store.requestAuthorization(toShare: [HKObjectType.workoutType()], read: [])
+            step("bp/weight")
             let access = try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any] ?? [:]
             let granted = access["granted"] as? [String] ?? []
             let statuses = [Health.systolic, Health.diastolic, Health.bodyMass, Health.heartRate].map { store.authorizationStatus(for: $0).rawValue }
@@ -198,6 +202,7 @@ struct HealthDiagnosticView: View {
             // own associated samples (100, 120): the pulse must not move it.
             let bpm = HKUnit.count().unitDivided(by: .minute())
             let pulse = bp + "/pulse", pulseAt = Date(timeIntervalSince1970: at / 1000)
+            step("workout seed")
             let config = HKWorkoutConfiguration()
             config.activityType = .walking
             let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: .local())
@@ -215,7 +220,9 @@ struct HealthDiagnosticView: View {
             func workoutHR() async throws -> Double {
                 try await pages("workout")[workout?.uuid.uuidString ?? "none"]?["hr"] as? Double ?? -1
             }
+            step("workout read")
             let before = try await workoutHR()
+            step("pulse")
             check("workout hr seeded", abs(before - 110) < 0.01, before)
             for (version, b) in [(1_000, 61.0), (2_000, 64.0)] {
                 _ = try await Health.handle("health.write", ["type": "hr", "id": pulse, "version": version, "at": at, "bpm": b])
