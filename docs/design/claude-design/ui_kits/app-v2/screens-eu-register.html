@@ -30,10 +30,10 @@
 </div></section>
 <section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Medications</span></div><div class="wg-list"><button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Check names in</span></span><span class="wg-setting__value">US register</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button></div></section>
 </div><div class="wg-scrim"><div class="wg-dialog" role="dialog"><p class="wg-dialog__title">Check medicine names in</p><div class="wg-choices">
-<button class="wg-choice" aria-pressed="true"><span>US register<span class="wg-choice__sub">Sends the name to RxNav (US NIH). Also checks interactions.</span></span></button>
-<button class="wg-choice" aria-pressed="false"><span>EU register<span class="wg-choice__sub">Checked on this phone; nothing is sent. No interaction check.</span></span></button>
+<button class="wg-choice" aria-pressed="true"><span>US register<span class="wg-choice__sub">Sends the name to RxNav (US NIH).</span></span></button>
+<button class="wg-choice" aria-pressed="false"><span>EU register<span class="wg-choice__sub">Checked on this phone; nothing is sent.</span></span></button>
 </div><div class="wg-dialog__acts"><button class="wg-btn">Cancel</button></div></div></div>
-</div></div><figcaption class="kit-cap"><b>ER2</b><span>The choice (safeChoose)</span><em>The existing in-page choice dialog, two options. Each sub-line says the one thing that differs: where the name goes, and whether interactions are checked.</em></figcaption></figure>
+</div></div><figcaption class="kit-cap"><b>ER2</b><span>The choice (safeChoose)</span><em>The existing in-page choice dialog, two options. Each sub-line says the one thing that differs: where the name goes. Neither checks interactions today (the RxNav interaction endpoint is gone, Miles 15510).</em></figcaption></figure>
 </div></section>
 <section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Editor, EU chosen</h2></div><div class="kit-board"><figure class="kit-frame" data-screen-label="ER3 Editor · EU match"><div class="kit-phone"><div class="wg-app">
 <div class="kit-status"></div>
@@ -152,7 +152,7 @@
 </div></section>
 <section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Answers to the open questions</h2></div><div class="kit-specs"><div class="kit-spec"><div class="kit-spec__name">Round 2 (Developer 15503: a US/EU choice in Settings, simpler)</div><ol class="wg-olist">
 <li><b>One setting decides the register</b>: "Check names in" US register (default, today's behaviour) or EU register. No editor button, no first-tap opt-in, no on/off switch.</li>
-<li><b>EU chosen</b>: the editor shows an EU chip where the Rx chip is today. The RxNav lookup and the interaction warning don't run, and the choice says so.</li>
+<li><b>EU chosen</b>: the editor shows an EU chip where the Rx chip is today. The RxNav lookup doesn't run. No interaction warning is lost: RxNav's interaction endpoint is shut down and the client already returns none (rxnorm.js:11-14, Miles 15510).</li>
 <li><b>Sheet</b>: one card per substance text, route rows with countries. No country chips (dropped for simplicity).</li>
 <li><b>Footer</b>: two short lines; the full attribution text stays in the privacy/about page (Miles .5 to confirm it meets the EMA notice).</li>
 </ol></div></div></section>
