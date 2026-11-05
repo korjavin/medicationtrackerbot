@@ -50,7 +50,7 @@ final class FlowQAEURegisterTests: XCTestCase {
         let first = try scene(app, "eu-register", flow: flow, step: "first", timeout: 180)
         XCTAssertEqual(first["storedBefore"] as? Bool, false, "a stored register before the first download: \(first)")
         XCTAssertEqual(first["assetFetches"] as? Int, 1, "the first load did not read the bundled register once: \(first)")
-        let chip = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Candesartan'")).firstMatch
+        let chip = euChip(app)
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "no EU chip for Candecor")
         shot(flow, "chip")
         XCTAssertTrue(QA.tapUntil(chip, shows: webText(app, "Germany")), "the register sheet does not list Germany")
@@ -62,12 +62,11 @@ final class FlowQAEURegisterTests: XCTestCase {
         let second = try scene(app, "eu-register", flow: flow, step: "second", timeout: 180)
         if first["stored"] as? Bool == true {
             XCTAssertEqual(second["storedBefore"] as? Bool, true, "the stored register is gone after a relaunch: \(second)")
-            XCTAssertEqual(second["assetFetches"] as? Int, 0, "the relaunch fetched the register instead of reading its cache: \(second)")
-        } else {
-            XCTAssertEqual(second["assetFetches"] as? Int, 1, "not stored, yet the relaunch did not load it again: \(second)")
         }
-        XCTAssertTrue(app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Candesartan'")).firstMatch
-            .waitForExistence(timeout: 10), "no EU chip on the second launch")
+        // A cache entry must be what serves the relaunch; none → the bundle again.
+        XCTAssertEqual(second["assetFetches"] as? Int, second["storedBefore"] as? Bool == true ? 0 : 1,
+                       "the relaunch's asset fetches do not match its cache entry: \(second)")
+        XCTAssertTrue(euChip(app).waitForExistence(timeout: 10), "no EU chip on the second launch")
         shot(flow, "second-chip")
         app.terminate()
     }
@@ -96,6 +95,12 @@ final class FlowQAEURegisterTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         return eu
+    }
+
+    /// The EU chip, not the ready node (its report JSON names the chip too).
+    private func euChip(_ app: XCUIApplication) -> XCUIElement {
+        app.webViews.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS 'Candesartan' AND NOT (label BEGINSWITH '{')")).firstMatch
     }
 
     private func webText(_ app: XCUIApplication, _ text: String) -> XCUIElement {

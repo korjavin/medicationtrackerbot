@@ -1163,6 +1163,20 @@
         const candecor = createEMACatalogue(data).exact('Candecor').candidates.length;
         const p4 = window.performance.now();
         r.phases = { fetchDecodeMs: Math.round(p1 - p0), parseMs: Math.round(p2 - p1), indexMs: Math.round(p4 - p3), chars: text.length, rows: data.rows.length, candecor };
+        // Not stored: why? The loader swallows its put error, so repeat its
+        // put (same key, same body) and a tiny one, and report each outcome.
+        if (!r.stored) {
+            const put = async (key, body) => {
+                try {
+                    const cache = await window.caches.open('medtracker-ema-rev90-v1');
+                    await cache.put(key, new window.Response(body, { headers: { 'Content-Type': 'application/json' } }));
+                    return (await cache.match(key)) ? 'ok' : 'no entry after put';
+                } catch (e) { return `${(e && e.name) || 'Error'}: ${(e && e.message) || e}`; }
+            };
+            r.putProbe = { small: await put('/qa/ema-put-probe', '{}'), asset: await put(ASSET, text) };
+            try { await (await window.caches.open('medtracker-ema-rev90-v1')).delete('/qa/ema-put-probe'); } catch (_) { /* probe only */ }
+            try { r.storageEstimate = await window.navigator.storage.estimate(); } catch (_) { /* no estimate */ }
+        }
         r.phasesEnd = epoch();
         return r;
     }
