@@ -960,7 +960,17 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
 
             // med-5jq.5 — the parse prompt carries the user's top catalog names.
             const systemOf = (fetchMock, call = 0) => JSON.parse(fetchMock.mock.calls[call][1].body).messages[0].content;
-            const RULE = /Prefer a name from this list whenever the eaten food is the same thing, even if the user wrote it differently or in another language; return that name exactly\. Invent a new name only when nothing on the list fits\./;
+            // P2-2 / P3-3 rulings (Archie 16009): the negative cases ("greek
+            // yogurt with granola" must not take "Greek yogurt with honey"; the
+            // list never merges split items) need a live model, so CI pins the
+            // rule text; the live check is on the owner's device list.
+            const RULE = new RegExp([
+                'Prefer a name from this list whenever the eaten food is the same thing, even if the user wrote it differently or in another language.',
+                'Use a listed name only for the same food: a different ingredient, flavour, brand or preparation is a new name, not the nearest listed one.',
+                'The list never changes how many items you return: split the meal by the rules above first, then name each item.',
+                'Return a listed name exactly as written, even when it is not in English; the English rule applies only to new names.',
+                'Invent a new name only when nothing on the list fits.',
+            ].join(' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
             it('an empty catalog sends no catalog block', async () => {
                 const { window } = env;

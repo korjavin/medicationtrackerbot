@@ -54,7 +54,7 @@ export function withCatalog(systemPrompt, names) {
   return `${systemPrompt}
 
 Foods already in this user's catalog: ${JSON.stringify(names)}
-Prefer a name from this list whenever the eaten food is the same thing, even if the user wrote it differently or in another language; return that name exactly. Invent a new name only when nothing on the list fits.`;
+Prefer a name from this list whenever the eaten food is the same thing, even if the user wrote it differently or in another language. Use a listed name only for the same food: a different ingredient, flavour, brand or preparation is a new name, not the nearest listed one. The list never changes how many items you return: split the meal by the rules above first, then name each item. Return a listed name exactly as written, even when it is not in English; the English rule applies only to new names. Invent a new name only when nothing on the list fits.`;
 }
 
 // Started as internal/ai/openai.go's mealSchema (JSON-Schema shape), plus
