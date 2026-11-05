@@ -133,6 +133,8 @@ final class VisualQATests: XCTestCase {
         return try list.compactMap { raw in
             // Web scenes run in local mode here; a cloud-only one (an account control) has nothing to show.
             if raw["cloudOnly"] as? Bool == true { return nil }
+            // A flow test's step (FlowQAEURegisterTests), not a screen to shoot.
+            if raw["flowOnly"] as? Bool == true { return nil }
             // Another shell's scene (Android's native first run; iOS has none, bd med-ta2n.17).
             if let platform = raw["platform"] as? String, platform != "ios" { return nil }
             let name = try XCTUnwrap(raw["name"] as? String, "scenes.json: a scene without a name")

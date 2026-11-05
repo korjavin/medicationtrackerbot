@@ -412,7 +412,7 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          scenes="$(jq -r '.scenes[].name' tests/visual/scenes.json)"
+          scenes="$(jq -r '.scenes[] | select(.flowOnly != true) | .name' tests/visual/scenes.json)"
           broken=""
           {
             echo "## iOS visual QA"
@@ -504,13 +504,22 @@ jobs:
         working-directory: ios
         run: |
           IFS='=' read -r dev udid < "$RUNNER_TEMP/devices"
+          # WebKit has no in-page heap API: the Simulator's WebContent RSS
+          # (KB) each second, for the EU register numbers (bd med-3u28.4;
+          # FlowQAEURegisterTests attaches the page's epoch-ms windows).
+          mkdir -p "$GITHUB_WORKSPACE/shots"
+          while :; do ps -axo pid=,rss=,command= | awk -v t="$(date +%s)" '/WebKit\.WebContent/ && !/awk/ {print t, $1, $2}'; sleep 1; done \
+            > "$GITHUB_WORKSPACE/shots/webcontent-rss.log" 2>/dev/null &
+          sampler=$!
           # The invite fake-server.sh minted, for FlowQACeremonyExitTests (TEST_RUNNER_ → the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             -only-testing:MedTrackerUITests -skip-testing:MedTrackerUITests/VisualQATests \
             -skip-testing:MedTrackerUITests/HealthDiagnosticTests -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
             | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
-          exit "${PIPESTATUS[0]}"
+          status="${PIPESTATUS[0]}"
+          kill "$sampler" 2>/dev/null || true
+          exit "$status"
 
       - name: Export screenshots and summary
         if: always()
@@ -529,7 +538,7 @@ jobs:
               while IFS=$'\t' read -r file name test; do
                 name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
                 case "$name" in
-                  *.png) cp "$raw/$file" "$out/$name" ;;
+                  *.png|*.json) cp "$raw/$file" "$out/$name" ;;
                   "App UI hierarchy"*) [ -e "$out/$test-hierarchy.txt" ] || cp "$raw/$file" "$out/$test-hierarchy.txt" ;;
                 esac
               done

@@ -825,6 +825,10 @@
             } else {
                 window.safeToast('12 new readings from Apple Health', 'success', { duration: 0 });
             }
+        } else if (step.euRegister) {
+            // The EU register flow (bd med-3u28.4, FlowQAEURegisterTests): once
+            // per load (a redone scene keeps the first numbers).
+            if (!qa.euRegister) qa.euRegister = await euRegister(step.euRegister);
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else if (step.file) {
@@ -1007,7 +1011,73 @@
             });
             if (probes.renderedValues.some(({ expected, actual }) => expected !== actual)) failed.push('rendered');
         }
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister };
+    }
+
+    // The EU register check on this shell (bd med-3u28.4, twin of Android's
+    // eu-register.mjs): `want` is the choice Settings must have stored (a
+    // relaunch keeps it). "us": local mode has no RxNav, so after the editor's
+    // name commit (the scene's steps before) nothing checks and nothing loads.
+    // "eu": the app's own first check timed with a 50 ms timer probe (its
+    // worst lateness is the freeze proxy; WebKit has no longtask entries and no
+    // heap API, so memory is the runner's WebContent RSS log, matched by
+    // the epoch ms here), the Cache API verdict, then the phases apart.
+    async function euRegister(want) {
+        const ASSET = '/static/data/ema-article57-rev90-v1.json';
+        const ctx = window.MedTrackerCloud && window.MedTrackerCloud.ctx;
+        const key = `medRegister:${(ctx && ctx.accountId) || 'unknown'}`; // meds-history.js medRegisterKey
+        const register = window.localStorage.getItem(key) === 'eu' ? 'eu' : 'us';
+        if (register !== want) throw new Error(`euRegister: the stored choice is ${register}, want ${want}`);
+        const epoch = () => Math.round(window.performance.timeOrigin + window.performance.now()); // the page clock is pinned
+        const emaCaches = async () => {
+            try { return (await window.caches.keys()).filter((n) => n.startsWith('medtracker-ema-')); } catch (e) { return String((e && e.message) || e); }
+        };
+        const r = { register, secure: window.isSecureContext, cacheApi: typeof window.caches !== 'undefined', cachesBefore: await emaCaches() };
+        if (want === 'us') {
+            await sleep(3000); // a check would have painted by now
+            r.check = await window.apiCall(`/api/medications/ema-check?name=Candecor`);
+            r.euSlot = visible(document.getElementById('med-eu-slot'));
+            r.rxChip = visible(document.getElementById('med-rx-display'));
+            r.cachesAfter = await emaCaches();
+            return r;
+        }
+        let maxLag = 0, stop = false;
+        const probe = () => {
+            const t = window.performance.now();
+            setTimeout(() => { maxLag = Math.max(maxLag, window.performance.now() - t - 50); if (!stop) probe(); }, 50);
+        };
+        probe();
+        r.firstAt = epoch();
+        const t0 = window.performance.now();
+        let res, polls = 0;
+        for (;;) {
+            res = await window.apiCall('/api/medications/ema-check?name=Candecor');
+            polls++;
+            if (res.status !== 'loading') break;
+            await sleep(100);
+        }
+        r.first = { ms: Math.round(window.performance.now() - t0), status: res.status, candidates: (res.candidates || []).length, polls };
+        await sleep(200);
+        stop = true;
+        r.first.maxTimerLagMs = Math.round(maxLag);
+        r.firstEnd = epoch();
+        r.cachesAfter = await emaCaches();
+        try { r.stored = !!(await window.caches.match(ASSET)); } catch (_) { r.stored = false; }
+        if (res.status !== 'ready' || r.first.candidates !== 2) throw new Error(`euRegister: first check ${JSON.stringify(r.first)}`);
+        // Phases on their own copy, after the app's check (Android measures them first, on a page it then reloads).
+        r.phasesAt = epoch();
+        const p0 = window.performance.now();
+        const text = await (await window.fetch(ASSET, { cache: 'no-store' })).text();
+        const p1 = window.performance.now();
+        const data = JSON.parse(text);
+        const p2 = window.performance.now();
+        const { createEMACatalogue } = await import('/domain/ema-catalogue.js');
+        const p3 = window.performance.now();
+        const candecor = createEMACatalogue(data).exact('Candecor').candidates.length;
+        const p4 = window.performance.now();
+        r.phases = { fetchDecodeMs: Math.round(p1 - p0), parseMs: Math.round(p2 - p1), indexMs: Math.round(p4 - p3), chars: text.length, rows: data.rows.length, candecor };
+        r.phasesEnd = epoch();
+        return r;
     }
 
     // Where the scene's last ready element shows, in points of the web view
