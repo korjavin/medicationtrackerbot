@@ -621,6 +621,38 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(await scan('Broccoli - K-Classic - 500 g', '4600000000109')).toMatchObject({ matched: 'new', name: 'Broccoli' });
     });
 
+    // med-5jq.7 (kit FC1): the add sheet asks stapleOffer for a scanned row and,
+    // on "Your food", logs it with product_id + barcode + scanned_name.
+    it('staple offer: an unbranded staple matching one barcode-less product is offered; "Your food" links the barcode and alias', async () => {
+        const offer = env.window.CloudFoodSearch.stapleOffer;
+        await env.records.put('foodproduct', product('p-broc', 'Broccoli', { energy_kcal_100g: 34 }));
+        const raw = 'Broccoli - K-Classic - 450 g';
+        expect(await offer(raw, '4600000000116')).toMatchObject({ id: 'p-broc', name: 'Broccoli' });
+        // Branded, or not a staple, or a meal: no offer.
+        expect(await offer('Broccoli - Bonduelle - 450 g', '4600000000123')).toBeNull();
+        expect(await offer('Protein bar - Lidl - 50 g', '4600000000130')).toBeNull();
+
+        const res = await env.window.apiCall('/api/food/log', 'POST', {
+            ...body('Broccoli'), product_id: 'p-broc', barcode: '4600000000116', scanned_name: raw,
+        });
+        expect(res).toMatchObject({ product_id: 'p-broc', name: 'Broccoli' });
+        expect((await productRows()).find((p) => p.recordId === 'p-broc'))
+            .toMatchObject({ barcode: '4600000000116', aliases: [foodKey(raw)], usage_count: 2, energy_kcal_100g: 34 });
+        expect(await productRows()).toHaveLength(catalog.length + 1);
+        // The next scan resolves locally; a second SKU gets no offer (one barcode per product).
+        expect((await env.window.CloudFoodSearch.search('4600000000116')).map((p) => p.id)).toEqual(['p-broc']);
+        expect(await offer(raw, '4600000000147')).toBeNull();
+    });
+
+    it('staple offer: none when two products match, or when a plain log already links', async () => {
+        const offer = env.window.CloudFoodSearch.stapleOffer;
+        // "Banana" is in the catalog: the scanned name keys the same, so logging it as scanned links anyway.
+        expect(await offer('Banana', '4600000000154')).toBeNull();
+        expect(await offer('Banana - Lidl - 1 kg', '4600000000161')).toMatchObject({ id: 'p-banana' });
+        await env.records.put('foodproduct', product('p-banana-2', 'Bananas'));
+        expect(await offer('Banana - Lidl - 1 kg', '4600000000161')).toBeNull();
+    });
+
     it('a meal matches only by its exact name, never by key or typo', async () => {
         await env.records.put('foodproduct', product('p-meal', 'Work lunch salad', { is_meal: true, usage_count: 50 }));
         expect(await viaApi('Salad')).toMatchObject({ matched: 'new', name: 'Salad' });

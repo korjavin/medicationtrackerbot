@@ -234,6 +234,70 @@ describe('Food Add sheet', () => {
         expect(env.document.getElementById('food-add-search-status').textContent).toBe('Food lookups paused until tomorrow.');
     });
 
+    describe('a scanned staple you already have (kit FC1, med-5jq.7)', () => {
+        const SCANNED = { name: 'Broccoli - K-Classic - 450 g', barcode: '4600000000116', carbs_100g: 3, protein_100g: 3, fat_100g: 0, energy_kcal_100g: 28 };
+        const MINE = { id: 'p-broc', name: 'Broccoli', carbs_100g: 7, protein_100g: 3, fat_100g: 0, energy_kcal_100g: 34 };
+        const scan = async (mine) => {
+            const { window } = env;
+            window.CloudFoodSearch.remoteConfigured = vi.fn(async () => true);
+            window.CloudFoodSearch.search = vi.fn(async (q, o) => (o && o.remote ? [{ ...SCANNED }] : []));
+            window.CloudFoodSearch.stapleOffer = vi.fn(async () => mine);
+            window.FoodLog.addSheet.open();
+            await settle();
+            window.handleDecodedValue(SCANNED.barcode);
+            await settle(10);
+        };
+        const choices = () => Array.from(env.document.querySelectorAll('#food-add-offer-choices .wg-choice'));
+
+        it('two choices replace the picked row, your food preselected; logging links the barcode to it', async () => {
+            const { window, document } = env;
+            await scan({ ...MINE });
+            expect(window.CloudFoodSearch.stapleOffer).toHaveBeenCalledWith(SCANNED.name, SCANNED.barcode);
+            expect(document.getElementById('food-add-offer').classList.contains('hidden')).toBe(false);
+            expect(document.querySelector('#food-add-offer .wg-section__head').textContent).toBe('Scannedlog it as');
+            expect(document.getElementById('food-add-results').classList.contains('hidden')).toBe(true);
+            expect(choices().map((c) => c.textContent)).toEqual([
+                'BroccoliYour food · 34 kcal / 100 g', 'Broccoli - K-Classic - 450 gNew food · 28 kcal / 100 g',
+            ]);
+            expect(choices().map((c) => c.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+            const primary = document.getElementById('food-add-primary-btn');
+            document.querySelector('#food-add-offer-portions .wg-pick[data-grams="150"]').click();
+            expect(primary.textContent).toBe('Add 150 g · 51 kcal');
+
+            primary.click();
+            await settle(10);
+            expect(posts()).toHaveLength(1);
+            expect(posts()[0][2]).toEqual(expect.objectContaining({
+                name: 'Broccoli', product_id: 'p-broc', barcode: SCANNED.barcode, scanned_name: SCANNED.name, weight: 150,
+            }));
+        });
+
+        it('"New food" logs the scanned product as a first scan; portions and the primary follow it', async () => {
+            const { document } = env;
+            await scan({ ...MINE });
+            choices()[1].click();
+            expect(choices().map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+            const primary = document.getElementById('food-add-primary-btn');
+            expect(primary.textContent).toBe('Add 100 g · 28 kcal');
+
+            primary.click();
+            await settle(10);
+            expect(posts()).toHaveLength(1);
+            const payload = posts()[0][2];
+            expect(payload).toEqual(expect.objectContaining({ name: SCANNED.name, barcode: SCANNED.barcode, weight: 100 }));
+            expect(payload.product_id).toBeUndefined();
+            expect(payload.scanned_name).toBeUndefined();
+        });
+
+        it('no offer (a branded product, no match) → the single picked row as before', async () => {
+            const { document } = env;
+            await scan(null);
+            expect(document.getElementById('food-add-offer').classList.contains('hidden')).toBe(true);
+            expect(document.querySelectorAll('#food-add-results .wg-food-add__result')).toHaveLength(1);
+            expect(document.getElementById('food-add-primary-btn').textContent).toBe('Add 100 g · 28 kcal');
+        });
+    });
+
     it('Esc closes the sheet', async () => {
         const { window } = env;
         window.FoodLog.addSheet.open();

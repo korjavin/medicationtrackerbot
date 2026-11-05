@@ -5,7 +5,7 @@
 // internal/domain/food.go.
 
 import { offsetMsAt, dayStartMs } from './bp.js';
-import { foodKey, keyDistance, offDisplayName } from './foodname.js';
+import { foodKey, isStaple, keyDistance, offDisplayName } from './foodname.js';
 import { macroWarnings, withMacroWarnings } from './foodmacros.js';
 
 const LOG_RECORD_TYPE = 'foodlog';
@@ -441,6 +441,18 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     }));
   }
 
+  // linkBarcodeToProduct (med-5jq.7, kit FC1): a scanned staple logged as the
+  // user's own generic product. One use of it, plus the scanned barcode (so a
+  // re-scan resolves locally) and the scanned name's key as an alias. A product
+  // that already holds a barcode keeps its own.
+  async function linkBarcodeToProduct(productId, barcode, aliasKey) {
+    return touchProduct({ recordId: productId }, (cur) => {
+      const aliases = Array.isArray(cur.aliases) ? cur.aliases : [];
+      const learn = aliasKey && aliasKey !== foodKey(cur.name) && !aliases.includes(aliasKey);
+      return { ...(cur.barcode ? {} : { barcode }), ...(learn ? { aliases: [...aliases, aliasKey] } : {}) };
+    });
+  }
+
   // updateProductRow applies `change(current)` to the stored live row; a row
   // deleted meanwhile stays deleted (null).
   async function updateProductRow(recordId, change) {
@@ -563,7 +575,12 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     };
     await records.put(LOG_RECORD_TYPE, record);
 
-    if (bumpAfterCreate) await touchProduct(bumpAfterCreate);
+    // scanned_name: the add sheet's FC1 "Your food" choice for a scanned staple.
+    if (bumpAfterCreate && input.barcode && input.scanned_name) {
+      await linkBarcodeToProduct(bumpAfterCreate.recordId, input.barcode, foodKey(input.scanned_name));
+    } else if (bumpAfterCreate) {
+      await touchProduct(bumpAfterCreate);
+    }
 
     const products = await productsIndex();
     const resp = withMacroWarnings(toLogResponse(record, isMealFor(record, products)), per100g || per100gFrom(input));
@@ -837,6 +854,24 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     return product ? { name: product.name, product_id: product.recordId, matched, is_meal: !!product.is_meal } : null;
   }
 
+  // stapleOffer (med-5jq.7, kit FC1): the user's own generic product a scanned
+  // food-DB row could be logged as, without writing. Only for an unbranded
+  // staple (its offDisplayName is a STAPLES food) that resolves to exactly one
+  // barcode-less product (Archie, Iris 15387: two leave it to the user), and
+  // only when logging the row as scanned would not link there anyway.
+  async function stapleOffer(rawName, barcode) {
+    const name = offDisplayName(rawName);
+    if (!isStaple(name)) return null;
+    const all = await records.list(PRODUCT_RECORD_TYPE);
+    if (resolveProduct(rawName, all, { barcode }).product) return null;
+    const free = all.filter((p) => !p.deleted && p.name && !p.is_meal && !String(p.barcode || '').trim());
+    const { product } = resolveProduct(name, free);
+    if (!product) return null;
+    const key = foodKey(name);
+    const same = free.filter((p) => foodKey(p.name) === key || (Array.isArray(p.aliases) && p.aliases.includes(key)));
+    return same.length > 1 ? null : toProductResponse(product);
+  }
+
   async function listProducts({ isMeal, q, offset = 0, limit = 100, sort } = {}) {
     const all = await records.list(PRODUCT_RECORD_TYPE);
     let filtered = all.filter((p) => !p.deleted);
@@ -1025,6 +1060,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     dayStatuses,
     listProducts,
     matchName,
+    stapleOffer,
     updateProduct,
     removeProduct,
     createMealFromLogs,
