@@ -628,7 +628,7 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   anchor, so it shows `scan` on every run.
 - **QA:** android-qa `health-connect` writes a BP (plus steps, a heart-rate
   series and an SpO2 reading) through the debug-only `QaHealthWrite` activity
-  (src/debug; its steps/HR/SpO2 write permissions are debug-only), switches
+  (src/debug; its steps/SpO2 write permissions are debug-only), switches
   the import on, checks the bridge answers steps/hr/spo2 and the Vitals cards
   fill (screenshot `vitals-cards`), then — in a process Playwright never
   attached to — goes Home, writes a second one and returns, and asserts the
@@ -636,11 +636,13 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   Playwright must be detached for that: its focus emulation keeps an attached
   page "visible", so the WebView never fires `visibilitychange`.
   It then enables write-back (screenshot `health-write-hw1`) and checks the real
-  page's BP create/edit/delete and weight create/delete against Health Connect
+  page's BP/pulse create/edit/delete, pulse clear/restore and weight create/delete against Health Connect
   through the debug-only `QaHealthRead` activity. The reader bypasses our import
   filter; it proves one client identity, version conflict handling, no echo on
   scan/changes, idempotent delete, preservation of an imported store UUID and
-  truthful partial write access after revocation. Release APKs contain neither
+  truthful partial write access after revocation, plus pending pulse retry after
+  a heart-rate grant (screenshot `health-write-pulse-denied`). The rationale's
+  approved pulse copy is captured in `pulse-rationale`. Release APKs contain neither
   reader nor writer. Real-phone permission/retry checks stay in
   `testscenarios/common/health-write-back.yaml`.
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health
