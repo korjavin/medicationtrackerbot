@@ -2098,6 +2098,27 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(order.filter((t) => t === 'marker:wrote')).toHaveLength(1);
     });
 
+    // records.update (the locked read-modify-write behind the integrations
+    // PATCH, bd med-yzag) is a write too: it flags before it runs (bd med-ob00).
+    it('a records.update write through the agent router flags the marker wrote first', async () => {
+        const records = fakeRecords();
+        const order = [];
+        const put = records.put;
+        records.put = async (type, record) => {
+            order.push(type === 'tgagentrun' ? `marker${record.wrote ? ':wrote' : ''}` : type);
+            return put(type, record);
+        };
+        records.update = async (type, id, fn) => {
+            order.push(`update:${type}`);
+            const next = fn((await records.list(type)).find((r) => r.recordId === id) || null);
+            return next ? put(type, next) : null;
+        };
+        const router = createInboxRouter({ accountId: 'a' }, { records, now: () => NOW, timeZone: 'Europe/Berlin' });
+        const agent = { run: async () => { await router('/api/settings/integrations', 'PATCH', { elevenlabs: { agent_id: 'fixture-agent' } }); return 'Saved.'; } };
+        await applyTGText(textEvent('set my voice agent'), 48, { agent, records, editReply: vi.fn(), now: () => NOW });
+        expect(order.slice(0, 3)).toEqual(['marker', 'marker:wrote', 'update:integrations']);
+    });
+
     // The wrote re-put must keep the run's lease and retry count: without
     // startedAt a run that died after writing would read as legacy ("could not
     // finish", no lease) instead of "Done.".

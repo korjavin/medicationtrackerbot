@@ -585,6 +585,12 @@
         // another edit while registration is pending. Keep that newer draft
         // for the Reload guard rather than replacing it with saved masks.
         if (isRefresh && keepRegistration && integrationsHaveUnsavedChanges()) {
+            // keepRegistration means every shown field matches the baseline,
+            // so the view differs only in groups no input shows (food). Adopt
+            // it as the Save baseline, else the next Save is a false conflict
+            // that drops the typed values (bd med-ob00). A refused Save still
+            // waits for a full apply.
+            if (baseline && !_integrationConflict) _aiProviderLoadedView = JSON.parse(JSON.stringify(payload));
             renderProvider();
             return;
         }
@@ -1269,7 +1275,9 @@
             if (!payload) return null;
             // A newer load, a Save, conflict recovery or an edit came after this
             // read started: its view is older than what the page holds now.
-            if (readGen !== _integrationReadGen) return null;
+            // With no baseline yet there is nothing newer to protect: applying
+            // it is what enables Save at all (bd med-ob00).
+            if (readGen !== _integrationReadGen && _aiProviderLoadedView) return null;
             applyPayloadToDOM(payload, { isRefresh: preserveDraft });
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }

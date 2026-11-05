@@ -946,7 +946,10 @@ export function createInboxRouter(ctx, { records, now, timeZone }) {
     return fn(...args);
   };
   return createApiRouter(ctx, {
-    records: { ...records, put: writing(records.put), del: writing(records.del) },
+    records: {
+      ...records, put: writing(records.put), del: writing(records.del),
+      ...(records.update ? { update: writing(records.update) } : {}),
+    },
     now, timeZone, origin: ORIGIN_EXTERNAL, via: 'telegram', canFloor: async () => false,
   });
 }
