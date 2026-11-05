@@ -572,7 +572,9 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   A remembered older date could then allow Copy beyond the readable dedupe window.
   Without history permission, Copy therefore covers the last 30 days from today,
   rather than 30 days before an inferred first grant. Grant history to copy older
-  entries. This bound restricts Copy eligibility, not import queries. See the
+  entries. The bound applies when planning Copy or retrying a read-blocked kind;
+  already queued ids retain their completed dedupe snapshot. This bound restricts
+  Copy eligibility, not import queries. See the
   [Android historical-read contract](https://developer.android.com/health-and-fitness/health-connect/read-data#read-data-older-than-30-days).
   A store/access error rejects rather than pretending access
   was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?}`

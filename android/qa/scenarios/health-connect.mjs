@@ -92,11 +92,15 @@ export default async function healthConnect(ctx) {
       r.cardsBefore = await overview();
     });
 
-    const windowAccess = (types = ['bp', 'weight']) => ctx.page.evaluate(async (types) => {
-      const before = Date.now();
-      const access = await window.Health.writeAccess(types);
-      return { ...access, before, after: Date.now() };
-    }, types);
+    const windowAccess = async (types = ['bp', 'weight']) => {
+      // The visual fixture freezes page Date; bracket the real native clock
+      // using the emulator's Unix time, rather than comparing it to that fixture.
+      const before = Number((await shell('date +%s')).trim()) * 1000;
+      const access = await ctx.page.evaluate((types) => window.Health.writeAccess(types), types);
+      const after = Number((await shell('date +%s')).trim()) * 1000 + 999;
+      if (!Number.isFinite(before) || !Number.isFinite(after)) throw new Error('invalid device clock diagnostic');
+      return { ...access, before, after };
+    };
     const assertWindow = (access, history = false) => {
       if (history) {
         if (access.readableFrom !== 0) throw new Error(`history window: ${JSON.stringify(access)}`);

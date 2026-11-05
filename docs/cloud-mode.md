@@ -487,8 +487,10 @@ never turns it off (below).
   rolling cutoff 30 days before now. No inferred grant date is stored: the provider
   can reset its anchor on a full permission revoke while the app is stopped.
   Copy without history permission therefore covers only the last 30 days from
-  today; granting history allows older entries. This bound never changes import
-  eligibility.
+  today at planning; granting history allows older entries. The bound also applies
+  when retrying read-blocked kinds. Already queued ids retain their successfully
+  completed dedupe snapshot rather than being discarded as time passes. This
+  bound never changes import eligibility.
   Rows older than `readableFrom` (Android without the past-data permission:
   the conservative rolling last 30 days) are not eligible and not counted; when any
   are cut, the dialog names them in a warn-icon hint line, never a red error ("N
