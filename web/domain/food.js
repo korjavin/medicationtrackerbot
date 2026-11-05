@@ -323,8 +323,8 @@ function mostUsed(list) {
 //           name's key, never the stored name_key: an older bundle's rename
 //           spreads the row and leaves name_key stale (med-5jq.3 review);
 //   alias — the key was learnt for a product before (aliases);
-//   typo  — exactly one product key within keyDistance 1 (keys of 5-7 chars)
-//           or 2 (longer); shorter keys never typo-match, two near keys never guess.
+//   typo  — exactly one live product within keyDistance 1 (keys of 5-7 chars)
+//           or 2 (longer); shorter keys never typo-match, two candidates never guess.
 // The key only matches; the caller takes the product's own name. A name that
 // keys to '' (only annotations, "Breakfast") matches by exact name only.
 export function resolveProduct(rawName, products) {
@@ -344,8 +344,9 @@ export function resolveProduct(rawName, products) {
   const max = len > 7 ? 2 : len >= 5 ? 1 : 0;
   if (!max) return none;
   const near = keyed.filter(({ k }) => k && keyDistance(key, k, max) <= max);
-  if (new Set(near.map(({ k }) => k)).size !== 1) return none;
-  return { product: mostUsed(near.map(({ p }) => p)), matched: 'typo', key };
+  // Exactly one product, not one key: same-key duplicates may differ in macros.
+  if (near.length !== 1) return none;
+  return { product: near[0].p, matched: 'typo', key };
 }
 
 // createFoodDomain builds the food domain API over the injected ports:

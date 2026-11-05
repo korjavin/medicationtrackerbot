@@ -540,6 +540,12 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(await viaApi('Pastu')).toMatchObject({ matched: 'new', name: 'Pastu' });
     });
 
+    it('a typo never picks between same-key duplicates', async () => {
+        await env.records.put('foodproduct', product('p-yogurts', 'Yogurts', { usage_count: 2 }));
+        expect(await viaApi('Yugurt')).toMatchObject({ matched: 'new', name: 'Yugurt' });
+        expect((await productRows()).find((p) => p.recordId === 'p-yogurt').aliases).toBeUndefined();
+    });
+
     it('update: a changed name relinks to the canonical product; an unchanged name keeps its link; no product write', async () => {
         const log = await viaApi('Fried egg');
         const before = await productRows();
