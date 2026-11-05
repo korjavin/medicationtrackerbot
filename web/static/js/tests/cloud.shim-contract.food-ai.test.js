@@ -969,7 +969,7 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 'Use a listed name only for the same food: a different ingredient, flavour, brand or preparation is a new name, not the nearest listed one.',
                 'The list never changes how many items you return: split the meal by the rules above first, then name each item.',
                 'Return a listed name exactly as written, even when it is not in English; the English rule applies only to new names.',
-                'Invent a new name only when nothing on the list fits.',
+                'Invent a new name only when nothing on the list is the same food.',
             ].join(' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
             it('an empty catalog sends no catalog block', async () => {
