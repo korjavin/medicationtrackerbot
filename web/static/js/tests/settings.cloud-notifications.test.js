@@ -653,20 +653,23 @@ describe('cloud Notifications controls inside the iOS app (LocalNotifications)',
     });
     // bd med-erq1.3: the card's Wake-ups line reads the shell's APNs/FCM token
     // (NativePush); hidden on the web (the harness's native/ has no impl).
+    // bd med-hh0e: no token says why, by the shell's notification permission.
     it.each([
-        [{ platform: 'android', token: 't' }, 'Wake-ups: on'],
-        [null, 'Wake-ups: off (allow notifications)'],
-        ['web', null],
-    ])('Wake-ups line for token %j', async (token, text) => {
+        [{ platform: 'android', token: 't' }, 'granted', 'Wake-ups: on'],
+        [null, 'granted', 'Wake-ups: off (not connected yet)'],
+        [null, 'default', 'Wake-ups: off (allow notifications)'],
+        [null, 'denied', 'Wake-ups: off (allow notifications)'],
+        ['web', 'granted', null],
+    ])('Wake-ups line for token %j, permission %s', async (token, permission, text) => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
             window.__MEDTRACKER_CLOUD__ = true;
-            shellLocal(window, { permission: 'granted' });
+            shellLocal(window, { permission });
             if (token !== 'web') window.NativePush = { isSupported: () => true, token: vi.fn(async () => token) };
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             await window.loadSettings();
-            await vi.waitFor(() => expect(document.getElementById('cloud-push-toggle').dataset.subscribed).toBe('1'));
+            await vi.waitFor(() => expect(document.getElementById('cloud-push-toggle').dataset.subscribed).toBe(permission === 'granted' ? '1' : '0'));
             const line = document.getElementById('cloud-push-wake');
             if (text) await vi.waitFor(() => expect(line.textContent).toBe(text));
             expect(line.hidden).toBe(!text);
