@@ -1793,7 +1793,55 @@ describe('inbox-apply.js — a Telegram data command', () => {
         await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
         await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
 
-        expect(await records.list('foodlog')).toHaveLength(1);
+        const logs = await records.list('foodlog');
+        expect(logs).toHaveLength(1);
+        // med-5jq.4: the item is linked to a catalog product, and the re-drain
+        // resolves to that same product instead of creating a second one.
+        const products = await records.list('foodproduct');
+        expect(products).toHaveLength(1);
+        expect(logs[0].product_id).toBe(products[0].recordId);
+    });
+
+    it('a re-drain the model parses under another name keeps the first link: no orphan product, no second use', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const names = ['Boiled egg', 'eggs, boiled'];
+        const aiClient = { parseMealFromDescription: async () => ({ items: [{ ...TWO_EGGS[0], name: names.shift() }] }) };
+        const opts = { ...domainsFor(records, now, aiClient), editReply: vi.fn() };
+        await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
+        await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
+
+        const products = await records.list('foodproduct');
+        expect(products).toHaveLength(1);
+        expect(products[0]).toMatchObject({ name: 'Boiled egg', usage_count: 1 });
+        expect(await records.list('foodlog')).toMatchObject([{ name: 'Boiled egg', product_id: products[0].recordId }]);
+    });
+
+    it('two devices draining the same /food event with no shared state converge on ONE product after exchanging ops', async () => {
+        const drain = async (name, atMs) => {
+            const records = fakeRecords(seed());
+            const aiClient = { parseMealFromDescription: async () => ({ items: [{ ...TWO_EGGS[0], name }] }) };
+            await applyTGCommand(commandEvent('/food 2 eggs'), 20, { ...domainsFor(records, () => atMs, aiClient), editReply: vi.fn() });
+            return records.dump();
+        };
+        const a = await drain('Kharcho', DRAIN_MS);
+        const b = await drain('Kharcho soup', DRAIN_MS + 1000);
+        // sync.js applyIncoming: an incoming op lands only when its clientTs is strictly greater.
+        const receive = (into, from, type) => {
+            for (const op of from[type]) {
+                const i = into[type].findIndex((r) => r.recordId === op.recordId);
+                if (i < 0) into[type].push(op);
+                else if (op.clientTs > into[type][i].clientTs) into[type][i] = op;
+            }
+        };
+        const a0 = JSON.parse(JSON.stringify(a));
+        for (const type of ['foodproduct', 'foodlog']) { receive(a, b, type); receive(b, a0, type); }
+
+        expect(a.foodproduct).toEqual(b.foodproduct);
+        expect(a.foodproduct).toHaveLength(1);
+        expect(a.foodproduct[0]).toMatchObject({ recordId: 'foodproduct-tg-20-0', name: 'Kharcho soup' });
+        expect(a.foodlog).toEqual(b.foodlog);
+        expect(a.foodlog.map((l) => l.product_id)).toEqual(['foodproduct-tg-20-0']);
     });
 
     it('bare /food is refused with a usage hint and logs nothing', async () => {
@@ -1907,6 +1955,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         await applyTGPhoto(photoEvent(), 30, opts);
 
         expect(await records.list('foodlog')).toHaveLength(1);
+        expect(await records.list('foodproduct')).toHaveLength(1);
     });
 
     it('a photo the relay cannot fetch is answered and acked, logging nothing', async () => {

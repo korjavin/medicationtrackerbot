@@ -138,12 +138,12 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             weight: 200, carbs: 0, protein: 60, fat: 8, calories: 312,
         });
 
-        // Parity with the server AI handlers (food_handlers.go:255) — they
-        // CreateLog bare-named entries with no product_id and no UpsertProduct,
-        // so AI logging must NOT populate the product catalog.
-        expect(logs.every((l) => l.product_id === undefined)).toBe(true);
+        // med-5jq.4: every AI item reconciles against the catalog; two new
+        // foods create two products, each log linked to its own.
         const products = await window.apiCall('/api/food/products', 'GET');
-        expect(products.total).toBe(0);
+        expect(products.total).toBe(2);
+        expect(logs.every((l) => l.product_id)).toBe(true);
+        expect(new Set(logs.map((l) => l.product_id)).size).toBe(2);
 
         window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
         const summaryStub = { showRemoved: vi.fn(), showError: vi.fn() };
@@ -861,9 +861,115 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             expect(logs.find((l) => l.name === 'Curry')).toMatchObject({
                 weight: 200, carbs: 20, protein: 12, fat: 14, calories: 4 * 20 + 4 * 12 + 9 * 14,
             });
-            // Same as a direct parse: AI logging never touches the catalog.
-            expect(logs.every((l) => l.product_id === undefined)).toBe(true);
-            expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(0);
+            // Same as a direct parse: each reviewed item links a product.
+            expect(logs.every((l) => l.product_id)).toBe(true);
+            expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(2);
+        });
+
+        // med-5jq.4 — AI items reconcile against the catalog like a typed name.
+        describe('catalog linking', () => {
+            async function seedProduct(extra) {
+                const row = {
+                    recordId: 'p-egg', clientTs: 1, deleted: false, barcode: null,
+                    carbs_100g: 1, protein_100g: 13, fat_100g: 11, energy_kcal_100g: 155,
+                    usage_count: 3, is_meal: false, total_weight_g: 0,
+                    created_at: '2026-01-01T00:00:00Z', last_used_at: '2026-01-01T00:00:00Z', ...extra,
+                };
+                await env.records.put('foodproduct', row);
+                return { id: row.recordId };
+            }
+            const EGGS = (name) => [{ name, weight_grams: 100, carbs_100g: 1, protein_100g: 12, fat_100g: 10, uncertain: false }];
+
+            it('a parsed "boiled eggs" links the existing "Boiled egg": exact, canonical name, no new product', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                const egg = await seedProduct({ name: 'Boiled egg' });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('boiled eggs'))));
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'два вареных яйца' });
+
+                expect(res.items[0]).toMatchObject({ name: 'Boiled egg', product_id: egg.id, matched: 'exact' });
+                expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(1);
+                // The log keeps the model's own macros (totals unchanged).
+                expect(res.items[0]).toMatchObject({ protein: 12, fat: 10 });
+            });
+
+            it('a parsed "eggs, boiled" links "Boiled egg" through its confirmed alias, no second product', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                // As a confirmed link (.9 review) would have stored it.
+                const egg = await seedProduct({ name: 'Boiled egg', aliases: ['egg boiled'] });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(EGGS('eggs, boiled'))));
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'eggs' });
+
+                expect(res.items[0]).toMatchObject({ name: 'Boiled egg', product_id: egg.id, matched: 'alias' });
+                expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(1);
+            });
+
+            it('a new dish creates one product from the model per-100 g estimate; no AI log stays unlinked', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    { name: 'Kharcho', weight_grams: 30, carbs_100g: 7, protein_100g: 2.7, fat_100g: 3, uncertain: false },
+                ])));
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'харчо' });
+                await window.apiCall('/api/food/log/from-description', 'POST', { description: 'харчо' });
+
+                expect(res.items[0].matched).toBe('new');
+                const products = (await window.apiCall('/api/food/products', 'GET')).products;
+                expect(products).toHaveLength(1);
+                // From the estimate, not from the truncated 30 g totals (protein 0).
+                expect(products[0]).toMatchObject({ name: 'Kharcho', protein_100g: 2.7, carbs_100g: 7, fat_100g: 3 });
+                const logs = await logsToday(window);
+                expect(logs).toHaveLength(2);
+                expect(logs.filter((l) => !l.product_id)).toHaveLength(0);
+            });
+
+            it('no typo tier on the AI path: a parsed "Toast" with only "Roast" saved creates its own product', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                await seedProduct({ name: 'Roast' });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    { name: 'Toast', weight_grams: 60, carbs_100g: 45, protein_100g: 8, fat_100g: 3 },
+                ])));
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'toast' });
+
+                expect(res.items[0]).toMatchObject({ name: 'Toast', matched: 'new' });
+                const names = (await window.apiCall('/api/food/products', 'GET')).products.map((p) => p.name).sort();
+                expect(names).toEqual(['Roast', 'Toast']);
+            });
+
+            it('impossible macros (protein 150 g/100 g) save the log unlinked with its warning, no product', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    { name: 'Protein shake', weight_grams: 100, carbs_100g: 5, protein_100g: 150, fat_100g: 2 },
+                ])));
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'shake' });
+
+                expect(res.items[0]).toMatchObject({ name: 'Protein shake', matched: 'new', protein: 150 });
+                expect(res.items[0].product_id).toBeUndefined();
+                expect(res.items[0].warnings).toContain('impossible');
+                expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(0);
+                expect((await logsToday(window)).map((l) => l.name)).toEqual(['Protein shake']);
+            });
+
+            it('string macros from the unconstrained fallback are stored on the product as numbers', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    { name: 'Lentil soup', weight_grams: 300, carbs_100g: '12', protein_100g: '5', fat_100g: '2' },
+                ])));
+
+                await window.apiCall('/api/food/log/from-description', 'POST', { description: 'lentil soup' });
+
+                const [p] = (await window.apiCall('/api/food/products', 'GET')).products;
+                expect(p).toMatchObject({ carbs_100g: 12, protein_100g: 5, fat_100g: 2 });
+            });
         });
 
         it('Add sheet review: the uncertain item carries a warn chip, Log writes both and closes the sheet', async () => {
