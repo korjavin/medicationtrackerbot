@@ -28,8 +28,8 @@ export default async function healthConnect(ctx) {
   const r = (ctx.results.health = { readings: [FIRST, SECOND], vitals: VITALS });
 
   await shell(`pm clear ${pkg}`);
-  for (const p of READS) await shell(`pm grant ${pkg} android.permission.health.READ_${p}`);
-  for (const p of WRITES) await shell(`pm grant ${pkg} android.permission.health.WRITE_${p}`);
+  // A write-only grant must establish the same stable window as a read grant.
+  await shell(`pm grant ${pkg} android.permission.health.WRITE_WEIGHT`);
 
   const healthDiag = async () => (await shell(`run-as ${pkg} cat shared_prefs/diag.xml`))
     .split(/&#10;|\n/).filter((l) => / health /.test(l));
@@ -92,6 +92,35 @@ export default async function healthConnect(ctx) {
         document.addEventListener('visibilitychange', () => window.__qaVis.push(document.visibilityState));
       });
       r.cardsBefore = await overview();
+    });
+
+    const firstGrant = async () => {
+      const xml = await shell(`run-as ${pkg} cat shared_prefs/health.xml`);
+      const match = xml.match(/name="firstGrantMs" value="(\d+)"/);
+      if (!match) throw new Error(`missing first grant: ${xml}`);
+      return Number(match[1]);
+    };
+    await ctx.step('a write-only grant anchors a finite history window; restart and re-ask keep it', async () => {
+      r.window = {};
+      r.window.writeOnly = await ctx.page.evaluate(() => window.Health.writeAccess(['bp', 'weight']));
+      r.window.first = await firstGrant();
+      const expected = r.window.first - 30 * 86400_000;
+      if (r.window.writeOnly.readableFrom !== expected || r.window.writeOnly.granted.join(',') !== 'weight') {
+        throw new Error(`write-only window: ${JSON.stringify(r.window)}`);
+      }
+      for (const p of READS.filter((p) => p !== 'HEALTH_DATA_HISTORY')) await shell(`pm grant ${pkg} android.permission.health.READ_${p}`);
+      for (const p of WRITES) await shell(`pm grant ${pkg} android.permission.health.WRITE_${p}`);
+      await shell(`am force-stop ${pkg}`);
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach for history window failed');
+      r.window.deniedHistory = await ctx.page.evaluate(() => window.Health.writeAccess(['bp', 'weight']));
+      if (r.window.deniedHistory.readableFrom !== expected || await firstGrant() !== r.window.first) throw new Error('history window moved after read grants/restart');
+      await shell(`pm grant ${pkg} android.permission.health.READ_HEALTH_DATA_HISTORY`);
+      r.window.history = await ctx.page.evaluate(() => window.Health.writeAccess(['bp', 'weight']));
+      if (r.window.history.readableFrom !== 0) throw new Error('granted history did not lift the window');
+      await ctx.page.evaluate(() => window.Health.requestAuthorization(['bp'], { write: ['weight'] }));
+      if (await firstGrant() !== r.window.first) throw new Error('re-ask advanced first-grant stamp');
     });
 
     await ctx.step('a reading saved before the import: #1 (+ steps, HR, SpO2)', () => write(FIRST, VITALS));
@@ -230,6 +259,11 @@ export default async function healthConnect(ctx) {
         const input = document.getElementById('health-write-toggle');
         return input?.checked && !input.disabled && localStorage.getItem('wg.health.write') === 'true';
       }, null, { timeout: 15_000 });
+      // readableFrom enables the real one-time Copy offer on this shell. This
+      // step tests the live-write switch, not historical copying.
+      const copyOffer = ctx.page.locator('.mt-confirm-modal .mt-confirm-modal__cancel');
+      await copyOffer.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      if (await copyOffer.isVisible()) await copyOffer.click();
       await ctx.page.locator('#health-write-row').scrollIntoViewIfNeeded();
       r.writeBack.hw1 = await ctx.page.locator('#health-write-row').innerText();
       if (/Writing paused|Writing .* only|isn't allowed/.test(r.writeBack.hw1)) throw new Error(`HW1: ${r.writeBack.hw1}`);
@@ -325,6 +359,29 @@ export default async function healthConnect(ctx) {
       await waitNative(weight.id, (rows) => rows.length === 0);
     });
 
+    await ctx.step('one mixed entries call returns ordered per-entry results and persists only valid bodies', async () => {
+      const prefix = `batch-qa-${Date.now()}`;
+      const at = Date.now() - 60_000;
+      const entries = [
+        { type: 'bp', id: `${prefix}-bp`, version: 17, at, systolic: 119, diastolic: 79 },
+        { type: 'hr', id: `${prefix}-bad`, version: 17, at, bpm: 0 },
+        { type: 'weight', id: `${prefix}-weight`, version: 17, at, kg: 73.5 },
+        { type: 'hr', id: `${prefix}-hr`, version: 17, at, bpm: 65 },
+        { type: 'workout', id: `${prefix}-workout`, version: 17, start: at - 60_000, end: at, activity: 50 },
+      ];
+      r.batch = { entries, result: await native('write', { entries }) };
+      if (!Array.isArray(r.batch.result) || r.batch.result.length !== entries.length ||
+          r.batch.result[1] !== 'invalid heart rate' || ![0, 2, 3, 4].every((i) => r.batch.result[i] === true)) throw new Error(`batch reply: ${JSON.stringify(r.batch)}`);
+      r.batch.records = (await readNative()).filter((row) => row.clientId?.startsWith(prefix));
+      if (r.batch.records.length !== 4 || r.batch.records.some((row) => row.clientId === `${prefix}-bad` || row.version !== 17)) throw new Error(`batch persistence: ${JSON.stringify(r.batch.records)}`);
+      // Same SDK replay semantics as the legacy path; no native read-before-write.
+      await native('write', { entries: entries.filter((_, i) => i !== 1).map((body) => ({ ...body, version: 16 })) });
+      const replayed = (await readNative()).filter((row) => row.clientId?.startsWith(prefix));
+      if (replayed.length !== 4 || replayed.some((row) => row.version !== 17)) throw new Error('batch replay duplicated or downgraded records');
+      for (const body of entries.filter((_, i) => i !== 1)) await native('remove', { type: body.type, id: body.id });
+      if ((await readNative()).some((row) => row.clientId?.startsWith(prefix))) throw new Error('batch cleanup left records');
+    });
+
     await ctx.step('revoked write access reports the real partial grant and refuses writes', async () => {
       await shell(`pm revoke ${pkg} android.permission.health.WRITE_BLOOD_PRESSURE`);
       // Android may kill the app on revoke: relaunch from the persisted local-mode state.
@@ -338,6 +395,14 @@ export default async function healthConnect(ctx) {
         catch (e) { return String(e.message || e); }
       });
       if (!/denied/.test(denied)) throw new Error(`write was not denied: ${denied}`);
+      const at = Date.now() - 60_000;
+      r.batch.partial = await native('write', { entries: [
+        { type: 'bp', id: 'batch-denied-qa', version: 1, at, systolic: 120, diastolic: 80 },
+        { type: 'weight', id: 'batch-allowed-qa', version: 1, at, kg: 74 },
+      ] });
+      if (r.batch.partial[0] !== 'denied' || r.batch.partial[1] !== true) throw new Error(`partial batch: ${JSON.stringify(r.batch.partial)}`);
+      await waitNative('batch-allowed-qa', (rows) => rows.length === 1);
+      await native('remove', { type: 'weight', id: 'batch-allowed-qa' });
       await shell(`pm grant ${pkg} android.permission.health.WRITE_BLOOD_PRESSURE`);
     });
 
@@ -401,14 +466,9 @@ export default async function healthConnect(ctx) {
       // the WebView's not yet flushed localStorage (the switch came back off).
       await ctx.page.reload({ waitUntil: 'load' });
       await ctx.page.waitForFunction(() => typeof window.switchTab === 'function', null, { timeout: 60_000 });
-      // Copy shows only once writeAccess reports readableFrom (Archie 16124),
-      // which this shell gains with med-8f4s.13: until then the measurement
-      // supplies 0 (a shell value wins), then a foreground pass re-reads access.
-      await ctx.page.evaluate(() => {
-        const orig = window.Health.writeAccess.bind(window.Health);
-        window.Health.writeAccess = async (types) => ({ readableFrom: 0, ...(await orig(types)) });
-        document.dispatchEvent(new Event('visibilitychange'));
-      });
+      const access = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
+      if (access.readableFrom !== 0) throw new Error(`measurement needs actual granted history: ${JSON.stringify(access)}`);
+      await ctx.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await ctx.page.evaluate(() => window.switchTab('settings'));
       const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
       if (await notNow.isVisible().catch(() => false)) await notNow.click();
@@ -566,6 +626,40 @@ export default async function healthConnect(ctx) {
       await waitNative(r.workouts.lateGrant.clientId, (rows) => rows.length === 0);
       await api(`/api/bp/${encodeURIComponent(reading.id)}`, 'DELETE');
       await api(`/api/weight/${encodeURIComponent(weight.id)}`, 'DELETE');
+    });
+
+    await ctx.step('without history permission Copy excludes an older entry and names the cutoff', async () => {
+      await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
+      const old = await api('/api/bp', 'POST', { systolic: 118, diastolic: 78,
+        measured_at: new Date(r.window.first - 31 * 86400_000).toISOString(), notes: 'history cutoff QA' });
+      await shell(`pm revoke ${pkg} android.permission.health.READ_HEALTH_DATA_HISTORY`);
+      ctx.page = undefined;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after history revoke failed');
+      r.window.afterRevoke = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
+      if (r.window.afterRevoke.readableFrom !== r.window.first - 30 * 86400_000 || await firstGrant() !== r.window.first) throw new Error('revocation changed the anchor');
+      await ctx.page.evaluate(() => {
+        localStorage.setItem('wg.health.write', 'true');
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.switchTab('settings');
+      });
+      const row = ctx.page.locator('#health-copy-row[data-state="ready"]');
+      await row.waitFor({ state: 'visible', timeout: 30_000 });
+      await row.scrollIntoViewIfNeeded();
+      await row.click();
+      const modal = ctx.page.locator('.mt-confirm-modal');
+      await modal.waitFor({ state: 'visible', timeout: 30_000 });
+      r.window.cutoffDialog = await modal.innerText();
+      if (!/before .*won't be copied/.test(r.window.cutoffDialog) || !/Allow past data/.test(r.window.cutoffDialog)) throw new Error(`missing cutoff: ${r.window.cutoffDialog}`);
+      await ctx.stableShot('health-copy-history-cutoff');
+      const cancel = modal.locator('.mt-confirm-modal__cancel');
+      if (await cancel.isVisible()) await cancel.click();
+      else await modal.locator('.mt-confirm-modal__confirm').click();
+      await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
+      await api(`/api/bp/${encodeURIComponent(old.id)}`, 'DELETE');
+      await shell(`pm grant ${pkg} android.permission.health.READ_HEALTH_DATA_HISTORY`);
+      if ((await native('writeAccess', ['bp'])).readableFrom !== 0 || await firstGrant() !== r.window.first) throw new Error('history regrant moved stamp or failed to lift cutoff');
+      await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'true'));
     });
 
     await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {

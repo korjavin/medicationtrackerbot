@@ -557,6 +557,23 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   `health.writeAccess {types}` reports the actual granted write kinds, including
   partial grants, plus `supported: ['bp', 'weight', 'hr', 'workout']` even when a kind is denied.
   Older shells omit `supported`, which the page treats as BP/weight support.
+  The same shell build adds `readableFrom` and `health.write {entries: [body, ...]}`
+  (med-8f4s.13). The batch validates each body and its kind's permission, then
+  inserts all valid records in one Health Connect call. Its ordered reply contains
+  `true` or that body's error string; a failed insertion rejects the entire call
+  so the page keeps its pending ids. Legacy single writes keep their existing
+  result and upsert semantics. The batched web drain (med-8f4s.15) follows both
+  shell twins and ships in their containing store batch.
+  `readableFrom` is zero only with `READ_HEALTH_DATA_HISTORY` actually granted;
+  otherwise it is the first observed grant of **any** Health Connect permission
+  (read or write) minus 30 days, even if the optional history feature is unavailable.
+  The install stores that first observation in non-backed-up `health` preferences
+  after authorization and when checking access or querying, never advancing it
+  after a restart or re-ask. An upgraded install with existing grants gets a
+  conservative first-observation stamp, **not the recovered first-grant date**:
+  Copy can omit additional older entries until history access is granted. This
+  bound restricts Copy eligibility, not import queries. See the
+  [Android historical-read contract](https://developer.android.com/health-and-fitness/health-connect/read-data#read-data-older-than-30-days).
   A store/access error rejects rather than pretending access
   was refused. `health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?}`
   inserts a manually entered BP/weight/pulse with `clientRecordId = id` (vault id,

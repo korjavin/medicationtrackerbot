@@ -477,6 +477,17 @@ never turns it off (below).
   `health.writeAccess` reply carries `readableFrom`** (ms: how far back
   `health.query` sees other apps' records; 0 = all; med-8f4s.13 Android,
   med-8f4s.14 iOS): absent, there is no Copy row and no offer (Archie 16124).
+  Android's field and native `health.write({entries: [...]})` support arrive
+  together (med-8f4s.13): one insertion for the valid entries, ordered per-entry
+  validation/refusal results, and a whole-call rejection if the insertion fails.
+  Legacy single writes remain supported; the production batched drain follows in
+  med-8f4s.15 and belongs to the same store batch as the shell twins. On Android,
+  zero requires an actual history permission grant. Without it, including when
+  the history feature is unavailable, the cutoff is 30 days before the install's
+  first observed grant of any Health permission. On upgrade that persisted date
+  is conservative, not a recovered original grant date; it never moves on a later
+  grant or restart and is excluded from backup. This bound never changes import
+  eligibility.
   Rows older than `readableFrom` (Android without the past-data permission:
   30 days before the first grant) are not eligible and not counted; when any
   are cut, the dialog names them in a warn-icon hint line, never a red error ("N

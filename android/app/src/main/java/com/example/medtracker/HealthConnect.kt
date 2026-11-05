@@ -2,6 +2,7 @@ package com.example.medtracker
 
 import android.app.Activity
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.aggregate.AggregateMetric
@@ -48,6 +49,30 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 import kotlin.reflect.KClass
 
+/** Persisted first OBSERVED grant, not a reconstruction of Health Connect's original date.
+ * https://developer.android.com/health-and-fitness/health-connect/read-data#read-data-older-than-30-days
+ * Unknown upgraded installs deliberately under-copy rather than read past the dedupe window.
+ */
+internal class HealthGrantWindow(private val prefs: SharedPreferences,
+                                 private val now: () -> Long = System::currentTimeMillis) {
+    fun observe(granted: Set<String>): Long? = synchronized(lock) {
+        if (prefs.contains(FIRST_GRANT)) return@synchronized prefs.getLong(FIRST_GRANT, 0)
+        if (granted.isEmpty()) return@synchronized null
+        now().also { check(prefs.edit().putLong(FIRST_GRANT, it).commit()) { "cannot persist Health Connect grant" } }
+    }
+
+    fun readableFrom(granted: Set<String>): Long {
+        val first = observe(granted)
+        return if (HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted) 0
+        else (first ?: now()) - Duration.ofDays(30).toMillis()
+    }
+
+    private companion object {
+        const val FIRST_GRANT = "firstGrantMs"
+        val lock = Any()
+    }
+}
+
 /**
  * window.Health on Android (bd med-nt9p.8, .9, med-8f4s.2): Health Connect —
  * the twin of ios/App/Health.swift, answering the same ops with the same
@@ -57,6 +82,7 @@ import kotlin.reflect.KClass
  *   health.writeAccess {types}            → {granted: [...], supported: ["bp", "weight", "hr", "workout"]}
  *   health.write {type, id, version, at, systolic?, diastolic?, kg?, bpm?} → true
  *   health.write {type: "workout", id, version, start, end, activity} → true
+ *   health.write {entries: [single-write body, ...]} → [true | error string, ...]
  *     activity: exactly 50 (strength training) or 3000 (other workout); end > start.
  *     No title, exercises, sets, weights, segments, calories, distance or heart rate.
  *   health.delete {type, id}              → true (only our clientRecordId, never a store UUID)
@@ -98,6 +124,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     private val client by lazy { HealthConnectClient.getOrCreate(activity) }
     /** The kinds whose permissions this install has requested (see query). */
     private val prefs by lazy { activity.getSharedPreferences("health", Context.MODE_PRIVATE) }
+    private val grantWindow by lazy { HealthGrantWindow(prefs) }
     /** Resumed by onRequestPermissionsResult: Health Connect permissions are runtime permissions from Android 14. */
     private var pendingAuth: (() -> Unit)? = null
 
@@ -156,25 +183,35 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         check(available()) { "Health Connect unavailable" }
         val types = args.optJSONArray("types") ?: JSONArray()
         val kinds = (0 until types.length()).map { types.optString(it) }
-        return JSONObject().put("granted", JSONArray(writableKinds(kinds, client.permissionController.getGrantedPermissions())))
+        val granted = client.permissionController.getGrantedPermissions()
+        return JSONObject().put("granted", JSONArray(writableKinds(kinds, granted)))
             .put("supported", JSONArray(WRITABLE.keys))
+            .put("readableFrom", grantWindow.readableFrom(granted))
     }
 
     private suspend fun requireWrite(kind: String) {
         val type = WRITABLE[kind] ?: throw IllegalArgumentException("unknown write type: $kind")
-        if (!available() || HealthPermission.getWritePermission(type) !in client.permissionController.getGrantedPermissions()) {
-            throw SecurityException("denied")
-        }
+        if (!available()) throw SecurityException("denied")
+        val granted = client.permissionController.getGrantedPermissions()
+        grantWindow.observe(granted)
+        if (HealthPermission.getWritePermission(type) !in granted) throw SecurityException("denied")
     }
 
-    private suspend fun write(args: JSONObject): Boolean {
+    private suspend fun write(args: JSONObject): Any {
+        if (args.has("entries")) {
+            check(available()) { "Health Connect unavailable" }
+            // One permission snapshot and one insert for the pass, rather than
+            // a binder call per entry. A revoked grant still makes insert throw.
+            val granted = client.permissionController.getGrantedPermissions()
+            grantWindow.observe(granted)
+            return writeEntries(args.getJSONArray("entries"), { kind ->
+                val type = WRITABLE[kind] ?: throw IllegalArgumentException("unknown write type: $kind")
+                if (HealthPermission.getWritePermission(type) !in granted) throw SecurityException("denied")
+            }, { records -> client.insertRecords(records) })
+        }
         val kind = args.getString("type")
         requireWrite(kind)
-        val record = if (kind == "workout") writeRecord(kind, args.getString("id"), args.getLong("version"),
-            start = workoutMillis(args.opt("start"), "start"), end = workoutMillis(args.opt("end"), "end"),
-            activity = (args.opt("activity") as? Number)?.toDouble() ?: Double.NaN)
-        else writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
-            args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"), args.optDouble("bpm"))
+        val record = writeBody(args)
         // Older clientRecordVersions cannot replace a newer record. Android 14
         // accepts equal-version replays: a committed version must keep its payload.
         client.insertRecords(listOf(record))
@@ -201,9 +238,11 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY) ==
                 HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
         }
+        val granted = client.permissionController.getGrantedPermissions()
+        grantWindow.observe(granted)
         val perms = (kinds.flatMap { KINDS.getValue(it) }.map { HealthPermission.getReadPermission(it) } +
             writes.map { HealthPermission.getWritePermission(WRITABLE.getValue(it)) } + listOfNotNull(history)).toSet() -
-            client.permissionController.getGrantedPermissions()
+            granted
         if (perms.isEmpty()) return
         suspendCancellableCoroutine { cont ->
             pendingAuth?.invoke()
@@ -215,6 +254,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
                 cont.resume(Unit)
             }
         }
+        grantWindow.observe(client.permissionController.getGrantedPermissions())
     }
 
     private suspend fun query(args: JSONObject): JSONObject {
@@ -228,6 +268,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         if (kind !in asked()) ask(KINDS.keys - asked())
         val type = types.first()
         val granted = client.permissionController.getGrantedPermissions()
+        grantWindow.observe(granted)
         // Denied: no samples, no anchor — the page keeps its anchor for when access is granted.
         if (HealthPermission.getReadPermission(type) !in granted) {
             diag("health $kind denied")
@@ -444,6 +485,43 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
     }
 
     internal companion object {
+        /** The actual pass executor: validation errors are per entry, store errors are not.
+         * insertRecords is atomic and throws on service/permission failure:
+         * https://developer.android.com/reference/kotlin/androidx/health/connect/client/HealthConnectClient#insertRecords(kotlin.collections.List)
+         */
+        suspend fun writeEntries(entries: JSONArray, requireWrite: (String) -> Unit,
+                                 insert: suspend (List<Record>) -> Unit): JSONArray {
+            val results = JSONArray()
+            val records = mutableListOf<Record>()
+            val valid = mutableListOf<Int>()
+            for (i in 0 until entries.length()) {
+                try {
+                    val body = entries.getJSONObject(i)
+                    requireWrite(body.getString("type"))
+                    records.add(writeBody(body))
+                    valid.add(i)
+                    results.put(JSONObject.NULL)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    results.put(e.message ?: e.javaClass.simpleName)
+                }
+            }
+            // Do not catch this: the web must keep every pending id on a whole-call failure.
+            if (records.isNotEmpty()) insert(records)
+            for (i in valid) results.put(i, true)
+            return results
+        }
+
+        private fun writeBody(args: JSONObject): Record {
+            val kind = args.getString("type")
+            return if (kind == "workout") writeRecord(kind, args.getString("id"), args.getLong("version"),
+                start = workoutMillis(args.opt("start"), "start"), end = workoutMillis(args.opt("end"), "end"),
+                activity = (args.opt("activity") as? Number)?.toDouble() ?: Double.NaN)
+            else writeRecord(kind, args.getString("id"), args.getLong("version"), args.getLong("at"),
+                args.optDouble("systolic"), args.optDouble("diastolic"), args.optDouble("kg"), args.optDouble("bpm"))
+        }
+
         fun workoutRequest(w: ExerciseSessionRecord, metrics: Set<AggregateMetric<*>>) =
             AggregateRequest(metrics, TimeRangeFilter.between(w.startTime, w.endTime), setOf(w.metadata.dataOrigin))
 
