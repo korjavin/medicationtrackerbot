@@ -196,11 +196,12 @@ export function startHealthWriteBack({
         if (!fresh.length) return null;
         if (!asking) {
             asking = Promise.resolve()
-                .then(() => health.requestAuthorization(HEALTH_KINDS, { write: fresh }))
                 .then(() => {
+                    // Recorded first: asked once, even when the sheet rejects.
                     writeJSON(storage, WRITE_ASKED_KEY, [...(Array.isArray(asked) ? asked : []), ...fresh]);
-                    return readAccess();
-                }, (e) => {
+                    return health.requestAuthorization(HEALTH_KINDS, { write: fresh });
+                })
+                .then(() => readAccess(), (e) => {
                     diag(`[health] write authorization failed ${e && e.message}`);
                     return null;
                 })
@@ -293,9 +294,12 @@ export function startHealthWriteBack({
         }
         await Promise.all(picked.map(([k, id]) => deliver(k, id)));
     };
-    // The switch-on sheet asked every write kind; only those the shell then
-    // supported count as asked (an older shell ignores a kind it does not know).
-    const markAsked = () => writeJSON(storage, WRITE_ASKED_KEY, kindsSupported.filter((k) => WRITE_KINDS.includes(k)));
+    // The switch-on sheet asked every write kind: markAsked(WRITE_KINDS)
+    // before it opens (a pass racing the turn-on, e.g. the Health Connect
+    // activity's resume, must not show a second sheet), then markAsked()
+    // narrows it to the kinds the shell then supported (an older shell
+    // ignores a kind it does not know, so the build that knows it asks again).
+    const markAsked = (kinds = kindsSupported) => writeJSON(storage, WRITE_ASKED_KEY, kinds.filter((k) => WRITE_KINDS.includes(k)));
     return { drain, readAccess, supported, markAsked };
 }
 
@@ -638,6 +642,7 @@ export function startHealthImport(ctx, {
                 toast(`Couldn't reach ${healthLabel(health)} — try again.`, 'error');
                 return false;
             };
+            writeBack.markAsked(WRITE_KINDS);
             try {
                 await health.requestAuthorization(HEALTH_KINDS, { write: WRITE_KINDS });
             } catch (e) {

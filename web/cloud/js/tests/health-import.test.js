@@ -1951,6 +1951,39 @@ describe('Health write-back', () => {
             expect(writeDesc()).toBe("Writing blood pressure only. Weight isn't allowed: allow it in Health Connect → App permissions.");
         });
 
+        // Breakage review of #1547: the Health Connect activity's resume fires a
+        // pass while the turn-on flow still waits on its access read.
+        it('a pass racing the turn-on shows no second write sheet; a rejected later sheet is not re-asked', async () => {
+            allowConsoleNoise();
+            const requestAuthorization = vi.fn(async () => true);
+            let release;
+            const reply = { granted: ['bp', 'weight'], supported: ALL };
+            health.writeAccess = vi.fn()
+                .mockImplementationOnce(() => new Promise((r) => { release = () => r(reply); }))
+                .mockResolvedValue(reply);
+            await start({ ...health, requestAuthorization });
+            writeToggle().checked = true;
+            writeToggle().dispatchEvent(new window.Event('change'));
+            await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+            foreground();
+            await vi.waitFor(() => expect(health.writeAccess).toHaveBeenCalledTimes(2));
+            await new Promise((r) => setTimeout(r, 10));
+            release();
+            await vi.waitFor(() => expect(writeToggle().disabled).toBe(false));
+            expect(requestAuthorization.mock.calls.filter(([, o]) => o)).toHaveLength(1);
+            expect(storage.getItem('wg.health.writeAsked')).toBe(JSON.stringify(ALL));
+
+            // A shell asked for hr whose sheet rejects: asked once, not on every pass.
+            storage.setItem('wg.health.writeAsked', JSON.stringify(['bp', 'weight']));
+            requestAuthorization.mockClear();
+            requestAuthorization.mockRejectedValue(new Error('bridge gone'));
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            foreground();
+            await new Promise((r) => setTimeout(r, 10));
+            expect(requestAuthorization.mock.calls.filter(([, o]) => o)).toEqual([[expect.any(Array), { write: ['hr'] }]]);
+        });
+
         it('two kinds missing read in the plural (Miles 15460)', async () => {
             health.writeAccess = vi.fn(async () => ({ granted: ['bp'], supported: ALL }));
             await start();
