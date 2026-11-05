@@ -133,6 +133,50 @@ function onFoodCaloriesFocus() {
     // or mutate macro values. Users can manually edit calories without losing mode context.
 }
 
+// fillFoodMacroHint renders the one quiet hint line (kit FC2/FC3, med-5jq.9)
+// for the most severe of the domain's macroWarnings kinds
+// (web/domain/foodmacros.js) — the flag itself is never recomputed here. N in
+// the copy: macroKcal is the 4/4/9 figure of the numbers the user sees,
+// kcal100 the per-100 g energy. No warning → node emptied and hidden.
+function fillFoodMacroHint(node, warnings, { macroKcal = 0, kcal100 = 0 } = {}) {
+    const w = Array.isArray(warnings) ? warnings : [];
+    let text = '';
+    if (w.includes('impossible')) text = 'Over 900 kcal per 100 g. Check the numbers.';
+    else if (w.includes('inconsistent')) text = `Calories don't match the macros (≈ ${Math.round(macroKcal)}).`;
+    else if (w.includes('suspicious-low')) text = `Only ${Math.round(kcal100)} kcal per 100 g. Check per 100 g vs total.`;
+    node.replaceChildren();
+    node.classList.toggle('hidden', !text);
+    if (!text) return false;
+    const ico = document.createElement('i');
+    ico.className = 'wg-ico wg-ico--sm wg-warn';
+    ico.appendChild(window.WGIcons.iconSvg('alert', { size: 16 }));
+    node.append(ico, ` ${text}`);
+    return true;
+}
+
+// The manual sheet asks the same domain check the response uses (FC3), on
+// leaving a number field. Tests inject the module as window.FoodMacros; bot
+// mode has no /domain/ → no hint.
+function clearFoodMacroHint() {
+    const node = document.getElementById('food-macro-hint');
+    if (node) fillFoodMacroHint(node, []);
+}
+
+async function checkFoodMacros() {
+    const node = document.getElementById('food-macro-hint');
+    if (!node) return;
+    const injected = window.FoodMacros && typeof window.FoodMacros.macroWarnings === 'function' ? window.FoodMacros : null;
+    const mod = injected || await import('/domain/foodmacros.js').catch(() => null);
+    const t = computeFoodTotals();
+    // The per-100 g values the saved entry's warnings are computed from.
+    const k = t.weight > 0 ? 100 / t.weight : 0;
+    const per = { carbs_100g: t.carbs * k, protein_100g: t.protein * k, fat_100g: t.fat * k, energy_kcal_100g: t.calories * k };
+    fillFoodMacroHint(node, mod ? mod.macroWarnings(per) : [], {
+        macroKcal: 4 * t.carbs + 4 * t.protein + 9 * t.fat,
+        kcal100: per.energy_kcal_100g,
+    });
+}
+
 function parseOptionalNumber(rawValue) {
     const v = String(rawValue || '').trim();
     if (v === '') return null;
@@ -360,6 +404,7 @@ function showManualFoodModal(prefill) {
     document.getElementById('food-protein').value = '';
     document.getElementById('food-fat').value = '';
     document.getElementById('food-calories').value = '';
+    clearFoodMacroHint();
     setFoodPer100g(true);
     const more = document.getElementById('food-modal-more');
     if (more) more.open = !!p.barcode;
@@ -389,6 +434,7 @@ function editFoodLog(id) {
     document.getElementById('food-name').value = log.name || '';
     document.getElementById('food-barcode').value = log.barcode || '';
     document.getElementById('food-weight').value = log.weight || '';
+    clearFoodMacroHint();
 
     if (log.weight > 0) {
         setFoodPer100g(true);

@@ -621,7 +621,15 @@
         body.appendChild(el('span', 'wg-row__title', item.name));
         const meta = el('span', 'wg-row__meta', `${Math.round(item.weight)} g · P ${Math.round(item.protein)} · F ${Math.round(item.fat)}`);
         if (item.uncertain) meta.appendChild(window.WGChip.create({ text: 'estimate', state: 'warn', small: true }));
+        // FC2 (med-5jq.9): a catalog match shows search's tag; the item's
+        // warnings field gets one hint line (per 100 g, so a grams edit keeps it).
+        if (item.matched) meta.appendChild(el('span', 'wg-tag', item.is_meal ? 'Meal' : 'Mine'));
         body.appendChild(meta);
+        const hint = el('span', 'wg-hint');
+        if (fillFoodMacroHint(hint, item.warnings, {
+            macroKcal: 4 * item.carbs + 4 * item.protein + 9 * item.fat,
+            kcal100: 4 * item.carbs_100g + 4 * item.protein_100g + 9 * item.fat_100g,
+        })) body.appendChild(hint);
         row.appendChild(body);
         const value = el('span', 'wg-row__value wg-row__value--sun', String(Math.round(item.calories)));
         value.appendChild(el('small', '', 'kcal'));
@@ -679,6 +687,11 @@
         });
         if (!choice || !st.review || st.review[i] !== item) return;
         st.review[i] = { ...recompute(item, choice.grams), name: choice.name };
+        // A renamed item no longer is the matched product.
+        if (choice.name !== item.name) {
+            delete st.review[i].matched;
+            delete st.review[i].product_id;
+        }
         renderReview();
     }
 

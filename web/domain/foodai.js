@@ -171,17 +171,36 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     const saved = [];
     let failed = 0;
     for (let i = 0; i < items.length; i++) {
+      const opts = { recordId: recordIdFor ? recordIdFor(i) : undefined, per100g: per100gOf(parsedMeal.items[i]), typo: false };
+      const input = { ...items[i], eaten_at: eatenAt };
+      // A reviewed item keeps the product its preview matched (med-5jq.9: a
+      // re-resolve of the canonical name could pick a same-key sibling); a
+      // product deleted meanwhile falls back to the bare-name reconcile.
+      const productId = parsedMeal.items[i].product_id;
       try {
-        saved.push(await foodDomain.create(
-          { ...items[i], eaten_at: eatenAt },
-          { recordId: recordIdFor ? recordIdFor(i) : undefined, per100g: per100gOf(parsedMeal.items[i]), typo: false },
-        ));
+        saved.push(await foodDomain.create(productId ? { ...input, product_id: productId } : input, opts)
+          .catch((e) => {
+            if (productId && e && e.code === 'invalid_product') return foodDomain.create(input, opts);
+            throw e;
+          }));
       } catch {
         failed++;
       }
     }
     if (saved.length === 0) throw invalid('Failed to save any food items', 'save_failed');
     return { status: 'created', items: saved, failed };
+  }
+
+  // The dry run names each item as the log will (med-5jq.9): a catalog match
+  // (exact or alias, no typo tier — same as the commit) takes the product's
+  // name and carries `matched` + `is_meal` for the review row's tag.
+  async function preview(parsed) {
+    const items = previewParsedMeal(parsed);
+    for (const item of items) {
+      const m = await foodDomain.matchName(item.name, { typo: false });
+      if (m) Object.assign(item, m);
+    }
+    return items;
   }
 
   // Top CATALOG_PROMPT_LIMIT product names by usage_count (listProducts'
@@ -202,7 +221,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
       throw invalid(`Description too long (max ${MAX_DESCRIPTION_BYTES} bytes)`);
     }
     const parsed = await aiClient.parseMealFromDescription(trimmed, { catalog: await catalogNames() });
-    if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
+    if (dryRun) return { status: 'parsed', items: await preview(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
@@ -211,7 +230,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
   // what makes "300g" beat guessing the portion from pixels.
   async function parseMealFromPhoto(file, { eatenAt, recordIdFor, caption, dryRun = false } = {}) {
     const parsed = await aiClient.parseMealFromImage(file, (caption || '').trim(), { catalog: await catalogNames() });
-    if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
+    if (dryRun) return { status: 'parsed', items: await preview(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
@@ -226,6 +245,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
         carbs_100g: Number(it && it.carbs_100g) || 0,
         protein_100g: Number(it && it.protein_100g) || 0,
         fat_100g: Number(it && it.fat_100g) || 0,
+        product_id: (it && it.product_id) || undefined,
       })),
     };
     return saveParsedItems(parsed, eatenAt ?? now());

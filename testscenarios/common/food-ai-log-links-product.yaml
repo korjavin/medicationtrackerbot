@@ -17,8 +17,11 @@ invariants:
   - Two devices handling the same Telegram /food end up with one product
   - Earlier AI logs keep their names, totals and missing links
   - A wrong AI match shows the product's name on the log at once and is corrected by editing the log's name, as for a typed log
+  - The review shows a matched item under the product's name with the Mine tag, and Log links exactly that product, even when a busier product shares its name key ("Boiled egg" with alias "egg boiled" next to "Boiled eggs", AI reads "eggs, boiled")
+  - Renaming a matched item in review drops the Mine tag and the link; it reconciles by the new name
+  - An item with questionable macros shows one quiet hint line in the review; Log stays enabled
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-ai.test.js
   android: manual
   ios: manual
-source: [med-5jq.4]
+source: [med-5jq.4, med-5jq.9]
