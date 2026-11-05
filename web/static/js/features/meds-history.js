@@ -280,7 +280,9 @@ async function checkMedRx() {
     const stale = () => checkVersion !== _medRxCheckVersion || editingMedId !== editorId ||
         nameInput.value.trim() !== name || document.getElementById('med-modal').classList.contains('hidden');
     const call = window.offlineAwareApiCall || window.apiCallDirect;
-    if (getMedRegister() === 'eu') return checkMedEu(call, name, stale);
+    // The register choice lives in the settings record: ema-check answers
+    // 'off' for US, and only then does the rx-check path run.
+    if (await checkMedEu(call, name, stale)) return;
     const params = new URLSearchParams({ name });
     if (editingMedId) params.set('exclude_id', String(editingMedId));
     let res;
@@ -294,23 +296,16 @@ async function checkMedRx() {
 }
 
 // ==================== EU register check (bd med-3u28.2, kit ER1–ER9) ====================
-// Settings → Features → "Check names in" picks the register: a per-account,
-// device-local preference (never vault data). The cloud ema/rxnorm ports read
-// the same key (web/cloud/js/ema.js medRegister).
-function medRegisterKey() {
-    const accountId = window.MedTrackerCloud?.ctx?.accountId || 'unknown';
-    return `medRegister:${accountId}`;
-}
-
-function getMedRegister() {
-    try { return localStorage.getItem(medRegisterKey()) === 'eu' ? 'eu' : 'us'; } catch (_) { return 'us'; }
-}
+// Settings → Features → "Check names in" picks the register: med_register on
+// the settings record (bd med-3u28.6), read by the cloud ema/rxnorm ports.
 
 const MED_EU_POLL_MS = 250;
 
 // The register downloads once; while it does the check answers 'loading'
 // with the progress so far, so ask again until it settles. Only the first
 // call starts a load; polls just read it, so a failed load ends on ER6.
+// Resolves false when the answer is 'off' (US register: the caller runs
+// rx-check), true when this check is handled.
 async function checkMedEu(call, name, stale) {
     const params = new URLSearchParams({ name });
     for (;;) {
@@ -318,12 +313,13 @@ async function checkMedEu(call, name, stale) {
         try {
             res = await call(`/api/medications/ema-check?${params}`, 'GET');
         } catch (_) { /* shown as could not load; Save still works */ }
-        if (stale()) return;
+        if (stale()) return true;
+        if (res && res.status === 'off') return false;
         paintMedEu(res || { status: 'unavailable' }, name);
-        if (!res || res.status !== 'loading') return;
+        if (!res || res.status !== 'loading') return true;
         params.set('poll', '1');
         await new Promise((resolve) => setTimeout(resolve, MED_EU_POLL_MS));
-        if (stale()) return;
+        if (stale()) return true;
     }
 }
 

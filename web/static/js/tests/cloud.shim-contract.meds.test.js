@@ -393,13 +393,13 @@ describe('cloud medication identity through the real RxNorm port', () => {
             const { clientTs, ...rest } = (await env.records.list('medication'))[0];
             return rest;
         };
-        const pick = (register) => env.window.localStorage.setItem('medRegister:unknown', register);
+        const pick = (register) => env.window.apiCall('/api/settings/body', 'PATCH', { med_register: register });
 
         afterEach(() => env.window.localStorage.clear());
 
         it('EU register: no RxNav call at all; an unchanged name keeps the US match, a rename takes the empty result', async () => {
             await env.records.put('medication', { ...LIPITOR });
-            pick('eu');
+            await pick('eu');
             expect(await env.window.apiCall('/api/medications/rx-check?name=Lipitor')).toEqual({ rxcui: '', normalized_name: '', warning: '' });
             await env.window.apiCall('/api/medications/1', 'POST', edit('lipitor '));
             const kept = await stored();
@@ -411,7 +411,7 @@ describe('cloud medication identity through the real RxNorm port', () => {
 
             // Otherwise byte-identical to the same save with the US register.
             await env.records.put('medication', { ...LIPITOR });
-            pick('us');
+            await pick('us');
             await env.window.apiCall('/api/medications/1', 'POST', edit('Sortis'));
             expect(fetchRxnav).toHaveBeenCalled();
             expect(await stored()).toEqual(euRenamed);
@@ -439,13 +439,13 @@ describe('cloud medication identity through the real RxNorm port', () => {
         });
 
         it('switching the register applies on the next check without a reload; US never loads the EU register', async () => {
-            const { createEmaPort, createEmaLoader } = await import('../../../cloud/js/ema.js');
+            const { createEmaLoader } = await import('../../../cloud/js/ema.js');
             const asset = vi.fn(async () => new Response(fs.readFileSync(EMA_ASSET, 'utf8')));
             const caches = { open: vi.fn(async () => ({ match: async () => undefined, put: async () => {} })), keys: async () => [], delete: async () => true };
             const { createRxnormPort } = await vi.importActual('../../../cloud/js/rxnorm.js');
             env.window.offlineAwareApiCall = createApiRouter({}, {
                 records: env.records, win: env.window, rxnorm: createRxnormPort(),
-                ema: createEmaPort({ win: env.window, loader: createEmaLoader({ fetch: asset, caches }) }),
+                emaLoader: createEmaLoader({ fetch: asset, caches }),
                 now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
                 effects: { scheduleReminderRecompute: vi.fn() },
             });
@@ -455,7 +455,7 @@ describe('cloud medication identity through the real RxNorm port', () => {
             expect(asset).not.toHaveBeenCalled();
             expect(caches.open).not.toHaveBeenCalled();
 
-            pick('eu');
+            await pick('eu');
             // A poll only reads the load; the check starts it.
             expect((await poll()).status).toBe('idle');
             expect(caches.open).not.toHaveBeenCalled();
@@ -466,9 +466,87 @@ describe('cloud medication identity through the real RxNorm port', () => {
             expect(res).toMatchObject({ ambiguous: true, source: { revision: 'EMA/518502/2018, Rev.90' } });
             expect(asset).toHaveBeenCalledTimes(1);
 
-            pick('us');
+            await pick('us');
             expect((await check()).status).toBe('off');
             expect((await env.window.apiCall('/api/medications/rx-check?name=Lipitor')).rxcui).toBe('153165');
+        });
+
+        // bd med-3u28.6 (b): the choice is the synced settings record, so a
+        // pick pulled from another device applies on the next check.
+        it('an EU pick pulled from another device applies on the next check, no reload', async () => {
+            expect((await env.window.apiCall('/api/settings')).med_register).toBe('us');
+            await env.records.put('settings', { recordId: 'settings', clientTs: 5, deleted: false, med_register: 'eu' });
+            expect((await env.window.apiCall('/api/settings')).med_register).toBe('eu');
+            expect(await env.window.apiCall('/api/medications/rx-check?name=Lipitor')).toEqual({ rxcui: '', normalized_name: '', warning: '' });
+            expect(fetchRxnav).not.toHaveBeenCalled();
+        });
+
+        // bd med-3u28.6 (a): the pick rides the vault through the local →
+        // account move (exportJSON → move.stash → restoreVault/importAll).
+        it('a move carries the pick: EU + one med in local mode → the account shows EU and its first save sends nothing', async () => {
+            const { recordsToVault, vaultToRecords } = await import('../../../domain/vault.js');
+            const opts = { now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC', effects: { scheduleReminderRecompute: vi.fn() } };
+            const local = createInMemoryRecordsPort();
+            const localRouter = createApiRouter({}, { ...opts, records: local, win: env.window, rxnorm: null });
+            await localRouter('/api/settings/body', 'PATCH', { med_register: 'eu' });
+            await localRouter('/api/medications', 'POST', { name: 'Candecor', dosage: '8mg', schedule: '{"type":"as_needed"}' });
+            const stash = JSON.stringify(recordsToVault([...await local.list('settings'), ...await local.list('medication')], { now: Date.now() }));
+
+            const moved = {};
+            for (const r of vaultToRecords(JSON.parse(stash), { now: Date.now() })) (moved[r.recordType] = moved[r.recordType] || []).push(r);
+            env.records = createInMemoryRecordsPort(moved);
+            const { createRxnormPort } = await vi.importActual('../../../cloud/js/rxnorm.js');
+            env.window.offlineAwareApiCall = createApiRouter({}, { ...opts, records: env.records, win: env.window, rxnorm: createRxnormPort() });
+            expect((await env.window.apiCall('/api/settings')).med_register).toBe('eu');
+            await env.window.apiCall('/api/medications', 'POST', { name: 'Lipitor', dosage: '10mg', schedule: '{"type":"as_needed"}' });
+            expect((await env.records.list('medication')).map((m) => m.name).sort()).toEqual(['Candecor', 'Lipitor']);
+            expect(fetchRxnav).not.toHaveBeenCalled();
+        });
+
+        it('rejects a register that is neither us nor eu', async () => {
+            await expect(env.window.offlineAwareApiCall('/api/settings/body', 'PATCH', { med_register: 'uk' }))
+                .rejects.toMatchObject({ code: 'invalid_request' });
+        });
+
+        // bd med-3u28.6 (c): slice 1's device-local key is carried over once.
+        it('carries a slice-1 EU key into the record once and removes it', async () => {
+            env.window.localStorage.setItem('medRegister:unknown', 'eu');
+            const router = createApiRouter({}, {
+                records: env.records, win: env.window, rxnorm: { searchRxNorm: fetchRxnav, checkInteractions: fetchRxnav },
+                now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
+                effects: { scheduleReminderRecompute: vi.fn() },
+            });
+            const write = vi.spyOn(env.records, 'put');
+            expect(await router('/api/medications/rx-check?name=Lipitor', 'GET')).toEqual({ rxcui: '', normalized_name: '', warning: '' });
+            expect(write.mock.calls.filter(([type]) => type === 'settings')).toHaveLength(1);
+            expect(env.window.localStorage.getItem('medRegister:unknown')).toBeNull();
+            expect((await router('/api/settings', 'GET')).med_register).toBe('eu');
+            await router('/api/medications/rx-check?name=Lipitor', 'GET');
+            expect(write.mock.calls.filter(([type]) => type === 'settings')).toHaveLength(1);
+            expect(fetchRxnav).not.toHaveBeenCalled();
+        });
+
+        it('a slice-1 key never overrides a stored pick; a US key is just removed', async () => {
+            await pick('us');
+            env.window.localStorage.setItem('medRegister:unknown', 'eu');
+            const router = createApiRouter({}, {
+                records: env.records, win: env.window,
+                now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
+                effects: { scheduleReminderRecompute: vi.fn() },
+            });
+            expect((await router('/api/settings', 'GET')).med_register).toBe('us');
+            expect(env.window.localStorage.getItem('medRegister:unknown')).toBeNull();
+
+            env.window.localStorage.setItem('medRegister:unknown', 'us');
+            const write = vi.spyOn(env.records, 'put');
+            const fresh = createApiRouter({}, {
+                records: env.records, win: env.window,
+                now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
+                effects: { scheduleReminderRecompute: vi.fn() },
+            });
+            expect((await fresh('/api/settings', 'GET')).med_register).toBe('us');
+            expect(write.mock.calls.filter(([type]) => type === 'settings')).toHaveLength(0);
+            expect(env.window.localStorage.getItem('medRegister:unknown')).toBeNull();
         });
     });
 

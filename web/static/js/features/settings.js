@@ -1298,27 +1298,26 @@ async function paintSyncSection() {
 
 // Load settings (BP reminders status, etc.)
 // Features → Medications → "Check names in" (kit ER1/ER2, bd med-3u28.2): which
-// register checks medication names. Device-local and per account
-// (meds-history.js medRegisterKey); the editor's next check reads it, no reload.
+// register checks medication names. med_register on the settings record (bd
+// med-3u28.6), painted from settings_bundle.body by paintBodySettings and saved
+// through saveBodySettings; the editor's next check reads it, no reload.
 let _medRegisterBound = false; // module-state: one-time guard so the row's click listener binds once across loadSettings() calls
 const MED_REGISTER_LABELS = { us: 'US register', eu: 'EU register' };
 function bindMedRegister() {
     const btn = document.getElementById('med-register-choose');
-    if (!btn || typeof getMedRegister !== 'function') return;
-    document.getElementById('med-register-value').textContent = MED_REGISTER_LABELS[getMedRegister()];
-    if (_medRegisterBound) return;
+    if (!btn || _medRegisterBound) return;
     _medRegisterBound = true;
     btn.addEventListener('click', async () => {
-        const current = getMedRegister();
+        const current = _body.med_register === 'eu' ? 'eu' : 'us';
         // Local mode has no account, so no RxNav (local-boot.js rxnorm: null).
+        // With an account the choice syncs and survives a move or restore.
         const local = document.documentElement.classList.contains('wg-local-vault');
         const picked = await safeChoose('', [
             { value: 'us', label: 'US register', sub: local ? 'Needs an account. Without one, no name check runs.' : 'Sends the name to RxNav (US NIH).', selected: current === 'us' },
             { value: 'eu', label: 'EU register', sub: 'Checked on this phone; nothing is sent.', selected: current === 'eu' },
-        ], { title: 'Check medicine names in', hint: 'Applies on this phone only.' });
-        if (picked !== 'us' && picked !== 'eu') return;
-        try { localStorage.setItem(medRegisterKey(), picked); } catch (_) { /* storage denied: the choice stays US */ }
-        document.getElementById('med-register-value').textContent = MED_REGISTER_LABELS[getMedRegister()];
+        ], { title: 'Check medicine names in', hint: local ? 'Applies on this phone only.' : '' });
+        if ((picked !== 'us' && picked !== 'eu') || picked === current) return;
+        saveBodySettings({ med_register: picked });
     });
 }
 
@@ -2014,7 +2013,7 @@ const HEIGHT_RANGE_ERROR = {
     cm: `Enter a height between ${HEIGHT_MIN_CM} and ${HEIGHT_MAX_CM} cm.`,
     ftin: 'Enter a height between 3′ 3″ and 8′ 2″.',
 };
-let _body = { height_cm: null, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false }; // module-state: last painted body settings
+let _body = { height_cm: null, height_unit: 'cm', show_bmi: true, bmi_nudge_dismissed: false, med_register: 'us' }; // module-state: last painted body settings
 let _heightDirty = false; // module-state: mid-edit, so a bundle repaint must not overwrite the typed value
 
 function cmToFtIn(cm) {
@@ -2069,6 +2068,8 @@ function paintBodySettings(body) {
     }
     const toggle = document.getElementById('settings-show-bmi-toggle');
     if (toggle) toggle.checked = _body.show_bmi !== false;
+    const register = document.getElementById('med-register-value');
+    if (register) register.textContent = MED_REGISTER_LABELS[_body.med_register === 'eu' ? 'eu' : 'us'];
     setSettingsSummary('body', `Height · ${formatHeight(_body.height_cm ?? null, unit)}`);
     paintBmiHint();
 }

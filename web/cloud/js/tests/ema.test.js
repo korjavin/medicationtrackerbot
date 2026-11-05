@@ -126,25 +126,25 @@ describe('ema loader', () => {
 });
 
 describe('ema port', () => {
-  const win = (register) => ({ localStorage: { getItem: (k) => (k === 'medRegister:acct' ? register : null) }, MedTrackerCloud: { ctx: { accountId: 'acct' } } });
+  const pick = (register) => async () => register;
 
   it('is off with the US register picked and never starts the loader', async () => {
     const loader = { ensure: vi.fn(), state: vi.fn() };
-    expect(await createEmaPort({ win: win(null), loader }).register()).toEqual({ status: 'off' });
-    expect(await createEmaPort({ win: win('us'), loader }).register()).toEqual({ status: 'off' });
+    expect(await createEmaPort({ register: pick(null), loader }).register()).toEqual({ status: 'off' });
+    expect(await createEmaPort({ register: pick('us'), loader }).register()).toEqual({ status: 'off' });
     expect(loader.ensure).not.toHaveBeenCalled();
   });
 
   it('with EU picked starts the load and reports its state without waiting', async () => {
     const loader = { ensure: vi.fn(), state: vi.fn(() => ({ status: 'loading', progress: 0.1 })) };
-    expect(await createEmaPort({ win: win('eu'), loader }).register()).toEqual({ status: 'loading', progress: 0.1 });
+    expect(await createEmaPort({ register: pick('eu'), loader }).register()).toEqual({ status: 'loading', progress: 0.1 });
     expect(loader.ensure).toHaveBeenCalledTimes(1);
   });
 
   it('offline: the editor polls see unavailable (ER6), and only a new check (Retry) fetches again', async () => {
     const fetch = vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockImplementation(okFetch());
     const loader = createEmaLoader({ fetch, caches: fakeCaches() });
-    const port = createEmaPort({ win: win('eu'), loader });
+    const port = createEmaPort({ register: pick('eu'), loader });
     expect((await port.register()).status).toBe('loading');
     await loader.ensure();
     for (let i = 0; i < 4; i++) expect(await port.register({ start: false })).toEqual({ status: 'unavailable' });

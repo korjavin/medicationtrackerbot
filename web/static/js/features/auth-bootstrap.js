@@ -149,6 +149,7 @@ window.AuthBootstrap = (function () {
                 height_unit: bodyRaw.height_unit === 'ftin' ? 'ftin' : 'cm',
                 show_bmi: bodyRaw.show_bmi !== false,
                 bmi_nudge_dismissed: bodyRaw.bmi_nudge_dismissed === true,
+                med_register: bodyRaw.med_register === 'eu' ? 'eu' : 'us',
             },
             foodTargets: {
                 calories: Number(foodTargetsRaw.calories) || 0,

@@ -33,7 +33,7 @@ import {
 } from './sync.js';
 import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
-import { createEmaPort, medRegister } from './ema.js';
+import { createEmaPort } from './ema.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
@@ -197,8 +197,9 @@ function debugOnce(key, ...args) {
 //   opts.rxnorm   the drug-name lookup port; null turns it off (the domain's
 //                 no-op), which local mode does: the RxNav proxy is the
 //                 operator's (bd med-o7zq.3, local-policy.js).
-//   opts.ema      the on-device EU register port (ema.js); omitted = the
-//                 page's shared lazy loader. Local mode keeps it: same asset.
+//   opts.emaLoader  the EU register loader behind the ema port (ema.js);
+//                 omitted = the page's shared lazy loader. Local mode keeps
+//                 it: same asset.
 //   opts.operatorFoodDb  fooddb.js's operator food-DB port; omitted keeps the
 //                 cloud's same-origin one (local mode: LOCAL_FOOD_DB, bd
 //                 med-o7zq.20).
@@ -223,21 +224,56 @@ function debugOnce(key, ...args) {
 //                 the inbox applier passes () => false. Local mode never floors.
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin, via,
-  rxnorm: rxnormPort = createRxnormPort(), ema, operatorFoodDb, protection, documentPolicy,
+  rxnorm: rxnormPort = createRxnormPort(), emaLoader, operatorFoodDb, protection, documentPolicy,
   caughtUp = (recordsOverride || portFactory) ? async () => true : hasCaughtUp, onDoseBoundary,
   canFloor = recordsOverride ? caughtUp : async () => (await caughtUp()) && pulledThisSession(),
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
-  // "Check names in" (bd med-3u28.2), read per call so a Settings change
-  // applies without a reload: with the EU register picked RxNav never runs
-  // (no name leaves the device) and answers what local mode's null port does.
-  const rxnorm = rxnormPort && {
-    searchRxNorm: (name) => (medRegister(targetWindow) === 'eu'
-      ? Promise.resolve(null) : rxnormPort.searchRxNorm(name)), // null: no lookup performed
-    checkInteractions: (rxcuis) => (medRegister(targetWindow) === 'eu'
-      ? Promise.resolve([]) : rxnormPort.checkInteractions(rxcuis)),
+  // "Check names in" (bd med-3u28.2/.6): the settings record's med_register,
+  // read per call so a Settings change or a pull applies without a reload.
+  // Unless it reads 'us', RxNav never runs (no name leaves the device) and
+  // answers what local mode's null port does; an unreadable record is null,
+  // so neither register runs. `settings` is assigned in buildDomains below,
+  // before any route can call this.
+  const medRegister = async () => {
+    try {
+      await carryLegacyMedRegister();
+      return (await settings.getGeneral()).med_register;
+    } catch {
+      return null;
+    }
   };
-  const emaPort = ema || createEmaPort({ win: targetWindow });
+  const rxnorm = rxnormPort && {
+    searchRxNorm: async (name) => ((await medRegister()) !== 'us'
+      ? null : rxnormPort.searchRxNorm(name)), // null: no lookup performed
+    checkInteractions: async (rxcuis) => ((await medRegister()) !== 'us'
+      ? [] : rxnormPort.checkInteractions(rxcuis)),
+  };
+  const emaPort = createEmaPort({ register: medRegister, loader: emaLoader });
+  // One-time carry-over of slice 1's device-local key (bd med-3u28.6): 'eu'
+  // with no med_register stored becomes the record's (the user's own pick, at
+  // now(); rule 12 n/a), then the key goes ('us' is just removed). Once per
+  // router; a failed write keeps the key for the next page load.
+  let legacyMedRegister = null;
+  function carryLegacyMedRegister() {
+    legacyMedRegister = legacyMedRegister || (async () => {
+      let key; let value;
+      try {
+        const accountId = (targetWindow.MedTrackerCloud && targetWindow.MedTrackerCloud.ctx && targetWindow.MedTrackerCloud.ctx.accountId) || 'unknown';
+        key = `medRegister:${accountId}`;
+        value = targetWindow.localStorage.getItem(key);
+      } catch {
+        return;
+      }
+      if (value === null) return;
+      if (value === 'eu') {
+        const rec = (await records.list('settings')).find((r) => r.recordId === 'settings' && !r.deleted);
+        if (!rec || rec.med_register === undefined) await settings.setBodySettings({ med_register: 'eu' });
+      }
+      try { targetWindow.localStorage.removeItem(key); } catch { /* retried next page load */ }
+    })();
+    return legacyMedRegister;
+  }
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
   const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;
@@ -475,6 +511,7 @@ export function createApiRouter(ctx, {
   // GET /api/settings and the bootstrap payload — the settings-only reads,
   // without the heavy bp/weight aggregate reads that /api/settings discards.
   async function settingsResponse() {
+    await carryLegacyMedRegister().catch(() => {}); // the Settings row shows a slice-1 pick at once
     const [weightUnit, features, foodTargets, tabOrder, general, bpStatus, weightStatus] = await Promise.all([
       readWeightUnit(),
       settings.getFeatures(),
@@ -498,6 +535,7 @@ export function createApiRouter(ctx, {
       height_unit: general.height_unit,
       show_bmi: general.show_bmi,
       bmi_nudge_dismissed: general.bmi_nudge_dismissed,
+      med_register: general.med_register,
     };
     if (tabOrder) block.tab_order = tabOrder;
     return { settings: block, features: clampFeatures(features) };
@@ -724,7 +762,7 @@ export function createApiRouter(ctx, {
     }
 
     // Partial patch of the body settings (height_cm, height_unit, show_bmi,
-    // bmi_nudge_dismissed — settings.js BODY_FIELDS); null resets a field.
+    // bmi_nudge_dismissed, med_register — settings.js BODY_FIELDS); null resets a field.
     if (path === '/api/settings/body' && method === 'PATCH') return settings.setBodySettings(body);
 
     if (path === '/api/settings' && method === 'POST') {

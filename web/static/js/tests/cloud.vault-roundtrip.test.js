@@ -61,6 +61,16 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(out).toMatchObject({ height_cm: 180, height_unit: 'ftin', show_bmi: false });
     expect(out).not.toHaveProperty('bmi_nudge_dismissed');
 
+    // med-3u28.6: the register choice rides the same singleton; the golden
+    // fixture has none (absent when unset), an invalid value imports none.
+    expect(fixture.data.settings).not.toHaveProperty('med_register');
+    const eu = JSON.parse(JSON.stringify(fixture));
+    eu.data.settings.med_register = 'eu';
+    expect(general(vaultToRecords(eu, { now: NOW })).med_register).toBe('eu');
+    expect(recordsToVault(vaultToRecords(eu, { now: NOW }), { now: NOW }).data.settings.med_register).toBe('eu');
+    eu.data.settings.med_register = 'EU';
+    expect(general(vaultToRecords(eu, { now: NOW }))).not.toHaveProperty('med_register');
+
     for (const value of [undefined, '180', null]) {
       const legacy = JSON.parse(JSON.stringify(fixture));
       if (value === undefined) delete legacy.data.settings.height_cm;

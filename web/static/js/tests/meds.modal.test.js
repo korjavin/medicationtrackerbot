@@ -20,6 +20,10 @@ async function seedMedications(window, meds) {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+// The editor asks ema-check first (bd med-3u28.6); 'off' is the US register.
+const EMA_OFF = { status: 'off', candidates: [], ambiguous: false, source: null };
+const usRegister = (fn) => vi.fn(async (url, ...rest) => (url.startsWith('/api/medications/ema-check') ? EMA_OFF : fn(url, ...rest)));
+
 describe('Medication editor page (kit M5–M6)', () => {
     let env;
 
@@ -518,7 +522,7 @@ describe('Medication editor page (kit M5–M6)', () => {
             stock: { counted: 20, counted_at: '2026-09-12T10:00:00Z', seed: false, refills: [{ n: 28, at: '2026-09-21T10:00:00Z' }], taken: 18 },
             tz_shift_policy: 'medium',
         }]);
-        window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '1', normalized_name: 'allopurinol', warning: '' });
+        window.apiCallDirect = usRegister(async () => ({ rxcui: '1', normalized_name: 'allopurinol', warning: '' }));
 
         window.showEditModal(1);
         await flush();
@@ -577,7 +581,7 @@ describe('Medication editor page (kit M5–M6)', () => {
         const { document, window } = env;
         const warning = 'Interaction between candesartan and ibuprofen: reduced effect';
         window.safeAlert = vi.fn();
-        window.apiCallDirect = vi.fn(async (url) => {
+        window.apiCallDirect = usRegister(async (url) => {
             if (url.startsWith('/api/medications/rx-check')) {
                 return { rxcui: '1', normalized_name: 'candesartan', warning };
             }
@@ -677,10 +681,6 @@ describe('Medication editor page (kit M5–M6)', () => {
             name.dispatchEvent(new window.Event('change'));
         };
         const slot = (document) => document.getElementById('med-eu-slot');
-
-        beforeEach(() => {
-            env.window.localStorage.setItem('medRegister:unknown', 'eu');
-        });
 
         it('one entry: the ok chip names the substance; tap opens the sheet with route rows and the dated source', async () => {
             const { document, window } = env;
@@ -838,14 +838,16 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(slot(document).classList.contains('hidden')).toBe(true);
         });
 
-        it('US register (the default): the Rx check runs as before and no EU check or EU DOM appears', async () => {
+        it('US register (ema-check answers off): the Rx check runs as before and no EU DOM appears', async () => {
             const { document, window } = env;
-            window.localStorage.removeItem('medRegister:unknown');
-            window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '1', normalized_name: 'candesartan', warning: '' });
+            window.apiCallDirect = usRegister(async () => ({ rxcui: '1', normalized_name: 'candesartan', warning: '' }));
             window.showAddModal();
             commitName(document, window, 'Candesartan');
             await vi.waitFor(() => expect(document.getElementById('med-rx-name').textContent).toBe('Rx · candesartan'));
-            expect(window.apiCallDirect.mock.calls.every(([url]) => !url.includes('ema-check'))).toBe(true);
+            expect(window.apiCallDirect.mock.calls.map(([url]) => url)).toEqual([
+                '/api/medications/ema-check?name=Candesartan',
+                '/api/medications/rx-check?name=Candesartan',
+            ]);
             expect(slot(document).classList.contains('hidden')).toBe(true);
             expect(slot(document).childElementCount).toBe(0);
         });

@@ -4,8 +4,8 @@
 // so no medicine name leaves the phone.
 //
 // Lazy: nothing loads until the first EU check, and only with 'eu' picked in
-// Settings → Features → "Check names in" (a device-local, per-account
-// localStorage choice, never vault data). One fetch per page (single-flight),
+// Settings → Features → "Check names in" (the settings record's med_register,
+// bd med-3u28.6). One fetch per page (single-flight),
 // parsed once into createEMACatalogue.
 //
 // Own Cache API cache, named OUTSIDE the service worker's 'medtracker-cloud'
@@ -25,17 +25,6 @@ const EMA_BYTES = 13274325;
 
 export function emaAssetUrl(revision = EMA_REVISION) {
   return `/static/data/ema-article57-${revision}.json`;
-}
-
-// The register choice. The key matches features/meds-history.js
-// medRegisterKey (same accountId expression, so local mode agrees too).
-export function medRegister(win) {
-  try {
-    const accountId = (win && win.MedTrackerCloud && win.MedTrackerCloud.ctx && win.MedTrackerCloud.ctx.accountId) || 'unknown';
-    return win.localStorage.getItem(`medRegister:${accountId}`) === 'eu' ? 'eu' : 'us';
-  } catch {
-    return 'us';
-  }
 }
 
 // A half-open connection (captive portal, a phone waking up) never settles a
@@ -148,10 +137,11 @@ let sharedLoader = null; // module-state: one register per page lifetime, shared
 // the load and reports where it is, so the editor can paint real progress.
 // start: false (the editor's polls) only reads the state, so a failed load
 // stays 'unavailable' until the next check (or Retry) starts another.
-export function createEmaPort({ win, loader } = {}) {
+// register: async () => 'us' | 'eu' | null, the settings record's choice.
+export function createEmaPort({ register: picked, loader } = {}) {
   return {
     async register({ start = true } = {}) {
-      if (medRegister(win) !== 'eu') return { status: 'off' };
+      if (!picked || (await picked()) !== 'eu') return { status: 'off' };
       const l = loader || (sharedLoader = sharedLoader || createEmaLoader());
       if (start) l.ensure();
       return l.state();
