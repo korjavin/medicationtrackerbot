@@ -64,7 +64,10 @@
 //     WRITE_EXERCISE). A write kind the shell does not know is ignored.
 //     Without `write` it is the read-only sheet above.
 //   writeAccess(types) → health.writeAccess { types } → Promise<{ granted:
-//     ['bp', 'weight', 'hr', 'workout'], supported?: [kinds] }>: the kinds the store
+//     ['bp', 'weight', 'hr', 'workout'], supported?: [kinds], readableFrom?: ms }>:
+//     readableFrom (med-8f4s.13/.14) = how far back query sees other apps'
+//     records (0 = all; Android without the history permission: first grant
+//     − 30 d); absent = an older shell, and the page offers no Copy. The kinds the store
 //     lets this app write now (HealthKit authorizationStatus(for:) on every
 //     share type of the kind; Health Connect getGrantedPermissions on the
 //     WRITE_* permissions). `supported` (optional) = the kinds this shell can

@@ -1266,6 +1266,17 @@ the APK carries the web app and the shell serves it on
 so local IndexedDB never mixes with an account's. The mode switch, first run
 and bridge ops are below ([Local mode: the shell](#local-mode-the-shell-bd-med-nt9p324)).
 
+The EU medicine register is bundled too: choosing **Settings → Features → Check
+names in → EU register** loads it on the first medication-name check from the
+local `appassets.androidplatform.net` origin. The explicit `medtracker-ema-*`
+Cache API cache stores the register on that origin and reuses it after an app
+relaunch; `LocalApp`'s HTTP `no-store` header does not disable this cache.
+Storage is best-effort: if denied or evicted, an already loaded register still
+works in memory and a later page load needs to read the bundled asset again.
+The choice persists locally across relaunches, separately from every account
+origin; moving into an account starts at US, so pick EU again there. The local
+US option needs an account and performs no name check without one.
+
 - **Bundle (CI only):** `android.yml` (and `android-qa.yml`, with `QA=1` and
   prefix `android-qa`) runs [`ios/bundle-web.sh`](../ios/bundle-web.sh) before Gradle with
   `WG_BUNDLE_OUT=android/app/src/main/assets/web` and

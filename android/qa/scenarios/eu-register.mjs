@@ -1,10 +1,14 @@
-// EU register check on the real shell in local mode (bd med-3u28.2, acceptance f): the measurement
-// gate and the editor/sheet screens. results.euRegister = {
+// EU register check on the real shell in local mode (bd med-3u28.2/.3): the measurement
+// gate, Settings choice, cache persistence across a cold relaunch and editor/sheet screens.
+// results.euRegister = {
 //   phases: fetch+decode, JSON.parse, index build of the bundled asset (ms), measured apart;
 //   first: the app path's first EU check (ms to ready, peak heap, long tasks, worst timer lag);
-//   second: the next page load (cache-first: no asset request);
+//   second: the cold relaunch (cache-first: no asset request);
 //   heapMB: { before, afterFirst, retained } after a forced GC (CDP), the register held in memory }.
 // Numbers only: the gate's verdict is a review call (worker / smaller projection is a follow-up bead).
+
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 const ASSET = '/static/data/ema-article57-rev90-v1.json';
 
@@ -31,10 +35,24 @@ async function timedCheck(name) {
   probe();
   const t0 = performance.now();
   let res;
+  let lastState = null;
   let polls = 0;
   for (;;) {
-    res = await window.apiCall(`/api/medications/ema-check?name=${encodeURIComponent(name)}`);
+    const remaining = 60_000 - (performance.now() - t0);
+    if (remaining <= 0) { res = { status: 'timeout', candidates: [] }; break; }
+    let timer;
+    try {
+      // Same contract as the editor (meds-history.js): poll=1 only observes the loader.
+      // Starting again on every poll can hide a failed load in an endless retry loop.
+      res = await Promise.race([
+        window.apiCall(`/api/medications/ema-check?name=${encodeURIComponent(name)}${polls ? '&poll=1' : ''}`),
+        new Promise((resolve) => { timer = setTimeout(() => resolve({ status: 'timeout', candidates: [] }), remaining); }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
     polls++;
+    if (res.status !== 'timeout') lastState = { status: res.status, progress: res.progress ?? null };
     if (res.status !== 'loading') break;
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -44,7 +62,7 @@ async function timedCheck(name) {
   if (po) po.disconnect();
   const round = (n) => Math.round(n);
   return {
-    ms: round(ms), status: res.status, candidates: res.candidates.length, polls,
+    ms: round(ms), status: res.status, candidates: res.candidates.length, polls, lastState,
     maxTimerLagMs: round(maxLag), longTasks: tasks.length, longestTaskMs: round(Math.max(0, ...tasks)),
     totalBlockingMs: round(tasks.reduce((s, d) => s + Math.max(0, d - 50), 0)),
     peakHeapMB: performance.memory ? +(peak / 1048576).toFixed(1) : null,
@@ -53,9 +71,42 @@ async function timedCheck(name) {
 
 export default async function euRegister(ctx) {
   const { shell, pkg, sleep } = ctx;
-  const r = (ctx.results.euRegister = { assetRequests: { first: 0, second: 0 } });
-  let counting = null;
-  const watch = (p) => p.on('request', (q) => { if (counting && q.url().includes('/static/data/ema-')) r.assetRequests[counting]++; });
+  const r = (ctx.results.euRegister = {
+    assetRequests: { first: 0, second: 0 }, assetResponses: [], finishedAssetRequests: [], failedAssetRequests: [],
+  });
+  const started = Date.now();
+  r.bundledAssetSha256 = createHash('sha256').update(await readFile(new URL(`../../../web${ASSET}`, import.meta.url))).digest('hex');
+  let counting = 'setup';
+  const isAsset = (url) => url.includes('/static/data/ema-');
+  const watch = (p) => {
+    // Label the separate phase probe, which deliberately precedes a reload, as instrumentation.
+    // Keep the phase on the request: a late failure must not be assigned to a later check.
+    const phases = new WeakMap();
+    p.on('request', (q) => {
+      if (isAsset(q.url())) {
+        phases.set(q, counting);
+        r.assetRequests[counting] = (r.assetRequests[counting] || 0) + 1;
+      }
+    });
+    p.on('response', (res) => {
+      const phase = phases.get(res.request());
+      if (phase) r.assetResponses.push({ phase, url: res.url(), status: res.status(), atMs: Date.now() - started });
+    });
+    p.on('requestfailed', (q) => {
+      const phase = phases.get(q);
+      if (phase) r.failedAssetRequests.push({ phase, url: q.url(), error: q.failure()?.errorText, observedDuring: r.observationStage, atMs: Date.now() - started });
+    });
+    p.on('requestfinished', (q) => {
+      const phase = phases.get(q);
+      if (phase) r.finishedAssetRequests.push({ phase, url: q.url(), atMs: Date.now() - started });
+    });
+  };
+  // local-app.mjs also records ERR_ABORTED as cancellation. Here the exception is narrower:
+  // only a 200 app load with a validated ready catalogue AND an exact fresh cached copy of the
+  // bundled bytes can classify that signal as cancellation. Preserve the raw event; infer no cause.
+  const completedCancel = (q) => q.phase === 'first' && q.error === 'net::ERR_ABORTED'
+    && new URL(q.url).pathname === ASSET && r.firstBodyComplete;
+  const failedAppRequests = () => r.failedAssetRequests.filter((q) => q.phase !== 'instrumentation' && !completedCancel(q));
 
   await shell(`pm clear ${pkg}`);
   let page = await ctx.step('cold start in local mode (seeds the golden vault)', async () => {
@@ -82,8 +133,39 @@ export default async function euRegister(ctx) {
     await ctx.waitLocalReady(page);
     await sleep(3000); // boot work settles before measuring
   };
+  const openChoice = async () => {
+    // A plain relaunch can restore Settings, where its own navigation button is hidden.
+    const features = page.locator('[data-settings-open="features"]:visible');
+    const gear = page.locator('[data-nav-to="settings"]:visible').first();
+    const entry = features.or(gear).first();
+    await entry.waitFor({ state: 'visible', timeout: 30_000 });
+    const alreadySettings = await entry.getAttribute('data-settings-open') === 'features';
+    await entry.click();
+    if (!alreadySettings) await features.click();
+    const row = page.locator('#med-register-choose');
+    await row.scrollIntoViewIfNeeded();
+    await row.click();
+    await page.locator('.mt-confirm-modal__choices').waitFor({ timeout: 10_000 });
+  };
+
+  await ctx.step('local Settings: US needs an account; choose EU through the UI', async () => {
+    r.origin = await page.evaluate(() => location.origin);
+    if (r.origin !== ctx.LOCAL_ORIGIN) throw new Error(`unexpected origin: ${r.origin}`);
+    r.us = await page.evaluate(() => window.apiCall('/api/medications/ema-check?name=Candecor'));
+    if (r.us.status !== 'off') throw new Error(`default US check: ${r.us.status}`);
+    await openChoice();
+    const choices = page.locator('.mt-confirm-modal__choice');
+    r.usCopy = await choices.filter({ hasText: 'US register' }).textContent();
+    if (!r.usCopy.includes('Needs an account. Without one, no name check runs.')) throw new Error(`local US copy: ${r.usCopy}`);
+    if (!(await page.locator('.mt-confirm-modal').textContent()).includes('Applies on this phone only.')) throw new Error('missing device-local choice hint');
+    await ctx.stableShot('er2-local-choice');
+    await choices.filter({ hasText: 'EU register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent === 'EU register');
+  });
 
   await ctx.step('phases: fetch+decode, JSON.parse, index build', async () => {
+    counting = 'instrumentation';
+    r.observationStage = 'phase-probe';
     r.phases = await page.evaluate(async (url) => {
       const t0 = performance.now();
       const text = await (await fetch(url, { cache: 'no-store' })).text();
@@ -100,31 +182,68 @@ export default async function euRegister(ctx) {
       };
     }, ASSET);
     if (r.phases.candecor !== 2) throw new Error(`Candecor: ${r.phases.candecor} rows`);
+    counting = 'first';
   });
 
-  await ctx.step('first EU check on this phone (download, parse, index, cache write)', async () => {
-    await page.evaluate(async () => {
-      localStorage.setItem('medRegister:unknown', 'eu');
+  await ctx.step('first EU check on the emulator (bundled asset, parse, index, cache write)', async () => {
+    r.cacheBeforeNames = await page.evaluate(async () => {
       for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-')) await caches.delete(n);
+      return (await caches.keys()).filter((n) => n.startsWith('medtracker-ema-'));
     });
+    if (r.cacheBeforeNames.length) throw new Error('could not clear the previous register cache');
     await freshPage();
+    r.observationStage = 'before-first-heap-gc';
     const before = await heapMB();
+    r.observationStage = 'first-app-check';
     counting = 'first';
     r.first = await page.evaluate(timedCheck, 'Candecor');
-    counting = null;
+    r.firstReadyAtMs = Date.now() - started;
+    r.observationStage = 'after-first-heap-gc';
     const after = await heapMB();
     r.heapMB = { before, afterFirst: after, retained: before !== null ? +(after - before).toFixed(1) : null };
-    r.cacheNames = await page.evaluate(async () => (await caches.keys()).filter((n) => n.startsWith('medtracker-')));
+    r.cache = await page.evaluate(async (asset) => {
+      const names = (await caches.keys()).filter((n) => n.startsWith('medtracker-ema-'));
+      for (const name of names) {
+        const response = await (await caches.open(name)).match(asset);
+        if (!response) continue;
+        const bytes = await response.arrayBuffer();
+        const hash = await crypto.subtle.digest('SHA-256', bytes);
+        const sha256 = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+        return { names, hasAsset: true, bytes: bytes.byteLength, sha256 };
+      }
+      return { names, hasAsset: false };
+    }, ASSET);
     if (r.first.status !== 'ready' || r.first.candidates !== 2) throw new Error(`first check: ${JSON.stringify(r.first)}`);
+    if (!r.cache.hasAsset) throw new Error(`register not stored on appassets: ${JSON.stringify(r.cache)}`);
+    const successfulResponse = r.assetResponses.some((res) => res.phase === 'first' && new URL(res.url).origin === ctx.LOCAL_ORIGIN && res.status === 200);
+    r.firstBodyComplete = successfulResponse && r.first.status === 'ready' && r.first.candidates === 2 && r.cache.sha256 === r.bundledAssetSha256;
+    if (r.assetRequests.first !== 1 || !r.firstBodyComplete) throw new Error('first check did not consume the complete bundled register');
+    r.completedAssetCancels = r.failedAssetRequests.filter(completedCancel);
+    if (failedAppRequests().length) throw new Error(`failed register requests: ${JSON.stringify(failedAppRequests())}`);
   });
 
-  await ctx.step('next page load reads the stored register (no asset request)', async () => {
-    await freshPage();
+  await ctx.step('force-stop and relaunch: EU choice persists and cache avoids an asset request', async () => {
+    counting = 'second';
+    r.observationStage = 'cold-relaunch';
+    page = await ctx.launchLocal(undefined, { extra: false });
+    watch(page);
+    // As in local-smoke, replay the persisted boot under the listener: attachment occurs after
+    // the native cold boot. Both boots keep app data, and no preference or cache is injected.
+    await page.reload({ waitUntil: 'load', timeout: 60_000 });
+    await ctx.waitLocalReady(page);
+    r.relaunchOrigin = await page.evaluate(() => location.origin);
+    if (r.relaunchOrigin !== ctx.LOCAL_ORIGIN) throw new Error(`relaunch origin: ${r.relaunchOrigin}`);
+    await openChoice();
+    r.persistedChoice = await page.locator('.mt-confirm-modal__choice[aria-pressed="true"]').textContent();
+    if (!r.persistedChoice.startsWith('EU register')) throw new Error(`relaunch choice: ${r.persistedChoice}`);
+    await ctx.stableShot('relaunch-eu-choice');
+    await page.locator('.mt-confirm-modal__cancel').click();
     counting = 'second';
     r.second = await page.evaluate(timedCheck, 'Candecor');
-    counting = null;
     if (r.second.status !== 'ready') throw new Error(`second check: ${JSON.stringify(r.second)}`);
     if (r.assetRequests.second) throw new Error(`${r.assetRequests.second} asset request(s) on the cached load`);
+    if (failedAppRequests().length) throw new Error(`failed register requests: ${JSON.stringify(failedAppRequests())}`);
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
   });
 
   // The ER frames on the device, for the design check.
@@ -163,5 +282,9 @@ export default async function euRegister(ctx) {
     await page.locator('.mt-confirm-modal__cancel').click();
     if (r.settingsValue !== 'EU register') throw new Error(`row value: ${r.settingsValue}`);
   });
+  r.completedAssetCancels = r.failedAssetRequests.filter(completedCancel);
+  r.failedAppRequests = failedAppRequests();
+  if (r.failedAppRequests.length) throw new Error(`failed register requests: ${JSON.stringify(r.failedAppRequests)}`);
+  if (r.assetRequests.second) throw new Error(`${r.assetRequests.second} asset request(s) after relaunch`);
   ctx.log('euRegister', JSON.stringify(r, null, 2));
 }
