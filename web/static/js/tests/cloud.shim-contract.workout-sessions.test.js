@@ -2694,6 +2694,20 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
         expect(putIfUnchanged).not.toHaveBeenCalled();
     });
 
+    // Argus round 1: a notified row (P0 card, rendered off the row) re-pointed at
+    // its real clientTs + 1 ties the same way; the card heals it too.
+    it("getNext heals today's notified row tied off the cursor (P0 card)", async () => {
+        const records = seed({
+            sessions: [session(WEDNESDAY, 'notified', { id: 901, clientTs: NOW + 1 })],
+            currentVariantId: 2
+        });
+
+        const next = await domainOver(records).getNext();
+
+        expect(next).toMatchObject({ variant_id: 2, session: { id: 901, status: 'notified' } });
+        expect((await records.list('workoutsession')).find((s) => s.id === 901).variant_id).toBe(2);
+    });
+
     it('getNext does not heal a slot that has logs, nor a flat plan', async () => {
         const logged = seed({
             sessions: [session(WEDNESDAY, 'pending', { id: 901 })],

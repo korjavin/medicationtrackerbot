@@ -2896,6 +2896,19 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect((await getRaw(SLOT)).notes).toBe('mine');
   });
 
+  // Argus round 1: a re-point over an UNSENT real edit (an offline snooze)
+  // carries that edit in its body, so the queue entry must stay a real edit.
+  it('putIfUnchanged over a queued real edit keeps it a real pending edit on re-bootstrap', async () => {
+    const base = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
+    await seed([base]);
+    const snoozed = await recordsPort(ctx).put('workoutsession', { ...base, snoozed_until: '2026-08-31T19:00:00Z' });
+    await recordsPort(ctx).putIfUnchanged('workoutsession', { ...snoozed, variant_id: 2, clientTs: 0 }, snoozed);
+    await flushConfirmed(ctx).catch(() => {});
+
+    await replaceAllRecords([{ ...base, clientTs: Date.now() + 1e9, status: 'notified' }]);
+    expect(await getRaw(SLOT)).toMatchObject({ snoozed_until: '2026-08-31T19:00:00Z', variant_id: 2 });
+  });
+
   it('putIfUnchanged leaves a slot that moved on since the read (a Start, a tombstone)', async () => {
     const read = { recordId: SLOT, recordType: 'workoutsession', clientTs: 3, deleted: false, id: 1, status: 'pending', variant_id: 1 };
     const started = { ...read, clientTs: 9000, status: 'in_progress', started_at: '2026-08-31T18:00:00Z' };

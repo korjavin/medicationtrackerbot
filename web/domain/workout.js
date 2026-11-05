@@ -1690,11 +1690,33 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // result is a mislabel (variant_id disagrees with the logs), not data loss.
   // Closing it needs the session row to carry its log state, which is a new
   // real write per log; not worth it for this window.
+  // Resolves the stored row, or null when the guards keep `s` as it is.
   async function repointSlot(s, variantId) {
-    if (s.status !== 'pending' && s.status !== 'notified') return;
-    if (s.started_at || s.completed_at || s.exercise_snapshot) return;
-    if ((await countSessionExerciseLogs(s.id)) > 0) return;
-    await records.putIfUnchanged(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: variantId, clientTs: 0 }, s);
+    if (s.status !== 'pending' && s.status !== 'notified') return null;
+    if (s.started_at || s.completed_at || s.exercise_snapshot) return null;
+    if ((await countSessionExerciseLogs(s.id)) > 0) return null;
+    return records.putIfUnchanged(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: variantId, clientTs: 0 }, s);
+  }
+
+  // healSlot re-points a session the card is about to show (getNext P0/P1/P2,
+  // listPlans) when it disagrees with its rotation cursor (bd med-qsq3 A). Two
+  // devices that moved the rotation concurrently offline both re-point the same
+  // row to the same clientTs with different variant_ids, and strict-`>` LWW
+  // never converges that tie. The rotation record does converge (it is stamped
+  // now()), so re-pointing to it writes a row one above the tie that every
+  // device then takes. A re-point that lost its CAS heals the same way. Same
+  // reach as moveRotation: rotating groups only (a flat group's card shows its
+  // first day, and setVariant's pick there must stand), today or later, and
+  // repointSlot's guards. Returns the row to show.
+  async function healSlot(s) {
+    if (!(s.group_id > 0)) return s;
+    if (String(s.scheduled_date).slice(0, 10) < localDateStr(now(), timeZone)) return s;
+    const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, s.group_id);
+    if (!group || !group.is_rotating) return s;
+    const variantId = await resolveVariantId(group);
+    if (!variantId || s.variant_id === variantId) return s;
+    const stored = await repointSlot(s, variantId);
+    return stored && !stored.deleted ? stored : s;
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
@@ -2829,7 +2851,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       .sort((a, b) => (a.status === 'in_progress' ? 0 : 1) - (b.status === 'in_progress' ? 0 : 1)
         || (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
     if (activeToday.length > 0) {
-      return buildSessionResponse(activeToday[0], todayStr, !!activeToday[0].snoozed_until);
+      const row = await healSlot(activeToday[0]);
+      return buildSessionResponse(row, todayStr, !!row.snoozed_until);
     }
 
     // PRIORITY 1: earliest snoozed session whose snooze has elapsed.
@@ -2841,7 +2864,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       for (const s of snoozed) {
         if (new Date(s.snoozed_until).getTime() < new Date(earliest.snoozed_until).getTime()) earliest = s;
       }
-      return buildSessionResponse(earliest, todayStr, true);
+      return buildSessionResponse(await healSlot(earliest), todayStr, true);
     }
 
     // PRIORITY 2: earliest upcoming occurrence across the next two weeks; ties
@@ -2960,17 +2983,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // already spoken for (see resolveNext above); the caller re-scans.
   async function ensureScheduledSession(occ, suppressed) {
     if (occ.sessionId) {
-      // Heal a slot that disagrees with the cursor (bd med-qsq3 A). The card
-      // renders the rotation cursor, Start starts the row. Two devices that
-      // moved the rotation concurrently offline both re-point the same floored
-      // row to the same clientTs with different variant_ids, and strict-`>`
-      // LWW never converges that tie. The rotation record does converge (it is
-      // stamped now()), so re-pointing to it here, at the floor, writes a row
-      // one above the tie that every device then takes. A re-point that lost
-      // its CAS heals the same way. Rotating groups only: a flat group's card
-      // shows its first day, and setVariant's pick there must stand.
-      const s = occ.existing;
-      if (occ.isRotating && s && s.variant_id !== occ.variantId) await repointSlot(s, occ.variantId);
+      if (occ.existing) await healSlot(occ.existing);
       return true;
     }
     const recordId = sessionRecordId(occ.groupId, occ.dateStr);

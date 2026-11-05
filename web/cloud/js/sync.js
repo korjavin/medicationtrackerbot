@@ -494,6 +494,9 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
       // never saw (a Start on another device), not clock noise. A notified row
       // re-pointed at its real clientTs + 1, or a row re-pointed twice, sits
       // above FLOOR_MAX_CLIENT_TS and used to be laid over that newer copy.
+      // ponytail: an entry queued before the flag existed (or by an older
+      // bundle) is unflagged and still overlays; it is indistinguishable from
+      // a real edit, so it keeps that behavior until it flushes.
       if (snap && (r.clientTs <= FLOOR_MAX_CLIENT_TS || derived) && snap.clientTs > r.clientTs) {
         losingPending.push(recordId);
         if (merge) overlay.push(merge(snap, r));
@@ -573,9 +576,21 @@ export async function resetLocalSync(ctx) {
 
 // `derived` marks a queued derived rewrite (putIfUnchanged, bd med-qsq3) so
 // replaceAllRecords can drop it like a floored row. Any later write of the
-// record re-marks it without the flag. Local bookkeeping only, never on the wire.
+// record re-marks it without the flag, and a derived rewrite never flags an
+// entry that is already queued plain: the rewrite copies that unsent real edit
+// (a snooze, say) into its body, so dropping it would drop the edit too.
+// Local bookkeeping only, never on the wire.
 async function markPending(recordId, recordType, derived = false) {
-  await withStore('pending', 'readwrite', (store) => store.put(derived ? { recordId, recordType, derived } : { recordId, recordType }));
+  await withStore('pending', 'readwrite', (store) => {
+    if (!derived) {
+      store.put({ recordId, recordType });
+      return;
+    }
+    const req = store.get(recordId);
+    req.onsuccess = () => {
+      if (!req.result) store.put({ recordId, recordType, derived });
+    };
+  });
 }
 
 async function readPending() {
