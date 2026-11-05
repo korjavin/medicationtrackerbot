@@ -10,7 +10,7 @@ describe('foodKey — one key per food', () => {
     [['Night sandwiches', 'sandwich'], 'sandwich'],
     [['capuccino'], 'capuccino'],
     [['вареное яйцо', '  Вареное   яйцо '], 'вареное яйцо'],
-    [['Weißwurst', 'WEISSWURST', 'weisswurst'], 'weisswurst'],
+    [['Weißwurst', 'WEISSWURST', 'WEIẞWURST', 'weisswurst'], 'weisswurst'],
   ])('%j → %s', (names, key) => {
     for (const n of names) expect(foodKey(n), n).toBe(key);
   });

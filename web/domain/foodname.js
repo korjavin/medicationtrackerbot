@@ -42,9 +42,9 @@ function singular(t) {
 }
 
 // The case-folded sub-tokens of one word; apostrophes join ("McDonald's").
-// Upper-then-lower is JS's nearest full case-fold (ß → ss, ς → σ).
+// Lower-upper-lower is JS's nearest full case-fold (ẞ/ß → ss, ς → σ).
 const subTokens = (word) =>
-  word.normalize('NFKC').toUpperCase().toLowerCase().replace(/['’`]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  word.normalize('NFKC').toLowerCase().toUpperCase().toLowerCase().replace(/['’`]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
 const isNoise = (t) => ANNOTATIONS.has(t) || QUANTITY.test(t);
 
