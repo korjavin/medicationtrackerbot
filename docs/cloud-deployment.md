@@ -128,6 +128,27 @@ tag is preserved and does not silently roll back:
    Verify `/readyz` and any affected endpoints (e.g. `/privacy`), and record the verified
    `build_id` in your deployment log or team channel.
 
+### Compression (`/static/` only)
+
+The app stack's labels add a second Traefik router, `cloud-static`: the same
+hosts as `cloud`, plus ``PathPrefix(`/static/`)``, with Traefik's `compress`
+middleware (`cloud-compress`, defaults: gzip/br/zstd by `Accept-Encoding`,
+nothing under 1 KiB). Its longer rule outranks `cloud` by Traefik's default
+length priority; it sets no explicit priority, so the Portainer router (1000)
+keeps `portainer.<base>`. The big win is the EU register,
+`/static/data/ema-article57-rev90-v1.json` (13 MB raw, about 1.7 MB gzipped).
+Everything else (API, SSE, long-poll, `/mcp/*`, the account HTML) stays
+uncompressed on purpose: no BREACH-style surface on authenticated responses,
+and no middleware buffering streams. Check after a deploy:
+
+```bash
+curl -s -o /dev/null -H 'Accept-Encoding: gzip' \
+  -w '%{size_download} bytes\n' -D - \
+  https://<sub>.<base>/static/data/ema-article57-rev90-v1.json | grep -i -E 'content-encoding|bytes'
+```
+
+Expect `content-encoding: gzip` and a size under 2 MB.
+
 ### Food-DB Configuration
 
 `CLOUD_FOOD_DB_URL` configures the default FastFoodDB instance for users without a BYO vault setting.
