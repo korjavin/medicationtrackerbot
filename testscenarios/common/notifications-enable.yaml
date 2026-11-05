@@ -1,19 +1,24 @@
 id: notifications-enable
-title: Settings → Notifications → Enable shows the OS prompt and the toggle turns on
+title: Settings → Notifications → Enable walks system permissions and the toggle turns on
 platforms: [web, android, ios]
 preconditions:
-  - Account mode; notifications never asked for on this device
+  - Account mode; notifications not yet allowed on this device
 steps:
   - Open Settings → Notifications
   - Tap Enable
   - Allow in the system prompt
+  - On Android, if the OS no longer prompts, allow in app notification settings and return
+  - On Android, allow Alarms and reminders if requested and return
 invariants:
-  - The system permission prompt appears right after the tap; Enable never hangs
+  - The system permission prompt appears right after the tap when the OS offers it; Enable never hangs
   - After allowing, the control shows as on (Disable)
   - Refusing points to the system settings and leaves Enable ready to tap again
-  - Once the permission is decided, a later Enable does not prompt again
+  - A later Enable does not repeat a permission prompt the OS can no longer show
+  - On Android, a non-granted runtime result without a rationale opens app notification settings
+  - On Android, Enable stays pending while the system settings screen covers the app
+  - On Android, returning after both grants turns the toggle on without another tap or reload
 covered_by:
   web: web/static/js/tests/settings.cloud-notifications.test.js
-  android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (Enable and allowing both system grants; no refusal, no second Enable)
+  android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (first Enable, both grants, settings fallback when no prompt); android/app/src/test/java/com/example/medtracker/NotificationsTest.kt (denied/no-rationale and resume); no second Enable
   ios: manual
 source: [med-nt9p.65]
