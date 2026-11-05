@@ -7,6 +7,7 @@
 // mirrors internal/domain/food_ai.go's convertParsedMeal.
 
 import { calculateMacros } from './food.js';
+import { withMacroWarnings } from './foodmacros.js';
 
 // Started as internal/ai/openai.go's MealSystemPrompt; the `uncertain` rule
 // (med-xso6.17) feeds the review step's warn chip. The unit is the DISH, not
@@ -104,13 +105,15 @@ export function previewParsedMeal(parsed) {
   const totals = convertParsedMeal(parsed);
   return totals.map((t, i) => {
     const item = parsed.items[i];
-    return {
-      ...t,
+    const per100 = {
       carbs_100g: item.carbs_100g || 0,
       protein_100g: item.protein_100g || 0,
       fat_100g: item.fat_100g || 0,
-      uncertain: item.uncertain === true,
     };
+    // The parser gives no kcal, so energy is the 4/4/9 figure: only
+    // 'impossible' can fire here (med-5jq.8; the review step shows it, .9).
+    return withMacroWarnings({ ...t, ...per100, uncertain: item.uncertain === true },
+      { ...per100, energy_kcal_100g: 4 * per100.carbs_100g + 4 * per100.protein_100g + 9 * per100.fat_100g });
   });
 }
 
