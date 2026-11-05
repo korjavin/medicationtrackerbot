@@ -10,6 +10,7 @@ describe('foodKey — one key per food', () => {
     [['Night sandwiches', 'sandwich'], 'sandwich'],
     [['capuccino'], 'capuccino'],
     [['вареное яйцо', '  Вареное   яйцо '], 'вареное яйцо'],
+    [['Weißwurst', 'WEISSWURST', 'weisswurst'], 'weisswurst'],
   ])('%j → %s', (names, key) => {
     for (const n of names) expect(foodKey(n), n).toBe(key);
   });
@@ -55,6 +56,9 @@ describe('displayName — what the user typed, minus annotations', () => {
     ['2 boiled eggs (airline)', 'Boiled eggs'],
     ['Night sandwiches', 'Sandwiches'],
     ['hard-boiled eggs, breakfast', 'Hard-boiled eggs'],
+    ['eggs,breakfast', 'Eggs'],
+    ['300g-eggs', 'Eggs'],
+    ['boiled eggs 1/3', 'Boiled eggs'],
     ['вареное яйцо', 'Вареное яйцо'],
     ['capuccino', 'Capuccino'],
     ['Breakfast', 'Breakfast'],

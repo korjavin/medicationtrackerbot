@@ -41,19 +41,30 @@ function singular(t) {
   return t;
 }
 
-// The lowercase sub-tokens of one word; apostrophes join ("McDonald's").
+// The case-folded sub-tokens of one word; apostrophes join ("McDonald's").
+// Upper-then-lower is JS's nearest full case-fold (ß → ss, ς → σ).
 const subTokens = (word) =>
-  word.normalize('NFKC').toLowerCase().replace(/['’`]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  word.normalize('NFKC').toUpperCase().toLowerCase().replace(/['’`]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
 const isNoise = (t) => ANNOTATIONS.has(t) || QUANTITY.test(t);
 
-// Whitespace words of the name with parenthesised asides removed and words
-// made only of noise dropped; each word stays exactly as typed.
+// One word with its noise pieces cut out ("300g-eggs" → "eggs"); a word with
+// no noise comes back exactly as typed, a word of only noise as ''.
+function cleanWord(word) {
+  const parts = word.split(/([^\p{L}\p{N}'’`]+)/u);
+  const noise = (p, i) => i % 2 === 0 && subTokens(p).some(isNoise);
+  if (!parts.some(noise)) return /[\p{L}\p{N}]/u.test(word) ? word : '';
+  return parts.filter((p, i) => !noise(p, i)).join('').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+}
+
+// Whitespace words of the name with parenthesised asides and noise removed;
+// what is left stays as typed.
 function keptWords(name) {
   return String(name ?? '')
     .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
     .split(/\s+/)
-    .filter((w) => subTokens(w).some((t) => !isNoise(t)));
+    .map(cleanWord)
+    .filter(Boolean);
 }
 
 export function foodKey(name) {
