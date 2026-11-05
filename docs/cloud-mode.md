@@ -443,7 +443,9 @@ never turns it off (below).
   logs, its `exercise_snapshot` (a legacy row without one: the plan's live
   exercises); the Done-tap time is not used. Zero exercises, or no
   `scheduled_time` (ad-hoc), → not written. Sessions completed this way before
-  this release are not backfilled; they are written on their next put here.
+  this release are not backfilled; they are written on their next put here
+  (or on the next pass, if one is already queued in the ledger, e.g. held
+  back while workout access was denied).
   **Reversals made elsewhere
   do not remove the copy this phone wrote:** an un-complete or delete on
   another device, on an older bundle, or via a vault replace/merge import
