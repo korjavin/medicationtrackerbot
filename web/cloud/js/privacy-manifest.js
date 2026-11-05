@@ -38,8 +38,9 @@
 // HONESTY CONSTRAINTS (inherited from med-yor.1 — do not "simplify" these away):
 //   * The vault claim is TRUE and stays stated unconditionally.
 //   * The carve-outs do NOT share one activation story. The operator-default
-//     food DB and RxNav have no toggle, and RxNav has no BYO alternative at
-//     all. Flattening them into "all opt-in" is a banned pattern in the guard.
+//     food DB has no toggle; RxNav is on by default (off only by picking the
+//     EU register, bd med-3u28.2) and has no BYO alternative at all.
+//     Flattening them into "all opt-in" is a banned pattern in the guard.
 
 // How much the OPERATOR (whoever runs this service) can see of an entry's data.
 // Rendered into the "Who sees it" column.
@@ -52,13 +53,14 @@ export const OPERATOR_VISIBILITY = {
   'at-rest': 'plaintext at rest (the operator holds the unwrapping key)',
 };
 
-// The activation class. Three egress classes, deliberately not collapsed:
-// off-until-enabled, no-toggle-active-on-use, and always-on. `on-device` and
+// The activation class. Four egress classes, deliberately not collapsed:
+// off-until-enabled, on-until-disabled, no-toggle-active-on-use, and always-on. `on-device` and
 // `user-initiated` cover rows that are not ongoing egress at all.
 export const ACTIVATION = {
   'opt-in-consent': 'Opt-in + explicit consent (revocable in Settings → Integrations)',
   'opt-in': 'Opt-in',
   'no-toggle': 'No toggle — active on use',
+  'opt-out': 'On by default — a setting turns it off',
   'always-on': 'Always on',
   'user-initiated': 'Only on your action',
   'on-device': 'On-device, inherent to offline use',
@@ -695,12 +697,12 @@ export const PRIVACY_MANIFEST = [
     id: 'rxnav',
     feature: 'Drug lookups (RxNav)',
     boundary: 'carve-out',
-    data: 'Drug-name and interaction queries, through a blind same-origin proxy',
+    data: 'Drug-name queries, through a blind same-origin proxy',
     destination: 'The operator in transit, then RxNav (NIH)',
     operatorVisibility: 'plaintext',
     retention: 'Never logged or stored by the application; only the resolved rxcui lands on the medication record. Mind the reverse proxy\'s access logs — the name travels in the query string',
-    activation: 'no-toggle',
-    activationNote: 'whenever a medication lookup or interaction check runs',
+    activation: 'opt-out',
+    activationNote: 'when "Check names in" is US register (the default); with EU register picked, names are checked on this phone against the EMA register and nothing is sent',
     byo: 'None — there is no BYO alternative for drug lookups',
     evidence: ['internal/cloudserver/rxnav_proxy.go:56', 'internal/cloudserver/rxnav_proxy.go:59'],
     code: {
@@ -709,11 +711,11 @@ export const PRIVACY_MANIFEST = [
       go: ['internal/cloudserver/rxnav_proxy.go', 'internal/cloudserver/proxy_upstream.go'],
       hosts: ['rxnav.nlm.nih.gov', 'lhncbc.nlm.nih.gov'],
     },
-    docSignal: 'Drug-name search + interaction queries',
+    docSignal: 'Drug-name search',
     userCopy: {
       category: 'visible',
-      title: 'Drug-name and interaction lookups',
-      detail: 'Drug searches and interaction checks are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record. There is no toggle for this, and no way to point it at a service of your own.',
+      title: 'Drug-name lookups',
+      detail: 'Drug-name searches are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record. This runs while Settings → Features → "Check names in" is US register, the default; pick EU register and names are checked on this phone instead, with nothing sent. There is no way to point it at a service of your own.',
     },
   },
 

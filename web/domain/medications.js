@@ -178,14 +178,19 @@ function notFound(message) {
 //               checkInteractions(rxcuis) -> string[] } — browser impl does
 //               real RxNav fetches (Task 6), tests inject a fake. Failures
 //               degrade to empty results, never block a med save.
+//   ema     — { register() -> { status: 'off'|'loading'|'ready'|'unavailable',
+//               catalogue?, progress? } } — the on-device EU register
+//               (web/cloud/js/ema.js, bd med-3u28.2); 'off' unless the EU
+//               register is picked. Read-only: nothing lands on the record.
 export function createMedicationsDomain({
-  records, now, timeZone, rxnorm,
+  records, now, timeZone, rxnorm, ema,
 }) {
   const noopRxnorm = {
     async searchRxNorm() { return { rxcui: '', normalizedName: '' }; },
     async checkInteractions() { return []; },
   };
   const rx = rxnorm || noopRxnorm;
+  const eu = ema || { async register() { return { status: 'off' }; } };
   const stock = createStockDomain({ records, now });
 
   async function searchRxNorm(name) {
@@ -217,6 +222,23 @@ export function createMedicationsDomain({
     const others = (await list({ archived: false })).filter((m) => m.id !== excludeId && m.rxcui);
     const warning = await warningFor([...others.map((m) => m.rxcui), match.rxcui]);
     return { rxcui: match.rxcui, normalized_name: match.normalizedName, warning };
+  }
+
+  // emaCheck backs the editor's EU chip (bd med-3u28.2): an exact,
+  // case-insensitive name match over every jurisdiction of the register.
+  // While the register downloads it answers 'loading' with the progress so
+  // far; the caller asks again.
+  async function emaCheck({ name = '' } = {}) {
+    let reg;
+    try { reg = await eu.register(); } catch { reg = { status: 'unavailable' }; }
+    if (!reg || reg.status !== 'ready') {
+      const status = (reg && reg.status) || 'unavailable';
+      const res = { status, candidates: [], ambiguous: false, source: null };
+      if (status === 'loading') res.progress = typeof reg.progress === 'number' ? reg.progress : null;
+      return res;
+    }
+    const match = reg.catalogue.exact(String(name || '').trim());
+    return { status: 'ready', candidates: match.candidates, ambiguous: match.ambiguous, source: match.source };
   }
 
   async function warningFor(rxcuis) {
@@ -292,7 +314,8 @@ export function createMedicationsDomain({
 
   // update mirrors handleUpdateMedication's full-replace semantics exactly,
   // including its quirks: name/dosage/schedule/archived/start_date/end_date/
-  // rxcui/normalized_name/tz_shift_policy are all unconditionally overwritten
+  // tz_shift_policy are all unconditionally overwritten (rxcui/normalized_name
+  // too, except that an unchanged name with no lookup match keeps them)
   // from the input (an omitted start_date/end_date clears it; an omitted
   // tz_shift_policy resets to "flexible") — only `supplement` and `pack_size`
   // are preserved when the input omits them.
@@ -320,6 +343,11 @@ export function createMedicationsDomain({
       await cancelPendingIntakesForMedication(id);
     }
 
+    // An unchanged name keeps its saved US match when the lookup finds none
+    // (EU register picked, no account, RxNav down); a changed name takes the
+    // lookup result, since the old identity is stale then (bd med-3u28.2).
+    const keepMatch = !rxcui && name.toLowerCase() === String(existing.name || '').trim().toLowerCase();
+
     const nowMs = now();
     const updated = {
       ...existing,
@@ -330,8 +358,8 @@ export function createMedicationsDomain({
       archived,
       start_date: toISOStringOrNull(input && input.start_date),
       end_date: toISOStringOrNull(input && input.end_date),
-      rxcui: rxcui || '',
-      normalized_name: normalizedName || '',
+      rxcui: keepMatch ? (existing.rxcui || '') : rxcui || '',
+      normalized_name: keepMatch ? (existing.normalized_name || '') : normalizedName || '',
       tz_shift_policy: tzShiftPolicy,
     };
     const wantCount = input && input.inventory_count !== undefined && input.inventory_count !== null
@@ -473,6 +501,6 @@ export function createMedicationsDomain({
   }
 
   return {
-    create, update, remove, list, get, restock, stockAudit, listRestocks, listLowStock, rxCheck,
+    create, update, remove, list, get, restock, stockAudit, listRestocks, listLowStock, rxCheck, emaCheck,
   };
 }

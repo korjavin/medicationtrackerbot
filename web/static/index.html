@@ -662,6 +662,13 @@
                             input-id="health-feature-toggle"></mt-setting-toggle>
                     </div>
                 </section>
+                <!-- EU register check (kit ER1/ER2, bd med-3u28.2): settings.js bindMedRegister. -->
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Medications</span></div>
+                    <div class="wg-list">
+                        <button type="button" id="med-register-choose" class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Check names in</span></span><span id="med-register-value" class="wg-setting__value">US register</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                    </div>
+                </section>
                 <section class="wg-section">
                     <div class="wg-section__head"><span class="wg-eyebrow">Journey</span></div>
                     <div class="wg-list">
@@ -2307,6 +2314,8 @@
                         </div>
                     </div>
                     <span id="med-rx-display" class="wg-chip wg-chip--ok hidden"><i class="wg-ico" data-icon="check"></i><span id="med-rx-name"></span></span>
+                    <!-- EU register check (kit ER3–ER6): meds-history.js paintMedEu. -->
+                    <div id="med-eu-slot" class="wg-vstack hidden"></div>
                     <div id="med-rx-warning" class="wg-card wg-card--tight wg-card--accent wg-hstack hidden" role="status">
                         <i class="wg-ico wg-warn" data-icon="alert"></i><span class="wg-hint" id="med-rx-warning-text"></span>
                     </div>
