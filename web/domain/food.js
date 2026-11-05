@@ -856,8 +856,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
 
   // stapleOffer (med-5jq.7, kit FC1): the user's own generic product a scanned
   // food-DB row could be logged as, without writing. Only for an unbranded
-  // staple (its offDisplayName is a STAPLES food) that resolves to exactly one
-  // barcode-less product (Archie, Iris 15387: two leave it to the user), and
+  // staple (its offDisplayName is a STAPLES food) that resolves by name or
+  // alias (never typo) to exactly one barcode-less product (Archie, Iris 15387: two leave it to the user), and
   // only when logging the row as scanned would not link there anyway.
   async function stapleOffer(rawName, barcode) {
     const name = offDisplayName(rawName);
@@ -865,7 +865,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     const all = await records.list(PRODUCT_RECORD_TYPE);
     if (resolveProduct(rawName, all, { barcode }).product) return null;
     const free = all.filter((p) => !p.deleted && p.name && !p.is_meal && !String(p.barcode || '').trim());
-    const { product } = resolveProduct(name, free);
+    // No typo tier: the offer is preselected and "Your food" learns an alias,
+    // and a typo guess never learns one (Archie 15700; Butter → Batter).
+    const { product } = resolveProduct(name, free, { typo: false });
     if (!product) return null;
     const key = foodKey(name);
     const same = free.filter((p) => foodKey(p.name) === key || (Array.isArray(p.aliases) && p.aliases.includes(key)));

@@ -644,6 +644,19 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(await offer(raw, '4600000000147')).toBeNull();
     });
 
+    it('staple offer: a typo-near food is never offered; the scan logs as a first scan (breakage review)', async () => {
+        const offer = env.window.CloudFoodSearch.stapleOffer;
+        await env.records.put('foodproduct', product('p-batter', 'Batter'));
+        await env.records.put('foodproduct', product('p-wafer', 'Wafer'));
+        expect(await offer('Butter - Lidl - 250 g', '4600000000178')).toBeNull();
+        expect(await offer('Water - Aldi - 1.5 l', '4600000000185')).toBeNull();
+        const res = await env.window.apiCall('/api/food/log', 'POST', { ...body('Butter - Lidl - 250 g'), barcode: '4600000000178' });
+        expect(res).toMatchObject({ matched: 'new', name: 'Butter' });
+        const batter = (await productRows()).find((p) => p.recordId === 'p-batter');
+        expect(batter.aliases).toBeUndefined();
+        expect(batter.barcode).toBeNull();
+    });
+
     it('staple offer: none when two products match, or when a plain log already links', async () => {
         const offer = env.window.CloudFoodSearch.stapleOffer;
         // "Banana" is in the catalog: the scanned name keys the same, so logging it as scanned links anyway.
