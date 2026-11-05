@@ -581,6 +581,56 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   session → Health shows one strength workout by Med Tracker over the
   session's span; edit or re-complete it → still one; delete it → gone; a
   Watch or other-app workout is not duplicated into the app.
+- **Copy past entries (bd med-8f4s.14; web .11/.15, Android twin .13):**
+  `health.writeAccess` answers `readableFrom: 0` before iOS 27 — HealthKit
+  reads every sample there, so the page's Copy dedupe read is never bounded
+  (the web offers Copy only when the field is present). On iOS 27+ the field
+  is **omitted** (R5, pure gate `Health.readableFromField(osMajor:)`, checked
+  in `HealthWriteBackTests`): iOS 27 lets the person grant only a recent
+  history window, and its boundary
+  (`HKHealthStore.earliestAuthorizedSampleDate(for:)`, iOS 27 SDK) cannot be
+  asked while the runner builds on Xcode 26 / SDK 26 — claiming 0 there could
+  miss an older other-source sample and Copy a duplicate. So on iOS 27 Copy
+  past entries is dark (no offer, no row; a saved job's marked ids still
+  drain; live writes, `granted`, `supported` unaffected) until
+  med-8f4s.18 reports the real boundary. A shell that reports it
+  also takes the batch: `health.write {entries: [body, ...]}`, each body a
+  single write's args (kinds may mix), answers an array with one result per
+  entry in order — `true`, or that entry's own malformed-body refusal
+  (`bad write: …`, `unknown type: …`; a non-object entry is
+  `bad write: entry`). The shell simply loops `write()` per body (HealthKit
+  has no call quota; the batch is for one web shape on both shells); a
+  whole-call failure — `denied` (no share grant for an entry's kind, or no
+  Health store) or a HealthKit store error — throws the whole call, as a
+  single write does (entries before it may already be saved), and the page
+  keeps every id. A
+  body without `entries` behaves exactly as before. Replay rule (bd
+  med-8f4s.14 R4, same contract as Android): `health.write` resolves `true`
+  iff the store then holds this app's id at a version ≥ the one sent.
+  Samples absorb an equal or lower `SyncVersion` silently (HealthKit keeps the
+  higher version), but `HKWorkoutBuilder.finishWorkout` throws
+  `com.apple.healthd.SQLite 1` for a lower-version workout. So any store error
+  (never the shell's own refusals) is checked by `held(kind, id, version)`:
+  one `HKSampleQuery` on the kind's primary object (bp correlation, body mass,
+  heart rate, workout) with delete's own-source + sync-identifier predicate;
+  true when its highest `SyncVersion` ≥ the one sent → the write resolves
+  `true`, else the original error rethrows. No error domain or code is
+  trusted. That read needs no read grant: a share-only app still reads back
+  the samples it saved itself (Apple, "Authorizing access to health data").
+  This is what makes a Copy from the user's second iPhone/iPad finish: the
+  dedupe read hides this app's own writes (`ours()`), so the second device
+  re-sends ids the first one wrote with the same stored `clientTs`, and the
+  sync identifier dedupes them across devices. A newer version written by the
+  other device but not yet visible here makes `held` false → the error
+  throws, the page keeps the id and resends it next pass at the row's current
+  `clientTs` (absorbed then): one retry, never a wrong `true`.
+  `HealthWriteBackTests` replays weight, hr and workout at the equal and a
+  lower version (BP too where the runtime grants BP share) and checks one
+  object at the higher version; checks `held` on the workout at v1000/v2000
+  (true), v2001 and a never-written id (false); and sends a 10-entry mixed
+  batch, one with malformed entries and (BP share denied) one that throws
+  `denied`. Device check:
+  Copy past entries on a second device finishes and doubles nothing.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
   overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every
