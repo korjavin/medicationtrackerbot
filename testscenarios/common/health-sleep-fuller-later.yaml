@@ -17,4 +17,4 @@ covered_by:
   web: web/cloud/js/tests/health-import.test.js
   android: manual
   ios: manual
-source: [med-y1gh]
+source: [med-y1gh, med-poeu]

@@ -1977,6 +1977,10 @@ describe('cloud MCP response_example conformance', () => {
           },
         },
       };
+      // The seeded 'oatmeal' in plural (med-5jq.3): links it, carries matched.
+      case 'food.log.create': return {
+        params: { name: 'oatmeals', eaten_at: '2026-07-06T09:00:00.000Z', weight: 50, calories: 185, carbs: 30, protein: 6, fat: 3 },
+      };
       case 'workouts.equipment.create': return {
         params: { kind: 'fixed', name: 'Conformance Kettlebell', loads_kg: [16, 24] },
       };

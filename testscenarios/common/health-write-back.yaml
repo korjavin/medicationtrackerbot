@@ -10,6 +10,10 @@ steps:
   - Edit a blood pressure reading and a weight that were imported from Health
   - Enter a reading while Health refuses write access, delete it, then allow access again and reopen the app
   - Switch "Also write my entries" off and enter another reading
+  - Enter a BP reading with a pulse; edit it to clear the pulse; edit again to set one; deny heart-rate write access and enter another BP
+  - Complete a workout session; delete it; start a session and leave it open; skip a scheduled one
+  - Log an ad-hoc workout of only a cardio-tagged exercise and complete it; deny workout write access and complete another session
+  - Mark a reminded plan workout Done from the notification without starting it; do the same for a plan day with no exercises
 invariants:
   - "A hand-entered reading shows in the Health app within seconds, as written by Med Tracker"
   - "Editing it changes the same Health record; deleting it removes it"
@@ -19,8 +23,20 @@ invariants:
   - "Switching it off stops updates and leaves the copies already in Health"
   - "The switch shows only while import is on; refused write access flips it back with where to allow it; one kind allowed keeps it on and names the other"
   - 'Write access revoked later in system settings leaves the switch on, reading "Writing paused: access was removed"; entries made meanwhile reach Health once access returns'
+  - "A BP reading with a pulse shows in the Health app as one blood pressure record and one heart-rate entry at the same time, both by Med Tracker"
+  - "Clearing the pulse removes the heart-rate entry, setting it again brings it back, deleting the reading removes both"
+  - "With heart-rate write access denied, BP and weight still arrive"
+  - "Pulses of readings saved or edited after this update arrive once access is allowed; an older reading follows on its next edit"
+  - "The heart-rate entries Med Tracker wrote never come back into the Vitals heart-rate card"
+  - "A completed workout shows in the Health app as one strength workout from its start to its finish, by Med Tracker, with no exercises or sets"
+  - "An ad-hoc workout that is not all strength-tagged exercises shows as an other workout, never as strength"
+  - "Deleting the session removes it; an open, pending or skipped session never appears"
+  - "Workouts imported from Health are unchanged, and the mirrored workout never comes back as a Health workout in History"
+  - "With workout write access denied, BP, pulse and weight still arrive"
+  - "a workout logged by message or voice without a start and end is not copied to Health; one logged in the app, with sets, is"
+  - "A plan workout marked Done without starting it appears in Health from its scheduled time, 5 minutes per exercise of that day; one with no exercises does not"
 covered_by:
-  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5)
-  android: manual  # health-connect emulator QA covers BP/weight upsert/delete, no echo, grants and HW1; real device permission/retry checks remain manual
-  ios: manual  # until med-8f4s.3 QA
-source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2]
+  web: web/cloud/js/tests/health-import.test.js  # ledger and executor over the real write path, the Settings write row (HW0-HW5), the derived hr kind, the workout kind and the supported fallback
+  android: manual  # BP/weight/pulse automated by android/qa/scenarios/health-connect.mjs: independent create/edit/clear/delete, no echo, partial grants and pending pulse retry; workouts until med-8f4s.9 QA; real permission sheets remain release checks
+  ios: manual  # until med-8f4s.3 QA; pulse until med-8f4s.8 QA; workouts until med-8f4s.10 QA
+source: [Zulip 14755, Zulip 14798, Zulip 15063, Zulip 15065, med-8f4s.2, Zulip 15322, Zulip 15336, med-8f4s.6, Zulip 15354, Zulip 15356, Zulip 15360, Zulip 15649, med-8f4s.5, Zulip 15670, med-8f4s.12]

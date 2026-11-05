@@ -63,6 +63,7 @@ button.wg-card{width:100%;text-align:left;cursor:pointer;font:inherit;color:inhe
 .wg-pagebar__crumb{font:600 var(--wg-fs-eyebrow)/1 var(--wg-font-ui);letter-spacing:var(--wg-track-eyebrow);text-transform:uppercase;color:var(--wg-fg-3)}
 .wg-pagebar__title{margin-top:3px;font:500 var(--wg-fs-lg)/1.15 var(--wg-font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wg-back{display:inline-flex;align-items:center;gap:2px;height:var(--wg-h-md);padding:0 10px 0 4px;border:0;border-radius:var(--wg-r-md);background:transparent;color:var(--wg-fg-2);font:600 var(--wg-fs-sm) var(--wg-font-ui);cursor:pointer}.wg-back:hover{background:rgba(255,255,255,.06);color:var(--wg-fg-1)}.wg-back:focus-visible{outline:0;box-shadow:var(--wg-focus)}
+.wg-back--quiet-focus:focus{outline:0;box-shadow:none}
 .wg-subnav{padding:0 16px 10px;flex-shrink:0}
 /* content */
 .wg-content{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:2px 16px 24px;display:flex;flex-direction:column;gap:12px;scrollbar-width:none}

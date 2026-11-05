@@ -83,15 +83,20 @@ describe('native/health.js', () => {
         const sent = [];
         w.webkit = { messageHandlers: { wgNative: { postMessage: (m) => { sent.push(m); return Promise.resolve(true); } } } };
         for (const f of ['index.js', 'health.js']) w.eval(fs.readFileSync(path.join(NATIVE, f), 'utf8'));
-        await w.Health.requestAuthorization(['bp', 'weight'], { write: ['bp', 'weight'] });
-        await w.Health.writeAccess(['bp', 'weight']);
+        await w.Health.requestAuthorization(['bp', 'weight'], { write: ['bp', 'weight', 'hr'] });
+        await w.Health.writeAccess(['bp', 'weight', 'hr']);
         await w.Health.write({ type: 'weight', id: 'weight-1', version: 5, at: 1000, kg: 80 });
         await w.Health.remove({ type: 'weight', id: 'weight-1' });
+        // bd med-8f4s.6: the pulse of a bp row, under its own key.
+        await w.Health.write({ type: 'hr', id: 'bp-1/pulse', version: 5, at: 1000, bpm: 66 });
+        await w.Health.remove({ type: 'hr', id: 'bp-1/pulse' });
         expect(JSON.parse(JSON.stringify(sent))).toEqual([
-            { op: 'health.authorize', args: { types: ['bp', 'weight'], write: ['bp', 'weight'] } },
-            { op: 'health.writeAccess', args: { types: ['bp', 'weight'] } },
+            { op: 'health.authorize', args: { types: ['bp', 'weight'], write: ['bp', 'weight', 'hr'] } },
+            { op: 'health.writeAccess', args: { types: ['bp', 'weight', 'hr'] } },
             { op: 'health.write', args: { type: 'weight', id: 'weight-1', version: 5, at: 1000, kg: 80 } },
             { op: 'health.delete', args: { type: 'weight', id: 'weight-1' } },
+            { op: 'health.write', args: { type: 'hr', id: 'bp-1/pulse', version: 5, at: 1000, bpm: 66 } },
+            { op: 'health.delete', args: { type: 'hr', id: 'bp-1/pulse' } },
         ]);
     });
 

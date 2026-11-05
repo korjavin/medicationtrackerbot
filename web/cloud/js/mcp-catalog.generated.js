@@ -62,8 +62,8 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/food/log",
     "risk": "write",
-    "description": "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server upserts a food_products row by name — so the name you choose becomes the shared identity for every future log of this food. Normalize names to canonical English (e.g. \"boiled egg\", not \"вареное яйцо\"), in their generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
-    "response_summary": "{status, id, product_id, name} — product_id is the food_products row that was matched or upserted from name; null only if no name was provided.",
+    "description": "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server reconciles it against the catalog before creating anything: a barcode links the product with that barcode first (products with a different barcode never match); a saved meal matches only by its exact name; otherwise the same match key (case, plurals, quantity/meal-time/place notes folded; percentages kept, so 0% is not 2%), a stored alias, or exactly one close spelling (a typo, not for barcoded logs) links the existing product, and the log takes that product's name; only a name matching nothing creates a new product, under the name as given — so that name becomes the shared identity for every future log of this food. The reconcile does not translate or know synonyms, so a canonical English name is still preferred (e.g. \"boiled egg\", not \"вареное яйцо\"), in its generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). Macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
+    "response_summary": "The created FoodLog {id, eaten_at, name, product_id, weight, carbs, protein, fat, calories, is_meal, warnings?} plus matched: how a bare name found its product — exact, alias, typo, or new (a product was created). name is the matched product's name. matched is absent when you passed product_id. warnings describes the entry's per-100 g macros. `warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (\u003e 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (\u003c 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values.",
     "required": [
       "name",
       "eaten_at",
@@ -122,7 +122,8 @@ export const CATALOG = [
           "description": "If true, treat the carb/protein/fat/calories as per-100g and let the server scale by weight"
         }
       }
-    }
+    },
+    "response_example": "{\"id\": \"foodlog_1777464600000_k2j4h1qz\", \"eaten_at\": \"2026-04-29T12:30:00.000Z\", \"weight\": 120, \"carbs\": 1, \"protein\": 15, \"fat\": 12, \"calories\": 172, \"is_meal\": false, \"name\": \"Boiled egg\", \"product_id\": \"foodproduct_1771000000000_a8d0c3pe\", \"matched\": \"typo\"}"
   },
   {
     "id": "food.log.delete",
@@ -145,7 +146,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/food/log/from-description",
     "risk": "write",
-    "description": "Log one or more food intake entries from a natural-language meal description — pass the user's words verbatim; the AI parser estimates items and macros. Unlike food.log.create, this endpoint does NOT upsert into food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
+    "description": "Log one or more food intake entries from a natural-language meal description — pass the user's words verbatim; the AI parser estimates items and macros. Unlike food.log.create, this endpoint does NOT link or create food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
     "response_summary": "{status, items:[{id, name, weight, carbs, protein, fat, calories}], failed}.",
     "required": [
       "description"
@@ -207,7 +208,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/food/log/move",
     "risk": "write",
-    "description": "Re-date existing food log entries to one new eaten_at (e.g. a meal photo uploaded late that landed on today but was eaten yesterday). Only eaten_at changes: name, weight, macros and product_id are kept exactly and no product is upserted — prefer this over food.log.update when only the time is wrong. All ids must exist or nothing moves.",
+    "description": "Re-date existing food log entries to one new eaten_at (e.g. a meal photo uploaded late that landed on today but was eaten yesterday). Only eaten_at changes: name, weight, macros and product_id are kept exactly and no product is touched — prefer this over food.log.update when only the time is wrong. All ids must exist or nothing moves.",
     "response_summary": "Array of the moved FoodLog objects.",
     "required": [
       "ids",
@@ -244,8 +245,8 @@ export const CATALOG = [
       "id"
     ],
     "risk": "write",
-    "description": "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back. Same naming rules as food.log.create apply — keep the name canonical English and generic so logs across days share a single product_id.",
-    "response_summary": "Updated FoodLog object.",
+    "description": "Update an existing food log entry. The body shape mirrors food.log.create; this is a full replacement, so always read the existing log via food.log.list and send the merged object back. Same naming rules as food.log.create apply — keep the name canonical English and generic so logs across days share a single product_id. Without product_id, an unchanged name keeps the log's product link; a changed name is reconciled like food.log.create (match → relinked, with the product's name), but an update otherwise never creates or changes a product: no match leaves the log unlinked under the name you sent. The one exception: retyping a name the reconcile had guessed (it resolves by typo or alias back to the log's own product) rejects that guess, so a new product is created under the typed name.",
+    "response_summary": "Updated FoodLog object, with warnings? describing its per-100 g macros; when the name changed and no product_id was sent it also carries matched: exact, alias, typo, null (no product matched, log left unlinked), or new when you retyped a name the reconcile had guessed. `warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (\u003e 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (\u003c 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values.",
     "required": [
       "id",
       "eaten_at",
@@ -322,7 +323,7 @@ export const CATALOG = [
     "path": "/api/food/products",
     "risk": "read",
     "description": "Top-N most frequently logged products for this user (highest usage_count first). Use this to discover canonical names the user has logged before, so reused meals share the same food_product entry.",
-    "response_summary": "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal}) and 'total' (int).",
+    "response_summary": "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, usage_count, is_meal, warnings?}) and 'total' (int). `warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (\u003e 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (\u003c 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -382,7 +383,7 @@ export const CATALOG = [
     "path": "/api/food/products",
     "risk": "read",
     "description": "List the user's saved food products (used as templates when logging). Page a large catalog with limit/offset.",
-    "response_summary": "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal}) and 'total' (int).",
+    "response_summary": "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal, warnings?}) and 'total' (int). `warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (\u003e 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (\u003c 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -407,8 +408,8 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/food/products/search",
     "risk": "read",
-    "description": "Search the user's saved food products (and the open_food_facts cache) by name. Use it before food.log.create to find an existing product_id: food.log.create without a product_id upserts a product by exact name, so a differently spelled or annotated name for the same food creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
-    "response_summary": "JSON array of matching products with id, name, barcode, per-100g macros.",
+    "description": "Search the user's saved food products (and the open_food_facts cache) by name, match key (case, plurals and quantity/meal-time notes folded) and stored aliases. Use it before food.log.create to find an existing product_id: food.log.create without a product_id reconciles the name against the catalog (exact key, stored alias, or one unambiguous typo), but a name in another language or a synonym still creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
+    "response_summary": "JSON array of matching products with id, name, barcode, per-100g macros, and warnings when the macros look wrong. `warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (\u003e 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (\u003c 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -422,7 +423,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\"id\": 12, \"name\": \"oatmeal\", \"barcode\": \"\", \"carbs_100g\": 60.0, \"protein_100g\": 12.0, \"fat_100g\": 7.0, \"energy_kcal_100g\": 360.0}\n]"
+    "response_example": "[\n  {\"id\": 12, \"name\": \"oatmeal\", \"barcode\": \"\", \"carbs_100g\": 60.0, \"protein_100g\": 12.0, \"fat_100g\": 7.0, \"energy_kcal_100g\": 360.0},\n  {\"id\": 31, \"name\": \"croissant\", \"barcode\": \"\", \"carbs_100g\": 45.8, \"protein_100g\": 8.2, \"fat_100g\": 21.0, \"energy_kcal_100g\": 32.0, \"warnings\": [\"inconsistent\"]}\n]"
   },
   {
     "id": "food.products.update",
@@ -434,7 +435,7 @@ export const CATALOG = [
     ],
     "risk": "write",
     "description": "Update a saved food product. Full-replacement semantics: omitted fields decode to zero values. Read the product via food.products.list/search before sending.",
-    "response_summary": "Updated FoodProduct object.",
+    "response_summary": "Updated FoodProduct object, with warnings? when its macros look wrong. `warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (\u003e 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (\u003c 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values.",
     "required": [
       "id",
       "name"

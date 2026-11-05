@@ -18,9 +18,10 @@ invariants:
   - A running workout shows "In progress · N min" with Finish and Continue; "Start empty workout" is hidden until it ends
   - Start empty workout opens an empty session on its "What's next?" add step
   - 'A late Skip of yesterday moves today''s untouched day along with the plan: the card shows the next day and Start starts that same day, not the one the card showed before the skip'
+  - 'Two devices that both moved the plan offline agree after sync: once each device shows the card again, both show the same day and Start starts that day on either device'
   - With no plan the card reads "Log a workout" with Start empty workout and Make a plan
 covered_by:
-  web: web/static/js/tests/features.workout-next-card.test.js  # late skip re-points today: cloud.shim-contract.workout-sessions.test.js (med-q6l3)
+  web: web/static/js/tests/features.workout-next-card.test.js  # late skip re-points today, cross-device tie heals: cloud.shim-contract.workout-sessions.test.js (med-q6l3, med-qsq3)
   android: tests/visual/scenes.json#workout-next-card
   ios: tests/visual/scenes.json#workout-next-card
-source: [med-soo0.2, "#1520", med-soo0.3, med-q6l3]
+source: [med-soo0.2, "#1520", med-soo0.3, med-q6l3, med-qsq3]

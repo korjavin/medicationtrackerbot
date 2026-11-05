@@ -1,0 +1,19 @@
+id: food-log-edit-keeps-product
+title: Editing or moving a food log never changes the saved product
+platforms: [web, android, ios]
+preconditions:
+  - A saved food product with known per-100 g values, edited by the user in the food database
+steps:
+  - Log that food, then edit the log's weight and macros
+  - Rename the log to a name not in the food database
+  - Move the log to yesterday
+  - Open the food database
+invariants:
+  - The product's per-100 g values and use count are as the user left them
+  - No new product appears for the renamed log
+  - Logging the food again adds one use and keeps the product's values
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.food-products.test.js
+  android: manual
+  ios: manual
+source: [med-5jq.2]

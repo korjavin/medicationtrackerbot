@@ -836,13 +836,15 @@ export const PRIVACY_MANIFEST = [
     },
   },
   {
-    // bd med-8f4s.4 (epic med-8f4s): the Health write-back. Both modes, so no
+    // bd med-8f4s.4 (epic med-8f4s): the Health write-back (the pulse of a bp
+    // entry as a heart-rate entry: bd med-8f4s.6; completed workout sessions:
+    // bd med-8f4s.5). Both modes, so no
     // `mode`. Both shells' evidence points at their native write/delete code.
     id: 'health-write-back',
     feature: 'Also write my entries (Apple Health / Health Connect)',
     boundary: 'carve-out',
-    data: 'Blood pressure and weight entries you add or change in the app on this phone (typed in, given by voice or an AI app, or sent by Telegram and picked up by this phone). The plaintext values, their time and the entry\'s id are handed to the phone\'s Health store, and the id lets an edit replace its copy. Syncing an entry from another device does not by itself copy it, and readings imported from Apple Health / Health Connect are never written back',
-    destination: 'The phone\'s Health store (Apple Health on iPhone, Health Connect on Android). Every app you allowed there to read blood pressure or weight can read them. The store and those apps handle the copies under their own security and privacy settings, and the store\'s own sync or backup can copy them further',
+    data: 'Blood pressure entries (with the pulse you noted), weight entries, and the workouts you complete in the app (start, end and type only, no exercises, sets or weights) that you add or change in the app on this phone (typed in, given by voice or an AI app, or sent by Telegram and picked up by this phone). The plaintext values, their time and the entry\'s id are handed to the phone\'s Health store, and the id lets an edit replace its copy. Syncing an entry from another device does not by itself copy it, and readings imported from Apple Health / Health Connect are never written back',
+    destination: 'The phone\'s Health store (Apple Health on iPhone, Health Connect on Android). Every app you allowed there to read blood pressure, heart rate, weight or workouts can read them. The store and those apps handle the copies under their own security and privacy settings, and the store\'s own sync or backup can copy them further',
     operatorVisibility: 'none',
     retention: 'Until you delete them in Apple Health / Health Connect. Deleting them there does not necessarily delete copies that other apps or backups already hold. While the switch is on and write access is allowed, changes you make on this phone update or remove the copies; if access is unavailable, changes may wait and are retried when access returns and you reopen the app. Switching it off stops future copying and updates, and leaves the copies there',
     activation: 'opt-in',
@@ -852,15 +854,16 @@ export const PRIVACY_MANIFEST = [
       'web/cloud/js/health-import.js:1',
       'ios/App/Health.swift:132',
       'ios/App/Health.swift:165',
-      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:162',
-      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:173',
+      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:167',
+      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:178',
+      'android/app/src/main/java/com/example/medtracker/HealthConnect.kt:472',
     ],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'leaves',
       title: 'Your entries copied to Apple Health / Health Connect, if you switch it on',
-      detail: 'If you switch on "Also write my entries", the blood pressure and weight entries you add or change on this phone are copied to Apple Health or Health Connect. That includes entries you type, give by voice or through an AI app, or send by Telegram and this phone picks up. The copies are outside your vault and no longer protected by its encryption: the Health store, and any app you allowed there to read them, handle them under their own security and privacy settings. Syncing an entry from another device does not by itself copy it, and readings imported from Health are never written back. While the switch is on and write access is allowed, your changes here update or remove the copies. If access is unavailable, changes may wait and are retried when access returns and you reopen the app. Turning it off stops future copying and updates. Copies already there stay until you delete them in the Health app or Health Connect, and deleting them there does not necessarily remove copies that other apps or backups already hold.',
+      detail: 'If you switch on "Also write my entries", the blood pressure entries (with the pulse you noted), weight entries, and the workouts you complete in the app (start, end and type only, no exercises, sets or weights) that you add or change on this phone are copied to Apple Health or Health Connect. That includes entries you type, give by voice or through an AI app, or send by Telegram and this phone picks up. The copies are outside your vault and no longer protected by its encryption: the Health store, and any app you allowed there to read them, handle them under their own security and privacy settings. Syncing an entry from another device does not by itself copy it, and readings imported from Health are never written back. While the switch is on and write access is allowed, your changes here update or remove the copies. If access is unavailable, changes may wait and are retried when access returns and you reopen the app. Turning it off stops future copying and updates. Copies already there stay until you delete them in the Health app or Health Connect, and deleting them there does not necessarily remove copies that other apps or backups already hold.',
     },
   },
 

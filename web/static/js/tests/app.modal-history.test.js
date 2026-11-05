@@ -202,6 +202,71 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
+  it.each([false, true])('keeps touch focus accessible when focusVisible support is %s', (supported) => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const opener = document.createElement('button');
+      document.body.appendChild(opener);
+      opener.focus();
+      vi.spyOn(opener, 'matches').mockReturnValue(false);
+      const nativeFocus = window.HTMLElement.prototype.focus;
+      // Old WebViews accept the dictionary but never read its unknown member.
+      vi.spyOn(window.HTMLElement.prototype, 'focus').mockImplementation(function (options) {
+        if (supported && options) void options.focusVisible;
+        nativeFocus.call(this);
+      });
+      const page = window.WGPage.push({ title: 'Day', back: 'Plans' });
+      const back = page.el.querySelector('.wg-back');
+      expect(document.activeElement).toBe(back);
+      expect(back.classList.contains('wg-back--quiet-focus')).toBe(!supported);
+
+      back.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(back.classList.contains('wg-back--quiet-focus')).toBe(false);
+      page.close();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps nested touch Back quiet, then restores rings when switching to keyboard', () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const opener = document.createElement('button');
+      document.body.appendChild(opener);
+      opener.focus();
+      const matches = vi.spyOn(opener, 'matches').mockReturnValue(false);
+      const nativeFocus = window.HTMLElement.prototype.focus;
+      vi.spyOn(window.HTMLElement.prototype, 'focus').mockImplementation(function () {
+        nativeFocus.call(this); // WebView without focusVisible
+      });
+      const page = window.WGPage.push({ title: 'Day', back: 'Plans' });
+      const back = page.el.querySelector('.wg-back');
+      expect(back.classList.contains('wg-back--quiet-focus')).toBe(true);
+      vi.spyOn(back, 'matches').mockReturnValue(true); // old engine's false positive
+      const child = window.WGPage.push({ title: 'Exercise', back: 'Day' });
+      expect(back.classList.contains('wg-back--quiet-focus')).toBe(true);
+      expect(child.el.querySelector('.wg-back').classList.contains('wg-back--quiet-focus')).toBe(true);
+      child.close();
+      expect(document.activeElement).toBe(back);
+      expect(back.classList.contains('wg-back--quiet-focus')).toBe(true);
+      opener.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      expect(back.classList.contains('wg-back--quiet-focus')).toBe(false);
+      page.close();
+      expect(document.activeElement).toBe(opener);
+
+      matches.mockReturnValue(true); // keyboard opener's :focus-visible
+      const keyboardPage = window.WGPage.push({ title: 'Day', back: 'Plans' });
+      const keyboardBack = keyboardPage.el.querySelector('.wg-back');
+      expect(document.activeElement).toBe(keyboardBack);
+      expect(keyboardBack.classList.contains('wg-back--quiet-focus')).toBe(false);
+      keyboardPage.close();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      cleanup();
+    }
+  });
+
   // med-ckm5.1: kit v2.1 long-title bar — icon-only Back (named by aria-label) and
   // fixed 44px side columns, so "Reminders & notifications" fits a 390px bar whole.
   it('longTitle pages get the icon-only back and the full title; default pages keep the text back', async () => {

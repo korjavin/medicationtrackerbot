@@ -214,7 +214,8 @@
     function formatXTickLabel(ms) {
         const d = new Date(ms);
         if (Number.isNaN(d.getTime())) return '';
-        return d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+        // DD.MM, the app's date order (as the Timeline / Plans rows).
+        return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
     }
 
     function makeEmptyCard(range) {

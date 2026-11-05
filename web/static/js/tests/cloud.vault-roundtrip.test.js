@@ -369,6 +369,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       // Library aliases are cloud-only too (med-l5yr.1).
       for (const row of d.workouts?.library || []) { delete row.equipment_id; delete row.aliases; }
       for (const row of d.workouts?.exercises || []) delete row.equipment_id;
+      // Food product match key + learnt aliases are cloud-only (med-5jq.3).
+      for (const p of d.food?.products || []) { delete p.name_key; delete p.aliases; }
       // scheduled_date / last_session_date are DATE columns: the bot re-emits them
       // as UTC midnight, the hand fixture writes the local-midnight form. Only the
       // calendar day is contractual — mirrors dateOnlyKeys in vault_import_test.go.

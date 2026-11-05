@@ -12,6 +12,7 @@ steps:
   - Add a second active plan that doesn't rotate, and open Plans again
   - Pause every plan and open Plans again
   - Tap a day that isn't next; tap an exercise, then go back; tap Edit, then go back
+  - Repeat opening a day and its exercise using a keyboard, then use Back to return
   - Tap Start this day, go back at once, open another day and tap Start this day there; repeat, then open the Timeline's Other plan day instead
   - Open that day again and tap Start this day, then confirm; finish the workout
   - Open the day marked Next; then start any workout and open a day while it runs
@@ -26,14 +27,17 @@ invariants:
   - 'The "today" / "tomorrow" in a "Next · …" eyebrow follows the saved workout timezone, not the device clock: a slot that is tomorrow in the saved zone reads "tomorrow" even where the device calendar already shows that date'
   - 'No active plan: "No plan yet" with Make a plan (the only sun) and Import plan; paused plans are listed under it, and the New plan / Import plan rows are not shown'
   - 'A day opens its page: back "Plans", crumb "{plan} · day {k} of {n}", the day name as title, Edit in the bar (not a sun); the full description; "Exercises · {n}" with "last done {Weekday DD.MM} · {m} min" (left out for a day never done); one row per exercise as "{sets} × {reps} · {kg} kg · last {sets} × {reps} · {kg} kg" ("last …" left out when never logged); an exercise tap opens its history page over the day, and Back returns to the day'
+  - 'The exercise history page''s chart labels its x-axis ticks as DD.MM (e.g. "29.10"), never US order "10/29"'
+  - 'The workout session''s top bar reads "{plan} · {day} · {Weekday DD.MM}" (e.g. "Wed 04.11"), never "11/04/2026 · WED"'
   - Edit opens the plan editor on that day's Day page; Back returns to Plans
+  - 'Opening a day, exercise, or editor by touch shows no yellow ring on Back, including Android WebViews without the focusVisible focus option; accessibility focus still enters the page. Opening by keyboard keeps the visible Back focus ring, and switching to keyboard navigation after a touch shows the ring normally. Closing each page restores focus to its opener'
   - 'In the plan editor the Time row shows its whole "Time" label beside a time field sized to its value, with no seconds (Safari/WKWebView, Chromium and Android WebView; the Playwright Linux WebKitGTK tier paints a seconds field regardless); 12- or 24-hour follows the device setting'
   - '"Start this day" makes that day the plan''s next workout, then asks to start it and opens the session; afterwards the Plans tab and the Timeline card show that day as next. On the day already next the button reads "Start workout" and starts it directly. While a workout runs the page has no start button. If the switch fails the day stays as it was, a "Couldn''t switch the day" toast shows, and nothing starts'
   - 'Only one switch runs at a time: going Back while it is pending and tapping Start on another day, or picking a day in the Timeline''s Other plan day sheet, sends no second switch (and a pending Timeline pick blocks Start this day the same way)'
   - 'Opening Plans lists each plan''s next day but logs nothing: until a day is started or a set is logged on it, it is not in the Timeline, not in the agent''s recent sessions, and not counted (as missed or otherwise) in the fitness report'
   - With two active plans, Start this day on a day of the second plan switches that plan's own next workout, never the other plan's
 covered_by:
-  web: web/static/js/tests/workout.groups.test.js  # planned slots hidden: cloud.shim-contract.workout-sessions.test.js (med-q6l3), analysis.fitness.test.js; day page: features.workout-variants.test.js (PL2 day page), visual.qa-driver.test.js (PL2 scenes)
+  web: web/static/js/tests/workout.groups.test.js  # planned slots hidden: cloud.shim-contract.workout-sessions.test.js (med-q6l3), analysis.fitness.test.js; day page: features.workout-variants.test.js (PL2 day page), visual.qa-driver.test.js (PL2 scenes); DD.MM dates: components.wg-workout-chart.test.js, workout.session-detail.test.js
   android: tests/visual/scenes.json#workouts-plans  # day page: #workouts-plan-day, #workouts-plan-day-exercise, #workouts-plan-day-started; paused: #workouts-plans-paused; editor Time row: #workout-plan-editor
   ios: tests/visual/scenes.json#workouts-plans  # day page: #workouts-plan-day, #workouts-plan-day-exercise, #workouts-plan-day-started; paused: #workouts-plans-paused; editor Time row: #workout-plan-editor
-source: [med-jqrf.2, "#1528", med-jqrf.3, med-jqrf.5, med-s8f3, med-q6l3]
+source: [med-jqrf.2, "#1528", med-jqrf.3, med-jqrf.5, med-s8f3, med-q6l3, med-vfil, med-6lrl]
