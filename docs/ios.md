@@ -534,7 +534,17 @@ The shell side is bd med-8f4s.3 (bp, weight) and bd med-8f4s.8 (hr).
   `HKWorkout.statistics(for: heartRate)` — the workout's own associated
   samples, not a window query — so a pulse written inside a workout's time
   span leaves it unchanged; `HealthWriteBackTests` seeds a workout with
-  `HKWorkoutBuilder` and checks that.
+  `HKWorkoutBuilder` and checks that. What the QA does not execute: (a)
+  `health.authorize` itself — the iOS 26.5 Simulator never presents a second
+  authorization request in one launch, so the test asks one sheet directly
+  (the share/read sets authorize would ask, plus workout share for the seed);
+  the evidence is `shareTypes("hr") == [heartRate]` (authorize shares
+  `write.flatMap(shareTypes)`) plus `writeAccess` granting `hr` after that
+  sheet; (b) the page → bridge → HealthKit chain — the test calls
+  `Health.handle` with the web's payloads, and the chain is an owner device
+  check in the med-8f4s.8/.10 TestFlight batch: save a BP with pulse → Health
+  shows one BP and one heart-rate entry by Med Tracker; clear the pulse → the
+  heart-rate entry is gone; set it again → back; delete the reading → both gone.
 - **Steps, HR, SpO2 (bd med-0xad.2):** `steps` is one
   `HKStatisticsCollectionQuery` cumulative sum per local day (HealthKit dedupes
   overlapping sources); `hr` / `spo2` are anchored pages like `bp` (bpm, every
