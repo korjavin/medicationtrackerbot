@@ -2621,7 +2621,7 @@ describe('Health write-back', () => {
                 expect(job().ids).toEqual({ bp: ['bp-c'] });
             });
 
-            it('(g)(i) a saved job admits its blocked ids only under the current window, and not at all without readableFrom (Argus 16138 #2)', async () => {
+            it('(g)(i) blocked ids rejoin only under the current window; a saved job of only blocked ids closes at launch, unread (Argus 16138 #2, bd med-8f4s.17)', async () => {
                 const saved = JSON.stringify({ startedAt: 1, total: 2, ids: {}, blocked: { weight: ['w-1', 'w-2'] } });
                 // A shell without readableFrom: no row, no read, nothing marked or written.
                 storage.setItem('wg.health.backfill', saved);
@@ -2632,14 +2632,20 @@ describe('Health write-back', () => {
                 expect(copyRow()).toBeNull();
                 expect(query).not.toHaveBeenCalled();
                 expect(dirty().weight).toBeUndefined();
-                expect(job().blocked).toEqual({ weight: ['w-1', 'w-2'] });
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
 
-                // A window from 01.10 12:00: w-1 (08:00) and w-2 (09:00) are older, dropped unsent.
+                // A window moved to 01.10 12:00 after the Copy: w-1 (08:00) and w-2 (09:00) are older, dropped unsent.
                 document.body.innerHTML = home;
-                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: at('2026-10-01T12:00:00Z') }));
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: 0 }));
+                theirs.weight = null;
                 await open();
-                // The saved job already reads as a result (weight named), so wait on the job itself.
-                await vi.waitFor(() => expect(job()).toMatchObject({ total: 0, ids: { weight: [] }, blocked: {} }));
+                await tap();
+                await finished();
+                expect(job().blocked).toEqual({ weight: ['w-1', 'w-2'] });
+                health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL, readableFrom: at('2026-10-01T12:00:00Z') });
+                theirs.weight = [];
+                foreground();
+                await vi.waitFor(() => expect(job()).toMatchObject({ total: 4, ids: { weight: [] }, blocked: {} }));
                 await finished();
                 expect(health.write).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'weight' }));
             });
@@ -2755,27 +2761,52 @@ describe('Health write-back', () => {
                 await open();
                 await tap();
                 await finished();
-                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. Weight isn't allowed: allow it in Health Connect settings, and the other one follows."]);
+                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. Weight isn't allowed: allow it in Health Connect settings, then tap Copy past entries again."]);
                 health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL, readableFrom: 0 });
                 foreground();
                 await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']));
                 expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: 'w-2' }));
             });
 
-            it('(d) weight read denied (Android): not copied, HW9b names it; once readable, its entries join', async () => {
+            const leaveSettings = async () => {
+                const view = document.getElementById('settings-view');
+                view.classList.add('active');
+                view.classList.remove('active');
+                await tick();
+            };
+            const DENIED = "4 entries. Weight isn't allowed: allow it in Health Connect settings, then tap Copy past entries again.";
+
+            it('(d) weight read denied (Android): HW9b names it; leaving Settings closes the job, and the next Copy counts the weights (bd med-8f4s.17)', async () => {
                 theirs.weight = null;
                 await open();
                 await tap();
                 await vi.waitFor(() => expect(confirm).toHaveBeenCalledWith('6 past entries from this app.', expect.any(Object)));
                 await finished();
-                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. Weight isn't allowed: allow it in Health Connect settings, and the other 2 follow."]);
+                expect(rowText()).toEqual(['Copied to Health Connect', DENIED]);
                 expect(dirty().weight).toBeUndefined();
-                // Still named after leaving Settings: the job waits for the read.
-                const view = document.getElementById('settings-view');
-                view.classList.add('active');
-                view.classList.remove('active');
+                await leaveSettings();
+                expect(rowText()).toEqual(['Copy past entries', null]);
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
+                // (c) the closed job reads the denied kind no more.
+                query.mockClear();
+                foreground();
                 await tick();
-                expect(rowText()[0]).toBe('Copied to Health Connect');
+                expect(query).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'weight' }));
+                // The next tap recounts the weights: unmarked, nothing was lost.
+                theirs.weight = [kgSample(U2, at('2026-10-01T20:00:00Z'), 80)];
+                await tap();
+                await vi.waitFor(() => expect(confirm).toHaveBeenLastCalledWith('1 past entry from this app.', expect.any(Object)));
+                await finished();
+                expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'weight', id: 'w-2' }));
+                expect(health.write).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'w-1' }));
+            });
+
+            it('(d) weight read denied (Android): granted while still in Settings, its entries join', async () => {
+                theirs.weight = null;
+                await open();
+                await tap();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', DENIED]);
                 expect(job().blocked).toEqual({ weight: ['w-1', 'w-2'] });
 
                 // A weight that arrives after the Copy unmarked (synced in; here
