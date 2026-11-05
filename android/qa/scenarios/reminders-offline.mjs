@@ -20,7 +20,7 @@
 // The locked tap (local mode's app lock) is not covered yet: see the ponytail note at its place.
 // In `all` it runs after smoke and reopens smoke's account; dispatched alone it claims the invite.
 // "Killed" is HOME + am kill (+ kill -9), not am force-stop: Android drops a force-stopped app's alarms.
-// results.reminders = { permission: 'ui' | 'pm-grant/appops fallback: …', … } in qa-summary.json.
+// results.reminders records the actual UI/settings fallback path, bridge reply and step diagnostics.
 import { execFile } from 'node:child_process';
 import { claimAccount, waitForVault } from './smoke.mjs';
 
@@ -52,6 +52,21 @@ export default async function remindersOffline(ctx) {
       await toggle.waitFor({ state: 'visible', timeout: 15_000 });
       await page.waitForFunction(() => !document.getElementById('cloud-push-toggle').disabled, null, { timeout: 15_000 });
       await ctx.stableShot('settings-notifications-off');
+      r.permissionDiagnosticsBefore = (await permissionDiagnostics(ctx)).length;
+      await page.evaluate(() => {
+        const ln = window.LocalNotifications;
+        const request = ln.requestPermission;
+        window.__qaNotificationReply = { pending: true };
+        ln.requestPermission = async function (...args) {
+          try {
+            const value = await request.apply(this, args);
+            window.__qaNotificationReply = { pending: false, value };
+            return value;
+          } finally {
+            ln.requestPermission = request;
+          }
+        };
+      });
       await page.evaluate(() => document.getElementById('cloud-push-toggle').click()); // a locator click timed out on attempt 2
       // bd med-nt9p.61: per-stage elapsed ms, so a stall names its stage (the 60 s wait is the native
       // LocalNotifications permission bridge — settings.js toggleLocalNotifications — not web push).
@@ -65,6 +80,8 @@ export default async function remindersOffline(ctx) {
         await page.waitForFunction(() => document.getElementById('cloud-push-toggle').dataset.subscribed === '1', null, { timeout: 60_000 });
       } finally {
         tm.subscribedWaitMs = Date.now() - t0;
+        r.permissionReply = await page.evaluate(() => window.__qaNotificationReply);
+        r.permissionDiagnostics = (await permissionDiagnostics(ctx)).slice(r.permissionDiagnosticsBefore);
         r.permissionState = await page.evaluate(() => window.LocalNotifications.permission()).catch((e) => `error ${e?.message}`);
         r.toggle = await page.evaluate(() => {
           const t = document.getElementById('cloud-push-toggle');
@@ -78,6 +95,8 @@ export default async function remindersOffline(ctx) {
       }
       await ctx.stableShot('settings-notifications-on');
       if (r.permissionState !== 'granted') throw new Error(`permission ${r.permissionState}`);
+      if (r.permissionReply?.pending !== false || r.permissionReply.value !== 'granted') throw new Error(`Enable reply ${JSON.stringify(r.permissionReply)}`);
+      if (!r.permissionDiagnostics.some((line) => /result=granted$/.test(line))) throw new Error('no granted step exit in diagnostics');
     });
 
     const acct = (r.account = {});
@@ -166,6 +185,9 @@ export default async function remindersOffline(ctx) {
     // 45-min job timeout, even past bounded waits. Follow-up bead: dismiss the immersive notice
     // (`settings put secure immersive_mode_confirmations confirmed`) and find the stall.
   } finally {
+    // Also retain the state-machine path when grantBoth itself fails; reboot may have closed ctx.
+    r.permissionDiagnostics ||= ((await adb(['shell', 'run-as', pkg, 'cat', 'shared_prefs/diag.xml']))
+      .match(/shell notifications step[^\n<]*/g) || []).slice(r.permissionDiagnosticsBefore || 0);
     await adb(['shell', 'svc power stayon false']); // the reboot step closed ctx.shell's device
   }
 }
@@ -194,7 +216,8 @@ async function openVault(ctx, r) {
 
 /**
  * The system side of Enable: the POST_NOTIFICATIONS prompt's Allow, then the Alarms & reminders
- * switch and Back. A screen that does not show falls back to pm grant / appops; the return says which.
+ * switch and Back. Without a prompt, require the app-opened notification settings screen, keep the
+ * bridge pending through fallback grants there, then Back. A pm-grant-only toggle flip cannot pass.
  */
 async function grantBoth(ctx, out, tm = {}) {
   const { shell, pkg, device } = ctx;
@@ -206,15 +229,32 @@ async function grantBoth(ctx, out, tm = {}) {
     tm[sel.res ? 'notifPromptMs' : 'alarmsPageMs'] = Date.now() - t0;
     return ok;
   };
-  const notes = [];
   const allow = { res: 'com.android.permissioncontroller:id/permission_allow_button' };
   if (await seen(allow, 20_000)) {
     await ctx.shot('system-notifications-prompt');
     await device.tap(allow);
   } else {
-    notes.push('pm grant POST_NOTIFICATIONS (no prompt)');
     await ctx.shot('no-notifications-prompt');
+    const fallback = (out.settingsFallback = {});
+    fallback.foreground = await shell('dumpsys activity activities | grep mResumedActivity');
+    if (!/com\.android\.settings\/.*AppNotificationSettings/.test(fallback.foreground)) {
+      throw new Error(`no runtime prompt or app notification settings: ${fallback.foreground}`);
+    }
+    fallback.beforeGrants = await ctx.page.evaluate(() => window.__qaNotificationReply);
+    if (fallback.beforeGrants?.pending !== true) throw new Error(`Enable replied before settings return: ${JSON.stringify(fallback.beforeGrants)}`);
+    await ctx.shot('system-notification-settings');
     await shell(`pm grant ${pkg} android.permission.POST_NOTIFICATIONS`);
+    await shell(`appops set ${pkg} SCHEDULE_EXACT_ALARM allow`);
+    fallback.afterGrants = await ctx.page.evaluate(() => window.__qaNotificationReply);
+    if (fallback.afterGrants?.pending !== true) throw new Error('Enable replied from fallback grants without a settings return');
+    await ctx.shot('system-notification-settings-granted');
+    const t0 = Date.now();
+    await shell('input keyevent KEYCODE_BACK');
+    for (const end = Date.now() + 10_000; !(await ctx.inForeground()) && Date.now() < end;) await ctx.sleep(500);
+    tm.resumeMs = Date.now() - t0;
+    fallback.returnedToApp = await ctx.inForeground();
+    if (!fallback.returnedToApp) throw new Error('notification settings Back did not return to the app');
+    return 'pm-grant/appops fallback: app notification settings → grants → Back → bridge reply';
   }
   const alarms = { text: /.*Allow setting alarms and reminders.*/ };
   if (await seen(alarms, 20_000)) {
@@ -232,13 +272,15 @@ async function grantBoth(ctx, out, tm = {}) {
     for (const end = Date.now() + 10_000; !(await ctx.inForeground()) && Date.now() < end;) await ctx.sleep(500);
     tm.resumeMs = Date.now() - t0;
   } else {
-    notes.push('appops SCHEDULE_EXACT_ALARM allow (no Alarms & reminders page)');
     await ctx.shot('no-alarms-page');
-    await shell(`appops set ${pkg} SCHEDULE_EXACT_ALARM allow`);
-    // The page's reply waits for a resume: Back from whatever is up, or nothing.
-    if (!(await ctx.inForeground())) await shell('input keyevent KEYCODE_BACK');
+    throw new Error('runtime prompt allowed but no Alarms & reminders page');
   }
-  return notes.length ? `pm-grant/appops fallback: ${notes.join('; ')}` : 'ui';
+  return 'ui';
+}
+
+async function permissionDiagnostics(ctx) {
+  const xml = await ctx.shell(`run-as ${ctx.pkg} cat shared_prefs/diag.xml`).catch(() => '');
+  return xml.match(/shell notifications step[^\n<]*/g) || [];
 }
 
 /**

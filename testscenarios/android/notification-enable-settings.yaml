@@ -1,0 +1,16 @@
+id: notification-enable-settings
+title: Enable notifications finishes after returning from Android notification settings
+platforms: [android]
+preconditions:
+  - Notifications are off and Android will no longer show the notification permission prompt
+steps:
+  - Open Settings, Notifications in the app and tap Enable
+  - Allow notifications on the Android app notification settings screen
+  - Return to the app, allow Alarms and reminders if asked, and return again
+invariants:
+  - Enable opens Android notification settings when a runtime request is denied without a rationale
+  - Enable stays pending while the Android settings screen covers the app
+  - Returning after both grants updates the toggle to enabled without another tap or reload
+covered_by:
+  android: android/qa/scenarios/reminders-offline.mjs
+source: [med-nt9p.65]

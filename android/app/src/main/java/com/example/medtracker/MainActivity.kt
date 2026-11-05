@@ -106,7 +106,7 @@ class MainActivity : Activity() {
     private lateinit var unlockButton: Button
 
     private val files by lazy { Files(this) { if (concealed) null else vaultHost } }
-    private val notifications by lazy { Notifications(this) { vaultHost } }
+    private val notifications by lazy { Notifications(this, ::diag) { vaultHost } }
 
     /** Local mode's asset origin (bd med-nt9p.32.2). */
     private val localApp by lazy { LocalApp(this) }
@@ -423,7 +423,7 @@ class MainActivity : Activity() {
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        if (!files.onRequestPermissionsResult(requestCode) && !notifications.onRequestPermissionsResult(requestCode) &&
+        if (!files.onRequestPermissionsResult(requestCode) && !notifications.onRequestPermissionsResult(requestCode, grantResults) &&
             !health.onRequestPermissionsResult(requestCode)
         ) {
             super.onRequestPermissionsResult(requestCode, permissions, grantResults)

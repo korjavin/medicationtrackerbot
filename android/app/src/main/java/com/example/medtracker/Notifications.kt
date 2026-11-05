@@ -36,7 +36,7 @@ import org.json.JSONObject
  * posts all it missed. Alarms are dropped on reboot, app update and a revoked
  * grant — [Rearm] arms again from the stored rows.
  */
-class Notifications(private val activity: Activity, private val host: () -> String?) {
+class Notifications(private val activity: Activity, private val diag: (String) -> Unit = {}, private val host: () -> String?) {
     private val waiting = mutableListOf<(String) -> Unit>()
     private var stage = 0
     private val back = ReturnGate()
@@ -80,33 +80,44 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
      */
     private fun step() {
         val enabled = notifying(activity)
+        val granted = activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        val exact = alarms(activity).canScheduleExactAlarms()
+        fun exit(result: String) = diag("shell notifications step stage=$stage granted=$granted enabled=$enabled canScheduleExactAlarms=$exact result=$result")
         val forced = settings
         settings = false
         // Forced with notifications on: their settings only when the alarms page has nothing to fix.
-        if ((!enabled || forced && alarms(activity).canScheduleExactAlarms()) && stage < 1) {
+        if ((!enabled || forced && exact) && stage < 1) {
             stage = 1
             val prefs = store(activity)
             val pkg = activity.packageName
-            val granted = activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             when {
                 !forced && !granted && (!prefs.getBoolean(ASKED, false) ||
                     activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) -> {
                     prefs.edit().putBoolean(ASKED, true).apply()
+                    exit("runtime-prompt")
                     activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PERMISSION_REQUEST)
                 }
                 // Allowed for the app, but the Reminders channel was switched off.
-                !enabled && manager(activity).areNotificationsEnabled() -> open(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                    .putExtra(Settings.EXTRA_APP_PACKAGE, pkg).putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL))
-                else -> open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg))
+                !enabled && manager(activity).areNotificationsEnabled() -> {
+                    exit("channel-settings")
+                    open(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, pkg).putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL))
+                }
+                else -> {
+                    exit("app-settings")
+                    open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg))
+                }
             }
             return
         }
-        if (enabled && !alarms(activity).canScheduleExactAlarms() && stage < 2) {
+        if (enabled && !exact && stage < 2) {
             stage = 2
+            exit("exact-alarm-settings")
             open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
             return
         }
         val result = permission(activity)
+        exit(result)
         val replies = waiting.toList()
         waiting.clear()
         replies.forEach { it(result) }
@@ -117,9 +128,18 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
     }
 
     /** MainActivity.onRequestPermissionsResult: true when it was this one's. */
-    fun onRequestPermissionsResult(requestCode: Int): Boolean {
+    fun onRequestPermissionsResult(requestCode: Int, grantResults: IntArray): Boolean {
         if (requestCode != PERMISSION_REQUEST) return false
-        if (waiting.isNotEmpty()) step()
+        if (waiting.isNotEmpty()) {
+            // Android can refuse without a prompt (no rationale / don't ask again). Keep Enable
+            // pending through the settings round trip, where the user can actually allow it.
+            if (grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED &&
+                !activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
+                stage = 0
+                settings = true
+            }
+            step()
+        }
         return true
     }
 
