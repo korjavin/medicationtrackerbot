@@ -781,7 +781,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     }
 
     // Saving a meal is the user defining that product, so an existing
-    // same-name product takes the meal's summed definition (zeros included).
+    // same-name product takes the meal's summed definition; a 0 sum keeps the
+    // existing value (the old upsert's COALESCE, unchanged).
     const mult = 100 / totalWeight;
     const meal = {
       carbs_100g: totalCarbs * mult,
@@ -792,7 +793,14 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       total_weight_g: totalWeight,
     };
     const existing = await findProduct(name);
-    const product = (existing && await touchProduct(existing, () => meal)) || await createProduct({ name, ...meal });
+    const coalesce = (cur) => ({
+      ...meal,
+      carbs_100g: meal.carbs_100g || cur.carbs_100g,
+      protein_100g: meal.protein_100g || cur.protein_100g,
+      fat_100g: meal.fat_100g || cur.fat_100g,
+      energy_kcal_100g: meal.energy_kcal_100g || cur.energy_kcal_100g,
+    });
+    const product = (existing && await touchProduct(existing, coalesce)) || await createProduct({ name, ...meal });
     return toProductResponse(product);
   }
 
