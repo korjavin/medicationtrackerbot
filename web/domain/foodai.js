@@ -34,6 +34,23 @@ composed salad stays one item; only distinct dishes (e.g. a main and a side,
 a drink) are separate items. If the photo shows no food, return an empty
 items array.`;
 
+// med-5jq.5: the user's most-used catalog names ride along with each parse so
+// the model reuses them instead of inventing a fresh name. Only the NAMES
+// leave the vault — no macros, dates or quantities (privacy-manifest.js:
+// trial-ai / byo-openai). ~1k tokens at N=150 (pinned by the shim-contract test).
+export const CATALOG_PROMPT_LIMIT = 150;
+
+// withCatalog(systemPrompt, names) → the prompt plus the catalog block, or
+// the prompt unchanged for an empty catalog. JSON.stringify delimits the names
+// as quoted data, as the photo caption is.
+export function withCatalog(systemPrompt, names) {
+  if (!Array.isArray(names) || names.length === 0) return systemPrompt;
+  return `${systemPrompt}
+
+Foods already in this user's catalog: ${JSON.stringify(names)}
+Prefer a name from this list whenever the eaten food is the same thing, even if the user wrote it differently or in another language; return that name exactly. Invent a new name only when nothing on the list fits.`;
+}
+
 // Started as internal/ai/openai.go's mealSchema (JSON-Schema shape), plus
 // `uncertain`. Strict mode needs every property required; a provider on the
 // unconstrained fallback may still omit it, which reads as false.
@@ -121,7 +138,8 @@ export function previewParsedMeal(parsed) {
 }
 
 // createFoodAIDomain builds the food-AI API over the injected ports:
-//   aiClient    — { parseMealFromDescription(text), parseMealFromImage(file, caption) },
+//   aiClient    — { parseMealFromDescription(text, { catalog }), parseMealFromImage(file, caption, { catalog }) },
+//                 catalog = the top catalog names for withCatalog;
 //                 both resolving to a ParsedMeal ({items:[...]}); throws with
 //                 .code 'no_api_key' when no provider key is configured (the
 //                 replacement for the server's food_intake_enabled gate) —
@@ -160,13 +178,24 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     return { status: 'created', items: saved, failed };
   }
 
+  // Top CATALOG_PROMPT_LIMIT product names by usage_count (listProducts'
+  // default sort). A catalog read failure parses without the block.
+  async function catalogNames() {
+    try {
+      const { products } = await foodDomain.listProducts({ limit: CATALOG_PROMPT_LIMIT });
+      return [...new Set(products.map((p) => p.name).filter(Boolean))];
+    } catch {
+      return [];
+    }
+  }
+
   async function parseMealFromDescription(description, { eatenAt, recordIdFor, dryRun = false } = {}) {
     const trimmed = (description || '').trim();
     if (!trimmed) throw invalid('Description is required');
     if (new TextEncoder().encode(trimmed).length > MAX_DESCRIPTION_BYTES) {
       throw invalid(`Description too long (max ${MAX_DESCRIPTION_BYTES} bytes)`);
     }
-    const parsed = await aiClient.parseMealFromDescription(trimmed);
+    const parsed = await aiClient.parseMealFromDescription(trimmed, { catalog: await catalogNames() });
     if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
@@ -175,7 +204,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
   // Passed to the model as a hint, never as a substitute for the image: it is
   // what makes "300g" beat guessing the portion from pixels.
   async function parseMealFromPhoto(file, { eatenAt, recordIdFor, caption, dryRun = false } = {}) {
-    const parsed = await aiClient.parseMealFromImage(file, (caption || '').trim());
+    const parsed = await aiClient.parseMealFromImage(file, (caption || '').trim(), { catalog: await catalogNames() });
     if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
