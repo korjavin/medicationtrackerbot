@@ -83,7 +83,9 @@ final class FlowQAEURegisterTests: XCTestCase {
         launch(app, name)
         let node = QA.readyNode(app)
         XCTAssertTrue(node.waitForExistence(timeout: timeout), "\(name) never published #wg-qa-ready")
-        let label = node.label
+        // WebKit appends the role to the label ("…}, application status").
+        let raw = node.label
+        let label = raw.lastIndex(of: "}").map { String(raw[...$0]) } ?? raw
         let report = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(label.utf8)) as? [String: Any], "unreadable report: \(label)")
         XCTAssertNil(report["error"], "\(name): \(label)")
         let eu = try XCTUnwrap(report["euRegister"] as? [String: Any], "\(name): no euRegister in \(label)")

@@ -155,6 +155,18 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
   clears the file → seeded again over records: Merge / Replace → Cancel → no
   further dialog, records kept, file cleared.
+- **EU register flow** ([`FlowQAEURegisterTests.swift`](../ios/UITests/FlowQAEURegisterTests.swift),
+  bd med-3u28.4, twin of Android's `eu-register`): four launches of the
+  `flowOnly` scenes `eu-register-us`, `eu-register-pick`, `eu-register`
+  (×2) in `tests/visual/scenes.json` (the visual tiers skip them). US (the
+  default) checks nothing in local mode → Settings → "Check names in" shows
+  the local US line, a native tap picks EU → relaunch: the choice held, the
+  first check loads the bundled register, Candecor's chip opens its sheet →
+  relaunch: cache-first when WebKit stored it. The driver's `euRegister`
+  step puts the numbers in the report; the test attaches them as
+  `eu-register-<step>.json`, and the `qa` job writes the Simulator's
+  WebContent RSS each second to `webcontent-rss.log` (both in `ios-qa`;
+  match the RSS to the JSON's epoch-ms windows).
 
 **Isolation (bd med-w6gx.23.8):** every flow class's `setUp` calls
 `QA.reset()`: the app stopped, then `Library/WebKit` (the store), both
