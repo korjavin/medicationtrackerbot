@@ -477,6 +477,17 @@
             window.showAddFoodModal({ view: 'describe' });
             document.getElementById('food-add-describe-text').value = 'breakfast';
             document.getElementById('food-add-primary-btn').click();
+        } else if (step.scanStaple) {
+            // FC1 (med-5jq.7) without a food DB on CI: the scanned barcode's
+            // remote row and the matching food of the user's are step.scanStaple's.
+            const { scanned, mine } = step.scanStaple;
+            window.CloudFoodSearch = Object.assign({}, window.CloudFoodSearch, {
+                remoteConfigured: async () => true,
+                search: async (q, o) => (o && o.remote ? [{ ...scanned }] : []),
+                stapleOffer: async () => ({ ...mine }),
+            });
+            window.showAddFoodModal();
+            await window.FoodLog.addSheet.onScan(scanned.barcode, scanned.barcode);
         } else if (step.tag) {
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.

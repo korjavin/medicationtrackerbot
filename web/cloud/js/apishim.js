@@ -1909,6 +1909,7 @@ export function installApiShim(ctx, {
   // (local mode: the trial is off, or today's lookups are spent).
   targetWindow.CloudFoodSearch = {
     search: food.search, remoteConfigured: foodDb.remoteConfigured, remoteHint: foodDb.remoteHint,
+    stapleOffer: food.stapleOffer, // the add sheet's FC1 scan offer (med-5jq.7), read-only
   };
   // Voice: elevenlabs-call.js's fetchSignedURL() branches on
   // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
