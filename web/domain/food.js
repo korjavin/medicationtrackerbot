@@ -6,7 +6,7 @@
 
 import { offsetMsAt, dayStartMs } from './bp.js';
 import { foodKey, keyDistance } from './foodname.js';
-import { withMacroWarnings } from './foodmacros.js';
+import { macroWarnings, withMacroWarnings } from './foodmacros.js';
 
 const LOG_RECORD_TYPE = 'foodlog';
 const PRODUCT_RECORD_TYPE = 'foodproduct';
@@ -329,7 +329,9 @@ function mostUsed(list) {
 // keys to '' (only annotations, "Breakfast") matches by exact name only.
 const foldName = (s) => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
 
-export function resolveProduct(rawName, products, { barcode } = {}) {
+// typo: false skips the typo tier (the AI path, Archie 15882: model output has
+// no letter typos, and "Toast" must never become "Roast").
+export function resolveProduct(rawName, products, { barcode, typo = true } = {}) {
   const key = foodKey(rawName);
   const code = String(barcode || '').trim();
   let live = (products || []).filter((p) => !p.deleted && p.name);
@@ -352,7 +354,7 @@ export function resolveProduct(rawName, products, { barcode } = {}) {
   if (exact.length) return { product: mostUsed(exact), matched: 'exact', key };
   const alias = live.filter((p) => Array.isArray(p.aliases) && p.aliases.includes(key));
   if (alias.length) return { product: mostUsed(alias), matched: 'alias', key };
-  if (code) return none;
+  if (code || !typo) return none;
   const len = Array.from(key).length;
   const max = len > 7 ? 2 : len >= 5 ? 1 : 0;
   if (!max) return none;
@@ -384,10 +386,12 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   }
 
   // forLog — the deterministic recordId of the log this product is created
-  // for (a Telegram drain item). Then the product id derives from it and the
-  // write takes the floor (CLAUDE.md rule 12: clientTs 0, putIfAbsent), so two
-  // devices draining one event, or a re-parse under another name, write ONE
-  // product. A tombstone in that slot falls back to a fresh product.
+  // for (a Telegram drain item). Then the product id derives from it and goes
+  // in through putIfAbsent, so two devices draining one event, or a re-parse
+  // under another name, write ONE product. Stamped now(), not the floor: the
+  // two bodies may differ (the model names the dish per device), and only
+  // distinct stamps converge under strict-> LWW (Argus 15884). A tombstone in
+  // that slot falls back to a fresh product.
   async function createProduct(input, { forLog } = {}) {
     const nowMs = now();
     const record = {
@@ -408,7 +412,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       last_used_at: new Date(nowMs).toISOString(),
     };
     if (forLog && records.putIfAbsent) {
-      const stored = await records.putIfAbsent(PRODUCT_RECORD_TYPE, { ...record, recordId: `foodproduct-${forLog}`, clientTs: 0 });
+      const stored = await records.putIfAbsent(PRODUCT_RECORD_TYPE, { ...record, recordId: `foodproduct-${forLog}` });
       if (stored && !stored.deleted) return stored;
     }
     await records.put(PRODUCT_RECORD_TYPE, record);
@@ -486,7 +490,10 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // per100g overrides the per-100 g values derived from the log's (truncated)
   // totals for a created product and the warnings: the AI path passes the
   // model's own estimate, which the totals lose on small portions.
-  async function create(input, { recordId, per100g } = {}) {
+  // typo: false turns off the typo tier (the AI path, Archie 15882).
+  // Impossible per-100 g macros never create a product (Archie 15882): the log
+  // is saved unlinked with its own macros and its warning, matched 'new'.
+  async function create(input, { recordId, per100g, typo = true } = {}) {
     assertNonNegativeMacros(input, { checkWeight: true });
     const nowMs = now();
     let resolvedName = input.name || '';
@@ -518,13 +525,18 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       }
     }
     if (resolvedName && !resolvedProductId) {
-      const found = resolveProduct(resolvedName, await records.list(PRODUCT_RECORD_TYPE), { barcode: input.barcode });
+      const found = resolveProduct(resolvedName, await records.list(PRODUCT_RECORD_TYPE), { barcode: input.barcode, typo });
       const touched = found.product && await touchProduct(found.product, (cur) => (
         !cur.barcode && input.barcode ? { barcode: input.barcode } : {}));
-      const product = touched || await createProduct({ name: resolvedName, barcode: input.barcode || null, ...(per100g || per100gFrom(input)) }, { forLog: recordId });
+      const per = per100g || per100gFrom(input);
+      const product = touched || (macroWarnings(per).includes('impossible')
+        ? null
+        : await createProduct({ name: resolvedName, barcode: input.barcode || null, ...per }, { forLog: recordId }));
       matched = touched ? found.matched : 'new';
-      resolvedProductId = product.recordId;
-      resolvedName = product.name;
+      if (product) {
+        resolvedProductId = product.recordId;
+        resolvedName = product.name;
+      }
     }
 
     const record = {

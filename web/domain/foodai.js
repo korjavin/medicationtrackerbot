@@ -136,11 +136,12 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
   // recordIdFor(index) → a stable recordId for item `index`, so a caller that
   // needs idempotent re-creates (e.g. a re-drained Telegram /food) overwrites its
   // own rows. Absent → the food domain generates ids, unchanged for the UI path.
-  // Every item reconciles like a typed name (med-5jq.4): foodDomain.create
-  // resolves it against the catalog (exact key / alias / one typo) and links
-  // the product, or creates one from the item's per-100 g estimate. A
-  // re-drain resolves the same name to the same product. No alias is learnt
-  // here: an exact or alias hit already carries the key, a typo never learns.
+  // Every item reconciles against the catalog (med-5jq.4): foodDomain.create
+  // resolves it by exact key or alias (no typo tier: model output has no
+  // letter typos, Archie 15882) and links the product, or creates one from the
+  // item's per-100 g estimate (none for impossible macros). A re-drain keeps
+  // its log's link. No alias is learnt here: an exact or alias hit already
+  // carries the key.
   async function saveParsedItems(parsedMeal, eatenAt, recordIdFor) {
     const items = convertParsedMeal(parsedMeal);
     const saved = [];
@@ -149,7 +150,7 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
       try {
         saved.push(await foodDomain.create(
           { ...items[i], eaten_at: eatenAt },
-          { recordId: recordIdFor ? recordIdFor(i) : undefined, per100g: per100gOf(parsedMeal.items[i]) },
+          { recordId: recordIdFor ? recordIdFor(i) : undefined, per100g: per100gOf(parsedMeal.items[i]), typo: false },
         ));
       } catch {
         failed++;

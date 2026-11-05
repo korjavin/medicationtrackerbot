@@ -1817,21 +1817,31 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(await records.list('foodlog')).toMatchObject([{ name: 'Boiled egg', product_id: products[0].recordId }]);
     });
 
-    it('two devices draining the same /food event with no shared state write ONE product once merged (rule 12 floor)', async () => {
-        const now = () => DRAIN_MS;
-        const drain = async (name) => {
+    it('two devices draining the same /food event with no shared state converge on ONE product after exchanging ops', async () => {
+        const drain = async (name, atMs) => {
             const records = fakeRecords(seed());
             const aiClient = { parseMealFromDescription: async () => ({ items: [{ ...TWO_EGGS[0], name }] }) };
-            await applyTGCommand(commandEvent('/food 2 eggs'), 20, { ...domainsFor(records, now, aiClient), editReply: vi.fn() });
-            return records;
+            await applyTGCommand(commandEvent('/food 2 eggs'), 20, { ...domainsFor(records, () => atMs, aiClient), editReply: vi.fn() });
+            return records.dump();
         };
-        const [a, b] = [await drain('Kharcho'), await drain('Kharcho soup')];
-        const merged = (type) => [...new Map([...b.dump()[type], ...a.dump()[type]].map((r) => [r.recordId, r])).values()];
+        const a = await drain('Kharcho', DRAIN_MS);
+        const b = await drain('Kharcho soup', DRAIN_MS + 1000);
+        // sync.js applyIncoming: an incoming op lands only when its clientTs is strictly greater.
+        const receive = (into, from, type) => {
+            for (const op of from[type]) {
+                const i = into[type].findIndex((r) => r.recordId === op.recordId);
+                if (i < 0) into[type].push(op);
+                else if (op.clientTs > into[type][i].clientTs) into[type][i] = op;
+            }
+        };
+        const a0 = JSON.parse(JSON.stringify(a));
+        for (const type of ['foodproduct', 'foodlog']) { receive(a, b, type); receive(b, a0, type); }
 
-        const products = merged('foodproduct');
-        expect(products).toHaveLength(1);
-        expect(products[0]).toMatchObject({ recordId: 'foodproduct-tg-20-0', clientTs: 0 });
-        expect(merged('foodlog').map((l) => l.product_id)).toEqual(['foodproduct-tg-20-0']);
+        expect(a.foodproduct).toEqual(b.foodproduct);
+        expect(a.foodproduct).toHaveLength(1);
+        expect(a.foodproduct[0]).toMatchObject({ recordId: 'foodproduct-tg-20-0', name: 'Kharcho soup' });
+        expect(a.foodlog).toEqual(b.foodlog);
+        expect(a.foodlog.map((l) => l.product_id)).toEqual(['foodproduct-tg-20-0']);
     });
 
     it('bare /food is refused with a usage hint and logs nothing', async () => {

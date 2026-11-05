@@ -504,6 +504,22 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
             expect(rows.find((p) => p.recordId === res.product_id)).toMatchObject({ name, name_key: name.toLowerCase() });
         });
 
+    // med-5jq.4 (Archie 15882): an impossible estimate never becomes a shared product.
+    it('impossible macros save the log unlinked, no product; it lists and edits like a pre-.3 log', async () => {
+        const res = await env.window.apiCall('/api/food/log', 'POST', { ...body('Mystery bar'), protein: 150, calories: 681 });
+        expect(res).toMatchObject({ name: 'Mystery bar', matched: 'new' });
+        expect(res.product_id).toBeUndefined();
+        expect(res.warnings).toContain('impossible');
+        expect(await productRows()).toHaveLength(catalog.length);
+
+        const listed = (await env.window.apiCall('/api/food/log?days=1')).flatMap((g) => g.logs);
+        expect(listed.find((l) => l.id === res.id)).toMatchObject({ name: 'Mystery bar', protein: 150 });
+        const fixed = await env.window.apiCall(`/api/food/log/${res.id}`, 'PUT', { ...body('Mystery bar'), protein: 15, calories: 153, eaten_at: res.eaten_at });
+        expect(fixed).toMatchObject({ name: 'Mystery bar', protein: 15 });
+        expect(fixed.product_id).toBeUndefined();
+        expect(await productRows()).toHaveLength(catalog.length);
+    });
+
     it('a typo match learns nothing: the next log is a typo match again (Archie 15700)', async () => {
         await viaApi('Yugurt');
         const row = (await productRows()).find((p) => p.recordId === 'p-yogurt');

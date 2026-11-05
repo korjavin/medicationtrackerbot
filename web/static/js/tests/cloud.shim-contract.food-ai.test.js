@@ -927,6 +927,37 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
                 expect(logs.filter((l) => !l.product_id)).toHaveLength(0);
             });
 
+            it('no typo tier on the AI path: a parsed "Toast" with only "Roast" saved creates its own product', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                await seedProduct({ name: 'Roast' });
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    { name: 'Toast', weight_grams: 60, carbs_100g: 45, protein_100g: 8, fat_100g: 3 },
+                ])));
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'toast' });
+
+                expect(res.items[0]).toMatchObject({ name: 'Toast', matched: 'new' });
+                const names = (await window.apiCall('/api/food/products', 'GET')).products.map((p) => p.name).sort();
+                expect(names).toEqual(['Roast', 'Toast']);
+            });
+
+            it('impossible macros (protein 150 g/100 g) save the log unlinked with its warning, no product', async () => {
+                const { window } = env;
+                await setOpenAIKey(window);
+                vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                    { name: 'Protein shake', weight_grams: 100, carbs_100g: 5, protein_100g: 150, fat_100g: 2 },
+                ])));
+
+                const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'shake' });
+
+                expect(res.items[0]).toMatchObject({ name: 'Protein shake', matched: 'new', protein: 150 });
+                expect(res.items[0].product_id).toBeUndefined();
+                expect(res.items[0].warnings).toContain('impossible');
+                expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(0);
+                expect((await logsToday(window)).map((l) => l.name)).toEqual(['Protein shake']);
+            });
+
             it('string macros from the unconstrained fallback are stored on the product as numbers', async () => {
                 const { window } = env;
                 await setOpenAIKey(window);

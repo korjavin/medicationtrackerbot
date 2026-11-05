@@ -12,6 +12,9 @@ invariants:
   - The eggs log shows as "Boiled egg" with the AI's macros, and no second egg product appears
   - '"Kharcho" appears once in the food database with the AI''s per-100 g values; both logs are linked to it'
   - A Telegram /food delivered twice still leaves one log per item and one product
+  - With only "Roast" saved, an AI-read "Toast" gets its own Toast product (no typo guess on AI items)
+  - An item with impossible macros (protein 150 g/100 g) is logged with its warning but creates no product
+  - Two devices handling the same Telegram /food end up with one product
   - Earlier AI logs keep their names, totals and missing links
   - A wrong AI match shows the product's name on the log at once and is corrected by editing the log's name, as for a typed log
 covered_by:
