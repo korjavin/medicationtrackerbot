@@ -12,6 +12,6 @@ invariants:
   - The device credential unlocks it
   - A failed or cancelled unlock stays locked, with no prompt loop; Unlock tries again
 covered_by:
-  web: manual
+  web: manual  # n/a on web: the app lock exists only in the phone shells' local mode (see preconditions); nothing to check in a browser
   android: manual  # partial: android/qa/scenarios/native-lock.mjs (the lock screen via a debug extra; no background, no real unlock)
   ios: ios/UITests/FlowQALockTests.swift#testLocalLock

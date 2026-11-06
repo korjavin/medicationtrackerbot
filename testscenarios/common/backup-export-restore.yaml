@@ -12,6 +12,6 @@ invariants:
   - A wrong or corrupt file is refused and nothing is replaced
   - Merge keeps this device's records and adds the file's; Replace replaces them
 covered_by:
-  web: manual  # partial: web/static/js/tests/settings.importexport.test.js and cloud.local-mode.test.js (export and restore separately, no erase in between)
+  web: manual  # partial: the account-mode CloudVault in cloud-boot.js is pinned only with a stubbed sync module (web/cloud/js/tests/cloud-boot.test.js: a corrupt file wipes nothing, replace order, merge), the Settings wiring by settings.importexport.test.js, the shared format by cloud.vault-roundtrip.test.js; the restore → export → restore loop over a real store runs only for the phone-only bundle (cloud.local-mode.test.js); missing: export, erase, restore, every record back through the account store (med-sz4k.2)
   android: manual  # partial: android/qa/scenarios/local-to-cloud.mjs (export/empty-account restore); no local erase/restore, corrupt-file preservation or Merge/Replace; local-backup.mjs proves Auto Backup only (med-sz4k.4.3)
   ios: manual  # partial: ios/UITests/FlowQABackupTests.swift#testBackupExport and #testRestoreFromFile (export to Files; erase, then restore the fixture, not the exported file; one medication checked, no corrupt file, no Merge or Replace)
