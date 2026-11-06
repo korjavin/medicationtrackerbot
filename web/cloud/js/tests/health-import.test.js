@@ -1483,6 +1483,13 @@ describe('Health write-back', () => {
     // A shell writer from a per-entry `single` (bd med-8f4s.15): the single
     // form answers it; { entries } answers one result per entry, in order (a
     // string from `single` is that entry's error); a throw fails the whole call.
+    // Mirrors the real contract:
+    // - web/static/js/native/health.js:97-102 (the write({ entries }) bridge comment);
+    // - android/.../HealthConnect.kt:173-182 + writeEntries :468-487: per entry
+    //   true | "denied" (revoked kind) | error string, an insert failure throws
+    //   the whole call; single form :184-190 rejects, equal-version replay accepted (:187-188);
+    // - ios/App/Health.swift:155-171 (contract :16-18): per entry true | error
+    //   string, "denied" or a store error throws the whole call.
     const answer = (single = async () => true) => async (a) => {
         if (!a.entries) {
             // The single form rejects with what a batch answers as a string.
