@@ -30,7 +30,10 @@ function equal(actual, expected, where) {
   throw new Error(`${where}: semantic differences in ${changed.join(', ')}; hashes ${digest(JSON.stringify(content(actual)))}/${digest(JSON.stringify(content(expected)))}`);
 }
 async function backup(page) {
-  await page.locator('[data-nav-to="settings"]:visible').first().click();
+  if (await page.locator('#importexport-export-btn').isVisible()) return;
+  if (!(await page.locator('[data-settings-open="backup"]:visible').count())) {
+    await page.locator('[data-nav-to="settings"]:visible').first().click();
+  }
   await page.locator('[data-settings-open="backup"]:visible').click();
   await page.locator('#importexport-export-btn').waitFor({ state: 'visible' });
 }

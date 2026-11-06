@@ -19,12 +19,15 @@ export default async function localLock(ctx) {
   const credential = async (pin = '1234') => {
     // BiometricPrompt falls back to Android's real credential activity on this image.
     await ctx.waitFor({ clazz: 'android.widget.EditText' }, 20_000);
+    await device.fill({ clazz: 'android.widget.EditText' }, '');
     await shell(`input text ${pin}`);
     await shell('input keyevent KEYCODE_ENTER');
     await sleep(1500);
   };
   const settingsToggle = async () => {
-    await page.locator('[data-nav-to="settings"]:visible').first().click();
+    if (!(await page.locator('#settings-local-lock').isVisible())) {
+      await page.locator('[data-nav-to="settings"]:visible').first().click();
+    }
     await page.locator('#settings-local-lock-toggle').waitFor({ state: 'attached' });
     await page.locator('#settings-local-lock .wg-toggle').click();
     await credential();
@@ -51,7 +54,11 @@ export default async function localLock(ctx) {
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       await ctx.waitFor({ clazz: 'android.widget.EditText' }, 20_000);
       await ctx.shot('system-unlock-prompt');
+      // On Android the first Back can dismiss the PIN keyboard. A second is the
+      // actual credential cancellation; stop as soon as the native N3 button returns.
       await shell('input keyevent KEYCODE_BACK');
+      const cancelled = await device.wait({ text: 'Unlock' }, { timeout: 2000 }).then(() => true, () => false);
+      if (!cancelled) await shell('input keyevent KEYCODE_BACK');
       await ctx.waitFor({ text: 'Unlock' }, 10_000);
       await sleep(4000);
       await ctx.waitFor({ text: 'Unlock' }, 2000);
@@ -110,7 +117,9 @@ export default async function localLock(ctx) {
         if (r.cleanupAuthenticatedControlError) {
           page = await ctx.launchLocal(undefined);
           if ((await status()).on) {
-            await page.locator('[data-nav-to="settings"]:visible').first().click();
+            if (!(await page.locator('#settings-local-lock').isVisible())) {
+              await page.locator('[data-nav-to="settings"]:visible').first().click();
+            }
             await page.locator('#settings-local-lock .wg-toggle').click();
           }
         }
