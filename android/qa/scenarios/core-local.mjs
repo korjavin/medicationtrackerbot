@@ -222,13 +222,14 @@ export default async function coreLocal(ctx) {
     });
   }
   } finally {
-    if (page && !page.isClosed()) {
+    await ctx.step('cleanup: fixture override cleared', async () => {
+      if (!page || page.isClosed()) return; // A closed page cannot seed a later scenario.
       await page.evaluate(() => {
         sessionStorage.removeItem('qa-b1-core-fixture');
         delete window.__wgQAFiles;
       });
       r.fixtureOverrideCleared = await page.evaluate(() => !sessionStorage.getItem('qa-b1-core-fixture') && !window.__wgQAFiles);
       if (!r.fixtureOverrideCleared) throw new Error('core fixture override cleanup failed');
-    }
+    });
   }
 }
