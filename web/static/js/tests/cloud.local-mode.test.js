@@ -735,8 +735,6 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         expect(document.documentElement.classList.contains('wg-local-vault')).toBe(true);
         const shown = (el) => window.getComputedStyle(el).display !== 'none';
         const hidden = [
-            document.getElementById('health-import-miband').parentElement,
-            document.getElementById('importexport-nxk-group'),
             document.getElementById('importexport-reset-sync-group'),
             document.getElementById('integrations-elevenlabs-api-key').closest('section'),
         ];
@@ -746,7 +744,7 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         expect(shown(document.getElementById('importexport-import-btn').closest('section'))).toBe(true);
         expect(shown(document.getElementById('importexport-local-erase-group'))).toBe(true);
         // The settings home hides a row whose page has nothing left to show.
-        expect(window.isSettingsSectionHidden(document.getElementById('importexport-nxk-group'))).toBe(true);
+        expect(window.isSettingsSectionHidden(document.getElementById('importexport-reset-sync-group'))).toBe(true);
         expect(window.isSettingsSectionHidden(document.getElementById('local-reminder-verbosity').closest('section'))).toBe(false);
     });
 });

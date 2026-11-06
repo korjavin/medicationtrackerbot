@@ -384,15 +384,6 @@
                 <div id="health-overview-content" class="hidden">
                     <!-- Injected dynamically via app.js -->
                 </div>
-                <!-- Cross-link to Settings → Backup & import (med-xso6.24);
-                     health.js bindMiBandImportRow. -->
-                <div class="wg-list wg-health-import wg-cloud-only">
-                    <button type="button" class="wg-row" id="health-import-miband">
-                        <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
-                        <span class="wg-row__body"><span class="wg-row__title">Import Mi Band backup</span><span class="wg-row__meta">.nxk · Settings → Backup &amp; import</span></span>
-                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                    </button>
-                </div>
             </div>
 
             <div id="health-notes-tab" class="health-tab-content">
@@ -1224,23 +1215,6 @@
                             <p class="wg-hint">An invite is waiting.</p>
                             <button type="button" id="settings-sync-turn-on" class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="cloud-up"></i>Turn on sync</button>
                         </div>
-                    </div>
-                </section>
-
-                <!-- Mi Band .nxk ingestion: the server parses the backup and seals
-                     the vitals to the account inbox. Also reachable from Vitals. -->
-                <section id="importexport-nxk-group" class="wg-section wg-cloud-only">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Import</span></div>
-                    <div class="wg-card wg-vstack">
-                        <input type="file" id="importexport-nxk-file" accept=".nxk,.sqlite,application/octet-stream" hidden>
-                        <div class="wg-file" data-file-input="importexport-nxk-file" data-empty-name="Mi Band backup" data-empty-meta=".nxk · fills Vitals and cardio sessions">
-                            <span class="wg-file__icon"><i class="wg-ico" data-icon="health"></i></span>
-                            <span class="wg-file__body"><span class="wg-file__name">Mi Band backup</span><span class="wg-file__meta">.nxk · fills Vitals and cardio sessions</span></span>
-                            <button type="button" class="wg-btn wg-btn--sm" data-file-choose>Choose</button>
-                            <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-file-clear aria-label="Remove file" hidden><i class="wg-ico" data-icon="x"></i></button>
-                        </div>
-                        <p class="wg-hint">Sleep, heart rate, SpO2, stress, day stats and workouts are imported. Location tracks are never uploaded.</p>
-                        <button id="importexport-nxk-btn" type="button" class="wg-btn wg-btn--block">Import Mi Band data</button>
                     </div>
                 </section>
 
