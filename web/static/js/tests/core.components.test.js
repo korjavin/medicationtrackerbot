@@ -229,6 +229,37 @@ describe('WGRowActions', () => {
             cleanup();
         }
     });
+
+    it('More scrolls its menu to the middle only when it opens under the tab bar, and the scroll keeps it open', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            const { document } = window;
+            const bar = document.createElement('nav');
+            bar.className = 'wg-tabbar';
+            bar.getBoundingClientRect = () => ({ top: 700, bottom: 763 });
+            document.body.appendChild(bar);
+            const row = document.createElement('div');
+            document.body.appendChild(row);
+            window.WGRowActions.attach(row, { onEdit: () => {}, onDelete: () => {} });
+            const menu = row.querySelector('.wg-menu');
+            const scrolls = [];
+            menu.scrollIntoView = (o) => scrolls.push(o);
+            const more = row.querySelector('.wg-swipe__more');
+
+            menu.getBoundingClientRect = () => ({ top: 300, bottom: 400 });
+            more.click();
+            expect(scrolls).toEqual([]);
+            more.click(); // closes
+
+            menu.getBoundingClientRect = () => ({ top: 680, bottom: 826 }); // the iPhone CI rect
+            more.click();
+            expect(scrolls).toEqual([{ block: 'center' }]);
+            window.dispatchEvent(new window.Event('scroll'));
+            expect(menu.hidden).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
 });
 
 describe('WGChip', () => {

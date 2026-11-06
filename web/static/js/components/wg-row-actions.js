@@ -152,6 +152,12 @@
             more.setAttribute('aria-expanded', 'true');
             const first = menu.querySelector('.wg-menu__item');
             if (first) first.focus();
+            // On a phone the menu of a low row opens past the fold or under the
+            // tab bar, and focus() does not scroll it there (iOS WebKit, bd
+            // med-sz4k.6.1): bring it to the middle. Scroll keeps a menu open.
+            const bar = document.querySelector('.wg-tabbar');
+            const floor = bar ? bar.getBoundingClientRect().top : window.innerHeight;
+            if (menu.getBoundingClientRect().bottom > floor && typeof menu.scrollIntoView === 'function') menu.scrollIntoView({ block: 'center' });
         });
         row.addEventListener('keydown', (e) => {
             if (menu.hidden) return;
