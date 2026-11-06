@@ -2202,20 +2202,16 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         e.window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
         return e;
     };
-    // Today's Next up rows for the med. `open` is a tab open (loadToday: cache
-    // paint, refetch, repaint); otherwise the loader's repaint from the caches
-    // alone, no network.
-    const paintToday = async (w, { open = false } = {}) => {
-        if (open) {
-            w.AppStore.set('currentTab', 'today');
-            await w.loadToday();
-            w.AppStore.set('currentTab', 'meds');
-        } else {
-            await w._todayRender(w.todayFoodKey(new w.Date(clock)), true);
-        }
+    // Today's Next up rows for the med, as the page shows them now.
+    const nextUp = (w) => {
         expect(w.document.querySelector('#today-content [data-section="next-up"]')).not.toBeNull();
         return [...w.document.querySelectorAll('#today-content [data-section="next-up"] .wg-row')]
             .filter((r) => r.querySelector('.wg-row__title')?.textContent === 'Metformin');
+    };
+    // Open the Today tab (loadToday: cache paint, refetch, repaint); it stays current.
+    const openToday = async (w) => {
+        w.AppStore.set('currentTab', 'today');
+        await w.loadToday();        return nextUp(w);
     };
     // The Timeline's taken rows: [in Today's section (bd med-5y49 layout:
     // Later today folded on top, the focus card, then Pending / Done), chip].
@@ -2249,25 +2245,31 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         // 09:01: the dose is due. Today lists it with Take.
         clock = at(9, 1);
         await window.readPendingDoses(clock);
-        const [row] = await paintToday(window, { open: true });
+        const [row] = await openToday(window);
         expect(row).toBeTruthy();
         const take = row.querySelector('[data-action="take"]');
         expect(take.textContent.trim()).toBe('Take');
 
-        // Take: at the moment the write goes out, Today repainted from its
-        // caches (no reload, no refetch) no longer lists the dose.
+        // Take, with the write held in flight: the open Today screen drops the
+        // dose on its own (no forced render, no reload) before the write lands.
         const realApiCall = window.apiCall;
-        let atAct = null;
+        let release;
+        const held = new Promise((r) => { release = r; });
+        let acted = false;
         window.apiCall = async (p, ...rest) => {
-            if (p === '/api/doses/act' && atAct === null) atAct = (await paintToday(window)).length;
+            if (p === '/api/doses/act') { acted = true; await held; }
             return realApiCall(p, ...rest);
         };
         take.click();
         await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(1));
         document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+        await vi.waitFor(() => expect(acted).toBe(true));
+        await vi.waitFor(() => expect(nextUp(window)).toHaveLength(0));
+        expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(0);
+        release();
         await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
-        expect(atAct).toBe(0);
-        expect(await paintToday(window)).toHaveLength(0);
+        await materializationSettled();
+        expect(nextUp(window)).toHaveLength(0);
 
         // Meds → Timeline: "Taken 09:01".
         await materializationSettled();
@@ -2284,7 +2286,7 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         expect(takenChips(window)).toEqual([[true, 'Taken 09:01']]);
         expect(focusDone(window)).toBe(true);
         await window.readPendingDoses(clock);
-        expect(await paintToday(window, { open: true })).toHaveLength(0);
+        expect(await openToday(window)).toHaveLength(0);
     });
 
     // testscenarios/common/medication-schedule-edit.yaml (the pairing rule,
