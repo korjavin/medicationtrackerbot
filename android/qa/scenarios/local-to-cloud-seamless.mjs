@@ -23,8 +23,12 @@ const WAIT = 240_000; // claim + import + snapshot upload + reload on the softwa
 
 const lost = (from, to) => GATED.filter((k) => !(to[k] >= from[k]));
 const diff = (a, b) => Object.fromEntries(Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]).map((k) => [k, [a[k], b[k]]]));
-const dataHash = async (page) => createHash('sha256').update(await page.evaluate(async () =>
-  JSON.stringify(JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data))).digest('hex');
+const dataHash = async (page) => createHash('sha256').update(await page.evaluate(async () => {
+  const data = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data;
+  // Export synthesizes backupAt from its current clock; it is not a stored write.
+  delete data.protection;
+  return JSON.stringify(data);
+})).digest('hex');
 const faultControl = async (path, body) => {
   if (!process.env.QA_MOVE_FAULT) throw new Error('QA_MOVE_FAULT unset');
   const res = await fetch(`http://127.0.0.1:8767${path}`, {
@@ -53,6 +57,7 @@ export default async function localToCloudSeamless(ctx) {
     await ctx.stableShot('local-eu-register');
   });
   r.local = await vaultCounts(page);
+  r.localDataBeforeHash = await dataHash(page);
   await ctx.stableShot('local-today');
 
   // 1. The invite reaches the open local page (warm delivery, contract med-ta2n.7 §6): the shell
@@ -232,6 +237,8 @@ export default async function localToCloudSeamless(ctx) {
     await page.evaluate(() => window.MedTrackerCloudReady);
     r.localAfter = await vaultCounts(page);
     r.localAfterDiff = diff(r.local, r.localAfter);
+    r.localDataAfterHash = await dataHash(page);
+    if (r.localDataBeforeHash !== r.localDataAfterHash) throw new Error('local vault data changed during the move');
     const off = lost(r.local, r.localAfter);
     if (off.length) throw new Error(`local lost records: ${off.map((k) => `${k} ${r.localAfter[k]}≠${r.local[k]}`).join(', ')}`);
     await page.evaluate(() => window.switchTab('today'));

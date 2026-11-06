@@ -181,6 +181,8 @@ func main() {
 
 // moveFixture injects only a disposable account's sync reads, before the
 // import has a cursor. It never changes the served app or any write request.
+// web/cloud/js/sync.js bootstrapIfNeeded/pullOnOpen use these GET endpoints
+// and treat a non-2xx response as an unsuccessful bootstrap.
 type moveFixture struct {
 	mu    sync.Mutex
 	host  string
