@@ -128,7 +128,28 @@
     }
 
     function seedVault(fixture) {
-        return withTimelineNow(shiftDates(withPausedPlan(withTimeline(withHealthSources(withPileUp(fixture)))), new Date()));
+        return withTimelineNow(shiftDates(withPausedPlan(withTimeline(withHealthSources(withPileUp(withTwoDoseDay(fixture))))), new Date()));
+    }
+
+    // Meds timeline day order (bd med-5y49): the golden fixture's one 09:00
+    // dose a day can't show "later on top" inside a day. A second daily slot
+    // at 21:00 (the fixture already holds an undone 21:00 row) gives every
+    // day two doses: meds-timeline-next-early (06:00) shows "Later today"
+    // folded above the card, Next today 09:00 above Pending; an unfolded
+    // future day 21:00 above 09:00. The fixture's dose taken today at 15:32
+    // moves to yesterday, so no clock shows a dose taken later than now.
+    // Visual seed only; tests/fixtures/vault-v1.json stays the vault-format pin.
+    function withTwoDoseDay(vault) {
+        const meds = vault && vault.data && vault.data.medications;
+        const med = meds && (meds.items || [])[0];
+        if (med) med.schedule = '{"type":"daily","times":["09:00","21:00"]}';
+        const back = (iso) => (iso ? new Date(Date.parse(iso) - 86400000).toISOString().replace('.000Z', 'Z') : iso);
+        ((meds && meds.intakes) || []).filter((i) => i.scheduled_at === '2026-07-08T15:32:00Z').forEach((i) => {
+            i.scheduled_at = back(i.scheduled_at);
+            i.taken_at = back(i.taken_at);
+            i.acted_at = back(i.acted_at);
+        });
+        return vault;
     }
 
     // Plans tab PL1 (bd med-jqrf.2): a paused plan, so workouts-plans shows the
