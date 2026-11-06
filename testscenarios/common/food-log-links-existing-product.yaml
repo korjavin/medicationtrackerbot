@@ -17,7 +17,7 @@ invariants:
   - A product renamed on a device with an older app version is matched by its new name only
   - With only "Roast" saved, a log of "toast" shows as Roast; editing that log's name back to "toast" creates a Toast product, and later "toast" logs land on Toast
 covered_by:
-  web: web/static/js/tests/cloud.shim-contract.food-products.test.js
-  android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-products.test.js (canonical/typo/barcode/meal/percentage/stale-key reconciliation and correction); no explicit earlier-log name/total preservation or both canonical products' use-count assertions
-  ios: manual  # partial: data/logic only: web/static/js/tests/cloud.shim-contract.food-products.test.js (canonical/typo/barcode/meal/percentage/stale-key reconciliation and correction); missing, owned by med-sz4k.8: explicit earlier-log name/total preservation and both canonical products' use counts
+  web: web/static/js/tests/cloud.shim-contract.food-products.test.js#food logs reconcile against the catalog (med-5jq.3)
+  android: web/static/js/tests/cloud.shim-contract.food-products.test.js#food logs reconcile against the catalog (med-5jq.3)  # data/logic only
+  ios: web/static/js/tests/cloud.shim-contract.food-products.test.js#food logs reconcile against the catalog (med-5jq.3)  # data/logic only
 source: [med-5jq.3]

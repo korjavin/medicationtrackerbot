@@ -122,6 +122,29 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(document.querySelector('.med-time-input').value).toBe('09:30');
     });
 
+    // testscenarios med-new-defaults-as-needed inv 3: opened right after a
+    // daily one, an As-needed medication still opens on As needed, no times.
+    it('editing an existing As-needed medication after a daily one opens on As needed with no time rows', async () => {
+        const { document, window } = env;
+        await seedMedications(window, [
+            { id: 1, name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: ['09:30'] }), archived: false, tz_shift_policy: 'flexible' },
+            { id: 2, name: 'Ibuprofen', dosage: '200mg', schedule: JSON.stringify({ type: 'as_needed' }), archived: false, tz_shift_policy: 'flexible' },
+        ]);
+        window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '', normalized_name: '', warning: '' });
+        window.showEditModal(1);
+        await flush();
+        expect(document.getElementById('schedule-type').value).toBe('daily');
+
+        window.showEditModal(2);
+        await flush();
+        expect(document.getElementById('med-modal-title').textContent).toBe('Ibuprofen');
+        expect(document.getElementById('schedule-type').value).toBe('as_needed');
+        expect(document.querySelector('[data-schedule-type="as_needed"]').getAttribute('aria-pressed')).toBe('true');
+        expect(document.querySelector('[data-schedule-type="daily"]').getAttribute('aria-pressed')).toBe('false');
+        expect(document.getElementById('times-container').classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('days-container').classList.contains('hidden')).toBe(true);
+    });
+
     it('schedule segment swaps the Days / Times blocks', () => {
         const { document, window } = env;
         window.showAddModal();
