@@ -10,9 +10,9 @@ import HealthKit
 /// Ops (web/static/js/native/health.js):
 ///   health.authorize {types, write?}     → Bool (false: no Health store on this device);
 ///     `write` (["bp", "weight", "hr", "workout"]) also asks share access, in the same sheet
-///   health.writeAccess {types}           → {granted: [kind], supported: ["bp", "weight", "hr", "workout"], readableFrom?: 0}
-///     (granted: every share type of the kind authorized; readableFrom 0 before iOS 27: no
-///     history window; omitted on iOS 27+, see readableFromField)
+///   health.writeAccess {types}           → {granted: [kind], supported: ["bp", "weight", "hr", "workout"], readableFrom?: ms}
+///     (granted: every share type of the kind authorized; readableFrom: the limited-history
+///     boundary, 0 when every sample is readable; omitted when iOS 27 can't say, see readableFromMs)
 ///   health.write {type, id, version, at, systolic, diastolic | kg | bpm} → true, rejects "denied"
 ///   health.write {entries: [body, ...]}  → [true | "<that entry's error>", ...] in order (bd med-8f4s.14)
 ///     (each body = a single write's args; "denied" or a store error throws the whole call)
@@ -118,12 +118,14 @@ enum Health {
             && o.metadata?[HKMetadataKeySyncIdentifier] != nil
     }
 
-    /// health.writeAccess's readableFrom (bd med-8f4s.14 R5): iOS 27 lets the
-    /// person grant only a recent history window, and its boundary
-    /// (earliestAuthorizedSampleDate, iOS 27 SDK) is med-8f4s.18 — until then
-    /// the field is omitted there (nil: the page offers no Copy) rather than
-    /// claim an unbounded read. Before iOS 27 every sample is readable: 0.
-    static func readableFromField(osMajor: Int) -> Int? { osMajor >= 27 ? nil : 0 }
+    /// health.writeAccess's readableFrom (bd med-8f4s.18): iOS 27 lets the
+    /// person grant only a recent history window per type, reported by
+    /// earliestAuthorizedSampleDate (end-date boundary; full access or denied =
+    /// no entry). One number on the wire, so the latest boundary (the
+    /// conservative cut), in ms rounded up; no entry → 0, as before iOS 27.
+    static func readableFromMs(_ earliest: [HKObjectType: Date]) -> Int {
+        Int(((earliest.values.max()?.timeIntervalSince1970 ?? 0) * 1000).rounded(.up))
+    }
 
     static func handle(_ op: String, _ args: [String: Any]) async throws -> Any {
         switch op {
@@ -139,17 +141,23 @@ enum Health {
             try await store.requestAuthorization(toShare: share, read: read)
             return true
         case "health.writeAccess":
-            // readableFrom (readableFromField): 0 where HealthKit reads every
-            // sample, so Copy's dedupe is never bounded; omitted on iOS 27+
-            // (Copy dark). Reporting it promises the page the entries batch
-            // below (one build, never apart). Same rule without a Health store.
+            // readableFrom (readableFromMs): 0 before iOS 27 (every sample
+            // readable); on iOS 27+ the latest limited-history boundary over
+            // the write kinds' read types, asked on every call (the person can
+            // change the window in Settings); the call throwing omits it (Copy
+            // dark, never a guess). Reporting it promises the page the entries
+            // batch below (one build, never apart).
             let kinds = args["types"] as? [String] ?? []
             var reply: [String: Any] = [
                 "granted": HKHealthStore.isHealthDataAvailable() ? kinds.filter(canWrite) : [String](),
                 "supported": writeKinds,
             ]
-            if let from = readableFromField(osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
-                reply["readableFrom"] = from
+            if #available(iOS 27, *) {
+                if let earliest = try? await store.earliestAuthorizedSampleDate(for: Set(writeKinds.flatMap(readTypes))) {
+                    reply["readableFrom"] = readableFromMs(earliest)
+                }
+            } else {
+                reply["readableFrom"] = readableFromMs([:])
             }
             return reply
         case "health.write":

@@ -35,7 +35,7 @@ That is what this design produces, as CI artifacts an agent can read.
 |---|---|---|---|---|
 | 0. Static iOS-hazard lint | ubuntu, Vitest architecture test | every web PR | `100vh`, fixed-bottom without `env(safe-area-inset-bottom)`, `user-scalable=no`, inputs styled under 16px | anything dynamic |
 | 1. Playwright WebKit, iPhone emulation | ubuntu | opt-in: PR label `ios-visual`, `workflow_dispatch` | CSS layout at iPhone widths, horizontal overflow, clipped headers, chart overflow, modal stacking, DOM probes | focus-zoom, the keyboard, `visualViewport` panning, safe-area bands, rubber-band, WKWebView-only behaviour, iOS fonts |
-| 2. iOS Simulator, XCUITest | `macos-26` | opt-in: PR label `ios-visual`, `workflow_dispatch`, nightly on master | everything in tier 1 **plus** focus-zoom, real keyboard, visual viewport, safe areas, the native first-run screens, the shell's bands | Face ID, App Attest, push, camera, Watch data |
+| 2. iOS Simulator, XCUITest | `xcode-27` | opt-in: PR label `ios-visual`, `workflow_dispatch`, nightly on master | everything in tier 1 **plus** focus-zoom, real keyboard, visual viewport, safe areas, the native first-run screens, the shell's bands | Face ID, App Attest, push, camera, Watch data |
 | 3. Owner's phone | TestFlight | after tiers pass | native-only paths | — |
 
 Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
@@ -246,7 +246,7 @@ whose `takePending` clears the snooze again.
 
 ### Runtime and cost
 
-`macos-26` is billed at 10× Linux. Per run: `brew install xcodegen` ~1 min
+`xcode-27` is billed at 10× Linux. Per run: `brew install xcodegen` ~1 min
 (cache the bottle), `xcodebuild test` builds the app + UI test bundle ~4–6
 min, simulator boot ~1 min per device, 15 scenes × ~8 s (launch, seed on the
 first scene, settle, shot) ≈ 2 min per device, export + compare + upload ~1
@@ -422,7 +422,7 @@ the three `med-pe9g` screenshots were one bead.
 ## Decisions for the owner
 
 1. **Spend:** opt-in (label / dispatch) plus one nightly master run, ≈ $1–1.5
-   per run on `macos-26`. Alternative: no nightly, agents dispatch on demand.
+   per run on `xcode-27`. Alternative: no nightly, agents dispatch on demand.
 2. **Reference images:** compare against master's latest artifact (no files in
    git, 90-day retention) — recommended — or commit goldens (git LFS, needs a
    policy for updating them on every intended UI change).
