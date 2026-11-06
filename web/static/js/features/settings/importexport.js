@@ -16,7 +16,7 @@
 
     function el(id) { return document.getElementById(id); }
 
-    // Import lifecycle state (med-0ol.1/.4). A .nxk / full-vault import runs for a
+    // Import lifecycle state (med-0ol.1/.4). A full-vault import runs for a
     // while; without feedback the user assumes it failed and clicks again (double
     // submit), and closing the tab mid-upload leaves a partial import. One flag
     // guards re-entry, drives a busy label + spinner, and arms a beforeunload
@@ -48,12 +48,8 @@
     // only — no inline styles or colors (design-token guards).
     function setImportBusy(on, message) {
         importInFlight = on;
-        // Both import buttons: a busy .nxk import must also block the vault
-        // import (and vice versa) — they share the destination vault.
-        for (const id of ['importexport-import-btn', 'importexport-nxk-btn']) {
-            const btn = el(id);
-            if (btn) btn.disabled = on;
-        }
+        const btn = el('importexport-import-btn');
+        if (btn) btn.disabled = on;
         const note = el('importexport-import-progress');
         if (note) {
             note.hidden = !on;
@@ -390,7 +386,7 @@
 
         // Claim the shared re-entry guard BEFORE the first await. Reading +
         // decrypting a 64 MB file and awaiting the confirm dialog are slow async
-        // steps; without claiming here a reset / .nxk / second-import click during
+        // steps; without claiming here a reset / second-import click during
         // that window would pass its own `importInFlight` check and interleave
         // against the same vault. Release on every early-return below; the
         // confirmed path hands off to setImportBusy(true) which keeps it set.
@@ -568,49 +564,6 @@
         return { imported: true };
     }
 
-    function toast(message, type) {
-        if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
-            window.SyncManager.showToast(message, type || 'info');
-        } else {
-            safeAlert(message);
-        }
-    }
-
-    // Mi Band .nxk ingestion (cloud only). Unlike the vault import/export above,
-    // this POSTs the raw backup straight to the Go handler, which parses it
-    // server-side and seals the vitals to the account inbox — the browser can't
-    // parse SQLite. Same-origin fetch carries the session cookie.
-    async function doNxkImport() {
-        // Ignore a second click while an import is already uploading (med-0ol.1).
-        if (importInFlight) return;
-        const file = el('importexport-nxk-file')?.files?.[0];
-        if (!file) { safeToast('Choose a .nxk backup first', 'info'); return; }
-        // Busy state + unload guard for the upload leg (med-0ol.1/.4); the
-        // server-side parse + inbox drain finish in the background afterward.
-        setImportBusy(true, 'Uploading Mi Band backup… keep this page open.');
-        try {
-            const form = new FormData();
-            form.append('file', file, file.name);
-            const res = await fetch('/api/vitals/import', { method: 'POST', body: form });
-            if (res.status === 412) {
-                toast('Publish an inbox key first (unlock this device), then retry.', 'error');
-                return;
-            }
-            if (!res.ok) {
-                toast('Import failed — is this a Mi Band .nxk backup?', 'error');
-                return;
-            }
-            const body = await res.json().catch(() => ({}));
-            const n = body && typeof body.queued === 'number' ? body.queued : 0;
-            toast(`Mi Band data queued (${n}) — it will appear in Vitals shortly.`, 'success');
-        } catch (e) {
-            console.error('NXK import failed:', e);
-            toast('Import failed — check your connection and try again.', 'error');
-        } finally {
-            setImportBusy(false);
-        }
-    }
-
     // Reset local sync (cloud only, med-0ol.7). Escape hatch when the sync engine
     // wedges (repeated permanent write errors after a failed import): clears the
     // local IDB mirror + pending + sync meta and re-bootstraps this device from
@@ -700,12 +653,6 @@
     function bindControls() {
         document.querySelectorAll('#settings-importexport [data-file-input]').forEach(bindFilePicker);
 
-        const nxkBtn = el('importexport-nxk-btn');
-        if (nxkBtn && !nxkBtn.dataset.bound) {
-            nxkBtn.dataset.bound = '1';
-            nxkBtn.addEventListener('click', () => { doNxkImport(); });
-        }
-
         refreshUnopenableNote();
         const resetBtn = el('importexport-reset-sync-btn');
         if (resetBtn && !resetBtn.dataset.bound) {
@@ -748,7 +695,6 @@
         openExport: openExportSheet,
         import: doImport,
         restoreVault,
-        importNxk: doNxkImport,
         resetSync: doResetSync,
         refreshUnopenableNote
     };

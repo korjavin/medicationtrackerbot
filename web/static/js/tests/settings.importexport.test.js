@@ -87,12 +87,10 @@ describe('Settings → Import/Export section', () => {
         for (const ext of ['.gz', '.age', '.json']) expect(accept).toContain(ext);
     });
 
-    it('both pickers also accept application/octet-stream so iOS leaves .age/.nxk selectable', () => {
-        // iOS maps accept to UTIs; .age/.nxk have none and grey out. octet-stream
+    it('the picker also accepts application/octet-stream so iOS leaves .age selectable', () => {
+        // iOS maps accept to UTIs; .age has none and greys out. octet-stream
         // maps to public.data (any file); wrong picks are rejected after reading.
-        for (const id of ['importexport-import-file', 'importexport-nxk-file']) {
-            expect(env.document.getElementById(id).getAttribute('accept')).toContain('application/octet-stream');
-        }
+        expect(env.document.getElementById('importexport-import-file').getAttribute('accept')).toContain('application/octet-stream');
     });
 
     it('a wrong file is rejected with a clear toast, nothing is replaced', async () => {
@@ -675,62 +673,6 @@ describe('Settings → Import/Export section', () => {
         expect(window.apiCall).not.toHaveBeenCalled();
     });
 
-    // Mi Band .nxk ingestion — POSTs raw multipart to the Go handler.
-    describe('Mi Band .nxk import control', () => {
-        it('the group is visible on load', () => {
-            expect(env.document.getElementById('importexport-nxk-group').hidden).toBe(false);
-        });
-
-        it('POSTs the picked file as multipart to /api/vitals/import', async () => {
-            const { window, document } = env;
-            const calls = [];
-            window.fetch = vi.fn(async (url, opts) => {
-                calls.push({ url, opts });
-                return { ok: true, status: 200, json: async () => ({ queued: 7 }) };
-            });
-            window.SyncManager = { showToast: vi.fn() };
-
-            const input = document.getElementById('importexport-nxk-file');
-            const file = new window.File([new Uint8Array([1, 2, 3])], 'backup.nxk');
-            Object.defineProperty(input, 'files', { configurable: true, value: [file] });
-
-            await window.SettingsImportExport.importNxk();
-
-            expect(calls).toHaveLength(1);
-            expect(calls[0].url).toBe('/api/vitals/import');
-            expect(calls[0].opts.method).toBe('POST');
-            expect(calls[0].opts.body).toBeInstanceOf(window.FormData);
-            expect(window.SyncManager.showToast).toHaveBeenCalledWith(
-                expect.stringContaining('7'), 'success');
-        });
-
-        it('surfaces the no-inbox-key 412 as an error toast', async () => {
-            const { window, document } = env;
-            window.fetch = vi.fn(async () => ({ ok: false, status: 412, json: async () => ({}) }));
-            window.SyncManager = { showToast: vi.fn() };
-
-            const input = document.getElementById('importexport-nxk-file');
-            const file = new window.File([new Uint8Array([1])], 'backup.nxk');
-            Object.defineProperty(input, 'files', { configurable: true, value: [file] });
-
-            await window.SettingsImportExport.importNxk();
-
-            expect(window.SyncManager.showToast).toHaveBeenCalledWith(
-                expect.stringContaining('inbox key'), 'error');
-        });
-
-        it('does nothing when no file is picked', async () => {
-            const { window } = env;
-            window.fetch = vi.fn();
-            window.safeAlert = vi.fn();
-
-            await window.SettingsImportExport.importNxk();
-
-            expect(window.fetch).not.toHaveBeenCalled();
-            expect(window.safeAlert).toHaveBeenCalled();
-        });
-    });
-
     // med-0ol.7 — the "Reset local sync" recovery affordance. It rebuilds
     // this device from the server when the sync engine wedges after a failed
     // import. Wired to window.CloudVault.resetLocalSync (dynamic-import
@@ -877,29 +819,6 @@ describe('Settings → Import/Export section', () => {
             d.resolve();
             await first;
             expect(removed).toContain(added[0]); // no lingering navigation nag
-        });
-
-        it('the .nxk upload disables both import buttons and is not double-triggered', async () => {
-            const { window, document } = env;
-            window.SettingsImportExport.load(); // reveal the nxk group
-            window.SyncManager = { showToast: vi.fn() };
-            const d = deferred();
-            window.fetch = vi.fn(() => d.promise.then(() => ({ ok: true, status: 200, json: async () => ({ queued: 3 }) })));
-            const input = document.getElementById('importexport-nxk-file');
-            const file = new window.File([new Uint8Array([1, 2, 3])], 'backup.nxk');
-            Object.defineProperty(input, 'files', { configurable: true, value: [file] });
-
-            const p = window.SettingsImportExport.importNxk();
-            // doNxkImport has no awaits before the busy state, so it arms synchronously.
-            expect(document.getElementById('importexport-nxk-btn').disabled).toBe(true);
-            expect(document.getElementById('importexport-import-btn').disabled).toBe(true);
-
-            await window.SettingsImportExport.importNxk(); // second click ignored
-            expect(window.fetch).toHaveBeenCalledTimes(1);
-
-            d.resolve();
-            await p;
-            expect(document.getElementById('importexport-nxk-btn').disabled).toBe(false);
         });
 
         // bd med-nt9p.32.20: the guard stays held from the replace through

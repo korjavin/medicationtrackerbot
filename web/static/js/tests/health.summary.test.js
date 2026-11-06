@@ -275,16 +275,24 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
         });
     });
 
-    // med-xso6.24: Vitals carries a door to the Mi Band import, which lives on
-    // the Settings → Backup & import page.
-    it('the Mi Band import row opens Settings → Backup & import', () => {
-        const { window, document } = env;
-        window.switchTab = vi.fn();
-        const row = document.getElementById('health-import-miband');
-        expect(row.closest('#health-overview-tab')).not.toBeNull();
-        row.click();
-        expect(window.switchTab).toHaveBeenCalledWith('settings');
-        expect(document.querySelector('.wg-settings-pages #importexport-nxk-btn')).toBeNull();
-        expect(document.getElementById('importexport-nxk-btn')).not.toBeNull();
+    // med-fi1k: the in-app Mi Band .nxk import is gone from Vitals and Settings.
+    it('offers no Mi Band import control', () => {
+        const { document } = env;
+        expect(document.getElementById('health-import-miband')).toBeNull();
+        expect(document.getElementById('importexport-nxk-btn')).toBeNull();
+    });
+
+    // Previously imported Mi Band nights still render and keep their label.
+    it('a retained Mi Band night still shows with its Mi Band source label', () => {
+        const { window } = env;
+        const iso = new Date(Date.now() - 5000).toISOString().slice(0, 10);
+        const data = makeData({
+            sleep_stats_7d: [{
+                date: iso, deep_mins: 80, light_mins: 220, rem_mins: 70, awake_mins: 20,
+                total_mins: 390, heart_rate_avg: 58, sources: ['miband'],
+            }],
+        });
+        const card = window.renderSleepCard(data, '7d');
+        expect(card.querySelector('.wg-sleep-card__sources').textContent).toBe('Sources · Mi Band');
     });
 });

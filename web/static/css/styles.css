@@ -7287,10 +7287,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     color: var(--wg-danger-fg);
 }
 
-.wg-health-import {
-    margin-top: var(--space-md);
-}
-
 #integrations-openai-url-field[hidden],
 #integrations-provider-key-link[hidden],
 #integrations-provider-switch-note[hidden],
