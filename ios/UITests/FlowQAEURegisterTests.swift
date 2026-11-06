@@ -6,7 +6,7 @@ import XCTest
 /// the first check. Same contract as FlowQATests. The page's numbers come from
 /// the driver's `euRegister` step (tests/visual/driver.js) through the
 /// #wg-qa-ready report and are attached as `eu-register-<step>.json`; the qa
-/// job's `webcontent-rss.log` holds the memory side.
+/// job's `webcontent-rss-<part>.log` holds the memory side.
 @MainActor
 final class FlowQAEURegisterTests: XCTestCase {
     nonisolated override func setUp() {

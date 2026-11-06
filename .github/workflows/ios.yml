@@ -7,6 +7,10 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
+# qa runs as four restartable qa-part jobs (bd med-5yr8): account (offline
+# account, account gone, ceremony exit), core (core local, FlowQATests,
+# Health write-back), data (backup, stash) and rest (every other class,
+# today Lock + EURegister), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -50,6 +54,19 @@ on:
         description: Simulator flow QA only (skips the build and TestFlight)
         type: boolean
         default: false
+      qa_parts:
+        description: Flow QA of only these comma-separated parts (account,core,data,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        type: string
+        default: ''
+
+# The flow-QA parts' XCTest classes: the one list both the named parts'
+# -only-testing and rest's -skip-testing come from (bd med-5yr8). A class in
+# no list runs in rest; move it into a part when rest passes ~8 min of flows.
+env:
+  QA_PARTS: >-
+    {"account": ["FlowQAOfflineAccountTests", "FlowQAAccountGoneTests", "FlowQACeremonyExitTests"],
+     "core": ["FlowQACoreLocalTests", "FlowQATests", "HealthWriteBackTests"],
+     "data": ["FlowQABackupTests", "FlowQAStashTests"]}
 
 permissions:
   contents: read
@@ -115,7 +132,7 @@ jobs:
   build:
     # Simulator flags AND modifier-only dispatches must never reach TestFlight.
     # A default dispatch still intentionally runs the distribution build.
-    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa && !inputs.health_diagnostic && !inputs.health_sign && !inputs.visual_scenes
+    if: github.event.action != 'labeled' && !inputs.visual && !inputs.qa && !inputs.health_diagnostic && !inputs.health_sign && !inputs.visual_scenes && !inputs.qa_parts
     # Job-level, so a visual run never cancels a build or a TestFlight dispatch.
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
@@ -453,19 +470,55 @@ jobs:
           if-no-files-found: warn
 
   # Flow QA on the Simulator (bd med-w6gx.23, docs/ios.md "Flow QA
-  # (Simulator)"): ios/UITests/FlowQATests.swift, local mode, one 390pt
-  # device. Unlike visual this is a gate: a failed flow fails the job.
-  qa:
+  # (Simulator)"): the MedTrackerUITests flows, local mode, one 390pt device
+  # per part. Unlike visual this is a gate: a failed flow fails the job.
+  # Split into restartable parts (bd med-5yr8): qa-plan picks the parts,
+  # qa-part runs one per runner, and the qa gate is the one result that
+  # means "full flow QA green" (a qa_parts subset run skips it).
+  qa-plan:
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.qa) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.qa || inputs.qa_parts != '')) ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'ios-qa') &&
        (github.event.action != 'labeled' || github.event.label.name == 'ios-qa'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      parts: ${{ steps.plan.outputs.parts }}
+    steps:
+      # A job-level if cannot read matrix, so the dispatch's qa_parts picks
+      # the matrix here. Unknown names fail instead of silently running less.
+      - id: plan
+        env:
+          QA_PARTS_INPUT: ${{ inputs.qa_parts }}
+        run: |
+          all="$(jq -c 'keys_unsorted + ["rest"]' <<< "$QA_PARTS")"
+          if [ -z "$QA_PARTS_INPUT" ]; then
+            parts="$all"
+          else
+            parts="$(jq -c -R 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")) | unique' <<< "$QA_PARTS_INPUT")"
+            bad="$(jq -r --argjson all "$all" '. - $all | join(",")' <<< "$parts")"
+            [ -z "$bad" ] || { echo "::error::unknown qa_parts: $bad (known: $(jq -r 'join(",")' <<< "$all"))"; exit 1; }
+            [ "$parts" != "[]" ] || { echo "::error::qa_parts names no part"; exit 1; }
+          fi
+          echo "parts=$parts" | tee -a "$GITHUB_OUTPUT"
+
+  qa-part:
+    name: qa-part (${{ matrix.part }})
+    needs: qa-plan
+    strategy:
+      # One part's failure must not cancel the others: re-run only the red one.
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.qa-plan.outputs.parts) }}
+    # Per part: one shared group would make the parts cancel each other.
     concurrency:
-      group: ${{ github.workflow }}-qa-${{ github.ref }}
+      group: ${{ github.workflow }}-qa-${{ github.ref }}-${{ matrix.part }}
       cancel-in-progress: true
     runs-on: xcode-27
-    timeout-minutes: 60
+    # Green parts have run up to 29m39 on a slow runner (bd med-5yr8, Archie
+    # 19273): a 30 min cap would cancel a part that was going to pass.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -487,11 +540,15 @@ jobs:
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Create and boot the simulator
+        env:
+          # Only core runs HealthWriteBackTests; the others skip the healthd wait.
+          QA_HEALTH_READY: ${{ matrix.part == 'core' && '1' || '0' }}
         run: ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt
 
       # The account-gone flows' fake server (bd med-w6gx.23.5): tlsfront on
       # :443 for *.qa.test, the base the build above was given. This job's
       # build is never archived; the archive (build job) sets its own base.
+      # Every part starts it (CoreLocal and FlowQATests assert zero receipts).
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -502,20 +559,34 @@ jobs:
 
       - name: Run the flows
         working-directory: ios
+        env:
+          PART: ${{ matrix.part }}
         run: |
           IFS='=' read -r dev udid < "$RUNNER_TEMP/devices"
+          # The part's classes from QA_PARTS (the one list). rest = the whole
+          # bundle minus every named class, VisualQATests and
+          # HealthDiagnosticTests: a class in no list runs here.
+          if [ "$PART" = rest ]; then
+            filter='"-only-testing:MedTrackerUITests", ([.[][], "VisualQATests", "HealthDiagnosticTests"][] | "-skip-testing:MedTrackerUITests/\(.)")'
+          else
+            filter='.[$p][] | "-only-testing:MedTrackerUITests/\(.)"'
+          fi
+          sel=()  # no mapfile: macOS's /bin/bash is 3.2
+          while IFS= read -r f; do sel+=("$f"); done < <(jq -r --arg p "$PART" "$filter" <<< "$QA_PARTS")
+          [ "${#sel[@]}" -gt 0 ] || { echo "::error::no classes for part $PART"; exit 1; }
+          printf '%s\n' "${sel[@]}"
           # WebKit has no in-page heap API: the Simulator's WebContent RSS
           # (KB) each second, for the EU register numbers (bd med-3u28.4;
           # FlowQAEURegisterTests attaches the page's epoch-ms windows).
+          # Named per part so the merged ios-qa keeps all four.
           mkdir -p "$GITHUB_WORKSPACE/shots"
           while :; do ps -axo pid=,rss=,command= | awk -v t="$(date +%s)" '/WebKit\.WebContent/ && !/awk/ {print t, $1, $2}'; sleep 1; done \
-            > "$GITHUB_WORKSPACE/shots/webcontent-rss.log" 2>/dev/null &
+            > "$GITHUB_WORKSPACE/shots/webcontent-rss-$PART.log" 2>/dev/null &
           sampler=$!
           # The invites fake-server.sh minted, for FlowQACeremonyExitTests and
           # FlowQAOfflineAccountTests (TEST_RUNNER_ → the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
-            -only-testing:MedTrackerUITests -skip-testing:MedTrackerUITests/VisualQATests \
-            -skip-testing:MedTrackerUITests/HealthDiagnosticTests -destination "platform=iOS Simulator,id=$udid" \
+            "${sel[@]}" -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
             | grep --line-buffered -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
           status="${PIPESTATUS[0]}"
@@ -525,11 +596,13 @@ jobs:
       - name: Export screenshots and summary
         if: always()
         working-directory: ios
+        env:
+          PART: ${{ matrix.part }}
         run: |
           out="$GITHUB_WORKSPACE/shots"
           raw="$RUNNER_TEMP/raw"
           mkdir -p "$out"
-          [ -d build/qa.xcresult ] || { echo "## iOS flow QA: no result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          [ -d build/qa.xcresult ] || { echo "## iOS flow QA ($PART): no result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           xcrun xcresulttool export attachments --path build/qa.xcresult --output-path "$raw" || true
           # Same manifest mapping as the visual job: <flow>-<step>.png, plus
           # a failed test's UI hierarchy (the first exported) as <Class>-<test>-hierarchy.txt
@@ -546,9 +619,9 @@ jobs:
           fi
           ls -l "$out"
           {
-            echo "## iOS flow QA"
+            echo "## iOS flow QA: part $PART"
             echo
-            echo "Artifact \`ios-qa\`: \`<flow>-<step>.png\`."
+            echo "Artifact \`ios-qa-$PART\` (merged into \`ios-qa\` by the qa gate on a full run): \`<flow>-<step>.png\`, \`webcontent-rss-$PART.log\`."
             echo
             echo "| test | result | message |"
             echo "|---|---|---|"
@@ -560,10 +633,55 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: ios-qa-${{ matrix.part }}
+          path: shots/
+          retention-days: 14
+          if-no-files-found: warn
+          # No overwrite: a re-run's attempt adds its own ios-qa-<part> and the
+          # failed attempt's evidence stays; the gate's download takes the
+          # newest per name (download-artifact v4, latest).
+
+  # The full flow-QA gate: green only when every part ran and passed; joins
+  # the parts' shots into the one `ios-qa` artifact. A dispatch with
+  # qa_parts never runs it (skipped, Archie 19127): "qa green on the exact
+  # head" always means all parts. The explicit input check decides, not the
+  # aggregated needs result.
+  qa:
+    needs: [qa-plan, qa-part]
+    if: always() && needs.qa-plan.result != 'skipped' && inputs.qa_parts == ''
+    concurrency:
+      group: ${{ github.workflow }}-qa-gate-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ios-qa-*
+          path: shots/
+          merge-multiple: true
+
+      - uses: actions/upload-artifact@v4
+        with:
           name: ios-qa
           path: shots/
           retention-days: 14
           if-no-files-found: warn
+          # The one merged ios-qa per run: a re-run of the gate replaces it, so
+          # `gh run download -n ios-qa` always matches one (the newest parts).
+          overwrite: true
+
+      - name: Gate
+        env:
+          PLAN: ${{ needs.qa-plan.result }}
+          PARTS: ${{ needs.qa-part.result }}
+        run: |
+          {
+            echo "## iOS flow QA gate: all parts"
+            echo
+            echo "qa-plan: $PLAN, qa-part: $PARTS. Artifact \`ios-qa\`: every part's \`<flow>-<step>.png\` + \`webcontent-rss-<part>.log\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$PLAN" = success ] && [ "$PARTS" = success ] || { echo "::error::flow QA not green: qa-plan $PLAN, qa-part $PARTS (a part failed, was cancelled or skipped)"; exit 1; }
 
   # Joins the device jobs' shots into the one `ios-visual` artifact
   # (`<device>/<scene>.png|json` + `compare/`), and compares once.
