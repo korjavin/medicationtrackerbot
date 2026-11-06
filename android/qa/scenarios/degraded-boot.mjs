@@ -153,11 +153,23 @@ export default async function degradedBoot(ctx) {
     });
   } finally {
     await cdp.send('Network.setCacheDisabled', { cacheDisabled: false }).catch(() => {});
-    await ctx.shell(`cmd connectivity airplane-mode ${savedRadios.airplane === '1' ? 'enable' : 'disable'}`);
-    await ctx.shell(`svc wifi ${savedRadios.wifi === '0' ? 'disable' : 'enable'}`);
-    await ctx.shell(`svc data ${savedRadios.data === '0' ? 'disable' : 'enable'}`);
-    r.radiosRestored = { airplane: (await ctx.shell('settings get global airplane_mode_on')).trim(),
-      wifi: (await ctx.shell('settings get global wifi_on')).trim(), data: (await ctx.shell('settings get global mobile_data')).trim() };
-    if (JSON.stringify(savedRadios) !== JSON.stringify(r.radiosRestored)) throw new Error('radio cleanup mismatch');
+    await ctx.step('restore and verify prior actual radio state', async () => {
+      await ctx.shell(`cmd connectivity airplane-mode ${savedRadios.airplane === '1' ? 'enable' : 'disable'}`);
+      await ctx.shell(`svc wifi ${savedRadios.wifi === '0' ? 'disable' : 'enable'}`);
+      await ctx.shell(`svc data ${savedRadios.data === '0' ? 'disable' : 'enable'}`);
+      r.radioRestoreAttempts = [];
+      // Android's telephony setting update is asynchronous (42161764136 read
+      // mobile_data=0 immediately after enable). Poll the ACTUAL service result;
+      // never write the watched setting or swallow a failed restoration.
+      const until = Date.now() + 20_000;
+      do {
+        r.radiosRestored = { airplane: (await ctx.shell('settings get global airplane_mode_on')).trim(),
+          wifi: (await ctx.shell('settings get global wifi_on')).trim(), data: (await ctx.shell('settings get global mobile_data')).trim() };
+        r.radioRestoreAttempts.push({ at: Date.now(), ...r.radiosRestored });
+        if (JSON.stringify(savedRadios) === JSON.stringify(r.radiosRestored)) return;
+        await ctx.sleep(500);
+      } while (Date.now() < until);
+      throw new Error(`radio cleanup mismatch: ${JSON.stringify(r.radiosRestored)}`);
+    });
   }
 }
