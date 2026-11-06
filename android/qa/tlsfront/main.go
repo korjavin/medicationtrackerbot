@@ -25,7 +25,9 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -63,29 +65,36 @@ func main() {
 	// This process retains the disposable DB/session environment through the serial swap;
 	// no credential file and no simultaneous SQLite writers from two cloud generations.
 	var fixture *recoveryFixture
+	exitFixture := func() {
+		if fixture != nil {
+			fixture.mu.Lock()
+			fixture.stop()
+			fixture.mu.Unlock()
+		}
+		os.Exit(1)
+	}
 	if *cloudA != "" || *cloudB != "" {
 		fixture = &recoveryFixture{a: *cloudA, b: *cloudB, backend: up.String()}
 		log, err := os.OpenFile(*cloudLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil || *cloudA == "" || *cloudB == "" {
 			slog.Error("invalid B2 fixture", "err", err)
-			os.Exit(1)
+			exitFixture()
 		}
 		defer log.Close()
 		fixture.log = log
 		if err := fixture.start(*cloudA); err != nil {
 			slog.Error("start cloud A", "err", err)
-			os.Exit(1)
+			exitFixture()
 		}
-		defer fixture.stop()
 		control, err := net.Listen("tcp", "127.0.0.1:8766")
 		if err != nil {
 			slog.Error("listen B2 control", "err", err)
-			os.Exit(1)
+			exitFixture()
 		}
 		go func() {
 			if err := http.Serve(control, http.HandlerFunc(fixture.control)); err != nil {
 				slog.Error("B2 control", "err", err)
-				os.Exit(1)
+				exitFixture()
 			}
 		}()
 	}
@@ -102,7 +111,7 @@ func main() {
 		receipts, err = os.OpenFile(*receiptsPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
 			slog.Error("open receipts", "err", err)
-			os.Exit(1)
+			exitFixture()
 		}
 		defer receipts.Close()
 	}
@@ -115,7 +124,7 @@ func main() {
 			receiptsMu.Unlock()
 			if err != nil {
 				slog.Error("write receipts", "err", err)
-				os.Exit(1)
+				exitFixture()
 			}
 		}
 		if fixture != nil && fixture.failModule(w, r) {
@@ -139,10 +148,15 @@ func main() {
 		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	if fixture != nil {
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+		go func() { <-stop; exitFixture() }()
+	}
 	slog.Info("tlsfront listening", "addr", *listen, "backend", *backend, "names", names, "ca", *caPath)
 	if err := srv.ListenAndServeTLS("", ""); err != nil {
 		slog.Error("serve", "err", err)
-		os.Exit(1)
+		exitFixture()
 	}
 }
 
