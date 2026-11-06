@@ -11,6 +11,6 @@ invariants:
   - A meal logged now counts toward today, not only in the list
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-log.test.js#the Food day header and the Today Fuel tile include the meal right after saving
-  android: manual  # no native meal-save run asserting both Food and Today totals immediately after saving (med-sz4k.4.1)
+  android: android/qa/scenarios/core-local.mjs#meal
   ios: manual
 source: [Zulip 11272]

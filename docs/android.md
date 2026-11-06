@@ -730,9 +730,28 @@ stays the acceptance device.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
+# Also: core-local (in all) and offline-account (standalone, one invite, no retry).
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
+
+`core-local` (in `all`, between `local-smoke` and `smoke`) uses the golden local vault and real
+Android keyboard/Back interactions. It adds a daily medication, takes it on Today, checks the
+immediate Next up removal and Timeline's Taken time after reload; saves a known-calorie meal and
+checks Food and Today totals; and edits 08:00/20:00 to 09:00/21:00 at 10:00, checking both taken
+and untaken morning branches. The existing QA clock establishes the medication before 08:00.
+
+`offline-account` is dispatch-only and does not retry: it claims the run's single invite. It imports
+the populated golden vault, requires its snapshot upload to be acknowledged, warms every named
+section and the real service worker, then enables airplane mode, disables wifi/data and force-stops the app.
+A plain account relaunch must render the saved rows (including Food DB, workout plans/equipment,
+BP, weight, sleep, diary and settings), with each cached section under 5 seconds on this emulator
+(below the sync engine's 10-second fetch timeout). It writes a note offline, reloads to prove local
+durability, restores the prior radios in `finally`, and requires the queued write's server ack after
+reconnect. This is emulator coverage, not a physical-phone latency or vendor-compatibility claim.
+The zero-network check counts account-host requests **received by tlsfront** from before cold launch
+through the offline checks, including initial navigation and service-worker requests; failed fetch
+attempts seen after CDP attach are recorded separately and do not fail the scenario.
 
 Playwright attaches to the shell's WebView on the runner (the CDP fallback is
 not needed). The emulator is flaky right after boot (Play services restarts can
@@ -853,7 +872,11 @@ contain it, and debug-overrides are ignored by non-debuggable builds anyway. A
 debug APK sideloaded on a phone therefore trusts CAs the user installed
 themselves; release does not. `run.sh` writes the logcat count of DNS/TLS
 error lines to the step summary (expected 0); `cloud.log` and `tlsfront.log`
-are in the artifact.
+are in the artifact. The optional runner-only `tlsfront -receipts <file>` writes one JSONL record
+per received request, before routing, containing timestamp/Host/method/path only (no query or body).
+The workflow passes the path as `QA_RECEIPTS`; `tlsfront-receipts.jsonl` is retained with the other
+logs even when QA fails. `offline-account` checks positive receipt counts online and after reconnect
+as controls around the zero-receipt offline interval.
 
 Scenarios on it: `claim-page` (invite → signup wizard with the page-coloured
 bands and the web exit bar at the top, no native bar → its in-page confirm →
