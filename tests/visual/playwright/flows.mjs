@@ -349,9 +349,10 @@ if (setupOk) await flow('boot-degraded-reload', async () => {
   await empty.first().waitFor({ timeout: 10000 }).catch(() => {});
   const dbText = (await page.locator('#food-fooddb-tab').innerText()).replace(/\s+/g, ' ');
   check(await empty.count() > 0, `Food DB empty state does not say Reload: ${dbText.slice(0, 300)}`);
-  // Its title stays "No cached data yet" (med-kk1q.4 kept it: true, the view
-  // has no copy); what must not show is the plain empty state or the promise
-  // that reconnecting fixes it.
+  // Its title is still "No cached data yet" (empty-state.js), which the
+  // scenario's "not 'no data'" excludes, so the web line stays manual until
+  // the copy changes; asserted here: the body, no plain empty state, and no
+  // promise that reconnecting fixes it.
   check(!/loads once you are back online|Nothing to show yet/i.test(dbText), `Food DB says "no data": ${dbText.slice(0, 300)}`);
 
   // Reload, host still down: one load, the shim installs from the worker's
