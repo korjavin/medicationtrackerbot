@@ -55,7 +55,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: With qa, only these comma-separated parts (account,core,data,rest); empty = all + the qa gate
+        description: Flow QA of only these comma-separated parts (account,core,data,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -477,7 +477,7 @@ jobs:
   # means "full flow QA green" (a qa_parts subset run skips it).
   qa-plan:
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.qa) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.qa || inputs.qa_parts != '')) ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'ios-qa') &&
        (github.event.action != 'labeled' || github.event.label.name == 'ios-qa'))

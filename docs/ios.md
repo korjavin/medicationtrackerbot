@@ -129,8 +129,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   GitHub's "Re-run failed jobs" (re-runs that part and the gate). Each part
   pays the full setup (build + Simulator boot, 7-17 min), so a run takes
   setup + the longest part (~13-23 min).
-- **By parts:** `gh workflow run ios.yml --ref <branch> -f qa=true -f qa_parts=core`
-  (comma list; unknown names fail). `qa_parts` runs parts by hand and never
+- **By parts:** `gh workflow run ios.yml --ref <branch> -f qa_parts=core`
+  (comma list, implies `qa`; unknown names fail). `qa_parts` runs parts by hand and never
   produces the gate (`qa` shows skipped); the exact-head gate is a run with
   every part.
 - **Output:** each part's step summary has one row per test (result plus

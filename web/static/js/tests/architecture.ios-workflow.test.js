@@ -40,3 +40,16 @@ describe('iOS flow-QA parts (bd med-5yr8)', () => {
         expect(new Set(listed).size).toBe(listed.length);
     });
 });
+
+describe('iOS flow-QA dispatch intent (bd med-5yr8)', () => {
+    const plan = workflow.split('\n  qa-plan:\n')[1];
+    // The dispatch clause (first line); the label clause is untouched by inputs.
+    const clause = plan.match(/^    if: >-\n      (.+) \|\|$/m)[1].replace(/'/g, '"');
+    const dispatch = (inputs) => new Function('github', 'inputs', `return (${clause});`)({ event_name: 'workflow_dispatch' }, inputs);
+
+    it('runs flow QA for qa=true or qa_parts alone, not for a default dispatch', () => {
+        expect(dispatch({ qa: true, qa_parts: '' })).toBe(true);
+        expect(dispatch({ qa: false, qa_parts: 'core' })).toBe(true);
+        expect(dispatch({ qa: false, qa_parts: '' })).toBe(false);
+    });
+});
