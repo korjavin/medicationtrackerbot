@@ -9,6 +9,6 @@ invariants:
   - The page opens in the system browser
   - Returning to the app finds it where it was
 covered_by:
-  web: manual
+  web: manual  # no web test checks every outside link (only single links, e.g. the EMA source link's target=_blank in meds.modal.test.js); an installed app's window handing the link to the browser and the way back are browser behaviour
   android: manual  # partial: android/qa/scenarios/external-link.mjs (the WebView stays put and ACTION_VIEW is sent; no browser on the image)
   ios: manual

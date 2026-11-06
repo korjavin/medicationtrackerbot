@@ -14,6 +14,6 @@ invariants:
   - 'Local mode shows no sync pull gesture, no offline banner, no network chip (Health pull there runs the Health import only)'
 source: [med-duj9]
 covered_by:
-  web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull gesture), web/static/js/tests/offline-ui.test.js (local-mode banner hidden; not the chip)
+  web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull runs only the registered sync, never the Health import; new entries toast, nothing new none), web/static/js/tests/offline-ui.test.js (the banner only while offline); missing: cloud-boot.js's registered pull (requestFreshDrain, "arrived") is never asserted, nor an entry from a second device; the local-mode invariant is n/a on web (med-sz4k.2)
   android: manual  # partial: android/qa/scenarios/pull-refresh.mjs (sync request/pill, Health-only local pull, real offline/online banner and local banner absence); no network-chip, second-device entry/new-row toast or no-new-entry toast assertions
   ios: manual

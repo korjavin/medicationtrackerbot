@@ -15,7 +15,7 @@ invariants:
   - A photo too large to shrink is refused with the limit shown, and the agent is not told about it
   - 'On the anonymous trial call the photo reaches the agent the same way: it describes a detail you never said'
 covered_by:
-  web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing, not the agent describing the photo)
+  web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing); missing: a live ElevenLabs agent describing the photo, which needs a real call
   android: manual  # real camera image into account/trial vendor audio, spoken visual detail, cancellation and oversize refusal need a device call
   ios: manual
 source: [med-ku8r, med-adje]
