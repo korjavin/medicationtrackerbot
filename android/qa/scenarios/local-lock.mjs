@@ -21,7 +21,7 @@ export default async function localLock(ctx) {
     await ctx.waitFor({ clazz: 'android.widget.EditText' }, 20_000);
     const field = await device.info({ clazz: 'android.widget.EditText' });
     (r.credentialPrompts ||= []).push({ pkg: field.pkg, res: field.res, clazz: field.clazz });
-    if (field.pkg === pkg) throw new Error('credential entry is not in the Android system UI');
+    if (!field.pkg || field.pkg === pkg) throw new Error('credential entry is not in the Android system UI');
     await device.fill({ clazz: 'android.widget.EditText' }, '');
     await shell(`input text ${pin}`);
     await shell('input keyevent KEYCODE_ENTER');
@@ -93,49 +93,82 @@ export default async function localLock(ctx) {
     });
   } finally {
     await ctx.step('finally: authenticated app-lock off, clear PIN, verify no secure credential or retained lock', async () => {
+      const errors = (r.cleanupErrors = []);
+      // Each action/check runs even after an earlier cleanup failure. Fail once all
+      // recovery and verification attempts have completed; never turn recovery green.
+      const attempt = async (name, fn) => {
+        try { await fn(); }
+        catch (error) { errors.push(`${name}: ${String(error.message).split('\n')[0]}`); }
+      };
       if (pinSet) {
-        try {
-          await shell('input keyevent KEYCODE_BACK');
-          await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
-          // On an earlier assertion failure the native lock may still hold.
-          const prompt = await device.wait({ clazz: 'android.widget.EditText' }, { timeout: 2000 }).then(() => true, () => false);
-          if (prompt) await credential();
-          else if (await device.wait({ text: 'Unlock' }, { timeout: 1000 }).then(() => true, () => false)) {
-            await device.tap({ text: 'Unlock' });
-            await credential();
+        await attempt('authenticated lock off', async () => {
+          try {
+            await shell('input keyevent KEYCODE_BACK');
+            await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+            // On an earlier assertion failure the native lock may still hold.
+            const prompt = await device.wait({ clazz: 'android.widget.EditText' }, { timeout: 2000 }).then(() => true, () => false);
+            if (prompt) await credential();
+            else if (await device.wait({ text: 'Unlock' }, { timeout: 1000 }).then(() => true, () => false)) {
+              await device.tap({ text: 'Unlock' });
+              await credential();
+            }
+            page = await ctx.attachPage();
+            if (!page) throw new Error('cleanup cannot attach unlocked app');
+            await ctx.waitLocalReady(page);
+            const wasOn = (await status()).on;
+            if (wasOn) await settingsToggle();
+            if ((await status()).on) throw new Error('cleanup retained app lock');
+            r.cleanupAuthenticatedDisable = wasOn;
+          } catch (error) {
+            r.cleanupAuthenticatedControlError = String(error.message).split('\n')[0];
+            throw error;
           }
-          page = await ctx.attachPage();
-          if (!page) throw new Error('cleanup cannot attach unlocked app');
-          await ctx.waitLocalReady(page);
-          if ((await status()).on) await settingsToggle();
-          if ((await status()).on) throw new Error('cleanup retained app lock');
-        } catch (error) {
-          // Still clear the emulator credential if an earlier UI failure obstructs disabling.
-          // After clear, the shipped no-credential fallback allows the same real Settings control.
-          r.cleanupAuthenticatedControlError = String(error.message).split('\n')[0];
-        } finally {
+        });
+        await attempt('clear PIN', async () => {
           const response = await shell('locksettings clear --old 1234');
           if (!/success|credential cleared/i.test(response)) throw new Error(`clear PIN: ${response}`);
-        }
+        });
         if (r.cleanupAuthenticatedControlError) {
-          page = await ctx.launchLocal(undefined);
-          if ((await status()).on) {
-            if (!(await page.locator('#settings-local-lock').isVisible())) {
-              await page.locator('[data-nav-to="settings"]:visible').first().click();
+          await attempt('recovery through Settings after clear', async () => {
+            page = await ctx.launchLocal(undefined);
+            if ((await status()).on) {
+              if (!(await page.locator('#settings-local-lock').isVisible())) {
+                await page.locator('[data-nav-to="settings"]:visible').first().click();
+              }
+              await page.locator('#settings-local-lock .wg-toggle').click();
             }
-            await page.locator('#settings-local-lock .wg-toggle').click();
-          }
+          });
+          // Last resort if navigation failed: the same real lock.set control, after
+          // OS credential removal. This cannot count as authenticated UI coverage:
+          // the original error is retained and the whole scenario still fails.
+          await attempt('last-resort real lock control', async () => {
+            const current = await status();
+            if (!current.available && current.on) {
+              await page.evaluate(() => window.LocalNotifications.__native.call('lock.set', { on: false }));
+              r.cleanupUsedNativeRecovery = true;
+            }
+          });
         }
       }
-      r.cleanup = await status();
-      r.cleanup.shellPreference = /name="wgLocalLock" value="true"/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`));
-      if (r.cleanup.available || r.cleanup.on || r.cleanup.shellPreference) throw new Error('credential/app-lock cleanup failed');
-      r.cleanup.foreground = await ctx.inForeground();
-      if (!r.cleanup.foreground) throw new Error('cleanup did not restore app foreground');
-      r.cleanup.radios = await radios();
-      if (JSON.stringify(r.cleanup.radios) !== JSON.stringify(r.radiosBefore)) throw new Error('cleanup changed radio state');
-      await ctx.shot('cleanup-no-credential');
-      if (r.cleanupAuthenticatedControlError) throw new Error(`authenticated cleanup failed (state recovered): ${r.cleanupAuthenticatedControlError}`);
+      r.cleanup = {};
+      await attempt('native secure/lock verification', async () => {
+        Object.assign(r.cleanup, await status());
+        if (r.cleanup.available !== false || r.cleanup.on !== false) throw new Error('credential/app lock remains enabled');
+      });
+      await attempt('persisted lock preference verification', async () => {
+        r.cleanup.shellPreference = /name="wgLocalLock" value="true"/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`));
+        if (r.cleanup.shellPreference) throw new Error('enabled shell lock preference remains');
+      });
+      await attempt('foreground verification', async () => {
+        r.cleanup.foreground = await ctx.inForeground();
+        if (!r.cleanup.foreground) throw new Error('app not foreground');
+      });
+      await attempt('radio verification', async () => {
+        r.cleanup.radios = await radios();
+        if (JSON.stringify(r.cleanup.radios) !== JSON.stringify(r.radiosBefore)) throw new Error('radio state changed');
+      });
+      await attempt('cleanup screenshot', () => ctx.shot('cleanup-no-credential'));
+      if (errors.length) throw new Error(`cleanup failed: ${errors.join('; ')}`);
     });
   }
 }
