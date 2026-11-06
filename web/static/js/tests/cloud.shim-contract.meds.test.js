@@ -16,6 +16,7 @@ import { mergeTzFloor } from '../../../domain/settings.js';
 import { createApiRouter, materializationSettled } from '../../../cloud/js/apishim.js';
 import { createIntakeDomain, foldAdherence } from '../../../domain/medintake.js';
 import { createMedicationsDomain } from '../../../domain/medications.js';
+import { createEMACatalogue } from '../../../domain/ema-catalogue.js';
 import { sortByEffective } from '../../../domain/medschedule.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
 
@@ -564,6 +565,210 @@ describe('cloud medication identity through the real RxNorm port', () => {
         expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(true);
         await window.saveMedication();
         expect((await env.records.list('medication'))[0]).toMatchObject({ name: 'Candecor', rxcui: '', normalized_name: '' });
+    });
+});
+
+// bd med-3u28.10 (kit ER10–ER13) — the EU register pick saved on the
+// medication. The real router, domain and editor over a ready register whose
+// state each test sets (rev 90, then rev 91 that lost cards).
+describe('saved EU register match (bd med-3u28.10)', () => {
+    const SHA90 = 'a'.repeat(64);
+    const SHA91 = 'b'.repeat(64);
+    const catalogue = (rev, sha256, rows) => createEMACatalogue({
+        schema_version: 1, columns: ['name', 'substances', 'route', 'jurisdiction'], source_rows: rows.length, rows,
+        source: {
+            url: 'https://www.ema.europa.eu/x.xlsx', page_url: 'https://www.ema.europa.eu/p', revision: `EMA/518502/2018, Rev.${rev}`,
+            data_date: rev === 90 ? '09/10/2026' : '13/11/2026', published_date: '2026-10-13', sha256,
+            reuse_url: 'https://www.ema.europa.eu/en/about-us/about-website/legal-notice', reuse_checked: '2026-10-30', attribution: 'EMA',
+        },
+    });
+    const REV90 = catalogue(90, SHA90, [
+        ['Candecor', 'Candesartan Cilexetil', 'Oral Use', 'Germany'],
+        ['Voltaren', 'Diclofenac Sodium', 'Rectal Use', 'Austria'],
+        ['Voltaren', 'Diclofenac Sodium', 'Oral Use', 'Cyprus'],
+        ['Voltaren', 'Diclofenac Potassium', 'Oral Use', 'Portugal'],
+        ['Voltaren', 'Diclofenac Diethylamine', 'Cutaneous Use', 'Denmark'],
+    ]);
+    // Rev 91 lost Voltaren's Sodium and Diethylamine cards: one card left.
+    const REV91 = catalogue(91, SHA91, [['Voltaren', 'Diclofenac Potassium', 'Oral Use', 'Portugal']]);
+    const REF90 = (forName, substances) => ({
+        for_name: forName, substances, revision: 'EMA/518502/2018, Rev.90', data_date: '09/10/2026', sha256: SHA90,
+    });
+    let env;
+    let reg;
+
+    beforeEach(async () => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.loadMeds = vi.fn();
+        env.window.safeAlert = vi.fn();
+        reg = { status: 'ready', catalogue: REV90 };
+        env.window.offlineAwareApiCall = createApiRouter({}, {
+            records: env.records, win: env.window, rxnorm: null,
+            emaLoader: { ensure: vi.fn(), state: () => reg },
+            now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
+            effects: { scheduleReminderRecompute: vi.fn() },
+        });
+        await pick('eu');
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    const pick = (register) => env.window.apiCall('/api/settings/body', 'PATCH', { med_register: register });
+    const body = (name, extra = {}) => ({ name, dosage: '10mg', schedule: '{"type":"as_needed"}', tz_shift_policy: 'flexible', ...extra });
+    const create = (name, extra) => env.window.apiCall('/api/medications', 'POST', body(name, extra));
+    const save = (id, name, extra) => env.window.apiCall(`/api/medications/${id}`, 'POST', body(name, extra));
+    const row = async (id) => (await env.records.list('medication')).find((m) => m.recordId === id);
+    const listed = async (id) => (await env.window.apiCall('/api/medications')).find((m) => m.id === id);
+
+    it('one card: Save stores it with the register source triple, and the list read carries it', async () => {
+        const { id } = await create('Candecor');
+        expect((await row(id)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
+        expect((await listed(id)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
+    });
+
+    it('several cards: no pick stores none; a pick stores that card; a name with no card stores none', async () => {
+        const { id } = await create('Voltaren');
+        expect('ema' in await row(id)).toBe(false);
+        await save(id, 'Voltaren', { ema_substances: 'Diclofenac Potassium' });
+        expect((await row(id)).ema).toEqual(REF90('Voltaren', 'Diclofenac Potassium'));
+        const other = await create('Candekor');
+        expect('ema' in await row(other.id)).toBe(false);
+    });
+
+    it('never blocks: a register not ready saves without one, and keeps a saved one for the same name', async () => {
+        reg = { status: 'loading', progress: 0.3 };
+        const { id } = await create('Candecor');
+        expect('ema' in await row(id)).toBe(false);
+        reg = { status: 'ready', catalogue: REV90 };
+        await save(id, 'Candecor');
+        for (const state of [{ status: 'unavailable' }, { status: 'idle' }]) {
+            reg = state;
+            await save(id, 'Candecor', { dosage: '16mg' });
+            expect((await row(id)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
+        }
+    });
+
+    it('a rename drops it, ready or not; the US register keeps it while the name holds and drops it on a rename', async () => {
+        const { id } = await create('Candecor');
+        reg = { status: 'unavailable' };
+        await save(id, 'Candecor 16');
+        expect('ema' in await row(id)).toBe(false);
+
+        reg = { status: 'ready', catalogue: REV90 };
+        await save(id, 'Candecor');
+        expect((await row(id)).ema).toBeDefined();
+        await pick('us');
+        await save(id, 'Candecor', { dosage: '32mg' });
+        expect((await row(id)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
+        await save(id, 'Atacand');
+        expect('ema' in await row(id)).toBe(false);
+    });
+
+    it('a saved rev-90 reference is never revalidated: kept with its triple against rev 91 and an unready loader', async () => {
+        const { id } = await create('Voltaren', { ema_substances: 'Diclofenac Sodium' });
+        expect((await row(id)).ema).toEqual(REF90('Voltaren', 'Diclofenac Sodium'));
+        reg = { status: 'ready', catalogue: REV91 }; // the card is gone; one other card left
+        await save(id, 'Voltaren', { dosage: '50mg' });
+        expect((await row(id)).ema).toEqual(REF90('Voltaren', 'Diclofenac Sodium'));
+        reg = { status: 'unavailable' };
+        await save(id, 'Voltaren', { dosage: '75mg' });
+        expect((await row(id)).ema).toEqual(REF90('Voltaren', 'Diclofenac Sodium'));
+    });
+
+    it('a pick naming a card that vanished keeps the old reference, or none; never another card', async () => {
+        const { id } = await create('Voltaren', { ema_substances: 'Diclofenac Sodium' });
+        reg = { status: 'ready', catalogue: REV91 };
+        await save(id, 'Voltaren', { ema_substances: 'Diclofenac Diethylamine' });
+        expect((await row(id)).ema).toEqual(REF90('Voltaren', 'Diclofenac Sodium'));
+        const fresh = await create('Voltaren', { dosage: '1mg', ema_substances: 'Diclofenac Diethylamine' });
+        expect('ema' in await row(fresh.id)).toBe(false);
+        // A real pick against rev 91 replaces it with rev 91's triple.
+        await save(id, 'Voltaren', { ema_substances: 'Diclofenac Potassium' });
+        expect((await row(id)).ema).toMatchObject({ substances: 'Diclofenac Potassium', revision: 'EMA/518502/2018, Rev.91', sha256: SHA91 });
+    });
+
+    // Stated limit (Socrates 17090 §2): for_name is string equality. An old
+    // bundle's update spreads the row (keeps ema, never touches it), so its
+    // rename A→B→A brings the historical reference back into view.
+    it('an old-bundle update keeps it; its A→B→A rename shows the historical reference again (documented limit)', async () => {
+        const { id } = await create('Candecor');
+        const oldTab = async (patch) => {
+            const existing = await row(id);
+            await env.records.put('medication', { ...existing, ...patch, clientTs: existing.clientTs + 1 });
+        };
+        await oldTab({ dosage: '32mg' });
+        expect((await listed(id)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
+        await oldTab({ name: 'Atacand' });
+        const renamed = await listed(id);
+        expect(renamed.ema.for_name).not.toBe(renamed.name); // readers hide it
+        expect(env.window._buildMedsRow(renamed, JSON.parse(renamed.schedule)).textContent).not.toContain('EU ');
+        await oldTab({ name: 'Candecor' });
+        const back = await listed(id);
+        expect(env.window._buildMedsRow(back, JSON.parse(back.schedule)).querySelector('.wg-meds-row__eu').textContent)
+            .toBe('EU Candesartan Cilexetil');
+    });
+
+    it('a malformed reference (an imported row) is left out of every read and never thrown on, and kept on the row', async () => {
+        const bad = [{ for_name: 'Candecor', substances: 5 }, { ...REF90('Candecor', 'X'), sha256: 'nothex' }, ['x'], 'str'];
+        for (const [i, ema] of bad.entries()) {
+            await env.records.put('medication', {
+                recordId: 100 + i, clientTs: 1, deleted: false, name: 'Candecor', dosage: `${i}mg`, schedule: '{"type":"as_needed"}',
+                archived: false, supplement: false, rxcui: '', normalized_name: '', inventory_count: null, tz_shift_policy: 'flexible',
+                created_at: '2026-10-01T12:00:00Z', ema,
+            });
+            expect('ema' in await listed(100 + i)).toBe(false);
+            expect((await row(100 + i)).ema).toEqual(ema);
+        }
+    });
+
+    it('editor: Use this → Picked → Save; the list shows "EU <substance>"; reopened offline the saved chip paints from the record', async () => {
+        const { window, document } = env;
+        fillMedForm(window, document, { name: 'Voltaren', dosage: '50mg' });
+        await window.checkMedRx();
+        const chip = () => document.getElementById('med-eu-chip');
+        expect(chip().textContent).toBe('EU · 3 entries');
+        chip().click();
+        const cards = () => Array.from(document.querySelectorAll('#med-eu-sheet .wg-sheet__body > .wg-card'));
+        expect(cards().map((c) => c.querySelector('.wg-card__head .wg-btn').textContent)).toEqual(['Use this', 'Use this', 'Use this']);
+        cards().find((c) => c.querySelector('.wg-card__title').textContent === 'Diclofenac Potassium')
+            .querySelector('.wg-btn').click();
+        expect(document.getElementById('med-eu-sheet')).toBeNull(); // ER10: the pick closes the sheet
+        expect(chip().className).toBe('wg-chip wg-chip--ok'); // ER11
+        expect(chip().textContent).toBe('EU · Diclofenac Potassium');
+        chip().click();
+        const picked = cards().find((c) => c.querySelector('.wg-card__title').textContent === 'Diclofenac Potassium');
+        expect(picked.querySelector('.wg-chip--ok').textContent).toBe('Picked'); // ER12
+        expect(picked.querySelector('.wg-btn')).toBeNull();
+        expect(cards().filter((c) => c.querySelector('.wg-btn'))).toHaveLength(2);
+        document.querySelector('#med-eu-sheet .wg-sheethead .wg-btn').click();
+
+        await window.saveMedication();
+        const [med] = await window.apiCall('/api/medications');
+        expect(med.ema).toEqual(REF90('Voltaren', 'Diclofenac Potassium'));
+        const rowEl = window._buildMedsRow(med, JSON.parse(med.schedule)); // ER13
+        expect(rowEl.querySelector('.wg-meds-row__eu').textContent).toBe('EU Diclofenac Potassium');
+
+        // Offline reopen: the register can't load; the saved match still shows.
+        reg = { status: 'unavailable' };
+        window.closeModal();
+        window.fillMedEditor(med);
+        const slot = document.getElementById('med-eu-slot');
+        expect(slot.classList.contains('hidden')).toBe(false);
+        expect(slot.querySelector('.wg-chip--ok').textContent).toBe('EU · Diclofenac Potassium');
+        expect(document.getElementById('med-eu-saved').textContent).toBe('EU register · saved 09.10.2026');
+        expect(slot.querySelector('.wg-hint').textContent).toBe('EMA Article 57 list, revision 90');
+        await vi.waitFor(() => expect(document.getElementById('med-eu-retry')).not.toBeNull());
+        expect(document.getElementById('med-eu-saved')).not.toBeNull();
+        // A rename hides it; Save then drops it.
+        document.getElementById('med-name').value = 'Voltaren Dolo';
+        await window.checkMedRx();
+        expect(document.getElementById('med-eu-saved')).toBeNull();
+        await window.saveMedication();
+        expect('ema' in (await window.apiCall('/api/medications'))[0]).toBe(false);
     });
 });
 

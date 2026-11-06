@@ -136,6 +136,9 @@ function toResponse(record, intakes = [], sources = null) {
   if (record.rxcui) resp.rxcui = record.rxcui;
   if (record.normalized_name) resp.normalized_name = record.normalized_name;
   if (record.pack_size) resp.pack_size = record.pack_size;
+  if (validEma(record.ema)) {
+    resp.ema = Object.fromEntries(EMA_FIELDS.map((f) => [f, record.ema[f]]));
+  }
   const s = deriveStock(record, sources || { intakes });
   if (s) {
     resp.inventory_count = s.count;
@@ -144,6 +147,44 @@ function toResponse(record, intakes = [], sources = null) {
       : { counted: s.count, counted_at: null, seed: true, refills: [], taken: 0 };
   }
   return resp;
+}
+
+// The saved EU register reference (bd med-3u28.10): medication.ema =
+// { for_name, substances, revision, data_date, sha256 }. for_name is the
+// medication name it was saved for; substances the picked card's substance
+// text as the register writes it; the triple is the register's source at
+// save time. A dated reference, never revalidated and never proof of the
+// product. Readers use it only when it validates (a malformed or foreign
+// row is ignored, kept on the row, never thrown on) and only while
+// for_name equals the row's name.
+const EMA_FIELDS = ['for_name', 'substances', 'revision', 'data_date', 'sha256'];
+
+export function validEma(ema) {
+  return !!ema && typeof ema === 'object' && !Array.isArray(ema)
+    && EMA_FIELDS.every((f) => typeof ema[f] === 'string' && ema[f].trim() !== '')
+    && /^[a-f0-9]{64}$/.test(ema.sha256);
+}
+
+// One entry per substance text as the register writes it (the card the
+// editor shows and "Use this" picks): its routes with every country
+// (alphabetical); "|" separates distinct products (kit ER9). `substances`
+// is the exact key a pick sends back.
+export function groupEmaCandidates(candidates) {
+  const bySubstance = new Map();
+  for (const c of candidates || []) {
+    if (!bySubstance.has(c.substances)) bySubstance.set(c.substances, { rows: 0, routes: new Map() });
+    const entry = bySubstance.get(c.substances);
+    entry.rows++;
+    if (!entry.routes.has(c.route)) entry.routes.set(c.route, new Set());
+    entry.routes.get(c.route).add(c.jurisdiction);
+  }
+  return [...bySubstance].map(([substances, entry]) => ({
+    substances,
+    products: substances.split('|').map((s) => s.trim()).filter(Boolean),
+    rows: entry.rows,
+    routes: [...entry.routes].map(([route, countries]) => ({ route, countries: [...countries].sort((a, b) => a.localeCompare(b)) }))
+      .sort((a, b) => b.countries.length - a.countries.length || a.route.localeCompare(b.route)),
+  })).sort((a, b) => b.rows - a.rows || a.products.join(' + ').localeCompare(b.products.join(' + ')));
 }
 
 // An optional positive whole pack size, else null.
@@ -183,7 +224,8 @@ function notFound(message) {
 //   ema     — { register({ start }) -> { status: 'off'|'loading'|'ready'|'unavailable',
 //               catalogue?, progress? } } — the on-device EU register
 //               (web/cloud/js/ema.js, bd med-3u28.2); 'off' unless the EU
-//               register is picked. Read-only: nothing lands on the record.
+//               register is picked. create/update only poll it (start:
+//               false) to fill or apply a saved reference (emaFor).
 export function createMedicationsDomain({
   records, now, timeZone, rxnorm, ema,
 }) {
@@ -245,7 +287,33 @@ export function createMedicationsDomain({
       return res;
     }
     const match = reg.catalogue.exact(String(name || '').trim());
-    return { status: 'ready', candidates: match.candidates, ambiguous: match.ambiguous, source: match.source };
+    return {
+      status: 'ready', candidates: match.candidates, ambiguous: match.ambiguous, source: match.source,
+      groups: groupEmaCandidates(match.candidates),
+    };
+  }
+
+  // The saved EU register reference a Save writes (bd med-3u28.10). A saved
+  // reference for this name is never revalidated: it keeps its own triple
+  // whatever the register says now, ready or not, unless this Save carries
+  // a selection (`selection`, the card key the editor's "Use this" sent).
+  // The register is polled, never loaded (start: false: a Save never waits),
+  // and consulted only to fill an absent reference (exactly one card) or to
+  // apply a selection; a selection naming no card keeps what was there. US
+  // register ('off'), not ready, several cards or none: what was there for
+  // this name, else absent. A rename drops it (for_name is the old name).
+  async function emaFor(existing, name, selection) {
+    const prior = existing && existing.ema && existing.ema.for_name === name ? existing.ema : undefined;
+    const pick = typeof selection === 'string' ? selection : '';
+    if (!pick && validEma(prior)) return prior;
+    let reg;
+    try { reg = await eu.register({ start: false }); } catch { reg = null; }
+    if (!name || !reg || reg.status !== 'ready') return prior;
+    const groups = groupEmaCandidates(reg.catalogue.exact(name).candidates);
+    const group = pick ? groups.find((g) => g.substances === pick) : (groups.length === 1 ? groups[0] : null);
+    if (!group) return prior;
+    const { revision, data_date: dataDate, sha256 } = reg.catalogue.source;
+    return { for_name: name, substances: group.substances, revision, data_date: dataDate, sha256 };
   }
 
   async function warningFor(rxcuis) {
@@ -290,6 +358,7 @@ export function createMedicationsDomain({
     }
 
     const { rxcui, normalizedName } = await searchRxNorm(name);
+    const ema = await emaFor(null, name, input && input.ema_substances);
 
     const nowMs = now();
     const record = {
@@ -310,6 +379,7 @@ export function createMedicationsDomain({
       tz_shift_policy: tzShiftPolicy,
       created_at: new Date(nowMs).toISOString(),
     };
+    if (ema) record.ema = ema;
     await records.put(MEDICATION_RECORD_TYPE, record);
     // Starting stock is the med's first count.
     if (record.inventory_count !== null) await stock.audit(record.recordId, record.inventory_count);
@@ -345,6 +415,7 @@ export function createMedicationsDomain({
     assertNoDuplicate(all, name, dosage, id);
 
     const { rxcui, normalizedName, performed } = await searchRxNorm(name);
+    const ema = await emaFor(existing, name, input && input.ema_substances);
 
     if (archived) {
       await cancelPendingIntakesForMedication(id);
@@ -371,7 +442,9 @@ export function createMedicationsDomain({
       normalized_name: keepMatch ? (existing.normalized_name || '') : normalizedName || '',
       tz_shift_policy: tzShiftPolicy,
     };
-    const wantCount = input && input.inventory_count !== undefined && input.inventory_count !== null
+    if (ema) updated.ema = ema;
+    else delete updated.ema;
+    const wantCount =input && input.inventory_count !== undefined && input.inventory_count !== null
       ? Number(input.inventory_count) : null;
     const wasTracked = existing.inventory_count !== null && existing.inventory_count !== undefined;
     const startTracking = wantCount !== null && !wasTracked;

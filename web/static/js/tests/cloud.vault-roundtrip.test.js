@@ -165,6 +165,25 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(() => vaultToRecords(bad, { now: NOW })).toThrow(/Corrupt backup/);
   });
 
+  // bd med-3u28.10: the saved EU register reference rides the medication row
+  // as is; a malformed one imports untouched (readers ignore it, never throw).
+  it('carries a saved EU register reference byte-equal; a malformed one imports untouched', () => {
+    const ema = {
+      for_name: 'Lisinopril', substances: 'Lisinopril Dihydrate', revision: 'EMA/518502/2018, Rev.90',
+      data_date: '09/10/2026', sha256: 'e4f0c27b05b1d893e055038fff70886a5aadc9434c54fd5a0a93ae98cfe4ad92',
+    };
+    const withEma = JSON.parse(JSON.stringify(fixture));
+    withEma.data.medications.items[0].ema = ema;
+    const back = recordsToVault(vaultToRecords(withEma, { now: NOW }), { now: NOW });
+    expect(JSON.stringify(back.data.medications)).toBe(JSON.stringify(withEma.data.medications));
+
+    const bad = JSON.parse(JSON.stringify(fixture));
+    bad.data.medications.items[0].ema = { for_name: 'Lisinopril', substances: 5 };
+    const med = vaultToRecords(bad, { now: NOW }).find((r) => r.recordType === 'medication');
+    expect(med.ema).toEqual({ for_name: 'Lisinopril', substances: 5 });
+    expect('ema' in fixture.data.medications.items[0]).toBe(false); // golden fixture untouched
+  });
+
   // bd med-ta2n.4: a restored backup remembers its last backup and dismissals;
   // a file without the block leaves this device's state alone.
   it('carries the W4 protection state; an older file imports none and keeps the destination record', () => {

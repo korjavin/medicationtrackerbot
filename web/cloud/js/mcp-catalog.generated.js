@@ -1309,7 +1309,7 @@ export const CATALOG = [
     "path": "/api/medications",
     "risk": "read",
     "description": "List the user's medications. By default returns only active medications; pass archived=true for the full set. Use this to find an existing medication's id before update/delete/restock.",
-    "response_summary": "JSON array of Medication rows with id, name, dosage, schedule, archived, supplement, start_date, end_date, inventory_count, rxcui, normalized_name.",
+    "response_summary": "JSON array of Medication rows with id, name, dosage, schedule, archived, supplement, start_date, end_date, inventory_count, rxcui, normalized_name, and optional read-only ema (a saved EU register reference {for_name, substances, revision, data_date, sha256}; dated, not a verification; meaningful only while for_name equals name).",
     "params_schema": {
       "type": "object",
       "properties": {

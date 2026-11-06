@@ -7,9 +7,11 @@ steps:
   - Pick EU register in "Check names in"
   - Add a medication named Candecor
   - Tap the "EU · Candesartan Cilexetil" chip
-  - Name a second medication Voltaren and tap its chip
+  - Save Candecor
+  - Name a second medication Voltaren and tap its chip; tap "Use this" on one card, then Save
   - Go offline, reopen the app and open Candecor again
   - Pick US register again and open Candecor
+  - Rename Candecor and Save
 invariants:
   - The first check downloads the register once with a progress meter; Save works meanwhile
   - The sheet shows Oral Use with Germany, Slovenia, and the dated EMA source
@@ -18,8 +20,13 @@ invariants:
   - With EU picked no RxNav request is made; a medication's saved Rx match stays while its name is unchanged
   - Back on US register the Rx chip path runs as before and the EU register is not fetched
   - With an account the choice syncs: another device of the account shows the same register after a pull, and its next check follows it without a reload
+  - Saving Candecor (one entry) stores the match with the medication, no extra step; the Meds list row shows "EU Candesartan Cilexetil", also offline
+  - For Voltaren "Use this" on a card closes the sheet, the chip names it, the sheet then says "Picked" on it; Save keeps that pick
+  - Reopened offline, the editor shows the saved match ("EU register · saved <date>", "EMA Article 57 list, revision <n>") from the record
+  - Renaming the medication clears the saved match; switching back to US register keeps it
+  - Save never waits for the register: still loading, failed, several unpicked or no match all save the medication without a match
 covered_by:
-  web: manual  # partial: web/static/js/tests/meds.modal.test.js (Candecor and Voltaren chips and sheets, first-download progress, Save while loading, the US path), web/static/js/tests/cloud.shim-contract.meds.test.js (real router, loader and asset: no RxNav request, kept Rx match, US switch-back loads nothing, a settings record put in the store applies on the next check), web/cloud/js/tests/ema.test.js (one download, cache-first reopen); missing: the account choice written on one device reaching another through a real sync pull and its Settings (med-sz4k.2)
+  web: manual  # partial: web/static/js/tests/meds.modal.test.js (Candecor and Voltaren chips and sheets, first-download progress, Save while loading, the US path), web/static/js/tests/cloud.shim-contract.meds.test.js (real router, loader and asset: no RxNav request, kept Rx match, US switch-back loads nothing, a settings record put in the store applies on the next check; "saved EU register match": one entry saved on Save, Use this → Picked → Save, list "EU …" row, offline reopen chip from the record, rename clears, US keeps, never blocking), web/cloud/js/tests/ema.test.js (one download, cache-first reopen); missing: the account choice written on one device reaching another through a real sync pull and its Settings (med-sz4k.2)
   android: manual  # partial: android/qa/scenarios/eu-register.mjs (local choice/cache/relaunch, Candecor countries/route/source, Voltaren cards, observed name/RxNav egress guard); no actual offline check, US switch, first-download Save/progress, unchanged Rx match or account-choice sync
   ios: manual  # partial: ios/UITests/FlowQAEURegisterTests.swift (local mode: US checks nothing, Settings pick survives a relaunch, Candecor chip + sheet, cache-first relaunch); not Voltaren, offline or the account-mode US path
-source: [med-3u28.2, med-3u28.6]
+source: [med-3u28.2, med-3u28.6, med-3u28.10]
