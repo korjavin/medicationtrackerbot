@@ -52,8 +52,9 @@ export default async function localVisual(ctx) {
         writeFileSync(join(dir, `${scene.name}.json`), json);
         const rep = JSON.parse(json);
         s.ok = rep.ok; s.failed = rep.failed;
-        // As iOS: only lost ready content fails the scene; the probes are findings for med-y5xx.9.
+        // Lost ready content and out-of-view controls fail; other probes remain findings for med-y5xx.9.
         if (!s.error && rep.failed?.includes('ready')) s.error = `ready content gone at the shot: ${rep.probes?.readyLost}`;
+        if (!s.error && rep.failed?.includes('inView')) s.error = `inView: ${JSON.stringify(rep.probes?.inView)}`;
       }
       if (!s.error) break;
       if (attempt === 1) s.firstError = s.error; // a flake that passed on retry still shows

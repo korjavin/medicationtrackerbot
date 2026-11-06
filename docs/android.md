@@ -732,7 +732,7 @@ stays the acceptance device.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
-# Also: core-local (in all); offline-account, degraded-boot, update-banner (standalone, one invite, no retry).
+# Also: core-local (in all); offline-account, degraded-boot, update-banner, eu-register (standalone, one invite, no retry).
 # B3: file-backup and local-lock (invite-free, in all); health-connect stays standalone.
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
@@ -926,8 +926,8 @@ the same way.
   iOS's and skipped. Artifact `visual/android/<scene>.png` (full device) +
   `visual/android/<scene>.json` (the ready node's report: probes, `failed`). Dark,
   font scale and landscape are the dispatch inputs, applied to every scene.
-  As on iOS only lost ready content fails a scene (one retry each, from
-  a fresh `pm clear`; `firstError` keeps attempt 1's failure); the probes are
+  Lost ready content and an `inView` failure fail a scene (one retry each, from
+  a fresh `pm clear`; `firstError` keeps attempt 1's failure); other probes are
   findings. First full run 39257278592: every scene shot, all passing on
   retry; the Settings-page scenes lost their page on a seeded cold start
   (bd med-nt9p.39: WebView landed the app's own `history.back()` 3-4 s late

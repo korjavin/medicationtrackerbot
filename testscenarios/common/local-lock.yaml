@@ -1,6 +1,6 @@
 id: local-lock
 title: The local lock engages on background and unlocks with the device credential
-platforms: [web, android, ios]
+platforms: [android, ios]
 preconditions:
   - Phone app in local mode with the app lock on (an account has its own passkey unlock)
 steps:
@@ -12,6 +12,5 @@ invariants:
   - The device credential unlocks it
   - A failed or cancelled unlock stays locked, with no prompt loop; Unlock tries again
 covered_by:
-  web: manual  # n/a on web: the app lock exists only in the phone shells' local mode (see preconditions); nothing to check in a browser
   android: android/qa/scenarios/local-lock.mjs#localLock  # real system PIN/background/cancel/wrong/retry/unlock; authenticated disable and verified secure=false/lock=false cleanup; secure credential captures are black, system package/native state asserted and field resource recorded
   ios: ios/UITests/FlowQALockTests.swift#testLocalLock

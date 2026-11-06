@@ -92,6 +92,10 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         const { window } = env;
         window.history.replaceState({}, '', `/?qa=${scene}`);
         window.eval(DRIVER_SRC);
+        // The domain (apishim, imported in Node's realm) reads Node's Date, not
+        // the page's: share the driver's pinned clock (and a clockAdvance) so
+        // dose states don't follow the real wall clock (med-zavo).
+        vi.stubGlobal('Date', window.Date);
         await window.__wgQA.done;
         const node = window.document.getElementById('wg-qa-ready');
         return node && JSON.parse(node.getAttribute('aria-label'));
