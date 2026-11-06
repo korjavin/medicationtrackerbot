@@ -32,6 +32,7 @@ udid="$(xcrun simctl list devices available -j | jq -r --arg rt "$runtime" --arg
 [ -n "$udid" ] || udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
 dev="${t// /-}"
 start=$SECONDS
+booted_at="$(date '+%Y-%m-%d %H:%M:%S')"
 xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
 echo "$dev booted in $((SECONDS - start))s"
 # Booted is not settled: the first XCUITest launch right after a boot timed
@@ -50,6 +51,21 @@ while [ "$fast" -lt 2 ] && [ $((SECONDS - start)) -lt 180 ]; do
   sleep 2
 done
 echo "$dev settled in $((SECONDS - start))s"
+# Settled is not Health-ready: healthd finishes its profile setup ~3 min
+# after it spawns ("reported daemon ready"), and a requestAuthorization sent
+# before that never gets an answer, even after it is ready — no sheet, the
+# Health tests stall "pending" (bd med-8f4s.18, runs 42142522395 and the
+# first .18 diagnostic; the one run whose request came after it passed the
+# sheet). Logs since this boot only; capped at 5 min, then the flows run
+# anyway and the Health tests fail on their own.
+start=$SECONDS
+until xcrun simctl spawn "$udid" log show --start "$booted_at" --style compact \
+    --predicate 'process == "healthd" AND eventMessage CONTAINS "reported daemon ready"' 2>/dev/null \
+    | grep -q 'reported daemon ready'; do
+  [ $((SECONDS - start)) -lt 300 ] || { echo "::warning::$dev: healthd not ready after 300s"; break; }
+  sleep 5
+done
+echo "$dev healthd ready check took $((SECONDS - start))s"
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
 xcrun simctl ui "$udid" appearance dark
 echo "$dev=$udid" >> "$devices"
