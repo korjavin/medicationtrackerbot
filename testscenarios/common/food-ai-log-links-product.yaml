@@ -22,6 +22,6 @@ invariants:
   - An item with questionable macros shows one quiet hint line in the review; Log stays enabled
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-ai.test.js
-  android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-ai.test.js and food.ai-mode.test.js (stubbed-provider reconciliation/review); no native photo flow, Telegram duplicate delivery or two-device convergence assertions
+  android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-ai.test.js and web/static/js/tests/food.ai-mode.test.js (stubbed-provider reconciliation/review); no native photo flow, Telegram duplicate delivery or two-device convergence assertions
   ios: manual
 source: [med-5jq.4, med-5jq.9]
