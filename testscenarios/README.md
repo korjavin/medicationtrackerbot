@@ -48,7 +48,8 @@ The Android harness [runbook](../docs/android.md) describes `core-local` and
 standalone account `update-banner` uses real stamped A/B binaries and asserts the worker/version
 swap; `degraded-boot` asserts a one-shot required-module failure and one offline recovery navigation.
 Its failed-read title/body assertions use the shared med-31gk fix. Store-installed updates still
-need a real device; native event delivery is distinguished from an explicit DOM check stimulus.
+need a real device. Native Home/resume visibility delivery remains a separate non-gating gap
+(med-jyxy); the account cold-open update invariant does not depend on an explicit DOM stimulus.
 
 ## Where automation lives
 

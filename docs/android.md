@@ -774,6 +774,10 @@ after Home/return alone; that does not establish the cause. Native/explicit even
 visibility and focus are recorded separately. This proves the real handler and update path,
 not automatic delivery of the native resume signal. Local mode is bundled and outside this account update flow; Play-installed
 updates remain a manual real-device check. This does not implement or deploy local-mode OTA.
+The three native Home dwells in run42161115363 kept the document visible throughout, despite
+logcat recording the launcher and return actions. This separate foreground-delivery gap is
+med-jyxy (Android, needs-go, non-gating under the child's contract); the account cold-open and
+Reload invariants above are asserted independently.
 The dismiss-during-install race stays covered by the owning update-check logic suite; the native
 run dismisses after B reaches waiting and does not claim that race as device evidence.
 
