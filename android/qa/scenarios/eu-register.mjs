@@ -9,6 +9,10 @@
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { claimAccount } from './smoke.mjs';
+
+// The account half spends the runner's one invite; dispatch this scenario alone.
+export const retry = false;
 
 const ASSET = '/static/data/ema-article57-rev90-v1.json';
 
@@ -194,6 +198,56 @@ export default async function euRegister(ctx) {
     counting = 'first';
   });
 
+  await ctx.step('cold register: progress is visible and Save works while bytes are loading', async () => {
+    await page.evaluate(async () => {
+      for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-')) await caches.delete(n);
+    });
+    await freshPage();
+    counting = 'progress';
+    // Hold the real bundled response after its first bytes: the real loader, progress and
+    // Save handler still run. This makes their overlap observable on fast emulators.
+    await page.evaluate(() => {
+      const original = window.fetch;
+      let release;
+      window.__qaReleaseEma = () => release?.();
+      const gate = new Promise((resolve) => { release = resolve; });
+      window.fetch = async (...args) => {
+        const response = await original(...args);
+        if (!String(args[0]).includes('/static/data/ema-article57-')) return response;
+        const reader = response.body.getReader();
+        let first = true;
+        const stream = new ReadableStream({ async pull(controller) {
+          if (!first) await gate;
+          const part = await reader.read();
+          if (part.done) controller.close(); else controller.enqueue(part.value);
+          first = false;
+        }, cancel() { return reader.cancel(); } });
+        return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
+      };
+      window.__qaRestoreFetch = () => { window.fetch = original; };
+    });
+    try {
+      await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+      await page.locator('#med-name').fill('QA loading medication');
+      await page.locator('#med-dosage').fill('5mg');
+      await page.locator('#med-name').dispatchEvent('change');
+      await page.locator('#med-eu-slot .wg-meter').waitFor({ timeout: 30_000 });
+      r.progressText = await page.locator('#med-eu-slot').textContent();
+      await ctx.shot('register-progress');
+      await page.locator('[data-schedule-type="as_needed"]').click();
+      await page.locator('#med-modal-save-btn').click();
+      await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 15_000 });
+      r.savedWhileLoading = (await page.evaluate(() => window.apiCall('/api/medications'))).some((m) => m.name === 'QA loading medication');
+      if (!r.savedWhileLoading || r.assetRequests.progress !== 1) throw new Error('Save or single real asset load failed during progress');
+    } finally {
+      await page.evaluate(() => { window.__qaReleaseEma(); window.__qaRestoreFetch(); });
+    }
+    await page.waitForFunction(async (asset) => {
+      for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-') && await (await caches.open(n)).match(asset)) return true;
+      return false;
+    }, ASSET, { timeout: 60_000 });
+  });
+
   await ctx.step('first EU check on the emulator (bundled asset, parse, index, cache write)', async () => {
     r.cacheBeforeNames = await page.evaluate(async () => {
       for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-')) await caches.delete(n);
@@ -293,6 +347,42 @@ export default async function euRegister(ctx) {
         throw new Error(`missing dated EMA source: ${source}`);
       }
     });
+    await page.locator('#med-dosage').fill('8mg');
+    await page.locator('[data-schedule-type="as_needed"]').click();
+    await page.locator('#med-modal-save-btn').click();
+    await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 15_000 });
+    const med = (await page.evaluate(() => window.apiCall('/api/medications'))).find((m) => m.name === 'Candecor');
+    if (!med) throw new Error('Candecor was not saved');
+    r.candecorId = med.id;
+  });
+  await ctx.step('cached register offline: cold reopen keeps the chip and saved match', async () => {
+    const wifi = (await shell('settings get global wifi_on')).trim();
+    const data = (await shell('settings get global mobile_data')).trim();
+    try {
+      await shell('svc wifi disable');
+      await shell('svc data disable');
+      page = await ctx.launchLocal(undefined, { extra: false });
+      watch(page);
+      await page.waitForFunction(() => !navigator.onLine, null, { timeout: 30_000 });
+      r.offlineRadios = { wifi: (await shell('settings get global wifi_on')).trim(), data: (await shell('settings get global mobile_data')).trim() };
+      if (r.offlineRadios.wifi !== '0' || r.offlineRadios.data !== '0') throw new Error('radios not disabled');
+      await page.evaluate(() => window.switchTab('meds'));
+      await page.locator('.med-tab[data-tab="schedule"]').click();
+      const row = page.locator(`[data-med-id="${r.candecorId}"]`).first();
+      await row.waitFor({ timeout: 20_000 });
+      r.offlineRow = await row.textContent();
+      await row.click();
+      await chipIs('EU · Candesartan Cilexetil');
+      await page.locator('#med-eu-saved').waitFor({ timeout: 30_000 });
+      r.offlineSaved = await page.locator('#med-eu-saved').textContent();
+      if (!/Saved EU entry · Rev\.\d+, data of \d{2}\.\d{2}\.\d{4}/.test(r.offlineSaved)) throw new Error(`saved entry missing date: ${r.offlineSaved}`);
+      await ctx.stableShot('offline-saved-eu');
+      await page.evaluate(() => window.closeModal());
+    } finally {
+      await shell(`svc wifi ${wifi === '0' ? 'disable' : 'enable'}`);
+      await shell(`svc data ${data === '0' ? 'disable' : 'enable'}`);
+    }
+    await page.waitForFunction(() => navigator.onLine, null, { timeout: 30_000 });
   });
   await ctx.step('ER5/ER8 several entries: three substance cards', async () => {
     await editor('Voltaren', 'er5-several');
@@ -318,6 +408,97 @@ export default async function euRegister(ctx) {
     await ctx.stableShot('er2-choice');
     await page.locator('.mt-confirm-modal__cancel').click();
     if (r.settingsValue !== 'EU register') throw new Error(`row value: ${r.settingsValue}`);
+  });
+  await ctx.step('switch back to US: Rx path runs without fetching EU register', async () => {
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'US register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'US register');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
+    counting = 'us';
+    await page.evaluate(() => {
+      const original = window.offlineAwareApiCall || window.apiCallDirect;
+      window.__qaRegisterCalls = [];
+      window.offlineAwareApiCall = (...args) => { window.__qaRegisterCalls.push(String(args[0])); return original(...args); };
+    });
+    await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+    await page.locator('#med-name').fill('US test');
+    await page.locator('#med-name').dispatchEvent('change');
+    await page.waitForFunction(() => window.__qaRegisterCalls.some((u) => u.startsWith('/api/medications/rx-check?')), null, { timeout: 30_000 });
+    await ctx.shot('us-register');
+    r.usCalls = await page.evaluate(() => window.__qaRegisterCalls);
+    if (r.assetRequests.us) throw new Error('US switch fetched the EU asset');
+    await page.evaluate(() => window.closeModal());
+  });
+  page = await ctx.step('account: claim the disposable invite', () => ctx.openClaim({ softAuthn: true }));
+  await claimAccount(ctx, page);
+  watch(page);
+  await ctx.step('account: simulated peer writes EU setting to cloud; native pull applies it without reload', async () => {
+    await page.evaluate(() => window.switchTab('settings'));
+    await page.waitForFunction(() => window.SettingsView.openSettingsPage('features'), null, { timeout: 15_000 });
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'US register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'US register');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
+    await page.evaluate(async () => {
+      const s = await import('/js/sync.js');
+      if (!await s.flushConfirmed(window.MedTrackerCloud.ctx)) throw new Error('initial settings did not sync');
+    });
+    r.peerWrite = await page.evaluate(async () => {
+      const sync = await import('/js/sync.js');
+      const crypto = await import('/js/crypto.js');
+      const ctx = window.MedTrackerCloud.ctx;
+      const port = sync.recordsPort(ctx);
+      const current = (await port.list('settings')).find((x) => x.recordId === 'settings');
+      if (!current || current.med_register !== 'us') throw new Error('US setting not established');
+      const { seq, pending } = await port.horizonBasis();
+      if (pending || !Number.isInteger(seq)) throw new Error('peer fixture requires a synced cursor');
+      const rawFetch = window.fetch.bind(window);
+      // Suppress this device's automatic SSE-driven pull until after the peer write;
+      // a failure response leaves no blocked request that could race the gesture.
+      window.__qaBlockPeerPull = true;
+      window.__qaNativePullsBlocked = 0;
+      window.fetch = (...args) => {
+        if (window.__qaBlockPeerPull && String(args[0]).startsWith('/api/sync/ops?')) {
+          window.__qaNativePullsBlocked++;
+          return Promise.resolve(new Response('', { status: 503 }));
+        }
+        return rawFetch(...args);
+      };
+      const { recordType, ...body } = current;
+      const next = { ...body, med_register: 'eu', clientTs: Math.max(Date.now(), body.clientTs + 1) };
+      const enc = await crypto.encryptRecord({ kData: ctx.kData, accountId: ctx.accountId,
+        recordType: 'settings', recordId: 'settings', seq: seq + 1,
+        plaintext: new TextEncoder().encode(JSON.stringify(next)) });
+      const response = await rawFetch('/api/sync/ops', { method: 'POST', headers: sync.WRITE_HEADERS,
+        body: JSON.stringify({ ops: [{ record_type_tag: 'settings:settings', nonce: crypto.toBase64(enc.nonce), ct: crypto.toBase64(enc.ct) }] }) });
+      if (!response.ok) throw new Error(`peer op HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.assigned?.[0] !== seq + 1) throw new Error('peer sequence raced another writer');
+      return { predictedSeq: seq + 1, assigned: result.assigned[0] };
+    });
+    await sleep(2000);
+    r.beforePull = await page.evaluate(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register);
+    if (r.beforePull !== 'us') throw new Error('peer setting applied before the native pull');
+    await page.evaluate(() => { window.switchTab('today'); window.scrollTo(0, 0); window.__qaBlockPeerPull = false; window.__qaPullSeen = false; new MutationObserver(() => { if (document.querySelector('.wg-ptr--busy')) window.__qaPullSeen = true; }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); });
+    const { bounds } = await ctx.device.info({ clazz: 'android.webkit.WebView' });
+    const x = Math.round(bounds.x + bounds.width / 2);
+    const y = Math.round(bounds.y + bounds.height * 0.3);
+    await shell(`input motionevent DOWN ${x} ${y}`);
+    for (let i = 1; i <= 10; i++) await shell(`input motionevent MOVE ${x} ${y + i * 50}`);
+    await shell(`input motionevent UP ${x} ${y + 500}`);
+    await page.waitForFunction(() => window.__qaPullSeen, null, { timeout: 20_000 });
+    await page.waitForFunction(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register === 'eu', null, { timeout: 30_000 });
+    await page.evaluate(() => window.switchTab('settings'));
+    await page.waitForFunction(() => window.SettingsView.openSettingsPage('features'), null, { timeout: 15_000 });
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register', null, { timeout: 15_000 });
+    await ctx.stableShot('account-pulled-eu');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
+    await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+    await page.locator('#med-name').fill('Candecor');
+    await page.locator('#med-name').dispatchEvent('change');
+    await chipIs('EU · Candesartan Cilexetil');
+    await ctx.stableShot('account-eu-chip');
+    r.accountPulledEU = true;
   });
   r.completedAssetCancels = r.failedAssetRequests.filter(completedCancel);
   r.failedAppRequests = failedAppRequests();
