@@ -18,9 +18,10 @@ const snapshot = async (page) => JSON.parse(await page.evaluate(async () => {
 // Compare every data field, including all IDs/FKs/settings and unknown supported blocks,
 // except this one documented per-export stamp. Envelope exported_at is also a clock stamp.
 function content(vault) {
-  const data = structuredClone(vault.data);
-  if (data.protection) data.protection.last_backup_at = '<export time>';
-  return { format: vault.format, version: vault.version, data };
+  const canonical = structuredClone(vault);
+  delete canonical.exported_at;
+  if (canonical.data.protection) canonical.data.protection.last_backup_at = '<export time>';
+  return canonical;
 }
 function equal(actual, expected, where) {
   if (isDeepStrictEqual(content(actual), content(expected))) return;
