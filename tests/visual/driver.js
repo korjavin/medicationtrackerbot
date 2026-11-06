@@ -779,6 +779,25 @@
                 if (++calls === 5) setTimeout(() => { hold = true; }, 0);
                 return calls <= 4 ? Promise.resolve(true) : Promise.reject(new Error('busy'));
             };
+            // The batched form, write({ entries }) (web/static/js/native/health.js
+            // batch contract, "write({ entries: [body, ...] })"; consumed by
+            // health-import.js writeEntries): one result per entry in request
+            // order, true | "<that entry's error>"; a store failure rejects the
+            // whole call. A scalar reply would read as zero results.
+            const write = (args) => {
+                if (!args || !Array.isArray(args.entries)) return answer();
+                if (mode === 'paused') return Promise.reject(new Error('busy'));
+                if (mode === 'running') {
+                    // The first batch lands 4 entries and leaves the rest's
+                    // results missing (a shorter array: kept, still queued, so
+                    // the job stays mid-copy; an error string would end it);
+                    // every later call never answers.
+                    if (hold) return new Promise(() => {});
+                    setTimeout(() => { hold = true; }, 0);
+                    return Promise.resolve(args.entries.slice(0, 4).map(() => true));
+                }
+                return Promise.resolve(args.entries.map((e) => (mode === 'refused' && e.type === 'weight' ? 'denied' : true)));
+            };
             const health = {
                 label: 'Health Connect', accessHint: 'Health Connect → App permissions',
                 isSupported: () => true, canWrite: async () => true, requestAuthorization: async () => true,
@@ -789,7 +808,7 @@
                     readableFrom: mode === 'cut' ? Date.now() - 30 * 86400e3 : 0,
                 }),
                 query: async () => ({ samples: [], anchor: 'qa', returned: 0, more: false }),
-                write: answer, remove: answer,
+                write, remove: answer,
             };
             const { startHealthImport } = await import('/js/health-import.js');
             const { localRecordsPort } = await import('/js/sync.js');
