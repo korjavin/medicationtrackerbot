@@ -276,7 +276,7 @@ export default async function localToCloudSeamless(ctx) {
     if ((await stashFiles()) !== 'vault.json') throw new Error('cancel lost the move stash');
   });
 
-  await ctx.step('Replace requires the exact typed confirmation; cancelling keeps the account', async () => {
+  await ctx.step('Replace requires typed confirmation; cancelling keeps the account', async () => {
     await page.reload({ waitUntil: 'load', timeout: 60_000 });
     const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
     await choice.waitFor({ state: 'visible', timeout: WAIT });
