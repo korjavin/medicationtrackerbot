@@ -133,9 +133,9 @@ export default async function coreLocal(ctx) {
     const med = scheduleMeds[taken];
     if (taken) await ctx.step('schedule: take the 08:00 row through Timeline', async () => {
       const rows = await timeline(med);
-      await rows.filter({ hasText: '08:00' }).getByRole('button', { name: /Take|Log/ }).first().click();
-      await page.click('#med-confirm-action-btn');
-      await page.locator('#med-confirm-modal').waitFor({ state: 'hidden' });
+      // Timeline's row Take acts immediately (_tlAct); unlike Today's Take it has no sheet.
+      await rows.filter({ hasText: '08:00' }).getByRole('button', { name: 'Take', exact: true }).first().click();
+      await page.locator(`#med-timeline-list [data-med-ids~="${med.id}"][data-state="taken"]`).first().waitFor();
     });
     await ctx.step(`schedule ${taken}: editor changes to 09:00/21:00; Timeline keeps correct slots`, async () => {
       await editor(name, ['09:00', '21:00'], med.id);
