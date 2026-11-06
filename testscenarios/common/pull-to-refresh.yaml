@@ -15,5 +15,5 @@ invariants:
 source: [med-duj9]
 covered_by:
   web: manual  # partial: web/static/js/tests/bootstrap.today-default.test.js (the pull gesture), web/static/js/tests/offline-ui.test.js (local-mode banner hidden; not the chip)
-  android: manual  # partial: android/qa/scenarios/pull-refresh.mjs (sync request/pill, Health-only local pull, real offline/online banner and local network-status absence); no second-device entry/new-row toast or no-new-entry toast assertions
+  android: manual  # partial: android/qa/scenarios/pull-refresh.mjs (sync request/pill, Health-only local pull, real offline/online banner and local banner absence); no network-chip, second-device entry/new-row toast or no-new-entry toast assertions
   ios: manual

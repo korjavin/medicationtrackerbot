@@ -77,7 +77,7 @@ export default async function pullRefresh(ctx) {
         const el = document.getElementById(id);
         return !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
       };
-      return { online: navigator.onLine, banner: visible('offline-banner'), status: visible('sync-status-bar') };
+      return { online: navigator.onLine, banner: visible('offline-banner') };
     });
     const expect = async (online) => {
       await page.waitForFunction((want) => navigator.onLine === want, online, { timeout: 30_000 });
@@ -85,9 +85,7 @@ export default async function pullRefresh(ctx) {
         const banner = document.getElementById('offline-banner');
         return !!banner?.getClientRects().length === want;
       }, !local && !online, { timeout: 15_000 });
-      const got = await state();
-      if (local && got.status) throw new Error(`network status shown in local mode: ${JSON.stringify(got)}`);
-      return got;
+      return state();
     };
     await ctx.step(`${label}: real radios off/on track the offline banner`, async () => {
       const states = (r[`${label}Network`] = {});

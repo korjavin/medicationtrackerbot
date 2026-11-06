@@ -100,6 +100,8 @@ export default async function backStack(ctx) {
     await page.goto(`${ctx.LOCAL_ORIGIN}/`, { waitUntil: 'load', timeout: 60_000 });
     await ctx.waitLocalReady(page);
     await go('food');
+    // Chromium batches DOM-storage disk commits. Let the real navigation persist before SIGKILL.
+    await sleep(6000);
     page = await ctx.launchLocal(undefined, { extra: false });
     await page.waitForFunction(() => window.AppStore?.get('currentTab') === 'food'
       && !!document.getElementById('food-view')?.offsetParent && window.AppBack?.canStep(), null, { timeout: 30_000 });

@@ -91,7 +91,7 @@ export default async function euRegister(ctx) {
       let payload = `${url}\n${q.postData() || ''}`;
       try { payload = decodeURIComponent(payload); } catch { /* raw payload is still checked */ }
       if (/candecor|voltaren|duogestan|candekor/i.test(payload)) r.nameEgress.push({ method: q.method(), url });
-      if (/rxnav\.nlm\.nih\.gov/i.test(url)) r.rxNavRequests.push(url);
+      if (/rxnav\.nlm\.nih\.gov|\/api\/rxnav\//i.test(url)) r.rxNavRequests.push(url);
       if (isAsset(q.url())) {
         phases.set(q, counting);
         r.assetRequests[counting] = (r.assetRequests[counting] || 0) + 1;
