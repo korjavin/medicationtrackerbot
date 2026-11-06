@@ -154,9 +154,6 @@ html, body {
     --color-toast-success-solid: #059669;
     --color-toast-error-solid: #dc2626;
 
-    /* Data refresh banner */
-    --color-refresh-btn: #b45309;
-
     /* UI / borders */
     --color-border-divider: #ddd;
     --color-toggle-inactive: #ccc;
@@ -1369,38 +1366,6 @@ svg.chart-svg {
     position: relative;
 }
 
-.data-refresh-banner {
-    position: fixed;
-    left: var(--space-lg);
-    right: var(--space-lg);
-    bottom: 90px;
-    z-index: 1200;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-md);
-    padding: var(--space-md) var(--space-md);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-status-pending-border);
-    background: var(--color-status-pending-bg-start);
-    color: var(--color-status-pending-text);
-    box-shadow: var(--shadow-lg);
-}
-
-.data-refresh-banner.hidden {
-    display: none;
-}
-
-.data-refresh-banner button {
-    border: none;
-    border-radius: var(--radius-pill);
-    background: var(--color-refresh-btn);
-    color: white;
-    font-weight: var(--font-weight-bold);
-    padding: var(--space-sm) var(--space-lg);
-    cursor: pointer;
-}
-
 /* Dark mode token overrides */
 @media (prefers-color-scheme: dark) {
     :root {
@@ -1416,7 +1381,6 @@ svg.chart-svg {
         --color-status-pending-bg-end: #78350f;
         --color-status-pending-text: #fde68a;
         --color-status-pending-border: #b45309;
-        --color-refresh-btn: #d97706;
     }
 }
 
