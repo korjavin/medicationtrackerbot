@@ -1,10 +1,13 @@
-// EU register check on the real shell in local mode (bd med-3u28.2/.3): the measurement
-// gate, Settings choice, cache persistence across a cold relaunch and editor/sheet screens.
+// EU register on the real shell (bd med-3u28.2/.3, med-sz4k.4.4.3): local Settings,
+// real bundled-response progress/Save, cached offline saved match, US route, then an
+// encrypted peer op and native account pull. Standalone: this consumes the invite.
 // results.euRegister = {
 //   phases: fetch+decode, JSON.parse, index build of the bundled asset (ms), measured apart;
 //   first: the app path's first EU check (ms to ready, peak heap, long tasks, worst timer lag);
 //   second: the cold relaunch (cache-first: no asset request);
-//   heapMB: { before, afterFirst, retained } after a forced GC (CDP), the register held in memory }.
+//   heapMB: { before, afterFirst, retained } after a forced GC (CDP), the register held in memory;
+//   progress*, savedWhileLoading, offline*, usCalls, peerWrite, beforePull,
+//   accountObservation and accountPulledEU record the additional flows }.
 // Numbers only: the gate's verdict is a review call (worker / smaller projection is a follow-up bead).
 
 import { createHash } from 'node:crypto';
@@ -147,6 +150,20 @@ export default async function euRegister(ctx) {
     await ctx.waitLocalReady(page);
     await sleep(3000); // boot work settles before measuring
   };
+  // Playwright's waitForFunction does not poll an async predicate: a Promise is truthy.
+  // Poll real cache/IDB reads from Node until they resolve to true, with a bounded timeout.
+  const waitForAsync = async (label, check, timeout = 60_000) => {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      if (await check()) return;
+      await sleep(250);
+    }
+    throw new Error(`${label} timed out`);
+  };
+  const hasCachedAsset = () => page.evaluate(async (asset) => {
+    for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-') && await (await caches.open(n)).match(asset)) return true;
+    return false;
+  }, ASSET);
   const openChoice = async () => {
     // A plain relaunch can restore Settings, where its own navigation button is hidden.
     const features = page.locator('[data-settings-open="features"]:visible');
@@ -235,7 +252,9 @@ export default async function euRegister(ctx) {
       await page.locator('#med-name').dispatchEvent('change');
       await page.locator('#med-eu-slot .wg-meter').waitFor({ timeout: 30_000 });
       r.progressText = await page.locator('#med-eu-slot').textContent();
-      await ctx.shot('register-progress');
+      await ctx.stableShot('register-progress', { cap: 4 });
+      r.progressAfterShot = await page.locator('#med-eu-slot').textContent();
+      if (!r.progressAfterShot.includes('Loading the EU register')) throw new Error('register stopped loading before Save');
       await page.locator('[data-schedule-type="as_needed"]').click();
       await page.locator('#med-modal-save-btn').click();
       await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 15_000 });
@@ -244,10 +263,7 @@ export default async function euRegister(ctx) {
     } finally {
       await page.evaluate(() => { window.__qaReleaseEma(); window.__qaRestoreFetch(); });
     }
-    await page.waitForFunction(async (asset) => {
-      for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-') && await (await caches.open(n)).match(asset)) return true;
-      return false;
-    }, ASSET, { timeout: 60_000 });
+    await waitForAsync('progress cache', hasCachedAsset);
     r.progressCache = await page.evaluate(async (asset) => {
       for (const n of await caches.keys()) {
         if (!n.startsWith('medtracker-ema-')) continue;
@@ -520,9 +536,10 @@ export default async function euRegister(ctx) {
     await shell(`input motionevent DOWN ${x} ${y}`);
     for (let i = 1; i <= 10; i++) await shell(`input motionevent MOVE ${x} ${y + i * 50}`);
     await page.evaluate(() => { window.__qaBlockPeerPull = false; });
+    if (await page.evaluate(() => window.__qaNativePullsAllowed) !== 0) throw new Error('peer pull raced the release gesture');
     await shell(`input motionevent UP ${x} ${y + 500}`);
     await page.waitForFunction(() => window.__qaPullSeen, null, { timeout: 20_000 }).catch(async () => { throw new Error(`native pull not seen: ${JSON.stringify(await page.evaluate(() => ({ scrollY, touch: window.__qaTouch, pill: document.querySelector('.wg-ptr')?.textContent, blocked: window.__qaNativePullsBlocked, allowed: window.__qaNativePullsAllowed })))}`); });
-    await page.waitForFunction(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register === 'eu', null, { timeout: 30_000 });
+    await waitForAsync('pulled EU setting', () => page.evaluate(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register === 'eu'), 30_000);
     await page.evaluate(() => window.switchTab('settings'));
     await page.waitForFunction(() => window.SettingsView.openSettingsPage('features'), null, { timeout: 15_000 });
     await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register', null, { timeout: 15_000 });
@@ -532,10 +549,7 @@ export default async function euRegister(ctx) {
     await page.locator('#med-name').fill('Candecor');
     await page.locator('#med-name').dispatchEvent('change');
     await chipIs('EU · Candesartan Cilexetil');
-    await page.waitForFunction(async (asset) => {
-      for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-') && await (await caches.open(n)).match(asset)) return true;
-      return false;
-    }, ASSET, { timeout: 60_000 });
+    await waitForAsync('account cache', hasCachedAsset);
     r.accountCache = await page.evaluate(async (asset) => {
       for (const n of await caches.keys()) {
         if (!n.startsWith('medtracker-ema-')) continue;
@@ -552,7 +566,7 @@ export default async function euRegister(ctx) {
     await page.locator('#med-dosage').focus();
     await ctx.stableShot('account-eu-chip');
     r.accountObservation = await page.evaluate(() => ({ sameDocument: window.__qaSameDocument, pulls: window.__qaNativePullsAllowed, blocked: window.__qaNativePullsBlocked }));
-    if (r.accountObservation.sameDocument !== 'account-peer-before-pull' || !r.accountObservation.pulls) throw new Error('account did not pull in the same document');
+    if (r.accountObservation.sameDocument !== 'account-peer-before-pull' || r.accountObservation.pulls !== 1) throw new Error('account did not pull exactly once in the same document');
     r.accountPulledEU = true;
   });
   r.completedAssetCancels = r.failedAssetRequests.filter(completedCancel);
