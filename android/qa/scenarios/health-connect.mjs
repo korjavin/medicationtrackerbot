@@ -243,7 +243,7 @@ export default async function healthConnect(ctx) {
       const kg = 130 + Math.floor(Math.random() * 200) / 10;
       const sys = SECOND[0] + 2;
       const before = Number(await shell('date +%s')) * 1000;
-      await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --es request ${request} --ei sys ${sys} --ei dia 101 --ed kg ${kg} --ei sleepDays ${sleepDays}`);
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --es request ${request} --ei sys ${sys} --ei dia 101 --ei grams ${Math.round(kg * 1000)} --ei sleepDays ${sleepDays}`);
       let inserted;
       for (const until = Date.now() + 20_000; Date.now() < until;) {
         const line = (await shell('logcat -d -s qa-health-write:*')).split('\n').findLast((l) => l.includes(`"request":"${request}"`));

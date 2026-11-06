@@ -45,7 +45,7 @@ class QaHealthWrite : Activity() {
         val hr = intent.getIntExtra("hr", 0).toLong()
         val spo2 = intent.getIntExtra("spo2", 0).toDouble()
         val spo2n = intent.getIntExtra("spo2n", 1).coerceAtLeast(1)
-        val kg = intent.getDoubleExtra("kg", 0.0)
+        val kg = intent.getIntExtra("grams", 0) / 1000.0
         val sleepDays = intent.getIntExtra("sleepDays", 0)
         val request = intent.getStringExtra("request").orEmpty()
         val now = Instant.now()
