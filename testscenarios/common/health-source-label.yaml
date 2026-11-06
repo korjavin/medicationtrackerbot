@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/bp.history.test.js  # BP: label on the imported row, none on typed-in ones; weight: weight.history.test.js; sleep: health.sleep.test.js; Mi Band import control gone and a retained Mi Band night keeping its label: health.summary.test.js (med-fi1k); the web renders rows synced from a phone, the import that marks them is web/cloud/js/tests/health-import.test.js
   android: android/qa/scenarios/health-connect.mjs#healthConnect  # SDK BP/weight/sleep labels, BP/weight manual entries and a hand-authored non-Health sleep day row, dedupe, retained Mi Band/control absence; same package, SDK-assigned dataOrigin; real third-party origin remains manual
-  ios: manual
+  ios: manual  # no iOS assertion: no FlowQA test or visual scene renders a Health-imported BP/weight/sleep row's label next to a typed-in one; ios/UITests/HealthDiagnosticTests.swift#testNativeAuthorizationAndQuery runs only on the health_diagnostic dispatch and reads the native HealthKit report, not Vitals
 source: [med-w6gx.32]

@@ -14,5 +14,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/meds.modal.test.js
   android: manual  # core-local explicitly chooses Daily; no native assertions for the blank As-needed default, hidden times or all existing schedule types
-  ios: manual
+  ios: manual  # web/static/js/tests/meds.modal.test.js pins the editor; no iOS run of the blank As-needed editor, the Daily time row or existing schedule types
 source: [med-cb7i]

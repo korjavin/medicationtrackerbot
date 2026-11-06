@@ -19,5 +19,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-products.test.js
   android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-products.test.js (canonical/typo/barcode/meal/percentage/stale-key reconciliation and correction); no explicit earlier-log name/total preservation or both canonical products' use-count assertions
-  ios: manual
+  ios: manual  # partial: web/static/js/tests/cloud.shim-contract.food-products.test.js (canonical/typo/barcode/meal/percentage/stale-key reconciliation and correction); no explicit earlier-log name/total preservation or both canonical products' use-count assertions
 source: [med-5jq.3]

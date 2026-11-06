@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/meds.timeline.test.js
   android: manual  # core-local expands Later today for slot membership only; no native later-on-top ordering, focus-action visibility or folded first-dose label assertions
-  ios: manual
+  ios: manual  # web/static/js/tests/meds.timeline.test.js pins the order; no iOS run of the order, the overdue Take/Skip in view without scrolling (screen geometry) or the folded first-dose label
 source: [Zulip 17050, Zulip 17054, Zulip 17139, Zulip 17140, bd med-5y49]

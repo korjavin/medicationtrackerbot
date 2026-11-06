@@ -16,5 +16,5 @@ invariants:
 covered_by:
   web: web/cloud/js/tests/health-import.test.js
   android: web/cloud/js/tests/health-import.test.js  # data/logic only: union, fuller replacement, healing and tombstones; real Health access is health-import-permissions
-  ios: manual
+  ios: web/cloud/js/tests/health-import.test.js  # data/logic only: union, fuller replacement, healing and tombstones; real Health access is health-import-permissions
 source: [med-y1gh, med-poeu]
